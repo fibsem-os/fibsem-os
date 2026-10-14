@@ -73,14 +73,12 @@ class DriverEntry:
     is named on a ``hardware.devices`` entry, next to a vendor's microscope, and is
     never a manufacturer."""
 
-    config: Mapping[str, Any] = field(default_factory=dict)
-    """The driver's own facts, and the default configuration values for its
-    instruments. ``port`` is the port ``connect_microscope`` connects on (a
-    configuration's ``info.port`` overrides it); without either, the driver is not
-    connected by address at all (Odemis reaches its instrument through its own back
-    end, so it is constructed and nothing more). Column tilts (``ion-column-tilt``,
-    ``electron-column-tilt``) are what ``config.DEFAULT_CONFIGURATION_VALUES`` is
-    built from."""
+    port: Optional[int] = None
+    """The port ``connect_microscope`` connects on (a configuration's ``info.port``
+    overrides it); without either, the driver is not connected by address at all
+    (Odemis reaches its instrument through its own back end, so it is constructed and
+    nothing more). The values a new configuration starts with, such as the column
+    tilts, are the setup's (``DriverSetup.devices``)."""
 
     devices: Mapping[str, "DeviceBuilder"] = field(default_factory=dict)
     """How this driver builds a device, by the device entry's ``type`` (``beam``,
@@ -141,6 +139,17 @@ class BuildContext:
     shared: Dict[str, Any] = field(default_factory=dict)
     """Scratch space for this connect's builders, so the entries of one driver can
     share something, such as one connection per remote address. Key it by driver."""
+
+    cleanups: List[Callable[[], None]] = field(default_factory=list)
+    """What `on_disconnect` was given, in order."""
+
+    def on_disconnect(self, fn: Callable[[], None]) -> None:
+        """Call *fn* when the microscope disconnects, after every device's own
+        ``disconnect``. For what the entries of one driver share, such as one
+        connection per address in `shared`: no one device owns it to close it.
+        Called in reverse order of registration; one that raises is logged and the
+        rest still run."""
+        self.cleanups.append(fn)
 
 
 BuildFn = Callable[["DeviceEntry", BuildContext], "Device"]
@@ -305,7 +314,7 @@ def connect_microscope(system: "SystemSettings") -> "FibsemMicroscope":
     microscope = driver.load()(system)
     port = system.info.port
     if port is None:
-        port = driver.config.get("port")
+        port = driver.port
     if port is not None:
         microscope.connect_to_microscope(ip_address=system.info.ip_address, port=port)
     return microscope
@@ -333,13 +342,6 @@ def driver_setups() -> List[Tuple[str, "DriverSetup"]]:
         for entry in entries
         if entry.setup is not None
     ]
-
-
-def default_configuration_values() -> Dict[str, Dict[str, Any]]:
-    """Each manufacturer's driver config, for the drivers that have any, in
-    ``registered_manufacturers`` order. Imports every built-in driver's module."""
-    entries = [get_driver(m) for m in registered_manufacturers()]
-    return {entry.manufacturer: dict(entry.config) for entry in entries if entry.config}
 
 
 def get_driver_plugin_records() -> Tuple["PluginRecord", ...]:

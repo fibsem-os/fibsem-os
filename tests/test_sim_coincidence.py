@@ -204,7 +204,7 @@ def test_views_share_the_scene_but_not_the_contrast():
     picture and not its inverse either (holes and trenches are dark in
     both; cells are bright in the SEM, outlined in the FIB)."""
     from fibsem.drivers.demo.sim_scene import SampleScene
-    from fibsem.projection import BeamStageProjection
+    from fibsem.geometry.projection import BeamStageProjection
     from fibsem.structures import FibsemHardwareGeometry
 
     scene = SampleScene(

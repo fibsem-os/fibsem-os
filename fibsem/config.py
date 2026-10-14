@@ -10,7 +10,6 @@ import yaml
 
 import fibsem
 import fibsem.util.numpy_yaml  # noqa: F401  numpy scalars dump as numbers
-from fibsem.drivers import registry
 from fibsem.util.timestamps import to_datetime
 
 # Documentation for a human reading a file, not a parsing switch -- from_dict does not
@@ -212,23 +211,6 @@ def set_default_configuration(configuration_name: str):
         yaml.dump(USER_CONFIGURATIONS_YAML, f)
 
 
-def __getattr__(name: str):
-    """``DEFAULT_CONFIGURATION_VALUES`` and ``AVAILABLE_MANUFACTURERS``, from the
-    driver registry (FIB-1123).
-
-    Read on each access rather than at import: reading a driver's record imports its
-    module, which imports this one, and a driver registered later is then included.
-    ``DEFAULT_CONFIGURATION_VALUES`` is each driver's config (column tilts, port);
-    ``AVAILABLE_MANUFACTURERS`` is the manufacturers that have one. Odemis has none,
-    so it is in neither.
-    """
-    if name == "DEFAULT_CONFIGURATION_VALUES":
-        return registry.default_configuration_values()
-    if name == "AVAILABLE_MANUFACTURERS":
-        return list(registry.default_configuration_values())
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
-
 # machine learning
 HUGGINFACE_REPO = "patrickcleeve/autolamella"
 DEFAULT_CHECKPOINT = "autolamella-mega-20240107.pt"
@@ -407,10 +389,11 @@ class AppServerPreferences:
     """
 
     enabled: bool = False
-    # The devices service: the routes that reach the instrument, local or on a
-    # Device Server -- /devices/... and the microscope routes, reads included.
-    # Off by default: a read of the instrument is hardware access, not monitoring.
-    devices: bool = False
+    # Whether a new session serves the microscope: every route under
+    # /microscope, local devices or a Device Server's, reads included. Off by
+    # default: a read of the instrument is hardware access, not monitoring.
+    # (Was `devices`, never released; a saved `devices` is ignored.)
+    microscope: bool = False
 
 
 @dataclass

@@ -408,6 +408,7 @@ class AgentLevelChip(QPushButton):
     level_chosen = pyqtSignal(object)  # AgentLevel
     stop_clicked = pyqtSignal()
     connect_clicked = pyqtSignal()
+    event_log_clicked = pyqtSignal()
     approve_clicked = pyqtSignal(str)  # request id
     reject_clicked = pyqtSignal(str, str)  # request id, the operator's reason
 
@@ -464,8 +465,19 @@ class AgentLevelChip(QPushButton):
         self.last_heard_action = QAction(last_heard_text(None), self)
         self.last_heard_action.setEnabled(False)
         self.menu_.addAction(self.last_heard_action)
-        # An icon here keeps the menu's icon column when Stop is hidden, so every
-        # line's text starts where the level names do.
+        # What the agent has been doing, in the browser: the App Server's event log.
+        # An icon on each line keeps the menu's icon column when Stop is hidden,
+        # so every line's text starts where the level names do.
+        self.event_log_action = QAction(
+            fibsem_icon("mdi:format-list-bulleted", color=GRAY_ICON_COLOR),
+            "Open event log",
+            self,
+        )
+        self.event_log_action.setToolTip(
+            "What the agent, the operator and the run did, in your browser."
+        )
+        self.event_log_action.triggered.connect(self.event_log_clicked)
+        self.menu_.addAction(self.event_log_action)
         self.connect_action = QAction(
             fibsem_icon("mdi:link-variant", color=GRAY_ICON_COLOR),
             "Connect an agent…",

@@ -84,7 +84,7 @@ def mill(microscope, fake, imaging_preset=IMAGING_PRESET):
     microscope.pause_milling()
     paused = microscope.get_milling_state()
     microscope.resume_milling()
-    microscope.finish_milling(imaging_current=20e-12, imaging_voltage=30e3)
+    microscope.finish_milling()
     return estimate, running, paused
 
 
@@ -174,13 +174,13 @@ def test_the_service_puts_the_field_of_view_back(connect):
 
 
 def test_the_ion_current_and_voltage_are_left_to_the_preset(connect):
-    """Neither is settable on the ion column, so neither is saved, restored, or
-    overridden: no "not supported" write after milling."""
+    """Neither is settable on the ion column, so neither is saved or restored: no
+    "not supported" write after milling."""
     microscope, fake = connect()
     microscope.setup_milling(FibsemMillingSettings(preset=MILL_PRESET))
     assert set(microscope.milling._saved) == {"preset", "hfw"}
     fake.log.clear()
-    microscope.finish_milling(imaging_current=20e-12, imaging_voltage=30e3)
+    microscope.finish_milling()
     paths = [p for p, _, _ in fake.log]
     assert "FIB.Beam.SetCurrent" not in paths
     assert "FIB.Beam.SetVoltage" not in paths

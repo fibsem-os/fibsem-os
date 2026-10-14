@@ -284,7 +284,7 @@ class TescanMicroscope(FibsemMicroscope):
             }
         )
 
-    def disconnect(self) -> None:
+    def _disconnect(self) -> None:
         self._connection.disconnect()
         self._connection = None
 

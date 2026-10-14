@@ -240,9 +240,7 @@ class SelectMillingPositionTask(AutoLamellaTask):
                     decided=self._stage_position_now,
                     enabled=self.config.confirm_tilt,
                 )
-                self.microscope.move_to_milling_angle(
-                    milling_angle=np.radians(milling_angle)
-                )
+                self.microscope.move_to_milling_angle(milling_angle=milling_angle)
             elif self.validate and self.config.confirm_tilt:
                 # The prompt as it has always been, kept as it is while the
                 # review preference is off.
@@ -255,13 +253,9 @@ class SelectMillingPositionTask(AutoLamellaTask):
                     neg="Skip",
                 )
                 if ret:
-                    self.microscope.move_to_milling_angle(
-                        milling_angle=np.radians(milling_angle)
-                    )
+                    self.microscope.move_to_milling_angle(milling_angle=milling_angle)
             else:
-                self.microscope.move_to_milling_angle(
-                    milling_angle=np.radians(milling_angle)
-                )
+                self.microscope.move_to_milling_angle(milling_angle=milling_angle)
 
             if self.config.use_autofocus:
                 self._run_autofocus(beam_type=BeamType.ION)

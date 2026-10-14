@@ -26,7 +26,7 @@ from fibsem.fm.structures import (
     FluorescenceImage,
     FluorescenceImageMetadata,
 )
-from fibsem.projection import FMStageProjection
+from fibsem.geometry.projection import FMStageProjection
 from fibsem.structures import (
     BeamType,
     FibsemImage,

@@ -19,7 +19,7 @@ from fibsem.drivers.demo.sim_scene import fm_channel_weights
 from fibsem.fm.microscope import (
     FluorescenceMicroscope,
 )
-from fibsem.projection import FMStageProjection
+from fibsem.geometry.projection import FMStageProjection
 from fibsem.structures import (
     BeamSettings,
     BeamType,
@@ -451,7 +451,7 @@ class DemoSimulator:
 
         # shared-scene projection takes precedence when enabled (FIB-874)
         if self.sample_scene is not None:
-            from fibsem.projection import BeamStageProjection
+            from fibsem.geometry.projection import BeamStageProjection
 
             projection = BeamStageProjection.from_microscope(
                 self.microscope, beam_type=effective_beam_type
@@ -823,7 +823,7 @@ class DemoSimulator:
         scene = self.sample_scene
         if scene is None or not self.milling_system.patterns:
             return
-        from fibsem.projection import BeamStageProjection
+        from fibsem.geometry.projection import BeamStageProjection
 
         beam = self.microscope.milling_channel
         projection = BeamStageProjection.from_microscope(
@@ -853,7 +853,7 @@ class DemoSimulator:
         point, beam = self.microscope._spot_and_beam(beam_type)
         if point is None:
             return
-        from fibsem.projection import BeamStageProjection
+        from fibsem.geometry.projection import BeamStageProjection
 
         projection = BeamStageProjection.from_microscope(
             self.microscope, beam_type=beam_type

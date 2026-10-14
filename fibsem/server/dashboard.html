@@ -27,6 +27,8 @@
   header .exp { font-size:14px; font-weight:600; color:var(--strong); }
   header .meta, header .right { font-size:11.5px; color:var(--muted); font-variant-numeric:tabular-nums; }
   header .right { margin-left:auto; color:var(--text); }
+  header .log-link { color:var(--accent); text-decoration:none; font-size:11.5px; }
+  header .log-link:hover { text-decoration:underline; }
 
   .ladder { display:flex; gap:8px; padding:10px 12px 8px; margin-top:10px; }
   .rung { flex:1; min-width:0; }
@@ -196,8 +198,10 @@ function renderHeader(status) {
   document.getElementById("hdr").innerHTML = exp ? `
     <span class="exp">${esc(exp.name)}</span>
     <span class="meta">${esc(String(exp.num_items))} items</span>
-    <span class="right">${state}${where}</span>`
-    : `<span class="exp">No experiment loaded</span>`;
+    <span class="right">${state}${where}</span>
+    <a class="log-link" href="/dashboard/log#token=${encodeURIComponent(TOKEN)}">Event log</a>`
+    : `<span class="exp">No experiment loaded</span>
+    <a class="log-link" style="margin-left:auto" href="/dashboard/log#token=${encodeURIComponent(TOKEN)}">Event log</a>`;
 }
 
 function renderLadder(protocol, runSummary, status) {
@@ -223,8 +227,8 @@ async function renderCard(name) {
   const el = document.getElementById("card-" + name);
   if (!el) return;
   const [item, outputs] = await Promise.all([
-    api("/app/items/" + encodeURIComponent(name)),
-    api("/app/task_outputs/" + encodeURIComponent(name)),
+    api("/app/experiment/items/" + encodeURIComponent(name)),
+    api("/app/experiment/items/" + encodeURIComponent(name) + "/outputs"),
   ]);
   const done = new Set(outputs.completed_tasks || []);
   const segs = protocolTasks.map(t =>
@@ -280,7 +284,7 @@ async function renderCard(name) {
   for (const img of el.querySelectorAll("img[data-src]")) {
     try {
       const r = await fetch(
-        "/app/items/" + encodeURIComponent(name) + "/outputs/" +
+        "/app/experiment/items/" + encodeURIComponent(name) + "/outputs/" +
         encodeURIComponent(img.dataset.src),
         { headers: { Authorization: "Bearer " + TOKEN } });
       if (r.ok) img.src = URL.createObjectURL(await r.blob());
@@ -320,7 +324,7 @@ function markerSvg(markers, image) {
 }
 
 async function renderOverview(gridName, role, label, filename) {
-  const base = "/app/grids/" + encodeURIComponent(gridName) + "/outputs/" + encodeURIComponent(filename);
+  const base = "/app/experiment/grids/" + encodeURIComponent(gridName) + "/outputs/" + encodeURIComponent(filename);
   const [url, markers] = await Promise.all([
     fetchBlobUrl(base),
     api(base + "/markers").catch(() => ({ markers: [], unplaced: [] })),
@@ -341,7 +345,7 @@ async function renderOverview(gridName, role, label, filename) {
 async function refreshGrids() {
   const panel = document.getElementById("grids");
   let body;
-  try { body = await api("/app/grids"); } catch (e) { panel.style.display = "none"; return; }
+  try { body = await api("/app/experiment/grids"); } catch (e) { panel.style.display = "none"; return; }
   const grids = (body.items || []).filter(g => Object.keys(g.overviews || {}).length);
   if (!grids.length) { panel.style.display = "none"; return; }
   const rows = await Promise.all(grids.map(async g => {
@@ -371,7 +375,7 @@ async function refreshGrids() {
 /* ── workflow queue ────────────────────────────────────────────────── */
 
 async function refreshQueue() {
-  const q = await api("/app/queue");
+  const q = await api("/app/workflow/queue");
   const panel = document.getElementById("queue");
   const items = q.available ? (q.items || []) : [];
   if (!items.length) { panel.style.display = "none"; return; }
@@ -389,6 +393,10 @@ async function refreshQueue() {
 
 /* ── event feed ────────────────────────────────────────────────────── */
 
+// How a run can end (fibsem.hooks.HookEvent).
+const RUN_ENDS = new Set(
+  ["workflow_completed", "workflow_cancelled", "workflow_stalled", "workflow_failed"]);
+
 function eventLine(e) {
   const k = e.kind, p = e.payload || {}, ts = ep(e.timestamp);
   if (k === "prompt_answered") {
@@ -403,13 +411,15 @@ function eventLine(e) {
     return `<span class="ts">${ts}</span><span class="who-agent">note</span> ${esc(p.text)}${p.item_name ? ` · ${esc(p.item_name)}` : ""}`;
   if (k === "prompt_cancelled")
     return `<span class="ts">${ts}</span><span class="muted">withdrawn</span> ${esc(p.type)}`;
-  if (["task_started", "task_completed", "task_failed", "task_skipped"].includes(k)) {
+  if (["task_started", "task_completed", "task_failed", "task_cancelled", "task_skipped"].includes(k)) {
     const verb = k.split("_")[1];
     const cls = { failed: "err", completed: "ok" }[verb] || "muted";
     return `<span class="ts">${ts}</span><span class="${cls}">${verb}</span> ${esc(p.task_name)} · ${esc(p.item_name)}`;
   }
-  if (["workflow_started", "workflow_completed", "workflow_stopped"].includes(k))
-    return `<span class="ts">${ts}</span><span class="kind">${k.replace("_", " ")}</span>`;
+  if (k === "workflow_started" || RUN_ENDS.has(k)) {
+    const cls = k === "workflow_failed" || k === "workflow_stalled" ? "err" : "kind";
+    return `<span class="ts">${ts}</span><span class="${cls}">${k.replace("_", " ")}</span>`;
+  }
   return null;
 }
 
@@ -430,7 +440,7 @@ function appendEvents(events) {
 
 async function refreshTop() {
   const [status, protocol, runSummary] = await Promise.all([
-    api("/app/status"), api("/app/protocol"), api("/app/run_summary"),
+    api("/app/workflow/status"), api("/app/experiment/protocol"), api("/app/workflow/run_summary"),
   ]);
   protocolTasks = protocol.tasks || [];
   renderHeader(status);
@@ -439,7 +449,7 @@ async function refreshTop() {
 }
 
 async function refreshCards() {
-  const summary = await api("/app/experiment_summary");
+  const summary = await api("/app/experiment");
   itemNames = (summary.items || [])
     .map(r => r.lamella_name || r.item_name || r.name).filter(Boolean);
   const cards = document.getElementById("cards");
@@ -487,7 +497,7 @@ async function liveLoop() {
           await throttled("cards", refreshCards);
           await throttled("queue", refreshQueue);
         }
-        if (events.some(e => e.kind === "workflow_completed" || e.kind === "workflow_stopped"))
+        if (events.some(e => RUN_ENDS.has(e.kind)))
           // The event lands before the worker clears its running flag; a
           // status read right now races it, so read again once it has settled.
           setTimeout(() => throttled("top", refreshTop), 2500);
@@ -507,7 +517,7 @@ async function boot() {
   catch (e) { gate("That token was refused — copy a fresh link from Tools → App Server."); return; }
   if (!caps.routers || !caps.routers.app) {
     $app.innerHTML = `<div class="gate panel"><h1>AutoLamella Dashboard</h1>
-      <p>This server hosts no application (bench mode) — there is no session to show.</p></div>`;
+      <p>This server hosts no application — there is no session to show.</p></div>`;
     return;
   }
   $app.innerHTML = `

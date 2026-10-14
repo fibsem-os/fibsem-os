@@ -50,6 +50,7 @@ from fibsem.devices.core import (
     build_axes,
     command,
     plain,
+    query,
 )
 from fibsem.devices.display import Display
 from fibsem.structures import (
@@ -246,11 +247,11 @@ class Stage(Device):
             self._link()
             return self.linked.get_value()
 
-    @command
+    @query
     def pose_table(
         self, rotation_reference: float, shuttle_pre_tilt: float, fib_column_tilt: float
     ) -> Dict[str, FibsemStagePosition]:
-        """``poses()`` as a command, so a stage on another computer can be asked for
+        """``poses()`` as a query, so a stage on another computer can be asked for
         its poses. It moves nothing."""
         return self.poses(rotation_reference, shuttle_pre_tilt, fib_column_tilt)
 

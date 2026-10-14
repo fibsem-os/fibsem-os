@@ -12,20 +12,20 @@ fastapi installed, preview silently degraded to None).
 
 from typing import TYPE_CHECKING
 
-__all__ = ["AuthConfig", "FibsemClient", "FibsemServer", "Scope", "build_server"]
+__all__ = ["AgentLevel", "AuthConfig", "FibsemClient", "build_server"]
 
 _EXPORTS = {
+    "AgentLevel": "fibsem.server.levels",
     "AuthConfig": "fibsem.server.auth",
-    "Scope": "fibsem.server.auth",
     "FibsemClient": "fibsem.server.client",
-    "FibsemServer": "fibsem.server.server",
     "build_server": "fibsem.server.server",
 }
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from fibsem.server.auth import AuthConfig, Scope  # noqa: F401
+    from fibsem.server.auth import AuthConfig  # noqa: F401
     from fibsem.server.client import FibsemClient  # noqa: F401
-    from fibsem.server.server import FibsemServer, build_server  # noqa: F401
+    from fibsem.server.levels import AgentLevel  # noqa: F401
+    from fibsem.server.server import build_server  # noqa: F401
 
 
 def __getattr__(name):

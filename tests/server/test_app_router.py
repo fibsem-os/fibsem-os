@@ -71,34 +71,34 @@ def client(microscope, host, event_buffer):
 
 def test_capabilities_reports_the_app_router(client):
     body = client.get("/capabilities", headers=AUTH).json()
-    assert body["routers"] == {"microscope": True, "devices": True, "app": True}
+    assert body["routers"] == {"microscope": True, "app": True}
 
 
 def test_without_app_context_the_routes_do_not_exist(microscope):
     app = build_server(microscope, auth=AuthConfig(token=TOKEN))
     with TestClient(app, raise_server_exceptions=False) as bare:
         assert bare.get("/capabilities", headers=AUTH).json()["routers"]["app"] is False
-        assert bare.get("/app/status", headers=AUTH).status_code == 404
+        assert bare.get("/app/workflow/status", headers=AUTH).status_code == 404
 
 
 def test_app_routes_require_a_token(client):
-    assert client.get("/app/status").status_code == 401
+    assert client.get("/app/workflow/status").status_code == 401
 
 
 def test_status_and_queue_over_http(client):
-    status = client.get("/app/status", headers=AUTH).json()
+    status = client.get("/app/workflow/status", headers=AUTH).json()
     assert status["experiment"]["name"] == "router-exp"
     assert status["workflow"]["running"] is False
-    queue = client.get("/app/queue", headers=AUTH).json()
+    queue = client.get("/app/workflow/queue", headers=AUTH).json()
     assert queue["available"] is False  # no run yet
 
 
 def test_task_outputs_round_trip(client, host):
     name = host.experiment.positions[0].name
-    payload = client.get(f"/app/task_outputs/{name}", headers=AUTH).json()
+    payload = client.get(f"/app/experiment/items/{name}/outputs", headers=AUTH).json()
     assert payload["available"] is True
     assert payload["item_name"] == name
-    missing = client.get("/app/task_outputs/nope", headers=AUTH).json()
+    missing = client.get("/app/experiment/items/nope/outputs", headers=AUTH).json()
     assert missing["available"] is False
 
 
@@ -119,17 +119,21 @@ def test_output_images_serve_jpeg_and_refuse_unknown_names(client, host):
         AutoLamellaTaskState(name="Rough Milling", outputs={"final_fib": [fname]})
     )
 
-    served = client.get(f"/app/items/{lamella.name}/outputs/{fname}", headers=AUTH)
+    served = client.get(
+        f"/app/experiment/items/{lamella.name}/outputs/{fname}", headers=AUTH
+    )
     assert served.status_code == 200
     assert served.headers["content-type"] == "image/jpeg"
     assert served.content[:2] == b"\xff\xd8"  # JPEG magic
 
     # An unlisted name is refused with the valid ones — never resolved as a path.
     refused = client.get(
-        f"/app/items/{lamella.name}/outputs/../../etc/passwd", headers=AUTH
+        f"/app/experiment/items/{lamella.name}/outputs/../../etc/passwd", headers=AUTH
     )
     assert refused.status_code in (404, 422)
-    unknown = client.get(f"/app/items/{lamella.name}/outputs/nope.tif", headers=AUTH)
+    unknown = client.get(
+        f"/app/experiment/items/{lamella.name}/outputs/nope.tif", headers=AUTH
+    )
     assert unknown.status_code == 404
     assert unknown.json()["detail"]["filenames"] == [fname]
 
@@ -163,14 +167,18 @@ def test_every_listed_output_is_served_and_only_completed_runs_count(client, hos
         AutoLamellaTaskState(name="Polishing", status=AutoLamellaTaskStatus.Cancelled)
     )
 
-    listed = client.get(f"/app/task_outputs/{lamella.name}", headers=AUTH).json()
+    listed = client.get(
+        f"/app/experiment/items/{lamella.name}/outputs", headers=AUTH
+    ).json()
     assert listed["completed_tasks"] == ["Rough Milling"]
     assert [(t["name"], t["status"]) for t in listed["tasks"]] == [
         ("Rough Milling", "Completed"),
         ("Polishing", "Cancelled"),
     ]
     assert listed["tasks"][0]["files"] == {"start_fib": [start]}
-    served = client.get(f"/app/items/{lamella.name}/outputs/{start}", headers=AUTH)
+    served = client.get(
+        f"/app/experiment/items/{lamella.name}/outputs/{start}", headers=AUTH
+    )
     assert served.status_code == 200
     assert served.headers["content-type"] == "image/jpeg"
 
@@ -191,7 +199,7 @@ def test_task_history_is_in_time_order(client, host):
         AutoLamellaTaskState(name="Rough Milling", start_timestamp=t0)
     )
 
-    items = client.get("/app/task_history", headers=AUTH).json()["items"]
+    items = client.get("/app/experiment/task_history", headers=AUTH).json()["items"]
     assert [i["task_name"] for i in items] == ["Rough Milling", "Polishing"]
 
 
@@ -250,25 +258,36 @@ def test_task_config_reads_over_http(client, host):
     item = host.experiment.positions[0]
     item.task_config["Rough Milling"] = config
 
-    doc = client.get("/app/protocol/task_config/Rough Milling", headers=AUTH).json()
+    doc = client.get(
+        "/app/experiment/protocol/task_config/Rough Milling", headers=AUTH
+    ).json()
     assert doc["available"] is True and doc["level"] == "protocol"
     assert "version" in doc and "config" in doc
 
     item_doc = client.get(
-        f"/app/items/{item.name}/task_config/Rough Milling", headers=AUTH
+        f"/app/experiment/items/{item.name}/task_config/Rough Milling", headers=AUTH
     ).json()
     assert item_doc["level"] == "item"
     assert item_doc["version"] == doc["version"]
 
-    unknown = client.get("/app/protocol/task_config/Nope", headers=AUTH).json()
+    unknown = client.get(
+        "/app/experiment/protocol/task_config/Nope", headers=AUTH
+    ).json()
     assert "task_names" in unknown
 
 
 def test_summaries_and_protocol_over_http(client):
-    for path in ("/app/experiment_summary", "/app/task_history", "/app/protocol"):
+    for path in (
+        "/app/experiment",
+        "/app/experiment/task_history",
+        "/app/experiment/protocol",
+    ):
         body = client.get(path, headers=AUTH).json()
         assert body["available"] is True, path
-    assert client.get("/app/run_summary", headers=AUTH).json()["available"] is False
+    assert (
+        client.get("/app/workflow/run_summary", headers=AUTH).json()["available"]
+        is False
+    )
 
 
 def test_sidecar_grows_the_app_tools_from_capabilities(client):
@@ -323,6 +342,43 @@ def test_events_unavailable_without_a_buffer(microscope, host):
     assert body["available"] is False
 
 
+def test_event_history_reads_the_record_before_the_live_buffer(
+    client, host, event_buffer
+):
+    import json
+    from pathlib import Path
+
+    from fibsem.applications.autolamella.event_recording import EVENTS_FILENAME
+
+    event_buffer.append("task_started", {"task_name": "Polishing"})
+    held = event_buffer.events_since(0)["events"][0]
+    # The file has the night: an earlier session, this session's records from
+    # before the buffer's oldest, the one the buffer still holds, and progress.
+    lines = [
+        {"session": "night", "seq": 1, "kind": "task_started"},
+        {"session": "night", "seq": 2, "kind": "milling_progress"},
+        {"session": held.get("session"), "seq": 0, "kind": "agent_note"},
+        {**held},
+    ]
+    path = Path(host.experiment.path) / EVENTS_FILENAME
+    path.write_text("".join(json.dumps(r) + "\n" for r in lines), encoding="utf-8")
+
+    body = client.get("/app/events/history", headers=AUTH).json()
+    assert body["available"] is True
+    assert [(e["session"], e["seq"]) for e in body["events"]] == [
+        ("night", 1),
+        (held.get("session"), 0),
+    ]
+    assert body["start"] == 0
+
+    page = client.get("/app/events/history?limit=1", headers=AUTH).json()
+    assert [e["seq"] for e in page["events"]] == [0]
+    earlier = client.get(
+        f"/app/events/history?limit=1&before={page['start']}", headers=AUTH
+    ).json()
+    assert [e["seq"] for e in earlier["events"]] == [1]
+
+
 def test_task_schedule_verb_sets_clears_and_refuses(microscope, host, event_buffer):
     from fibsem.applications.autolamella.structures import (
         Attention,
@@ -346,7 +402,7 @@ def test_task_schedule_verb_sets_clears_and_refuses(microscope, host, event_buff
     armed = build_server(
         microscope,
         app_context=AutoLamellaAppContext(host, event_buffer=event_buffer),
-        auth=AuthConfig.generate(arm_configure=True, token=TOKEN),
+        auth=AuthConfig.generate(level="drive", token=TOKEN),
     )
     with TestClient(armed, raise_server_exceptions=False) as client:
         when = "2026-09-04T06:00:00"
@@ -360,7 +416,7 @@ def test_task_schedule_verb_sets_clears_and_refuses(microscope, host, event_buff
         assert body["applied"] is True and body["saved"] is True
         assert body["scheduled_at"] == when
         # The live protocol shows it, and protocol.yaml has it.
-        shown = client.get("/app/protocol", headers=AUTH).json()["tasks"]
+        shown = client.get("/app/experiment/protocol", headers=AUTH).json()["tasks"]
         assert (
             next(t for t in shown if t["name"] == "Rough Milling")["scheduled_at"]
             == when
@@ -396,7 +452,7 @@ def test_workflow_options_verb_sets_and_refuses(microscope, host, event_buffer):
     armed = build_server(
         microscope,
         app_context=AutoLamellaAppContext(host, event_buffer=event_buffer),
-        auth=AuthConfig.generate(arm_configure=True, token=TOKEN),
+        auth=AuthConfig.generate(level="drive", token=TOKEN),
     )
     with TestClient(armed, raise_server_exceptions=False) as client:
         resp = client.post(
@@ -404,7 +460,7 @@ def test_workflow_options_verb_sets_and_refuses(microscope, host, event_buffer):
         )
         assert resp.status_code == 200
         assert resp.json()["applied"] is True
-        shown = client.get("/app/protocol", headers=AUTH).json()["options"]
+        shown = client.get("/app/experiment/protocol", headers=AUTH).json()["options"]
         assert shown["show_run_summary"] is False
         events = client.get("/app/events?since=0", headers=AUTH).json()["events"]
         assert any(
@@ -440,7 +496,7 @@ def test_agent_notes_land_on_the_record(microscope, host, event_buffer):
     armed = build_server(
         microscope,
         app_context=AutoLamellaAppContext(host, event_buffer=event_buffer),
-        auth=AuthConfig.generate(arm_control=True, token=TOKEN),
+        auth=AuthConfig.generate(level="drive", token=TOKEN),
     )
     with TestClient(armed, raise_server_exceptions=False) as client:
         item = host.experiment.positions[0].name
@@ -521,7 +577,7 @@ def grid_with_overview(host, microscope):
 
 
 def test_grids_list_and_detail_over_http(client, host, grid_with_overview):
-    listed = client.get("/app/grids", headers=AUTH).json()
+    listed = client.get("/app/experiment/grids", headers=AUTH).json()
     assert listed["available"] is True
     (summary,) = listed["items"]
     assert summary["name"] == "grid-aspen"
@@ -531,7 +587,7 @@ def test_grids_list_and_detail_over_http(client, host, grid_with_overview):
     assert summary["num_items"] == 2
     assert summary["overviews"] == {"overview_sem": "overview.tif"}
 
-    detail = client.get("/app/grids/grid-aspen", headers=AUTH).json()
+    detail = client.get("/app/experiment/grids/grid-aspen", headers=AUTH).json()
     assert detail["tasks"] == [
         {
             "name": "overview_sem",
@@ -541,7 +597,7 @@ def test_grids_list_and_detail_over_http(client, host, grid_with_overview):
     ]
     assert sorted(detail["items"]) == sorted(p.name for p in host.experiment.positions)
 
-    missing = client.get("/app/grids/nope", headers=AUTH).json()
+    missing = client.get("/app/experiment/grids/nope", headers=AUTH).json()
     assert missing["available"] is False
     assert missing["grid_names"] == ["grid-aspen"]
 
@@ -549,23 +605,55 @@ def test_grids_list_and_detail_over_http(client, host, grid_with_overview):
 def test_grid_overview_serves_jpeg_and_refuses_unlisted_names(
     client, grid_with_overview
 ):
-    served = client.get("/app/grids/grid-aspen/outputs/overview.tif", headers=AUTH)
+    served = client.get(
+        "/app/experiment/grids/grid-aspen/outputs/overview.tif", headers=AUTH
+    )
     assert served.status_code == 200
     assert served.headers["content-type"] == "image/jpeg"
     assert served.content[:2] == b"\xff\xd8"
 
-    unknown = client.get("/app/grids/grid-aspen/outputs/nope.tif", headers=AUTH)
+    unknown = client.get(
+        "/app/experiment/grids/grid-aspen/outputs/nope.tif", headers=AUTH
+    )
     assert unknown.status_code == 404
     assert unknown.json()["detail"]["filenames"] == ["overview.tif"]
 
-    no_grid = client.get("/app/grids/nope/outputs/overview.tif", headers=AUTH)
+    no_grid = client.get(
+        "/app/experiment/grids/nope/outputs/overview.tif", headers=AUTH
+    )
     assert no_grid.status_code == 404
     assert no_grid.json()["detail"]["grid_names"] == ["grid-aspen"]
 
 
+def test_sidecar_returns_a_grid_overview_as_image_content(client, grid_with_overview):
+    pytest.importorskip("mcp")
+    from fibsem.mcp.sidecar import build_sidecar
+
+    client.headers["Authorization"] = f"Bearer {TOKEN}"
+    sidecar = build_sidecar(client, client.get("/capabilities").json())
+
+    def call(filename):
+        result = asyncio.run(
+            sidecar.call_tool(
+                "get_grid_output_image",
+                {"grid_name": "grid-aspen", "filename": filename},
+            )
+        )
+        if isinstance(result, tuple):
+            result = result[0]
+        return list(getattr(result, "content", result))
+
+    contents = call("overview.tif")
+    image = next(c for c in contents if getattr(c, "type", None) == "image")
+    assert image.mime_type == "image/jpeg"
+    refused = "".join(getattr(c, "text", "") for c in call("nope.tif"))
+    assert "refused (404)" in refused
+    assert "overview.tif" in refused
+
+
 def test_grid_markers_place_items_in_source_pixels(client, host, grid_with_overview):
     body = client.get(
-        "/app/grids/grid-aspen/outputs/overview.tif/markers", headers=AUTH
+        "/app/experiment/grids/grid-aspen/outputs/overview.tif/markers", headers=AUTH
     ).json()
     assert body["available"] is True
     assert body["linked"] is True
@@ -594,7 +682,7 @@ def test_grid_markers_report_unplaceable_items(client, host, grid_with_overview)
     poseless.grid_id = grid_with_overview.id
     poseless.milling_pose = MicroscopeState()
     body = client.get(
-        "/app/grids/grid-aspen/outputs/overview.tif/markers", headers=AUTH
+        "/app/experiment/grids/grid-aspen/outputs/overview.tif/markers", headers=AUTH
     ).json()
     # a default MicroscopeState carries a position with no r: unplaceable, with
     # the reprojection's own reason rather than a silent drop
@@ -604,7 +692,7 @@ def test_grid_markers_report_unplaceable_items(client, host, grid_with_overview)
     assert len(body["markers"]) == 2
 
     unknown = client.get(
-        "/app/grids/grid-aspen/outputs/nope.tif/markers", headers=AUTH
+        "/app/experiment/grids/grid-aspen/outputs/nope.tif/markers", headers=AUTH
     ).json()
     assert unknown["markers"] == []
     assert unknown["filenames"] == ["overview.tif"]
@@ -746,7 +834,9 @@ def test_fm_overview_previews_in_colour_and_places_markers(
         )
     )
 
-    served = client.get("/app/grids/grid-aspen/outputs/overview.ome.tiff", headers=AUTH)
+    served = client.get(
+        "/app/experiment/grids/grid-aspen/outputs/overview.ome.tiff", headers=AUTH
+    )
     assert served.status_code == 200
     import io
 
@@ -756,7 +846,8 @@ def test_fm_overview_previews_in_colour_and_places_markers(
     assert bottom_right[1] > 150 and bottom_right[0] < 80  # green corner
 
     markers = client.get(
-        "/app/grids/grid-aspen/outputs/overview.ome.tiff/markers", headers=AUTH
+        "/app/experiment/grids/grid-aspen/outputs/overview.ome.tiff/markers",
+        headers=AUTH,
     ).json()
     assert markers["image"]["beam_type"] == "FM"
     assert markers["image"]["width"] == 64 and markers["image"]["pixel_size"] == 1e-7
@@ -769,7 +860,9 @@ def test_fm_overview_previews_in_colour_and_places_markers(
     assert at_centre["inside"] is True
     assert by_name[experiment.positions[1].name]["inside"] is False
 
-    listed = client.get("/app/grids", headers=AUTH).json()["items"][0]["overviews"]
+    listed = client.get("/app/experiment/grids", headers=AUTH).json()["items"][0][
+        "overviews"
+    ]
     assert listed == {
         "overview_sem": "overview.tif",
         "overview_fm": "overview.ome.tiff",
@@ -786,7 +879,7 @@ def test_unlinked_items_fall_back_only_on_a_single_grid_experiment(
         lamella.grid_id = None
     # One grid recorded: every posed item is shown, flagged as unlinked.
     body = client.get(
-        "/app/grids/grid-aspen/outputs/overview.tif/markers", headers=AUTH
+        "/app/experiment/grids/grid-aspen/outputs/overview.tif/markers", headers=AUTH
     ).json()
     assert body["linked"] is False
     assert len(body["markers"]) == 2
@@ -794,7 +887,7 @@ def test_unlinked_items_fall_back_only_on_a_single_grid_experiment(
     # A second grid: the same items would paint both grids, so neither gets them.
     experiment.add_grid(GridRecord(name="grid-birch"))
     body = client.get(
-        "/app/grids/grid-aspen/outputs/overview.tif/markers", headers=AUTH
+        "/app/experiment/grids/grid-aspen/outputs/overview.tif/markers", headers=AUTH
     ).json()
     assert body["linked"] is False
     assert body["markers"] == [] and body["unplaced"] == []

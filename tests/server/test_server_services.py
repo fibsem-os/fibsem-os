@@ -44,9 +44,7 @@ def read_client(microscope):
 
 @pytest.fixture(scope="module")
 def armed_client(microscope):
-    app = build_server(
-        microscope, auth=AuthConfig.generate(arm_hardware=True, token=TOKEN)
-    )
+    app = build_server(microscope, auth=AuthConfig.generate(level="drive", token=TOKEN))
     with TestClient(app, raise_server_exceptions=False) as client:
         client.headers.update(AUTH)
         yield client
@@ -62,7 +60,7 @@ def test_microscope_lists_the_services_it_built(microscope):
 
 
 def test_lists_every_service_with_its_commands(read_client, microscope):
-    resp = read_client.get("/services")
+    resp = read_client.get("/microscope/services")
     assert resp.status_code == 200
     body = resp.json()
     assert set(body) == set(microscope.services)
@@ -76,44 +74,44 @@ def test_lists_every_service_with_its_commands(read_client, microscope):
 def test_service_routes_need_the_token(microscope):
     app = build_server(microscope, auth=AuthConfig(token=TOKEN))
     with TestClient(app, raise_server_exceptions=False) as client:
-        assert client.get("/services").status_code == 401
-        assert client.get("/services/milling/state").status_code == 401
+        assert client.get("/microscope/services").status_code == 401
+        assert client.get("/microscope/services/milling/state").status_code == 401
 
 
-def test_read_is_read_scope(read_client):
-    resp = read_client.get("/services/milling/state")
+def test_read_works_at_watch(read_client):
+    resp = read_client.get("/microscope/services/milling/state")
     assert resp.status_code == 200
     assert resp.json()["value"] == to_wire(MillingState.IDLE)
 
 
-def test_command_is_refused_until_hardware_is_armed(read_client):
-    resp = read_client.post("/services/milling/commands/estimate", json={})
+def test_command_is_refused_below_drive(read_client):
+    resp = read_client.post("/microscope/services/milling/commands/clear", json={})
     assert resp.status_code == 403
-    assert resp.json()["detail"]["error_type"] == "scope_not_armed"
+    assert resp.json()["detail"]["error_type"] == "level"
 
 
 def test_command_when_armed_reaches_the_service(armed_client, microscope):
     microscope.milling.clear()
-    resp = armed_client.post("/services/milling/commands/estimate", json={})
+    resp = armed_client.post("/microscope/services/milling/commands/clear", json={})
     assert resp.status_code == 200
-    assert resp.json()["result"] == microscope.milling.estimate()
+    assert resp.json()["result"] is None
 
 
 def test_command_takes_control(armed_client, microscope):
     with microscope.control.take("workflow", "a lamellae run"):
-        resp = armed_client.post("/services/milling/commands/estimate", json={})
+        resp = armed_client.post("/microscope/services/milling/commands/clear", json={})
     assert resp.status_code == 409
     assert resp.json()["detail"]["error_type"] == "microscope_busy"
 
 
 def test_queries_are_listed_apart_from_commands(read_client):
-    stage_movement = read_client.get("/services/stage_movement").json()
+    stage_movement = read_client.get("/microscope/services/stage_movement").json()
     assert "project_stable_move" in stage_movement["queries"]
     assert "project_stable_move" not in stage_movement["commands"]
     assert "stable_move" not in stage_movement["queries"]
 
 
-def test_query_is_read_scope_and_takes_no_control(read_client, microscope):
+def test_query_works_at_watch_and_takes_no_control(read_client, microscope):
     base = FibsemStagePosition(x=1e-3, y=2e-3, z=3e-3, r=0.0, t=0.0)
     body = {
         "kwargs": {
@@ -125,7 +123,7 @@ def test_query_is_read_scope_and_takes_no_control(read_client, microscope):
     }
     with microscope.control.take("workflow", "a lamellae run"):
         resp = read_client.post(
-            "/services/stage_movement/queries/project_stable_move", json=body
+            "/microscope/services/stage_movement/queries/project_stable_move", json=body
         )
     assert resp.status_code == 200, resp.text
     expected = microscope.stage_movement.project_stable_move(
@@ -134,17 +132,45 @@ def test_query_is_read_scope_and_takes_no_control(read_client, microscope):
     assert resp.json()["result"] == to_wire(expected)
 
 
+def test_the_estimates_and_the_stage_poses_are_queries(read_client, microscope):
+    from fibsem.imaging.spot import SpotBurnSettings
+    from fibsem.structures import Point
+
+    settings = SpotBurnSettings(
+        coordinates=[Point(0.5, 0.5), Point(0.1, 0.1)], exposure_time=2.0
+    )
+    resp = read_client.post(
+        "/microscope/services/spot_burn/queries/estimate",
+        json={"kwargs": {"settings": to_wire(settings)}},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["result"] == microscope.spot_burn.estimate(settings)
+
+    geometry = {
+        "rotation_reference": 0.0,
+        "shuttle_pre_tilt": 35.0,
+        "fib_column_tilt": 52.0,
+    }
+    resp = read_client.post(
+        "/microscope/devices/stage/queries/pose_table", json={"kwargs": geometry}
+    )
+    assert resp.status_code == 200, resp.text
+    assert set(resp.json()["result"]) == set(
+        microscope.devices["stage"].poses(**geometry)
+    )
+
+
 def test_the_orientation_reads_are_queries(read_client, microscope):
     sem = microscope.get_orientation("SEM")
     at_sem = FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=sem.r, t=sem.t)
     resp = read_client.post(
-        "/services/stage_movement/queries/stage_orientation",
+        "/microscope/services/stage_movement/queries/stage_orientation",
         json={"kwargs": {"position": to_wire(at_sem)}},
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["result"] == "SEM"
     resp = read_client.post(
-        "/services/stage_movement/queries/current_milling_angle",
+        "/microscope/services/stage_movement/queries/current_milling_angle",
         json={"kwargs": {"position": to_wire(at_sem)}},
     )
     assert resp.status_code == 200, resp.text
@@ -160,7 +186,8 @@ def test_the_device_reads_are_queries(read_client, microscope):
 
     def ask(query, **kwargs):
         resp = read_client.post(
-            f"/services/stage_movement/queries/{query}", json={"kwargs": kwargs}
+            f"/microscope/services/stage_movement/queries/{query}",
+            json={"kwargs": kwargs},
         )
         assert resp.status_code == 200, resp.text
         return resp.json()["result"]
@@ -176,11 +203,29 @@ def test_the_device_reads_are_queries(read_client, microscope):
     assert answer["r"] == pytest.approx(target.r)
 
 
+def test_the_view_corrected_movements_are_queries(read_client, microscope):
+    def ask(query, **kwargs):
+        resp = read_client.post(
+            f"/microscope/services/stage_movement/queries/{query}",
+            json={"kwargs": kwargs},
+        )
+        assert resp.status_code == 200, resp.text
+        return resp.json()["result"]
+
+    ion = to_wire(BeamType.ION)
+    move = microscope._y_corrected_stage_movement(10e-6, beam_type=BeamType.ION)
+    answer = ask("y_corrected_movement", expected_y=10e-6, beam_type=ion)
+    assert answer["y"] == pytest.approx(move.y)
+    assert answer["z"] == pytest.approx(move.z)
+    back = ask("inverse_y_corrected_movement", dy=move.y, dz=move.z, beam_type=ion)
+    assert back == pytest.approx(10e-6)
+
+
 def test_the_milling_angle_is_a_parameter_that_moves_milling(armed_client, microscope):
     before = microscope.system.stage.milling_angle
     try:
         resp = armed_client.put(
-            "/services/stage_movement/milling_angle", json={"value": 22.0}
+            "/microscope/services/stage_movement/milling_angle", json={"value": 22.0}
         )
         assert resp.status_code == 200, resp.text
         assert resp.json()["value"] == pytest.approx(22.0)
@@ -194,30 +239,37 @@ def test_the_milling_angle_is_a_parameter_that_moves_milling(armed_client, micro
 
 
 def test_unknown_query_or_a_command_asked_as_one_is_404(read_client):
-    resp = read_client.post("/services/stage_movement/queries/nope", json={})
+    resp = read_client.post("/microscope/services/stage_movement/queries/nope", json={})
     assert resp.status_code == 404
-    resp = read_client.post("/services/stage_movement/queries/stable_move", json={})
+    resp = read_client.post(
+        "/microscope/services/stage_movement/queries/stable_move", json={}
+    )
     assert resp.status_code == 404
 
 
-def test_stop_needs_only_the_token_and_is_never_refused(read_client, microscope):
-    with microscope.control.take("workflow", "a lamellae run"):
-        resp = read_client.post("/services/milling/commands/stop", json={})
+def test_a_stop_needs_drive_and_is_never_refused_for_control(read_client, microscope):
+    stop = "/microscope/services/milling/commands/stop"
+    why = {"reason": "the mill is off target"}
+    assert read_client.post(stop, json=why).status_code == 403
+    app = build_server(microscope, auth=AuthConfig.generate(level="drive", token=TOKEN))
+    with TestClient(app, raise_server_exceptions=False) as client:
+        with microscope.control.take("workflow", "a lamellae run"):
+            resp = client.post(stop, headers=AUTH, json=why)
     assert resp.status_code == 200
 
 
 def test_unknown_service_parameter_or_command_is_404(read_client, armed_client):
-    resp = read_client.get("/services/nope/state")
+    resp = read_client.get("/microscope/services/nope/state")
     assert resp.status_code == 404
     assert "no service 'nope'" in resp.text
-    assert read_client.get("/services/milling/nope").status_code == 404
-    resp = armed_client.post("/services/milling/commands/nope", json={})
+    assert read_client.get("/microscope/services/milling/nope").status_code == 404
+    resp = armed_client.post("/microscope/services/milling/commands/nope", json={})
     assert resp.status_code == 404
 
 
 def test_devices_and_services_do_not_mix(read_client):
-    assert read_client.get("/devices/milling/state").status_code == 404
-    assert read_client.get("/services/ion/current").status_code == 404
+    assert read_client.get("/microscope/devices/milling/state").status_code == 404
+    assert read_client.get("/microscope/services/ion/current").status_code == 404
 
 
 def test_an_agent_runs_a_focus_sweep(armed_client, microscope):
@@ -230,7 +282,7 @@ def test_an_agent_runs_a_focus_sweep(armed_client, microscope):
         use_autocontrast=False,
     )
     resp = armed_client.post(
-        "/services/imaging/commands/focus_sweep",
+        "/microscope/services/imaging/commands/focus_sweep",
         json={
             "kwargs": {
                 "beam_type": to_wire(BeamType.ELECTRON),
@@ -323,7 +375,7 @@ def test_an_agent_runs_a_spot_burn(armed_client, microscope):
 
     settings = SpotBurnSettings(coordinates=[Point(0.5, 0.5)], exposure_time=0.01)
     resp = armed_client.post(
-        "/services/spot_burn/commands/run",
+        "/microscope/services/spot_burn/commands/run",
         json={"kwargs": {"settings": settings.to_dict()}},
     )
     assert resp.status_code == 200, resp.text
@@ -338,7 +390,7 @@ def test_an_agent_prepares_milling_with_patterns(armed_client, microscope):
     )
     try:
         resp = armed_client.post(
-            "/services/milling/commands/prepare",
+            "/microscope/services/milling/commands/prepare",
             json={
                 "kwargs": {
                     "settings": FibsemMillingSettings().to_dict(),
@@ -368,7 +420,7 @@ def _projected_move(beam_type):
 def test_an_enum_is_sent_by_name_or_value(read_client):
     """``list_services`` shows ``<BeamType.ELECTRON: 1>``, so an agent sends the
     name (FIB-1355)."""
-    path = "/services/stage_movement/queries/project_stable_move"
+    path = "/microscope/services/stage_movement/queries/project_stable_move"
     by_value = read_client.post(path, json=_projected_move(1))
     by_name = read_client.post(path, json=_projected_move("ELECTRON"))
     assert by_name.status_code == 200, by_name.text
@@ -376,7 +428,7 @@ def test_an_enum_is_sent_by_name_or_value(read_client):
 
 
 def test_an_argument_that_does_not_decode_is_422_naming_it(read_client):
-    path = "/services/stage_movement/queries/project_stable_move"
+    path = "/microscope/services/stage_movement/queries/project_stable_move"
     resp = read_client.post(path, json=_projected_move("PROTON"))
     assert resp.status_code == 422
     detail = resp.json()["detail"]
@@ -392,7 +444,9 @@ def test_a_cancelled_command_is_409_cancelled(armed_client, microscope, monkeypa
         raise OperationCancelledError("AutoFocus cancelled by user.")
 
     monkeypatch.setattr(microscope.imaging, "focus_sweep", cancelled_sweep)
-    resp = armed_client.post("/services/imaging/commands/focus_sweep", json={})
+    resp = armed_client.post(
+        "/microscope/services/imaging/commands/focus_sweep", json={}
+    )
     assert resp.status_code == 409
     assert resp.json()["detail"] == {
         "error_type": "OperationCancelledError",

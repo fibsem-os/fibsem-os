@@ -17,12 +17,12 @@ from fibsem.fm.planning import (
     project_regions_to_fm_plane,
     to_fm_pose,
 )
-from fibsem.imaging.tiling.geometry import PlaneRegion, compute_tile_grid_from_fov
-from fibsem.projection import (
+from fibsem.geometry.projection import (
     BeamStageProjection,
     FMStageProjection,
     surface_foreshortening,
 )
+from fibsem.imaging.tiling.geometry import PlaneRegion, compute_tile_grid_from_fov
 from fibsem.structures import BeamType, FibsemStagePosition
 
 

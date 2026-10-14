@@ -329,7 +329,7 @@ def beam_overviews_in(
         Views to their images, newest first, so a caller offering a default gets the
         overview most recently acquired.
     """
-    from fibsem.projection import BeamStageProjection
+    from fibsem.geometry.projection import BeamStageProjection
     from fibsem.ui.widgets.overview_widget import OverviewView
 
     if not directory or not os.path.isdir(directory):

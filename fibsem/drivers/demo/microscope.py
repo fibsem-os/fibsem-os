@@ -267,7 +267,7 @@ class DemoMicroscope(FibsemMicroscope):
 
         return
 
-    def disconnect(self) -> None:
+    def _disconnect(self) -> None:
         """Disconnect from the microscope server."""
         self._connection.disconnect()
         logging.info("Disconnected from Demo Microscope")

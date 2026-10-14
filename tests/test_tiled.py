@@ -554,7 +554,7 @@ def _contrast_calls(tmp_path, mode, centre=None):
 
     microscope, _ = utils.setup_session(manufacturer="Demo")
     calls, acquired = [], []
-    original_acquire = microscope.acquire_image
+    original_acquire = microscope.imaging.acquire
 
     def record(beam_type, reduced_area=None):
         calls.append(
@@ -566,8 +566,9 @@ def _contrast_calls(tmp_path, mode, centre=None):
         acquired.append(image)
         return image
 
-    microscope.autocontrast = record
-    microscope.acquire_image = acquire
+    # Tiles go through the imaging service (FIB-1261), so it is the seam.
+    microscope.imaging.autocontrast = record
+    microscope.imaging.acquire = acquire
     settings = _make_settings(2, 2, resolution=(128, 128))
     settings.autocontrast_mode = mode
     settings.image_settings.autocontrast = True  # the flag is not the switch
@@ -1048,14 +1049,14 @@ def test_a_stitched_overview_records_when_its_first_tile_was_acquired(tmp_path):
     settings.image_settings.path = str(tmp_path)
     settings.image_settings.filename = "ov"
     tiles = []
-    original = microscope.acquire_image
+    original = microscope.imaging.acquire
 
     def recording(*args, **kwargs):
         image = original(*args, **kwargs)
         tiles.append(image.metadata.acquisition_datetime)
         return image
 
-    microscope.acquire_image = recording
+    microscope.imaging.acquire = recording
     stitched = tiled_image_acquisition_and_stitch(microscope, settings)
 
     assert zone_known(stitched.metadata.acquisition_datetime)

@@ -271,6 +271,12 @@ class AutoLamellaAppContext:
         return getattr(self._host, "experiment", None)
 
     @property
+    def experiment_path(self) -> Optional[str]:
+        """The open experiment's folder, or None: where an agent may save."""
+        experiment = self._experiment
+        return str(experiment.path) if experiment is not None else None
+
+    @property
     def _manager(self):
         return getattr(self._host, "_task_manager", None)
 
@@ -1418,7 +1424,7 @@ class AutoLamellaAppContext:
         an event, and halting the mill/burn is an event plus the same hardware
         stop call the core server's ``stop_milling`` route already issues from
         this thread. Stopping is the safety action, so like ``stop_milling`` it
-        rides the read scope and never waits on the command lock.
+        never waits on the command lock.
         """
         host = self._host
         if not hasattr(host, "stop_task_workflow"):
@@ -1443,8 +1449,8 @@ class AutoLamellaAppContext:
         Marshalled to the GUI thread (which owns worker creation and window
         chrome); validation refusals come back structured with the valid
         names. ``item_names`` of None means every item in the experiment.
-        Control-scope arming is the consent that stands in for the Run
-        click's confirm dialog.
+        The agent at Drive is the consent that stands in for the Run click's
+        confirm dialog.
         """
         host = self._host
         if not hasattr(host, "request_start_workflow"):
@@ -1544,7 +1550,7 @@ class AutoLamellaAppContext:
 
         Marshalled to the GUI thread like :meth:`start_workflow`; shares its
         worker slot, so it is refused while any workflow — lamella or grid —
-        is running. Control-scope arming stands in for the preflight dialog's
+        is running. The agent at Drive stands in for the preflight dialog's
         Run click; :meth:`grid_workflow_plan` is that dialog's content.
         """
         host = self._host
@@ -2058,6 +2064,52 @@ class AutoLamellaAppContext:
         )
 
         return buffer_or_unavailable(self._event_buffer, since=since, timeout=timeout)
+
+    def event_history(
+        self, before: Optional[int] = None, limit: int = 500
+    ) -> Dict[str, Any]:
+        """The experiment's recorded events from before the live buffer, newest
+        page first: everything ``events`` no longer holds, read from the
+        experiment's events file, without the live progress records.
+
+        ``start`` is the file offset to pass back as ``before`` for the page
+        before this one; 0 when this page reaches the file's start.
+        """
+        from pathlib import Path
+
+        from fibsem.applications.autolamella.event_recording import (
+            EVENTS_FILENAME,
+            LIVE_KINDS,
+            read_events_before,
+        )
+
+        experiment = self._experiment
+        if experiment is None:
+            return {"available": False, "events": [], "start": 0}
+        path = Path(experiment.path) / EVENTS_FILENAME
+        if not path.is_file():
+            return {"available": True, "events": [], "start": 0}
+        # What the buffer still holds, `events` serves; leave it out here.
+        held = None
+        if self._event_buffer is not None:
+            first = self._event_buffer.events_since(0).get("events") or []
+            if first:
+                held = (first[0].get("session"), first[0].get("seq"))
+
+        def keep(record: Dict[str, Any]) -> bool:
+            if held is None or record.get("session") != held[0]:
+                return True
+            seq = record.get("seq")
+            return not isinstance(seq, int) or seq < held[1]
+
+        events, start = read_events_before(
+            path,
+            before=before,
+            limit=max(1, min(limit, 2000)),
+            skip_kinds=LIVE_KINDS,
+            keep=keep,
+        )
+        return {"available": True, "events": events, "start": start}
 
     # --- discovery --------------------------------------------------------------
 

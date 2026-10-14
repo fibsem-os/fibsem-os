@@ -63,3 +63,8 @@ class DriverSetup:
 
     simulated: bool = False
     """No instrument: nothing to reach, so the connection step has nothing to ask."""
+
+    devices: Tuple[Mapping[str, Any], ...] = ()
+    """Device entries in the configuration file's layout (``name`` and the keys to
+    set), merged by name into the written file's ``hardware.devices``: the values
+    every instrument of this driver has, such as each column's ``column_tilt``."""

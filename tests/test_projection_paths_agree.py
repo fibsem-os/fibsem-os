@@ -6,7 +6,7 @@ their own copy of the trigonometry that recovers an in-image y-displacement from
 stage movement. Three copies of one decision, kept consistent only by everyone
 remembering to edit all three -- and they had already drifted (FIB-500).
 
-Both now defer to `transformations.inverse_view_corrected_dy`. These tests are what makes
+Both now defer to `fibsem.geometry.movement.inverse_view_corrected_dy`. These tests are what makes
 that worth having: they fail if a copy ever comes back, and they pin the reachability
 argument that lets the drift be closed without a hardware check.
 
@@ -23,6 +23,7 @@ import numpy as np
 import pytest
 
 from fibsem import utils
+from fibsem.geometry.movement import inverse_view_corrected_dy
 from fibsem.imaging.tiling.reprojection import _inverse_y_corrected_stage_movement
 from fibsem.structures import (
     BeamType,
@@ -30,7 +31,6 @@ from fibsem.structures import (
     FibsemStagePosition,
     ImageSettings,
 )
-from fibsem.transformations import inverse_view_corrected_dy
 
 # Poses worth asking about, in degrees. The configured orientations plus the two the
 # geometry is exact at, because a sweep of round numbers misses -128 and -23 entirely.

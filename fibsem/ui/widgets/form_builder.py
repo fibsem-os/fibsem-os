@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import inspect
 import logging
+import math
 import re
 from dataclasses import dataclass, replace
 from dataclasses import field as dataclass_field
@@ -214,7 +215,13 @@ def runtime_overrides(
     limits = reported.limits
     if isinstance(limits, Mapping):
         limits = limits.get(field)
-    if isinstance(limits, RangeLimit):
+    # unbounded limits (a driver that doesn't know its range) keep the declared range,
+    # since a spin box can't show an infinite range
+    if (
+        isinstance(limits, RangeLimit)
+        and math.isfinite(limits.min)
+        and math.isfinite(limits.max)
+    ):
         scale = effective_scale(metadata) or 1
         metadata["minimum"], metadata["maximum"] = sorted(
             (limits.min * scale, limits.max * scale)

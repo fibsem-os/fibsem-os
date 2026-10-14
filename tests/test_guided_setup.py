@@ -357,8 +357,8 @@ def test_the_generic_base_takes_its_manufacturer_from_the_first_step():
     assert config["info"]["manufacturer"] == "ThermoFisher"
 
 
-def test_every_shipped_file_already_agrees_with_its_manufacturers_column_tilts():
-    """``build_configuration`` applies the manufacturer's column tilts unconditionally.
+def test_every_shipped_file_already_agrees_with_its_drivers_column_tilts():
+    """``build_configuration`` applies the driver's column tilts unconditionally.
 
     That is only safe because it is a no-op for every shipped file. If one ever
     disagreed, the wizard would silently overwrite a value someone chose deliberately
@@ -369,21 +369,35 @@ def test_every_shipped_file_already_agrees_with_its_manufacturers_column_tilts()
 
     for model in wizard.microscope_models():
         shipped = utils.load_yaml(model.path)
-        defaults = cfg.DEFAULT_CONFIGURATION_VALUES[model.manufacturer.config_value]
+        tilts = {d["name"]: d["column_tilt"] for d in model.manufacturer.devices}
         built = wizard.build_configuration(
             wizard.SetupChoices(
                 manufacturer_key=model.manufacturer_key, model_key=model.key
             )
         )
-        assert _device(built, "ion")["column_tilt"] == defaults["ion-column-tilt"], (
-            model.key
-        )
+        assert _device(built, "ion")["column_tilt"] == tilts["ion"], model.key
+        assert _device(built, "electron")["column_tilt"] == tilts["electron"], model.key
         # The generic base is the one file deliberately allowed to differ, because it
         # is a Demo configuration standing in for someone else's instrument.
         if model.filename != "microscope-configuration.yaml":
-            assert (
-                _device(shipped, "ion")["column_tilt"] == defaults["ion-column-tilt"]
-            ), model.key
+            assert _device(shipped, "ion")["column_tilt"] == tilts["ion"], model.key
+
+
+def test_a_drivers_device_values_are_merged_into_the_file_by_name(monkeypatch):
+    """A device the shipped file lacks is added; one it has keeps its other keys."""
+    import dataclasses
+
+    manufacturer = dataclasses.replace(
+        wizard.get_manufacturer("Demo"),
+        devices=({"name": "ion", "column_tilt": 54}, {"name": "laser", "power": 1}),
+    )
+    monkeypatch.setattr(
+        wizard.SetupChoices, "manufacturer", property(lambda self: manufacturer)
+    )
+    config = wizard.build_configuration(wizard.SetupChoices(model_key="sim-demo"))
+    assert _device(config, "ion")["column_tilt"] == 54
+    assert "eucentric_height" in _device(config, "ion")
+    assert _device(config, "laser")["power"] == 1
 
 
 def test_a_recognised_model_keeps_its_own_column_tilt():

@@ -17,6 +17,10 @@ SETUP = DriverSetup(
     control_software="xT",
     api_module="autoscript_sdb_microscope_client",
     api_label="AutoScript",
+    devices=(
+        {"name": "ion", "column_tilt": 52},
+        {"name": "electron", "column_tilt": 0},
+    ),
     models=(
         # A compustage reaches the other side of the sample by tilting, with no
         # shuttle pre-tilt, so its configuration's stage values hold for every one.

@@ -1,6 +1,6 @@
-"""The server's /devices routes (every device in microscope.devices) and its beam
-settings routes, behind the server's token, scopes and command slot; and
-FibsemClient over them.
+"""The server's /microscope/devices routes (every device in microscope.devices),
+behind the server's token, level and control of the microscope; and FibsemClient
+over them.
 
 Skipped when the [server] extra is not installed.
 """
@@ -50,9 +50,7 @@ def read_client(microscope):
 
 @pytest.fixture(scope="module")
 def armed_client(microscope):
-    app = build_server(
-        microscope, auth=AuthConfig.generate(arm_hardware=True, token=TOKEN)
-    )
+    app = build_server(microscope, auth=AuthConfig.generate(level="drive", token=TOKEN))
     with TestClient(app, raise_server_exceptions=False) as client:
         client.headers.update(AUTH)
         yield client
@@ -79,10 +77,10 @@ def fibsem_client(armed_client):
 
 
 def test_lists_every_device_the_microscope_built(read_client, microscope):
-    resp = read_client.get("/devices")
+    resp = read_client.get("/microscope/devices")
     assert resp.status_code == 200
     body = resp.json()
-    assert set(body) == set(microscope.devices) - {"chamber"}
+    assert set(body) == set(microscope.devices)
     assert "current" in body["ion"]["parameters"]
     assert "move_relative" in body["stage"]["commands"]
 
@@ -90,31 +88,33 @@ def test_lists_every_device_the_microscope_built(read_client, microscope):
 def test_device_routes_need_the_token(microscope):
     app = build_server(microscope, auth=AuthConfig(token=TOKEN))
     with TestClient(app, raise_server_exceptions=False) as client:
-        assert client.get("/devices").status_code == 401
-        assert client.get("/devices/ion/current").status_code == 401
+        assert client.get("/microscope/devices").status_code == 401
+        assert client.get("/microscope/devices/ion/current").status_code == 401
 
 
-def test_read_is_read_scope(read_client, microscope):
-    resp = read_client.get("/devices/ion/current")
+def test_read_works_at_watch(read_client, microscope):
+    resp = read_client.get("/microscope/devices/ion/current")
     assert resp.status_code == 200
     assert resp.json()["value"] == microscope.get_beam_current(BeamType.ION)
 
 
-def test_write_is_refused_until_hardware_is_armed(read_client):
-    resp = read_client.put("/devices/electron/hfw", json={"value": 100e-6})
+def test_write_is_refused_below_drive(read_client):
+    resp = read_client.put("/microscope/devices/electron/hfw", json={"value": 100e-6})
     assert resp.status_code == 403
-    assert resp.json()["detail"]["error_type"] == "scope_not_armed"
+    assert resp.json()["detail"]["error_type"] == "level"
 
 
 def test_write_when_armed_reaches_the_device(armed_client, microscope):
-    resp = armed_client.put("/devices/electron/hfw", json={"value": 120e-6})
+    resp = armed_client.put("/microscope/devices/electron/hfw", json={"value": 120e-6})
     assert resp.status_code == 200
     assert microscope.get_field_of_view(BeamType.ELECTRON) == pytest.approx(120e-6)
 
 
 def test_write_takes_control(armed_client, microscope):
     with microscope.control.take("workflow", "a lamellae run"):
-        resp = armed_client.put("/devices/electron/hfw", json={"value": 100e-6})
+        resp = armed_client.put(
+            "/microscope/devices/electron/hfw", json={"value": 100e-6}
+        )
     assert resp.status_code == 409
     detail = resp.json()["detail"]
     assert detail["error_type"] == "microscope_busy"
@@ -122,39 +122,46 @@ def test_write_takes_control(armed_client, microscope):
 
 
 def test_metadata_answers_choices(read_client, microscope):
-    resp = read_client.get("/devices/ion/current/metadata")
+    resp = read_client.get("/microscope/devices/ion/current/metadata")
     assert resp.status_code == 200
     choices = microscope.beams[BeamType.ION].parameters["current"].choices
     assert resp.json()["choices"] == list(choices)
 
 
 def test_unknown_device_or_parameter_is_404(read_client):
-    assert read_client.get("/devices/nope/current").status_code == 404
-    assert read_client.get("/devices/ion/nope").status_code == 404
+    assert read_client.get("/microscope/devices/nope/current").status_code == 404
+    assert read_client.get("/microscope/devices/ion/nope").status_code == 404
 
 
-def test_command_is_hardware_scope(read_client):
-    resp = read_client.post("/devices/ion/commands/blank", json={})
+def test_command_needs_drive(read_client):
+    resp = read_client.post("/microscope/devices/ion/commands/blank", json={})
     assert resp.status_code == 403
 
 
-def test_the_chamber_is_not_served(read_client, armed_client, microscope):
-    # Pumping and venting are the operator's, at the microscope: the chamber
-    # is not served at all, whatever is armed.
-    assert "chamber" in microscope.devices
-    assert "chamber" not in read_client.get("/devices").json()
-    assert read_client.get("/devices/chamber/state").status_code == 404
+def test_the_chamber_is_read_but_never_pumped_or_vented(read_client, armed_client):
+    # Pumping and venting are the operator's, at the microscope: the allowlist
+    # refuses them whatever is armed. State and pressure are reads.
+    chamber = read_client.get("/microscope/devices").json()["chamber"]
+    assert {"state", "pressure"} <= set(chamber["parameters"])
+    assert read_client.get("/microscope/devices/chamber/state").status_code == 200
     for command in ("vent", "pump"):
-        resp = armed_client.post(f"/devices/chamber/commands/{command}", json={})
-        assert resp.status_code == 404
+        resp = armed_client.post(
+            f"/microscope/devices/chamber/commands/{command}", json={}
+        )
+        assert resp.status_code == 403
+        assert resp.json()["detail"]["error_type"] == "not_allowed"
 
 
-def test_stop_commands_pass_with_read_scope_whoever_is_in_control(
-    read_client, microscope
-):
-    # Like /stop_milling: a stop must reach a device whoever is in control.
-    with microscope.control.take("workflow", "a lamellae run"):
-        resp = read_client.post("/devices/electron/commands/stop_live", json={})
+def test_a_stop_reaches_a_device_whoever_is_in_control(read_client, microscope):
+    # A stop must reach a device whoever is in control; one the agent didn't
+    # start needs Drive, and every stop a reason.
+    stop = "/microscope/devices/electron/commands/stop_live"
+    why = {"reason": "live view left running"}
+    assert read_client.post(stop, json=why).status_code == 403
+    app = build_server(microscope, auth=AuthConfig.generate(level="drive", token=TOKEN))
+    with TestClient(app, raise_server_exceptions=False) as client:
+        with microscope.control.take("workflow", "a lamellae run"):
+            resp = client.post(stop, headers=AUTH, json=why)
     assert resp.status_code == 200
 
 
@@ -164,36 +171,14 @@ def test_acquire_command_answers_a_tiff(fibsem_client):
     assert image.data.ndim == 2
 
 
-def test_beam_settings_get_and_put(armed_client):
-    resp = armed_client.get("/beams/ion/beam_settings")
-    assert resp.status_code == 200
-    settings = resp.json()["beam_settings"]
-    assert settings["beam_type"] == "ION"
-    resp = armed_client.put(
-        "/beams/ion/beam_settings", json={"beam_settings": settings}
-    )
-    assert resp.status_code == 200
-
-
-def test_beam_settings_put_is_hardware_scope(read_client):
-    settings = read_client.get("/beams/electron/beam_settings").json()
-    resp = read_client.put("/beams/electron/beam_settings", json=settings)
-    assert resp.status_code == 403
-
-
-def test_unknown_beam_is_422(read_client):
-    resp = read_client.get("/beams/proton/beam_settings")
-    assert resp.status_code == 422
-    assert resp.json()["detail"]["parameter"] == "beam_type"
-
-
 def test_a_move_past_the_stage_limits_is_refused_not_a_500(armed_client, microscope):
-    """The microscope routes refuse as the device routes do: a 4xx in the one
-    refusal shape, not a 500 (FIB-1377)."""
+    """A stage move refuses as every device and service route does: a 4xx in the
+    one refusal shape, not a 500 (FIB-1377)."""
     before = microscope.stage.position.get_value()
     target = FibsemStagePosition(x=before.x, y=1.0, z=before.z, r=before.r, t=before.t)
     resp = armed_client.post(
-        "/move_stage_absolute", json={"position": target.to_dict()}
+        "/microscope/services/stage_movement/commands/move_absolute",
+        json={"kwargs": {"position": target.to_dict()}},
     )
     assert resp.status_code == 422, resp.text
     detail = resp.json()["detail"]
@@ -226,8 +211,6 @@ def test_client_settings_round_trip(fibsem_client):
         fibsem_client.set_imaging_settings(image_settings)
         detector = fibsem_client.get_detector_settings(beam_type)
         fibsem_client.set_detector_settings(detector, beam_type)
-        system = fibsem_client.get_beam_system_settings(beam_type)
-        fibsem_client.set_beam_system_settings(system)
     state = fibsem_client.get_microscope_state()
     fibsem_client.set_microscope_state(state)
 
@@ -240,9 +223,8 @@ def test_client_parameter_metadata_and_list(fibsem_client):
 @pytest.mark.parametrize(
     "path, body",
     [
-        ("/acquire_image", {"beam_type": "ION"}),
-        ("/acquire_image_preview", {"beam_type": "ION"}),
-        ("/devices/ion/commands/acquire", {}),
+        ("/microscope/devices/ion/commands/acquire", {}),
+        ("/microscope/devices/ion/commands/acquire", {"answer": "preview"}),
     ],
 )
 def test_an_acquired_image_reaches_the_apps_views(armed_client, microscope, path, body):

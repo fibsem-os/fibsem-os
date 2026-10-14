@@ -15,7 +15,7 @@ Register with Claude Code:
 
     claude mcp add -s user fibsem -- fibsem-mcp
     # or explicitly:
-    claude mcp add -s user fibsem -- fibsem-mcp --url http://hydra-support:8001 --token <token>
+    claude mcp add -s user fibsem -- fibsem-mcp --url http://microscope-pc:8001 --token <token>
 
 Requires the [mcp] extra (Python 3.10+): pip install fibsem[mcp]
 
@@ -33,7 +33,7 @@ import sys
 from typing import Any, Optional, Tuple
 from urllib.parse import quote, urlencode
 
-from fibsem.server.catalog import CATALOG, tools_for_capabilities
+from fibsem.server.catalog import CATALOG, route_call, tools_for_capabilities
 
 _TIMEOUT_S = 120.0  # acquisitions and moves on real hardware are slow
 
@@ -208,8 +208,7 @@ def _call(client, method, path, payload=None):
     try:
         return resp.json(), None
     except ValueError:
-        # An image or array from a device command: nothing an agent can read as
-        # text. The preview tools are how an agent looks at an image.
+        # Data no tool asked for as a preview: nothing an agent can read as text.
         return None, (
             f"answered {len(resp.content)} bytes that are not JSON; "
             "use acquire_image_preview to see images"
@@ -247,15 +246,13 @@ def build_sidecar(client, capabilities):
 
     ``capabilities`` is the full /capabilities payload; a tool registers when
     its router is mounted (an app tool exists only when the server hosts an
-    application), whatever the agent's level; on a bench server, which has no
-    level, hardware tools only when the hardware scope is armed. The server
-    enforces regardless.
+    application), whatever the agent's level. The server enforces the level.
     """
     from mcp.server.mcpserver import Image, MCPServer
 
     mcp = MCPServer("fibsem")
     _name_the_client(mcp, client)
-    armed = {t.name for t in tools_for_capabilities(capabilities)}
+    offered = {t.name for t in tools_for_capabilities(capabilities)}
     by_name = {t.name: t for t in CATALOG}
 
     def _json_tool(name, payload_fn=None):
@@ -268,17 +265,21 @@ def build_sidecar(client, capabilities):
 
         return spec, tool
 
-    def _image_tool(name):
-        spec = by_name[name]
+    def _route(name, **arguments):
+        """Call a tool's route as the catalog maps its arguments: (data, err)."""
+        try:
+            method, path, body = route_call(by_name[name], arguments)
+        except ValueError as exc:
+            return None, f"refused: {exc}"
+        return _call(client, method, path, body)
 
-        def tool(beam_type="ELECTRON"):
-            data, err = _call(client, spec.method, spec.path, {"beam_type": beam_type})
-            if err:
-                return err
-            jpeg = base64.b64decode(data.pop("image_b64_jpeg"))
-            return [json.dumps(data), Image(data=jpeg, format="jpeg")]
-
-        return spec, tool
+    def _routed(name, key=None, **arguments):
+        """A routed tool's answer, its route's result under *key* when given; an
+        image in it (a command answered with a preview) as MCP image content."""
+        data, err = _route(name, **arguments)
+        if err:
+            return err
+        return _with_images({key: data["result"]} if key else data)
 
     def _with_images(data):
         """Move every base64 preview in *data* out into MCP image content.
@@ -315,7 +316,8 @@ def build_sidecar(client, capabilities):
         return _json_tool("get_system_info")[1]()
 
     def get_stage_position():
-        return _json_tool("get_stage_position")[1]()
+        data, err = _call(client, "GET", by_name["get_stage_position"].path)
+        return err if err else {"position": data["value"]}
 
     def _service_call(name, kwargs, key):
         """A stage movement query or command as a named tool: *key* holds its result."""
@@ -332,160 +334,128 @@ def build_sidecar(client, capabilities):
         return _service_call("get_milling_angle", {}, "milling_angle_deg")
 
     def get_milling_state():
-        return _json_tool("get_milling_state")[1]()
+        data, err = _call(client, "GET", by_name["get_milling_state"].path)
+        return err if err else {"state": data["value"]}
 
     def estimate_milling_time():
-        return _json_tool("estimate_milling_time")[1]()
+        return _service_call("estimate_milling_time", {}, "seconds")
 
-    def stop_milling():
-        return _json_tool("stop_milling")[1]()
+    def stop_milling(reason: str):
+        data, err = _route("stop_milling", reason=reason)
+        return err if err else {"status": "ok"}
 
-    def acquire_image_preview(beam_type: str = "ELECTRON"):
-        return _image_tool("acquire_image_preview")[1](beam_type=beam_type)
+    def acquire_image_preview(
+        beam_type: str = "ELECTRON", image_settings: Optional[dict] = None
+    ):
+        data, err = _route(
+            "acquire_image_preview", beam_type=beam_type, image_settings=image_settings
+        )
+        return err if err else _with_images(data["result"])
 
     def move_stage_relative(dx: float = 0.0, dy: float = 0.0, dz: float = 0.0):
-        position = {
-            "name": None,
-            "x": dx,
-            "y": dy,
-            "z": dz,
-            "r": 0.0,
-            "t": 0.0,
-            "coordinate_system": "RAW",
-        }
-        data, err = _call(
-            client, "POST", "/move_stage_relative", {"position": position}
-        )
-        return err if err else data
+        return _routed("move_stage_relative", "position", dx=dx, dy=dy, dz=dz)
 
     def move_stage_absolute(x: float, y: float, z: float, r: float, t: float):
-        position = {
-            "name": None,
-            "x": x,
-            "y": y,
-            "z": z,
-            "r": r,
-            "t": t,
-            "coordinate_system": "RAW",
-        }
-        data, err = _call(
-            client, "POST", "/move_stage_absolute", {"position": position}
-        )
-        return err if err else data
+        return _routed("move_stage_absolute", "position", x=x, y=y, z=z, r=r, t=t)
 
     def stable_move(dx: float, dy: float, beam_type: str = "ELECTRON"):
-        data, err = _call(
-            client,
-            "POST",
-            "/stable_move",
-            {"dx": float(dx), "dy": float(dy), "beam_type": str(beam_type)},
-        )
-        return err if err else data
+        return _routed("stable_move", "position", dx=dx, dy=dy, beam_type=beam_type)
 
     def vertical_move(dy: float, dx: float = 0.0):
-        data, err = _call(
-            client, "POST", "/vertical_move", {"dy": float(dy), "dx": float(dx)}
-        )
-        return err if err else data
+        return _routed("vertical_move", "position", dy=dy, dx=dx)
 
     def move_to_orientation(orientation: str):
-        data, err = _call(
-            client, "POST", "/move_to_orientation", {"orientation": str(orientation)}
-        )
-        return err if err else data
+        return _routed("move_to_orientation", "position", orientation=orientation)
 
     def safe_move_stage_absolute(x: float, y: float, z: float, r: float, t: float):
-        position = {
-            "name": None,
-            "x": x,
-            "y": y,
-            "z": z,
-            "r": r,
-            "t": t,
-            "coordinate_system": "RAW",
-        }
-        data, err = _call(
-            client, "POST", "/safe_absolute_stage_movement", {"position": position}
-        )
-        return err if err else data
+        return _routed("safe_move_stage_absolute", "position", x=x, y=y, z=z, r=r, t=t)
 
-    def move_to_milling_angle(milling_angle_deg: float):
-        # The tool speaks degrees; the stage movement command takes radians (FIB-853).
-        kwargs = {"milling_angle": math.radians(milling_angle_deg)}
-        return _service_call("move_to_milling_angle", kwargs, "success")
+    def move_to_milling_angle(
+        milling_angle_deg: float, rotation_deg: Optional[float] = None
+    ):
+        return _routed(
+            "move_to_milling_angle",
+            "success",
+            milling_angle_deg=milling_angle_deg,
+            rotation_deg=rotation_deg,
+        )
 
     def list_devices():
         return _json_tool("list_devices")[1]()
 
     def get_parameter(device: str, parameter: str):
-        data, err = _call(client, "GET", f"/devices/{device}/{parameter}")
-        return err if err else data
+        return _routed("get_parameter", device=device, parameter=parameter)
 
     def set_parameter(device: str, parameter: str, value: Any):
-        data, err = _call(
-            client, "PUT", f"/devices/{device}/{parameter}", {"value": value}
-        )
-        return err if err else data
+        return _routed("set_parameter", device=device, parameter=parameter, value=value)
 
-    def call_command(device: str, command: str, kwargs: Optional[dict] = None):
-        data, err = _call(
-            client,
-            "POST",
-            f"/devices/{device}/commands/{command}",
-            {"kwargs": dict(kwargs or {})},
+    def call_command(
+        device: str,
+        command: str,
+        kwargs: Optional[dict] = None,
+        reason: Optional[str] = None,
+    ):
+        return _routed(
+            "call_command", device=device, command=command, kwargs=kwargs, reason=reason
         )
-        return err if err else data
 
     def list_services():
         return _json_tool("list_services")[1]()
 
     def get_service_parameter(service: str, parameter: str):
-        data, err = _call(client, "GET", f"/services/{service}/{parameter}")
-        return err if err else data
+        return _routed("get_service_parameter", service=service, parameter=parameter)
 
-    def call_service_command(service: str, command: str, kwargs: Optional[dict] = None):
-        data, err = _call(
-            client,
-            "POST",
-            f"/services/{service}/commands/{command}",
-            {"kwargs": dict(kwargs or {})},
+    def set_service_parameter(service: str, parameter: str, value: Any):
+        return _routed(
+            "set_service_parameter", service=service, parameter=parameter, value=value
         )
-        return err if err else data
+
+    def call_service_command(
+        service: str,
+        command: str,
+        kwargs: Optional[dict] = None,
+        reason: Optional[str] = None,
+    ):
+        return _routed(
+            "call_service_command",
+            service=service,
+            command=command,
+            kwargs=kwargs,
+            reason=reason,
+        )
 
     def call_service_query(service: str, query: str, kwargs: Optional[dict] = None):
-        data, err = _call(
-            client,
-            "POST",
-            f"/services/{service}/queries/{query}",
-            {"kwargs": dict(kwargs or {})},
+        return _routed(
+            "call_service_query", service=service, query=query, kwargs=kwargs
         )
-        return err if err else data
 
     def autocontrast(beam_type: str = "ELECTRON"):
-        data, err = _call(client, "POST", "/autocontrast", {"beam_type": beam_type})
-        return err if err else data
+        return _routed("autocontrast", beam_type=beam_type)
+
+    def auto_focus(beam_type: str = "ELECTRON"):
+        return _routed("auto_focus", "result", beam_type=beam_type)
 
     def _app_get(path):
         data, err = _call(client, "GET", path)
         return err if err else data
 
     def get_app_status():
-        return _app_get("/app/status")
+        return _app_get("/app/workflow/status")
 
     def get_app_queue():
-        return _app_get("/app/queue")
+        return _app_get("/app/workflow/queue")
 
     def get_experiment_summary():
-        return _app_get("/app/experiment_summary")
+        return _app_get("/app/experiment")
 
     def get_task_history():
-        return _app_get("/app/task_history")
+        return _app_get("/app/experiment/task_history")
 
     def get_run_summary():
-        return _app_get("/app/run_summary")
+        return _app_get("/app/workflow/run_summary")
 
     def get_protocol():
-        return _app_get("/app/protocol")
+        return _app_get("/app/experiment/protocol")
 
     def get_log(
         task_id: Optional[str] = None,
@@ -506,14 +476,12 @@ def build_sidecar(client, capabilities):
         )
 
     def get_task_outputs(item_name: str):
-        return _app_get(f"/app/task_outputs/{item_name}")
+        return _app_get(f"/app/experiment/items/{item_name}/outputs")
 
     def get_item_output_image(item_name: str, filename: str):
         # The route answers image/jpeg for the dashboard's <img>, so this reads
         # the bytes itself rather than through _call. Basenames carry spaces.
-        path = (
-            f"/app/items/{quote(item_name, safe='')}/outputs/{quote(filename, safe='')}"
-        )
+        path = f"/app/experiment/items/{quote(item_name, safe='')}/outputs/{quote(filename, safe='')}"
         resp = client.request("GET", path)
         if resp.status_code >= 400:
             return _refusal(resp)
@@ -521,22 +489,31 @@ def build_sidecar(client, capabilities):
         return [json.dumps(meta), Image(data=resp.content, format="jpeg")]
 
     def get_item_detail(item_name: str):
-        return _app_get(f"/app/items/{item_name}")
+        return _app_get(f"/app/experiment/items/{item_name}")
 
     def get_grids():
-        return _app_get("/app/grids")
+        return _app_get("/app/experiment/grids")
 
     def get_grid_detail(grid_name: str):
-        return _app_get(f"/app/grids/{grid_name}")
+        return _app_get(f"/app/experiment/grids/{grid_name}")
+
+    def get_grid_output_image(grid_name: str, filename: str):
+        # A JPEG, like an item's output image.
+        path = f"/app/experiment/grids/{quote(grid_name, safe='')}/outputs/{quote(filename, safe='')}"
+        resp = client.request("GET", path)
+        if resp.status_code >= 400:
+            return _refusal(resp)
+        meta = {"grid_name": grid_name, "filename": filename}
+        return [json.dumps(meta), Image(data=resp.content, format="jpeg")]
 
     def get_grid_markers(grid_name: str, filename: str):
-        return _app_get(f"/app/grids/{grid_name}/outputs/{filename}/markers")
+        return _app_get(f"/app/experiment/grids/{grid_name}/outputs/{filename}/markers")
 
     def get_protocol_task_config(task_name: str):
-        return _app_get(f"/app/protocol/task_config/{task_name}")
+        return _app_get(f"/app/experiment/protocol/task_config/{task_name}")
 
     def get_item_task_config(item_name: str, task_name: str):
-        return _app_get(f"/app/items/{item_name}/task_config/{task_name}")
+        return _app_get(f"/app/experiment/items/{item_name}/task_config/{task_name}")
 
     def add_note(text: str, item_name=None):
         data, err = _call(
@@ -563,7 +540,7 @@ def build_sidecar(client, capabilities):
         data, err = _call(
             client,
             "POST",
-            f"/app/items/{item_name}/apply_protocol",
+            f"/app/experiment/items/{item_name}/apply_protocol",
             {"task_names": list(task_names) if task_names else None},
         )
         return err if err else data
@@ -574,7 +551,7 @@ def build_sidecar(client, capabilities):
         data, err = _call(
             client,
             "POST",
-            f"/app/items/{item_name}/task_config/{task_name}/stages/reorder",
+            f"/app/experiment/items/{item_name}/task_config/{task_name}/stages/reorder",
             {"milling_key": milling_key, "order": list(order), "version": version},
         )
         return err if err else data
@@ -585,7 +562,7 @@ def build_sidecar(client, capabilities):
         data, err = _call(
             client,
             "POST",
-            f"/app/protocol/task_config/{task_name}/stages/reorder",
+            f"/app/experiment/protocol/task_config/{task_name}/stages/reorder",
             {"milling_key": milling_key, "order": list(order), "version": version},
         )
         return err if err else data
@@ -603,7 +580,7 @@ def build_sidecar(client, capabilities):
         data, err = _call(
             client,
             "POST",
-            f"/app/items/{item_name}",
+            f"/app/experiment/items/{item_name}",
             {"patch": dict(patch), "version": str(version)},
         )
         return err if err else data
@@ -612,7 +589,7 @@ def build_sidecar(client, capabilities):
         data, err = _call(
             client,
             "POST",
-            f"/app/protocol/task_config/{task_name}",
+            f"/app/experiment/protocol/task_config/{task_name}",
             {"patch": dict(patch), "version": str(version)},
         )
         return err if err else data
@@ -623,19 +600,19 @@ def build_sidecar(client, capabilities):
         data, err = _call(
             client,
             "POST",
-            f"/app/items/{item_name}/task_config/{task_name}",
+            f"/app/experiment/items/{item_name}/task_config/{task_name}",
             {"patch": dict(patch), "version": str(version)},
         )
         return err if err else data
 
     def list_recent_experiments():
-        return _app_get("/app/recent_experiments")
+        return _app_get("/app/experiment/recent")
 
     def get_events(since: int = 0, timeout: float = 0.0):
         return _app_get(f"/app/events?since={since}&timeout={timeout}")
 
-    def stop_workflow():
-        data, err = _call(client, "POST", "/app/workflow/stop", None)
+    def stop_workflow(reason: str):
+        data, err = _call(client, "POST", "/app/workflow/stop", {"reason": reason})
         return err if err else data
 
     def start_workflow(task_names: list, item_names: list = None):  # noqa: RUF013
@@ -670,20 +647,20 @@ def build_sidecar(client, capabilities):
 
     def set_task_supervision(task_name: str, supervise: bool):
         payload = {"task_name": task_name, "supervise": bool(supervise)}
-        data, err = _call(client, "POST", "/app/supervision", payload)
+        data, err = _call(client, "POST", "/app/agent/supervision", payload)
         return err if err else data
 
     def requeue_task(item_name: str, task_name: str, front: bool = False):
         data, err = _call(
             client,
             "POST",
-            "/app/queue/requeue",
+            "/app/workflow/queue/requeue",
             {"item_name": item_name, "task_name": task_name, "front": bool(front)},
         )
         return err if err else data
 
     def get_display_images():
-        data, err = _call(client, "GET", "/app/images", None)
+        data, err = _call(client, "GET", "/app/experiment/images", None)
         if err:
             return err
         # The previews travel as MCP images so the agent sees them directly;
@@ -699,11 +676,11 @@ def build_sidecar(client, capabilities):
         return content
 
     def get_pending_prompt():
-        data, err = _call(client, "GET", "/app/prompt")
+        data, err = _call(client, "GET", "/app/workflow/prompt")
         return err if err else _with_images(data)
 
     def get_pending_reviews():
-        data, err = _call(client, "GET", "/app/reviews")
+        data, err = _call(client, "GET", "/app/workflow/reviews")
         return err if err else _with_images(data)
 
     def decide_review(
@@ -731,7 +708,7 @@ def build_sidecar(client, capabilities):
             body["task_id"] = str(task_id)
         if values is not None:
             body["values"] = dict(values)
-        data, err = _call(client, "POST", "/app/decide", body)
+        data, err = _call(client, "POST", "/app/workflow/decide", body)
         return err if err else data
 
     def suggest_answer(
@@ -744,14 +721,14 @@ def build_sidecar(client, capabilities):
         }
         if value is not None:
             body["value"] = dict(value)
-        data, err = _call(client, "POST", "/app/prompt/suggest", body)
+        data, err = _call(client, "POST", "/app/workflow/prompt/suggest", body)
         return err if err else data
 
     def answer_prompt(response: bool, question_id: int, value: Optional[dict] = None):
         body = {"response": bool(response), "question_id": int(question_id)}
         if value is not None:
             body["value"] = dict(value)
-        data, err = _call(client, "POST", "/app/prompt/answer", body)
+        data, err = _call(client, "POST", "/app/workflow/prompt/answer", body)
         return err if err else data
 
     implementations = {
@@ -780,9 +757,11 @@ def build_sidecar(client, capabilities):
             call_command,
             list_services,
             get_service_parameter,
+            set_service_parameter,
             call_service_command,
             call_service_query,
             autocontrast,
+            auto_focus,
             get_app_status,
             get_app_queue,
             get_experiment_summary,
@@ -795,6 +774,7 @@ def build_sidecar(client, capabilities):
             get_item_detail,
             get_grids,
             get_grid_detail,
+            get_grid_output_image,
             get_grid_markers,
             get_protocol_task_config,
             get_item_task_config,
@@ -831,7 +811,7 @@ def build_sidecar(client, capabilities):
         raise RuntimeError(f"sidecar is missing implementations for: {sorted(missing)}")
 
     for name, fn in implementations.items():
-        if name in armed:
+        if name in offered:
             mcp.add_tool(fn, name=name, description=by_name[name].full_description)
     return mcp
 

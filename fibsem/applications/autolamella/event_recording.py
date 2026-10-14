@@ -233,6 +233,86 @@ def read_new_events(
     return records, offset + end + 1
 
 
+# The records that report a moment rather than a step: progress and live
+# acquisition, several a second while milling or imaging. A run's history
+# leaves them out.
+LIVE_KINDS = frozenset(
+    {
+        "milling_progress",
+        "spot_burn_progress",
+        "fm_acquisition_progress",
+        "tiled_acquisition",
+        "stage_position_changed",
+        "sem_acquisition",
+        "fib_acquisition",
+    }
+)
+
+_CHUNK = 1 << 20
+
+
+def read_events_before(
+    path: Path,
+    before: Optional[int] = None,
+    limit: int = 500,
+    skip_kinds: Iterable[str] = (),
+    keep: Optional[Callable[[Dict[str, Any]], bool]] = None,
+) -> Tuple[List[Dict[str, Any]], int]:
+    """Up to *limit* records ending before byte *before* (the end of the file
+    when None), oldest first, and the offset of the first line read: pass it
+    back as *before* for the page before this one. 0 means the file's start.
+
+    Reads backwards a chunk at a time, so a page near the end of a long run's
+    file costs what it returns, not the whole file. A final line without its
+    newline is a write in progress and is left out. Lines of *skip_kinds* are
+    dropped without being parsed, and so are records *keep* says no to.
+    """
+    needles = [b'"kind": ' + json.dumps(kind).encode() for kind in skip_kinds]
+    found: List[Dict[str, Any]] = []
+    with open(path, "rb") as f:
+        size = f.seek(0, 2)
+        pos = size if before is None else min(max(before, 0), size)
+        if before is None:
+            # Only up to the last complete line: a torn one is still being written.
+            f.seek(max(0, pos - _CHUNK))
+            tail = f.read(pos - max(0, pos - _CHUNK))
+            pos -= len(tail) - (tail.rfind(b"\n") + 1)
+        head = b""  # the start of a line whose beginning is not read yet
+        while pos > 0:
+            start = max(0, pos - _CHUNK)
+            f.seek(start)
+            buf = f.read(pos - start) + head
+            pos = start
+            cut = buf.find(b"\n") + 1 if start > 0 else 0
+            if start > 0 and cut == 0:
+                head = buf  # one line longer than a chunk
+                continue
+            head, body = buf[:cut], buf[cut:]
+            line_start = start + cut + len(body)
+            for line in reversed(body.split(b"\n")[:-1]):
+                line_start -= len(line) + 1
+                record = _parse_line(line, needles)
+                if record is not None and (keep is None or keep(record)):
+                    found.append(record)
+                    if len(found) >= limit:
+                        found.reverse()
+                        return found, line_start
+    found.reverse()
+    return found, 0
+
+
+def _parse_line(line: bytes, skip_needles: List[bytes]) -> Optional[Dict[str, Any]]:
+    if not line.strip() or any(
+        needle + b"," in line or needle + b"}" in line for needle in skip_needles
+    ):
+        return None
+    try:
+        record = json.loads(line)
+    except ValueError:
+        return None
+    return record if isinstance(record, dict) else None
+
+
 def milling_run_of(payload: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
     """A milling event's run id and milling task name: ``milling_run_id`` and
     ``milling_task_name``, or ``task_id`` and ``task_name`` in a file recorded

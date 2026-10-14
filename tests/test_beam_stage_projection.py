@@ -28,10 +28,10 @@ import pytest
 
 from fibsem import config as cfg
 from fibsem import utils
+from fibsem.geometry.projection import BeamStageProjection, surface_foreshortening
 from fibsem.imaging.tiling.reprojection import (
     reproject_stage_positions_onto_image2,
 )
-from fibsem.projection import BeamStageProjection, surface_foreshortening
 from fibsem.structures import (
     BeamType,
     FibsemHardwareGeometry,

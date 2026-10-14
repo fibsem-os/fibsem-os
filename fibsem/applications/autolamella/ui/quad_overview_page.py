@@ -70,7 +70,7 @@ from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
 )
 from fibsem.constants import TIME_DISPLAY_AMPM_SHORT
 from fibsem.fm.structures import FluorescenceImage
-from fibsem.projection import BeamStageProjection
+from fibsem.geometry.projection import BeamStageProjection
 from fibsem.structures import FibsemImage, FibsemImageMetadata, FibsemStagePosition
 from fibsem.ui.tokens import CANVAS_BG
 from fibsem.ui.widgets.canvas.overlays.stage_context import (

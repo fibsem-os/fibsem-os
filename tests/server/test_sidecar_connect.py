@@ -47,7 +47,7 @@ def test_try_resolve_returns_none_without_exiting(monkeypatch, tmp_path):
 
 
 def test_retry_succeeds_after_server_appears():
-    ok = _FakeResponse(200, {"scopes": {"read": True}})
+    ok = _FakeResponse(200, {"level": "watch"})
     attempts = [
         _FakeClient([ConnectionError("refused")]),
         _FakeClient([_FakeResponse(401, {"detail": "unauthorized"})]),
@@ -61,7 +61,7 @@ def test_retry_succeeds_after_server_appears():
         wait_s=60,
         sleep_fn=sleeps.append,
     )
-    assert caps == {"scopes": {"read": True}}
+    assert caps == {"level": "watch"}
     assert len(sleeps) == 2  # slept between the three attempts
     assert not client.closed  # the successful client stays open
 
@@ -110,7 +110,7 @@ def test_a_401_re_reads_the_discovery_file_and_retries(monkeypatch):
         stale,
         ("http://x:1", "old"),
     )
-    resp = client.request("GET", "/app/status")
+    resp = client.request("GET", "/app/workflow/status")
     assert resp.status_code == 200
     assert made == [("http://x:2", "new")]
     assert stale.closed
@@ -136,7 +136,7 @@ def test_a_dropped_connection_follows_a_moved_server(monkeypatch):
     client = sidecar._ReconnectingClient(
         lambda url, token: moved, None, None, gone, ("http://x", "t")
     )
-    assert client.request("GET", "/app/status").status_code == 200
+    assert client.request("GET", "/app/workflow/status").status_code == 200
     assert client.base_url == "http://fake:1"  # delegated to the live client
 
 
@@ -155,7 +155,7 @@ def test_a_prompt_image_travels_as_mcp_image_content():
         },
     }
     fake = _FakeClient([_FakeResponse(200, payload)])
-    capabilities = {"routers": {"app": True}, "scopes": {"read": True}}
+    capabilities = {"routers": {"app": True}, "level": "watch"}
     mcp = sidecar.build_sidecar(fake, capabilities)
     result = asyncio.run(mcp.call_tool("get_pending_prompt", {}))
     contents = result[0] if isinstance(result, tuple) else result
@@ -190,7 +190,7 @@ def test_the_client_is_named_once_initialize_says_who_it_is():
 
     live = _Named()
     client = sidecar._ReconnectingClient(None, None, None, live, ("http://x", "t"))
-    mcp = sidecar.build_sidecar(client, {"routers": {}, "scopes": {"read": True}})
+    mcp = sidecar.build_sidecar(client, {"routers": {}, "level": "watch"})
     name_client = mcp.middleware[-1]
     info = SimpleNamespace(name="claude-code", version="2.1.3")
     ctx = SimpleNamespace(
@@ -217,5 +217,5 @@ def test_the_named_user_agent_survives_a_reconnect(monkeypatch):
         lambda url, token: moved, None, None, gone, ("http://x", "t")
     )
     client.set_user_agent("fibsem-mcp/0.6 claude-code/2.1.3")
-    client.request("GET", "/app/status")
+    client.request("GET", "/app/workflow/status")
     assert moved.headers["User-Agent"] == "fibsem-mcp/0.6 claude-code/2.1.3"

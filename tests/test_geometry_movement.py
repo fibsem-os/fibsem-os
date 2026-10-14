@@ -134,7 +134,7 @@ def test_vertical_move_from_fib_sends_the_pure_delta(
         dx=3e-6,
         dy=5e-6,
         scan_rotation=scan_rotation,
-        fib_column_tilt=microscope.system.ion.column_tilt,
+        column_tilt=np.deg2rad(microscope.system.ion.column_tilt),
         stage_tilt=pose.t,
         turned_over=microscope._stage_turned_over(pose.t),
         relaxation=relaxation,
@@ -168,7 +168,7 @@ def test_vertical_move_from_sem_is_a_stable_move_then_a_fib_correction(
         dx=0,
         dy=dy,
         scan_rotation=scan_rotation,
-        fib_column_tilt=microscope.system.ion.column_tilt,
+        column_tilt=np.deg2rad(microscope.system.ion.column_tilt),
         stage_tilt=pose.t,
         turned_over=microscope._stage_turned_over(pose.t),
     )

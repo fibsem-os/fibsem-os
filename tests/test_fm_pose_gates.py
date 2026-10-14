@@ -69,17 +69,18 @@ def test_a_stage_that_declares_an_fm_pose_reaches_the_fm_by_re_posing():
 
 def test_at_a_pose_there_is_no_parking_at_the_fm_to_refuse_a_rotation_at():
     microscope = _microscope(IFLM_CONFIG)
-    microscope.get_current_device = lambda *a, **k: "FM"
+    movement = microscope.stage_movement
+    movement.current_device = lambda *a, **k: "FM"
     position = microscope.get_stage_position()
     half_turn = FibsemStagePosition(r=(position.r or 0.0) + 3.14159)
 
     # Parked at its FM, an offset mount refuses a half turn...
     with pytest.raises(ValueError, match="Cannot rotate the stage"):
-        microscope._refuse_rotation_at_the_fluorescence_microscope(half_turn)
+        movement._refuse_rotation_at_the_fm(half_turn)
 
     # ...a stage whose FM is a pose has nowhere to be parked.
     _declare(microscope, flip_stage_poses)
-    microscope._refuse_rotation_at_the_fluorescence_microscope(half_turn)
+    movement._refuse_rotation_at_the_fm(half_turn)
 
 
 def test_a_compustage_that_declares_no_fm_pose_travels_to_it():
