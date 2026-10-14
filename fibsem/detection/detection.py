@@ -995,7 +995,7 @@ def take_image_and_detect_features(
     image_settings.save = True
 
     # take new image
-    image = acquire.new_image(microscope, image_settings)
+    image = acquire.acquire_image(microscope, image_settings)
 
     # load model
     model = load_model(checkpoint=checkpoint)

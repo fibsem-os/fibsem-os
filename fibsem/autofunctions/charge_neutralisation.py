@@ -1,4 +1,5 @@
 """Auto charge neutralisation for FIB-SEM imaging."""
+
 from __future__ import annotations
 
 import logging
@@ -44,7 +45,7 @@ def auto_charge_neutralisation(
         )
 
     for i in range(n_iterations):
-        acquire.new_image(microscope, discharge_settings)
+        acquire.acquire_image(microscope, discharge_settings)
 
-    acquire.new_image(microscope, image_settings)
+    acquire.acquire_image(microscope, image_settings)
     logger.info("Auto charge neutralisation complete (%d iterations).", n_iterations)

@@ -2389,7 +2389,7 @@ class FibsemMicroscope(ABC):
         ``payload`` is small plain data built by the caller -- no pixels. Kinds
         recorded today:
 
-        * ``image_acquired`` -- from ``acquire.new_image``, with the saved path
+        * ``image_acquired`` -- from ``acquire.acquire_image``, with the saved path
         * ``task_step`` -- from the AutoLamella task bases
         * ``milling_stage_started`` -- from ``FibsemMillingTask``, with the stage
         * ``spot_burn_started`` -- from the spot burn service, with the field of view

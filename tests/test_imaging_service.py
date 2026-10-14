@@ -214,3 +214,58 @@ def test_the_microscope_images_through_the_service(microscope, monkeypatch):
     )
     microscope.acquire_image(beam_type=BeamType.ELECTRON)
     assert calls == [(BeamType.ELECTRON, None)]
+
+
+def test_acquire_image_saves_and_records(microscope, tmp_path):
+    """FIB-1261: acquire.py's image (new_image, now acquire_image) moved onto the service."""
+    from fibsem.structures import ImageSettings
+
+    recorded = []
+    real = microscope.record_event
+    microscope.record_event = lambda kind, data: (
+        recorded.append((kind, data)) or real(kind, data)
+    )
+    settings = ImageSettings(
+        beam_type=BeamType.ION,
+        resolution=(192, 128),
+        hfw=100e-6,
+        save=True,
+        path=str(tmp_path),
+        filename="trench",
+    )
+    image = microscope.imaging.acquire_image(settings)
+    assert image.filepath == str(tmp_path / "trench_ib.tif")
+    assert os.path.exists(image.filepath)
+    kind, data = recorded[-1]
+    assert kind == "image_acquired" and data["path"] == image.filepath
+
+
+def test_reference_images_leave_the_settings_alone(microscope, tmp_path):
+    from fibsem import acquire
+    from fibsem.structures import ImageSettings
+
+    settings = ImageSettings(
+        beam_type=BeamType.ION,
+        resolution=(96, 64),
+        hfw=100e-6,
+        save=False,
+        path=str(tmp_path),
+        filename="ref",
+    )
+    eb, ib = microscope.imaging.reference_images(settings)
+    assert eb.metadata.image_settings.beam_type is BeamType.ELECTRON
+    assert ib.metadata.image_settings.beam_type is BeamType.ION
+    assert settings.beam_type is BeamType.ION
+
+    sem, fib = acquire.acquire_channels(microscope, settings, acquire_sem=False)
+    assert sem is None and fib is not None
+
+    sets = microscope.imaging.reference_image_sets(
+        settings, [200e-6, 80e-6], filename="ref", ion=False
+    )
+    assert [pair[1] for pair in sets] == [None, None]
+    assert [os.path.basename(pair[0].filepath) for pair in sets] == [
+        "ref_res_01_eb.tif",
+        "ref_res_02_eb.tif",
+    ]
+    assert (settings.save, settings.hfw, settings.filename) == (False, 100e-6, "ref")
