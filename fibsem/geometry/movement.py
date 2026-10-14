@@ -23,8 +23,21 @@ from typing import Optional, Tuple
 
 import numpy as np
 
-from fibsem.structures import FibsemHardwareGeometry, FibsemStagePosition
+from fibsem.structures import BeamType, FibsemHardwareGeometry, FibsemStagePosition
 from fibsem.transformations import view_corrected_stage_movement
+
+
+def beam_view_tilt(beam_type: BeamType, geometry: FibsemHardwareGeometry) -> float:
+    """How far a beam's viewing axis is tilted from the electron column, in radians.
+
+    The electron column is the reference axis, so 0; the ion column is its column tilt.
+    The live moves and the saved-image projections all ask this one rule.
+    """
+    if beam_type is BeamType.ELECTRON:
+        return 0.0
+    if beam_type is BeamType.ION:
+        return float(np.deg2rad(geometry.fib_column_tilt))
+    raise ValueError(f"Unsupported beam type: {beam_type}")
 
 
 def undo_scan_rotation(

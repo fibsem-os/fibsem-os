@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING, Optional, Protocol, Tuple
 import numpy as np
 
 from fibsem.fm.reprojection import project_image_point, project_stage_position
+from fibsem.geometry.movement import beam_view_tilt
 from fibsem.structures import (
     BeamType,
     FibsemStagePosition,
@@ -372,13 +373,11 @@ class BeamStageProjection:
     def _view_tilt(self) -> float:
         """How far this beam's axis is tilted from the electron column, in radians.
 
-        The same quantity :meth:`FibsemMicroscope._beam_view_tilt` returns, and the same
-        one the fluorescence path passes as the camera tilt -- which is what lets all
-        three share one projection.
+        The one rule, :func:`fibsem.geometry.movement.beam_view_tilt`, read from this
+        view's geometry. The fluorescence path passes the camera tilt in its place --
+        which is what lets all three share one projection.
         """
-        if self.beam_type is BeamType.ELECTRON:
-            return 0.0
-        return np.deg2rad(self.geometry.fib_column_tilt)
+        return beam_view_tilt(self.beam_type, self.geometry)
 
     def _expected_y(self, dy: float, dz: float, base: FibsemStagePosition) -> float:
         """The image-space y-displacement a y/z stage movement corresponds to."""

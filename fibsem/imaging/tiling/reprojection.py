@@ -15,6 +15,7 @@ from typing import List, Optional, Tuple
 import numpy as np
 
 from fibsem.conversions import is_inside_image_bounds
+from fibsem.geometry.movement import beam_view_tilt
 from fibsem.structures import (
     LEGACY_ROTATION_CENTRE,
     BeamType,
@@ -341,16 +342,11 @@ def _inverse_y_corrected_stage_movement(
 
     geometry = image.metadata.hardware_geometry
     position = image.metadata.stage_position
-    # The ion column's tilt is the view tilt for a FIB image; the electron column is the
-    # reference axis and so contributes none. Same rule as `_beam_view_tilt` on the live
-    # microscope, read from the image's geometry instead of the instrument.
-    view_tilt = (
-        np.deg2rad(geometry.fib_column_tilt) if beam_type is BeamType.ION else 0.0
-    )
+    # The live moves' rule, read from the image's geometry instead of the instrument.
     return inverse_view_corrected_dy(
         dy=dy,
         dz=dz,
-        view_tilt=view_tilt,
+        view_tilt=beam_view_tilt(beam_type, geometry),
         geometry=geometry,
         stage_rotation=position.r if position.r is not None else 0.0,
         stage_tilt=position.t if position.t is not None else 0.0,

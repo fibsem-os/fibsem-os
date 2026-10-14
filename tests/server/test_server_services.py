@@ -175,6 +175,24 @@ def test_the_device_reads_are_queries(read_client, microscope):
     assert answer["r"] == pytest.approx(target.r)
 
 
+def test_the_view_corrected_movements_are_queries(read_client, microscope):
+    def ask(query, **kwargs):
+        resp = read_client.post(
+            f"/microscope/services/stage_movement/queries/{query}",
+            json={"kwargs": kwargs},
+        )
+        assert resp.status_code == 200, resp.text
+        return resp.json()["result"]
+
+    ion = to_wire(BeamType.ION)
+    move = microscope._y_corrected_stage_movement(10e-6, beam_type=BeamType.ION)
+    answer = ask("y_corrected_movement", expected_y=10e-6, beam_type=ion)
+    assert answer["y"] == pytest.approx(move.y)
+    assert answer["z"] == pytest.approx(move.z)
+    back = ask("inverse_y_corrected_movement", dy=move.y, dz=move.z, beam_type=ion)
+    assert back == pytest.approx(10e-6)
+
+
 def test_the_milling_angle_is_a_parameter_that_moves_milling(armed_client, microscope):
     before = microscope.system.stage.milling_angle
     try:
