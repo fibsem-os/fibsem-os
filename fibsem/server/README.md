@@ -29,7 +29,7 @@ naming why (`level`, `ask_first`, `agent_off`, `agent_stopped`, `not_allowed`).
 Separate from the level, an allowlist (`fibsem/server/allowlist.py`) names what
 the agent may never write or run, at any level and in an approved request too:
 a beam's `on`, `angular_correction`, `tilt_correction` and `plasma_gas`; the
-stage's `home` and `link`; every manipulator write and command; the objective's
+stage's `home` and `link`; every chamber and manipulator write and command; the objective's
 `limit_position`. `GET /microscope/devices` and `/microscope/services` mark those
 `agent: false`. A command's `path` argument must be inside the open experiment. A hardware
 command takes control of the microscope while it runs: when a run, a script or
@@ -168,9 +168,10 @@ seconds = microscope.estimate_milling_time() # float
 ### Devices and beam settings
 
 Every device the microscope built (`microscope.devices`: `electron`, `ion`,
-`stage`, `manipulator`, FM parts) but the chamber is served generically, the same
-routes the device server (`fibsem/server/devices.py`) serves. The chamber is not
-served: pumping and venting are the operator's, at the microscope.
+`stage`, `chamber`, `manipulator`, FM parts) is served generically, the same
+routes the device server (`fibsem/server/devices.py`) serves. The chamber's
+`state` and `pressure` are reads; pumping and venting are the operator's, at the
+microscope, so the allowlist refuses them.
 
 ```python
 microscope.list_devices()                               # parameters + commands per device

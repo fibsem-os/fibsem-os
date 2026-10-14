@@ -110,6 +110,7 @@ class Beam(Device):
         ),
     )
     blanked = Parameter(bool, display=Display("Blanked"))
+    live = Parameter(bool, doc="Whether live view is running. Read only.")
     preset = Parameter(str, display=Display("Preset"))
     detector_type = Parameter(str, display=Display("Detector Type"))
     detector_mode = Parameter(
@@ -454,6 +455,9 @@ class Beam(Device):
     def is_live(self) -> bool:
         thread = self._live_thread
         return thread is not None and thread.is_alive()
+
+    def read_live(self) -> bool:
+        return self.is_live
 
     def _run_live(self) -> None:
         live = self._live_with_scanner if "scanner" in self.roles else self._live

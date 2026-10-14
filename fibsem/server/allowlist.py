@@ -15,6 +15,7 @@ import os
 from typing import Any, Callable, Dict, Mapping, Optional, Tuple
 
 from fibsem.devices.beam import Beam
+from fibsem.devices.chamber import Chamber
 from fibsem.devices.core import Device
 from fibsem.devices.fm import Objective
 from fibsem.devices.manipulator import Manipulator
@@ -28,6 +29,9 @@ _BLOCKED: Tuple[Tuple[type, Dict[str, Any]], ...] = (
     # Switching a column off; the app's image-to-stage geometry assumes its own
     # corrections (scan rotation is allowed); the source gas.
     (Beam, {"write": {"on", "angular_correction", "tilt_correction", "plasma_gas"}}),
+    # Pumping and venting: the operator's, at the microscope. State and pressure
+    # stay readable.
+    (Chamber, {"write": ALL, "command": ALL}),
     # Homing, not for now; the stage link.
     (Stage, {"command": {"home", "link"}}),
     # Every move and the insert, stop included: blocked for now, to revisit.
@@ -38,6 +42,7 @@ _BLOCKED: Tuple[Tuple[type, Dict[str, Any]], ...] = (
 
 _WHY = {
     Beam: "a column setting the operator keeps",
+    Chamber: "pumping and venting are the operator's, at the microscope",
     Stage: "the operator's, at the microscope",
     Manipulator: "the manipulator is the operator's for now",
     Objective: "the objective's safety limit",

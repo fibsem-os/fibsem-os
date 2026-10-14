@@ -110,14 +110,18 @@ def test_drive_acts_on_the_session_and_the_hardware(client, auth):
     assert moved.status_code == 200, moved.text
 
 
-def test_drive_cannot_vent_or_pump_the_chamber(client, auth):
-    # Drive arms the hardware, but the chamber is not served.
+def test_drive_reads_the_chamber_but_cannot_vent_or_pump_it(client, auth):
+    # Drive arms the hardware, but pumping and venting are the operator's.
     auth.set_level(AgentLevel.DRIVE)
     for command in ("vent", "pump"):
         resp = client.post(
             f"/microscope/devices/chamber/commands/{command}", headers=AGENT, json={}
         )
-        assert resp.status_code == 404, command
+        assert resp.status_code == 403, command
+        assert _error(resp) == "not_allowed"
+    for parameter in ("state", "pressure"):
+        read = client.get(f"/microscope/devices/chamber/{parameter}", headers=AGENT)
+        assert read.status_code == 200, parameter
 
 
 def test_watch_refuses_a_hardware_command_naming_the_level(client, auth):

@@ -20,7 +20,6 @@ from fastapi.responses import JSONResponse, Response
 from fastapi.routing import APIRoute
 
 from fibsem.acting import AGENT, acting
-from fibsem.devices.chamber import Chamber
 from fibsem.microscope import FibsemMicroscope
 from fibsem.server import allowlist
 from fibsem.server.app_routes import (
@@ -88,16 +87,6 @@ MICROSCOPE = "/microscope"
 _watch = require_level(AgentLevel.WATCH)
 _assist = require_level(AgentLevel.ASSIST)
 _drive = require_level(AgentLevel.DRIVE)
-
-
-def _served_devices(microscope: FibsemMicroscope) -> dict:
-    """The devices the server serves: all but the chamber. Pumping and venting
-    are the operator's, at the microscope, so the chamber is not served at all."""
-    return {
-        name: device
-        for name, device in microscope.devices.items()
-        if not isinstance(device, Chamber)
-    }
 
 
 def _refuse(app_context) -> Callable[[Any, str, str, Mapping[str, Any]], Optional[str]]:
@@ -311,12 +300,13 @@ def build_server(
     if serve_microscope:
         app.include_router(whole)
         refuse = _refuse(app_context)
-        # Every device's parameters and commands but the chamber's, as the
-        # device server serves them: reads at Watch, writes and commands at
-        # Drive with control of the microscope.
+        # Every device's parameters and commands, as the device server serves
+        # them: reads at Watch, writes and commands at Drive with control of the
+        # microscope. The chamber's state and pressure are read here; pumping
+        # and venting are the operator's, so the allowlist refuses them.
         app.include_router(
             build_device_router(
-                lambda: _served_devices(microscope),
+                lambda: microscope.devices,
                 read=[Depends(_watch)],
                 write=[Depends(_drive), Depends(take_control)],
                 command=[Depends(_device_command_gate), Depends(_stop_reason)],
