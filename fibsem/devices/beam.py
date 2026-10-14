@@ -74,16 +74,6 @@ DEFAULT_STIGMATION_LIMITS = {
 }
 
 
-def _clip_shift(axis: str, value: float, limits: Dict[str, RangeLimit]) -> float:
-    """One axis of a beam shift, clipped to its limit, warning when it was outside."""
-    limit = limits.get(axis)
-    if limit is None:
-        return value
-    if value < limit.min or value > limit.max:
-        logging.warning(f"Beam shift {axis} value {value} is out of bounds: {limit}")
-    return float(min(max(value, limit.min), limit.max))
-
-
 class Beam(Device):
     voltage = Parameter(float, unit="V", display=Display("Beam Voltage", advanced=True))
     # the currents an instrument offers change with the gas and the voltage (AutoScript)
@@ -248,10 +238,16 @@ class Beam(Device):
         target = shift.get_value() + Point(dx, dy)
         limits = shift.reported_limits
         if limits is not None:
-            target = Point(
-                x=_clip_shift("x", target.x, limits),
-                y=_clip_shift("y", target.y, limits),
+            x, y = limits.get("x"), limits.get("y")
+            clipped = Point(
+                x=x.clamp(target.x) if x is not None else target.x,
+                y=y.clamp(target.y) if y is not None else target.y,
             )
+            if (clipped.x, clipped.y) != (target.x, target.y):
+                logging.warning(
+                    f"Beam shift {target} is out of bounds {limits}: clipped to {clipped}"
+                )
+            target = clipped
         shift.write_through(target)
 
     # The scan area. Each command changes scanning_mode; a backend implements

@@ -352,4 +352,4 @@ def test_a_relative_shift_is_clipped_to_the_limits_xt_reports(recording):
     assert facts["shift"] == pytest.approx([10e-6, -2e-7 + 1e-6])
     assert len(facts["writes"]) == 1
     assert [level for level, _ in facts["messages"]].count("WARNING") == 1
-    assert "Beam shift x value" in facts["messages"][0][1]
+    assert "out of bounds" in facts["messages"][0][1]
