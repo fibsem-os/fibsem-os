@@ -50,6 +50,15 @@ CANNOT_RUN_HERE = {
 # What the experiment writes for itself, beside the lamella folders.
 EXPERIMENT_RECORDS = {"experiment.yaml", "events.jsonl", "logfile.log"}
 
+# What a lamella's folder holds for itself, beside its runs' folders, each
+# overwritten as it changes: references later tasks read (FIB-1258), and the
+# lamella card's thumbnail.
+LAMELLA_STATE = {
+    "ref_alignment_ib.tif",
+    "ref_coincidence_setup_ib.tif",
+    "thumbnail.png",
+}
+
 BUILT_IN_TASKS = sorted(
     task_type
     for task_type, task_cls in get_tasks().items()
@@ -133,4 +142,11 @@ def test_a_task_run_writes_only_into_its_lamella_folder(
     ]
     assert set(outside_lamella) <= EXPERIMENT_RECORDS, (
         f"{task_type} wrote into the experiment folder, outside its lamella"
+    )
+    # and inside the lamella's folder, into its own run's folder (FIB-1275)
+    task_name = exp.task_protocol.workflow_config.tasks[0].name
+    loose = [f for f in _files(lamella.path) if Path(f).parts[0] != task_name]
+    assert set(loose) <= LAMELLA_STATE, (
+        f"{task_type} wrote {sorted(set(loose) - LAMELLA_STATE)} into the lamella's "
+        "folder, outside its run's folder"
     )

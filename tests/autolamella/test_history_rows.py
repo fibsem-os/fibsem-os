@@ -114,6 +114,57 @@ def test_a_real_run_reads_back_as_one_row_per_run_with_its_alignment(tmp_path):
     assert rough.duration is not None and rough.duration >= align.duration
 
 
+def test_a_task_run_twice_keeps_both_runs_images_in_their_own_folders(tmp_path):
+    """Each run saves into ``<lamella>/<task>/<YYYYMMDD-HHMMSS>/`` (FIB-1275): a
+    re-run overwrites nothing, and the History tab shows each run's own images
+    rather than "replaced by the later run"."""
+    os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
+    microscope, _ = utils.setup_session(
+        manufacturer="Demo",
+        config_path=os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml"),
+        setup_logging=False,
+    )
+    try:
+        exp = Experiment(path=tmp_path, name="rerun")
+        os.makedirs(exp.path, exist_ok=True)
+        exp.task_protocol = AutoLamellaTaskProtocol(
+            workflow_config=AutoLamellaWorkflowConfig(
+                tasks=[AutoLamellaTaskDescription(name=SETUP, required=True)]
+            )
+        )
+        exp.add_new_lamella(
+            microscope.get_microscope_state(),
+            EventedDict(
+                {
+                    SETUP: SelectMillingPositionTaskConfig(
+                        task_name=SETUP, use_autofocus=False
+                    )
+                }
+            ),
+        )
+        lamella = exp.positions[0]
+        lamella.path.mkdir(parents=True, exist_ok=True)
+        lamella.milling_pose = microscope.get_microscope_state()
+
+        run_tasks(microscope, exp, [SETUP])
+        run_tasks(microscope, exp, [SETUP])
+        rows = history_rows(lamella, read_events(Path(exp.path) / EVENTS_FILENAME))
+    finally:
+        microscope.disconnect()
+
+    first, second = rows
+    assert first.images and second.images
+    assert set(first.images).isdisjoint(second.images), "nothing overwritten"
+    assert first.images_replaced_by is None
+    for row in rows:
+        folders = {Path(p).relative_to(lamella.path).parts[:2] for p in row.images}
+        assert len(folders) == 1, "one run, one folder"
+        ((task_folder, stamp),) = folders
+        assert task_folder == SETUP and len(stamp) == len("20261014-093012")
+    # the lamella's shared state stays in its folder, once
+    assert (lamella.path / "ref_alignment_ib.tif").is_file()
+
+
 # --- built by hand ------------------------------------------------------------
 
 
