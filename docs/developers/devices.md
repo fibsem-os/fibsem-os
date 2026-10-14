@@ -270,6 +270,33 @@ unbounded by default), and a move outside them raises `ManipulatorLimitError`.
 Whether the arm rotates (`is_available("manipulator_rotation")`) comes from its
 axes.
 
+## The gas injector and the sputter coater
+
+A gas injection system (GIS) port, or a multichem, is a `GasInjector`; the coater is
+a `SputterCoater`. A microscope builds them only from a `hardware.devices` entry
+(`type: gis`, `type: sputter_coater`); a second GIS port is a second `gis` entry with
+its own name.
+
+<!-- not run -->
+```python
+gis = microscope.devices["gis"]
+gis.gas.get_value(), gis.state.get_value(), gis.temperature.get_value()  # K
+gis.purge(5)          # open, wait, close, with the needle retracted
+gis.insert(); gis.heater_on(); gis.open()
+
+coater = microscope.devices["sputter_coater"]
+coater.current.set_value(1.2e-7)   # A, within the driver's limits
+coater.run(30)                     # seconds; grids=[n] where the coater moves to each
+```
+
+All of the GIS's parameters are read-only; its commands are `insert(position)`,
+`retract()`, `heater_on(gas)`, `heater_off()`, `open()`, `close()` and
+`purge(seconds)`, which refuses while the needle is in. A deposition is a sequence of
+these with a wait, not a command. The coater's `run` claims the stage as well as the
+coater, because some instruments move the stage to the coater themselves, and takes
+`grids` only where `coats_grids` is true. What an instrument needs around a run (the
+beams on, the voltage put back) is its driver's.
+
 ## The fluorescence microscope
 
 An FM is several devices: a `Camera`, a `LightSource`, a `FilterSet` and an
@@ -489,7 +516,7 @@ Each entry has:
 | Key | Meaning |
 | -- | -- |
 | `name` | Unique in the file, and the device's name in `microscope.devices`. Defaults to the type. A beam is named `electron` or `ion`. |
-| `type` | The device type: `beam`, `stage`, `chamber`, `manipulator`, `fm`, or a type a plugin adds. May be left out where the name is a type (`name: fm`). |
+| `type` | The device type: `beam`, `stage`, `chamber`, `manipulator`, `fm`, `sample_loader`, `gis`, `sputter_coater`, or a type a plugin adds. May be left out where the name is a type (`name: fm`). |
 | `enabled` | Absent: the backend's default. `false`: never built, and its driver never touches it. |
 | `driver` | The driver that builds it, by its registry name. Absent: the driver for `info.manufacturer`. `remote` is a device on another computer, at `address` and `port`. |
 | `required` | Whether connecting fails if the device cannot be built. Defaults to `true` for a device the file lists, since the site says it has it; `false` logs a failed build and leaves the device out. A device only the backend assumes (one the file doesn't list) is logged, left out and marked not fitted. |

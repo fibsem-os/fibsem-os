@@ -3164,6 +3164,8 @@ DEVICE_TYPES: Tuple[str, ...] = (
     "manipulator",
     "fm",
     "sample_loader",
+    "gis",
+    "sputter_coater",
 )
 
 
@@ -3319,7 +3321,7 @@ def read_device_entries(settings: dict) -> Dict[str, DeviceEntry]:
         try:
             entry = DeviceEntry.from_dict(item)
         except UnknownDeviceType as e:
-            # such as a device this version no longer has (`name: gis`)
+            # such as a device this version no longer has
             logging.warning(f"{e} It is ignored.")
             continue
         if entry.name in seen:
