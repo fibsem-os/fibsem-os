@@ -31,6 +31,8 @@ from fibsem.devices.beam import Beam
 from fibsem.devices.core import Parameter, Role, command, query
 from fibsem.devices.fm import FM, mount_transform_from_name
 from fibsem.devices.stage import Stage, recording_move
+from fibsem.geometry.angles import wrap_angle
+from fibsem.geometry.frames import StageModel
 from fibsem.geometry.frames import fm_camera_tilt as derived_camera_tilt
 from fibsem.geometry.movement import (
     apply_delta,
@@ -43,6 +45,7 @@ from fibsem.geometry.movement import (
 )
 from fibsem.geometry.orientations import (
     classify_orientation,
+    milling_angle_at,
     milling_angle_from_tilt,
     repose,
 )
@@ -223,19 +226,29 @@ class StageMovement(Service):
         self, position: Optional[FibsemStagePosition] = None
     ) -> float:
         """The milling angle a stage position gives, in degrees, the stage's own when
-        ``position`` is None. 90 at the FIB orientation."""
+        ``position`` is None: the angle between the ion beam and the sample surface,
+        at whatever rotation and tilt the stage holds (90 at the FIB pose)."""
         if position is None:
             position = self._position()
-        # NOTE: this is only valid for sem orientation
-        if self.stage_orientation(position) == "FIB":
-            return 90  # stage-tilt + pre-tilt + 90 - column-tilt
         if position.t is None:
             raise ValueError(
                 "Stage tilt is not available. Cannot calculate milling angle."
             )
-        return milling_angle_from_tilt(
+        geometry = self.parent.hardware_geometry()
+        at_reference = position.r is None or np.isclose(
+            wrap_angle(position.r - np.radians(geometry.rotation_reference)), 0.0
+        )
+        if at_reference:  # the SEM rotation (or none read): the tilt-plane formula
+            return milling_angle_from_tilt(
+                position.t,
+                pretilt=self.parent.system.stage.shuttle_pre_tilt,
+                column_tilt=self.parent.system.ion.column_tilt,
+                turned_over=self.turned_over(position.t),
+            )
+        return milling_angle_at(
+            position.r,
             position.t,
-            pretilt=self.parent.system.stage.shuttle_pre_tilt,
+            model=StageModel.from_geometry(geometry),
             column_tilt=self.parent.system.ion.column_tilt,
             turned_over=self.turned_over(position.t),
         )
@@ -247,6 +260,107 @@ class StageMovement(Service):
         """Whether the stage's milling angle is within ``atol`` of ``milling_angle``,
         both in degrees."""
         return bool(np.isclose(self.current_milling_angle(), milling_angle, atol=atol))
+
+    # -- the geometry, in one read -------------------------------------------------------
+
+    @query
+    def geometry(self) -> Dict[str, Any]:
+        """The instrument's geometry and what it means at the stage's pose now: one read
+        for an agent meeting a new instrument, before its first move.
+
+        Angles in degrees (named ``_deg``), lengths in metres. ``views`` gives, for each
+        beam, the stage move a stable move of +1 µm along each image axis makes at the
+        current pose and scan rotation, from the same projection ``stable_move`` uses;
+        ``stage_plus_x_in_image`` is the image x direction a stage +x move slides the
+        sample. These are the model's answers: confirm them once with a small move.
+        """
+        hardware = self.parent.hardware_geometry()
+        position = self._position()
+        model = StageModel.from_geometry(hardware)
+
+        def pose(p: FibsemStagePosition) -> Dict[str, Optional[float]]:
+            return {
+                "r_deg": None if p.r is None else float(np.degrees(p.r)),
+                "t_deg": None if p.t is None else float(np.degrees(p.t)),
+            }
+
+        answer: Dict[str, Any] = {
+            "column_tilt_deg": {
+                "electron": float(hardware.column_tilt),
+                "ion": float(hardware.fib_column_tilt),
+            },
+            "shuttle_pre_tilt_deg": float(hardware.shuttle_pre_tilt),
+            "rotation_reference_deg": float(hardware.rotation_reference),
+            "rotation_centre": (
+                None
+                if hardware.rotation_centre is None
+                else [float(c) for c in hardware.rotation_centre]
+            ),
+            "stage_frame": hardware.stage_frame,
+            "fm_is_pose": hardware.fm_is_pose,
+            "mirrors_back_view": hardware.mirrors_back_view,
+            "orientations": {name: pose(p) for name, p in self.orientations.items()},
+            "stage_position": {
+                "x": position.x,
+                "y": position.y,
+                "z": position.z,
+                **pose(position),
+            },
+        }
+        if position.r is not None and position.t is not None:
+            answer["orientation"] = self.stage_orientation(position)
+            answer["turned_round"] = bool(model.turned_round(position.r))
+            answer["turned_over"] = bool(self.turned_over(position.t))
+            # Chamber frame: x the tilt axis, y horizontal, z up towards the electron
+            # column. Where a raw stage +z move goes, at this tilt.
+            plus_z = model.stage_axes(position.t) @ np.array([0.0, 0.0, 1.0])
+            answer["stage_plus_z_in_chamber"] = [float(v) for v in plus_z]
+            answer["milling_angle"] = {
+                "current_deg": self.current_milling_angle(position),
+                "stored_deg": self.read_milling_angle(),
+                # MILLING is built at the SEM rotation: from here, that is where
+                # move_to_milling_angle goes.
+                "pose_for_stored": pose(self.orientations["MILLING"])
+                if "MILLING" in self.orientations
+                else None,
+            }
+            answer["views"] = {
+                beam_type.name: self._view_geometry(beam_type)
+                for beam_type in (BeamType.ELECTRON, BeamType.ION)
+                if self._beam(beam_type) is not None
+            }
+        devices = self.parent.system.stage.devices or {}
+        answer["devices"] = {
+            name: None
+            if device.origin is None
+            else {"x": device.origin.x, "y": device.origin.y, "z": device.origin.z}
+            for name, device in devices.items()
+        }
+        return answer
+
+    def _view_geometry(self, beam_type: BeamType) -> Dict[str, Any]:
+        """What one beam's view means for a move at the current pose."""
+        step = 1e-6
+        scan_rotation = self._beam_value(beam_type, "scan_rotation") or 0.0
+        view_tilt = self._view_tilt(beam_type)
+
+        def stage_move(dx: float, dy: float) -> Dict[str, float]:
+            ux, uy = undo_scan_rotation(dx, dy, scan_rotation)
+            delta = self._view_stage_delta(ux, uy, view_tilt=view_tilt)
+            return {"x": float(delta.x), "y": float(delta.y), "z": float(delta.z)}
+
+        handled = bool(
+            np.isclose(scan_rotation, 0.0) or np.isclose(scan_rotation, np.pi)
+        )
+        return {
+            "view_tilt_deg": float(np.degrees(view_tilt)),
+            "scan_rotation_deg": float(np.degrees(scan_rotation)),
+            # stable_move undoes a half turn of scan rotation and nothing else.
+            "scan_rotation_handled": handled,
+            "stable_move_plus_dx_1um": stage_move(step, 0.0),
+            "stable_move_plus_dy_1um": stage_move(0.0, step),
+            "stage_plus_x_in_image": "+x" if stage_move(step, 0.0)["x"] > 0 else "-x",
+        }
 
     # -- devices: where the stage is, and a position carried between them -------------
     #
@@ -1319,10 +1433,37 @@ class StageMovement(Service):
             stage_tilt = get_stage_tilt_from_milling_angle(
                 microscope, np.radians(milling_angle)
             )
+            stage_tilt = self._tilt_for_milling_angle(
+                milling_angle, np.radians(rotation), stage_tilt
+            )
             self.safe_absolute_stage_movement(
                 FibsemStagePosition(t=stage_tilt, r=float(np.radians(rotation)))
             )
             return microscope.is_close_to_milling_angle(milling_angle)
+
+    def _tilt_for_milling_angle(
+        self, milling_angle: float, rotation: float, sem_tilt: float
+    ) -> float:
+        """The stage tilt, in radians, that gives ``milling_angle`` (degrees) at
+        ``rotation`` (radians). At the SEM rotation that is ``sem_tilt``, the
+        tilt-plane formula's answer; elsewhere the pre-tilt leans another way, so the
+        tilt is searched for with the same model ``current_milling_angle`` reads
+        (FIB-1392), between -90 and 90 degrees, nearest ``sem_tilt`` on a tie."""
+        reference = np.radians(self.parent.system.stage.rotation_reference)
+        if np.isclose(wrap_angle(rotation - reference), 0.0):
+            return sem_tilt
+        tilts = np.radians(np.arange(-90.0, 90.0001, 0.05))
+        errors = np.array(
+            [
+                abs(
+                    self.current_milling_angle(FibsemStagePosition(r=rotation, t=t))
+                    - milling_angle
+                )
+                for t in tilts
+            ]
+        )
+        best = np.flatnonzero(np.isclose(errors, errors.min(), atol=1e-6))
+        return float(tilts[best[np.argmin(np.abs(tilts[best] - sem_tilt))]])
 
     def _objective(self) -> Any:
         """The objective to insert and retract, through the FM API, which tells the

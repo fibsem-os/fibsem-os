@@ -321,6 +321,29 @@ operator changes it (the Agent chip for the level; Tools → App Server,
 *Serve the microscope*, for the microscope). Don't look for another
 way in. A hardware tool missing from your tool list means the same thing.
 
+**Get your bearings once, before the first move.** On an instrument you
+have not used this session:
+- `list_devices` shows what it has: the beams, detectors, stage and an FM.
+- Read `get_parameter` `on` for the electron and ion beams. If one is off,
+  stop and tell the operator: switching a beam on is theirs. Note it if a
+  beam reads `blanked`. Some instruments have no `blanked`.
+- `get_geometry` gives the stage's poses, column tilts, pre-tilt, device
+  origins and the milling angle. It also gives, for each beam at the pose and
+  scan rotation now, the stage move a +1 µm `stable_move` along each image
+  axis makes, and which way raw +z goes. If a view says
+  `scan_rotation_handled: false`, its image axes are not the stage's: don't
+  `stable_move` from it.
+- `get_microscope_state` gives each beam's voltage, current, working
+  distance and scan rotation, the detectors' type and mode, and the stage
+  position. Say what you read, and anything that looks wrong for the task
+  (a milling current on the imaging beam, a detector the operator
+  doesn't use).
+- Take an initial image with each beam (`acquire_image_preview`) and look
+  at it before moving: is the sample in view and in focus?
+- Then confirm the geometry with one small `stable_move` and a fresh image,
+  and check that the feature went where it says. If it did not, stop and
+  tell the operator what you saw, rather than correcting by hand.
+
 **Read the microscope before each step, not once.** The operator, a run or
 a script may have moved it since you last looked. Before a move, read
 `get_stage_position`; before judging what is under the beam, take a fresh

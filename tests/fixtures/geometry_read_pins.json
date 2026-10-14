@@ -269,11 +269,11 @@
  },
  "arctis milling_angle r=0 t=-125": {
   "error": null,
-  "result": 90.0
+  "result": 92.99999999999999
  },
  "arctis milling_angle r=0 t=-130": {
   "error": null,
-  "result": 90.0
+  "result": 88.0
  },
  "arctis milling_angle r=0 t=-135": {
   "error": null,
@@ -465,39 +465,39 @@
  },
  "arctis milling_angle r=135 t=-10": {
   "error": null,
-  "result": 27.999999999999996
+  "result": 27.999999999999986
  },
  "arctis milling_angle r=135 t=-100": {
   "error": null,
-  "result": 117.99999999999999
+  "result": 118.0
  },
  "arctis milling_angle r=135 t=-105": {
   "error": null,
-  "result": 113.0
+  "result": 112.99999999999997
  },
  "arctis milling_angle r=135 t=-110": {
   "error": null,
-  "result": 108.0
+  "result": 107.99999999999999
  },
  "arctis milling_angle r=135 t=-115": {
   "error": null,
-  "result": 103.0
+  "result": 102.99999999999997
  },
  "arctis milling_angle r=135 t=-120": {
   "error": null,
-  "result": 98.00000000000001
+  "result": 98.00000000000003
  },
  "arctis milling_angle r=135 t=-125": {
   "error": null,
-  "result": 92.99999999999999
+  "result": 93.00000000000004
  },
  "arctis milling_angle r=135 t=-130": {
   "error": null,
-  "result": 88.0
+  "result": 88.00000000000006
  },
  "arctis milling_angle r=135 t=-135": {
   "error": null,
-  "result": 83.0
+  "result": 83.00000000000003
  },
  "arctis milling_angle r=135 t=-140": {
   "error": null,
@@ -505,11 +505,11 @@
  },
  "arctis milling_angle r=135 t=-145": {
   "error": null,
-  "result": 72.99999999999999
+  "result": 73.0
  },
  "arctis milling_angle r=135 t=-15": {
   "error": null,
-  "result": 22.999999999999996
+  "result": 23.0
  },
  "arctis milling_angle r=135 t=-150": {
   "error": null,
@@ -521,47 +521,47 @@
  },
  "arctis milling_angle r=135 t=-160": {
   "error": null,
-  "result": 58.00000000000001
+  "result": 58.000000000000014
  },
  "arctis milling_angle r=135 t=-165": {
   "error": null,
-  "result": 53.00000000000001
+  "result": 53.00000000000002
  },
  "arctis milling_angle r=135 t=-170": {
   "error": null,
-  "result": 47.999999999999986
+  "result": 47.99999999999999
  },
  "arctis milling_angle r=135 t=-175": {
   "error": null,
-  "result": 42.99999999999999
+  "result": 43.00000000000001
  },
  "arctis milling_angle r=135 t=-180": {
   "error": null,
-  "result": 37.99999999999999
+  "result": 38.00000000000001
  },
  "arctis milling_angle r=135 t=-20": {
   "error": null,
-  "result": 17.999999999999996
+  "result": 18.0
  },
  "arctis milling_angle r=135 t=-25": {
   "error": null,
-  "result": 12.999999999999996
+  "result": 13.0
  },
  "arctis milling_angle r=135 t=-30": {
   "error": null,
-  "result": 7.999999999999998
+  "result": 8.0
  },
  "arctis milling_angle r=135 t=-35": {
   "error": null,
-  "result": 2.999999999999998
+  "result": 3.0
  },
  "arctis milling_angle r=135 t=-40": {
   "error": null,
-  "result": -2.0000000000000027
+  "result": -2.0
  },
  "arctis milling_angle r=135 t=-45": {
   "error": null,
-  "result": -7.0000000000000036
+  "result": -7.0
  },
  "arctis milling_angle r=135 t=-5": {
   "error": null,
@@ -569,11 +569,11 @@
  },
  "arctis milling_angle r=135 t=-50": {
   "error": null,
-  "result": -12.000000000000004
+  "result": -12.0
  },
  "arctis milling_angle r=135 t=-55": {
   "error": null,
-  "result": -17.000000000000004
+  "result": -17.0
  },
  "arctis milling_angle r=135 t=-60": {
   "error": null,
@@ -581,7 +581,7 @@
  },
  "arctis milling_angle r=135 t=-65": {
   "error": null,
-  "result": -27.000000000000007
+  "result": -27.0
  },
  "arctis milling_angle r=135 t=-70": {
   "error": null,
@@ -589,7 +589,7 @@
  },
  "arctis milling_angle r=135 t=-75": {
   "error": null,
-  "result": -37.00000000000001
+  "result": -37.000000000000014
  },
  "arctis milling_angle r=135 t=-80": {
   "error": null,
@@ -597,11 +597,11 @@
  },
  "arctis milling_angle r=135 t=-85": {
   "error": null,
-  "result": -47.00000000000001
+  "result": -47.00000000000003
  },
  "arctis milling_angle r=135 t=-90": {
   "error": null,
-  "result": -52.0
+  "result": -52.00000000000003
  },
  "arctis milling_angle r=135 t=-95": {
   "error": null,
@@ -609,7 +609,7 @@
  },
  "arctis milling_angle r=135 t=0": {
   "error": null,
-  "result": 37.99999999999999
+  "result": 38.0
  },
  "arctis milling_angle r=135 t=10": {
   "error": null,
@@ -621,7 +621,7 @@
  },
  "arctis milling_angle r=135 t=20": {
   "error": null,
-  "result": 57.99999999999999
+  "result": 58.0
  },
  "arctis milling_angle r=135 t=25": {
   "error": null,
@@ -633,15 +633,15 @@
  },
  "arctis milling_angle r=135 t=35": {
   "error": null,
-  "result": 72.99999999999999
+  "result": 73.0
  },
  "arctis milling_angle r=135 t=40": {
   "error": null,
-  "result": 78.0
+  "result": 78.00000000000001
  },
  "arctis milling_angle r=135 t=45": {
   "error": null,
-  "result": 83.0
+  "result": 83.00000000000003
  },
  "arctis milling_angle r=135 t=5": {
   "error": null,
@@ -649,11 +649,11 @@
  },
  "arctis milling_angle r=135 t=50": {
   "error": null,
-  "result": 88.0
+  "result": 88.00000000000006
  },
  "arctis milling_angle r=135 t=55": {
   "error": null,
-  "result": 92.99999999999999
+  "result": 92.99999999999993
  },
  "arctis milling_angle r=135 t=60": {
   "error": null,
@@ -665,7 +665,7 @@
  },
  "arctis milling_angle r=135 t=70": {
   "error": null,
-  "result": 108.0
+  "result": 107.99999999999999
  },
  "arctis milling_angle r=135 t=75": {
   "error": null,
@@ -673,11 +673,11 @@
  },
  "arctis milling_angle r=135 t=80": {
   "error": null,
-  "result": 117.99999999999999
+  "result": 118.0
  },
  "arctis milling_angle r=135 t=85": {
   "error": null,
-  "result": 123.00000000000001
+  "result": 122.99999999999999
  },
  "arctis milling_angle r=135 t=90": {
   "error": null,
@@ -685,39 +685,39 @@
  },
  "arctis milling_angle r=180 t=-10": {
   "error": null,
-  "result": 27.999999999999996
+  "result": 27.999999999999986
  },
  "arctis milling_angle r=180 t=-100": {
   "error": null,
-  "result": 117.99999999999999
+  "result": 118.0
  },
  "arctis milling_angle r=180 t=-105": {
   "error": null,
-  "result": 113.0
+  "result": 112.99999999999997
  },
  "arctis milling_angle r=180 t=-110": {
   "error": null,
-  "result": 108.0
+  "result": 107.99999999999999
  },
  "arctis milling_angle r=180 t=-115": {
   "error": null,
-  "result": 103.0
+  "result": 102.99999999999997
  },
  "arctis milling_angle r=180 t=-120": {
   "error": null,
-  "result": 98.00000000000001
+  "result": 98.00000000000003
  },
  "arctis milling_angle r=180 t=-125": {
   "error": null,
-  "result": 92.99999999999999
+  "result": 93.00000000000004
  },
  "arctis milling_angle r=180 t=-130": {
   "error": null,
-  "result": 88.0
+  "result": 88.00000000000006
  },
  "arctis milling_angle r=180 t=-135": {
   "error": null,
-  "result": 83.0
+  "result": 83.00000000000003
  },
  "arctis milling_angle r=180 t=-140": {
   "error": null,
@@ -725,11 +725,11 @@
  },
  "arctis milling_angle r=180 t=-145": {
   "error": null,
-  "result": 72.99999999999999
+  "result": 73.0
  },
  "arctis milling_angle r=180 t=-15": {
   "error": null,
-  "result": 22.999999999999996
+  "result": 23.0
  },
  "arctis milling_angle r=180 t=-150": {
   "error": null,
@@ -741,47 +741,47 @@
  },
  "arctis milling_angle r=180 t=-160": {
   "error": null,
-  "result": 58.00000000000001
+  "result": 58.000000000000014
  },
  "arctis milling_angle r=180 t=-165": {
   "error": null,
-  "result": 53.00000000000001
+  "result": 53.00000000000002
  },
  "arctis milling_angle r=180 t=-170": {
   "error": null,
-  "result": 47.999999999999986
+  "result": 47.99999999999999
  },
  "arctis milling_angle r=180 t=-175": {
   "error": null,
-  "result": 42.99999999999999
+  "result": 43.00000000000001
  },
  "arctis milling_angle r=180 t=-180": {
   "error": null,
-  "result": 37.99999999999999
+  "result": 38.00000000000001
  },
  "arctis milling_angle r=180 t=-20": {
   "error": null,
-  "result": 17.999999999999996
+  "result": 18.0
  },
  "arctis milling_angle r=180 t=-25": {
   "error": null,
-  "result": 12.999999999999996
+  "result": 13.0
  },
  "arctis milling_angle r=180 t=-30": {
   "error": null,
-  "result": 7.999999999999998
+  "result": 8.0
  },
  "arctis milling_angle r=180 t=-35": {
   "error": null,
-  "result": 2.999999999999998
+  "result": 3.0
  },
  "arctis milling_angle r=180 t=-40": {
   "error": null,
-  "result": -2.0000000000000027
+  "result": -2.0
  },
  "arctis milling_angle r=180 t=-45": {
   "error": null,
-  "result": -7.0000000000000036
+  "result": -7.0
  },
  "arctis milling_angle r=180 t=-5": {
   "error": null,
@@ -789,11 +789,11 @@
  },
  "arctis milling_angle r=180 t=-50": {
   "error": null,
-  "result": -12.000000000000004
+  "result": -12.0
  },
  "arctis milling_angle r=180 t=-55": {
   "error": null,
-  "result": -17.000000000000004
+  "result": -17.0
  },
  "arctis milling_angle r=180 t=-60": {
   "error": null,
@@ -801,7 +801,7 @@
  },
  "arctis milling_angle r=180 t=-65": {
   "error": null,
-  "result": -27.000000000000007
+  "result": -27.0
  },
  "arctis milling_angle r=180 t=-70": {
   "error": null,
@@ -809,7 +809,7 @@
  },
  "arctis milling_angle r=180 t=-75": {
   "error": null,
-  "result": -37.00000000000001
+  "result": -37.000000000000014
  },
  "arctis milling_angle r=180 t=-80": {
   "error": null,
@@ -817,11 +817,11 @@
  },
  "arctis milling_angle r=180 t=-85": {
   "error": null,
-  "result": -47.00000000000001
+  "result": -47.00000000000003
  },
  "arctis milling_angle r=180 t=-90": {
   "error": null,
-  "result": -52.0
+  "result": -52.00000000000003
  },
  "arctis milling_angle r=180 t=-95": {
   "error": null,
@@ -829,7 +829,7 @@
  },
  "arctis milling_angle r=180 t=0": {
   "error": null,
-  "result": 37.99999999999999
+  "result": 38.0
  },
  "arctis milling_angle r=180 t=10": {
   "error": null,
@@ -841,7 +841,7 @@
  },
  "arctis milling_angle r=180 t=20": {
   "error": null,
-  "result": 57.99999999999999
+  "result": 58.0
  },
  "arctis milling_angle r=180 t=25": {
   "error": null,
@@ -853,15 +853,15 @@
  },
  "arctis milling_angle r=180 t=35": {
   "error": null,
-  "result": 72.99999999999999
+  "result": 73.0
  },
  "arctis milling_angle r=180 t=40": {
   "error": null,
-  "result": 78.0
+  "result": 78.00000000000001
  },
  "arctis milling_angle r=180 t=45": {
   "error": null,
-  "result": 83.0
+  "result": 83.00000000000003
  },
  "arctis milling_angle r=180 t=5": {
   "error": null,
@@ -869,11 +869,11 @@
  },
  "arctis milling_angle r=180 t=50": {
   "error": null,
-  "result": 88.0
+  "result": 88.00000000000006
  },
  "arctis milling_angle r=180 t=55": {
   "error": null,
-  "result": 92.99999999999999
+  "result": 92.99999999999993
  },
  "arctis milling_angle r=180 t=60": {
   "error": null,
@@ -885,7 +885,7 @@
  },
  "arctis milling_angle r=180 t=70": {
   "error": null,
-  "result": 108.0
+  "result": 107.99999999999999
  },
  "arctis milling_angle r=180 t=75": {
   "error": null,
@@ -893,11 +893,11 @@
  },
  "arctis milling_angle r=180 t=80": {
   "error": null,
-  "result": 117.99999999999999
+  "result": 118.0
  },
  "arctis milling_angle r=180 t=85": {
   "error": null,
-  "result": 123.00000000000001
+  "result": 122.99999999999999
  },
  "arctis milling_angle r=180 t=90": {
   "error": null,
@@ -905,39 +905,39 @@
  },
  "arctis milling_angle r=225 t=-10": {
   "error": null,
-  "result": 27.999999999999996
+  "result": 27.999999999999986
  },
  "arctis milling_angle r=225 t=-100": {
   "error": null,
-  "result": 117.99999999999999
+  "result": 118.0
  },
  "arctis milling_angle r=225 t=-105": {
   "error": null,
-  "result": 113.0
+  "result": 112.99999999999997
  },
  "arctis milling_angle r=225 t=-110": {
   "error": null,
-  "result": 108.0
+  "result": 107.99999999999999
  },
  "arctis milling_angle r=225 t=-115": {
   "error": null,
-  "result": 103.0
+  "result": 102.99999999999997
  },
  "arctis milling_angle r=225 t=-120": {
   "error": null,
-  "result": 98.00000000000001
+  "result": 98.00000000000003
  },
  "arctis milling_angle r=225 t=-125": {
   "error": null,
-  "result": 92.99999999999999
+  "result": 93.00000000000004
  },
  "arctis milling_angle r=225 t=-130": {
   "error": null,
-  "result": 88.0
+  "result": 88.00000000000006
  },
  "arctis milling_angle r=225 t=-135": {
   "error": null,
-  "result": 83.0
+  "result": 83.00000000000003
  },
  "arctis milling_angle r=225 t=-140": {
   "error": null,
@@ -945,11 +945,11 @@
  },
  "arctis milling_angle r=225 t=-145": {
   "error": null,
-  "result": 72.99999999999999
+  "result": 73.0
  },
  "arctis milling_angle r=225 t=-15": {
   "error": null,
-  "result": 22.999999999999996
+  "result": 23.0
  },
  "arctis milling_angle r=225 t=-150": {
   "error": null,
@@ -961,47 +961,47 @@
  },
  "arctis milling_angle r=225 t=-160": {
   "error": null,
-  "result": 58.00000000000001
+  "result": 58.000000000000014
  },
  "arctis milling_angle r=225 t=-165": {
   "error": null,
-  "result": 53.00000000000001
+  "result": 53.00000000000002
  },
  "arctis milling_angle r=225 t=-170": {
   "error": null,
-  "result": 47.999999999999986
+  "result": 47.99999999999999
  },
  "arctis milling_angle r=225 t=-175": {
   "error": null,
-  "result": 42.99999999999999
+  "result": 43.00000000000001
  },
  "arctis milling_angle r=225 t=-180": {
   "error": null,
-  "result": 37.99999999999999
+  "result": 38.00000000000001
  },
  "arctis milling_angle r=225 t=-20": {
   "error": null,
-  "result": 17.999999999999996
+  "result": 18.0
  },
  "arctis milling_angle r=225 t=-25": {
   "error": null,
-  "result": 12.999999999999996
+  "result": 13.0
  },
  "arctis milling_angle r=225 t=-30": {
   "error": null,
-  "result": 7.999999999999998
+  "result": 8.0
  },
  "arctis milling_angle r=225 t=-35": {
   "error": null,
-  "result": 2.999999999999998
+  "result": 3.0
  },
  "arctis milling_angle r=225 t=-40": {
   "error": null,
-  "result": -2.0000000000000027
+  "result": -2.0
  },
  "arctis milling_angle r=225 t=-45": {
   "error": null,
-  "result": -7.0000000000000036
+  "result": -7.0
  },
  "arctis milling_angle r=225 t=-5": {
   "error": null,
@@ -1009,11 +1009,11 @@
  },
  "arctis milling_angle r=225 t=-50": {
   "error": null,
-  "result": -12.000000000000004
+  "result": -12.0
  },
  "arctis milling_angle r=225 t=-55": {
   "error": null,
-  "result": -17.000000000000004
+  "result": -17.0
  },
  "arctis milling_angle r=225 t=-60": {
   "error": null,
@@ -1021,7 +1021,7 @@
  },
  "arctis milling_angle r=225 t=-65": {
   "error": null,
-  "result": -27.000000000000007
+  "result": -27.0
  },
  "arctis milling_angle r=225 t=-70": {
   "error": null,
@@ -1029,7 +1029,7 @@
  },
  "arctis milling_angle r=225 t=-75": {
   "error": null,
-  "result": -37.00000000000001
+  "result": -37.000000000000014
  },
  "arctis milling_angle r=225 t=-80": {
   "error": null,
@@ -1037,11 +1037,11 @@
  },
  "arctis milling_angle r=225 t=-85": {
   "error": null,
-  "result": -47.00000000000001
+  "result": -47.00000000000003
  },
  "arctis milling_angle r=225 t=-90": {
   "error": null,
-  "result": -52.0
+  "result": -52.00000000000003
  },
  "arctis milling_angle r=225 t=-95": {
   "error": null,
@@ -1049,7 +1049,7 @@
  },
  "arctis milling_angle r=225 t=0": {
   "error": null,
-  "result": 37.99999999999999
+  "result": 38.0
  },
  "arctis milling_angle r=225 t=10": {
   "error": null,
@@ -1061,7 +1061,7 @@
  },
  "arctis milling_angle r=225 t=20": {
   "error": null,
-  "result": 57.99999999999999
+  "result": 58.0
  },
  "arctis milling_angle r=225 t=25": {
   "error": null,
@@ -1073,15 +1073,15 @@
  },
  "arctis milling_angle r=225 t=35": {
   "error": null,
-  "result": 72.99999999999999
+  "result": 73.0
  },
  "arctis milling_angle r=225 t=40": {
   "error": null,
-  "result": 78.0
+  "result": 78.00000000000001
  },
  "arctis milling_angle r=225 t=45": {
   "error": null,
-  "result": 83.0
+  "result": 83.00000000000003
  },
  "arctis milling_angle r=225 t=5": {
   "error": null,
@@ -1089,11 +1089,11 @@
  },
  "arctis milling_angle r=225 t=50": {
   "error": null,
-  "result": 88.0
+  "result": 88.00000000000006
  },
  "arctis milling_angle r=225 t=55": {
   "error": null,
-  "result": 92.99999999999999
+  "result": 92.99999999999993
  },
  "arctis milling_angle r=225 t=60": {
   "error": null,
@@ -1105,7 +1105,7 @@
  },
  "arctis milling_angle r=225 t=70": {
   "error": null,
-  "result": 108.0
+  "result": 107.99999999999999
  },
  "arctis milling_angle r=225 t=75": {
   "error": null,
@@ -1113,11 +1113,11 @@
  },
  "arctis milling_angle r=225 t=80": {
   "error": null,
-  "result": 117.99999999999999
+  "result": 118.0
  },
  "arctis milling_angle r=225 t=85": {
   "error": null,
-  "result": 123.00000000000001
+  "result": 122.99999999999999
  },
  "arctis milling_angle r=225 t=90": {
   "error": null,
@@ -1125,39 +1125,39 @@
  },
  "arctis milling_angle r=270 t=-10": {
   "error": null,
-  "result": 27.999999999999996
+  "result": 27.999999999999986
  },
  "arctis milling_angle r=270 t=-100": {
   "error": null,
-  "result": 117.99999999999999
+  "result": 118.0
  },
  "arctis milling_angle r=270 t=-105": {
   "error": null,
-  "result": 113.0
+  "result": 112.99999999999997
  },
  "arctis milling_angle r=270 t=-110": {
   "error": null,
-  "result": 108.0
+  "result": 107.99999999999999
  },
  "arctis milling_angle r=270 t=-115": {
   "error": null,
-  "result": 103.0
+  "result": 102.99999999999997
  },
  "arctis milling_angle r=270 t=-120": {
   "error": null,
-  "result": 98.00000000000001
+  "result": 98.00000000000003
  },
  "arctis milling_angle r=270 t=-125": {
   "error": null,
-  "result": 92.99999999999999
+  "result": 93.00000000000004
  },
  "arctis milling_angle r=270 t=-130": {
   "error": null,
-  "result": 88.0
+  "result": 88.00000000000006
  },
  "arctis milling_angle r=270 t=-135": {
   "error": null,
-  "result": 83.0
+  "result": 83.00000000000003
  },
  "arctis milling_angle r=270 t=-140": {
   "error": null,
@@ -1165,11 +1165,11 @@
  },
  "arctis milling_angle r=270 t=-145": {
   "error": null,
-  "result": 72.99999999999999
+  "result": 73.0
  },
  "arctis milling_angle r=270 t=-15": {
   "error": null,
-  "result": 22.999999999999996
+  "result": 23.0
  },
  "arctis milling_angle r=270 t=-150": {
   "error": null,
@@ -1181,47 +1181,47 @@
  },
  "arctis milling_angle r=270 t=-160": {
   "error": null,
-  "result": 58.00000000000001
+  "result": 58.000000000000014
  },
  "arctis milling_angle r=270 t=-165": {
   "error": null,
-  "result": 53.00000000000001
+  "result": 53.00000000000002
  },
  "arctis milling_angle r=270 t=-170": {
   "error": null,
-  "result": 47.999999999999986
+  "result": 47.99999999999999
  },
  "arctis milling_angle r=270 t=-175": {
   "error": null,
-  "result": 42.99999999999999
+  "result": 43.00000000000001
  },
  "arctis milling_angle r=270 t=-180": {
   "error": null,
-  "result": 37.99999999999999
+  "result": 38.00000000000001
  },
  "arctis milling_angle r=270 t=-20": {
   "error": null,
-  "result": 17.999999999999996
+  "result": 18.0
  },
  "arctis milling_angle r=270 t=-25": {
   "error": null,
-  "result": 12.999999999999996
+  "result": 13.0
  },
  "arctis milling_angle r=270 t=-30": {
   "error": null,
-  "result": 7.999999999999998
+  "result": 8.0
  },
  "arctis milling_angle r=270 t=-35": {
   "error": null,
-  "result": 2.999999999999998
+  "result": 3.0
  },
  "arctis milling_angle r=270 t=-40": {
   "error": null,
-  "result": -2.0000000000000027
+  "result": -2.0
  },
  "arctis milling_angle r=270 t=-45": {
   "error": null,
-  "result": -7.0000000000000036
+  "result": -7.0
  },
  "arctis milling_angle r=270 t=-5": {
   "error": null,
@@ -1229,11 +1229,11 @@
  },
  "arctis milling_angle r=270 t=-50": {
   "error": null,
-  "result": -12.000000000000004
+  "result": -12.0
  },
  "arctis milling_angle r=270 t=-55": {
   "error": null,
-  "result": -17.000000000000004
+  "result": -17.0
  },
  "arctis milling_angle r=270 t=-60": {
   "error": null,
@@ -1241,7 +1241,7 @@
  },
  "arctis milling_angle r=270 t=-65": {
   "error": null,
-  "result": -27.000000000000007
+  "result": -27.0
  },
  "arctis milling_angle r=270 t=-70": {
   "error": null,
@@ -1249,7 +1249,7 @@
  },
  "arctis milling_angle r=270 t=-75": {
   "error": null,
-  "result": -37.00000000000001
+  "result": -37.000000000000014
  },
  "arctis milling_angle r=270 t=-80": {
   "error": null,
@@ -1257,11 +1257,11 @@
  },
  "arctis milling_angle r=270 t=-85": {
   "error": null,
-  "result": -47.00000000000001
+  "result": -47.00000000000003
  },
  "arctis milling_angle r=270 t=-90": {
   "error": null,
-  "result": -52.0
+  "result": -52.00000000000003
  },
  "arctis milling_angle r=270 t=-95": {
   "error": null,
@@ -1269,7 +1269,7 @@
  },
  "arctis milling_angle r=270 t=0": {
   "error": null,
-  "result": 37.99999999999999
+  "result": 38.0
  },
  "arctis milling_angle r=270 t=10": {
   "error": null,
@@ -1281,7 +1281,7 @@
  },
  "arctis milling_angle r=270 t=20": {
   "error": null,
-  "result": 57.99999999999999
+  "result": 58.0
  },
  "arctis milling_angle r=270 t=25": {
   "error": null,
@@ -1293,15 +1293,15 @@
  },
  "arctis milling_angle r=270 t=35": {
   "error": null,
-  "result": 72.99999999999999
+  "result": 73.0
  },
  "arctis milling_angle r=270 t=40": {
   "error": null,
-  "result": 78.0
+  "result": 78.00000000000001
  },
  "arctis milling_angle r=270 t=45": {
   "error": null,
-  "result": 83.0
+  "result": 83.00000000000003
  },
  "arctis milling_angle r=270 t=5": {
   "error": null,
@@ -1309,11 +1309,11 @@
  },
  "arctis milling_angle r=270 t=50": {
   "error": null,
-  "result": 88.0
+  "result": 88.00000000000006
  },
  "arctis milling_angle r=270 t=55": {
   "error": null,
-  "result": 92.99999999999999
+  "result": 92.99999999999993
  },
  "arctis milling_angle r=270 t=60": {
   "error": null,
@@ -1325,7 +1325,7 @@
  },
  "arctis milling_angle r=270 t=70": {
   "error": null,
-  "result": 108.0
+  "result": 107.99999999999999
  },
  "arctis milling_angle r=270 t=75": {
   "error": null,
@@ -1333,11 +1333,11 @@
  },
  "arctis milling_angle r=270 t=80": {
   "error": null,
-  "result": 117.99999999999999
+  "result": 118.0
  },
  "arctis milling_angle r=270 t=85": {
   "error": null,
-  "result": 123.00000000000001
+  "result": 122.99999999999999
  },
  "arctis milling_angle r=270 t=90": {
   "error": null,
@@ -1345,39 +1345,39 @@
  },
  "arctis milling_angle r=315 t=-10": {
   "error": null,
-  "result": 27.999999999999996
+  "result": 27.999999999999986
  },
  "arctis milling_angle r=315 t=-100": {
   "error": null,
-  "result": 117.99999999999999
+  "result": 118.0
  },
  "arctis milling_angle r=315 t=-105": {
   "error": null,
-  "result": 113.0
+  "result": 112.99999999999997
  },
  "arctis milling_angle r=315 t=-110": {
   "error": null,
-  "result": 108.0
+  "result": 107.99999999999999
  },
  "arctis milling_angle r=315 t=-115": {
   "error": null,
-  "result": 103.0
+  "result": 102.99999999999997
  },
  "arctis milling_angle r=315 t=-120": {
   "error": null,
-  "result": 98.00000000000001
+  "result": 98.00000000000003
  },
  "arctis milling_angle r=315 t=-125": {
   "error": null,
-  "result": 92.99999999999999
+  "result": 93.00000000000004
  },
  "arctis milling_angle r=315 t=-130": {
   "error": null,
-  "result": 88.0
+  "result": 88.00000000000006
  },
  "arctis milling_angle r=315 t=-135": {
   "error": null,
-  "result": 83.0
+  "result": 83.00000000000003
  },
  "arctis milling_angle r=315 t=-140": {
   "error": null,
@@ -1385,11 +1385,11 @@
  },
  "arctis milling_angle r=315 t=-145": {
   "error": null,
-  "result": 72.99999999999999
+  "result": 73.0
  },
  "arctis milling_angle r=315 t=-15": {
   "error": null,
-  "result": 22.999999999999996
+  "result": 23.0
  },
  "arctis milling_angle r=315 t=-150": {
   "error": null,
@@ -1401,47 +1401,47 @@
  },
  "arctis milling_angle r=315 t=-160": {
   "error": null,
-  "result": 58.00000000000001
+  "result": 58.000000000000014
  },
  "arctis milling_angle r=315 t=-165": {
   "error": null,
-  "result": 53.00000000000001
+  "result": 53.00000000000002
  },
  "arctis milling_angle r=315 t=-170": {
   "error": null,
-  "result": 47.999999999999986
+  "result": 47.99999999999999
  },
  "arctis milling_angle r=315 t=-175": {
   "error": null,
-  "result": 42.99999999999999
+  "result": 43.00000000000001
  },
  "arctis milling_angle r=315 t=-180": {
   "error": null,
-  "result": 37.99999999999999
+  "result": 38.00000000000001
  },
  "arctis milling_angle r=315 t=-20": {
   "error": null,
-  "result": 17.999999999999996
+  "result": 18.0
  },
  "arctis milling_angle r=315 t=-25": {
   "error": null,
-  "result": 12.999999999999996
+  "result": 13.0
  },
  "arctis milling_angle r=315 t=-30": {
   "error": null,
-  "result": 7.999999999999998
+  "result": 8.0
  },
  "arctis milling_angle r=315 t=-35": {
   "error": null,
-  "result": 2.999999999999998
+  "result": 3.0
  },
  "arctis milling_angle r=315 t=-40": {
   "error": null,
-  "result": -2.0000000000000027
+  "result": -2.0
  },
  "arctis milling_angle r=315 t=-45": {
   "error": null,
-  "result": -7.0000000000000036
+  "result": -7.0
  },
  "arctis milling_angle r=315 t=-5": {
   "error": null,
@@ -1449,11 +1449,11 @@
  },
  "arctis milling_angle r=315 t=-50": {
   "error": null,
-  "result": -12.000000000000004
+  "result": -12.0
  },
  "arctis milling_angle r=315 t=-55": {
   "error": null,
-  "result": -17.000000000000004
+  "result": -17.0
  },
  "arctis milling_angle r=315 t=-60": {
   "error": null,
@@ -1461,7 +1461,7 @@
  },
  "arctis milling_angle r=315 t=-65": {
   "error": null,
-  "result": -27.000000000000007
+  "result": -27.0
  },
  "arctis milling_angle r=315 t=-70": {
   "error": null,
@@ -1469,7 +1469,7 @@
  },
  "arctis milling_angle r=315 t=-75": {
   "error": null,
-  "result": -37.00000000000001
+  "result": -37.000000000000014
  },
  "arctis milling_angle r=315 t=-80": {
   "error": null,
@@ -1477,11 +1477,11 @@
  },
  "arctis milling_angle r=315 t=-85": {
   "error": null,
-  "result": -47.00000000000001
+  "result": -47.00000000000003
  },
  "arctis milling_angle r=315 t=-90": {
   "error": null,
-  "result": -52.0
+  "result": -52.00000000000003
  },
  "arctis milling_angle r=315 t=-95": {
   "error": null,
@@ -1489,7 +1489,7 @@
  },
  "arctis milling_angle r=315 t=0": {
   "error": null,
-  "result": 37.99999999999999
+  "result": 38.0
  },
  "arctis milling_angle r=315 t=10": {
   "error": null,
@@ -1501,7 +1501,7 @@
  },
  "arctis milling_angle r=315 t=20": {
   "error": null,
-  "result": 57.99999999999999
+  "result": 58.0
  },
  "arctis milling_angle r=315 t=25": {
   "error": null,
@@ -1513,15 +1513,15 @@
  },
  "arctis milling_angle r=315 t=35": {
   "error": null,
-  "result": 72.99999999999999
+  "result": 73.0
  },
  "arctis milling_angle r=315 t=40": {
   "error": null,
-  "result": 78.0
+  "result": 78.00000000000001
  },
  "arctis milling_angle r=315 t=45": {
   "error": null,
-  "result": 83.0
+  "result": 83.00000000000003
  },
  "arctis milling_angle r=315 t=5": {
   "error": null,
@@ -1529,11 +1529,11 @@
  },
  "arctis milling_angle r=315 t=50": {
   "error": null,
-  "result": 88.0
+  "result": 88.00000000000006
  },
  "arctis milling_angle r=315 t=55": {
   "error": null,
-  "result": 92.99999999999999
+  "result": 92.99999999999993
  },
  "arctis milling_angle r=315 t=60": {
   "error": null,
@@ -1545,7 +1545,7 @@
  },
  "arctis milling_angle r=315 t=70": {
   "error": null,
-  "result": 108.0
+  "result": 107.99999999999999
  },
  "arctis milling_angle r=315 t=75": {
   "error": null,
@@ -1553,11 +1553,11 @@
  },
  "arctis milling_angle r=315 t=80": {
   "error": null,
-  "result": 117.99999999999999
+  "result": 118.0
  },
  "arctis milling_angle r=315 t=85": {
   "error": null,
-  "result": 123.00000000000001
+  "result": 122.99999999999999
  },
  "arctis milling_angle r=315 t=90": {
   "error": null,
@@ -1565,39 +1565,39 @@
  },
  "arctis milling_angle r=45 t=-10": {
   "error": null,
-  "result": 27.999999999999996
+  "result": 27.999999999999986
  },
  "arctis milling_angle r=45 t=-100": {
   "error": null,
-  "result": 117.99999999999999
+  "result": 118.0
  },
  "arctis milling_angle r=45 t=-105": {
   "error": null,
-  "result": 113.0
+  "result": 112.99999999999997
  },
  "arctis milling_angle r=45 t=-110": {
   "error": null,
-  "result": 108.0
+  "result": 107.99999999999999
  },
  "arctis milling_angle r=45 t=-115": {
   "error": null,
-  "result": 103.0
+  "result": 102.99999999999997
  },
  "arctis milling_angle r=45 t=-120": {
   "error": null,
-  "result": 98.00000000000001
+  "result": 98.00000000000003
  },
  "arctis milling_angle r=45 t=-125": {
   "error": null,
-  "result": 92.99999999999999
+  "result": 93.00000000000004
  },
  "arctis milling_angle r=45 t=-130": {
   "error": null,
-  "result": 88.0
+  "result": 88.00000000000006
  },
  "arctis milling_angle r=45 t=-135": {
   "error": null,
-  "result": 83.0
+  "result": 83.00000000000003
  },
  "arctis milling_angle r=45 t=-140": {
   "error": null,
@@ -1605,11 +1605,11 @@
  },
  "arctis milling_angle r=45 t=-145": {
   "error": null,
-  "result": 72.99999999999999
+  "result": 73.0
  },
  "arctis milling_angle r=45 t=-15": {
   "error": null,
-  "result": 22.999999999999996
+  "result": 23.0
  },
  "arctis milling_angle r=45 t=-150": {
   "error": null,
@@ -1621,47 +1621,47 @@
  },
  "arctis milling_angle r=45 t=-160": {
   "error": null,
-  "result": 58.00000000000001
+  "result": 58.000000000000014
  },
  "arctis milling_angle r=45 t=-165": {
   "error": null,
-  "result": 53.00000000000001
+  "result": 53.00000000000002
  },
  "arctis milling_angle r=45 t=-170": {
   "error": null,
-  "result": 47.999999999999986
+  "result": 47.99999999999999
  },
  "arctis milling_angle r=45 t=-175": {
   "error": null,
-  "result": 42.99999999999999
+  "result": 43.00000000000001
  },
  "arctis milling_angle r=45 t=-180": {
   "error": null,
-  "result": 37.99999999999999
+  "result": 38.00000000000001
  },
  "arctis milling_angle r=45 t=-20": {
   "error": null,
-  "result": 17.999999999999996
+  "result": 18.0
  },
  "arctis milling_angle r=45 t=-25": {
   "error": null,
-  "result": 12.999999999999996
+  "result": 13.0
  },
  "arctis milling_angle r=45 t=-30": {
   "error": null,
-  "result": 7.999999999999998
+  "result": 8.0
  },
  "arctis milling_angle r=45 t=-35": {
   "error": null,
-  "result": 2.999999999999998
+  "result": 3.0
  },
  "arctis milling_angle r=45 t=-40": {
   "error": null,
-  "result": -2.0000000000000027
+  "result": -2.0
  },
  "arctis milling_angle r=45 t=-45": {
   "error": null,
-  "result": -7.0000000000000036
+  "result": -7.0
  },
  "arctis milling_angle r=45 t=-5": {
   "error": null,
@@ -1669,11 +1669,11 @@
  },
  "arctis milling_angle r=45 t=-50": {
   "error": null,
-  "result": -12.000000000000004
+  "result": -12.0
  },
  "arctis milling_angle r=45 t=-55": {
   "error": null,
-  "result": -17.000000000000004
+  "result": -17.0
  },
  "arctis milling_angle r=45 t=-60": {
   "error": null,
@@ -1681,7 +1681,7 @@
  },
  "arctis milling_angle r=45 t=-65": {
   "error": null,
-  "result": -27.000000000000007
+  "result": -27.0
  },
  "arctis milling_angle r=45 t=-70": {
   "error": null,
@@ -1689,7 +1689,7 @@
  },
  "arctis milling_angle r=45 t=-75": {
   "error": null,
-  "result": -37.00000000000001
+  "result": -37.000000000000014
  },
  "arctis milling_angle r=45 t=-80": {
   "error": null,
@@ -1697,11 +1697,11 @@
  },
  "arctis milling_angle r=45 t=-85": {
   "error": null,
-  "result": -47.00000000000001
+  "result": -47.00000000000003
  },
  "arctis milling_angle r=45 t=-90": {
   "error": null,
-  "result": -52.0
+  "result": -52.00000000000003
  },
  "arctis milling_angle r=45 t=-95": {
   "error": null,
@@ -1709,7 +1709,7 @@
  },
  "arctis milling_angle r=45 t=0": {
   "error": null,
-  "result": 37.99999999999999
+  "result": 38.0
  },
  "arctis milling_angle r=45 t=10": {
   "error": null,
@@ -1721,7 +1721,7 @@
  },
  "arctis milling_angle r=45 t=20": {
   "error": null,
-  "result": 57.99999999999999
+  "result": 58.0
  },
  "arctis milling_angle r=45 t=25": {
   "error": null,
@@ -1733,15 +1733,15 @@
  },
  "arctis milling_angle r=45 t=35": {
   "error": null,
-  "result": 72.99999999999999
+  "result": 73.0
  },
  "arctis milling_angle r=45 t=40": {
   "error": null,
-  "result": 78.0
+  "result": 78.00000000000001
  },
  "arctis milling_angle r=45 t=45": {
   "error": null,
-  "result": 83.0
+  "result": 83.00000000000003
  },
  "arctis milling_angle r=45 t=5": {
   "error": null,
@@ -1749,11 +1749,11 @@
  },
  "arctis milling_angle r=45 t=50": {
   "error": null,
-  "result": 88.0
+  "result": 88.00000000000006
  },
  "arctis milling_angle r=45 t=55": {
   "error": null,
-  "result": 92.99999999999999
+  "result": 92.99999999999993
  },
  "arctis milling_angle r=45 t=60": {
   "error": null,
@@ -1765,7 +1765,7 @@
  },
  "arctis milling_angle r=45 t=70": {
   "error": null,
-  "result": 108.0
+  "result": 107.99999999999999
  },
  "arctis milling_angle r=45 t=75": {
   "error": null,
@@ -1773,11 +1773,11 @@
  },
  "arctis milling_angle r=45 t=80": {
   "error": null,
-  "result": 117.99999999999999
+  "result": 118.0
  },
  "arctis milling_angle r=45 t=85": {
   "error": null,
-  "result": 123.00000000000001
+  "result": 122.99999999999999
  },
  "arctis milling_angle r=45 t=90": {
   "error": null,
@@ -1785,39 +1785,39 @@
  },
  "arctis milling_angle r=90 t=-10": {
   "error": null,
-  "result": 27.999999999999996
+  "result": 27.999999999999986
  },
  "arctis milling_angle r=90 t=-100": {
   "error": null,
-  "result": 117.99999999999999
+  "result": 118.0
  },
  "arctis milling_angle r=90 t=-105": {
   "error": null,
-  "result": 113.0
+  "result": 112.99999999999997
  },
  "arctis milling_angle r=90 t=-110": {
   "error": null,
-  "result": 108.0
+  "result": 107.99999999999999
  },
  "arctis milling_angle r=90 t=-115": {
   "error": null,
-  "result": 103.0
+  "result": 102.99999999999997
  },
  "arctis milling_angle r=90 t=-120": {
   "error": null,
-  "result": 98.00000000000001
+  "result": 98.00000000000003
  },
  "arctis milling_angle r=90 t=-125": {
   "error": null,
-  "result": 92.99999999999999
+  "result": 93.00000000000004
  },
  "arctis milling_angle r=90 t=-130": {
   "error": null,
-  "result": 88.0
+  "result": 88.00000000000006
  },
  "arctis milling_angle r=90 t=-135": {
   "error": null,
-  "result": 83.0
+  "result": 83.00000000000003
  },
  "arctis milling_angle r=90 t=-140": {
   "error": null,
@@ -1825,11 +1825,11 @@
  },
  "arctis milling_angle r=90 t=-145": {
   "error": null,
-  "result": 72.99999999999999
+  "result": 73.0
  },
  "arctis milling_angle r=90 t=-15": {
   "error": null,
-  "result": 22.999999999999996
+  "result": 23.0
  },
  "arctis milling_angle r=90 t=-150": {
   "error": null,
@@ -1841,47 +1841,47 @@
  },
  "arctis milling_angle r=90 t=-160": {
   "error": null,
-  "result": 58.00000000000001
+  "result": 58.000000000000014
  },
  "arctis milling_angle r=90 t=-165": {
   "error": null,
-  "result": 53.00000000000001
+  "result": 53.00000000000002
  },
  "arctis milling_angle r=90 t=-170": {
   "error": null,
-  "result": 47.999999999999986
+  "result": 47.99999999999999
  },
  "arctis milling_angle r=90 t=-175": {
   "error": null,
-  "result": 42.99999999999999
+  "result": 43.00000000000001
  },
  "arctis milling_angle r=90 t=-180": {
   "error": null,
-  "result": 37.99999999999999
+  "result": 38.00000000000001
  },
  "arctis milling_angle r=90 t=-20": {
   "error": null,
-  "result": 17.999999999999996
+  "result": 18.0
  },
  "arctis milling_angle r=90 t=-25": {
   "error": null,
-  "result": 12.999999999999996
+  "result": 13.0
  },
  "arctis milling_angle r=90 t=-30": {
   "error": null,
-  "result": 7.999999999999998
+  "result": 8.0
  },
  "arctis milling_angle r=90 t=-35": {
   "error": null,
-  "result": 2.999999999999998
+  "result": 3.0
  },
  "arctis milling_angle r=90 t=-40": {
   "error": null,
-  "result": -2.0000000000000027
+  "result": -2.0
  },
  "arctis milling_angle r=90 t=-45": {
   "error": null,
-  "result": -7.0000000000000036
+  "result": -7.0
  },
  "arctis milling_angle r=90 t=-5": {
   "error": null,
@@ -1889,11 +1889,11 @@
  },
  "arctis milling_angle r=90 t=-50": {
   "error": null,
-  "result": -12.000000000000004
+  "result": -12.0
  },
  "arctis milling_angle r=90 t=-55": {
   "error": null,
-  "result": -17.000000000000004
+  "result": -17.0
  },
  "arctis milling_angle r=90 t=-60": {
   "error": null,
@@ -1901,7 +1901,7 @@
  },
  "arctis milling_angle r=90 t=-65": {
   "error": null,
-  "result": -27.000000000000007
+  "result": -27.0
  },
  "arctis milling_angle r=90 t=-70": {
   "error": null,
@@ -1909,7 +1909,7 @@
  },
  "arctis milling_angle r=90 t=-75": {
   "error": null,
-  "result": -37.00000000000001
+  "result": -37.000000000000014
  },
  "arctis milling_angle r=90 t=-80": {
   "error": null,
@@ -1917,11 +1917,11 @@
  },
  "arctis milling_angle r=90 t=-85": {
   "error": null,
-  "result": -47.00000000000001
+  "result": -47.00000000000003
  },
  "arctis milling_angle r=90 t=-90": {
   "error": null,
-  "result": -52.0
+  "result": -52.00000000000003
  },
  "arctis milling_angle r=90 t=-95": {
   "error": null,
@@ -1929,7 +1929,7 @@
  },
  "arctis milling_angle r=90 t=0": {
   "error": null,
-  "result": 37.99999999999999
+  "result": 38.0
  },
  "arctis milling_angle r=90 t=10": {
   "error": null,
@@ -1941,7 +1941,7 @@
  },
  "arctis milling_angle r=90 t=20": {
   "error": null,
-  "result": 57.99999999999999
+  "result": 58.0
  },
  "arctis milling_angle r=90 t=25": {
   "error": null,
@@ -1953,15 +1953,15 @@
  },
  "arctis milling_angle r=90 t=35": {
   "error": null,
-  "result": 72.99999999999999
+  "result": 73.0
  },
  "arctis milling_angle r=90 t=40": {
   "error": null,
-  "result": 78.0
+  "result": 78.00000000000001
  },
  "arctis milling_angle r=90 t=45": {
   "error": null,
-  "result": 83.0
+  "result": 83.00000000000003
  },
  "arctis milling_angle r=90 t=5": {
   "error": null,
@@ -1969,11 +1969,11 @@
  },
  "arctis milling_angle r=90 t=50": {
   "error": null,
-  "result": 88.0
+  "result": 88.00000000000006
  },
  "arctis milling_angle r=90 t=55": {
   "error": null,
-  "result": 92.99999999999999
+  "result": 92.99999999999993
  },
  "arctis milling_angle r=90 t=60": {
   "error": null,
@@ -1985,7 +1985,7 @@
  },
  "arctis milling_angle r=90 t=70": {
   "error": null,
-  "result": 108.0
+  "result": 107.99999999999999
  },
  "arctis milling_angle r=90 t=75": {
   "error": null,
@@ -1993,11 +1993,11 @@
  },
  "arctis milling_angle r=90 t=80": {
   "error": null,
-  "result": 117.99999999999999
+  "result": 118.0
  },
  "arctis milling_angle r=90 t=85": {
   "error": null,
-  "result": 123.00000000000001
+  "result": 122.99999999999999
  },
  "arctis milling_angle r=90 t=90": {
   "error": null,
@@ -6640,1543 +6640,1543 @@
  },
  "default milling_angle r=135 t=-10": {
   "error": null,
-  "result": -7.0000000000000036
+  "result": 47.959724879913004
  },
  "default milling_angle r=135 t=-100": {
   "error": null,
-  "result": 82.99999999999999
+  "result": 147.80109196241256
  },
  "default milling_angle r=135 t=-105": {
   "error": null,
-  "result": 78.0
+  "result": 143.44738052471507
  },
  "default milling_angle r=135 t=-110": {
   "error": null,
-  "result": 73.0
+  "result": 139.17666579714364
  },
  "default milling_angle r=135 t=-115": {
   "error": null,
-  "result": 68.0
+  "result": 135.01500058558287
  },
  "default milling_angle r=135 t=-120": {
   "error": null,
-  "result": 63.000000000000014
+  "result": 130.99783968231384
  },
  "default milling_angle r=135 t=-125": {
   "error": null,
-  "result": 57.99999999999999
+  "result": 127.17411146631002
  },
  "default milling_angle r=135 t=-130": {
   "error": null,
-  "result": 53.0
+  "result": 123.61176721353806
  },
  "default milling_angle r=135 t=-135": {
   "error": null,
-  "result": 48.00000000000001
+  "result": 120.40449673479193
  },
  "default milling_angle r=135 t=-140": {
   "error": null,
-  "result": 43.00000000000001
+  "result": 117.67746476490208
  },
  "default milling_angle r=135 t=-145": {
   "error": null,
-  "result": 37.99999999999999
+  "result": 115.58587107243899
  },
  "default milling_angle r=135 t=-15": {
   "error": null,
-  "result": -12.000000000000002
+  "result": 43.90036080041296
  },
  "default milling_angle r=135 t=-150": {
   "error": null,
-  "result": 32.99999999999999
+  "result": 114.29524677162141
  },
  "default milling_angle r=135 t=-155": {
   "error": null,
-  "result": 28.0
+  "result": 66.0639956836396
  },
  "default milling_angle r=135 t=-160": {
   "error": null,
-  "result": 23.000000000000007
+  "result": 65.45080507145578
  },
  "default milling_angle r=135 t=-165": {
   "error": null,
-  "result": 18.000000000000007
+  "result": 63.9339266166163
  },
  "default milling_angle r=135 t=-170": {
   "error": null,
-  "result": 12.999999999999986
+  "result": 61.65858656972516
  },
  "default milling_angle r=135 t=-175": {
   "error": null,
-  "result": 7.999999999999992
+  "result": 58.79097254943582
  },
  "default milling_angle r=135 t=-180": {
   "error": null,
-  "result": 2.999999999999998
+  "result": 55.47930894010465
  },
  "default milling_angle r=135 t=-20": {
   "error": null,
-  "result": -17.0
+  "result": 39.706954567534034
  },
  "default milling_angle r=135 t=-25": {
   "error": null,
-  "result": -22.000000000000004
+  "result": 35.412143443596
  },
  "default milling_angle r=135 t=-30": {
   "error": null,
-  "result": -27.0
+  "result": 31.040018603939487
  },
  "default milling_angle r=135 t=-35": {
   "error": null,
-  "result": -32.0
+  "result": 26.60871319475328
  },
  "default milling_angle r=135 t=-40": {
   "error": null,
-  "result": -37.0
+  "result": 22.13218863476291
  },
  "default milling_angle r=135 t=-45": {
   "error": null,
-  "result": -42.0
+  "result": 17.62147507645129
  },
  "default milling_angle r=135 t=-5": {
   "error": null,
-  "result": -2.0000000000000027
+  "result": 51.840146301820575
  },
  "default milling_angle r=135 t=-50": {
   "error": null,
-  "result": -47.0
+  "result": 13.085546837406014
  },
  "default milling_angle r=135 t=-55": {
   "error": null,
-  "result": -52.0
+  "result": 8.531956057632826
  },
  "default milling_angle r=135 t=-60": {
   "error": null,
-  "result": -57.0
+  "result": 3.967308274273009
  },
  "default milling_angle r=135 t=-65": {
   "error": null,
-  "result": -62.000000000000014
+  "result": -0.6023621449825924
  },
  "default milling_angle r=135 t=-70": {
   "error": null,
-  "result": -67.0
+  "result": -5.171274740478921
  },
  "default milling_angle r=135 t=-75": {
   "error": null,
-  "result": -72.0
+  "result": -9.73361096619196
  },
  "default milling_angle r=135 t=-80": {
   "error": null,
-  "result": -77.0
+  "result": -14.283218429437781
  },
  "default milling_angle r=135 t=-85": {
   "error": null,
-  "result": -82.00000000000001
+  "result": -18.81328175749948
  },
  "default milling_angle r=135 t=-90": {
   "error": null,
-  "result": -87.00000000000001
+  "result": -23.31592535228569
  },
  "default milling_angle r=135 t=-95": {
   "error": null,
-  "result": 87.99999999999999
+  "result": 152.2182973806546
  },
  "default milling_angle r=135 t=0": {
   "error": null,
-  "result": 2.999999999999998
+  "result": 55.47930894010465
  },
  "default milling_angle r=135 t=10": {
   "error": null,
-  "result": 13.0
+  "result": 61.65858656972516
  },
  "default milling_angle r=135 t=15": {
   "error": null,
-  "result": 18.0
+  "result": 63.9339266166163
  },
  "default milling_angle r=135 t=20": {
   "error": null,
-  "result": 22.999999999999993
+  "result": 65.45080507145578
  },
  "default milling_angle r=135 t=25": {
   "error": null,
-  "result": 28.0
+  "result": 66.0639956836396
  },
  "default milling_angle r=135 t=30": {
   "error": null,
-  "result": 32.99999999999999
+  "result": 114.29524677162141
  },
  "default milling_angle r=135 t=35": {
   "error": null,
-  "result": 37.99999999999999
+  "result": 115.585871072439
  },
  "default milling_angle r=135 t=40": {
   "error": null,
-  "result": 43.0
+  "result": 117.67746476490208
  },
  "default milling_angle r=135 t=45": {
   "error": null,
-  "result": 48.00000000000001
+  "result": 120.40449673479193
  },
  "default milling_angle r=135 t=5": {
   "error": null,
-  "result": 7.999999999999998
+  "result": 58.79097254943582
  },
  "default milling_angle r=135 t=50": {
   "error": null,
-  "result": 53.0
+  "result": 123.61176721353806
  },
  "default milling_angle r=135 t=55": {
   "error": null,
-  "result": 57.99999999999999
+  "result": 127.17411146631001
  },
  "default milling_angle r=135 t=60": {
   "error": null,
-  "result": 62.999999999999986
+  "result": 130.99783968231384
  },
  "default milling_angle r=135 t=65": {
   "error": null,
-  "result": 68.0
+  "result": 135.01500058558287
  },
  "default milling_angle r=135 t=70": {
   "error": null,
-  "result": 73.0
+  "result": 139.17666579714364
  },
  "default milling_angle r=135 t=75": {
   "error": null,
-  "result": 78.0
+  "result": 143.44738052471507
  },
  "default milling_angle r=135 t=80": {
   "error": null,
-  "result": 82.99999999999999
+  "result": 147.80109196241256
  },
  "default milling_angle r=135 t=85": {
   "error": null,
-  "result": 88.00000000000001
+  "result": 152.21829738065463
  },
  "default milling_angle r=135 t=90": {
   "error": null,
-  "result": 93.0
+  "result": 156.6840746477143
  },
  "default milling_angle r=180 t=-10": {
   "error": null,
-  "result": -7.0000000000000036
+  "result": 62.999999999999986
  },
  "default milling_angle r=180 t=-100": {
   "error": null,
-  "result": 82.99999999999999
+  "result": 153.0
  },
  "default milling_angle r=180 t=-105": {
   "error": null,
-  "result": 78.0
+  "result": 148.0
  },
  "default milling_angle r=180 t=-110": {
   "error": null,
-  "result": 73.0
+  "result": 143.0
  },
  "default milling_angle r=180 t=-115": {
   "error": null,
-  "result": 68.0
+  "result": 138.0
  },
  "default milling_angle r=180 t=-120": {
   "error": null,
-  "result": 63.000000000000014
+  "result": 133.0
  },
  "default milling_angle r=180 t=-125": {
   "error": null,
-  "result": 57.99999999999999
+  "result": 128.0
  },
  "default milling_angle r=180 t=-130": {
   "error": null,
-  "result": 53.0
+  "result": 122.99999999999999
  },
  "default milling_angle r=180 t=-135": {
   "error": null,
-  "result": 48.00000000000001
+  "result": 118.0
  },
  "default milling_angle r=180 t=-140": {
   "error": null,
-  "result": 43.00000000000001
+  "result": 113.00000000000001
  },
  "default milling_angle r=180 t=-145": {
   "error": null,
-  "result": 37.99999999999999
+  "result": 107.99999999999997
  },
  "default milling_angle r=180 t=-15": {
   "error": null,
-  "result": -12.000000000000002
+  "result": 58.000000000000014
  },
  "default milling_angle r=180 t=-150": {
   "error": null,
-  "result": 32.99999999999999
+  "result": 102.99999999999997
  },
  "default milling_angle r=180 t=-155": {
   "error": null,
-  "result": 28.0
+  "result": 97.99999999999999
  },
  "default milling_angle r=180 t=-160": {
   "error": null,
-  "result": 23.000000000000007
+  "result": 93.00000000000004
  },
  "default milling_angle r=180 t=-165": {
   "error": null,
-  "result": 18.000000000000007
+  "result": 88.00000000000006
  },
  "default milling_angle r=180 t=-170": {
   "error": null,
-  "result": 12.999999999999986
+  "result": 82.99999999999997
  },
  "default milling_angle r=180 t=-175": {
   "error": null,
-  "result": 7.999999999999992
+  "result": 78.00000000000001
  },
  "default milling_angle r=180 t=-180": {
   "error": null,
-  "result": 2.999999999999998
+  "result": 73.00000000000001
  },
  "default milling_angle r=180 t=-20": {
   "error": null,
-  "result": -17.0
+  "result": 53.0
  },
  "default milling_angle r=180 t=-25": {
   "error": null,
-  "result": -22.000000000000004
+  "result": 47.99999999999999
  },
  "default milling_angle r=180 t=-30": {
   "error": null,
-  "result": -27.0
+  "result": 43.00000000000001
  },
  "default milling_angle r=180 t=-35": {
   "error": null,
-  "result": -32.0
+  "result": 37.99999999999999
  },
  "default milling_angle r=180 t=-40": {
   "error": null,
-  "result": -37.0
+  "result": 32.99999999999999
  },
  "default milling_angle r=180 t=-45": {
   "error": null,
-  "result": -42.0
+  "result": 28.0
  },
  "default milling_angle r=180 t=-5": {
   "error": null,
-  "result": -2.0000000000000027
+  "result": 68.0
  },
  "default milling_angle r=180 t=-50": {
   "error": null,
-  "result": -47.0
+  "result": 23.0
  },
  "default milling_angle r=180 t=-55": {
   "error": null,
-  "result": -52.0
+  "result": 18.0
  },
  "default milling_angle r=180 t=-60": {
   "error": null,
-  "result": -57.0
+  "result": 13.0
  },
  "default milling_angle r=180 t=-65": {
   "error": null,
-  "result": -62.000000000000014
+  "result": 8.0
  },
  "default milling_angle r=180 t=-70": {
   "error": null,
-  "result": -67.0
+  "result": 3.0
  },
  "default milling_angle r=180 t=-75": {
   "error": null,
-  "result": -72.0
+  "result": -2.000000000000014
  },
  "default milling_angle r=180 t=-80": {
   "error": null,
-  "result": -77.0
+  "result": -7.000000000000014
  },
  "default milling_angle r=180 t=-85": {
   "error": null,
-  "result": -82.00000000000001
+  "result": -12.000000000000014
  },
  "default milling_angle r=180 t=-90": {
   "error": null,
-  "result": -87.00000000000001
+  "result": -17.000000000000014
  },
  "default milling_angle r=180 t=-95": {
   "error": null,
-  "result": 87.99999999999999
+  "result": 158.0
  },
  "default milling_angle r=180 t=0": {
   "error": null,
-  "result": 2.999999999999998
+  "result": 73.0
  },
  "default milling_angle r=180 t=10": {
   "error": null,
-  "result": 13.0
+  "result": 82.99999999999997
  },
  "default milling_angle r=180 t=15": {
   "error": null,
-  "result": 90.0
+  "result": 88.00000000000006
  },
  "default milling_angle r=180 t=20": {
   "error": null,
-  "result": 90.0
+  "result": 93.00000000000004
  },
  "default milling_angle r=180 t=25": {
   "error": null,
-  "result": 28.0
+  "result": 97.99999999999999
  },
  "default milling_angle r=180 t=30": {
   "error": null,
-  "result": 32.99999999999999
+  "result": 102.99999999999997
  },
  "default milling_angle r=180 t=35": {
   "error": null,
-  "result": 37.99999999999999
+  "result": 107.99999999999999
  },
  "default milling_angle r=180 t=40": {
   "error": null,
-  "result": 43.0
+  "result": 113.0
  },
  "default milling_angle r=180 t=45": {
   "error": null,
-  "result": 48.00000000000001
+  "result": 118.0
  },
  "default milling_angle r=180 t=5": {
   "error": null,
-  "result": 7.999999999999998
+  "result": 78.00000000000001
  },
  "default milling_angle r=180 t=50": {
   "error": null,
-  "result": 53.0
+  "result": 122.99999999999999
  },
  "default milling_angle r=180 t=55": {
   "error": null,
-  "result": 57.99999999999999
+  "result": 127.99999999999999
  },
  "default milling_angle r=180 t=60": {
   "error": null,
-  "result": 62.999999999999986
+  "result": 133.0
  },
  "default milling_angle r=180 t=65": {
   "error": null,
-  "result": 68.0
+  "result": 138.0
  },
  "default milling_angle r=180 t=70": {
   "error": null,
-  "result": 73.0
+  "result": 143.0
  },
  "default milling_angle r=180 t=75": {
   "error": null,
-  "result": 78.0
+  "result": 148.0
  },
  "default milling_angle r=180 t=80": {
   "error": null,
-  "result": 82.99999999999999
+  "result": 153.0
  },
  "default milling_angle r=180 t=85": {
   "error": null,
-  "result": 88.00000000000001
+  "result": 158.0
  },
  "default milling_angle r=180 t=90": {
   "error": null,
-  "result": 93.0
+  "result": 163.0
  },
  "default milling_angle r=225 t=-10": {
   "error": null,
-  "result": -7.0000000000000036
+  "result": 47.959724879913004
  },
  "default milling_angle r=225 t=-100": {
   "error": null,
-  "result": 82.99999999999999
+  "result": 147.80109196241258
  },
  "default milling_angle r=225 t=-105": {
   "error": null,
-  "result": 78.0
+  "result": 143.44738052471507
  },
  "default milling_angle r=225 t=-110": {
   "error": null,
-  "result": 73.0
+  "result": 139.17666579714364
  },
  "default milling_angle r=225 t=-115": {
   "error": null,
-  "result": 68.0
+  "result": 135.01500058558287
  },
  "default milling_angle r=225 t=-120": {
   "error": null,
-  "result": 63.000000000000014
+  "result": 130.99783968231384
  },
  "default milling_angle r=225 t=-125": {
   "error": null,
-  "result": 57.99999999999999
+  "result": 127.17411146631001
  },
  "default milling_angle r=225 t=-130": {
   "error": null,
-  "result": 53.0
+  "result": 123.61176721353806
  },
  "default milling_angle r=225 t=-135": {
   "error": null,
-  "result": 48.00000000000001
+  "result": 120.40449673479193
  },
  "default milling_angle r=225 t=-140": {
   "error": null,
-  "result": 43.00000000000001
+  "result": 117.67746476490208
  },
  "default milling_angle r=225 t=-145": {
   "error": null,
-  "result": 37.99999999999999
+  "result": 115.58587107243898
  },
  "default milling_angle r=225 t=-15": {
   "error": null,
-  "result": -12.000000000000002
+  "result": 43.90036080041296
  },
  "default milling_angle r=225 t=-150": {
   "error": null,
-  "result": 32.99999999999999
+  "result": 114.29524677162141
  },
  "default milling_angle r=225 t=-155": {
   "error": null,
-  "result": 28.0
+  "result": 66.0639956836396
  },
  "default milling_angle r=225 t=-160": {
   "error": null,
-  "result": 23.000000000000007
+  "result": 65.45080507145579
  },
  "default milling_angle r=225 t=-165": {
   "error": null,
-  "result": 18.000000000000007
+  "result": 63.93392661661631
  },
  "default milling_angle r=225 t=-170": {
   "error": null,
-  "result": 12.999999999999986
+  "result": 61.65858656972517
  },
  "default milling_angle r=225 t=-175": {
   "error": null,
-  "result": 7.999999999999992
+  "result": 58.79097254943582
  },
  "default milling_angle r=225 t=-180": {
   "error": null,
-  "result": 2.999999999999998
+  "result": 55.479308940104666
  },
  "default milling_angle r=225 t=-20": {
   "error": null,
-  "result": -17.0
+  "result": 39.70695456753405
  },
  "default milling_angle r=225 t=-25": {
   "error": null,
-  "result": -22.000000000000004
+  "result": 35.41214344359601
  },
  "default milling_angle r=225 t=-30": {
   "error": null,
-  "result": -27.0
+  "result": 31.040018603939487
  },
  "default milling_angle r=225 t=-35": {
   "error": null,
-  "result": -32.0
+  "result": 26.60871319475328
  },
  "default milling_angle r=225 t=-40": {
   "error": null,
-  "result": -37.0
+  "result": 22.13218863476291
  },
  "default milling_angle r=225 t=-45": {
   "error": null,
-  "result": -42.0
+  "result": 17.621475076451304
  },
  "default milling_angle r=225 t=-5": {
   "error": null,
-  "result": -2.0000000000000027
+  "result": 51.84014630182058
  },
  "default milling_angle r=225 t=-50": {
   "error": null,
-  "result": -47.0
+  "result": 13.085546837406028
  },
  "default milling_angle r=225 t=-55": {
   "error": null,
-  "result": -52.0
+  "result": 8.531956057632826
  },
  "default milling_angle r=225 t=-60": {
   "error": null,
-  "result": -57.0
+  "result": 3.967308274273023
  },
  "default milling_angle r=225 t=-65": {
   "error": null,
-  "result": -62.000000000000014
+  "result": -0.6023621449825924
  },
  "default milling_angle r=225 t=-70": {
   "error": null,
-  "result": -67.0
+  "result": -5.171274740478921
  },
  "default milling_angle r=225 t=-75": {
   "error": null,
-  "result": -72.0
+  "result": -9.73361096619196
  },
  "default milling_angle r=225 t=-80": {
   "error": null,
-  "result": -77.0
+  "result": -14.283218429437781
  },
  "default milling_angle r=225 t=-85": {
   "error": null,
-  "result": -82.00000000000001
+  "result": -18.81328175749948
  },
  "default milling_angle r=225 t=-90": {
   "error": null,
-  "result": -87.00000000000001
+  "result": -23.315925352285674
  },
  "default milling_angle r=225 t=-95": {
   "error": null,
-  "result": 87.99999999999999
+  "result": 152.21829738065463
  },
  "default milling_angle r=225 t=0": {
   "error": null,
-  "result": 2.999999999999998
+  "result": 55.47930894010465
  },
  "default milling_angle r=225 t=10": {
   "error": null,
-  "result": 13.0
+  "result": 61.65858656972517
  },
  "default milling_angle r=225 t=15": {
   "error": null,
-  "result": 18.0
+  "result": 63.93392661661631
  },
  "default milling_angle r=225 t=20": {
   "error": null,
-  "result": 22.999999999999993
+  "result": 65.45080507145579
  },
  "default milling_angle r=225 t=25": {
   "error": null,
-  "result": 28.0
+  "result": 66.0639956836396
  },
  "default milling_angle r=225 t=30": {
   "error": null,
-  "result": 32.99999999999999
+  "result": 114.29524677162141
  },
  "default milling_angle r=225 t=35": {
   "error": null,
-  "result": 37.99999999999999
+  "result": 115.58587107243899
  },
  "default milling_angle r=225 t=40": {
   "error": null,
-  "result": 43.0
+  "result": 117.67746476490208
  },
  "default milling_angle r=225 t=45": {
   "error": null,
-  "result": 48.00000000000001
+  "result": 120.40449673479193
  },
  "default milling_angle r=225 t=5": {
   "error": null,
-  "result": 7.999999999999998
+  "result": 58.79097254943582
  },
  "default milling_angle r=225 t=50": {
   "error": null,
-  "result": 53.0
+  "result": 123.61176721353806
  },
  "default milling_angle r=225 t=55": {
   "error": null,
-  "result": 57.99999999999999
+  "result": 127.17411146631001
  },
  "default milling_angle r=225 t=60": {
   "error": null,
-  "result": 62.999999999999986
+  "result": 130.99783968231384
  },
  "default milling_angle r=225 t=65": {
   "error": null,
-  "result": 68.0
+  "result": 135.01500058558287
  },
  "default milling_angle r=225 t=70": {
   "error": null,
-  "result": 73.0
+  "result": 139.17666579714364
  },
  "default milling_angle r=225 t=75": {
   "error": null,
-  "result": 78.0
+  "result": 143.4473805247151
  },
  "default milling_angle r=225 t=80": {
   "error": null,
-  "result": 82.99999999999999
+  "result": 147.80109196241256
  },
  "default milling_angle r=225 t=85": {
   "error": null,
-  "result": 88.00000000000001
+  "result": 152.21829738065463
  },
  "default milling_angle r=225 t=90": {
   "error": null,
-  "result": 93.0
+  "result": 156.68407464771434
  },
  "default milling_angle r=270 t=-10": {
   "error": null,
-  "result": -7.0000000000000036
+  "result": 22.6169604412254
  },
  "default milling_angle r=270 t=-100": {
   "error": null,
-  "result": 82.99999999999999
+  "result": 133.67501706747723
  },
  "default milling_angle r=270 t=-105": {
   "error": null,
-  "result": 78.0
+  "result": 131.0590152393653
  },
  "default milling_angle r=270 t=-110": {
   "error": null,
-  "result": 73.0
+  "result": 128.8254198122664
  },
  "default milling_angle r=270 t=-115": {
   "error": null,
-  "result": 68.0
+  "result": 127.04551061089204
  },
  "default milling_angle r=270 t=-120": {
   "error": null,
-  "result": 63.000000000000014
+  "result": 125.78860760458014
  },
  "default milling_angle r=270 t=-125": {
   "error": null,
-  "result": 57.99999999999999
+  "result": 125.1119846376807
  },
  "default milling_angle r=270 t=-130": {
   "error": null,
-  "result": 53.0
+  "result": 54.95018421376963
  },
  "default milling_angle r=270 t=-135": {
   "error": null,
-  "result": 48.00000000000001
+  "result": 54.39463105211061
  },
  "default milling_angle r=270 t=-140": {
   "error": null,
-  "result": 43.00000000000001
+  "result": 53.2497887595253
  },
  "default milling_angle r=270 t=-145": {
   "error": null,
-  "result": 37.99999999999999
+  "result": 51.56915914410337
  },
  "default milling_angle r=270 t=-15": {
   "error": null,
-  "result": -12.000000000000002
+  "result": 18.667049542171995
  },
  "default milling_angle r=270 t=-150": {
   "error": null,
-  "result": 32.99999999999999
+  "result": 49.42053955090609
  },
  "default milling_angle r=270 t=-155": {
   "error": null,
-  "result": 28.0
+  "result": 46.875481361349586
  },
  "default milling_angle r=270 t=-160": {
   "error": null,
-  "result": 23.000000000000007
+  "result": 44.00174924353893
  },
  "default milling_angle r=270 t=-165": {
   "error": null,
-  "result": 18.000000000000007
+  "result": 40.85931377886583
  },
  "default milling_angle r=270 t=-170": {
   "error": null,
-  "result": 12.999999999999986
+  "result": 37.499073714073354
  },
  "default milling_angle r=270 t=-175": {
   "error": null,
-  "result": 7.999999999999992
+  "result": 33.963202618031254
  },
  "default milling_angle r=270 t=-180": {
   "error": null,
-  "result": 2.999999999999998
+  "result": 30.28624647486702
  },
  "default milling_angle r=270 t=-20": {
   "error": null,
-  "result": -17.0
+  "result": 14.662919762798651
  },
  "default milling_angle r=270 t=-25": {
   "error": null,
-  "result": -22.000000000000004
+  "result": 10.618523261422766
  },
  "default milling_angle r=270 t=-30": {
   "error": null,
-  "result": -27.0
+  "result": 6.546176611272259
  },
  "default milling_angle r=270 t=-35": {
   "error": null,
-  "result": -32.0
+  "result": 2.457086462687599
  },
  "default milling_angle r=270 t=-40": {
   "error": null,
-  "result": -37.0
+  "result": -1.6381945987096316
  },
  "default milling_angle r=270 t=-45": {
   "error": null,
-  "result": -42.0
+  "result": -5.729353671829315
  },
  "default milling_angle r=270 t=-5": {
   "error": null,
-  "result": -2.0000000000000027
+  "result": 26.496438225731474
  },
  "default milling_angle r=270 t=-50": {
   "error": null,
-  "result": -47.0
+  "result": -9.805918402331855
  },
  "default milling_angle r=270 t=-55": {
   "error": null,
-  "result": -52.0
+  "result": -13.85684770257177
  },
  "default milling_angle r=270 t=-60": {
   "error": null,
-  "result": -57.0
+  "result": -17.870086373634464
  },
  "default milling_angle r=270 t=-65": {
   "error": null,
-  "result": -62.000000000000014
+  "result": -21.83205579940848
  },
  "default milling_angle r=270 t=-70": {
   "error": null,
-  "result": -67.0
+  "result": -25.727050221416945
  },
  "default milling_angle r=270 t=-75": {
   "error": null,
-  "result": -72.0
+  "result": -29.5365059567484
  },
  "default milling_angle r=270 t=-80": {
   "error": null,
-  "result": -77.0
+  "result": -33.238112205020045
  },
  "default milling_angle r=270 t=-85": {
   "error": null,
-  "result": -82.00000000000001
+  "result": -36.80474285687423
  },
  "default milling_angle r=270 t=-90": {
   "error": null,
-  "result": -87.00000000000001
+  "result": -40.20322060024054
  },
  "default milling_angle r=270 t=-95": {
   "error": null,
-  "result": 87.99999999999999
+  "result": 136.60700217758662
  },
  "default milling_angle r=270 t=0": {
   "error": null,
-  "result": 2.999999999999998
+  "result": 30.28624647486702
  },
  "default milling_angle r=270 t=10": {
   "error": null,
-  "result": 13.0
+  "result": 37.499073714073354
  },
  "default milling_angle r=270 t=15": {
   "error": null,
-  "result": 18.0
+  "result": 40.85931377886582
  },
  "default milling_angle r=270 t=20": {
   "error": null,
-  "result": 22.999999999999993
+  "result": 44.00174924353892
  },
  "default milling_angle r=270 t=25": {
   "error": null,
-  "result": 28.0
+  "result": 46.87548136134958
  },
  "default milling_angle r=270 t=30": {
   "error": null,
-  "result": 32.99999999999999
+  "result": 49.42053955090609
  },
  "default milling_angle r=270 t=35": {
   "error": null,
-  "result": 37.99999999999999
+  "result": 51.56915914410337
  },
  "default milling_angle r=270 t=40": {
   "error": null,
-  "result": 43.0
+  "result": 53.249788759525295
  },
  "default milling_angle r=270 t=45": {
   "error": null,
-  "result": 48.00000000000001
+  "result": 54.394631052110604
  },
  "default milling_angle r=270 t=5": {
   "error": null,
-  "result": 7.999999999999998
+  "result": 33.963202618031254
  },
  "default milling_angle r=270 t=50": {
   "error": null,
-  "result": 53.0
+  "result": 54.95018421376963
  },
  "default milling_angle r=270 t=55": {
   "error": null,
-  "result": 57.99999999999999
+  "result": 125.1119846376807
  },
  "default milling_angle r=270 t=60": {
   "error": null,
-  "result": 62.999999999999986
+  "result": 125.78860760458014
  },
  "default milling_angle r=270 t=65": {
   "error": null,
-  "result": 68.0
+  "result": 127.04551061089205
  },
  "default milling_angle r=270 t=70": {
   "error": null,
-  "result": 73.0
+  "result": 128.8254198122664
  },
  "default milling_angle r=270 t=75": {
   "error": null,
-  "result": 78.0
+  "result": 131.0590152393653
  },
  "default milling_angle r=270 t=80": {
   "error": null,
-  "result": 82.99999999999999
+  "result": 133.67501706747723
  },
  "default milling_angle r=270 t=85": {
   "error": null,
-  "result": 88.00000000000001
+  "result": 136.60700217758662
  },
  "default milling_angle r=270 t=90": {
   "error": null,
-  "result": 93.0
+  "result": 139.7967793997595
  },
  "default milling_angle r=315 t=-10": {
   "error": null,
-  "result": -7.0000000000000036
+  "result": 1.5163891105673457
  },
  "default milling_angle r=315 t=-100": {
   "error": null,
-  "result": 82.99999999999999
+  "result": 113.98153342486799
  },
  "default milling_angle r=315 t=-105": {
   "error": null,
-  "result": 78.0
+  "result": 65.85400367568982
  },
  "default milling_angle r=315 t=-110": {
   "error": null,
-  "result": 73.0
+  "result": 64.74137697272022
  },
  "default milling_angle r=315 t=-115": {
   "error": null,
-  "result": 68.0
+  "result": 62.79704923624169
  },
  "default milling_angle r=315 t=-120": {
   "error": null,
-  "result": 63.000000000000014
+  "result": 60.18391604309136
  },
  "default milling_angle r=315 t=-125": {
   "error": null,
-  "result": 57.99999999999999
+  "result": 57.061620434127676
  },
  "default milling_angle r=315 t=-130": {
   "error": null,
-  "result": 53.0
+  "result": 53.561851297373444
  },
  "default milling_angle r=315 t=-135": {
   "error": null,
-  "result": 48.00000000000001
+  "result": 49.78424080807004
  },
  "default milling_angle r=315 t=-140": {
   "error": null,
-  "result": 43.00000000000001
+  "result": 45.80133301411894
  },
  "default milling_angle r=315 t=-145": {
   "error": null,
-  "result": 37.99999999999999
+  "result": 41.66536865357028
  },
  "default milling_angle r=315 t=-15": {
   "error": null,
-  "result": -12.000000000000002
+  "result": -3.0535892547451198
  },
  "default milling_angle r=315 t=-150": {
   "error": null,
-  "result": 32.99999999999999
+  "result": 37.4141264977738
  },
  "default milling_angle r=315 t=-155": {
   "error": null,
-  "result": 28.0
+  "result": 33.07527760375386
  },
  "default milling_angle r=315 t=-160": {
   "error": null,
-  "result": 23.000000000000007
+  "result": 28.669453422138155
  },
  "default milling_angle r=315 t=-165": {
   "error": null,
-  "result": 18.000000000000007
+  "result": 24.21236704090363
  },
  "default milling_angle r=315 t=-170": {
   "error": null,
-  "result": 12.999999999999986
+  "result": 19.71627999162864
  },
  "default milling_angle r=315 t=-175": {
   "error": null,
-  "result": 7.999999999999992
+  "result": 15.191028548827745
  },
  "default milling_angle r=315 t=-180": {
   "error": null,
-  "result": 2.999999999999998
+  "result": 10.64475704193427
  },
  "default milling_angle r=315 t=-20": {
   "error": null,
-  "result": -17.0
+  "result": -7.6197118702468885
  },
  "default milling_angle r=315 t=-25": {
   "error": null,
-  "result": -22.000000000000004
+  "result": -12.17601928669768
  },
  "default milling_angle r=315 t=-30": {
   "error": null,
-  "result": -27.0
+  "result": -16.716047844510598
  },
  "default milling_angle r=315 t=-35": {
   "error": null,
-  "result": -32.0
+  "result": -21.232468856780855
  },
  "default milling_angle r=315 t=-40": {
   "error": null,
-  "result": -37.0
+  "result": -25.71663706810871
  },
  "default milling_angle r=315 t=-45": {
   "error": null,
-  "result": -42.0
+  "result": -30.157994314739867
  },
  "default milling_angle r=315 t=-5": {
   "error": null,
-  "result": -2.0000000000000027
+  "result": 6.084458219871422
  },
  "default milling_angle r=315 t=-50": {
   "error": null,
-  "result": -47.0
+  "result": -34.54325080655207
  },
  "default milling_angle r=315 t=-55": {
   "error": null,
-  "result": -52.0
+  "result": -38.85523001137494
  },
  "default milling_angle r=315 t=-60": {
   "error": null,
-  "result": -57.0
+  "result": -43.07120940278139
  },
  "default milling_angle r=315 t=-65": {
   "error": null,
-  "result": -62.000000000000014
+  "result": -47.16051710053989
  },
  "default milling_angle r=315 t=-70": {
   "error": null,
-  "result": -67.0
+  "result": -51.08106840943441
  },
  "default milling_angle r=315 t=-75": {
   "error": null,
-  "result": -72.0
+  "result": -54.77451550054326
  },
  "default milling_angle r=315 t=-80": {
   "error": null,
-  "result": -77.0
+  "result": -58.159959083779285
  },
  "default milling_angle r=315 t=-85": {
   "error": null,
-  "result": -82.00000000000001
+  "result": -61.12729173130555
  },
  "default milling_angle r=315 t=-90": {
   "error": null,
-  "result": -87.00000000000001
+  "result": -63.534191178778826
  },
  "default milling_angle r=315 t=-95": {
   "error": null,
-  "result": 87.99999999999999
+  "result": 114.78417520282672
  },
  "default milling_angle r=315 t=0": {
   "error": null,
-  "result": 2.999999999999998
+  "result": 10.64475704193427
  },
  "default milling_angle r=315 t=10": {
   "error": null,
-  "result": 13.0
+  "result": 19.71627999162864
  },
  "default milling_angle r=315 t=15": {
   "error": null,
-  "result": 18.0
+  "result": 24.212367040903615
  },
  "default milling_angle r=315 t=20": {
   "error": null,
-  "result": 22.999999999999993
+  "result": 28.669453422138126
  },
  "default milling_angle r=315 t=25": {
   "error": null,
-  "result": 28.0
+  "result": 33.07527760375386
  },
  "default milling_angle r=315 t=30": {
   "error": null,
-  "result": 32.99999999999999
+  "result": 37.4141264977738
  },
  "default milling_angle r=315 t=35": {
   "error": null,
-  "result": 37.99999999999999
+  "result": 41.6653686535703
  },
  "default milling_angle r=315 t=40": {
   "error": null,
-  "result": 43.0
+  "result": 45.80133301411893
  },
  "default milling_angle r=315 t=45": {
   "error": null,
-  "result": 48.00000000000001
+  "result": 49.78424080807004
  },
  "default milling_angle r=315 t=5": {
   "error": null,
-  "result": 7.999999999999998
+  "result": 15.191028548827745
  },
  "default milling_angle r=315 t=50": {
   "error": null,
-  "result": 53.0
+  "result": 53.561851297373444
  },
  "default milling_angle r=315 t=55": {
   "error": null,
-  "result": 57.99999999999999
+  "result": 57.06162043412769
  },
  "default milling_angle r=315 t=60": {
   "error": null,
-  "result": 62.999999999999986
+  "result": 60.18391604309136
  },
  "default milling_angle r=315 t=65": {
   "error": null,
-  "result": 68.0
+  "result": 62.79704923624169
  },
  "default milling_angle r=315 t=70": {
   "error": null,
-  "result": 73.0
+  "result": 64.74137697272022
  },
  "default milling_angle r=315 t=75": {
   "error": null,
-  "result": 78.0
+  "result": 65.85400367568981
  },
  "default milling_angle r=315 t=80": {
   "error": null,
-  "result": 82.99999999999999
+  "result": 113.98153342486799
  },
  "default milling_angle r=315 t=85": {
   "error": null,
-  "result": 88.00000000000001
+  "result": 114.78417520282673
  },
  "default milling_angle r=315 t=90": {
   "error": null,
-  "result": 93.0
+  "result": 116.46580882122117
  },
  "default milling_angle r=45 t=-10": {
   "error": null,
-  "result": -7.0000000000000036
+  "result": 1.5163891105673457
  },
  "default milling_angle r=45 t=-100": {
   "error": null,
-  "result": 82.99999999999999
+  "result": 113.98153342486799
  },
  "default milling_angle r=45 t=-105": {
   "error": null,
-  "result": 78.0
+  "result": 65.85400367568981
  },
  "default milling_angle r=45 t=-110": {
   "error": null,
-  "result": 73.0
+  "result": 64.74137697272022
  },
  "default milling_angle r=45 t=-115": {
   "error": null,
-  "result": 68.0
+  "result": 62.79704923624169
  },
  "default milling_angle r=45 t=-120": {
   "error": null,
-  "result": 63.000000000000014
+  "result": 60.18391604309137
  },
  "default milling_angle r=45 t=-125": {
   "error": null,
-  "result": 57.99999999999999
+  "result": 57.061620434127676
  },
  "default milling_angle r=45 t=-130": {
   "error": null,
-  "result": 53.0
+  "result": 53.561851297373444
  },
  "default milling_angle r=45 t=-135": {
   "error": null,
-  "result": 48.00000000000001
+  "result": 49.78424080807004
  },
  "default milling_angle r=45 t=-140": {
   "error": null,
-  "result": 43.00000000000001
+  "result": 45.80133301411894
  },
  "default milling_angle r=45 t=-145": {
   "error": null,
-  "result": 37.99999999999999
+  "result": 41.6653686535703
  },
  "default milling_angle r=45 t=-15": {
   "error": null,
-  "result": -12.000000000000002
+  "result": -3.053589254745134
  },
  "default milling_angle r=45 t=-150": {
   "error": null,
-  "result": 32.99999999999999
+  "result": 37.41412649777379
  },
  "default milling_angle r=45 t=-155": {
   "error": null,
-  "result": 28.0
+  "result": 33.07527760375386
  },
  "default milling_angle r=45 t=-160": {
   "error": null,
-  "result": 23.000000000000007
+  "result": 28.669453422138155
  },
  "default milling_angle r=45 t=-165": {
   "error": null,
-  "result": 18.000000000000007
+  "result": 24.21236704090363
  },
  "default milling_angle r=45 t=-170": {
   "error": null,
-  "result": 12.999999999999986
+  "result": 19.716279991628625
  },
  "default milling_angle r=45 t=-175": {
   "error": null,
-  "result": 7.999999999999992
+  "result": 15.191028548827745
  },
  "default milling_angle r=45 t=-180": {
   "error": null,
-  "result": 2.999999999999998
+  "result": 10.64475704193427
  },
  "default milling_angle r=45 t=-20": {
   "error": null,
-  "result": -17.0
+  "result": -7.6197118702468885
  },
  "default milling_angle r=45 t=-25": {
   "error": null,
-  "result": -22.000000000000004
+  "result": -12.17601928669768
  },
  "default milling_angle r=45 t=-30": {
   "error": null,
-  "result": -27.0
+  "result": -16.716047844510612
  },
  "default milling_angle r=45 t=-35": {
   "error": null,
-  "result": -32.0
+  "result": -21.232468856780855
  },
  "default milling_angle r=45 t=-40": {
   "error": null,
-  "result": -37.0
+  "result": -25.71663706810871
  },
  "default milling_angle r=45 t=-45": {
   "error": null,
-  "result": -42.0
+  "result": -30.157994314739867
  },
  "default milling_angle r=45 t=-5": {
   "error": null,
-  "result": -2.0000000000000027
+  "result": 6.084458219871408
  },
  "default milling_angle r=45 t=-50": {
   "error": null,
-  "result": -47.0
+  "result": -34.54325080655207
  },
  "default milling_angle r=45 t=-55": {
   "error": null,
-  "result": -52.0
+  "result": -38.85523001137494
  },
  "default milling_angle r=45 t=-60": {
   "error": null,
-  "result": -57.0
+  "result": -43.07120940278139
  },
  "default milling_angle r=45 t=-65": {
   "error": null,
-  "result": -62.000000000000014
+  "result": -47.16051710053989
  },
  "default milling_angle r=45 t=-70": {
   "error": null,
-  "result": -67.0
+  "result": -51.08106840943444
  },
  "default milling_angle r=45 t=-75": {
   "error": null,
-  "result": -72.0
+  "result": -54.77451550054326
  },
  "default milling_angle r=45 t=-80": {
   "error": null,
-  "result": -77.0
+  "result": -58.159959083779285
  },
  "default milling_angle r=45 t=-85": {
   "error": null,
-  "result": -82.00000000000001
+  "result": -61.12729173130555
  },
  "default milling_angle r=45 t=-90": {
   "error": null,
-  "result": -87.00000000000001
+  "result": -63.534191178778826
  },
  "default milling_angle r=45 t=-95": {
   "error": null,
-  "result": 87.99999999999999
+  "result": 114.78417520282672
  },
  "default milling_angle r=45 t=0": {
   "error": null,
-  "result": 2.999999999999998
+  "result": 10.644757041934255
  },
  "default milling_angle r=45 t=10": {
   "error": null,
-  "result": 13.0
+  "result": 19.71627999162864
  },
  "default milling_angle r=45 t=15": {
   "error": null,
-  "result": 18.0
+  "result": 24.2123670409036
  },
  "default milling_angle r=45 t=20": {
   "error": null,
-  "result": 22.999999999999993
+  "result": 28.669453422138126
  },
  "default milling_angle r=45 t=25": {
   "error": null,
-  "result": 28.0
+  "result": 33.075277603753854
  },
  "default milling_angle r=45 t=30": {
   "error": null,
-  "result": 32.99999999999999
+  "result": 37.41412649777379
  },
  "default milling_angle r=45 t=35": {
   "error": null,
-  "result": 37.99999999999999
+  "result": 41.6653686535703
  },
  "default milling_angle r=45 t=40": {
   "error": null,
-  "result": 43.0
+  "result": 45.80133301411892
  },
  "default milling_angle r=45 t=45": {
   "error": null,
-  "result": 48.00000000000001
+  "result": 49.78424080807003
  },
  "default milling_angle r=45 t=5": {
   "error": null,
-  "result": 7.999999999999998
+  "result": 15.191028548827745
  },
  "default milling_angle r=45 t=50": {
   "error": null,
-  "result": 53.0
+  "result": 53.561851297373444
  },
  "default milling_angle r=45 t=55": {
   "error": null,
-  "result": 57.99999999999999
+  "result": 57.06162043412769
  },
  "default milling_angle r=45 t=60": {
   "error": null,
-  "result": 62.999999999999986
+  "result": 60.18391604309136
  },
  "default milling_angle r=45 t=65": {
   "error": null,
-  "result": 68.0
+  "result": 62.79704923624169
  },
  "default milling_angle r=45 t=70": {
   "error": null,
-  "result": 73.0
+  "result": 64.74137697272022
  },
  "default milling_angle r=45 t=75": {
   "error": null,
-  "result": 78.0
+  "result": 65.85400367568982
  },
  "default milling_angle r=45 t=80": {
   "error": null,
-  "result": 82.99999999999999
+  "result": 113.98153342486798
  },
  "default milling_angle r=45 t=85": {
   "error": null,
-  "result": 88.00000000000001
+  "result": 114.78417520282672
  },
  "default milling_angle r=45 t=90": {
   "error": null,
-  "result": 93.0
+  "result": 116.46580882122117
  },
  "default milling_angle r=90 t=-10": {
   "error": null,
-  "result": -7.0000000000000036
+  "result": 22.6169604412254
  },
  "default milling_angle r=90 t=-100": {
   "error": null,
-  "result": 82.99999999999999
+  "result": 133.6750170674772
  },
  "default milling_angle r=90 t=-105": {
   "error": null,
-  "result": 78.0
+  "result": 131.0590152393653
  },
  "default milling_angle r=90 t=-110": {
   "error": null,
-  "result": 73.0
+  "result": 128.8254198122664
  },
  "default milling_angle r=90 t=-115": {
   "error": null,
-  "result": 68.0
+  "result": 127.04551061089205
  },
  "default milling_angle r=90 t=-120": {
   "error": null,
-  "result": 63.000000000000014
+  "result": 125.78860760458014
  },
  "default milling_angle r=90 t=-125": {
   "error": null,
-  "result": 57.99999999999999
+  "result": 125.1119846376807
  },
  "default milling_angle r=90 t=-130": {
   "error": null,
-  "result": 53.0
+  "result": 54.95018421376963
  },
  "default milling_angle r=90 t=-135": {
   "error": null,
-  "result": 48.00000000000001
+  "result": 54.394631052110604
  },
  "default milling_angle r=90 t=-140": {
   "error": null,
-  "result": 43.00000000000001
+  "result": 53.249788759525295
  },
  "default milling_angle r=90 t=-145": {
   "error": null,
-  "result": 37.99999999999999
+  "result": 51.56915914410336
  },
  "default milling_angle r=90 t=-15": {
   "error": null,
-  "result": -12.000000000000002
+  "result": 18.667049542171995
  },
  "default milling_angle r=90 t=-150": {
   "error": null,
-  "result": 32.99999999999999
+  "result": 49.420539550906085
  },
  "default milling_angle r=90 t=-155": {
   "error": null,
-  "result": 28.0
+  "result": 46.875481361349586
  },
  "default milling_angle r=90 t=-160": {
   "error": null,
-  "result": 23.000000000000007
+  "result": 44.00174924353892
  },
  "default milling_angle r=90 t=-165": {
   "error": null,
-  "result": 18.000000000000007
+  "result": 40.85931377886583
  },
  "default milling_angle r=90 t=-170": {
   "error": null,
-  "result": 12.999999999999986
+  "result": 37.49907371407334
  },
  "default milling_angle r=90 t=-175": {
   "error": null,
-  "result": 7.999999999999992
+  "result": 33.96320261803124
  },
  "default milling_angle r=90 t=-180": {
   "error": null,
-  "result": 2.999999999999998
+  "result": 30.28624647486702
  },
  "default milling_angle r=90 t=-20": {
   "error": null,
-  "result": -17.0
+  "result": 14.662919762798651
  },
  "default milling_angle r=90 t=-25": {
   "error": null,
-  "result": -22.000000000000004
+  "result": 10.618523261422752
  },
  "default milling_angle r=90 t=-30": {
   "error": null,
-  "result": -27.0
+  "result": 6.546176611272244
  },
  "default milling_angle r=90 t=-35": {
   "error": null,
-  "result": -32.0
+  "result": 2.4570864626875846
  },
  "default milling_angle r=90 t=-40": {
   "error": null,
-  "result": -37.0
+  "result": -1.6381945987096316
  },
  "default milling_angle r=90 t=-45": {
   "error": null,
-  "result": -42.0
+  "result": -5.72935367182933
  },
  "default milling_angle r=90 t=-5": {
   "error": null,
-  "result": -2.0000000000000027
+  "result": 26.496438225731467
  },
  "default milling_angle r=90 t=-50": {
   "error": null,
-  "result": -47.0
+  "result": -9.80591840233187
  },
  "default milling_angle r=90 t=-55": {
   "error": null,
-  "result": -52.0
+  "result": -13.856847702571784
  },
  "default milling_angle r=90 t=-60": {
   "error": null,
-  "result": -57.0
+  "result": -17.87008637363448
  },
  "default milling_angle r=90 t=-65": {
   "error": null,
-  "result": -62.000000000000014
+  "result": -21.832055799408494
  },
  "default milling_angle r=90 t=-70": {
   "error": null,
-  "result": -67.0
+  "result": -25.727050221416945
  },
  "default milling_angle r=90 t=-75": {
   "error": null,
-  "result": -72.0
+  "result": -29.5365059567484
  },
  "default milling_angle r=90 t=-80": {
   "error": null,
-  "result": -77.0
+  "result": -33.23811220502006
  },
  "default milling_angle r=90 t=-85": {
   "error": null,
-  "result": -82.00000000000001
+  "result": -36.80474285687423
  },
  "default milling_angle r=90 t=-90": {
   "error": null,
-  "result": -87.00000000000001
+  "result": -40.20322060024054
  },
  "default milling_angle r=90 t=-95": {
   "error": null,
-  "result": 87.99999999999999
+  "result": 136.60700217758662
  },
  "default milling_angle r=90 t=0": {
   "error": null,
-  "result": 2.999999999999998
+  "result": 30.286246474867006
  },
  "default milling_angle r=90 t=10": {
   "error": null,
-  "result": 13.0
+  "result": 37.49907371407334
  },
  "default milling_angle r=90 t=15": {
   "error": null,
-  "result": 18.0
+  "result": 40.85931377886581
  },
  "default milling_angle r=90 t=20": {
   "error": null,
-  "result": 22.999999999999993
+  "result": 44.00174924353892
  },
  "default milling_angle r=90 t=25": {
   "error": null,
-  "result": 28.0
+  "result": 46.875481361349586
  },
  "default milling_angle r=90 t=30": {
   "error": null,
-  "result": 32.99999999999999
+  "result": 49.420539550906085
  },
  "default milling_angle r=90 t=35": {
   "error": null,
-  "result": 37.99999999999999
+  "result": 51.56915914410336
  },
  "default milling_angle r=90 t=40": {
   "error": null,
-  "result": 43.0
+  "result": 53.249788759525295
  },
  "default milling_angle r=90 t=45": {
   "error": null,
-  "result": 48.00000000000001
+  "result": 54.394631052110604
  },
  "default milling_angle r=90 t=5": {
   "error": null,
-  "result": 7.999999999999998
+  "result": 33.96320261803124
  },
  "default milling_angle r=90 t=50": {
   "error": null,
-  "result": 53.0
+  "result": 54.95018421376963
  },
  "default milling_angle r=90 t=55": {
   "error": null,
-  "result": 57.99999999999999
+  "result": 125.1119846376807
  },
  "default milling_angle r=90 t=60": {
   "error": null,
-  "result": 62.999999999999986
+  "result": 125.78860760458014
  },
  "default milling_angle r=90 t=65": {
   "error": null,
-  "result": 68.0
+  "result": 127.04551061089205
  },
  "default milling_angle r=90 t=70": {
   "error": null,
-  "result": 73.0
+  "result": 128.8254198122664
  },
  "default milling_angle r=90 t=75": {
   "error": null,
-  "result": 78.0
+  "result": 131.0590152393653
  },
  "default milling_angle r=90 t=80": {
   "error": null,
-  "result": 82.99999999999999
+  "result": 133.6750170674772
  },
  "default milling_angle r=90 t=85": {
   "error": null,
-  "result": 88.00000000000001
+  "result": 136.60700217758662
  },
  "default milling_angle r=90 t=90": {
   "error": null,
-  "result": 93.0
+  "result": 139.7967793997595
  },
  "default orientation r=0 t=-10": {
   "error": null,
@@ -11842,1543 +11842,1543 @@
  },
  "iflm milling_angle r=135 t=-10": {
   "error": null,
-  "result": -7.0000000000000036
+  "result": 47.959724879913004
  },
  "iflm milling_angle r=135 t=-100": {
   "error": null,
-  "result": 82.99999999999999
+  "result": 147.80109196241256
  },
  "iflm milling_angle r=135 t=-105": {
   "error": null,
-  "result": 78.0
+  "result": 143.44738052471507
  },
  "iflm milling_angle r=135 t=-110": {
   "error": null,
-  "result": 73.0
+  "result": 139.17666579714364
  },
  "iflm milling_angle r=135 t=-115": {
   "error": null,
-  "result": 68.0
+  "result": 135.01500058558287
  },
  "iflm milling_angle r=135 t=-120": {
   "error": null,
-  "result": 63.000000000000014
+  "result": 130.99783968231384
  },
  "iflm milling_angle r=135 t=-125": {
   "error": null,
-  "result": 57.99999999999999
+  "result": 127.17411146631002
  },
  "iflm milling_angle r=135 t=-130": {
   "error": null,
-  "result": 53.0
+  "result": 123.61176721353806
  },
  "iflm milling_angle r=135 t=-135": {
   "error": null,
-  "result": 48.00000000000001
+  "result": 120.40449673479193
  },
  "iflm milling_angle r=135 t=-140": {
   "error": null,
-  "result": 43.00000000000001
+  "result": 117.67746476490208
  },
  "iflm milling_angle r=135 t=-145": {
   "error": null,
-  "result": 37.99999999999999
+  "result": 115.58587107243899
  },
  "iflm milling_angle r=135 t=-15": {
   "error": null,
-  "result": -12.000000000000002
+  "result": 43.90036080041296
  },
  "iflm milling_angle r=135 t=-150": {
   "error": null,
-  "result": 32.99999999999999
+  "result": 114.29524677162141
  },
  "iflm milling_angle r=135 t=-155": {
   "error": null,
-  "result": 28.0
+  "result": 66.0639956836396
  },
  "iflm milling_angle r=135 t=-160": {
   "error": null,
-  "result": 23.000000000000007
+  "result": 65.45080507145578
  },
  "iflm milling_angle r=135 t=-165": {
   "error": null,
-  "result": 18.000000000000007
+  "result": 63.9339266166163
  },
  "iflm milling_angle r=135 t=-170": {
   "error": null,
-  "result": 12.999999999999986
+  "result": 61.65858656972516
  },
  "iflm milling_angle r=135 t=-175": {
   "error": null,
-  "result": 7.999999999999992
+  "result": 58.79097254943582
  },
  "iflm milling_angle r=135 t=-180": {
   "error": null,
-  "result": 2.999999999999998
+  "result": 55.47930894010465
  },
  "iflm milling_angle r=135 t=-20": {
   "error": null,
-  "result": -17.0
+  "result": 39.706954567534034
  },
  "iflm milling_angle r=135 t=-25": {
   "error": null,
-  "result": -22.000000000000004
+  "result": 35.412143443596
  },
  "iflm milling_angle r=135 t=-30": {
   "error": null,
-  "result": -27.0
+  "result": 31.040018603939487
  },
  "iflm milling_angle r=135 t=-35": {
   "error": null,
-  "result": -32.0
+  "result": 26.60871319475328
  },
  "iflm milling_angle r=135 t=-40": {
   "error": null,
-  "result": -37.0
+  "result": 22.13218863476291
  },
  "iflm milling_angle r=135 t=-45": {
   "error": null,
-  "result": -42.0
+  "result": 17.62147507645129
  },
  "iflm milling_angle r=135 t=-5": {
   "error": null,
-  "result": -2.0000000000000027
+  "result": 51.840146301820575
  },
  "iflm milling_angle r=135 t=-50": {
   "error": null,
-  "result": -47.0
+  "result": 13.085546837406014
  },
  "iflm milling_angle r=135 t=-55": {
   "error": null,
-  "result": -52.0
+  "result": 8.531956057632826
  },
  "iflm milling_angle r=135 t=-60": {
   "error": null,
-  "result": -57.0
+  "result": 3.967308274273009
  },
  "iflm milling_angle r=135 t=-65": {
   "error": null,
-  "result": -62.000000000000014
+  "result": -0.6023621449825924
  },
  "iflm milling_angle r=135 t=-70": {
   "error": null,
-  "result": -67.0
+  "result": -5.171274740478921
  },
  "iflm milling_angle r=135 t=-75": {
   "error": null,
-  "result": -72.0
+  "result": -9.73361096619196
  },
  "iflm milling_angle r=135 t=-80": {
   "error": null,
-  "result": -77.0
+  "result": -14.283218429437781
  },
  "iflm milling_angle r=135 t=-85": {
   "error": null,
-  "result": -82.00000000000001
+  "result": -18.81328175749948
  },
  "iflm milling_angle r=135 t=-90": {
   "error": null,
-  "result": -87.00000000000001
+  "result": -23.31592535228569
  },
  "iflm milling_angle r=135 t=-95": {
   "error": null,
-  "result": 87.99999999999999
+  "result": 152.2182973806546
  },
  "iflm milling_angle r=135 t=0": {
   "error": null,
-  "result": 2.999999999999998
+  "result": 55.47930894010465
  },
  "iflm milling_angle r=135 t=10": {
   "error": null,
-  "result": 13.0
+  "result": 61.65858656972516
  },
  "iflm milling_angle r=135 t=15": {
   "error": null,
-  "result": 18.0
+  "result": 63.9339266166163
  },
  "iflm milling_angle r=135 t=20": {
   "error": null,
-  "result": 22.999999999999993
+  "result": 65.45080507145578
  },
  "iflm milling_angle r=135 t=25": {
   "error": null,
-  "result": 28.0
+  "result": 66.0639956836396
  },
  "iflm milling_angle r=135 t=30": {
   "error": null,
-  "result": 32.99999999999999
+  "result": 114.29524677162141
  },
  "iflm milling_angle r=135 t=35": {
   "error": null,
-  "result": 37.99999999999999
+  "result": 115.585871072439
  },
  "iflm milling_angle r=135 t=40": {
   "error": null,
-  "result": 43.0
+  "result": 117.67746476490208
  },
  "iflm milling_angle r=135 t=45": {
   "error": null,
-  "result": 48.00000000000001
+  "result": 120.40449673479193
  },
  "iflm milling_angle r=135 t=5": {
   "error": null,
-  "result": 7.999999999999998
+  "result": 58.79097254943582
  },
  "iflm milling_angle r=135 t=50": {
   "error": null,
-  "result": 53.0
+  "result": 123.61176721353806
  },
  "iflm milling_angle r=135 t=55": {
   "error": null,
-  "result": 57.99999999999999
+  "result": 127.17411146631001
  },
  "iflm milling_angle r=135 t=60": {
   "error": null,
-  "result": 62.999999999999986
+  "result": 130.99783968231384
  },
  "iflm milling_angle r=135 t=65": {
   "error": null,
-  "result": 68.0
+  "result": 135.01500058558287
  },
  "iflm milling_angle r=135 t=70": {
   "error": null,
-  "result": 73.0
+  "result": 139.17666579714364
  },
  "iflm milling_angle r=135 t=75": {
   "error": null,
-  "result": 78.0
+  "result": 143.44738052471507
  },
  "iflm milling_angle r=135 t=80": {
   "error": null,
-  "result": 82.99999999999999
+  "result": 147.80109196241256
  },
  "iflm milling_angle r=135 t=85": {
   "error": null,
-  "result": 88.00000000000001
+  "result": 152.21829738065463
  },
  "iflm milling_angle r=135 t=90": {
   "error": null,
-  "result": 93.0
+  "result": 156.6840746477143
  },
  "iflm milling_angle r=180 t=-10": {
   "error": null,
-  "result": -7.0000000000000036
+  "result": 62.999999999999986
  },
  "iflm milling_angle r=180 t=-100": {
   "error": null,
-  "result": 82.99999999999999
+  "result": 153.0
  },
  "iflm milling_angle r=180 t=-105": {
   "error": null,
-  "result": 78.0
+  "result": 148.0
  },
  "iflm milling_angle r=180 t=-110": {
   "error": null,
-  "result": 73.0
+  "result": 143.0
  },
  "iflm milling_angle r=180 t=-115": {
   "error": null,
-  "result": 68.0
+  "result": 138.0
  },
  "iflm milling_angle r=180 t=-120": {
   "error": null,
-  "result": 63.000000000000014
+  "result": 133.0
  },
  "iflm milling_angle r=180 t=-125": {
   "error": null,
-  "result": 57.99999999999999
+  "result": 128.0
  },
  "iflm milling_angle r=180 t=-130": {
   "error": null,
-  "result": 53.0
+  "result": 122.99999999999999
  },
  "iflm milling_angle r=180 t=-135": {
   "error": null,
-  "result": 48.00000000000001
+  "result": 118.0
  },
  "iflm milling_angle r=180 t=-140": {
   "error": null,
-  "result": 43.00000000000001
+  "result": 113.00000000000001
  },
  "iflm milling_angle r=180 t=-145": {
   "error": null,
-  "result": 37.99999999999999
+  "result": 107.99999999999997
  },
  "iflm milling_angle r=180 t=-15": {
   "error": null,
-  "result": -12.000000000000002
+  "result": 58.000000000000014
  },
  "iflm milling_angle r=180 t=-150": {
   "error": null,
-  "result": 32.99999999999999
+  "result": 102.99999999999997
  },
  "iflm milling_angle r=180 t=-155": {
   "error": null,
-  "result": 28.0
+  "result": 97.99999999999999
  },
  "iflm milling_angle r=180 t=-160": {
   "error": null,
-  "result": 23.000000000000007
+  "result": 93.00000000000004
  },
  "iflm milling_angle r=180 t=-165": {
   "error": null,
-  "result": 18.000000000000007
+  "result": 88.00000000000006
  },
  "iflm milling_angle r=180 t=-170": {
   "error": null,
-  "result": 12.999999999999986
+  "result": 82.99999999999997
  },
  "iflm milling_angle r=180 t=-175": {
   "error": null,
-  "result": 7.999999999999992
+  "result": 78.00000000000001
  },
  "iflm milling_angle r=180 t=-180": {
   "error": null,
-  "result": 2.999999999999998
+  "result": 73.00000000000001
  },
  "iflm milling_angle r=180 t=-20": {
   "error": null,
-  "result": -17.0
+  "result": 53.0
  },
  "iflm milling_angle r=180 t=-25": {
   "error": null,
-  "result": -22.000000000000004
+  "result": 47.99999999999999
  },
  "iflm milling_angle r=180 t=-30": {
   "error": null,
-  "result": -27.0
+  "result": 43.00000000000001
  },
  "iflm milling_angle r=180 t=-35": {
   "error": null,
-  "result": -32.0
+  "result": 37.99999999999999
  },
  "iflm milling_angle r=180 t=-40": {
   "error": null,
-  "result": -37.0
+  "result": 32.99999999999999
  },
  "iflm milling_angle r=180 t=-45": {
   "error": null,
-  "result": -42.0
+  "result": 28.0
  },
  "iflm milling_angle r=180 t=-5": {
   "error": null,
-  "result": -2.0000000000000027
+  "result": 68.0
  },
  "iflm milling_angle r=180 t=-50": {
   "error": null,
-  "result": -47.0
+  "result": 23.0
  },
  "iflm milling_angle r=180 t=-55": {
   "error": null,
-  "result": -52.0
+  "result": 18.0
  },
  "iflm milling_angle r=180 t=-60": {
   "error": null,
-  "result": -57.0
+  "result": 13.0
  },
  "iflm milling_angle r=180 t=-65": {
   "error": null,
-  "result": -62.000000000000014
+  "result": 8.0
  },
  "iflm milling_angle r=180 t=-70": {
   "error": null,
-  "result": -67.0
+  "result": 3.0
  },
  "iflm milling_angle r=180 t=-75": {
   "error": null,
-  "result": -72.0
+  "result": -2.000000000000014
  },
  "iflm milling_angle r=180 t=-80": {
   "error": null,
-  "result": -77.0
+  "result": -7.000000000000014
  },
  "iflm milling_angle r=180 t=-85": {
   "error": null,
-  "result": -82.00000000000001
+  "result": -12.000000000000014
  },
  "iflm milling_angle r=180 t=-90": {
   "error": null,
-  "result": -87.00000000000001
+  "result": -17.000000000000014
  },
  "iflm milling_angle r=180 t=-95": {
   "error": null,
-  "result": 87.99999999999999
+  "result": 158.0
  },
  "iflm milling_angle r=180 t=0": {
   "error": null,
-  "result": 2.999999999999998
+  "result": 73.0
  },
  "iflm milling_angle r=180 t=10": {
   "error": null,
-  "result": 13.0
+  "result": 82.99999999999997
  },
  "iflm milling_angle r=180 t=15": {
   "error": null,
-  "result": 90.0
+  "result": 88.00000000000006
  },
  "iflm milling_angle r=180 t=20": {
   "error": null,
-  "result": 90.0
+  "result": 93.00000000000004
  },
  "iflm milling_angle r=180 t=25": {
   "error": null,
-  "result": 28.0
+  "result": 97.99999999999999
  },
  "iflm milling_angle r=180 t=30": {
   "error": null,
-  "result": 32.99999999999999
+  "result": 102.99999999999997
  },
  "iflm milling_angle r=180 t=35": {
   "error": null,
-  "result": 37.99999999999999
+  "result": 107.99999999999999
  },
  "iflm milling_angle r=180 t=40": {
   "error": null,
-  "result": 43.0
+  "result": 113.0
  },
  "iflm milling_angle r=180 t=45": {
   "error": null,
-  "result": 48.00000000000001
+  "result": 118.0
  },
  "iflm milling_angle r=180 t=5": {
   "error": null,
-  "result": 7.999999999999998
+  "result": 78.00000000000001
  },
  "iflm milling_angle r=180 t=50": {
   "error": null,
-  "result": 53.0
+  "result": 122.99999999999999
  },
  "iflm milling_angle r=180 t=55": {
   "error": null,
-  "result": 57.99999999999999
+  "result": 127.99999999999999
  },
  "iflm milling_angle r=180 t=60": {
   "error": null,
-  "result": 62.999999999999986
+  "result": 133.0
  },
  "iflm milling_angle r=180 t=65": {
   "error": null,
-  "result": 68.0
+  "result": 138.0
  },
  "iflm milling_angle r=180 t=70": {
   "error": null,
-  "result": 73.0
+  "result": 143.0
  },
  "iflm milling_angle r=180 t=75": {
   "error": null,
-  "result": 78.0
+  "result": 148.0
  },
  "iflm milling_angle r=180 t=80": {
   "error": null,
-  "result": 82.99999999999999
+  "result": 153.0
  },
  "iflm milling_angle r=180 t=85": {
   "error": null,
-  "result": 88.00000000000001
+  "result": 158.0
  },
  "iflm milling_angle r=180 t=90": {
   "error": null,
-  "result": 93.0
+  "result": 163.0
  },
  "iflm milling_angle r=225 t=-10": {
   "error": null,
-  "result": -7.0000000000000036
+  "result": 47.959724879913004
  },
  "iflm milling_angle r=225 t=-100": {
   "error": null,
-  "result": 82.99999999999999
+  "result": 147.80109196241258
  },
  "iflm milling_angle r=225 t=-105": {
   "error": null,
-  "result": 78.0
+  "result": 143.44738052471507
  },
  "iflm milling_angle r=225 t=-110": {
   "error": null,
-  "result": 73.0
+  "result": 139.17666579714364
  },
  "iflm milling_angle r=225 t=-115": {
   "error": null,
-  "result": 68.0
+  "result": 135.01500058558287
  },
  "iflm milling_angle r=225 t=-120": {
   "error": null,
-  "result": 63.000000000000014
+  "result": 130.99783968231384
  },
  "iflm milling_angle r=225 t=-125": {
   "error": null,
-  "result": 57.99999999999999
+  "result": 127.17411146631001
  },
  "iflm milling_angle r=225 t=-130": {
   "error": null,
-  "result": 53.0
+  "result": 123.61176721353806
  },
  "iflm milling_angle r=225 t=-135": {
   "error": null,
-  "result": 48.00000000000001
+  "result": 120.40449673479193
  },
  "iflm milling_angle r=225 t=-140": {
   "error": null,
-  "result": 43.00000000000001
+  "result": 117.67746476490208
  },
  "iflm milling_angle r=225 t=-145": {
   "error": null,
-  "result": 37.99999999999999
+  "result": 115.58587107243898
  },
  "iflm milling_angle r=225 t=-15": {
   "error": null,
-  "result": -12.000000000000002
+  "result": 43.90036080041296
  },
  "iflm milling_angle r=225 t=-150": {
   "error": null,
-  "result": 32.99999999999999
+  "result": 114.29524677162141
  },
  "iflm milling_angle r=225 t=-155": {
   "error": null,
-  "result": 28.0
+  "result": 66.0639956836396
  },
  "iflm milling_angle r=225 t=-160": {
   "error": null,
-  "result": 23.000000000000007
+  "result": 65.45080507145579
  },
  "iflm milling_angle r=225 t=-165": {
   "error": null,
-  "result": 18.000000000000007
+  "result": 63.93392661661631
  },
  "iflm milling_angle r=225 t=-170": {
   "error": null,
-  "result": 12.999999999999986
+  "result": 61.65858656972517
  },
  "iflm milling_angle r=225 t=-175": {
   "error": null,
-  "result": 7.999999999999992
+  "result": 58.79097254943582
  },
  "iflm milling_angle r=225 t=-180": {
   "error": null,
-  "result": 2.999999999999998
+  "result": 55.479308940104666
  },
  "iflm milling_angle r=225 t=-20": {
   "error": null,
-  "result": -17.0
+  "result": 39.70695456753405
  },
  "iflm milling_angle r=225 t=-25": {
   "error": null,
-  "result": -22.000000000000004
+  "result": 35.41214344359601
  },
  "iflm milling_angle r=225 t=-30": {
   "error": null,
-  "result": -27.0
+  "result": 31.040018603939487
  },
  "iflm milling_angle r=225 t=-35": {
   "error": null,
-  "result": -32.0
+  "result": 26.60871319475328
  },
  "iflm milling_angle r=225 t=-40": {
   "error": null,
-  "result": -37.0
+  "result": 22.13218863476291
  },
  "iflm milling_angle r=225 t=-45": {
   "error": null,
-  "result": -42.0
+  "result": 17.621475076451304
  },
  "iflm milling_angle r=225 t=-5": {
   "error": null,
-  "result": -2.0000000000000027
+  "result": 51.84014630182058
  },
  "iflm milling_angle r=225 t=-50": {
   "error": null,
-  "result": -47.0
+  "result": 13.085546837406028
  },
  "iflm milling_angle r=225 t=-55": {
   "error": null,
-  "result": -52.0
+  "result": 8.531956057632826
  },
  "iflm milling_angle r=225 t=-60": {
   "error": null,
-  "result": -57.0
+  "result": 3.967308274273023
  },
  "iflm milling_angle r=225 t=-65": {
   "error": null,
-  "result": -62.000000000000014
+  "result": -0.6023621449825924
  },
  "iflm milling_angle r=225 t=-70": {
   "error": null,
-  "result": -67.0
+  "result": -5.171274740478921
  },
  "iflm milling_angle r=225 t=-75": {
   "error": null,
-  "result": -72.0
+  "result": -9.73361096619196
  },
  "iflm milling_angle r=225 t=-80": {
   "error": null,
-  "result": -77.0
+  "result": -14.283218429437781
  },
  "iflm milling_angle r=225 t=-85": {
   "error": null,
-  "result": -82.00000000000001
+  "result": -18.81328175749948
  },
  "iflm milling_angle r=225 t=-90": {
   "error": null,
-  "result": -87.00000000000001
+  "result": -23.315925352285674
  },
  "iflm milling_angle r=225 t=-95": {
   "error": null,
-  "result": 87.99999999999999
+  "result": 152.21829738065463
  },
  "iflm milling_angle r=225 t=0": {
   "error": null,
-  "result": 2.999999999999998
+  "result": 55.47930894010465
  },
  "iflm milling_angle r=225 t=10": {
   "error": null,
-  "result": 13.0
+  "result": 61.65858656972517
  },
  "iflm milling_angle r=225 t=15": {
   "error": null,
-  "result": 18.0
+  "result": 63.93392661661631
  },
  "iflm milling_angle r=225 t=20": {
   "error": null,
-  "result": 22.999999999999993
+  "result": 65.45080507145579
  },
  "iflm milling_angle r=225 t=25": {
   "error": null,
-  "result": 28.0
+  "result": 66.0639956836396
  },
  "iflm milling_angle r=225 t=30": {
   "error": null,
-  "result": 32.99999999999999
+  "result": 114.29524677162141
  },
  "iflm milling_angle r=225 t=35": {
   "error": null,
-  "result": 37.99999999999999
+  "result": 115.58587107243899
  },
  "iflm milling_angle r=225 t=40": {
   "error": null,
-  "result": 43.0
+  "result": 117.67746476490208
  },
  "iflm milling_angle r=225 t=45": {
   "error": null,
-  "result": 48.00000000000001
+  "result": 120.40449673479193
  },
  "iflm milling_angle r=225 t=5": {
   "error": null,
-  "result": 7.999999999999998
+  "result": 58.79097254943582
  },
  "iflm milling_angle r=225 t=50": {
   "error": null,
-  "result": 53.0
+  "result": 123.61176721353806
  },
  "iflm milling_angle r=225 t=55": {
   "error": null,
-  "result": 57.99999999999999
+  "result": 127.17411146631001
  },
  "iflm milling_angle r=225 t=60": {
   "error": null,
-  "result": 62.999999999999986
+  "result": 130.99783968231384
  },
  "iflm milling_angle r=225 t=65": {
   "error": null,
-  "result": 68.0
+  "result": 135.01500058558287
  },
  "iflm milling_angle r=225 t=70": {
   "error": null,
-  "result": 73.0
+  "result": 139.17666579714364
  },
  "iflm milling_angle r=225 t=75": {
   "error": null,
-  "result": 78.0
+  "result": 143.4473805247151
  },
  "iflm milling_angle r=225 t=80": {
   "error": null,
-  "result": 82.99999999999999
+  "result": 147.80109196241256
  },
  "iflm milling_angle r=225 t=85": {
   "error": null,
-  "result": 88.00000000000001
+  "result": 152.21829738065463
  },
  "iflm milling_angle r=225 t=90": {
   "error": null,
-  "result": 93.0
+  "result": 156.68407464771434
  },
  "iflm milling_angle r=270 t=-10": {
   "error": null,
-  "result": -7.0000000000000036
+  "result": 22.6169604412254
  },
  "iflm milling_angle r=270 t=-100": {
   "error": null,
-  "result": 82.99999999999999
+  "result": 133.67501706747723
  },
  "iflm milling_angle r=270 t=-105": {
   "error": null,
-  "result": 78.0
+  "result": 131.0590152393653
  },
  "iflm milling_angle r=270 t=-110": {
   "error": null,
-  "result": 73.0
+  "result": 128.8254198122664
  },
  "iflm milling_angle r=270 t=-115": {
   "error": null,
-  "result": 68.0
+  "result": 127.04551061089204
  },
  "iflm milling_angle r=270 t=-120": {
   "error": null,
-  "result": 63.000000000000014
+  "result": 125.78860760458014
  },
  "iflm milling_angle r=270 t=-125": {
   "error": null,
-  "result": 57.99999999999999
+  "result": 125.1119846376807
  },
  "iflm milling_angle r=270 t=-130": {
   "error": null,
-  "result": 53.0
+  "result": 54.95018421376963
  },
  "iflm milling_angle r=270 t=-135": {
   "error": null,
-  "result": 48.00000000000001
+  "result": 54.39463105211061
  },
  "iflm milling_angle r=270 t=-140": {
   "error": null,
-  "result": 43.00000000000001
+  "result": 53.2497887595253
  },
  "iflm milling_angle r=270 t=-145": {
   "error": null,
-  "result": 37.99999999999999
+  "result": 51.56915914410337
  },
  "iflm milling_angle r=270 t=-15": {
   "error": null,
-  "result": -12.000000000000002
+  "result": 18.667049542171995
  },
  "iflm milling_angle r=270 t=-150": {
   "error": null,
-  "result": 32.99999999999999
+  "result": 49.42053955090609
  },
  "iflm milling_angle r=270 t=-155": {
   "error": null,
-  "result": 28.0
+  "result": 46.875481361349586
  },
  "iflm milling_angle r=270 t=-160": {
   "error": null,
-  "result": 23.000000000000007
+  "result": 44.00174924353893
  },
  "iflm milling_angle r=270 t=-165": {
   "error": null,
-  "result": 18.000000000000007
+  "result": 40.85931377886583
  },
  "iflm milling_angle r=270 t=-170": {
   "error": null,
-  "result": 12.999999999999986
+  "result": 37.499073714073354
  },
  "iflm milling_angle r=270 t=-175": {
   "error": null,
-  "result": 7.999999999999992
+  "result": 33.963202618031254
  },
  "iflm milling_angle r=270 t=-180": {
   "error": null,
-  "result": 2.999999999999998
+  "result": 30.28624647486702
  },
  "iflm milling_angle r=270 t=-20": {
   "error": null,
-  "result": -17.0
+  "result": 14.662919762798651
  },
  "iflm milling_angle r=270 t=-25": {
   "error": null,
-  "result": -22.000000000000004
+  "result": 10.618523261422766
  },
  "iflm milling_angle r=270 t=-30": {
   "error": null,
-  "result": -27.0
+  "result": 6.546176611272259
  },
  "iflm milling_angle r=270 t=-35": {
   "error": null,
-  "result": -32.0
+  "result": 2.457086462687599
  },
  "iflm milling_angle r=270 t=-40": {
   "error": null,
-  "result": -37.0
+  "result": -1.6381945987096316
  },
  "iflm milling_angle r=270 t=-45": {
   "error": null,
-  "result": -42.0
+  "result": -5.729353671829315
  },
  "iflm milling_angle r=270 t=-5": {
   "error": null,
-  "result": -2.0000000000000027
+  "result": 26.496438225731474
  },
  "iflm milling_angle r=270 t=-50": {
   "error": null,
-  "result": -47.0
+  "result": -9.805918402331855
  },
  "iflm milling_angle r=270 t=-55": {
   "error": null,
-  "result": -52.0
+  "result": -13.85684770257177
  },
  "iflm milling_angle r=270 t=-60": {
   "error": null,
-  "result": -57.0
+  "result": -17.870086373634464
  },
  "iflm milling_angle r=270 t=-65": {
   "error": null,
-  "result": -62.000000000000014
+  "result": -21.83205579940848
  },
  "iflm milling_angle r=270 t=-70": {
   "error": null,
-  "result": -67.0
+  "result": -25.727050221416945
  },
  "iflm milling_angle r=270 t=-75": {
   "error": null,
-  "result": -72.0
+  "result": -29.5365059567484
  },
  "iflm milling_angle r=270 t=-80": {
   "error": null,
-  "result": -77.0
+  "result": -33.238112205020045
  },
  "iflm milling_angle r=270 t=-85": {
   "error": null,
-  "result": -82.00000000000001
+  "result": -36.80474285687423
  },
  "iflm milling_angle r=270 t=-90": {
   "error": null,
-  "result": -87.00000000000001
+  "result": -40.20322060024054
  },
  "iflm milling_angle r=270 t=-95": {
   "error": null,
-  "result": 87.99999999999999
+  "result": 136.60700217758662
  },
  "iflm milling_angle r=270 t=0": {
   "error": null,
-  "result": 2.999999999999998
+  "result": 30.28624647486702
  },
  "iflm milling_angle r=270 t=10": {
   "error": null,
-  "result": 13.0
+  "result": 37.499073714073354
  },
  "iflm milling_angle r=270 t=15": {
   "error": null,
-  "result": 18.0
+  "result": 40.85931377886582
  },
  "iflm milling_angle r=270 t=20": {
   "error": null,
-  "result": 22.999999999999993
+  "result": 44.00174924353892
  },
  "iflm milling_angle r=270 t=25": {
   "error": null,
-  "result": 28.0
+  "result": 46.87548136134958
  },
  "iflm milling_angle r=270 t=30": {
   "error": null,
-  "result": 32.99999999999999
+  "result": 49.42053955090609
  },
  "iflm milling_angle r=270 t=35": {
   "error": null,
-  "result": 37.99999999999999
+  "result": 51.56915914410337
  },
  "iflm milling_angle r=270 t=40": {
   "error": null,
-  "result": 43.0
+  "result": 53.249788759525295
  },
  "iflm milling_angle r=270 t=45": {
   "error": null,
-  "result": 48.00000000000001
+  "result": 54.394631052110604
  },
  "iflm milling_angle r=270 t=5": {
   "error": null,
-  "result": 7.999999999999998
+  "result": 33.963202618031254
  },
  "iflm milling_angle r=270 t=50": {
   "error": null,
-  "result": 53.0
+  "result": 54.95018421376963
  },
  "iflm milling_angle r=270 t=55": {
   "error": null,
-  "result": 57.99999999999999
+  "result": 125.1119846376807
  },
  "iflm milling_angle r=270 t=60": {
   "error": null,
-  "result": 62.999999999999986
+  "result": 125.78860760458014
  },
  "iflm milling_angle r=270 t=65": {
   "error": null,
-  "result": 68.0
+  "result": 127.04551061089205
  },
  "iflm milling_angle r=270 t=70": {
   "error": null,
-  "result": 73.0
+  "result": 128.8254198122664
  },
  "iflm milling_angle r=270 t=75": {
   "error": null,
-  "result": 78.0
+  "result": 131.0590152393653
  },
  "iflm milling_angle r=270 t=80": {
   "error": null,
-  "result": 82.99999999999999
+  "result": 133.67501706747723
  },
  "iflm milling_angle r=270 t=85": {
   "error": null,
-  "result": 88.00000000000001
+  "result": 136.60700217758662
  },
  "iflm milling_angle r=270 t=90": {
   "error": null,
-  "result": 93.0
+  "result": 139.7967793997595
  },
  "iflm milling_angle r=315 t=-10": {
   "error": null,
-  "result": -7.0000000000000036
+  "result": 1.5163891105673457
  },
  "iflm milling_angle r=315 t=-100": {
   "error": null,
-  "result": 82.99999999999999
+  "result": 113.98153342486799
  },
  "iflm milling_angle r=315 t=-105": {
   "error": null,
-  "result": 78.0
+  "result": 65.85400367568982
  },
  "iflm milling_angle r=315 t=-110": {
   "error": null,
-  "result": 73.0
+  "result": 64.74137697272022
  },
  "iflm milling_angle r=315 t=-115": {
   "error": null,
-  "result": 68.0
+  "result": 62.79704923624169
  },
  "iflm milling_angle r=315 t=-120": {
   "error": null,
-  "result": 63.000000000000014
+  "result": 60.18391604309136
  },
  "iflm milling_angle r=315 t=-125": {
   "error": null,
-  "result": 57.99999999999999
+  "result": 57.061620434127676
  },
  "iflm milling_angle r=315 t=-130": {
   "error": null,
-  "result": 53.0
+  "result": 53.561851297373444
  },
  "iflm milling_angle r=315 t=-135": {
   "error": null,
-  "result": 48.00000000000001
+  "result": 49.78424080807004
  },
  "iflm milling_angle r=315 t=-140": {
   "error": null,
-  "result": 43.00000000000001
+  "result": 45.80133301411894
  },
  "iflm milling_angle r=315 t=-145": {
   "error": null,
-  "result": 37.99999999999999
+  "result": 41.66536865357028
  },
  "iflm milling_angle r=315 t=-15": {
   "error": null,
-  "result": -12.000000000000002
+  "result": -3.0535892547451198
  },
  "iflm milling_angle r=315 t=-150": {
   "error": null,
-  "result": 32.99999999999999
+  "result": 37.4141264977738
  },
  "iflm milling_angle r=315 t=-155": {
   "error": null,
-  "result": 28.0
+  "result": 33.07527760375386
  },
  "iflm milling_angle r=315 t=-160": {
   "error": null,
-  "result": 23.000000000000007
+  "result": 28.669453422138155
  },
  "iflm milling_angle r=315 t=-165": {
   "error": null,
-  "result": 18.000000000000007
+  "result": 24.21236704090363
  },
  "iflm milling_angle r=315 t=-170": {
   "error": null,
-  "result": 12.999999999999986
+  "result": 19.71627999162864
  },
  "iflm milling_angle r=315 t=-175": {
   "error": null,
-  "result": 7.999999999999992
+  "result": 15.191028548827745
  },
  "iflm milling_angle r=315 t=-180": {
   "error": null,
-  "result": 2.999999999999998
+  "result": 10.64475704193427
  },
  "iflm milling_angle r=315 t=-20": {
   "error": null,
-  "result": -17.0
+  "result": -7.6197118702468885
  },
  "iflm milling_angle r=315 t=-25": {
   "error": null,
-  "result": -22.000000000000004
+  "result": -12.17601928669768
  },
  "iflm milling_angle r=315 t=-30": {
   "error": null,
-  "result": -27.0
+  "result": -16.716047844510598
  },
  "iflm milling_angle r=315 t=-35": {
   "error": null,
-  "result": -32.0
+  "result": -21.232468856780855
  },
  "iflm milling_angle r=315 t=-40": {
   "error": null,
-  "result": -37.0
+  "result": -25.71663706810871
  },
  "iflm milling_angle r=315 t=-45": {
   "error": null,
-  "result": -42.0
+  "result": -30.157994314739867
  },
  "iflm milling_angle r=315 t=-5": {
   "error": null,
-  "result": -2.0000000000000027
+  "result": 6.084458219871422
  },
  "iflm milling_angle r=315 t=-50": {
   "error": null,
-  "result": -47.0
+  "result": -34.54325080655207
  },
  "iflm milling_angle r=315 t=-55": {
   "error": null,
-  "result": -52.0
+  "result": -38.85523001137494
  },
  "iflm milling_angle r=315 t=-60": {
   "error": null,
-  "result": -57.0
+  "result": -43.07120940278139
  },
  "iflm milling_angle r=315 t=-65": {
   "error": null,
-  "result": -62.000000000000014
+  "result": -47.16051710053989
  },
  "iflm milling_angle r=315 t=-70": {
   "error": null,
-  "result": -67.0
+  "result": -51.08106840943441
  },
  "iflm milling_angle r=315 t=-75": {
   "error": null,
-  "result": -72.0
+  "result": -54.77451550054326
  },
  "iflm milling_angle r=315 t=-80": {
   "error": null,
-  "result": -77.0
+  "result": -58.159959083779285
  },
  "iflm milling_angle r=315 t=-85": {
   "error": null,
-  "result": -82.00000000000001
+  "result": -61.12729173130555
  },
  "iflm milling_angle r=315 t=-90": {
   "error": null,
-  "result": -87.00000000000001
+  "result": -63.534191178778826
  },
  "iflm milling_angle r=315 t=-95": {
   "error": null,
-  "result": 87.99999999999999
+  "result": 114.78417520282672
  },
  "iflm milling_angle r=315 t=0": {
   "error": null,
-  "result": 2.999999999999998
+  "result": 10.64475704193427
  },
  "iflm milling_angle r=315 t=10": {
   "error": null,
-  "result": 13.0
+  "result": 19.71627999162864
  },
  "iflm milling_angle r=315 t=15": {
   "error": null,
-  "result": 18.0
+  "result": 24.212367040903615
  },
  "iflm milling_angle r=315 t=20": {
   "error": null,
-  "result": 22.999999999999993
+  "result": 28.669453422138126
  },
  "iflm milling_angle r=315 t=25": {
   "error": null,
-  "result": 28.0
+  "result": 33.07527760375386
  },
  "iflm milling_angle r=315 t=30": {
   "error": null,
-  "result": 32.99999999999999
+  "result": 37.4141264977738
  },
  "iflm milling_angle r=315 t=35": {
   "error": null,
-  "result": 37.99999999999999
+  "result": 41.6653686535703
  },
  "iflm milling_angle r=315 t=40": {
   "error": null,
-  "result": 43.0
+  "result": 45.80133301411893
  },
  "iflm milling_angle r=315 t=45": {
   "error": null,
-  "result": 48.00000000000001
+  "result": 49.78424080807004
  },
  "iflm milling_angle r=315 t=5": {
   "error": null,
-  "result": 7.999999999999998
+  "result": 15.191028548827745
  },
  "iflm milling_angle r=315 t=50": {
   "error": null,
-  "result": 53.0
+  "result": 53.561851297373444
  },
  "iflm milling_angle r=315 t=55": {
   "error": null,
-  "result": 57.99999999999999
+  "result": 57.06162043412769
  },
  "iflm milling_angle r=315 t=60": {
   "error": null,
-  "result": 62.999999999999986
+  "result": 60.18391604309136
  },
  "iflm milling_angle r=315 t=65": {
   "error": null,
-  "result": 68.0
+  "result": 62.79704923624169
  },
  "iflm milling_angle r=315 t=70": {
   "error": null,
-  "result": 73.0
+  "result": 64.74137697272022
  },
  "iflm milling_angle r=315 t=75": {
   "error": null,
-  "result": 78.0
+  "result": 65.85400367568981
  },
  "iflm milling_angle r=315 t=80": {
   "error": null,
-  "result": 82.99999999999999
+  "result": 113.98153342486799
  },
  "iflm milling_angle r=315 t=85": {
   "error": null,
-  "result": 88.00000000000001
+  "result": 114.78417520282673
  },
  "iflm milling_angle r=315 t=90": {
   "error": null,
-  "result": 93.0
+  "result": 116.46580882122117
  },
  "iflm milling_angle r=45 t=-10": {
   "error": null,
-  "result": -7.0000000000000036
+  "result": 1.5163891105673457
  },
  "iflm milling_angle r=45 t=-100": {
   "error": null,
-  "result": 82.99999999999999
+  "result": 113.98153342486799
  },
  "iflm milling_angle r=45 t=-105": {
   "error": null,
-  "result": 78.0
+  "result": 65.85400367568981
  },
  "iflm milling_angle r=45 t=-110": {
   "error": null,
-  "result": 73.0
+  "result": 64.74137697272022
  },
  "iflm milling_angle r=45 t=-115": {
   "error": null,
-  "result": 68.0
+  "result": 62.79704923624169
  },
  "iflm milling_angle r=45 t=-120": {
   "error": null,
-  "result": 63.000000000000014
+  "result": 60.18391604309137
  },
  "iflm milling_angle r=45 t=-125": {
   "error": null,
-  "result": 57.99999999999999
+  "result": 57.061620434127676
  },
  "iflm milling_angle r=45 t=-130": {
   "error": null,
-  "result": 53.0
+  "result": 53.561851297373444
  },
  "iflm milling_angle r=45 t=-135": {
   "error": null,
-  "result": 48.00000000000001
+  "result": 49.78424080807004
  },
  "iflm milling_angle r=45 t=-140": {
   "error": null,
-  "result": 43.00000000000001
+  "result": 45.80133301411894
  },
  "iflm milling_angle r=45 t=-145": {
   "error": null,
-  "result": 37.99999999999999
+  "result": 41.6653686535703
  },
  "iflm milling_angle r=45 t=-15": {
   "error": null,
-  "result": -12.000000000000002
+  "result": -3.053589254745134
  },
  "iflm milling_angle r=45 t=-150": {
   "error": null,
-  "result": 32.99999999999999
+  "result": 37.41412649777379
  },
  "iflm milling_angle r=45 t=-155": {
   "error": null,
-  "result": 28.0
+  "result": 33.07527760375386
  },
  "iflm milling_angle r=45 t=-160": {
   "error": null,
-  "result": 23.000000000000007
+  "result": 28.669453422138155
  },
  "iflm milling_angle r=45 t=-165": {
   "error": null,
-  "result": 18.000000000000007
+  "result": 24.21236704090363
  },
  "iflm milling_angle r=45 t=-170": {
   "error": null,
-  "result": 12.999999999999986
+  "result": 19.716279991628625
  },
  "iflm milling_angle r=45 t=-175": {
   "error": null,
-  "result": 7.999999999999992
+  "result": 15.191028548827745
  },
  "iflm milling_angle r=45 t=-180": {
   "error": null,
-  "result": 2.999999999999998
+  "result": 10.64475704193427
  },
  "iflm milling_angle r=45 t=-20": {
   "error": null,
-  "result": -17.0
+  "result": -7.6197118702468885
  },
  "iflm milling_angle r=45 t=-25": {
   "error": null,
-  "result": -22.000000000000004
+  "result": -12.17601928669768
  },
  "iflm milling_angle r=45 t=-30": {
   "error": null,
-  "result": -27.0
+  "result": -16.716047844510612
  },
  "iflm milling_angle r=45 t=-35": {
   "error": null,
-  "result": -32.0
+  "result": -21.232468856780855
  },
  "iflm milling_angle r=45 t=-40": {
   "error": null,
-  "result": -37.0
+  "result": -25.71663706810871
  },
  "iflm milling_angle r=45 t=-45": {
   "error": null,
-  "result": -42.0
+  "result": -30.157994314739867
  },
  "iflm milling_angle r=45 t=-5": {
   "error": null,
-  "result": -2.0000000000000027
+  "result": 6.084458219871408
  },
  "iflm milling_angle r=45 t=-50": {
   "error": null,
-  "result": -47.0
+  "result": -34.54325080655207
  },
  "iflm milling_angle r=45 t=-55": {
   "error": null,
-  "result": -52.0
+  "result": -38.85523001137494
  },
  "iflm milling_angle r=45 t=-60": {
   "error": null,
-  "result": -57.0
+  "result": -43.07120940278139
  },
  "iflm milling_angle r=45 t=-65": {
   "error": null,
-  "result": -62.000000000000014
+  "result": -47.16051710053989
  },
  "iflm milling_angle r=45 t=-70": {
   "error": null,
-  "result": -67.0
+  "result": -51.08106840943444
  },
  "iflm milling_angle r=45 t=-75": {
   "error": null,
-  "result": -72.0
+  "result": -54.77451550054326
  },
  "iflm milling_angle r=45 t=-80": {
   "error": null,
-  "result": -77.0
+  "result": -58.159959083779285
  },
  "iflm milling_angle r=45 t=-85": {
   "error": null,
-  "result": -82.00000000000001
+  "result": -61.12729173130555
  },
  "iflm milling_angle r=45 t=-90": {
   "error": null,
-  "result": -87.00000000000001
+  "result": -63.534191178778826
  },
  "iflm milling_angle r=45 t=-95": {
   "error": null,
-  "result": 87.99999999999999
+  "result": 114.78417520282672
  },
  "iflm milling_angle r=45 t=0": {
   "error": null,
-  "result": 2.999999999999998
+  "result": 10.644757041934255
  },
  "iflm milling_angle r=45 t=10": {
   "error": null,
-  "result": 13.0
+  "result": 19.71627999162864
  },
  "iflm milling_angle r=45 t=15": {
   "error": null,
-  "result": 18.0
+  "result": 24.2123670409036
  },
  "iflm milling_angle r=45 t=20": {
   "error": null,
-  "result": 22.999999999999993
+  "result": 28.669453422138126
  },
  "iflm milling_angle r=45 t=25": {
   "error": null,
-  "result": 28.0
+  "result": 33.075277603753854
  },
  "iflm milling_angle r=45 t=30": {
   "error": null,
-  "result": 32.99999999999999
+  "result": 37.41412649777379
  },
  "iflm milling_angle r=45 t=35": {
   "error": null,
-  "result": 37.99999999999999
+  "result": 41.6653686535703
  },
  "iflm milling_angle r=45 t=40": {
   "error": null,
-  "result": 43.0
+  "result": 45.80133301411892
  },
  "iflm milling_angle r=45 t=45": {
   "error": null,
-  "result": 48.00000000000001
+  "result": 49.78424080807003
  },
  "iflm milling_angle r=45 t=5": {
   "error": null,
-  "result": 7.999999999999998
+  "result": 15.191028548827745
  },
  "iflm milling_angle r=45 t=50": {
   "error": null,
-  "result": 53.0
+  "result": 53.561851297373444
  },
  "iflm milling_angle r=45 t=55": {
   "error": null,
-  "result": 57.99999999999999
+  "result": 57.06162043412769
  },
  "iflm milling_angle r=45 t=60": {
   "error": null,
-  "result": 62.999999999999986
+  "result": 60.18391604309136
  },
  "iflm milling_angle r=45 t=65": {
   "error": null,
-  "result": 68.0
+  "result": 62.79704923624169
  },
  "iflm milling_angle r=45 t=70": {
   "error": null,
-  "result": 73.0
+  "result": 64.74137697272022
  },
  "iflm milling_angle r=45 t=75": {
   "error": null,
-  "result": 78.0
+  "result": 65.85400367568982
  },
  "iflm milling_angle r=45 t=80": {
   "error": null,
-  "result": 82.99999999999999
+  "result": 113.98153342486798
  },
  "iflm milling_angle r=45 t=85": {
   "error": null,
-  "result": 88.00000000000001
+  "result": 114.78417520282672
  },
  "iflm milling_angle r=45 t=90": {
   "error": null,
-  "result": 93.0
+  "result": 116.46580882122117
  },
  "iflm milling_angle r=90 t=-10": {
   "error": null,
-  "result": -7.0000000000000036
+  "result": 22.6169604412254
  },
  "iflm milling_angle r=90 t=-100": {
   "error": null,
-  "result": 82.99999999999999
+  "result": 133.6750170674772
  },
  "iflm milling_angle r=90 t=-105": {
   "error": null,
-  "result": 78.0
+  "result": 131.0590152393653
  },
  "iflm milling_angle r=90 t=-110": {
   "error": null,
-  "result": 73.0
+  "result": 128.8254198122664
  },
  "iflm milling_angle r=90 t=-115": {
   "error": null,
-  "result": 68.0
+  "result": 127.04551061089205
  },
  "iflm milling_angle r=90 t=-120": {
   "error": null,
-  "result": 63.000000000000014
+  "result": 125.78860760458014
  },
  "iflm milling_angle r=90 t=-125": {
   "error": null,
-  "result": 57.99999999999999
+  "result": 125.1119846376807
  },
  "iflm milling_angle r=90 t=-130": {
   "error": null,
-  "result": 53.0
+  "result": 54.95018421376963
  },
  "iflm milling_angle r=90 t=-135": {
   "error": null,
-  "result": 48.00000000000001
+  "result": 54.394631052110604
  },
  "iflm milling_angle r=90 t=-140": {
   "error": null,
-  "result": 43.00000000000001
+  "result": 53.249788759525295
  },
  "iflm milling_angle r=90 t=-145": {
   "error": null,
-  "result": 37.99999999999999
+  "result": 51.56915914410336
  },
  "iflm milling_angle r=90 t=-15": {
   "error": null,
-  "result": -12.000000000000002
+  "result": 18.667049542171995
  },
  "iflm milling_angle r=90 t=-150": {
   "error": null,
-  "result": 32.99999999999999
+  "result": 49.420539550906085
  },
  "iflm milling_angle r=90 t=-155": {
   "error": null,
-  "result": 28.0
+  "result": 46.875481361349586
  },
  "iflm milling_angle r=90 t=-160": {
   "error": null,
-  "result": 23.000000000000007
+  "result": 44.00174924353892
  },
  "iflm milling_angle r=90 t=-165": {
   "error": null,
-  "result": 18.000000000000007
+  "result": 40.85931377886583
  },
  "iflm milling_angle r=90 t=-170": {
   "error": null,
-  "result": 12.999999999999986
+  "result": 37.49907371407334
  },
  "iflm milling_angle r=90 t=-175": {
   "error": null,
-  "result": 7.999999999999992
+  "result": 33.96320261803124
  },
  "iflm milling_angle r=90 t=-180": {
   "error": null,
-  "result": 2.999999999999998
+  "result": 30.28624647486702
  },
  "iflm milling_angle r=90 t=-20": {
   "error": null,
-  "result": -17.0
+  "result": 14.662919762798651
  },
  "iflm milling_angle r=90 t=-25": {
   "error": null,
-  "result": -22.000000000000004
+  "result": 10.618523261422752
  },
  "iflm milling_angle r=90 t=-30": {
   "error": null,
-  "result": -27.0
+  "result": 6.546176611272244
  },
  "iflm milling_angle r=90 t=-35": {
   "error": null,
-  "result": -32.0
+  "result": 2.4570864626875846
  },
  "iflm milling_angle r=90 t=-40": {
   "error": null,
-  "result": -37.0
+  "result": -1.6381945987096316
  },
  "iflm milling_angle r=90 t=-45": {
   "error": null,
-  "result": -42.0
+  "result": -5.72935367182933
  },
  "iflm milling_angle r=90 t=-5": {
   "error": null,
-  "result": -2.0000000000000027
+  "result": 26.496438225731467
  },
  "iflm milling_angle r=90 t=-50": {
   "error": null,
-  "result": -47.0
+  "result": -9.80591840233187
  },
  "iflm milling_angle r=90 t=-55": {
   "error": null,
-  "result": -52.0
+  "result": -13.856847702571784
  },
  "iflm milling_angle r=90 t=-60": {
   "error": null,
-  "result": -57.0
+  "result": -17.87008637363448
  },
  "iflm milling_angle r=90 t=-65": {
   "error": null,
-  "result": -62.000000000000014
+  "result": -21.832055799408494
  },
  "iflm milling_angle r=90 t=-70": {
   "error": null,
-  "result": -67.0
+  "result": -25.727050221416945
  },
  "iflm milling_angle r=90 t=-75": {
   "error": null,
-  "result": -72.0
+  "result": -29.5365059567484
  },
  "iflm milling_angle r=90 t=-80": {
   "error": null,
-  "result": -77.0
+  "result": -33.23811220502006
  },
  "iflm milling_angle r=90 t=-85": {
   "error": null,
-  "result": -82.00000000000001
+  "result": -36.80474285687423
  },
  "iflm milling_angle r=90 t=-90": {
   "error": null,
-  "result": -87.00000000000001
+  "result": -40.20322060024054
  },
  "iflm milling_angle r=90 t=-95": {
   "error": null,
-  "result": 87.99999999999999
+  "result": 136.60700217758662
  },
  "iflm milling_angle r=90 t=0": {
   "error": null,
-  "result": 2.999999999999998
+  "result": 30.286246474867006
  },
  "iflm milling_angle r=90 t=10": {
   "error": null,
-  "result": 13.0
+  "result": 37.49907371407334
  },
  "iflm milling_angle r=90 t=15": {
   "error": null,
-  "result": 18.0
+  "result": 40.85931377886581
  },
  "iflm milling_angle r=90 t=20": {
   "error": null,
-  "result": 22.999999999999993
+  "result": 44.00174924353892
  },
  "iflm milling_angle r=90 t=25": {
   "error": null,
-  "result": 28.0
+  "result": 46.875481361349586
  },
  "iflm milling_angle r=90 t=30": {
   "error": null,
-  "result": 32.99999999999999
+  "result": 49.420539550906085
  },
  "iflm milling_angle r=90 t=35": {
   "error": null,
-  "result": 37.99999999999999
+  "result": 51.56915914410336
  },
  "iflm milling_angle r=90 t=40": {
   "error": null,
-  "result": 43.0
+  "result": 53.249788759525295
  },
  "iflm milling_angle r=90 t=45": {
   "error": null,
-  "result": 48.00000000000001
+  "result": 54.394631052110604
  },
  "iflm milling_angle r=90 t=5": {
   "error": null,
-  "result": 7.999999999999998
+  "result": 33.96320261803124
  },
  "iflm milling_angle r=90 t=50": {
   "error": null,
-  "result": 53.0
+  "result": 54.95018421376963
  },
  "iflm milling_angle r=90 t=55": {
   "error": null,
-  "result": 57.99999999999999
+  "result": 125.1119846376807
  },
  "iflm milling_angle r=90 t=60": {
   "error": null,
-  "result": 62.999999999999986
+  "result": 125.78860760458014
  },
  "iflm milling_angle r=90 t=65": {
   "error": null,
-  "result": 68.0
+  "result": 127.04551061089205
  },
  "iflm milling_angle r=90 t=70": {
   "error": null,
-  "result": 73.0
+  "result": 128.8254198122664
  },
  "iflm milling_angle r=90 t=75": {
   "error": null,
-  "result": 78.0
+  "result": 131.0590152393653
  },
  "iflm milling_angle r=90 t=80": {
   "error": null,
-  "result": 82.99999999999999
+  "result": 133.6750170674772
  },
  "iflm milling_angle r=90 t=85": {
   "error": null,
-  "result": 88.00000000000001
+  "result": 136.60700217758662
  },
  "iflm milling_angle r=90 t=90": {
   "error": null,
-  "result": 93.0
+  "result": 139.7967793997595
  },
  "iflm orientation r=0 t=-10": {
   "error": null,
@@ -16788,159 +16788,159 @@
  },
  "tescan milling_angle r=0 t=-10": {
   "error": null,
-  "result": -10.000000000000002
+  "result": 60.0
  },
  "tescan milling_angle r=0 t=-100": {
   "error": null,
-  "result": 80.0
+  "result": 150.0
  },
  "tescan milling_angle r=0 t=-105": {
   "error": null,
-  "result": 74.99999999999999
+  "result": 145.0
  },
  "tescan milling_angle r=0 t=-110": {
   "error": null,
-  "result": 70.0
+  "result": 140.0
  },
  "tescan milling_angle r=0 t=-115": {
   "error": null,
-  "result": 65.0
+  "result": 135.0
  },
  "tescan milling_angle r=0 t=-120": {
   "error": null,
-  "result": 60.00000000000001
+  "result": 130.0
  },
  "tescan milling_angle r=0 t=-125": {
   "error": null,
-  "result": 54.999999999999986
+  "result": 125.0
  },
  "tescan milling_angle r=0 t=-130": {
   "error": null,
-  "result": 49.99999999999999
+  "result": 120.0
  },
  "tescan milling_angle r=0 t=-135": {
   "error": null,
-  "result": 45.0
+  "result": 115.0
  },
  "tescan milling_angle r=0 t=-140": {
   "error": null,
-  "result": 40.00000000000001
+  "result": 110.00000000000001
  },
  "tescan milling_angle r=0 t=-145": {
   "error": null,
-  "result": 34.999999999999986
+  "result": 104.99999999999997
  },
  "tescan milling_angle r=0 t=-15": {
   "error": null,
-  "result": -14.999999999999998
+  "result": 55.000000000000014
  },
  "tescan milling_angle r=0 t=-150": {
   "error": null,
-  "result": 29.999999999999993
+  "result": 99.99999999999994
  },
  "tescan milling_angle r=0 t=-155": {
   "error": null,
-  "result": 24.999999999999996
+  "result": 94.99999999999999
  },
  "tescan milling_angle r=0 t=-160": {
   "error": null,
-  "result": 20.000000000000004
+  "result": 90.00000085377364
  },
  "tescan milling_angle r=0 t=-165": {
   "error": null,
-  "result": 15.000000000000009
+  "result": 85.00000000000001
  },
  "tescan milling_angle r=0 t=-170": {
   "error": null,
-  "result": 9.99999999999999
+  "result": 79.99999999999999
  },
  "tescan milling_angle r=0 t=-175": {
   "error": null,
-  "result": 4.999999999999995
+  "result": 75.0
  },
  "tescan milling_angle r=0 t=-180": {
   "error": null,
-  "result": 0.0
+  "result": 70.0
  },
  "tescan milling_angle r=0 t=-20": {
   "error": null,
-  "result": -20.0
+  "result": 50.00000000000001
  },
  "tescan milling_angle r=0 t=-25": {
   "error": null,
-  "result": -25.0
+  "result": 45.0
  },
  "tescan milling_angle r=0 t=-30": {
   "error": null,
-  "result": -29.999999999999996
+  "result": 40.0
  },
  "tescan milling_angle r=0 t=-35": {
   "error": null,
-  "result": -35.0
+  "result": 34.99999999999999
  },
  "tescan milling_angle r=0 t=-40": {
   "error": null,
-  "result": -40.0
+  "result": 30.000000000000007
  },
  "tescan milling_angle r=0 t=-45": {
   "error": null,
-  "result": -45.0
+  "result": 25.0
  },
  "tescan milling_angle r=0 t=-5": {
   "error": null,
-  "result": -5.000000000000001
+  "result": 65.00000000000001
  },
  "tescan milling_angle r=0 t=-50": {
   "error": null,
-  "result": -50.0
+  "result": 20.0
  },
  "tescan milling_angle r=0 t=-55": {
   "error": null,
-  "result": -55.0
+  "result": 15.000000000000014
  },
  "tescan milling_angle r=0 t=-60": {
   "error": null,
-  "result": -59.99999999999999
+  "result": 10.0
  },
  "tescan milling_angle r=0 t=-65": {
   "error": null,
-  "result": -65.0
+  "result": 5.0
  },
  "tescan milling_angle r=0 t=-70": {
   "error": null,
-  "result": -70.0
+  "result": 0.0
  },
  "tescan milling_angle r=0 t=-75": {
   "error": null,
-  "result": -75.0
+  "result": -5.0
  },
  "tescan milling_angle r=0 t=-80": {
   "error": null,
-  "result": -80.0
+  "result": -10.0
  },
  "tescan milling_angle r=0 t=-85": {
   "error": null,
-  "result": -85.0
+  "result": -15.000000000000014
  },
  "tescan milling_angle r=0 t=-90": {
   "error": null,
-  "result": -90.0
+  "result": -20.0
  },
  "tescan milling_angle r=0 t=-95": {
   "error": null,
-  "result": 84.99999999999999
+  "result": 155.0
  },
  "tescan milling_angle r=0 t=0": {
   "error": null,
-  "result": 0.0
+  "result": 70.0
  },
  "tescan milling_angle r=0 t=10": {
   "error": null,
-  "result": 10.000000000000002
+  "result": 79.99999999999999
  },
  "tescan milling_angle r=0 t=15": {
   "error": null,
-  "result": 90.0
+  "result": 85.00000000000001
  },
  "tescan milling_angle r=0 t=20": {
   "error": null,
@@ -16948,251 +16948,251 @@
  },
  "tescan milling_angle r=0 t=25": {
   "error": null,
-  "result": 90.0
+  "result": 94.99999999999999
  },
  "tescan milling_angle r=0 t=30": {
   "error": null,
-  "result": 30.000000000000004
+  "result": 99.99999999999994
  },
  "tescan milling_angle r=0 t=35": {
   "error": null,
-  "result": 35.0
+  "result": 105.0
  },
  "tescan milling_angle r=0 t=40": {
   "error": null,
-  "result": 39.99999999999999
+  "result": 110.0
  },
  "tescan milling_angle r=0 t=45": {
   "error": null,
-  "result": 45.0
+  "result": 114.99999999999999
  },
  "tescan milling_angle r=0 t=5": {
   "error": null,
-  "result": 5.000000000000001
+  "result": 75.0
  },
  "tescan milling_angle r=0 t=50": {
   "error": null,
-  "result": 50.00000000000001
+  "result": 120.0
  },
  "tescan milling_angle r=0 t=55": {
   "error": null,
-  "result": 55.0
+  "result": 125.0
  },
  "tescan milling_angle r=0 t=60": {
   "error": null,
-  "result": 59.99999999999999
+  "result": 130.0
  },
  "tescan milling_angle r=0 t=65": {
   "error": null,
-  "result": 65.0
+  "result": 135.0
  },
  "tescan milling_angle r=0 t=70": {
   "error": null,
-  "result": 70.0
+  "result": 140.0
  },
  "tescan milling_angle r=0 t=75": {
   "error": null,
-  "result": 75.0
+  "result": 145.0
  },
  "tescan milling_angle r=0 t=80": {
   "error": null,
-  "result": 80.0
+  "result": 150.0
  },
  "tescan milling_angle r=0 t=85": {
   "error": null,
-  "result": 85.00000000000001
+  "result": 155.0
  },
  "tescan milling_angle r=0 t=90": {
   "error": null,
-  "result": 90.00000000000001
+  "result": 160.0
  },
  "tescan milling_angle r=135 t=-10": {
   "error": null,
-  "result": -10.000000000000002
+  "result": -1.2257365498160482
  },
  "tescan milling_angle r=135 t=-100": {
   "error": null,
-  "result": 80.0
+  "result": 66.0371939976234
  },
  "tescan milling_angle r=135 t=-105": {
   "error": null,
-  "result": 74.99999999999999
+  "result": 65.2944352197556
  },
  "tescan milling_angle r=135 t=-110": {
   "error": null,
-  "result": 70.0
+  "result": 63.664519836065665
  },
  "tescan milling_angle r=135 t=-115": {
   "error": null,
-  "result": 65.0
+  "result": 61.29872476611066
  },
  "tescan milling_angle r=135 t=-120": {
   "error": null,
-  "result": 60.00000000000001
+  "result": 58.36247021544667
  },
  "tescan milling_angle r=135 t=-125": {
   "error": null,
-  "result": 54.999999999999986
+  "result": 55.0
  },
  "tescan milling_angle r=135 t=-130": {
   "error": null,
-  "result": 49.99999999999999
+  "result": 51.32345685016942
  },
  "tescan milling_angle r=135 t=-135": {
   "error": null,
-  "result": 45.0
+  "result": 47.41540858193805
  },
  "tescan milling_angle r=135 t=-140": {
   "error": null,
-  "result": 40.00000000000001
+  "result": 43.33543686504424
  },
  "tescan milling_angle r=135 t=-145": {
   "error": null,
-  "result": 34.999999999999986
+  "result": 39.12650024202433
  },
  "tescan milling_angle r=135 t=-15": {
   "error": null,
-  "result": -14.999999999999998
+  "result": -5.794099115712257
  },
  "tescan milling_angle r=135 t=-150": {
   "error": null,
-  "result": 29.999999999999993
+  "result": 34.81988020810422
  },
  "tescan milling_angle r=135 t=-155": {
   "error": null,
-  "result": 24.999999999999996
+  "result": 30.43872386502766
  },
  "tescan milling_angle r=135 t=-160": {
   "error": null,
-  "result": 20.000000000000004
+  "result": 26.000504600252313
  },
  "tescan milling_angle r=135 t=-165": {
   "error": null,
-  "result": 15.000000000000009
+  "result": 21.51872067213489
  },
  "tescan milling_angle r=135 t=-170": {
   "error": null,
-  "result": 9.99999999999999
+  "result": 17.00407672041527
  },
  "tescan milling_angle r=135 t=-175": {
   "error": null,
-  "result": 4.999999999999995
+  "result": 12.465320013580353
  },
  "tescan milling_angle r=135 t=-180": {
   "error": null,
-  "result": 0.0
+  "result": 7.909848312456489
  },
  "tescan milling_angle r=135 t=-20": {
   "error": null,
-  "result": -20.0
+  "result": -10.355072643052566
  },
  "tescan milling_angle r=135 t=-25": {
   "error": null,
-  "result": -25.0
+  "result": -14.902434817834816
  },
  "tescan milling_angle r=135 t=-30": {
   "error": null,
-  "result": -29.999999999999996
+  "result": -19.42925104726271
  },
  "tescan milling_angle r=135 t=-35": {
   "error": null,
-  "result": -35.0
+  "result": -23.927464720758906
  },
  "tescan milling_angle r=135 t=-40": {
   "error": null,
-  "result": -40.0
+  "result": -28.387366539620146
  },
  "tescan milling_angle r=135 t=-45": {
   "error": null,
-  "result": -45.0
+  "result": -32.79687605017145
  },
  "tescan milling_angle r=135 t=-5": {
   "error": null,
-  "result": -5.000000000000001
+  "result": 3.344168815581938
  },
  "tescan milling_angle r=135 t=-50": {
   "error": null,
-  "result": -50.0
+  "result": -37.14053777546154
  },
  "tescan milling_angle r=135 t=-55": {
   "error": null,
-  "result": -55.0
+  "result": -41.39808799859745
  },
  "tescan milling_angle r=135 t=-60": {
   "error": null,
-  "result": -59.99999999999999
+  "result": -45.54238302409553
  },
  "tescan milling_angle r=135 t=-65": {
   "error": null,
-  "result": -65.0
+  "result": -49.53640133881396
  },
  "tescan milling_angle r=135 t=-70": {
   "error": null,
-  "result": -70.0
+  "result": -53.32898040844222
  },
  "tescan milling_angle r=135 t=-75": {
   "error": null,
-  "result": -75.0
+  "result": -56.849066786495484
  },
  "tescan milling_angle r=135 t=-80": {
   "error": null,
-  "result": -80.0
+  "result": -59.998943451833696
  },
  "tescan milling_angle r=135 t=-85": {
   "error": null,
-  "result": -85.0
+  "result": -62.64898819771
  },
  "tescan milling_angle r=135 t=-90": {
   "error": null,
-  "result": -90.0
+  "result": -64.64087690167466
  },
  "tescan milling_angle r=135 t=-95": {
   "error": null,
-  "result": 84.99999999999999
+  "result": 114.18933911531974
  },
  "tescan milling_angle r=135 t=0": {
   "error": null,
-  "result": 0.0
+  "result": 7.909848312456489
  },
  "tescan milling_angle r=135 t=10": {
   "error": null,
-  "result": 10.000000000000002
+  "result": 17.00407672041527
  },
  "tescan milling_angle r=135 t=15": {
   "error": null,
-  "result": 14.999999999999996
+  "result": 21.518720672134876
  },
  "tescan milling_angle r=135 t=20": {
   "error": null,
-  "result": 20.000000000000004
+  "result": 26.000504600252313
  },
  "tescan milling_angle r=135 t=25": {
   "error": null,
-  "result": 24.999999999999996
+  "result": 30.43872386502766
  },
  "tescan milling_angle r=135 t=30": {
   "error": null,
-  "result": 30.000000000000004
+  "result": 34.81988020810422
  },
  "tescan milling_angle r=135 t=35": {
   "error": null,
-  "result": 35.0
+  "result": 39.126500242024335
  },
  "tescan milling_angle r=135 t=40": {
   "error": null,
-  "result": 39.99999999999999
+  "result": 43.335436865044215
  },
  "tescan milling_angle r=135 t=45": {
   "error": null,
-  "result": 45.0
+  "result": 47.415408581938046
  },
  "tescan milling_angle r=135 t=5": {
   "error": null,
-  "result": 5.000000000000001
+  "result": 12.465320013580353
  },
  "tescan milling_angle r=135 t=50": {
   "error": null,
-  "result": 50.00000000000001
+  "result": 51.32345685016942
  },
  "tescan milling_angle r=135 t=55": {
   "error": null,
@@ -17200,31 +17200,31 @@
  },
  "tescan milling_angle r=135 t=60": {
   "error": null,
-  "result": 59.99999999999999
+  "result": 58.36247021544667
  },
  "tescan milling_angle r=135 t=65": {
   "error": null,
-  "result": 65.0
+  "result": 61.29872476611066
  },
  "tescan milling_angle r=135 t=70": {
   "error": null,
-  "result": 70.0
+  "result": 63.664519836065665
  },
  "tescan milling_angle r=135 t=75": {
   "error": null,
-  "result": 75.0
+  "result": 65.29443521975561
  },
  "tescan milling_angle r=135 t=80": {
   "error": null,
-  "result": 80.0
+  "result": 66.0371939976234
  },
  "tescan milling_angle r=135 t=85": {
   "error": null,
-  "result": 85.00000000000001
+  "result": 114.18933911531975
  },
  "tescan milling_angle r=135 t=90": {
   "error": null,
-  "result": 90.00000000000001
+  "result": 115.35912309832536
  },
  "tescan milling_angle r=180 t=-10": {
   "error": null,
@@ -17448,191 +17448,191 @@
  },
  "tescan milling_angle r=225 t=-10": {
   "error": null,
-  "result": -10.000000000000002
+  "result": -1.2257365498160482
  },
  "tescan milling_angle r=225 t=-100": {
   "error": null,
-  "result": 80.0
+  "result": 66.0371939976234
  },
  "tescan milling_angle r=225 t=-105": {
   "error": null,
-  "result": 74.99999999999999
+  "result": 65.2944352197556
  },
  "tescan milling_angle r=225 t=-110": {
   "error": null,
-  "result": 70.0
+  "result": 63.664519836065665
  },
  "tescan milling_angle r=225 t=-115": {
   "error": null,
-  "result": 65.0
+  "result": 61.29872476611066
  },
  "tescan milling_angle r=225 t=-120": {
   "error": null,
-  "result": 60.00000000000001
+  "result": 58.36247021544667
  },
  "tescan milling_angle r=225 t=-125": {
   "error": null,
-  "result": 54.999999999999986
+  "result": 55.0
  },
  "tescan milling_angle r=225 t=-130": {
   "error": null,
-  "result": 49.99999999999999
+  "result": 51.32345685016942
  },
  "tescan milling_angle r=225 t=-135": {
   "error": null,
-  "result": 45.0
+  "result": 47.41540858193805
  },
  "tescan milling_angle r=225 t=-140": {
   "error": null,
-  "result": 40.00000000000001
+  "result": 43.33543686504424
  },
  "tescan milling_angle r=225 t=-145": {
   "error": null,
-  "result": 34.999999999999986
+  "result": 39.12650024202433
  },
  "tescan milling_angle r=225 t=-15": {
   "error": null,
-  "result": -14.999999999999998
+  "result": -5.794099115712257
  },
  "tescan milling_angle r=225 t=-150": {
   "error": null,
-  "result": 29.999999999999993
+  "result": 34.81988020810422
  },
  "tescan milling_angle r=225 t=-155": {
   "error": null,
-  "result": 24.999999999999996
+  "result": 30.43872386502766
  },
  "tescan milling_angle r=225 t=-160": {
   "error": null,
-  "result": 20.000000000000004
+  "result": 26.000504600252313
  },
  "tescan milling_angle r=225 t=-165": {
   "error": null,
-  "result": 15.000000000000009
+  "result": 21.51872067213489
  },
  "tescan milling_angle r=225 t=-170": {
   "error": null,
-  "result": 9.99999999999999
+  "result": 17.00407672041527
  },
  "tescan milling_angle r=225 t=-175": {
   "error": null,
-  "result": 4.999999999999995
+  "result": 12.465320013580353
  },
  "tescan milling_angle r=225 t=-180": {
   "error": null,
-  "result": 0.0
+  "result": 7.909848312456489
  },
  "tescan milling_angle r=225 t=-20": {
   "error": null,
-  "result": -20.0
+  "result": -10.355072643052566
  },
  "tescan milling_angle r=225 t=-25": {
   "error": null,
-  "result": -25.0
+  "result": -14.902434817834816
  },
  "tescan milling_angle r=225 t=-30": {
   "error": null,
-  "result": -29.999999999999996
+  "result": -19.42925104726271
  },
  "tescan milling_angle r=225 t=-35": {
   "error": null,
-  "result": -35.0
+  "result": -23.927464720758906
  },
  "tescan milling_angle r=225 t=-40": {
   "error": null,
-  "result": -40.0
+  "result": -28.387366539620146
  },
  "tescan milling_angle r=225 t=-45": {
   "error": null,
-  "result": -45.0
+  "result": -32.79687605017145
  },
  "tescan milling_angle r=225 t=-5": {
   "error": null,
-  "result": -5.000000000000001
+  "result": 3.344168815581938
  },
  "tescan milling_angle r=225 t=-50": {
   "error": null,
-  "result": -50.0
+  "result": -37.14053777546154
  },
  "tescan milling_angle r=225 t=-55": {
   "error": null,
-  "result": -55.0
+  "result": -41.39808799859745
  },
  "tescan milling_angle r=225 t=-60": {
   "error": null,
-  "result": -59.99999999999999
+  "result": -45.54238302409553
  },
  "tescan milling_angle r=225 t=-65": {
   "error": null,
-  "result": -65.0
+  "result": -49.53640133881396
  },
  "tescan milling_angle r=225 t=-70": {
   "error": null,
-  "result": -70.0
+  "result": -53.32898040844222
  },
  "tescan milling_angle r=225 t=-75": {
   "error": null,
-  "result": -75.0
+  "result": -56.849066786495484
  },
  "tescan milling_angle r=225 t=-80": {
   "error": null,
-  "result": -80.0
+  "result": -59.998943451833696
  },
  "tescan milling_angle r=225 t=-85": {
   "error": null,
-  "result": -85.0
+  "result": -62.64898819771
  },
  "tescan milling_angle r=225 t=-90": {
   "error": null,
-  "result": -90.0
+  "result": -64.64087690167466
  },
  "tescan milling_angle r=225 t=-95": {
   "error": null,
-  "result": 84.99999999999999
+  "result": 114.18933911531974
  },
  "tescan milling_angle r=225 t=0": {
   "error": null,
-  "result": 0.0
+  "result": 7.909848312456489
  },
  "tescan milling_angle r=225 t=10": {
   "error": null,
-  "result": 10.000000000000002
+  "result": 17.00407672041527
  },
  "tescan milling_angle r=225 t=15": {
   "error": null,
-  "result": 14.999999999999996
+  "result": 21.518720672134876
  },
  "tescan milling_angle r=225 t=20": {
   "error": null,
-  "result": 20.000000000000004
+  "result": 26.000504600252313
  },
  "tescan milling_angle r=225 t=25": {
   "error": null,
-  "result": 24.999999999999996
+  "result": 30.43872386502766
  },
  "tescan milling_angle r=225 t=30": {
   "error": null,
-  "result": 30.000000000000004
+  "result": 34.81988020810422
  },
  "tescan milling_angle r=225 t=35": {
   "error": null,
-  "result": 35.0
+  "result": 39.126500242024335
  },
  "tescan milling_angle r=225 t=40": {
   "error": null,
-  "result": 39.99999999999999
+  "result": 43.335436865044215
  },
  "tescan milling_angle r=225 t=45": {
   "error": null,
-  "result": 45.0
+  "result": 47.415408581938046
  },
  "tescan milling_angle r=225 t=5": {
   "error": null,
-  "result": 5.000000000000001
+  "result": 12.465320013580353
  },
  "tescan milling_angle r=225 t=50": {
   "error": null,
-  "result": 50.00000000000001
+  "result": 51.32345685016942
  },
  "tescan milling_angle r=225 t=55": {
   "error": null,
@@ -17640,55 +17640,55 @@
  },
  "tescan milling_angle r=225 t=60": {
   "error": null,
-  "result": 59.99999999999999
+  "result": 58.36247021544667
  },
  "tescan milling_angle r=225 t=65": {
   "error": null,
-  "result": 65.0
+  "result": 61.29872476611066
  },
  "tescan milling_angle r=225 t=70": {
   "error": null,
-  "result": 70.0
+  "result": 63.664519836065665
  },
  "tescan milling_angle r=225 t=75": {
   "error": null,
-  "result": 75.0
+  "result": 65.29443521975561
  },
  "tescan milling_angle r=225 t=80": {
   "error": null,
-  "result": 80.0
+  "result": 66.0371939976234
  },
  "tescan milling_angle r=225 t=85": {
   "error": null,
-  "result": 85.00000000000001
+  "result": 114.18933911531975
  },
  "tescan milling_angle r=225 t=90": {
   "error": null,
-  "result": 90.00000000000001
+  "result": 115.35912309832536
  },
  "tescan milling_angle r=270 t=-10": {
   "error": null,
-  "result": -10.000000000000002
+  "result": 20.25437001841067
  },
  "tescan milling_angle r=270 t=-100": {
   "error": null,
-  "result": 80.0
+  "result": 132.06340643270696
  },
  "tescan milling_angle r=270 t=-105": {
   "error": null,
-  "result": 74.99999999999999
+  "result": 129.66845407865668
  },
  "tescan milling_angle r=270 t=-110": {
   "error": null,
-  "result": 70.0
+  "result": 127.69844633087645
  },
  "tescan milling_angle r=270 t=-115": {
   "error": null,
-  "result": 65.0
+  "result": 126.22453955139278
  },
  "tescan milling_angle r=270 t=-120": {
   "error": null,
-  "result": 60.00000000000001
+  "result": 125.31017833190543
  },
  "tescan milling_angle r=270 t=-125": {
   "error": null,
@@ -17696,163 +17696,163 @@
  },
  "tescan milling_angle r=270 t=-130": {
   "error": null,
-  "result": 49.99999999999999
+  "result": 54.689821668094595
  },
  "tescan milling_angle r=270 t=-135": {
   "error": null,
-  "result": 45.0
+  "result": 53.77546044860723
  },
  "tescan milling_angle r=270 t=-140": {
   "error": null,
-  "result": 40.00000000000001
+  "result": 52.30155366912355
  },
  "tescan milling_angle r=270 t=-145": {
   "error": null,
-  "result": 34.999999999999986
+  "result": 50.33154592134332
  },
  "tescan milling_angle r=270 t=-15": {
   "error": null,
-  "result": -14.999999999999998
+  "result": 16.270142172197822
  },
  "tescan milling_angle r=270 t=-150": {
   "error": null,
-  "result": 29.999999999999993
+  "result": 47.936593567293045
  },
  "tescan milling_angle r=270 t=-155": {
   "error": null,
-  "result": 24.999999999999996
+  "result": 45.18664540167446
  },
  "tescan milling_angle r=270 t=-160": {
   "error": null,
-  "result": 20.000000000000004
+  "result": 42.14507055848218
  },
  "tescan milling_angle r=270 t=-165": {
   "error": null,
-  "result": 15.000000000000009
+  "result": 38.86642262944895
  },
  "tescan milling_angle r=270 t=-170": {
   "error": null,
-  "result": 9.99999999999999
+  "result": 35.39626013732792
  },
  "tescan milling_angle r=270 t=-175": {
   "error": null,
-  "result": 4.999999999999995
+  "result": 31.77202613917091
  },
  "tescan milling_angle r=270 t=-180": {
   "error": null,
-  "result": 0.0
+  "result": 28.024320673604713
  },
  "tescan milling_angle r=270 t=-20": {
   "error": null,
-  "result": -20.0
+  "result": 12.240295486395183
  },
  "tescan milling_angle r=270 t=-25": {
   "error": null,
-  "result": -25.0
+  "result": 8.177732765839536
  },
  "tescan milling_angle r=270 t=-30": {
   "error": null,
-  "result": -29.999999999999996
+  "result": 4.0940466809325216
  },
  "tescan milling_angle r=270 t=-35": {
   "error": null,
-  "result": -35.0
+  "result": 0.0
  },
  "tescan milling_angle r=270 t=-40": {
   "error": null,
-  "result": -40.0
+  "result": -4.0940466809325216
  },
  "tescan milling_angle r=270 t=-45": {
   "error": null,
-  "result": -45.0
+  "result": -8.177732765839536
  },
  "tescan milling_angle r=270 t=-5": {
   "error": null,
-  "result": -5.000000000000001
+  "result": 24.178203959791162
  },
  "tescan milling_angle r=270 t=-50": {
   "error": null,
-  "result": -50.0
+  "result": -12.240295486395198
  },
  "tescan milling_angle r=270 t=-55": {
   "error": null,
-  "result": -55.0
+  "result": -16.270142172197836
  },
  "tescan milling_angle r=270 t=-60": {
   "error": null,
-  "result": -59.99999999999999
+  "result": -20.25437001841067
  },
  "tescan milling_angle r=270 t=-65": {
   "error": null,
-  "result": -65.0
+  "result": -24.178203959791162
  },
  "tescan milling_angle r=270 t=-70": {
   "error": null,
-  "result": -70.0
+  "result": -28.024320673604706
  },
  "tescan milling_angle r=270 t=-75": {
   "error": null,
-  "result": -75.0
+  "result": -31.77202613917092
  },
  "tescan milling_angle r=270 t=-80": {
   "error": null,
-  "result": -80.0
+  "result": -35.396260137327914
  },
  "tescan milling_angle r=270 t=-85": {
   "error": null,
-  "result": -85.0
+  "result": -38.86642262944895
  },
  "tescan milling_angle r=270 t=-90": {
   "error": null,
-  "result": -90.0
+  "result": -42.14507055848216
  },
  "tescan milling_angle r=270 t=-95": {
   "error": null,
-  "result": 84.99999999999999
+  "result": 134.81335459832553
  },
  "tescan milling_angle r=270 t=0": {
   "error": null,
-  "result": 0.0
+  "result": 28.0243206736047
  },
  "tescan milling_angle r=270 t=10": {
   "error": null,
-  "result": 10.000000000000002
+  "result": 35.39626013732792
  },
  "tescan milling_angle r=270 t=15": {
   "error": null,
-  "result": 14.999999999999996
+  "result": 38.866422629448934
  },
  "tescan milling_angle r=270 t=20": {
   "error": null,
-  "result": 20.000000000000004
+  "result": 42.14507055848218
  },
  "tescan milling_angle r=270 t=25": {
   "error": null,
-  "result": 24.999999999999996
+  "result": 45.18664540167446
  },
  "tescan milling_angle r=270 t=30": {
   "error": null,
-  "result": 30.000000000000004
+  "result": 47.936593567293045
  },
  "tescan milling_angle r=270 t=35": {
   "error": null,
-  "result": 35.0
+  "result": 50.33154592134332
  },
  "tescan milling_angle r=270 t=40": {
   "error": null,
-  "result": 39.99999999999999
+  "result": 52.30155366912355
  },
  "tescan milling_angle r=270 t=45": {
   "error": null,
-  "result": 45.0
+  "result": 53.77546044860722
  },
  "tescan milling_angle r=270 t=5": {
   "error": null,
-  "result": 5.000000000000001
+  "result": 31.77202613917091
  },
  "tescan milling_angle r=270 t=50": {
   "error": null,
-  "result": 50.00000000000001
+  "result": 54.689821668094595
  },
  "tescan milling_angle r=270 t=55": {
   "error": null,
@@ -17860,495 +17860,495 @@
  },
  "tescan milling_angle r=270 t=60": {
   "error": null,
-  "result": 59.99999999999999
+  "result": 125.31017833190542
  },
  "tescan milling_angle r=270 t=65": {
   "error": null,
-  "result": 65.0
+  "result": 126.22453955139278
  },
  "tescan milling_angle r=270 t=70": {
   "error": null,
-  "result": 70.0
+  "result": 127.69844633087644
  },
  "tescan milling_angle r=270 t=75": {
   "error": null,
-  "result": 75.0
+  "result": 129.66845407865668
  },
  "tescan milling_angle r=270 t=80": {
   "error": null,
-  "result": 80.0
+  "result": 132.06340643270696
  },
  "tescan milling_angle r=270 t=85": {
   "error": null,
-  "result": 85.00000000000001
+  "result": 134.81335459832553
  },
  "tescan milling_angle r=270 t=90": {
   "error": null,
-  "result": 90.00000000000001
+  "result": 137.85492944151784
  },
  "tescan milling_angle r=315 t=-10": {
   "error": null,
-  "result": -10.000000000000002
+  "result": 45.54238302409552
  },
  "tescan milling_angle r=315 t=-100": {
   "error": null,
-  "result": 80.0
+  "result": 145.18011979189578
  },
  "tescan milling_angle r=315 t=-105": {
   "error": null,
-  "result": 74.99999999999999
+  "result": 140.87349975797565
  },
  "tescan milling_angle r=315 t=-110": {
   "error": null,
-  "result": 70.0
+  "result": 136.66456313495578
  },
  "tescan milling_angle r=315 t=-115": {
   "error": null,
-  "result": 65.0
+  "result": 132.58459141806196
  },
  "tescan milling_angle r=315 t=-120": {
   "error": null,
-  "result": 60.00000000000001
+  "result": 128.6765431498306
  },
  "tescan milling_angle r=315 t=-125": {
   "error": null,
-  "result": 54.999999999999986
+  "result": 125.0
  },
  "tescan milling_angle r=315 t=-130": {
   "error": null,
-  "result": 49.99999999999999
+  "result": 121.63752978455334
  },
  "tescan milling_angle r=315 t=-135": {
   "error": null,
-  "result": 45.0
+  "result": 118.70127523388933
  },
  "tescan milling_angle r=315 t=-140": {
   "error": null,
-  "result": 40.00000000000001
+  "result": 116.33548016393433
  },
  "tescan milling_angle r=315 t=-145": {
   "error": null,
-  "result": 34.999999999999986
+  "result": 114.7055647802444
  },
  "tescan milling_angle r=315 t=-15": {
   "error": null,
-  "result": -14.999999999999998
+  "result": 41.39808799859744
  },
  "tescan milling_angle r=315 t=-150": {
   "error": null,
-  "result": 29.999999999999993
+  "result": 113.96280600237658
  },
  "tescan milling_angle r=315 t=-155": {
   "error": null,
-  "result": 24.999999999999996
+  "result": 65.81066088468025
  },
  "tescan milling_angle r=315 t=-160": {
   "error": null,
-  "result": 20.000000000000004
+  "result": 64.64087690167464
  },
  "tescan milling_angle r=315 t=-165": {
   "error": null,
-  "result": 15.000000000000009
+  "result": 62.64898819770997
  },
  "tescan milling_angle r=315 t=-170": {
   "error": null,
-  "result": 9.99999999999999
+  "result": 59.99894345183367
  },
  "tescan milling_angle r=315 t=-175": {
   "error": null,
-  "result": 4.999999999999995
+  "result": 56.84906678649545
  },
  "tescan milling_angle r=315 t=-180": {
   "error": null,
-  "result": 0.0
+  "result": 53.328980408442256
  },
  "tescan milling_angle r=315 t=-20": {
   "error": null,
-  "result": -20.0
+  "result": 37.14053777546153
  },
  "tescan milling_angle r=315 t=-25": {
   "error": null,
-  "result": -25.0
+  "result": 32.79687605017145
  },
  "tescan milling_angle r=315 t=-30": {
   "error": null,
-  "result": -29.999999999999996
+  "result": 28.38736653962014
  },
  "tescan milling_angle r=315 t=-35": {
   "error": null,
-  "result": -35.0
+  "result": 23.92746472075892
  },
  "tescan milling_angle r=315 t=-40": {
   "error": null,
-  "result": -40.0
+  "result": 19.42925104726271
  },
  "tescan milling_angle r=315 t=-45": {
   "error": null,
-  "result": -45.0
+  "result": 14.902434817834816
  },
  "tescan milling_angle r=315 t=-5": {
   "error": null,
-  "result": -5.000000000000001
+  "result": 49.53640133881393
  },
  "tescan milling_angle r=315 t=-50": {
   "error": null,
-  "result": -50.0
+  "result": 10.35507264305258
  },
  "tescan milling_angle r=315 t=-55": {
   "error": null,
-  "result": -55.0
+  "result": 5.794099115712271
  },
  "tescan milling_angle r=315 t=-60": {
   "error": null,
-  "result": -59.99999999999999
+  "result": 1.2257365498160482
  },
  "tescan milling_angle r=315 t=-65": {
   "error": null,
-  "result": -65.0
+  "result": -3.344168815581938
  },
  "tescan milling_angle r=315 t=-70": {
   "error": null,
-  "result": -70.0
+  "result": -7.909848312456489
  },
  "tescan milling_angle r=315 t=-75": {
   "error": null,
-  "result": -75.0
+  "result": -12.465320013580353
  },
  "tescan milling_angle r=315 t=-80": {
   "error": null,
-  "result": -80.0
+  "result": -17.00407672041527
  },
  "tescan milling_angle r=315 t=-85": {
   "error": null,
-  "result": -85.0
+  "result": -21.518720672134876
  },
  "tescan milling_angle r=315 t=-90": {
   "error": null,
-  "result": -90.0
+  "result": -26.000504600252313
  },
  "tescan milling_angle r=315 t=-95": {
   "error": null,
-  "result": 84.99999999999999
+  "result": 149.56127613497233
  },
  "tescan milling_angle r=315 t=0": {
   "error": null,
-  "result": 0.0
+  "result": 53.32898040844225
  },
  "tescan milling_angle r=315 t=10": {
   "error": null,
-  "result": 10.000000000000002
+  "result": 59.99894345183367
  },
  "tescan milling_angle r=315 t=15": {
   "error": null,
-  "result": 14.999999999999996
+  "result": 62.64898819770997
  },
  "tescan milling_angle r=315 t=20": {
   "error": null,
-  "result": 20.000000000000004
+  "result": 64.64087690167466
  },
  "tescan milling_angle r=315 t=25": {
   "error": null,
-  "result": 24.999999999999996
+  "result": 65.81066088468025
  },
  "tescan milling_angle r=315 t=30": {
   "error": null,
-  "result": 30.000000000000004
+  "result": 113.96280600237658
  },
  "tescan milling_angle r=315 t=35": {
   "error": null,
-  "result": 35.0
+  "result": 114.70556478024442
  },
  "tescan milling_angle r=315 t=40": {
   "error": null,
-  "result": 39.99999999999999
+  "result": 116.33548016393435
  },
  "tescan milling_angle r=315 t=45": {
   "error": null,
-  "result": 45.0
+  "result": 118.70127523388933
  },
  "tescan milling_angle r=315 t=5": {
   "error": null,
-  "result": 5.000000000000001
+  "result": 56.84906678649545
  },
  "tescan milling_angle r=315 t=50": {
   "error": null,
-  "result": 50.00000000000001
+  "result": 121.63752978455334
  },
  "tescan milling_angle r=315 t=55": {
   "error": null,
-  "result": 55.0
+  "result": 124.99999999999999
  },
  "tescan milling_angle r=315 t=60": {
   "error": null,
-  "result": 59.99999999999999
+  "result": 128.67654314983056
  },
  "tescan milling_angle r=315 t=65": {
   "error": null,
-  "result": 65.0
+  "result": 132.58459141806196
  },
  "tescan milling_angle r=315 t=70": {
   "error": null,
-  "result": 70.0
+  "result": 136.66456313495576
  },
  "tescan milling_angle r=315 t=75": {
   "error": null,
-  "result": 75.0
+  "result": 140.87349975797565
  },
  "tescan milling_angle r=315 t=80": {
   "error": null,
-  "result": 80.0
+  "result": 145.18011979189578
  },
  "tescan milling_angle r=315 t=85": {
   "error": null,
-  "result": 85.00000000000001
+  "result": 149.56127613497236
  },
  "tescan milling_angle r=315 t=90": {
   "error": null,
-  "result": 90.00000000000001
+  "result": 153.9994953997477
  },
  "tescan milling_angle r=45 t=-10": {
   "error": null,
-  "result": -10.000000000000002
+  "result": 45.54238302409552
  },
  "tescan milling_angle r=45 t=-100": {
   "error": null,
-  "result": 80.0
+  "result": 145.18011979189578
  },
  "tescan milling_angle r=45 t=-105": {
   "error": null,
-  "result": 74.99999999999999
+  "result": 140.87349975797565
  },
  "tescan milling_angle r=45 t=-110": {
   "error": null,
-  "result": 70.0
+  "result": 136.66456313495578
  },
  "tescan milling_angle r=45 t=-115": {
   "error": null,
-  "result": 65.0
+  "result": 132.58459141806196
  },
  "tescan milling_angle r=45 t=-120": {
   "error": null,
-  "result": 60.00000000000001
+  "result": 128.6765431498306
  },
  "tescan milling_angle r=45 t=-125": {
   "error": null,
-  "result": 54.999999999999986
+  "result": 125.0
  },
  "tescan milling_angle r=45 t=-130": {
   "error": null,
-  "result": 49.99999999999999
+  "result": 121.63752978455334
  },
  "tescan milling_angle r=45 t=-135": {
   "error": null,
-  "result": 45.0
+  "result": 118.70127523388933
  },
  "tescan milling_angle r=45 t=-140": {
   "error": null,
-  "result": 40.00000000000001
+  "result": 116.33548016393433
  },
  "tescan milling_angle r=45 t=-145": {
   "error": null,
-  "result": 34.999999999999986
+  "result": 114.7055647802444
  },
  "tescan milling_angle r=45 t=-15": {
   "error": null,
-  "result": -14.999999999999998
+  "result": 41.39808799859744
  },
  "tescan milling_angle r=45 t=-150": {
   "error": null,
-  "result": 29.999999999999993
+  "result": 113.96280600237658
  },
  "tescan milling_angle r=45 t=-155": {
   "error": null,
-  "result": 24.999999999999996
+  "result": 65.81066088468025
  },
  "tescan milling_angle r=45 t=-160": {
   "error": null,
-  "result": 20.000000000000004
+  "result": 64.64087690167464
  },
  "tescan milling_angle r=45 t=-165": {
   "error": null,
-  "result": 15.000000000000009
+  "result": 62.64898819770997
  },
  "tescan milling_angle r=45 t=-170": {
   "error": null,
-  "result": 9.99999999999999
+  "result": 59.99894345183367
  },
  "tescan milling_angle r=45 t=-175": {
   "error": null,
-  "result": 4.999999999999995
+  "result": 56.84906678649545
  },
  "tescan milling_angle r=45 t=-180": {
   "error": null,
-  "result": 0.0
+  "result": 53.328980408442256
  },
  "tescan milling_angle r=45 t=-20": {
   "error": null,
-  "result": -20.0
+  "result": 37.14053777546153
  },
  "tescan milling_angle r=45 t=-25": {
   "error": null,
-  "result": -25.0
+  "result": 32.79687605017145
  },
  "tescan milling_angle r=45 t=-30": {
   "error": null,
-  "result": -29.999999999999996
+  "result": 28.38736653962014
  },
  "tescan milling_angle r=45 t=-35": {
   "error": null,
-  "result": -35.0
+  "result": 23.92746472075892
  },
  "tescan milling_angle r=45 t=-40": {
   "error": null,
-  "result": -40.0
+  "result": 19.42925104726271
  },
  "tescan milling_angle r=45 t=-45": {
   "error": null,
-  "result": -45.0
+  "result": 14.902434817834816
  },
  "tescan milling_angle r=45 t=-5": {
   "error": null,
-  "result": -5.000000000000001
+  "result": 49.53640133881393
  },
  "tescan milling_angle r=45 t=-50": {
   "error": null,
-  "result": -50.0
+  "result": 10.35507264305258
  },
  "tescan milling_angle r=45 t=-55": {
   "error": null,
-  "result": -55.0
+  "result": 5.794099115712271
  },
  "tescan milling_angle r=45 t=-60": {
   "error": null,
-  "result": -59.99999999999999
+  "result": 1.2257365498160482
  },
  "tescan milling_angle r=45 t=-65": {
   "error": null,
-  "result": -65.0
+  "result": -3.344168815581938
  },
  "tescan milling_angle r=45 t=-70": {
   "error": null,
-  "result": -70.0
+  "result": -7.909848312456489
  },
  "tescan milling_angle r=45 t=-75": {
   "error": null,
-  "result": -75.0
+  "result": -12.465320013580353
  },
  "tescan milling_angle r=45 t=-80": {
   "error": null,
-  "result": -80.0
+  "result": -17.00407672041527
  },
  "tescan milling_angle r=45 t=-85": {
   "error": null,
-  "result": -85.0
+  "result": -21.518720672134876
  },
  "tescan milling_angle r=45 t=-90": {
   "error": null,
-  "result": -90.0
+  "result": -26.000504600252313
  },
  "tescan milling_angle r=45 t=-95": {
   "error": null,
-  "result": 84.99999999999999
+  "result": 149.56127613497233
  },
  "tescan milling_angle r=45 t=0": {
   "error": null,
-  "result": 0.0
+  "result": 53.32898040844225
  },
  "tescan milling_angle r=45 t=10": {
   "error": null,
-  "result": 10.000000000000002
+  "result": 59.99894345183367
  },
  "tescan milling_angle r=45 t=15": {
   "error": null,
-  "result": 14.999999999999996
+  "result": 62.64898819770997
  },
  "tescan milling_angle r=45 t=20": {
   "error": null,
-  "result": 20.000000000000004
+  "result": 64.64087690167466
  },
  "tescan milling_angle r=45 t=25": {
   "error": null,
-  "result": 24.999999999999996
+  "result": 65.81066088468025
  },
  "tescan milling_angle r=45 t=30": {
   "error": null,
-  "result": 30.000000000000004
+  "result": 113.96280600237658
  },
  "tescan milling_angle r=45 t=35": {
   "error": null,
-  "result": 35.0
+  "result": 114.70556478024442
  },
  "tescan milling_angle r=45 t=40": {
   "error": null,
-  "result": 39.99999999999999
+  "result": 116.33548016393435
  },
  "tescan milling_angle r=45 t=45": {
   "error": null,
-  "result": 45.0
+  "result": 118.70127523388933
  },
  "tescan milling_angle r=45 t=5": {
   "error": null,
-  "result": 5.000000000000001
+  "result": 56.84906678649545
  },
  "tescan milling_angle r=45 t=50": {
   "error": null,
-  "result": 50.00000000000001
+  "result": 121.63752978455334
  },
  "tescan milling_angle r=45 t=55": {
   "error": null,
-  "result": 55.0
+  "result": 124.99999999999999
  },
  "tescan milling_angle r=45 t=60": {
   "error": null,
-  "result": 59.99999999999999
+  "result": 128.67654314983056
  },
  "tescan milling_angle r=45 t=65": {
   "error": null,
-  "result": 65.0
+  "result": 132.58459141806196
  },
  "tescan milling_angle r=45 t=70": {
   "error": null,
-  "result": 70.0
+  "result": 136.66456313495576
  },
  "tescan milling_angle r=45 t=75": {
   "error": null,
-  "result": 75.0
+  "result": 140.87349975797565
  },
  "tescan milling_angle r=45 t=80": {
   "error": null,
-  "result": 80.0
+  "result": 145.18011979189578
  },
  "tescan milling_angle r=45 t=85": {
   "error": null,
-  "result": 85.00000000000001
+  "result": 149.56127613497236
  },
  "tescan milling_angle r=45 t=90": {
   "error": null,
-  "result": 90.00000000000001
+  "result": 153.9994953997477
  },
  "tescan milling_angle r=90 t=-10": {
   "error": null,
-  "result": -10.000000000000002
+  "result": 20.25437001841067
  },
  "tescan milling_angle r=90 t=-100": {
   "error": null,
-  "result": 80.0
+  "result": 132.06340643270696
  },
  "tescan milling_angle r=90 t=-105": {
   "error": null,
-  "result": 74.99999999999999
+  "result": 129.66845407865668
  },
  "tescan milling_angle r=90 t=-110": {
   "error": null,
-  "result": 70.0
+  "result": 127.69844633087645
  },
  "tescan milling_angle r=90 t=-115": {
   "error": null,
-  "result": 65.0
+  "result": 126.22453955139278
  },
  "tescan milling_angle r=90 t=-120": {
   "error": null,
-  "result": 60.00000000000001
+  "result": 125.31017833190543
  },
  "tescan milling_angle r=90 t=-125": {
   "error": null,
@@ -18356,163 +18356,163 @@
  },
  "tescan milling_angle r=90 t=-130": {
   "error": null,
-  "result": 49.99999999999999
+  "result": 54.689821668094595
  },
  "tescan milling_angle r=90 t=-135": {
   "error": null,
-  "result": 45.0
+  "result": 53.77546044860723
  },
  "tescan milling_angle r=90 t=-140": {
   "error": null,
-  "result": 40.00000000000001
+  "result": 52.30155366912355
  },
  "tescan milling_angle r=90 t=-145": {
   "error": null,
-  "result": 34.999999999999986
+  "result": 50.33154592134332
  },
  "tescan milling_angle r=90 t=-15": {
   "error": null,
-  "result": -14.999999999999998
+  "result": 16.270142172197822
  },
  "tescan milling_angle r=90 t=-150": {
   "error": null,
-  "result": 29.999999999999993
+  "result": 47.936593567293045
  },
  "tescan milling_angle r=90 t=-155": {
   "error": null,
-  "result": 24.999999999999996
+  "result": 45.18664540167446
  },
  "tescan milling_angle r=90 t=-160": {
   "error": null,
-  "result": 20.000000000000004
+  "result": 42.14507055848218
  },
  "tescan milling_angle r=90 t=-165": {
   "error": null,
-  "result": 15.000000000000009
+  "result": 38.86642262944895
  },
  "tescan milling_angle r=90 t=-170": {
   "error": null,
-  "result": 9.99999999999999
+  "result": 35.39626013732792
  },
  "tescan milling_angle r=90 t=-175": {
   "error": null,
-  "result": 4.999999999999995
+  "result": 31.77202613917091
  },
  "tescan milling_angle r=90 t=-180": {
   "error": null,
-  "result": 0.0
+  "result": 28.024320673604713
  },
  "tescan milling_angle r=90 t=-20": {
   "error": null,
-  "result": -20.0
+  "result": 12.240295486395183
  },
  "tescan milling_angle r=90 t=-25": {
   "error": null,
-  "result": -25.0
+  "result": 8.177732765839536
  },
  "tescan milling_angle r=90 t=-30": {
   "error": null,
-  "result": -29.999999999999996
+  "result": 4.0940466809325216
  },
  "tescan milling_angle r=90 t=-35": {
   "error": null,
-  "result": -35.0
+  "result": 0.0
  },
  "tescan milling_angle r=90 t=-40": {
   "error": null,
-  "result": -40.0
+  "result": -4.0940466809325216
  },
  "tescan milling_angle r=90 t=-45": {
   "error": null,
-  "result": -45.0
+  "result": -8.177732765839536
  },
  "tescan milling_angle r=90 t=-5": {
   "error": null,
-  "result": -5.000000000000001
+  "result": 24.178203959791162
  },
  "tescan milling_angle r=90 t=-50": {
   "error": null,
-  "result": -50.0
+  "result": -12.240295486395198
  },
  "tescan milling_angle r=90 t=-55": {
   "error": null,
-  "result": -55.0
+  "result": -16.270142172197836
  },
  "tescan milling_angle r=90 t=-60": {
   "error": null,
-  "result": -59.99999999999999
+  "result": -20.25437001841067
  },
  "tescan milling_angle r=90 t=-65": {
   "error": null,
-  "result": -65.0
+  "result": -24.178203959791162
  },
  "tescan milling_angle r=90 t=-70": {
   "error": null,
-  "result": -70.0
+  "result": -28.024320673604706
  },
  "tescan milling_angle r=90 t=-75": {
   "error": null,
-  "result": -75.0
+  "result": -31.77202613917092
  },
  "tescan milling_angle r=90 t=-80": {
   "error": null,
-  "result": -80.0
+  "result": -35.396260137327914
  },
  "tescan milling_angle r=90 t=-85": {
   "error": null,
-  "result": -85.0
+  "result": -38.86642262944895
  },
  "tescan milling_angle r=90 t=-90": {
   "error": null,
-  "result": -90.0
+  "result": -42.14507055848216
  },
  "tescan milling_angle r=90 t=-95": {
   "error": null,
-  "result": 84.99999999999999
+  "result": 134.81335459832553
  },
  "tescan milling_angle r=90 t=0": {
   "error": null,
-  "result": 0.0
+  "result": 28.0243206736047
  },
  "tescan milling_angle r=90 t=10": {
   "error": null,
-  "result": 10.000000000000002
+  "result": 35.39626013732792
  },
  "tescan milling_angle r=90 t=15": {
   "error": null,
-  "result": 14.999999999999996
+  "result": 38.866422629448934
  },
  "tescan milling_angle r=90 t=20": {
   "error": null,
-  "result": 20.000000000000004
+  "result": 42.14507055848218
  },
  "tescan milling_angle r=90 t=25": {
   "error": null,
-  "result": 24.999999999999996
+  "result": 45.18664540167446
  },
  "tescan milling_angle r=90 t=30": {
   "error": null,
-  "result": 30.000000000000004
+  "result": 47.936593567293045
  },
  "tescan milling_angle r=90 t=35": {
   "error": null,
-  "result": 35.0
+  "result": 50.33154592134332
  },
  "tescan milling_angle r=90 t=40": {
   "error": null,
-  "result": 39.99999999999999
+  "result": 52.30155366912355
  },
  "tescan milling_angle r=90 t=45": {
   "error": null,
-  "result": 45.0
+  "result": 53.77546044860722
  },
  "tescan milling_angle r=90 t=5": {
   "error": null,
-  "result": 5.000000000000001
+  "result": 31.77202613917091
  },
  "tescan milling_angle r=90 t=50": {
   "error": null,
-  "result": 50.00000000000001
+  "result": 54.689821668094595
  },
  "tescan milling_angle r=90 t=55": {
   "error": null,
@@ -18520,31 +18520,31 @@
  },
  "tescan milling_angle r=90 t=60": {
   "error": null,
-  "result": 59.99999999999999
+  "result": 125.31017833190542
  },
  "tescan milling_angle r=90 t=65": {
   "error": null,
-  "result": 65.0
+  "result": 126.22453955139278
  },
  "tescan milling_angle r=90 t=70": {
   "error": null,
-  "result": 70.0
+  "result": 127.69844633087644
  },
  "tescan milling_angle r=90 t=75": {
   "error": null,
-  "result": 75.0
+  "result": 129.66845407865668
  },
  "tescan milling_angle r=90 t=80": {
   "error": null,
-  "result": 80.0
+  "result": 132.06340643270696
  },
  "tescan milling_angle r=90 t=85": {
   "error": null,
-  "result": 85.00000000000001
+  "result": 134.81335459832553
  },
  "tescan milling_angle r=90 t=90": {
   "error": null,
-  "result": 90.00000000000001
+  "result": 137.85492944151784
  },
  "tescan orientation r=0 t=-10": {
   "error": null,
