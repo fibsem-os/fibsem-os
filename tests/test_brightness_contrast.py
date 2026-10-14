@@ -1,0 +1,161 @@
+"""Brightness and contrast from the image: the stepper against a simulated detector,
+and `Imaging.auto_brightness_contrast` on Demo, whose detector clips like one."""
+
+import numpy as np
+import pytest
+
+from fibsem import config as cfg
+from fibsem import utils
+from fibsem.autofunctions.brightness_contrast import (
+    BrightnessContrastError,
+    BrightnessContrastSettings,
+    BrightnessContrastStepper,
+    measure,
+    problems,
+    unusable,
+)
+from fibsem.cancellation import OperationCancelledError
+from fibsem.drivers.demo import simulator
+from fibsem.structures import BeamType
+
+SETTINGS = BrightnessContrastSettings()
+
+
+def _uint8(values):
+    return (np.clip(np.asarray(values), 0, 1) * 255).round().astype(np.uint8)
+
+
+def test_measure_counts_pixels_at_each_limit():
+    data = _uint8(np.r_[np.zeros(10), np.ones(30), np.full(60, 0.5)])
+    stats = measure(data)
+    assert stats.black == pytest.approx(0.1)
+    assert stats.white == pytest.approx(0.3)
+    assert stats.median == pytest.approx(0.5, abs=0.01)
+
+
+def test_a_mostly_white_image_is_unusable_and_a_good_one_has_no_problems():
+    rng = np.random.default_rng(0)
+    good = measure(_uint8(rng.normal(0.5, 0.12, 10_000)))
+    white = measure(_uint8(rng.normal(0.95, 0.12, 10_000)))
+    assert problems(good, SETTINGS) == []
+    assert not unusable(good, SETTINGS)
+    assert unusable(white, SETTINGS)
+    assert any("white" in p for p in problems(white, SETTINGS))
+
+
+class _Detector:
+    """A detector more sensitive than the stepper's first guess, with an offset
+    pivot: gain e^(8(c - 0.5)) about grey 0.3, and twice the offset per unit
+    brightness. A scene of grey with 3% bright edges, as FIB images have."""
+
+    def __init__(self, seed=0):
+        rng = np.random.default_rng(seed)
+        self.scene = np.r_[rng.normal(0.45, 0.06, 9700), rng.normal(1.2, 0.1, 300)]
+        self.noise = rng.normal(0, 0.01, self.scene.size)
+
+    def image(self, brightness, contrast):
+        signal = np.exp(8 * (contrast - 0.5)) * (self.scene - 0.3)
+        return _uint8(signal + 0.5 + 2 * (brightness - 0.5) + self.noise)
+
+
+@pytest.mark.parametrize(
+    "start",
+    [(0.95, 0.5), (0.05, 0.5), (0.5, 0.8), (0.5, 0.05), (0.8, 0.8), (0.2, 0.25)],
+    ids=["white", "black", "high gain", "flat", "white, high gain", "dark, flat"],
+)
+def test_the_stepper_reaches_a_good_image_within_its_images(start):
+    detector = _Detector()
+    stepper = BrightnessContrastStepper(SETTINGS)
+    x = np.array(start)
+    for n in range(1, SETTINGS.max_images + 1):
+        stats = measure(detector.image(*x))
+        if not problems(stats, SETTINGS):
+            break
+        x = stepper.next(x, stats)
+    assert problems(stats, SETTINGS) == [], (start, n, stats)
+
+
+# -- on Demo -----------------------------------------------------------------------
+
+
+@pytest.fixture
+def microscope():
+    microscope, _ = utils.setup_session(
+        config_path=cfg.DEFAULT_CONFIGURATION_PATH,
+        manufacturer="Demo",
+        setup_logging=False,
+    )
+    yield microscope
+    microscope.stop_acquisition()
+
+
+def _set(beam, brightness, contrast):
+    beam.detector_brightness.set_value(brightness)
+    beam.detector_contrast.set_value(contrast)
+
+
+@pytest.mark.parametrize("beam_type", [BeamType.ELECTRON, BeamType.ION])
+def test_a_white_image_comes_back_and_the_scan_is_put_back(microscope, beam_type):
+    beam = microscope.beams[beam_type]
+    resolution, dwell_time = beam.resolution.get_value(), beam.dwell_time.get_value()
+    _set(beam, 0.95, 0.5)
+    assert measure(beam.acquire().data).white > 0.5
+
+    result = microscope.imaging.auto_brightness_contrast(beam_type)
+
+    assert result.converged and not result.started_from_last
+    assert result.n_images <= SETTINGS.max_images
+    assert beam.detector_brightness.get_value() == pytest.approx(result.brightness)
+    assert beam.detector_contrast.get_value() == pytest.approx(result.contrast)
+    assert problems(measure(beam.acquire().data), SETTINGS) == []
+    assert beam.resolution.get_value() == resolution
+    assert beam.dwell_time.get_value() == dwell_time
+
+
+def test_the_next_run_at_the_same_current_starts_from_the_last(microscope):
+    beam = microscope.beams[BeamType.ION]
+    _set(beam, 0.9, 0.8)
+    microscope.imaging.auto_brightness_contrast(BeamType.ION)
+
+    _set(beam, 0.1, 0.9)
+    result = microscope.imaging.auto_brightness_contrast(BeamType.ION)
+    assert result.started_from_last
+    assert result.n_images == 1
+
+    _set(beam, 0.1, 0.9)
+    fresh = microscope.imaging.auto_brightness_contrast(
+        BeamType.ION, BrightnessContrastSettings(start_from_last=False)
+    )
+    assert not fresh.started_from_last
+    assert fresh.n_images > 1
+
+
+def test_a_detector_that_stays_white_raises_rather_than_end_on_it(
+    microscope, monkeypatch
+):
+    events = []
+    microscope.record_signal.connect(lambda event: events.append(event))
+    monkeypatch.setattr(
+        simulator,
+        "detector_response",
+        lambda data, brightness, contrast: np.full_like(data, 255),
+    )
+    with pytest.raises(BrightnessContrastError, match="unusable"):
+        microscope.imaging.auto_brightness_contrast(BeamType.ION)
+    assert [e for e in events if "brightness_contrast" in str(e)], events
+
+
+def test_stop_cancels_and_puts_the_detector_back(microscope):
+    beam = microscope.beams[BeamType.ION]
+    _set(beam, 0.9, 0.8)
+    acquire = beam.acquire
+
+    def acquire_then_stop(*args, **kwargs):
+        microscope.imaging.stop()
+        return acquire(*args, **kwargs)
+
+    beam.acquire = acquire_then_stop
+    with pytest.raises(OperationCancelledError):
+        microscope.imaging.auto_brightness_contrast(BeamType.ION)
+    assert beam.detector_brightness.get_value() == pytest.approx(0.9)
+    assert beam.detector_contrast.get_value() == pytest.approx(0.8)

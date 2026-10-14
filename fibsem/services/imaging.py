@@ -25,11 +25,26 @@ from typing import Any, Dict, List, Optional, Sequence, Type, TypeVar, Union
 # At import, not under TYPE_CHECKING: the App Server decodes a command's arguments
 # from its type hints (an AutoFocusSettings sent as a dict).
 from fibsem.autofunctions.autofocus import AutoFocusResult, AutoFocusSettings
-from fibsem.cancellation import AnyStopEvent
-from fibsem.devices.beam import Beam
+from fibsem.autofunctions.brightness_contrast import (
+    BrightnessContrastError,
+    BrightnessContrastIteration,
+    BrightnessContrastResult,
+    BrightnessContrastSettings,
+    BrightnessContrastStepper,
+    badness,
+    measure,
+    problems,
+    unusable,
+)
+from fibsem.cancellation import AnyStopEvent, raise_if_cancelled
+from fibsem.devices.beam import Beam, nearest_resolution
 from fibsem.devices.core import Role, RoleUnfilled, command
-from fibsem.services.core import Service
+from fibsem.services.core import Service, save_beam_conditions
 from fibsem.structures import BeamType, FibsemImage, FibsemRectangle, ImageSettings
+
+# Two beam currents closer than this, relatively, are the same current: a
+# brightness and contrast that worked at one is where to start at the other.
+_SAME_CURRENT = 0.05
 
 # The role each beam fills.
 _BEAM_ROLES: Dict[BeamType, str] = {
@@ -45,7 +60,8 @@ class Imaging(Service):
     ``autocontrast``, ``start_live``, ``stop_live``); a saved, recorded image
     (``acquire_image``) and reference images of both beams (``reference_images``,
     ``reference_image_sets``); ``auto_focus`` (the instrument's own where the
-    beam has one, else the sweep), ``focus_sweep`` and ``stop``."""
+    beam has one, else the sweep), ``focus_sweep``, ``auto_brightness_contrast``
+    (from the image, not the instrument's routine) and ``stop``."""
 
     electron = Role(Beam, required=False, doc="The electron beam.")
     ion = Role(Beam, required=False, doc="The ion beam.")
@@ -53,6 +69,9 @@ class Imaging(Service):
     def __init__(self, name: str = "imaging", **kwargs: Any):
         super().__init__(name, **kwargs)
         self._stop_requested = threading.Event()
+        # What worked last, per beam and detector: [(current, (brightness,
+        # contrast), response)], for auto_brightness_contrast to start from.
+        self._last_brightness_contrast: Dict[tuple, List[tuple]] = {}
 
     def beam(self, beam_type: BeamType) -> Beam:
         """The beam that images as ``beam_type``; a ValueError when this microscope
@@ -225,9 +244,194 @@ class Imaging(Service):
         )
 
     @command
+    def auto_brightness_contrast(
+        self,
+        beam_type: BeamType = BeamType.ELECTRON,
+        settings: Optional[BrightnessContrastSettings] = None,
+    ) -> BrightnessContrastResult:
+        """Set ``beam_type``'s detector brightness and contrast from its own probe
+        images, not the instrument's routine: few images, and never left mostly
+        black or white.
+
+        Starts from what last worked at this beam current and detector, so most
+        runs take one image. An image counts when at most ``max_clipped`` of its
+        pixels sit at either limit, it is centred and it isn't flat; until then the
+        stepper moves both controls
+        (`fibsem.autofunctions.brightness_contrast`), for at most ``max_images``.
+        The probe images are at the beam's field of view, with the probe
+        resolution and dwell time, which are put back after.
+
+        Ending short of the targets, the detector is left at the best image's
+        controls and the result says it didn't converge; ending on an image that
+        is mostly black, mostly white or flat, it raises
+        `BrightnessContrastError`, so a workflow stops rather than align or mill on
+        it. ``stop`` ends it, as cancelled, with the detector where it was.
+        """
+        settings = settings or BrightnessContrastSettings()
+        beam = self.beam(beam_type)
+        brightness, contrast = beam.detector_brightness, beam.detector_contrast
+        ranges = [_range(param) for param in (brightness, contrast)]
+        key, current = self._detector_key(beam)
+        initial = (brightness.get_value(), contrast.get_value())
+
+        start, response = self._remembered(key, current, settings)
+        if start is not None:
+            for param, value in zip((brightness, contrast), start):
+                param.set_value(value)
+
+        probe = ImageSettings(
+            beam_type=beam_type,
+            resolution=nearest_resolution(
+                settings.probe_resolution, beam.resolution.choices
+            ),
+            dwell_time=settings.probe_dwell_time,
+            hfw=beam.hfw.get_value(),
+            reduced_area=settings.reduced_area,
+            autocontrast=False,
+            save=False,
+        )
+        stepper = BrightnessContrastStepper(settings, response)
+        saved = save_beam_conditions(beam, ("resolution", "dwell_time"))
+        self._stop_requested.clear()
+        iterations: List[BrightnessContrastIteration] = []
+        try:
+            for i in range(settings.max_images):
+                raise_if_cancelled(self._stop_requested)
+                stats = measure(beam.acquire(probe).data)
+                controls = (brightness.get_value(), contrast.get_value())
+                iterations.append(BrightnessContrastIteration(*controls, stats))
+                logging.debug(
+                    {
+                        "msg": "auto_brightness_contrast",
+                        "beam_type": beam_type.name,
+                        "image": i,
+                        "brightness": controls[0],
+                        "contrast": controls[1],
+                        "stats": stats.to_dict(),
+                    }
+                )
+                if not problems(stats, settings) or i == settings.max_images - 1:
+                    break
+                step = stepper.next(
+                    [_fraction(v, r) for v, r in zip(controls, ranges)], stats
+                )
+                for param, value, r in zip((brightness, contrast), step, ranges):
+                    param.set_value(r[0] + value * (r[1] - r[0]))
+        except BaseException:
+            for param, value in zip((brightness, contrast), initial):
+                param.set_value(value)
+            raise
+        finally:
+            for name, value in saved.items():
+                try:
+                    getattr(beam, name).write_through(value)
+                except Exception:
+                    logging.exception(f"Failed to restore the beam {name}")
+
+        best = iterations[-1]
+        if problems(best.stats, settings):
+            best = min(
+                iterations,
+                key=lambda it: (
+                    unusable(it.stats, settings),
+                    badness(it.stats, settings),
+                ),
+            )
+        if best is not iterations[-1]:
+            brightness.set_value(best.brightness)
+            contrast.set_value(best.contrast)
+        result = BrightnessContrastResult(
+            brightness=best.brightness,
+            contrast=best.contrast,
+            stats=best.stats,
+            converged=not problems(best.stats, settings),
+            iterations=iterations,
+            started_from_last=start is not None,
+        )
+        record = {"beam_type": beam_type.name, **result.to_dict()}
+        if unusable(best.stats, settings):
+            self.parent.record_event(
+                "brightness_contrast", {**record, "status": "failed"}
+            )
+            raise BrightnessContrastError(
+                f"{beam_type.name} brightness and contrast: after {len(iterations)} "
+                f"images, the best is still unusable "
+                f"({'; '.join(problems(best.stats, settings))})."
+            )
+        if result.converged:
+            self._remember(
+                key, current, (best.brightness, best.contrast), stepper.response
+            )
+        else:
+            logging.warning(
+                f"{beam_type.name} brightness and contrast short of the targets after "
+                f"{len(iterations)} images: {'; '.join(problems(best.stats, settings))}"
+            )
+        self.parent.record_event(
+            "brightness_contrast", {**record, "status": "completed"}
+        )
+        return result
+
+    def _detector_key(self, beam: Beam) -> tuple:
+        """Which detector the beam images with, and its current: what a brightness
+        and contrast that worked is good for again."""
+        values = [
+            beam.beam_type,
+            *(
+                getattr(beam, name).get_value() if name in beam.parameters else None
+                for name in ("detector_type", "detector_mode")
+            ),
+        ]
+        current = beam.current.get_value() if "current" in beam.parameters else None
+        return tuple(values), current
+
+    def _remembered(
+        self, key: tuple, current: Optional[float], settings: BrightnessContrastSettings
+    ) -> tuple:
+        """The brightness and contrast that last worked for this detector at this
+        current, and the detector response learned then; (None, None) when none."""
+        if not settings.start_from_last:
+            return None, None
+        for seen, controls, response in reversed(
+            self._last_brightness_contrast.get(key, [])
+        ):
+            if _same_current(seen, current):
+                return controls, response
+        return None, None
+
+    def _remember(
+        self, key: tuple, current: Optional[float], controls: tuple, response: Any
+    ) -> None:
+        entries = [
+            entry
+            for entry in self._last_brightness_contrast.get(key, [])
+            if not _same_current(entry[0], current)
+        ]
+        entries.append((current, controls, response.tolist()))
+        self._last_brightness_contrast[key] = entries
+
+    @command
     def stop(self) -> None:
-        """End the sweep in progress, as cancelled."""
+        """End the sweep or brightness and contrast run in progress, as cancelled."""
         self._stop_requested.set()
+
+
+def _range(param: Any) -> tuple:
+    """A control's (min, max), from its limits; 0 to 1 when it has none."""
+    limits = param.limits
+    if limits is None:
+        return (0.0, 1.0)
+    return (float(limits.min), float(limits.max))
+
+
+def _fraction(value: float, limits: tuple) -> float:
+    return (value - limits[0]) / (limits[1] - limits[0])
+
+
+def _same_current(a: Optional[float], b: Optional[float]) -> bool:
+    if a is None or b is None:
+        return a is b
+    return abs(a - b) <= _SAME_CURRENT * max(abs(a), abs(b), 1e-15)
 
 
 def acquisition_record(image: FibsemImage, path: Optional[str]) -> Dict[str, Any]:
