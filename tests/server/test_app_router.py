@@ -342,6 +342,43 @@ def test_events_unavailable_without_a_buffer(microscope, host):
     assert body["available"] is False
 
 
+def test_event_history_reads_the_record_before_the_live_buffer(
+    client, host, event_buffer
+):
+    import json
+    from pathlib import Path
+
+    from fibsem.applications.autolamella.event_recording import EVENTS_FILENAME
+
+    event_buffer.append("task_started", {"task_name": "Polishing"})
+    held = event_buffer.events_since(0)["events"][0]
+    # The file has the night: an earlier session, this session's records from
+    # before the buffer's oldest, the one the buffer still holds, and progress.
+    lines = [
+        {"session": "night", "seq": 1, "kind": "task_started"},
+        {"session": "night", "seq": 2, "kind": "milling_progress"},
+        {"session": held.get("session"), "seq": 0, "kind": "agent_note"},
+        {**held},
+    ]
+    path = Path(host.experiment.path) / EVENTS_FILENAME
+    path.write_text("".join(json.dumps(r) + "\n" for r in lines), encoding="utf-8")
+
+    body = client.get("/app/events/history", headers=AUTH).json()
+    assert body["available"] is True
+    assert [(e["session"], e["seq"]) for e in body["events"]] == [
+        ("night", 1),
+        (held.get("session"), 0),
+    ]
+    assert body["start"] == 0
+
+    page = client.get("/app/events/history?limit=1", headers=AUTH).json()
+    assert [e["seq"] for e in page["events"]] == [0]
+    earlier = client.get(
+        f"/app/events/history?limit=1&before={page['start']}", headers=AUTH
+    ).json()
+    assert [e["seq"] for e in earlier["events"]] == [1]
+
+
 def test_task_schedule_verb_sets_clears_and_refuses(microscope, host, event_buffer):
     from fibsem.applications.autolamella.structures import (
         Attention,

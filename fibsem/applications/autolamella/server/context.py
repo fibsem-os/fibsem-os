@@ -2029,6 +2029,52 @@ class AutoLamellaAppContext:
 
         return buffer_or_unavailable(self._event_buffer, since=since, timeout=timeout)
 
+    def event_history(
+        self, before: Optional[int] = None, limit: int = 500
+    ) -> Dict[str, Any]:
+        """The experiment's recorded events from before the live buffer, newest
+        page first: everything ``events`` no longer holds, read from the
+        experiment's events file, without the live progress records.
+
+        ``start`` is the file offset to pass back as ``before`` for the page
+        before this one; 0 when this page reaches the file's start.
+        """
+        from pathlib import Path
+
+        from fibsem.applications.autolamella.event_recording import (
+            EVENTS_FILENAME,
+            LIVE_KINDS,
+            read_events_before,
+        )
+
+        experiment = self._experiment
+        if experiment is None:
+            return {"available": False, "events": [], "start": 0}
+        path = Path(experiment.path) / EVENTS_FILENAME
+        if not path.is_file():
+            return {"available": True, "events": [], "start": 0}
+        # What the buffer still holds, `events` serves; leave it out here.
+        held = None
+        if self._event_buffer is not None:
+            first = self._event_buffer.events_since(0).get("events") or []
+            if first:
+                held = (first[0].get("session"), first[0].get("seq"))
+
+        def keep(record: Dict[str, Any]) -> bool:
+            if held is None or record.get("session") != held[0]:
+                return True
+            seq = record.get("seq")
+            return not isinstance(seq, int) or seq < held[1]
+
+        events, start = read_events_before(
+            path,
+            before=before,
+            limit=max(1, min(limit, 2000)),
+            skip_kinds=LIVE_KINDS,
+            keep=keep,
+        )
+        return {"available": True, "events": events, "start": start}
+
     # --- discovery --------------------------------------------------------------
 
     def recent_experiments(self) -> List[Dict[str, Any]]:
