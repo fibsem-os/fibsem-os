@@ -42,7 +42,7 @@ nothing more: the sidecar autodiscovers the running
 server. For a server on another machine (or a non-default setup):
 
 ```bash
-claude mcp add -s user fibsem -- fibsem-mcp --url http://hydra-support:8001 --token <token>
+claude mcp add -s user fibsem -- fibsem-mcp --url http://microscope-pc:8001 --token <token>
 ```
 
 (`FIBSEM_SERVER_URL` / `FIBSEM_SERVER_TOKEN` environment variables also work.)
