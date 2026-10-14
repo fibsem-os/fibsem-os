@@ -13,7 +13,9 @@ the experiment concurrently, and a snapshot that is a task older than the
 instant it was taken is the accepted cost of never blocking anything. The one
 hardware-adjacent method, :meth:`stage_position`, reads the microscope's cached
 position only; nothing here ever issues a hardware call (the app must not be
-made to poll the instrument on behalf of an observer).
+made to poll the instrument on behalf of an observer). The one exception is an
+action's own gate run through the host: requeueing reads the grid inventory, as
+the Add to queue click does.
 
 Vocabulary: the surface speaks ``item_name`` throughout. ``lamella_name`` is
 the deprecated alias scheduled to drop with the HookContext shims after v0.6
@@ -1577,9 +1579,30 @@ class AutoLamellaAppContext:
                 task.attention = (
                     Attention.supervised if supervise else Attention.automated
                 )
+                # Saved with the protocol, as the Workflow tab's chip saves it and
+                # as the schedule is: an agent's change survives a reload too.
+                saved = True
+                try:
+                    experiment.save(save_protocol=True)
+                except Exception:
+                    saved = False
+                    logging.exception(
+                        "save after supervision change failed; the change is "
+                        "applied in memory but not yet on disk"
+                    )
+                if self._event_buffer is not None:
+                    self._event_buffer.append(
+                        "workflow_changed",
+                        {
+                            "field": "attention",
+                            "task_name": task_name,
+                            "supervise": bool(supervise),
+                        },
+                    )
                 return {
                     "available": True,
                     "applied": True,
+                    "saved": saved,
                     "task_name": task_name,
                     "supervise": bool(supervise),
                 }
@@ -1598,8 +1621,8 @@ class AutoLamellaAppContext:
         The workflow reads the schedule at each task start (never a snapshot),
         so a change takes effect at the next start — the ``set_supervision``
         semantics, and like it this mutates the live config directly (an
-        atomic field rebind; no GUI marshal needed). Unlike supervision,
-        a schedule is plan data, so it is persisted immediately.
+        atomic field rebind; no GUI marshal needed), and like it the change is
+        persisted immediately.
 
         ``scheduled_at`` is ISO-8601 (naive = local time; an offset is
         normalized by the workflow) or ``None`` to clear.
@@ -1726,6 +1749,13 @@ class AutoLamellaAppContext:
                 "reason": f"No task named {task_name!r} in the protocol.",
                 "task_names": known,
             }
+        # The Add to queue click's grid gate, through the host that owns the
+        # stage: a lamella whose grid is not on the stage is refused by name.
+        refusal = getattr(self._host, "lamella_run_refusal", None)
+        if refusal is not None:
+            refused = refusal([experiment.get_lamella_by_name(item_name)])
+            if refused:
+                return {"available": True, "queued": False, "reason": refused}
         item = manager.queue.add(item_name, task_name, front=bool(front))
         if item is None:
             return {"available": True, "queued": False, "reason": "add refused"}
