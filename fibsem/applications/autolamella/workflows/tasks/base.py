@@ -1242,15 +1242,24 @@ class AutoLamellaTask(ABC):
 
     def _milling_result_image_file(self, config: FibsemMillingTaskConfig) -> str:
         """The FIB image a milling session left behind (the ``finished``
-        acquisition it saves in the lamella's folder, when its config
-        acquires one), relative to that folder; empty when it saved none."""
+        acquisition, when its config acquires one), relative to the lamella's
+        folder; empty when it saved none.
+
+        Looked for where the milling saved it -- its config's imaging path, the
+        run's ``Milling/<task>`` folder -- then in the lamella's folder. Only the
+        lamella's folder was searched, where the milling task never saves, so a
+        Fiducial that acquired after milling still took an extra frame to ask
+        its alignment area on."""
         imaging = getattr(getattr(config, "acquisition", None), "imaging", None)
         filename = str(getattr(imaging, "filename", "") or "")
         if filename:
-            for candidate in sorted(
-                glob.glob(os.path.join(str(self.lamella.path), f"{filename}*_ib.tif"))
-            ):
-                return os.path.relpath(candidate, self.lamella.path)
+            for folder in (getattr(imaging, "path", None), self.lamella.path):
+                if not folder:
+                    continue
+                for candidate in sorted(
+                    glob.glob(os.path.join(str(folder), f"{filename}*_ib.tif"))
+                ):
+                    return os.path.relpath(candidate, self.lamella.path)
         return ""
 
     def _validate_alignment_area(
