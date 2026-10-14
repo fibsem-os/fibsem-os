@@ -40,6 +40,7 @@ from fastapi.routing import APIRoute
 
 from fibsem import utils
 from fibsem.acting import AGENT, acting
+from fibsem.devices.chamber import Chamber
 from fibsem.microscope import FibsemMicroscope
 from fibsem.server.app_routes import (
     build_app_config_router,
@@ -177,6 +178,18 @@ class _RefusingRoute(APIRoute):
 STOP_COMMANDS = frozenset(("stop", "stop_live"))
 
 _read_scope = require_scope(Scope.READ)
+
+
+def _served_devices(microscope: FibsemMicroscope) -> dict:
+    """The devices the server serves: all but the chamber. Pumping and venting
+    are the operator's, at the microscope, so the chamber is not served at all."""
+    return {
+        name: device
+        for name, device in microscope.devices.items()
+        if not isinstance(device, Chamber)
+    }
+
+
 _hardware_scope = require_scope(Scope.HARDWARE)
 
 
@@ -610,12 +623,12 @@ def build_server(
         app.include_router(read)
         app.include_router(stop)
         app.include_router(hw)
-        # Every device's parameters and commands, as the device server serves
-        # them: reads are read scope, writes and commands hardware scope and
-        # control of the microscope.
+        # Every device's parameters and commands but the chamber's, as the
+        # device server serves them: reads are read scope, writes and commands
+        # hardware scope and control of the microscope.
         app.include_router(
             build_device_router(
-                lambda: microscope.devices,
+                lambda: _served_devices(microscope),
                 read=[Depends(require_scope(Scope.READ))],
                 write=[Depends(require_scope(Scope.HARDWARE)), Depends(take_control)],
                 command=[Depends(_device_command_gate)],

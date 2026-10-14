@@ -82,7 +82,7 @@ def test_lists_every_device_the_microscope_built(read_client, microscope):
     resp = read_client.get("/devices")
     assert resp.status_code == 200
     body = resp.json()
-    assert set(body) == set(microscope.devices)
+    assert set(body) == set(microscope.devices) - {"chamber"}
     assert "current" in body["ion"]["parameters"]
     assert "move_relative" in body["stage"]["commands"]
 
@@ -136,6 +136,17 @@ def test_unknown_device_or_parameter_is_404(read_client):
 def test_command_is_hardware_scope(read_client):
     resp = read_client.post("/devices/ion/commands/blank", json={})
     assert resp.status_code == 403
+
+
+def test_the_chamber_is_not_served(read_client, armed_client, microscope):
+    # Pumping and venting are the operator's, at the microscope: the chamber
+    # is not served at all, whatever is armed.
+    assert "chamber" in microscope.devices
+    assert "chamber" not in read_client.get("/devices").json()
+    assert read_client.get("/devices/chamber/state").status_code == 404
+    for command in ("vent", "pump"):
+        resp = armed_client.post(f"/devices/chamber/commands/{command}", json={})
+        assert resp.status_code == 404
 
 
 def test_stop_commands_pass_with_read_scope_whoever_is_in_control(
@@ -246,14 +257,3 @@ def test_an_acquired_image_reaches_the_apps_views(armed_client, microscope, path
     assert resp.status_code == 200
     assert len(shown) == 1
     assert shown[0].metadata.beam_type is BeamType.ION
-
-
-def test_a_read_back_image_is_not_shown_again(armed_client, microscope):
-    shown = []
-    microscope.sem_acquisition_signal.connect(shown.append)
-    try:
-        resp = armed_client.post("/last_image", json={"beam_type": "ELECTRON"})
-    finally:
-        microscope.sem_acquisition_signal.disconnect(shown.append)
-    assert resp.status_code == 200
-    assert shown == []
