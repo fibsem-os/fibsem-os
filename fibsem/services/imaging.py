@@ -259,7 +259,8 @@ class Imaging(Service):
         stepper moves both controls
         (`fibsem.autofunctions.brightness_contrast`), for at most ``max_images``.
         The probe images are at the beam's field of view, with the probe
-        resolution and dwell time, which are put back after.
+        resolution and dwell time, which are put back after, and by default scan
+        and judge only the centre half of the frame (``reduced_area``).
 
         Ending short of the targets, the detector is left at the best image's
         controls and the result says it didn't converge; ending on an image that
@@ -297,7 +298,7 @@ class Imaging(Service):
         try:
             for i in range(settings.max_images):
                 raise_if_cancelled(self._stop_requested)
-                stats = measure(beam.acquire(probe).data)
+                stats = measure(beam.acquire(probe).data, settings)
                 controls = (brightness.get_value(), contrast.get_value())
                 iterations.append(BrightnessContrastIteration(*controls, stats))
                 logging.debug(

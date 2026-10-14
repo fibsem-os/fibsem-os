@@ -43,15 +43,35 @@ def test_a_mostly_white_image_is_unusable_and_a_good_one_has_no_problems():
     assert any("white" in p for p in problems(white, SETTINGS))
 
 
+def test_thin_clipped_edges_dont_count_but_a_clipped_area_does():
+    data = np.full((200, 300), 0.5)
+    data[50, :] = data[:, 150] = 1.0  # one-pixel bright lines: 0.8% of pixels
+    thin = measure(_uint8(data))
+    assert thin.white == 0.0 and thin.white_total > 0.005
+    data[100:120, 20:40] = 1.0  # and a 20 px saturated patch
+    patch = measure(_uint8(data))
+    assert patch.white == pytest.approx(400 / data.size, rel=0.05)
+    data[:, :20] = 1.0  # past max_clipped_total, every clipped pixel counts
+    assert measure(_uint8(data)).white == pytest.approx(
+        measure(_uint8(data)).white_total
+    )
+
+
 class _Detector:
     """A detector more sensitive than the stepper's first guess, with an offset
     pivot: gain e^(8(c - 0.5)) about grey 0.3, and twice the offset per unit
-    brightness. A scene of grey with 3% bright edges, as FIB images have."""
+    brightness. The scene: textured grey, a dark trench outlined by thin bright
+    edges, and two bright 15 px spots."""
 
     def __init__(self, seed=0):
         rng = np.random.default_rng(seed)
-        self.scene = np.r_[rng.normal(0.45, 0.06, 9700), rng.normal(1.2, 0.1, 300)]
-        self.noise = rng.normal(0, 0.01, self.scene.size)
+        scene = 0.45 + 0.06 * rng.standard_normal((128, 192))
+        scene[40:90, 60:130] = 0.25
+        scene[40:42, 60:130] = scene[88:90, 60:130] = 1.2
+        scene[40:90, 60:62] = scene[40:90, 128:130] = 1.2
+        scene[10:25, 10:25] = scene[100:115, 160:175] = 0.75
+        self.scene = scene
+        self.noise = rng.normal(0, 0.01, scene.shape)
 
     def image(self, brightness, contrast):
         signal = np.exp(8 * (contrast - 0.5)) * (self.scene - 0.3)
