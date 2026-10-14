@@ -358,6 +358,23 @@ CATALOG: Tuple[ToolSpec, ...] = (
         },
     ),
     ToolSpec(
+        name="set_service_parameter",
+        description=(
+            "Set one service parameter, e.g. service=stage_movement "
+            "parameter=milling_angle (degrees); the server checks it against the "
+            "parameter's limits and answers the value written."
+        ),
+        method="PUT",
+        path="/microscope/services/{service}/{parameter}",
+        level="drive",
+        hardware=True,
+        params={
+            "service": "service name from list_services",
+            "parameter": "parameter name",
+            "value": "the new value",
+        },
+    ),
+    ToolSpec(
         name="call_service_command",
         description=(
             "Run a service command listed by list_services, e.g. service=stage_movement "
@@ -897,7 +914,6 @@ NOT_TOOLS: Dict[str, str] = {
     "GET /microscope/devices/{device}/values": "Not decided yet; get_parameter reads one value at a time.",
     "GET /microscope/services/{service}/values": "Not decided yet; get_service_parameter reads one value at a time.",
     "POST /microscope/devices/{device}/queries/{query}": "Not decided yet; services hold the questions an agent asks (call_service_query).",
-    "PUT /microscope/services/{service}/{parameter}": "Not decided yet: set_service_parameter, for the milling-angle write.",
     "PUT /microscope/state": "Not decided yet: restoring beams and stage is allowed, but has no tool.",
 }
 
