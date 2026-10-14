@@ -140,6 +140,17 @@ class BuildContext:
     """Scratch space for this connect's builders, so the entries of one driver can
     share something, such as one connection per remote address. Key it by driver."""
 
+    cleanups: List[Callable[[], None]] = field(default_factory=list)
+    """What `on_disconnect` was given, in order."""
+
+    def on_disconnect(self, fn: Callable[[], None]) -> None:
+        """Call *fn* when the microscope disconnects, after every device's own
+        ``disconnect``. For what the entries of one driver share, such as one
+        connection per address in `shared`: no one device owns it to close it.
+        Called in reverse order of registration; one that raises is logged and the
+        rest still run."""
+        self.cleanups.append(fn)
+
 
 BuildFn = Callable[["DeviceEntry", BuildContext], "Device"]
 """A device builder's function: ``build(entry, context) -> Device``."""

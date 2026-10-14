@@ -257,9 +257,37 @@ class FibsemMicroscope(ABC):
     ) -> None:
         pass
 
+    # What the builders asked to have closed at disconnect (`BuildContext.on_disconnect`).
+    _disconnect_cleanups = _PerInstance(lambda _: [])
+
+    def disconnect(self) -> None:
+        """Let go of the microscope: each device's own connection, then what the
+        builders share, then the driver's client.
+
+        The devices are disconnected in reverse build order, last built first. A
+        device or cleanup that raises is logged and the rest still run: one stuck
+        controller must not keep the vendor client open. The driver's own client is closed last, by
+        `_disconnect`, and an error there is raised.
+        """
+        for name, device in reversed(list(self._devices.items())):
+            close = getattr(device, "disconnect", None)
+            if close is None:
+                continue
+            try:
+                close()
+            except Exception as e:
+                logging.warning(f"Device '{name}' did not disconnect cleanly: {e}")
+        cleanups, self._disconnect_cleanups = self._disconnect_cleanups, []
+        for cleanup in reversed(cleanups):
+            try:
+                cleanup()
+            except Exception as e:
+                logging.warning(f"A device connection did not close cleanly: {e}")
+        self._disconnect()
+
     @abstractmethod
-    def disconnect(self):
-        pass
+    def _disconnect(self) -> None:
+        """Close the driver's own client. `disconnect` calls it after the devices."""
 
     def try_disconnect(self) -> bool:
         """Disconnect, logging rather than raising if the client will not close.

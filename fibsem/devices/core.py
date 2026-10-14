@@ -906,6 +906,16 @@ class Device(_Controllable):
         """
         return {}
 
+    def disconnect(self) -> None:
+        """Close what this device alone holds open: its own controller connection.
+        The microscope calls it when it disconnects, in reverse build order.
+        Nothing by default.
+
+        A connection several devices share (one controller per address) is not one
+        device's to close: its builder registers that with
+        `BuildContext.on_disconnect` instead.
+        """
+
 
 class Axis:
     """One axis of a device's position parameter: a view, with no read of its own.
