@@ -22,7 +22,7 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
     SelectMillingPositionTaskConfig,
 )
 from fibsem.drivers.demo.sim_scene import SampleScene
-from fibsem.projection import BeamStageProjection
+from fibsem.geometry.projection import BeamStageProjection
 from fibsem.structures import BeamType
 
 TFS_SHUTTLE_CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")

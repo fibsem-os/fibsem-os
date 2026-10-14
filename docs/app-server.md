@@ -28,10 +28,10 @@ observer with a doorbell, not a second driver.
 2. Connect a microscope. The server starts with the session and stops with it.
 3. **Tools → App Server** shows the server: whether it is running, which
    services it serves, when the agent was last heard from, and the
-   dashboard. *Serve the microscope's devices* there also serves the routes
-   that reach the instrument — its devices, services (milling, stage
-   movement, spot burn, sample handling, imaging), stage, beams and milling
-   state, reads included. It is a choice for the session, like the agent's
+   dashboard. *Serve the microscope* there also serves the routes that
+   reach the instrument, everything under `/microscope`: who it is, its
+   state, its devices and its services (milling, stage movement, spot burn,
+   sample handling, imaging), reads included. It is a choice for the session, like the agent's
    level, and changing it restarts the server; a connected agent carries on.
    It starts off, because a read of the instrument is hardware access, not
    monitoring; Preferences → App Server sets what a new session starts with.
@@ -47,7 +47,7 @@ One knob, on the Agent chip in the status bar, set in two clicks:
 | **Off** | nothing: every request is refused |
 | **Watch** | see everything below and add notes; never act |
 | **Assist** | also stop a run or a mill, suggest answers to the run's questions, and ask you to approve anything else it wants done |
-| **Drive** | also answer, start and stop, change supervision, re-queue, and edit configuration; with the devices service on, use the microscope too |
+| **Drive** | also answer, start and stop, change supervision, re-queue, and edit configuration; with the microscope served, use it too |
 
 Every launch starts at **Watch**. The level lasts the session: nothing in any
 file raises it. Changing it is recorded on the event stream, with you as the
@@ -61,7 +61,7 @@ already under way finishes. A running workflow keeps running; its own Stop is
 beside the chip.
 
 Using the microscope directly (moving the stage, acquiring, milling) needs
-Drive and *Serve the microscope's devices*. At Assist the agent asks for it.
+Drive and *Serve the microscope*. At Assist the agent asks for it.
 
 ## Approving the agent's requests (Assist)
 
@@ -155,9 +155,9 @@ view's Run or Screen all grids, remotely — over the grid tasks in your
 protocol. It is refused while any run is going, and a good agent shows you
 the plan (every grid, its load, its tasks) before it starts one.
 
-## Using the microscope (Drive, devices on)
+## Using the microscope (Drive, microscope served)
 
-With *Serve the microscope's devices* on, an agent at Drive may also use the
+With *Serve the microscope* on, an agent at Drive may also use the
 microscope directly: move the stage, acquire images, change beam and detector
 settings, and mill. Each command is in control of the microscope while it
 runs, so it never acts beside anything else:
@@ -166,15 +166,16 @@ runs, so it never acts beside anything else:
   refused with `409 microscope_busy`, naming who is in control;
 - while the run waits on a question, the run lends control: whoever answers
   may act, one command at a time, and the run carries on when it ends;
-- stopping a mill never takes control, so it is never refused.
+- stopping a mill never takes control, so it is never refused; it needs
+  Assist.
 
 Your own buttons don't take control yet, so nothing stops an agent's command
 running beside something you started by hand. Set the agent to Watch while
 you work at the microscope yourself.
 
 The app follows: a stage move shows in its stage position like one of yours
-would. With the devices service off these routes answer 404 `devices_off`,
-saying the devices aren't served, whatever the level.
+would. With the microscope not served, every `/microscope` route answers 404
+`microscope_off`, saying so, whatever the level.
 
 ## Supervised tasks and the agent
 
@@ -243,8 +244,8 @@ bearer token — the sidecar is convenience, not a requirement.
   shown only in *Connect an agent…*, and the dashboard's, which reads the
   monitoring routes and nothing else. No token, no access.
 - **Access fails closed.** Reading needs a valid token and a level above Off;
-  acting needs Drive; using the microscope needs Drive and the devices
-  service.
+  acting needs Drive; using the microscope needs Drive and the microscope
+  served.
 - **The level lasts one session** — set by whoever is at the microscope,
   back to Watch when the app restarts. A microscope reconnect or a services
   change restarts the server but not the session: the level and the agent's
@@ -253,7 +254,7 @@ bearer token — the sidecar is convenience, not a requirement.
 - **Localhost by default.** Out of the box, only processes on the same
   machine — running as someone who can read your files anyway — can even
   attempt to connect.
-- **One server per machine.** A second AutoLamella (or a bench server) refuses
+- **One server per machine.** A second AutoLamella refuses
   to start its own while one is alive.
 - **Everything is attributed.** Answers carry who gave them; the event stream
   and the log keep the record.
@@ -267,7 +268,7 @@ bearer token — the sidecar is convenience, not a requirement.
   never appeared; start AutoLamella (with the feature on) first, or pass
   `--url`/`--token` explicitly.
 - *The agent says it can't act* — it is at Watch. Raise it to Drive from the
-  Agent chip if you want it to; refusals name the level (`scope_not_armed`),
+  Agent chip if you want it to; refusals name the level (`level`, or `ask_first` at Assist),
   a stop (`agent_stopped`) or Off (`agent_off`).
 - *An agent's answer is refused with `stale_prompt`* — the question changed
   between the agent reading it and answering (often: you answered first).

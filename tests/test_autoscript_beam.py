@@ -162,7 +162,8 @@ def test_the_moved_keys_are_the_ones_routed(recording, plasma, beam):
     keys = ANGULAR_KEYS if electron else []
     parameters = ["angular_correction", "tilt_correction"] if electron else []
     assert facts["routed"] == sorted(MOVED + gas + keys)
-    assert facts["parameters"] == sorted(MOVED + gas + parameters)
+    # live is the beam's own (is a live view running), not an AutoScript key.
+    assert facts["parameters"] == sorted(MOVED + gas + parameters + ["live"])
     assert facts["commands"] == [
         "acquire",
         "auto_focus",
@@ -342,3 +343,12 @@ def test_the_tilt_correction_reads_the_vendor_state(recording):
     """The old key could only be set; the device's parameter reads the vendor's
     state."""
     assert recording["facts"]["tilt_correction"] == {"before": False, "after": True}
+
+
+def test_a_relative_shift_is_clipped_to_the_limits_xt_reports(recording):
+    """The shift parameter carries xT's limits, and the base relative shift clips to
+    them: x is far outside and lands on its maximum; y is inside."""
+    facts = recording["facts"]["shift_by_clipped"]
+    assert facts["limits"] == {"x": [-10e-6, 10e-6], "y": [-20e-6, 20e-6]}
+    assert facts["shift"] == pytest.approx([10e-6, -2e-7 + 1e-6])
+    assert len(facts["writes"]) == 1

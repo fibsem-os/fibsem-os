@@ -7,6 +7,10 @@ SETUP = DriverSetup(
     label="Simulator",
     summary="No instrument. Everything runs against the built-in simulator.",
     simulated=True,
+    devices=(
+        {"name": "ion", "column_tilt": 52},
+        {"name": "electron", "column_tilt": 0},
+    ),
     models=(
         # The generic simulator ships a 35 degree pre-tilt, so it stands in for an
         # ordinary shuttle system and is still asked about the stage. A run set up

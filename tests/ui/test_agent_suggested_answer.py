@@ -125,14 +125,14 @@ def test_the_operator_takes_the_agent_s_suggestion(ui, qapp, client):
     refused = _post(
         qapp,
         client,
-        "/app/prompt/answer",
+        "/app/workflow/prompt/answer",
         {"response": True, "question_id": question_id},
     )
     assert refused.json()["detail"]["error_type"] == "ask_first"
     suggested = _post(
         qapp,
         client,
-        "/app/prompt/suggest",
+        "/app/workflow/prompt/suggest",
         {"response": True, "question_id": question_id, "reason": "trench is clear"},
     )
     assert suggested.status_code == 200, suggested.text
@@ -165,7 +165,7 @@ def test_answering_otherwise_drops_the_suggestion(ui, qapp, client):
     _post(
         qapp,
         client,
-        "/app/prompt/suggest",
+        "/app/workflow/prompt/suggest",
         {"response": True, "question_id": question_id, "reason": "looks done"},
     )
     assert ui.pushButton_suggestion.isVisibleTo(ui)
@@ -188,7 +188,7 @@ def test_a_suggestion_needs_a_live_question_a_reason_and_the_agent_acting(
     stale = _post(
         qapp,
         client,
-        "/app/prompt/suggest",
+        "/app/workflow/prompt/suggest",
         {"response": True, "question_id": question_id + 1, "reason": "x"},
     )
     assert stale.status_code == 409
@@ -197,7 +197,7 @@ def test_a_suggestion_needs_a_live_question_a_reason_and_the_agent_acting(
     no_reason = _post(
         qapp,
         client,
-        "/app/prompt/suggest",
+        "/app/workflow/prompt/suggest",
         {"response": True, "question_id": question_id},
     )
     assert no_reason.status_code == 422
@@ -206,7 +206,7 @@ def test_a_suggestion_needs_a_live_question_a_reason_and_the_agent_acting(
     watching = _post(
         qapp,
         client,
-        "/app/prompt/suggest",
+        "/app/workflow/prompt/suggest",
         {"response": True, "question_id": question_id, "reason": "x"},
     )
     assert watching.status_code == 403

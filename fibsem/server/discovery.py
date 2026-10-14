@@ -43,7 +43,7 @@ def write_discovery_file(
         "url": f"http://{_client_host(host)}:{port}",
         "token": auth.token,
         "pid": os.getpid(),
-        # No scopes or level: they change while the server runs and a file
+        # No level: it changes while the server runs and a file
         # would go stale. /capabilities is the live answer (FIB-1035).
     }
     with open(path, "w") as f:

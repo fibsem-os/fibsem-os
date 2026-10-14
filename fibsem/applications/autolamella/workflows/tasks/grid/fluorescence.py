@@ -41,6 +41,7 @@ from fibsem.fm.structures import (
     ZParameters,
 )
 from fibsem.fm.timing import estimate_autofocus_time, estimate_tileset_acquisition_time
+from fibsem.geometry.projection import FMStageProjection
 from fibsem.imaging.thumbnail import write_thumbnail
 from fibsem.imaging.tiled import stamped_overview_name
 from fibsem.imaging.tiling.geometry import (
@@ -52,7 +53,6 @@ from fibsem.imaging.tiling.progress import (
     TiledProgress,
     TiledStatus,
 )
-from fibsem.projection import FMStageProjection
 from fibsem.services.sample_handling import uncalibrated_message
 from fibsem.structures import FibsemStagePosition, InsertableDeviceState
 

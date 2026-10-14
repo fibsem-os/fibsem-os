@@ -13,7 +13,7 @@ from fibsem.drivers.registry import DeviceBuilder, DriverEntry
 DRIVER = DriverEntry(
     manufacturer="Demo",
     microscope_class="fibsem.drivers.demo.microscope:DemoMicroscope",
-    config={"port": 7520, "ion-column-tilt": 52, "electron-column-tilt": 0},
+    port=7520,
     setup="fibsem.drivers.demo.setup:SETUP",
     devices={
         **{

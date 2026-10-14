@@ -303,6 +303,10 @@ def _fake_beam(beam, beam_type):
         "scanning.dwell_time.limits": STRUCTS.Limits(min=25e-9, max=1e-3),
         "scanning.mode.value": 1,  # ScanningMode.FULL_FRAME
         "beam_shift.value": STRUCTS.Point(x=1e-7, y=-2e-7),
+        "beam_shift.limits": STRUCTS.Limits2d(
+            limits_x=STRUCTS.Limits(min=-10e-6, max=10e-6),
+            limits_y=STRUCTS.Limits(min=-20e-6, max=20e-6),
+        ),
         "stigmator.value": STRUCTS.Point(x=0.01, y=-0.02),
         "source.plasma_gas.value": "Xenon",
         "source.plasma_gas.available_values": ["Argon", "Oxygen", "Xenon"],

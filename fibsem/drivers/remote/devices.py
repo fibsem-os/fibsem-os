@@ -42,7 +42,7 @@ builds them from what a server has.
 server, and wait for as long as that takes. What they say about themselves beyond
 their parameters (the stage's frame, shuttle and the device each orientation is at;
 the needle's axes and named positions) comes from the device's ``facts`` in its
-description, and a stage's poses from its ``pose_table`` command. A move
+description, and a stage's poses from its ``pose_table`` query. A move
 is checked against the stage limits here and again on the server.
 
 Not yet: the one-commander lease, and a beam's ``acquire`` (a
@@ -69,6 +69,7 @@ from fibsem.devices.chamber import Chamber
 from fibsem.devices.chamber_camera import ChamberCamera
 from fibsem.devices.core import (
     Device,
+    DeviceFault,
     ParameterMetadata,
     ParameterReadOnly,
     ParameterUnavailable,
@@ -104,6 +105,8 @@ if TYPE_CHECKING:
 
 READ_TIMEOUT = 5.0
 HEARTBEAT = 5.0  # seconds between pings; a server silent for as long again is gone
+# Commands that stop something, which carry a reason (fibsem.server.server).
+_STOPS = frozenset(("stop", "stop_live", "cancel"))
 WRITE_TIMEOUT = 60.0  # a plasma gas change takes a while
 UNTIL_DONE = (READ_TIMEOUT, None)
 """For a move, a pump or a vent: it takes as long as it takes, and ends by answering
@@ -176,10 +179,12 @@ class DeviceClient:
         heartbeat: float = HEARTBEAT,
         token: Optional[str] = None,
         events: bool = True,
+        root: str = "",
     ):
         """*token*, when given, goes on every HTTP request as a bearer token, for
-        the App Server, which serves the same ``/devices`` routes behind one
-        (``fibsem.server.server``); the event stream carries none.
+        the App Server, which serves the same routes behind one under *root*
+        (``"/microscope"``, ``fibsem.server.server``); the event stream carries
+        none.
 
         *events* False never opens the event stream, for a server that has none
         (the App Server). Reads, writes and commands work the same; but nothing
@@ -189,7 +194,7 @@ class DeviceClient:
         ``disconnected`` and ``reconnected`` never change or fire.
         """
         self.heartbeat = heartbeat
-        self.base_url = f"http://{host}:{port}"
+        self.base_url = f"http://{host}:{port}{root}"
         self.events_url = f"ws://{host}:{port}/events"
         self.events = events
         self._session = requests.Session()
@@ -243,8 +248,13 @@ class DeviceClient:
             # error_type and message; a server from before FIB-1377 sends error
             # and detail.
             kind = detail.get("error_type", detail.get("error"))
+            message = detail.get("message", detail.get("detail"))
+            if kind == "DeviceFault" or response.status_code == 502:
+                # the hardware refused on the far side: a driver's own subclass
+                # arrives as the fault it is
+                raise DeviceFault(message, device=detail.get("device"))
             if kind in _ERRORS:
-                raise _ERRORS[kind](detail.get("message", detail.get("detail")))
+                raise _ERRORS[kind](message)
         raise RemoteDeviceError(f"{method} {path}: {response.status_code} {detail}")
 
     def health(self) -> Dict[str, Any]:
@@ -459,10 +469,20 @@ class RemoteDevice(Device):
         requests timeout: seconds, or (connect, read)."""
         path = f"devices/{self.name}/commands/{command}"
         body = {"kwargs": {name: to_wire(value) for name, value in kwargs.items()}}
+        if command in _STOPS:
+            # The App Server records why with every stop; a device server ignores it.
+            body["reason"] = f"{self.name} {command} from a remote microscope"
         answer = self.client.request("POST", path, timeout, json=body)
         if isinstance(answer, (np.ndarray, Frame, list)):
             return answer
         return answer["result"]
+
+    def call_query(self, query: str, timeout: Any = READ_TIMEOUT, **kwargs: Any) -> Any:
+        """Ask one of the device's queries on the server: a read that takes
+        arguments and moves nothing."""
+        path = f"devices/{self.name}/queries/{query}"
+        body = {"kwargs": {name: to_wire(value) for name, value in kwargs.items()}}
+        return self.client.request("POST", path, timeout, json=body)["result"]
 
     def _reader(self, name: str) -> Callable[[], Any]:
         path = f"devices/{self.name}/{name}"
@@ -664,7 +684,7 @@ class RemoteStage(RemoteDevice, Stage):
         function of it, and orientation checks ask often."""
         key = (rotation_reference, shuttle_pre_tilt, fib_column_tilt)
         if key not in self._poses:
-            answer = self.call_command(
+            answer = self.call_query(
                 "pose_table",
                 timeout=READ_TIMEOUT,
                 rotation_reference=rotation_reference,

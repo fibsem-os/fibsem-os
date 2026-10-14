@@ -119,7 +119,7 @@ def serialize_request(request) -> Dict[str, Any]:
                 "top-left), so they need no rescaling against the preview",
                 # The frame is display state the request doesn't carry;
                 # AutoLamellaAppContext.pending_prompt fills it from the FIB display
-                # cache — the same source /app/images serves.
+                # cache — the same source /app/experiment/images serves.
                 "image": None,
             }
         )

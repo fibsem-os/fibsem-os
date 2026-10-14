@@ -1,0 +1,565 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AutoLamella Event Log</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='4' fill='%231e2027'/%3E%3Cpath d='M8 10h16M8 16h16M8 22h10' stroke='%2350a6ff' stroke-width='2.5'/%3E%3C/svg%3E">
+<style>
+  /* napari-dark, from fibsem/ui/tokens.py, as dashboard.html has it. */
+  :root {
+    --surface:#262930; --panel:#1e2027; --row-alt:#2b2f38; --canvas:#1e2124;
+    --border:#3d4251; --text:#d6d6d6; --strong:#f0f1f2; --muted:#868e93;
+    --accent:#50a6ff; --primary:#007ACC; --ok:#4caf50; --warn:#e0a030;
+    --err:#d04040; --agent:#9d78e8;
+    --mono:ui-monospace,"SF Mono",Consolas,"Cascadia Mono",monospace;
+  }
+  * { box-sizing:border-box; margin:0; }
+  html, body { height:100%; }
+  body { background:var(--surface); color:var(--text);
+    font-family:system-ui,"Segoe UI",sans-serif; font-size:12.5px; line-height:1.45;
+    padding:12px 14px; display:flex; flex-direction:column; }
+  #app { display:flex; flex-direction:column; gap:8px; flex:1; min-height:0; }
+  .ok { color:var(--ok); } .err { color:var(--err); } .muted { color:var(--muted); }
+  .warn { color:var(--warn); } .accent { color:var(--accent); }
+  .panel { background:var(--panel); border:1px solid var(--border); border-radius:3px; }
+
+  header { display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; padding:8px 12px; }
+  header .exp { font-size:14px; font-weight:600; color:var(--strong); }
+  header .right { margin-left:auto; display:flex; gap:14px; align-items:baseline; }
+  header a { color:var(--accent); text-decoration:none; font-size:11.5px; }
+  header a:hover { text-decoration:underline; }
+
+  .bar { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+  .bar .sep { width:1px; height:16px; background:var(--border); margin:0 4px; }
+  .chip { font:inherit; font-size:11.5px; padding:1px 9px; border:1px solid var(--border);
+    border-radius:10px; color:var(--muted); background:transparent; cursor:pointer; }
+  .chip.on { background:var(--row-alt); border-color:var(--accent); color:var(--strong); }
+  .chip .n { margin-left:5px; color:var(--muted); font-variant-numeric:tabular-nums; }
+  select, input[type=search] { font:inherit; font-size:11.5px; padding:2px 8px;
+    background:var(--canvas); color:var(--text); border:1px solid var(--border); border-radius:3px; }
+  input[type=search] { width:220px; }
+  .bar .count { margin-left:auto; color:var(--muted); font-size:11.5px; font-variant-numeric:tabular-nums; }
+  .chip:focus-visible, select:focus-visible, input:focus-visible, button:focus-visible {
+    outline:2px solid var(--accent); outline-offset:1px; }
+
+  .log { flex:1; min-height:0; overflow:auto; }
+  table { width:100%; border-collapse:collapse; }
+  th { position:sticky; top:0; background:var(--panel); text-align:left; font-weight:400;
+    font-size:10.5px; letter-spacing:0.05em; color:var(--muted); padding:5px 8px;
+    border-bottom:1px solid var(--border); }
+  td { padding:2.5px 8px; white-space:nowrap; vertical-align:top; }
+  td.d { white-space:normal; width:100%; word-break:break-word; }
+  tbody tr.ev { cursor:pointer; }
+  tbody tr.ev:hover td { background:var(--row-alt); }
+  tbody tr.ev.open td { background:var(--row-alt); }
+  tr.gap td { color:var(--warn); padding:4px 8px; border-top:1px solid var(--border);
+    border-bottom:1px solid var(--border); }
+  tr.payload td { padding:0 8px 6px; background:var(--row-alt); }
+  tr.payload pre { font-family:var(--mono); font-size:11px; color:var(--text);
+    background:var(--canvas); border:1px solid var(--border); border-radius:2px;
+    padding:6px 8px; white-space:pre-wrap; word-break:break-word; max-height:40vh; overflow:auto; }
+  .ts { color:var(--muted); font-variant-numeric:tabular-nums; }
+  .who-agent { color:var(--agent); } .who-operator { color:var(--warn); }
+  .who-task { color:var(--muted); }
+  .empty { padding:24px 12px; color:var(--muted); text-align:center; }
+
+  footer { font-size:11px; color:var(--muted); }
+
+  .gate { max-width:420px; margin:18vh auto 0; padding:16px; }
+  .gate h1 { font-size:14px; color:var(--strong); margin-bottom:8px; }
+  .gate p { color:var(--muted); margin-bottom:10px; }
+  .gate input { width:100%; padding:6px 8px; font-family:var(--mono); font-size:12px;
+    background:var(--canvas); color:var(--text); border:1px solid var(--border); border-radius:3px; }
+  .gate button { margin-top:8px; padding:6px 14px; background:var(--primary); color:#fff;
+    border:0; border-radius:3px; font-size:12px; cursor:pointer; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+"use strict";
+/* The session's event stream as one filterable table, over the same
+   /app/events long-poll as the dashboard's feed. Read-only. The token
+   arrives as it does for the dashboard: in the URL fragment, then kept for
+   the tab's session. */
+
+const $app = document.getElementById("app");
+const TOKEN_KEY = "fibsem_dashboard_token";
+const FILTER_KEY = "fibsem_event_log_filters";
+const KEEP = 50000; // events held in the page; the server's buffer holds 1000
+const SHOW = 3000; // rows drawn at once
+const HISTORY_PAGE = 1000;
+let TOKEN = null;
+let latestSeq = 0;
+let events = []; // newest last, as the server sends them
+let paused = false;
+let unseen = 0;
+const open = new Set(); // keys of the rows whose record is shown
+// The experiment's record from before the live buffer, read a page at a time
+// from its events file: null until the first read, 0 once it reaches the start.
+let historyStart = null;
+let historyBusy = false;
+function keyOf(e) { return (e.session || "") + ":" + e.seq; }
+
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
+}
+
+function takeToken() {
+  const m = location.hash.match(/token=([A-Za-z0-9._~-]+)/);
+  if (m) {
+    try { sessionStorage.setItem(TOKEN_KEY, m[1]); } catch (e) {}
+    history.replaceState(null, "", location.pathname);
+    return m[1];
+  }
+  try { return sessionStorage.getItem(TOKEN_KEY); } catch (e) { return null; }
+}
+
+async function api(path) {
+  const r = await fetch(path, { headers: { Authorization: "Bearer " + TOKEN } });
+  if (!r.ok) throw new Error(path + " -> " + r.status);
+  return r.json();
+}
+
+function gate(message) {
+  $app.innerHTML = `
+    <div class="gate panel">
+      <h1>AutoLamella Event Log</h1>
+      <p>${esc(message)}</p>
+      <input id="tok" type="password" placeholder="session token" autocomplete="off">
+      <button id="go">Connect</button>
+    </div>`;
+  document.getElementById("go").onclick = () => {
+    TOKEN = document.getElementById("tok").value.trim();
+    try { sessionStorage.setItem(TOKEN_KEY, TOKEN); } catch (e) {}
+    boot();
+  };
+}
+
+/* ── what each kind is ─────────────────────────────────────────────── */
+
+const GROUPS = [
+  ["questions", "questions", k => k.startsWith("prompt_") || k.startsWith("question_")
+    || k.startsWith("proposal_") || k === "review_decided"],
+  ["notes", "notes & stops", k => k === "agent_note" || k === "agent_stop"],
+  ["requests", "requests", k => k.startsWith("request_")],
+  ["workflow", "workflow", k => k.startsWith("task_") || k.startsWith("workflow_")
+    || k === "item_completed" || k === "experiment_completed"],
+  ["stage", "stage & beam", k => ["stage_moved", "beam_shifted", "alignment", "autofocus",
+    "fm_autofocus", "coincidence_measured", "objective_state_changed",
+    "grid_loaded", "grid_unloaded"].includes(k)],
+  ["images", "images", k => k === "image_acquired" || k === "fm_image_acquired"],
+  ["milling", "milling", k => k === "milling" || k === "milling_stage_started"
+    || k === "spot_burn_started"],
+  ["edits", "edits", k => k === "config_edited" || k === "workflow_changed"],
+  // Fires many times a second while milling or imaging live: off at first.
+  ["live", "live progress", k => k.endsWith("_progress") || k === "stage_position_changed"
+    || k === "sem_acquisition" || k === "fib_acquisition" || k === "tiled_acquisition"],
+];
+function groupOf(kind) {
+  for (const [key, , test] of GROUPS) if (test(kind)) return key;
+  return "other";
+}
+const WHO = ["agent", "operator", "task"];
+
+const filters = {
+  who: new Set(WHO),
+  groups: new Set(GROUPS.map(g => g[0]).filter(g => g !== "live").concat("other")),
+  item: "",
+  text: "",
+};
+function loadFilters() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(FILTER_KEY) || "null");
+    if (!saved) return;
+    if (Array.isArray(saved.who)) filters.who = new Set(saved.who);
+    if (Array.isArray(saved.groups)) filters.groups = new Set(saved.groups);
+  } catch (e) { /* defaults stand */ }
+}
+function saveFilters() {
+  try {
+    localStorage.setItem(FILTER_KEY, JSON.stringify(
+      { who: [...filters.who], groups: [...filters.groups] }));
+  } catch (e) {}
+}
+
+/* ── one line per event ────────────────────────────────────────────── */
+
+// The day too, once a record is not from today: a night's run crosses midnight.
+const TODAY = new Date().toLocaleDateString("sv"); // YYYY-MM-DD
+function hms(e) {
+  if (typeof e.t === "string" && e.t.includes("T")) {
+    const [day, time] = e.t.split("T");
+    return (day === TODAY ? "" : day.slice(5) + " ") + time.slice(0, 8);
+  }
+  return typeof e.timestamp === "number" ? new Date(e.timestamp * 1000).toTimeString().slice(0, 8) : "";
+}
+function um(v) { return typeof v === "number" ? (v * 1e6).toFixed(2) + " µm" : "?"; }
+function signed(v) { return typeof v === "number" ? (v >= 0 ? "+" : "−") + Math.abs(v * 1e6).toFixed(2) + " µm" : null; }
+// The questions a run raises are the run's, whatever thread posted them.
+const RUN_ASKS = new Set(["prompt_raised", "prompt_cancelled", "question_asked", "question_released"]);
+function whoOf(e) {
+  if (RUN_ASKS.has(e.kind)) return "task";
+  return WHO.includes(e.actor) ? e.actor : "task";
+}
+// Each question as raised, by id, so an answer can say what was asked and
+// which button it was.
+const asked = new Map();
+function noteAsked(e) {
+  if (e.kind === "prompt_raised" && e.payload) asked.set((e.session || "") + ":" + e.payload.question_id, e.payload);
+}
+function itemOf(e) { return (e.item && e.item.name) || (e.payload && e.payload.item_name) || ""; }
+function taskOf(e) { return (e.task && e.task.name) || (e.payload && e.payload.task_name) || ""; }
+
+function position(p) {
+  if (!p || typeof p !== "object") return "";
+  const parts = [];
+  for (const axis of ["x", "y", "z"]) if (typeof p[axis] === "number") parts.push(`${axis} ${um(p[axis])}`);
+  for (const axis of ["r", "t"]) if (typeof p[axis] === "number") parts.push(`${axis} ${(p[axis] * 180 / Math.PI).toFixed(1)}°`);
+  return parts.join(" · ");
+}
+
+function stageLine(p) {
+  const r = p.request || {};
+  const failed = p.error ? ` <span class="err">failed: ${esc(p.error)}</span>` : "";
+  let text;
+  if (p.move === "stable_move" || p.move === "vertical_move") {
+    const d = [signed(r.dx), signed(r.dy)].filter(Boolean).join(" · ");
+    text = `${p.move.replace("_", " ")} ${esc(r.beam_type || "")} <span class="muted">${esc(d)}</span>`;
+  } else if (p.move === "move_to_orientation") {
+    text = `to the ${esc(r.orientation)} orientation`;
+  } else if (p.move === "move_to_milling_angle") {
+    text = `to milling angle ${esc(r.milling_angle)}°`;
+  } else {
+    const target = r.position || r.stage_position;
+    text = `${esc(String(p.move || "move").replace(/_/g, " "))} <span class="muted">${esc(position(target))}</span>`;
+  }
+  return text + failed;
+}
+
+// [event label, detail html] for a record; the detail is short, the payload
+// a click away.
+function describe(e) {
+  const k = e.kind, p = e.payload || {};
+  switch (k) {
+    case "prompt_raised":
+      return ["asked", `${esc(p.message || p.type)}${p.positive ? ` <span class="muted">${esc(p.positive)}${p.negative ? " or " + esc(p.negative) : ""}</span>` : ""}`];
+    case "prompt_answered": {
+      const q = asked.get((e.session || "") + ":" + p.question_id);
+      const button = q ? (p.response ? q.positive : q.negative) : null;
+      let d = q && q.message
+        ? `${esc(q.message)} · <b>${esc(button || (p.response ? "yes" : "no"))}</b>`
+        : `${esc(p.type)} · <b>${p.response ? "yes" : "no"}</b>`;
+      if (p.adjusted) d += ` <span class="muted">adjusted</span>`;
+      if (p.suggested_by) d += ` <span class="muted">suggested by ${esc(p.suggested_by)}</span>`;
+      return ["answered", d];
+    }
+    case "prompt_suggested":
+      return ["suggested", `${esc(p.type)} · <b>${p.response ? "yes" : "no"}</b>${p.reason ? ` <span class="muted">${esc(p.reason)}</span>` : ""}`];
+    case "prompt_cancelled": return ["withdrawn", esc(p.type)];
+    case "question_asked": return ["question held", `the run waits on a recorded question`];
+    case "question_released": return ["question released", ""];
+    case "proposal_asked": return ["proposed", esc(p.field || p.kind || p.type || "")];
+    case "proposal_decided": return ["decided", esc([p.field || p.kind, p.outcome].filter(Boolean).join(" · "))];
+    case "review_decided": return ["reviewed", esc([p.field, p.outcome || p.decision].filter(Boolean).join(" · "))];
+    case "agent_note": return ["note", esc(p.text)];
+    case "agent_stop":
+      return ["stopped", `${esc(p.action)}${p.own ? " (its own)" : ""} <span class="muted">${esc(p.reason)}</span>`];
+    case "request_raised": {
+      const tools = (p.actions || []).map(a => a.tool).join(", ");
+      return ["requested", `${esc(tools)}${p.reason ? ` <span class="muted">${esc(p.reason)}</span>` : ""}`];
+    }
+    case "request_decided":
+      return [p.outcome === "rejected" ? "rejected" : "approved",
+        `request ${esc(p.request_id)}${p.reason ? ` <span class="muted">${esc(p.reason)}</span>` : ""}`];
+    case "request_applied": return ["applied", `request ${esc(p.request_id)}`];
+    case "request_finished":
+      return ["finished", `request ${esc(p.request_id)} · ${esc(p.status)} <span class="muted">${esc(p.applied)} of ${esc(p.of)} applied</span>`];
+    case "request_cancelled": return ["cancelled", `request ${esc(p.request_id)} <span class="muted">${esc(p.why)}</span>`];
+    case "task_started": return ["started", esc(p.task_name)];
+    case "task_completed": return ["completed", esc(p.task_name)];
+    case "task_failed": return ["failed", `${esc(p.task_name)} <span class="err">${esc(p.error || "")}</span>`];
+    case "task_cancelled": return ["cancelled", esc(p.task_name)];
+    case "task_skipped": {
+      const why = p.missing_prereqs ? `${p.skip_reason}: ${p.missing_prereqs.join(", ")}` : p.skip_reason;
+      return ["skipped", `${esc(p.task_name)}${why ? ` <span class="muted">${esc(why)}</span>` : ""}`];
+    }
+    case "task_step": return ["step", esc(p.display_message || p.step)];
+    case "workflow_started": return ["run started", ""];
+    case "workflow_completed": return ["run completed", ""];
+    case "workflow_cancelled": return ["run stopped", ""];
+    case "workflow_stalled": return ["run stalled", esc(p.error || "")];
+    case "workflow_failed": return ["run failed", `<span class="err">${esc(p.error || "")}</span>`];
+    case "item_completed": return ["lamella done", ""];
+    case "experiment_completed": return ["experiment done", ""];
+    case "workflow_changed": return ["setting", `${esc(p.field)} → ${esc(String(p.value))}`];
+    case "config_edited": {
+      const changes = (p.changes || []).map(c => typeof c === "string" ? c
+        : `${c.field || c.path || c.key || "?"}: ${c.before ?? c.old ?? "?"} → ${c.after ?? c.new ?? "?"}`);
+      return ["edited", `${esc(p.task_name || p.level || "")} <span class="muted">${esc(changes.join(" · "))}</span>`];
+    }
+    case "stage_moved": return ["moved stage", stageLine(p)];
+    case "beam_shifted": return ["beam shift", esc(p.beam_type || "")];
+    case "image_acquired":
+    case "fm_image_acquired": {
+      const fov = typeof p.hfw === "number" ? ` · ${(p.hfw * 1e6).toFixed(0)} µm` : "";
+      const file = p.path ? String(p.path).split(/[\\/]/).pop() : "";
+      return ["image", `${esc(p.beam_type || (k === "fm_image_acquired" ? "FM" : ""))}${fov}${file ? ` <span class="muted">${esc(file)}</span>` : ""}`];
+    }
+    case "milling": {
+      const cls = p.status === "failed" ? "err" : p.status === "completed" ? "ok" : "muted";
+      return ["milling", `${esc(p.milling_task_name || "")} <span class="${cls}">${esc(p.status || "")}</span>${p.reason ? ` <span class="muted">${esc(p.reason)}</span>` : ""}`];
+    }
+    case "milling_stage_started": return ["milling stage", esc(p.name || p.stage_name || (p.stage && p.stage.name) || "")];
+    case "autofocus": return ["autofocus", esc([p.beam_type, p.method].filter(Boolean).join(" · "))];
+    case "alignment": return ["alignment", esc(p.status || "")];
+  }
+  // Anything else: its plain fields, briefly.
+  const brief = Object.entries(p)
+    .filter(([, v]) => v === null || ["string", "number", "boolean"].includes(typeof v))
+    .slice(0, 4).map(([key, v]) => `${key} ${v}`).join(" · ");
+  return [k.replace(/_/g, " "), `<span class="muted">${esc(brief)}</span>`];
+}
+
+const LABEL_CLASS = {
+  failed: "err", "run failed": "err", "run stalled": "err", rejected: "err",
+  completed: "ok", "run completed": "ok", approved: "ok",
+  asked: "warn", "question held": "warn", requested: "warn",
+  started: "accent", "run started": "accent",
+};
+
+/* ── filtering and drawing ─────────────────────────────────────────── */
+
+function matches(e) {
+  if (e.gap) return true;
+  if (!filters.who.has(whoOf(e))) return false;
+  if (!filters.groups.has(groupOf(e.kind))) return false;
+  if (filters.item && itemOf(e) !== filters.item) return false;
+  if (filters.text) {
+    const hay = (e.kind + " " + itemOf(e) + " " + taskOf(e) + " " + JSON.stringify(e.payload || {})).toLowerCase();
+    if (!hay.includes(filters.text)) return false;
+  }
+  return true;
+}
+
+function rowHtml(e) {
+  if (e.gap) {
+    return `<tr class="gap"><td colspan="6">${esc(e.gap)} events went past before this page read them</td></tr>`;
+  }
+  const [label, detail] = describe(e);
+  const who = whoOf(e);
+  const isOpen = open.has(keyOf(e));
+  let html = `<tr class="ev${isOpen ? " open" : ""}" data-key="${esc(keyOf(e))}">
+    <td class="ts">${hms(e)}</td>
+    <td class="who-${esc(who)}">${esc(who)}</td>
+    <td>${esc(itemOf(e))}</td>
+    <td class="muted">${esc(taskOf(e))}</td>
+    <td class="${LABEL_CLASS[label] || ""}">${esc(label)}</td>
+    <td class="d">${detail}</td></tr>`;
+  if (isOpen) {
+    const { payload, ...rest } = e;
+    const head = { seq: rest.seq, t: rest.t, kind: rest.kind, actor: rest.actor,
+      item: rest.item, task: rest.task, session: rest.session };
+    html += `<tr class="payload"><td colspan="6"><pre>${esc(JSON.stringify({ ...head, payload }, null, 2))}</pre></td></tr>`;
+  }
+  return html;
+}
+
+function draw() {
+  const shown = [];
+  for (let i = events.length - 1; i >= 0 && shown.length < SHOW; i--) {
+    if (matches(events[i])) shown.push(events[i]);
+  }
+  const body = document.getElementById("rows");
+  const earlier = historyStart === 0
+    ? `<tr><td colspan="6" class="empty">Start of this experiment's record.</td></tr>`
+    : `<tr><td colspan="6" class="empty"><button class="chip" id="earlier">${historyBusy ? "loading…" : "Load earlier events"}</button></td></tr>`;
+  body.innerHTML = (shown.length ? shown.map(rowHtml).join("")
+    : `<tr><td colspan="6" class="empty">Nothing matches these filters yet.</td></tr>`)
+    + (shown.length < SHOW ? earlier : "");
+  const total = events.filter(e => !e.gap).length;
+  document.getElementById("count").textContent =
+    `${shown.filter(e => !e.gap).length} of ${total} events` + (shown.length >= SHOW ? ` (newest ${SHOW} shown)` : "");
+  drawControls();
+}
+
+function drawControls() {
+  const counts = {};
+  for (const e of events) if (!e.gap) counts[groupOf(e.kind)] = (counts[groupOf(e.kind)] || 0) + 1;
+  const whoChips = WHO.map(w => `<button class="chip ${filters.who.has(w) ? "on" : ""}" data-who="${w}">${w}</button>`).join("");
+  const groups = GROUPS.map(g => g[0]).concat("other");
+  const names = Object.fromEntries(GROUPS.map(g => [g[0], g[1]]).concat([["other", "other"]]));
+  const groupChips = groups.map(g =>
+    `<button class="chip ${filters.groups.has(g) ? "on" : ""}" data-group="${g}">${esc(names[g])}<span class="n">${counts[g] || 0}</span></button>`).join("");
+  document.getElementById("who").innerHTML = whoChips;
+  document.getElementById("groups").innerHTML = groupChips;
+  const items = [...new Set(events.map(itemOf).filter(Boolean))].sort();
+  const select = document.getElementById("item");
+  const want = ["", ...items].join("\n");
+  if (select.dataset.items !== want) {
+    select.dataset.items = want;
+    select.innerHTML = `<option value="">all lamellae</option>` +
+      items.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join("");
+    select.value = filters.item;
+  }
+  const pause = document.getElementById("pause");
+  pause.classList.toggle("on", paused);
+  pause.textContent = paused ? (unseen ? `paused · ${unseen} new` : "paused") : "pause";
+}
+
+let drawQueued = false;
+function redraw() {
+  if (drawQueued) return;
+  drawQueued = true;
+  requestAnimationFrame(() => { drawQueued = false; draw(); });
+}
+
+function take(batch) {
+  batch.forEach(noteAsked);
+  events.push(...batch);
+  if (events.length > KEEP) events.splice(0, events.length - KEEP);
+  if (paused) { unseen += batch.length; drawControls(); return; }
+  redraw();
+}
+
+async function loadEarlier() {
+  if (historyBusy || historyStart === 0) return;
+  historyBusy = true; redraw();
+  try {
+    const q = historyStart === null ? "" : "&before=" + historyStart;
+    const body = await api("/app/events/history?limit=" + HISTORY_PAGE + q);
+    if (!body.available) { historyStart = 0; return; }
+    const seen = new Set(events.map(keyOf));
+    const older = (body.events || []).filter(e => !seen.has(keyOf(e)));
+    older.forEach(noteAsked);
+    events.unshift(...older);
+    historyStart = body.start || 0;
+  } catch (e) {
+    /* leave the button for another try */
+  } finally {
+    historyBusy = false; redraw();
+  }
+}
+
+/* ── header ────────────────────────────────────────────────────────── */
+
+async function refreshHeader() {
+  let status;
+  try { status = await api("/app/workflow/status"); } catch (e) { return; }
+  const exp = status.experiment, wf = status.workflow || {};
+  const state = wf.running
+    ? `<span class="ok">&#9679; running</span>${wf.current_task ? ` · ${esc(wf.current_task)} · ${esc(wf.current_item || "")}` : ""}`
+    : `<span class="muted">&#9675; idle</span>`;
+  document.getElementById("exp").textContent = exp ? exp.name : "No experiment loaded";
+  document.getElementById("state").innerHTML = state;
+}
+
+/* ── live loop ─────────────────────────────────────────────────────── */
+
+async function liveLoop() {
+  for (;;) {
+    try {
+      const body = await api("/app/events?since=" + latestSeq + "&timeout=25");
+      if (!body.available) { await new Promise(r => setTimeout(r, 5000)); continue; }
+      const batch = body.events || [];
+      const oldest = body.oldest_available;
+      if (latestSeq && oldest != null && oldest > latestSeq + 1) {
+        batch.unshift({ gap: oldest - latestSeq - 1, seq: -oldest });
+      }
+      latestSeq = Math.max(latestSeq, body.latest_seq || 0);
+      if (batch.length) {
+        take(batch);
+        if (batch.some(e => e.kind && (e.kind.startsWith("workflow_") || e.kind === "task_started"))) {
+          refreshHeader();
+          // The end event lands before the worker clears its running flag.
+          setTimeout(refreshHeader, 2500);
+        }
+      }
+    } catch (e) {
+      await new Promise(r => setTimeout(r, 5000));
+    }
+  }
+}
+
+/* ── boot ──────────────────────────────────────────────────────────── */
+
+async function boot() {
+  if (!TOKEN) { gate("Open the event log from the dashboard, or paste the dashboard's token from Copy link in Tools → App Server."); return; }
+  let caps;
+  try { caps = await api("/capabilities"); }
+  catch (e) { gate("That token was refused. Copy a fresh link from Tools → App Server."); return; }
+  if (!caps.routers || !caps.routers.app) {
+    $app.innerHTML = `<div class="gate panel"><h1>AutoLamella Event Log</h1>
+      <p>This server hosts no application, so there is no event stream to show.</p></div>`;
+    return;
+  }
+  loadFilters();
+  $app.innerHTML = `
+    <header class="panel">
+      <span class="exp" id="exp"></span>
+      <span class="right"><span id="state"></span>
+        <a href="/dashboard#token=${encodeURIComponent(TOKEN)}">Dashboard</a></span>
+    </header>
+    <div class="bar">
+      <span id="who" class="bar"></span><span class="sep"></span>
+      <span id="groups" class="bar"></span>
+    </div>
+    <div class="bar">
+      <select id="item" aria-label="Lamella"></select>
+      <input id="text" type="search" placeholder="filter text" aria-label="Filter text">
+      <button id="pause" class="chip">pause</button>
+      <span class="count" id="count"></span>
+    </div>
+    <div class="log panel">
+      <table>
+        <thead><tr><th>TIME</th><th>WHO</th><th>LAMELLA</th><th>TASK</th><th>EVENT</th><th>DETAIL</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <footer>read-only · newest first · click a row for its full record</footer>`;
+
+  document.getElementById("who").onclick = ev => {
+    const w = ev.target.closest("[data-who]");
+    if (!w) return;
+    filters.who.has(w.dataset.who) ? filters.who.delete(w.dataset.who) : filters.who.add(w.dataset.who);
+    saveFilters(); redraw();
+  };
+  document.getElementById("groups").onclick = ev => {
+    const g = ev.target.closest("[data-group]");
+    if (!g) return;
+    const key = g.dataset.group;
+    filters.groups.has(key) ? filters.groups.delete(key) : filters.groups.add(key);
+    saveFilters(); redraw();
+  };
+  document.getElementById("item").onchange = ev => { filters.item = ev.target.value; redraw(); };
+  document.getElementById("text").oninput = ev => { filters.text = ev.target.value.trim().toLowerCase(); redraw(); };
+  document.getElementById("pause").onclick = () => {
+    paused = !paused; unseen = 0;
+    paused ? drawControls() : redraw();
+  };
+  document.getElementById("rows").onclick = ev => {
+    if (ev.target.closest("#earlier")) { loadEarlier(); return; }
+    const row = ev.target.closest("tr.ev");
+    if (!row || window.getSelection().toString()) return;
+    const key = row.dataset.key;
+    open.has(key) ? open.delete(key) : open.add(key);
+    redraw();
+  };
+
+  refreshHeader();
+  const seed = await api("/app/events?since=0&timeout=0");
+  latestSeq = seed.available ? (seed.latest_seq || 0) : 0;
+  take(seed.available ? (seed.events || []) : []);
+  liveLoop();
+  // Open on the run so far, not only what the live buffer still holds.
+  loadEarlier();
+}
+
+TOKEN = takeToken();
+boot();
+</script>
+</body>
+</html>

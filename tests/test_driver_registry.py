@@ -29,11 +29,11 @@ BUILT_IN = {
 }
 
 
-# The column tilts config.DEFAULT_CONFIGURATION_VALUES listed before the registry.
+# The column tilts each built-in driver's setup gives a new configuration.
 COLUMN_TILTS = {
-    "ThermoFisher": {"ion-column-tilt": 52, "electron-column-tilt": 0},
-    "Tescan": {"ion-column-tilt": 55, "electron-column-tilt": 0},
-    "Demo": {"ion-column-tilt": 52, "electron-column-tilt": 0},
+    "ThermoFisher": {"ion": 52, "electron": 0},
+    "Tescan": {"ion": 55, "electron": 0},
+    "Demo": {"ion": 52, "electron": 0},
 }
 
 
@@ -59,7 +59,7 @@ def restore_registry():
 def test_built_in_drivers_keep_their_class_and_port(manufacturer):
     entry = get_driver(manufacturer)
     assert entry.manufacturer == manufacturer
-    assert (entry.microscope_class, entry.config.get("port")) == BUILT_IN[manufacturer]
+    assert (entry.microscope_class, entry.port) == BUILT_IN[manufacturer]
 
 
 @pytest.mark.parametrize("manufacturer", list(BUILT_IN))
@@ -75,23 +75,12 @@ def test_each_built_in_record_is_its_driver_modules_own(manufacturer):
     assert get_driver(manufacturer) is package.DRIVER
 
 
-def _tilts(values):
-    return {
-        manufacturer: {k: v for k, v in config.items() if k.endswith("column-tilt")}
-        for manufacturer, config in values.items()
-    }
-
-
-def test_the_default_configuration_values_come_from_the_registry():
-    """The tilts are what the constant listed; each driver's port rides along. A
-    plugin driver's values, if one is installed, come after the built-ins'."""
-    for values in (
-        cfg.DEFAULT_CONFIGURATION_VALUES,
-        registry.default_configuration_values(),
-    ):
-        assert list(values)[: len(COLUMN_TILTS)] == list(COLUMN_TILTS)
-        assert _tilts({m: values[m] for m in COLUMN_TILTS}) == COLUMN_TILTS
-    assert cfg.DEFAULT_CONFIGURATION_VALUES["Tescan"]["port"] == 8300
+def test_each_built_in_setup_gives_its_column_tilts():
+    """In the configuration file's layout, as ``hardware.devices`` entries."""
+    setups = dict(registry.driver_setups())
+    for manufacturer, tilts in COLUMN_TILTS.items():
+        devices = {d["name"]: d["column_tilt"] for d in setups[manufacturer].devices}
+        assert devices == tilts, manufacturer
 
 
 def test_the_configuration_constants_import_no_driver():
@@ -108,20 +97,6 @@ def test_the_configuration_constants_import_no_driver():
         "assert not loaded, loaded\n"
     )
     subprocess.run([sys.executable, "-c", code], check=True)
-
-
-def test_the_available_manufacturers_are_the_drivers_with_defaults():
-    """Odemis has a driver but no defaults, as it had no column tilts before."""
-    available = cfg.AVAILABLE_MANUFACTURERS
-    assert available[: len(COLUMN_TILTS)] == list(COLUMN_TILTS)
-    assert "Odemis" not in available
-
-
-def test_a_registered_driver_brings_its_defaults(restore_registry):
-    register_driver(
-        DriverEntry("Zeiss", f"{__name__}:_Recorder", {"ion-column-tilt": 54})
-    )
-    assert registry.default_configuration_values()["Zeiss"] == {"ion-column-tilt": 54}
 
 
 def test_the_built_in_drivers_are_registered_first():
@@ -194,7 +169,7 @@ def test_setup_session_connects_on_the_registered_port(
         DriverEntry(
             RECORDER,
             f"{__name__}:_Recorder",
-            config={} if port is None else {"port": port},
+            port=port,
         )
     )
     microscope, _ = utils.setup_session(
@@ -209,7 +184,7 @@ def test_a_runtime_driver_cannot_take_a_built_in_manufacturer(
     restore_registry, spelling
 ):
     """The order patterns, strategies and tasks have: built-ins come first."""
-    register_driver(DriverEntry(spelling, f"{__name__}:_Recorder", {"port": 1}))
+    register_driver(DriverEntry(spelling, f"{__name__}:_Recorder", port=1))
     assert get_driver("Tescan").microscope_class == (BUILT_IN["Tescan"][0])
     assert registry.registered_manufacturers()[: len(BUILT_IN)] == list(BUILT_IN)
 
@@ -225,7 +200,7 @@ def test_the_configurations_port_overrides_the_registered_one(
     path.write_text(yaml.safe_dump(config))
 
     _Recorder.connected = []
-    register_driver(DriverEntry(RECORDER, f"{__name__}:_Recorder", {"port": 1234}))
+    register_driver(DriverEntry(RECORDER, f"{__name__}:_Recorder", port=1234))
     microscope, _ = utils.setup_session(
         config_path=path,
         manufacturer=RECORDER,
@@ -240,7 +215,7 @@ def test_connect_microscope_builds_and_connects_the_registered_driver(
     restore_registry,
 ):
     _Recorder.connected = []
-    register_driver(DriverEntry(RECORDER, f"{__name__}:_Recorder", {"port": 1234}))
+    register_driver(DriverEntry(RECORDER, f"{__name__}:_Recorder", port=1234))
     system = utils.load_microscope_configuration(None, None).system
     system.info.manufacturer = RECORDER
     system.info.ip_address = "10.0.0.1"
@@ -289,15 +264,12 @@ def _read(monkeypatch, *entry_points):
 
 
 def test_a_plugin_driver_registers_the_record_it_returns(restore_registry, monkeypatch):
-    entry = DriverEntry(
-        "JEOL", f"{__name__}:_Recorder", {"port": 5000, "ion-column-tilt": 53}
-    )
+    entry = DriverEntry("JEOL", f"{__name__}:_Recorder", port=5000)
     records = _read(monkeypatch, _EntryPoint("jeol", lambda: entry))
 
     assert records["jeol"].loaded
     assert records["jeol"].name == "JEOL" and records["jeol"].obj is entry
     assert get_driver("JEOL") is entry
-    assert registry.default_configuration_values()["JEOL"]["ion-column-tilt"] == 53
 
 
 def test_get_driver_reads_the_entry_points(restore_registry, monkeypatch):
@@ -319,8 +291,8 @@ def test_a_plugin_cannot_take_a_built_in_manufacturer(restore_registry, monkeypa
 
 
 def test_a_runtime_driver_comes_before_a_plugin(restore_registry, monkeypatch):
-    registered = DriverEntry("JEOL", f"{__name__}:_Recorder", {"port": 1})
-    plugin = DriverEntry("JEOL", f"{__name__}:_Recorder", {"port": 2})
+    registered = DriverEntry("JEOL", f"{__name__}:_Recorder", port=1)
+    plugin = DriverEntry("JEOL", f"{__name__}:_Recorder", port=2)
     _install(monkeypatch, _EntryPoint("jeol", lambda: plugin))
     register_driver(registered)
 
@@ -329,8 +301,8 @@ def test_a_runtime_driver_comes_before_a_plugin(restore_registry, monkeypatch):
 
 
 def test_a_later_plugin_takes_the_manufacturer(restore_registry, monkeypatch):
-    first = DriverEntry("JEOL", f"{__name__}:_Recorder", {"port": 1})
-    second = DriverEntry("JEOL", f"{__name__}:_Recorder", {"port": 2})
+    first = DriverEntry("JEOL", f"{__name__}:_Recorder", port=1)
+    second = DriverEntry("JEOL", f"{__name__}:_Recorder", port=2)
     records = _read(
         monkeypatch,
         _EntryPoint("first", lambda: first),
@@ -475,7 +447,6 @@ def test_a_device_only_driver_is_not_a_manufacturer(restore_registry, monkeypatc
     _install(monkeypatch, _EntryPoint("oxford", lambda: DEVICE_ONLY))
 
     assert "oxford" not in registry.registered_manufacturers()
-    assert "oxford" not in registry.default_configuration_values()
     system = utils.load_microscope_configuration(None, None).system
     system.info.manufacturer = "oxford"
     with pytest.raises(NotImplementedError, match="builds devices, not a microscope"):
@@ -620,13 +591,9 @@ def test_setup_session_accepts_any_demo_spelling(tmp_path):
     microscope.disconnect()
 
 
-def test_the_available_manufacturers_are_registry_names():
-    assert all(registry.normalize_name(m) == m for m in cfg.AVAILABLE_MANUFACTURERS)
-
-
 def test_the_setup_wizard_writes_registry_names():
-    """The guided setup writes config_value into configurations and keys the column
-    tilt defaults with it, so another spelling would miss both."""
+    """The guided setup writes config_value into configurations as
+    ``info.manufacturer``, so another spelling would not find the driver."""
     from fibsem.guided_setup import manufacturers
 
     for m in manufacturers():

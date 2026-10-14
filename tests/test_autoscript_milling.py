@@ -92,11 +92,6 @@ def test_finish_milling_puts_back_what_setup_found(recording):
     assert ["set", "connection.patterning.mode", "Serial"] in facts["finish"][1]
 
 
-def test_an_imaging_current_given_still_wins(recording):
-    facts = recording["facts"]
-    assert facts["given"] == [30e3, 1e-10, facts["before"][2]]
-
-
 def test_without_an_ion_beam_there_is_no_service(recording):
     assert recording["facts"]["no_ion"]
 

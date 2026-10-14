@@ -2,8 +2,8 @@
 
 At Assist the agent acts by asking. It files a request -- one or more of its
 own tool calls, and why -- and the operator approves or rejects it in the app.
-Approve runs each action through the App Server's own route, in order, with the
-scope that action needs lent for that call only (``auth.granting``). So an
+Approve runs each action through the App Server's own route, in order, with
+Drive lent for that call only (``auth.lending_drive``). So an
 approved action is validated, versioned, takes control of the microscope and is
 refused exactly as the same call made at Drive would be, and a refusal comes
 back as the route's own error.
@@ -30,12 +30,9 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from fibsem.acting import AGENT, acting
-from fibsem.server.auth import AgentLevel, AuthConfig, Scope, granting, require_scope
-from fibsem.server.catalog import CATALOG, ToolSpec
+from fibsem.server.auth import AgentLevel, AuthConfig, lending_drive, require_level
+from fibsem.server.catalog import CATALOG, ToolSpec, route_call
 from fibsem.server.request_text import describe_action
-
-# The scopes a request may carry: every acting scope. Reads need no request.
-REQUEST_SCOPES = frozenset((Scope.CONTROL, Scope.CONFIGURE, Scope.HARDWARE))
 
 PENDING = "pending"
 APPLYING = "applying"
@@ -49,36 +46,6 @@ MAX_ACTIONS = 20
 MAX_REASON = 2000
 # Finished requests kept for GET: enough for an agent to read back its last few.
 KEEP = 50
-
-_PATH_PARAM = re.compile(r"{(\w+)}")
-
-
-def _stage_position(x: float, y: float, z: float, r: float, t: float) -> dict:
-    return {
-        "position": {
-            "name": None,
-            "x": x,
-            "y": y,
-            "z": z,
-            "r": r,
-            "t": t,
-            "coordinate_system": "RAW",
-        }
-    }
-
-
-# Tools whose arguments are not their route's body as they stand: shaped here
-# as the sidecar shapes them, so a request takes the arguments the tool does.
-_BODIES: Dict[str, Callable[[Dict[str, Any]], Dict[str, Any]]] = {
-    "move_stage_relative": lambda a: _stage_position(
-        a.get("dx", 0.0), a.get("dy", 0.0), a.get("dz", 0.0), 0.0, 0.0
-    ),
-    "move_stage_absolute": lambda a: _stage_position(
-        a["x"], a["y"], a["z"], a["r"], a["t"]
-    ),
-    "call_command": lambda a: {"kwargs": dict(a.get("kwargs") or {})},
-    "call_service_command": lambda a: {"kwargs": dict(a.get("kwargs") or {})},
-}
 
 
 class RequestRefused(Exception):
@@ -96,7 +63,6 @@ class Action:
 
     tool: str
     arguments: Dict[str, Any]
-    scope: Scope
     method: str
     path: str
     body: Optional[Dict[str, Any]]
@@ -113,27 +79,6 @@ class Action:
             "what": self.what,
             "change": self.change,
         }
-
-
-def route_call(
-    spec: ToolSpec, arguments: Dict[str, Any]
-) -> Tuple[str, str, Optional[dict]]:
-    """The route call (method, path, body) a tool call stands for: the path's
-    parameters from the arguments, the rest as the JSON body. Raises ValueError
-    for a missing path parameter or a malformed argument."""
-    args = dict(arguments)
-    names = _PATH_PARAM.findall(spec.path)
-    missing = [n for n in names if not isinstance(args.get(n), str) or not args[n]]
-    if missing:
-        raise ValueError(f"{spec.name} needs {', '.join(missing)} (strings)")
-    path = spec.path
-    for name in names:
-        path = path.replace("{" + name + "}", args.pop(name))
-    try:
-        body = _BODIES[spec.name](args) if spec.name in _BODIES else args
-    except (KeyError, TypeError) as exc:
-        raise ValueError(f"{spec.name}: bad or missing argument {exc}") from None
-    return spec.method, path, body or None
 
 
 @dataclass
@@ -362,15 +307,14 @@ class RequestStore:
                 raise RequestRefused(
                     422, "unknown_tool", f"Action {index + 1}: no tool named {tool!r}."
                 )
-            scope = Scope(spec.scope)
-            if scope is Scope.STOP:
+            if spec.level == "assist":
                 raise RequestRefused(
                     422,
                     "not_an_action",
-                    f"Action {index + 1}: {tool} stops; stopping needs no "
-                    "approval, so call it directly.",
+                    f"Action {index + 1}: {tool} needs no approval at Assist, "
+                    "so call it directly.",
                 )
-            if scope not in REQUEST_SCOPES:
+            if spec.level != "drive":
                 raise RequestRefused(
                     422,
                     "not_an_action",
@@ -395,7 +339,7 @@ class RequestStore:
                 raise RequestRefused(
                     422, "invalid_arguments", f"Action {index + 1}: {exc}"
                 ) from None
-            resolved.append(Action(tool, dict(arguments), scope, method, path, body))
+            resolved.append(Action(tool, dict(arguments), method, path, body))
         return resolved
 
     # --- the operator decides ---
@@ -491,7 +435,7 @@ class RequestStore:
                 if request._abort is not None or not self._assisting():
                     status = CANCELLED
                     break
-                with granting({action.scope}):
+                with lending_drive():
                     try:
                         code, answer = asyncio.run(
                             _asgi_call(
@@ -602,7 +546,7 @@ class RequestStore:
 def build_request_router(store: RequestStore) -> APIRouter:
     """The agent's side of requests: file one, read them back."""
     router = APIRouter(
-        prefix="/app/agent", dependencies=[Depends(require_scope(Scope.READ))]
+        prefix="/app/agent", dependencies=[Depends(require_level(AgentLevel.WATCH))]
     )
 
     def _refused(refusal: RequestRefused) -> HTTPException:
@@ -612,12 +556,11 @@ def build_request_router(store: RequestStore) -> APIRouter:
     def create_request(request: Request, body: Dict[str, Any]):
         auth: AuthConfig = request.app.state.auth
         if auth.level is not AgentLevel.ASSIST:
-            level = auth.level.value if auth.level is not None else None
             raise HTTPException(
                 status_code=403,
                 detail={
-                    "error_type": "not_assist",
-                    "level": level,
+                    "error_type": "level",
+                    "level": auth.level.value,
                     "message": "Requests are how the agent acts at Assist. "
                     + (
                         "At Drive, make the call itself."

@@ -19,6 +19,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem import update_check
 from fibsem.config import (
     CARD_MODES,
     DisplayPreferences,
@@ -46,6 +47,19 @@ _TIP_DEV_MODE = (
     "Show advanced developer tools and diagnostic menus. Intended for developers only."
 )
 
+_LBL_UPDATE_CHECK = "Check for Updates at Start-up"
+_TIP_UPDATE_CHECK = (
+    "Ask pypi.org for the latest fibsemOS release each time the application starts, "
+    "and show a chip in the tab bar when a newer one is out. Takes effect at the next "
+    "start. Off by default: instrument PCs are often on networks where an unannounced "
+    "connection is a question for the site. The check only downloads the public list "
+    "of releases. Help > About can check on request either way."
+)
+_TIP_UPDATE_CHECK_SOURCE = (
+    "This is a source install, so the application never checks for releases: "
+    "update it with git instead."
+)
+
 # Features
 _LBL_COINCIDENCE = "Enable Coincidence Milling Viewer"
 _TIP_COINCIDENCE = (
@@ -68,8 +82,8 @@ _TIP_PROPOSE_REVIEW = (
     "allows a task to be set to Review. Early access."
 )
 _LBL_APP_SERVER = "Enable App Server"
-_LBL_APP_SERVER_DEVICES = "Serve the microscope's devices at start-up"
-_TIP_APP_SERVER_DEVICES = (
+_LBL_APP_SERVER_MICROSCOPE = "Serve the microscope at start-up"
+_TIP_APP_SERVER_MICROSCOPE = (
     "Whether a new session also serves the routes that reach the instrument: "
     "its devices, stage, beams and milling state, reads included. Turn them on "
     "or off for this session in Tools → App Server."
@@ -162,6 +176,15 @@ class PreferencesDialog(QDialog):
         display_form.addRow(_LBL_BORDER, self._chk_border)
         display_form.addRow(_LBL_CARD_MODE, self._combo_card_mode)
         display_form.addRow(_LBL_DEV_MODE, self._chk_dev_mode)
+        self._chk_update_check = QCheckBox()
+        self._chk_update_check.setToolTip(_TIP_UPDATE_CHECK)
+        if not update_check.is_supported():
+            # Shown rather than hidden, so nobody goes looking for it; disabled because
+            # a source install never checks, whatever this says. Its value is still
+            # loaded and handed back, so the file keeps what was there.
+            self._chk_update_check.setEnabled(False)
+            self._chk_update_check.setToolTip(_TIP_UPDATE_CHECK_SOURCE)
+        display_form.addRow(_LBL_UPDATE_CHECK, self._chk_update_check)
         self._stack.addWidget(display_page)
 
         # --- Feature Flags ---
@@ -217,10 +240,10 @@ class PreferencesDialog(QDialog):
         agent_form = QFormLayout(agent_page)
         self._chk_app_server = QCheckBox()
         self._chk_app_server.setToolTip(_TIP_APP_SERVER)
-        self._chk_app_server_devices = QCheckBox()
-        self._chk_app_server_devices.setToolTip(_TIP_APP_SERVER_DEVICES)
+        self._chk_app_server_microscope = QCheckBox()
+        self._chk_app_server_microscope.setToolTip(_TIP_APP_SERVER_MICROSCOPE)
         # A service of the App Server: nothing to serve while it is off.
-        self._chk_app_server.toggled.connect(self._chk_app_server_devices.setEnabled)
+        self._chk_app_server.toggled.connect(self._chk_app_server_microscope.setEnabled)
         agent_intro = QLabel(
             "Let an AI agent and the dashboard reach this session over a "
             "local, token-protected connection. The agent watches until you "
@@ -230,7 +253,7 @@ class PreferencesDialog(QDialog):
         agent_intro.setStyleSheet("color: #868e93; font-size: 11px;")
         agent_form.addRow(agent_intro)
         agent_form.addRow(_LBL_APP_SERVER, self._chk_app_server)
-        agent_form.addRow(_LBL_APP_SERVER_DEVICES, self._chk_app_server_devices)
+        agent_form.addRow(_LBL_APP_SERVER_MICROSCOPE, self._chk_app_server_microscope)
         self._stack.addWidget(agent_page)
 
         self._sidebar.currentRowChanged.connect(self._stack.setCurrentIndex)
@@ -271,8 +294,10 @@ class PreferencesDialog(QDialog):
         self._chk_propose_review.setChecked(f.proposer_reviewer_workflow_enabled)
 
         self._chk_app_server.setChecked(prefs.app_server.enabled)
-        self._chk_app_server_devices.setChecked(prefs.app_server.devices)
-        self._chk_app_server_devices.setEnabled(prefs.app_server.enabled)
+        self._chk_app_server_microscope.setChecked(prefs.app_server.microscope)
+        self._chk_app_server_microscope.setEnabled(prefs.app_server.enabled)
+
+        self._chk_update_check.setChecked(prefs.reporting.update_check_enabled)
 
         e = prefs.experiment
         self._dir_experiment.setText(e.default_experiment_directory)
@@ -313,7 +338,7 @@ class PreferencesDialog(QDialog):
 
         Starts from a copy of the preferences the dialog was opened with and overwrites
         only the fields it has a widget for. Everything else -- the hooks, whether the
-        guided setup was dismissed, the recent experiments, reporting -- is handed back
+        guided setup was dismissed, the recent experiments, crash reporting -- is handed back
         as it came in, and the caller saves the result to disk. Building a fresh
         UserPreferences instead reset any field not copied across by hand: hooks came
         back as None, which means "use the defaults", over a user's [] that means "all
@@ -340,7 +365,9 @@ class PreferencesDialog(QDialog):
         m.acquire_fib_after_stage_movement = self._chk_acquire_fib.isChecked()
 
         prefs.app_server.enabled = self._chk_app_server.isChecked()
-        prefs.app_server.devices = self._chk_app_server_devices.isChecked()
+        prefs.app_server.microscope = self._chk_app_server_microscope.isChecked()
+
+        prefs.reporting.update_check_enabled = self._chk_update_check.isChecked()
 
         e = prefs.experiment
         e.default_experiment_directory = self._dir_experiment.text()

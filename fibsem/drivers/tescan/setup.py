@@ -8,6 +8,10 @@ SETUP = DriverSetup(
     control_software="Essence",
     api_module="tescanautomation",
     api_label="TESCAN Automation",
+    devices=(
+        {"name": "ion", "column_tilt": 55},
+        {"name": "electron", "column_tilt": 0},
+    ),
     models=(
         SetupModel(
             key="tescan",

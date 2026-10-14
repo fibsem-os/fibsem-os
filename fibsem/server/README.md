@@ -1,6 +1,8 @@
-# FibsemMicroscope Server
+# The App Server
 
-A simple HTTP server that exposes a `FibsemMicroscope` instance over the network, allowing remote control from any Python client.
+The HTTP server AutoLamella hosts for agents and the dashboard (the App
+Server), and `FibsemClient`, a `FibsemMicroscope` that talks to it. The user
+guide is [docs/app-server.md](../../docs/app-server.md).
 
 ## Installation
 
@@ -10,51 +12,57 @@ pip install -e .[server]
 
 ## Starting the Server
 
-On the machine connected to the microscope:
-
-```python
-from fibsem.server import FibsemServer
-
-server = FibsemServer.from_session(manufacturer="ThermoFisher", ip_address="192.168.1.1", port=8001)
-server.run()   # logs the bearer token; read-only unless scopes are armed
-```
-
-Or with the Demo microscope for development:
-
-```bash
-python -m fibsem.server.server --manufacturer Demo --arm-hardware
-```
+The App Server runs inside AutoLamella: turn it on in Preferences → App
+Server, and Tools → App Server shows its address and the dashboard. With
+*Serve the microscope* on, it also serves the `/microscope` routes below. While it runs it writes `~/.fibsem/app-server.json` (url and
+token), so local clients connect without copying anything.
 
 The Swagger UI is available at `http://<host>:8001/docs`.
 
-### Authentication and scopes
+### Authentication and the agent level
 
-Every request needs the server's bearer token (generated at startup and logged,
-or supplied with `--token`), sent as an `Authorization: Bearer <token>` header.
-A valid token grants the `read` scope (observation). The `hardware` scope —
-moves, acquisition, milling — must be armed explicitly (`--arm-hardware`);
-unarmed hardware calls are refused with a structured `403 scope_not_armed`.
-A hardware command takes control of the microscope while it runs: when a run, a
-script or another command is in control it gets `409 microscope_busy`, naming who.
-`POST /stop_milling` never takes control — stopping is always allowed.
-`GET /capabilities` reports the armed scopes.
+Every request needs the server's bearer token, sent as an
+`Authorization: Bearer <token>` header. What the token may do is the agent
+level the operator sets from the Agent chip: reads at Watch, acting at Drive;
+at Off everything is refused. A refusal is a structured 403
+naming why (`level`, `ask_first`, `agent_off`, `agent_stopped`, `not_allowed`).
+Separate from the level, an allowlist (`fibsem/server/allowlist.py`) names what
+the agent may never write or run, at any level and in an approved request too:
+a beam's `on`, `angular_correction`, `tilt_correction` and `plasma_gas`; the
+stage's `home` and `link`; every chamber and manipulator write and command; the
+objective's `limit_position`. `GET /microscope/devices` and `/microscope/services` mark those
+`agent: false`. A command's `path` argument must be inside the open experiment. A hardware
+command takes control of the microscope while it runs: when a run, a script or
+another command is in control it gets `409 microscope_busy`, naming who.
+A stop (`POST /microscope/services/milling/commands/stop`, a device's `stop`,
+`stop_live` or `cancel`, or `POST /app/workflow/stop`) never takes control. The
+agent stops its own action (its command holds control) at any level; anything
+else needs Drive, or a request approved at Assist. Every stop needs a `reason`
+in its body (`422 missing_reason` without one), recorded as an `agent_stop`
+event. `GET /capabilities` reports the
+level.
 
-The server binds `127.0.0.1` by default. Exposing it on the LAN
-(`--host 0.0.0.0`) is an explicit choice: the token then travels in cleartext
-HTTP, which keeps strangers out but is not sniff-proof — see the AutoLamella
-App Server design doc for the trust model.
+The server binds `127.0.0.1` by default. Exposing it on the LAN is an
+explicit choice: the token then travels in cleartext HTTP, which keeps
+strangers out but is not sniff-proof — see the AutoLamella App Server design
+doc for the trust model.
 
-### App route naming
+### App route layout
 
-App routes address session resources directly — `/app/items/{name}`,
-`/app/protocol/...`, `/app/workflow/...` — without an `/app/experiment/`
-prefix, even though all of them belong to an experiment. This is deliberate
-and rests on an invariant: **exactly one experiment is open per session**, so
-"the app's items" and "the open experiment's items" are the same set and the
-shorter paths are unambiguous. If that invariant ever breaks (multiple
-experiments addressable at once, or experiment switching over the API), the
-migration is mechanical: mount the same routers under `/app/experiment` as
-well and deprecate the short forms.
+The `/app` routes sort by what they act on:
+
+- `/app/experiment`: the open experiment. `GET /app/experiment` summarises it;
+  under it are `recent`, `protocol`, `items/{item}` (with its `task_config`
+  and `outputs`), `grids/{grid}`, `images` and `task_history`.
+- `/app/workflow`: the run. `status`, `queue`, `run_summary`, `start`,
+  `stop`, `schedule`, `options`, and the questions the run asks: `prompt`,
+  `prompt/answer`, `prompt/suggest`, `decide`, `reviews`.
+- `/app/agent`: the agent's own records and settings: `notes`, `requests`,
+  `supervision`.
+- `events` and `log` stay at `/app`: they cover the whole session.
+
+Exactly one experiment is open per session, so `/app/experiment` needs no
+experiment name in the path.
 
 ---
 
@@ -63,7 +71,7 @@ well and deprecate the short forms.
 ```python
 from fibsem.server import FibsemClient
 
-microscope = FibsemClient(host="192.168.1.100", port=8001, token="<token from the server log>")
+microscope = FibsemClient(host="192.168.1.100", port=8001, token="<token from Connect an agent…>")
 ```
 
 ### Image Acquisition
@@ -143,7 +151,7 @@ microscope.draw_patterns([rect])
 microscope.run_milling(milling_current=20e-12, milling_voltage=30000)
 
 # 4. Restore imaging conditions
-microscope.finish_milling(imaging_current=1e-12, imaging_voltage=2000)
+microscope.finish_milling()                 # clear, put the beam back as setup found it
 
 # --- Control ---
 microscope.start_milling()           # start without blocking
@@ -160,9 +168,10 @@ seconds = microscope.estimate_milling_time() # float
 ### Devices and beam settings
 
 Every device the microscope built (`microscope.devices`: `electron`, `ion`,
-`stage`, `manipulator`, FM parts) but the chamber is served generically, the same
-routes the device server (`fibsem/server/devices.py`) serves. The chamber is not
-served: pumping and venting are the operator's, at the microscope.
+`stage`, `chamber`, `manipulator`, FM parts) is served generically, the same
+routes the device server (`fibsem/server/devices.py`) serves. The chamber's
+`state` and `pressure` are reads; pumping and venting are the operator's, at the
+microscope, so the allowlist refuses them.
 
 ```python
 microscope.list_devices()                               # parameters + commands per device
@@ -173,13 +182,17 @@ microscope.call_command("ion", "blank")
 image = microscope.call_command("electron", "acquire")  # a FibsemImage
 
 # FibsemMicroscope's wrappers are kept, over the same routes
-microscope.set_beam_current(1e-9, BeamType.ION)         # PUT /devices/ion/current
-microscope.get_beam_settings(BeamType.ION)              # GET /beams/ion/beam_settings
+microscope.set_beam_current(1e-9, BeamType.ION)         # PUT /microscope/devices/ion/current
+microscope.get_beam_settings(BeamType.ION)              # GET /microscope/devices/ion/values
 ```
 
-Reads are `read` scope. Parameter writes and commands are `hardware` scope and
-take control of the microscope, except the `stop` and `stop_live` commands,
-which like `/stop_milling` are always allowed.
+The settings groups (beam, imaging, detector) are put together by the client
+from one `values` read, and written parameter by parameter. Stage moves and
+milling go through the `stage_movement` and `milling` services.
+
+Reads work at Watch. Parameter writes and commands need Drive and take control
+of the microscope, except the stops (`stop`, `stop_live`, `cancel`), which follow
+the stop rule above and never take control.
 
 ---
 
@@ -187,35 +200,19 @@ which like `/stop_milling` are always allowed.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/health` | Server status and microscope type |
-| `POST` | `/acquire_image` | Acquire a fresh image |
-| `POST` | `/acquire_chamber_image` | Chamber overview image |
-| `GET` | `/devices` | Every device: parameters (type, unit, limits, choices, settable) and commands |
-| `GET` | `/devices/{device}` | One device |
-| `GET` | `/devices/{device}/{parameter}` | Live read of a parameter |
-| `PUT` | `/devices/{device}/{parameter}` | Write a parameter (`{"value": ...}`) |
-| `GET` | `/devices/{device}/{parameter}/metadata` | Limits, choices, settable |
-| `POST` | `/devices/{device}/commands/{command}` | Run a command (`{"kwargs": {...}}`) |
-| `GET`/`PUT` | `/beams/{beam}/beam_settings` | A beam's settings as one group (`electron` or `ion`) |
-| `GET`/`PUT` | `/beams/{beam}/imaging_settings` | A beam's imaging settings |
-| `GET`/`PUT` | `/beams/{beam}/detector_settings` | A beam's detector settings |
-| `GET`/`PUT` | `/beams/{beam}/beam_system_settings` | A beam's system settings |
-| `GET`/`PUT` | `/microscope_state` | The whole microscope state |
-| `GET` | `/stage_position` | Current stage position |
-| `POST` | `/move_stage_absolute` | Absolute stage move |
-| `POST` | `/move_stage_relative` | Relative stage move |
-| `POST` | `/stable_move` | Beam-corrected lateral move |
-| `POST` | `/vertical_move` | Vertical stage move |
-| `POST` | `/safe_absolute_stage_movement` | Safe move with collision avoidance |
-| `POST` | `/move_to_orientation` | Move to a named orientation |
-| `POST` | `/setup_milling` | Configure milling settings |
-| `POST` | `/draw_patterns` | Draw milling patterns |
-| `POST` | `/run_milling` | Run milling (blocking) |
-| `POST` | `/start_milling` | Start milling (non-blocking) |
-| `POST` | `/stop_milling` | Stop milling |
-| `POST` | `/pause_milling` | Pause milling |
-| `POST` | `/resume_milling` | Resume milling |
-| `POST` | `/finish_milling` | Restore imaging conditions |
-| `POST` | `/clear_patterns` | Clear all patterns |
-| `GET` | `/milling_state` | Current milling state |
-| `GET` | `/estimate_milling_time` | Estimated milling time (seconds) |
+| `GET` | `/health` | Server status |
+| `GET` | `/capabilities` | API version, routers served, the agent level |
+| `GET` | `/microscope` | Who the microscope is: manufacturer, model, serial number, software, fitted parts, its configuration |
+| `GET`/`PUT` | `/microscope/state` | The whole microscope state |
+| `GET` | `/microscope/devices` | Every device: parameters (type, unit, limits, choices, settable) and commands |
+| `GET` | `/microscope/devices/{device}` | One device |
+| `GET` | `/microscope/devices/{device}/values` | Every parameter's value in one read; the ones unavailable now listed apart |
+| `GET` | `/microscope/devices/{device}/{parameter}` | Live read of a parameter |
+| `PUT` | `/microscope/devices/{device}/{parameter}` | Write a parameter (`{"value": ...}`) |
+| `GET` | `/microscope/devices/{device}/{parameter}/metadata` | Limits, choices, settable |
+| `POST` | `/microscope/devices/{device}/commands/{command}` | Run a command (`{"kwargs": {...}}`); an image answers as its data (TIFF, npy), or with `{"answer": "preview"}` as `{"result": {"summary", "path", "preview"}}`, the shape agents get for every image (a beam image, a camera frame, a z-stack) |
+| `POST` | `/microscope/devices/{device}/queries/{query}` | Ask a query (`{"kwargs": {...}}`), read-only |
+| `GET` | `/microscope/services` | Every service (`imaging`, `milling`, `stage_movement`, ...) and what it offers |
+| `GET` | `/microscope/services/{service}/{parameter}` | A service's state, e.g. `milling/state` |
+| `POST` | `/microscope/services/{service}/commands/{command}` | Run a service command, e.g. `stage_movement/commands/move_relative`, `milling/commands/run`, `milling/commands/stop` |
+| `POST` | `/microscope/services/{service}/queries/{query}` | Ask a service query, e.g. `milling/queries/estimate` |

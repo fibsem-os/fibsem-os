@@ -378,12 +378,10 @@ def test_voltage_choices(microscope):
 
 
 def test_finish_milling_restores_the_beam_and_the_patterning_mode(microscope):
-    microscope.finish_milling(imaging_current=20e-12, imaging_voltage=30e3)
+    microscope.finish_milling()
 
     calls = microscope._connection.sdk.calls
     assert ("clear_patterns",) in calls
-    assert ("set_high_voltage", 30e3, "ion") in calls
-    assert ("set_beam_current", 20e-12, "ion") in calls
     assert ("set_patterning_mode", "Serial") in calls
 
 

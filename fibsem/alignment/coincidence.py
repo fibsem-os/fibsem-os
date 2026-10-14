@@ -167,7 +167,7 @@ def geometry_from_images(
     from copy import deepcopy
 
     from fibsem.geometry.frames import StageModel
-    from fibsem.projection import BeamStageProjection, surface_foreshortening
+    from fibsem.geometry.projection import BeamStageProjection, surface_foreshortening
 
     md = sem_image.metadata
     pixel_size = md.pixel_size.x
@@ -1033,7 +1033,7 @@ def _undo_surface_walk(
     not cost the coincidence just restored.
     """
     from fibsem.geometry.frames import StageModel
-    from fibsem.projection import BeamStageProjection
+    from fibsem.geometry.projection import BeamStageProjection
     from fibsem.structures import BeamType
 
     projection = BeamStageProjection.from_microscope(microscope, BeamType.ELECTRON)

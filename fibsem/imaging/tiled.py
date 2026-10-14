@@ -133,7 +133,7 @@ class TiledAcquisitionRunner:
         #                   _focus_stack_settings, _af_mode
         # _compute_grid() → _tiles, _ordered, _centre_position, _start_state,
         #                   _tile_stage_positions, _canvas, _dx_step, _dy_step
-        # _run_tile_loop()→ _first_image, _n_tiles_acquired, _layout_check
+        # _run_tile_loop()→ _first_image, _n_tiles_acquired, tile_paths, _layout_check
 
     # ── public entry point ───────────────────────────────────────────────
 
@@ -475,6 +475,9 @@ class TiledAcquisitionRunner:
         total_tiles = self.settings.n_enabled_tiles
         self._first_image: Optional[FibsemImage] = None
         self._n_tiles_acquired: int = 0
+        # Each tile as saved, in the order acquired. The stitched image is what is
+        # shown; the tiles are what a model trained on single frames reads.
+        self.tile_paths: List[str] = []
         # Measures how far apart neighbouring tiles really are, from the pictures, as
         # they arrive. It only reports (`_report_layout`); the canvas is painted from
         # the plan either way.
@@ -509,6 +512,8 @@ class TiledAcquisitionRunner:
 
             logging.info(f"Acquiring Tile ({tile.row}, {tile.col})")
             image = self._acquire_tile(tile)
+            if image.filepath:
+                self.tile_paths.append(image.filepath)
 
             if self._first_image is None:
                 self._first_image = image

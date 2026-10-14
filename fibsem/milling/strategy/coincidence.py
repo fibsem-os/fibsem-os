@@ -367,13 +367,10 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
         # finalize
         self.microscope.fm.acquisition_signal.disconnect(self.on_fm_acquisition_signal)
         self.cropped_image_signal.disconnect(self._save_fm_image)
-        # ensure the FIB view is active so finish_milling (clears patterns, restores
-        # imaging current) operates on the correct channel
+        # ensure the FIB view is active so finish_milling (clears patterns, puts the
+        # beam back) operates on the correct channel
         self.microscope.set_channel(self.microscope.milling_channel)
-        self.microscope.finish_milling(
-            imaging_current=self.microscope.system.ion.beam.beam_current,
-            imaging_voltage=self.microscope.system.ion.beam.voltage,
-        )
+        self.microscope.finish_milling()
 
         # post image acquisition handled by parent task
         # acquire a z-stack post-milling

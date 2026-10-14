@@ -149,7 +149,7 @@ def test_one_shot_acquisition_rebinds_the_image_references():
     """A workflow one-shot (post-mill inspect, spot burn) emits on the acquisition
     signals with no live stream running. The references must follow the canvas:
     an ``is_acquiring`` gate here left ``ib_image`` at the pre-mill frame, so the
-    App Server's /app/images served a stale image through the inspect prompt."""
+    App Server's /app/experiment/images served a stale image through the inspect prompt."""
     microscope, _ = _session()
     host = _CanvasHost()
     widget = _image_widget(host)

@@ -3,6 +3,7 @@ file round-trips."""
 
 import json
 import os
+import re
 
 import pytest
 
@@ -11,7 +12,7 @@ pytest.importorskip("httpx")
 
 from fibsem import utils  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.server.catalog import CATALOG, tools_for_scopes  # noqa: E402
+from fibsem.server.catalog import CATALOG, NOT_TOOLS  # noqa: E402
 from fibsem.server.discovery import (  # noqa: E402
     read_discovery_file,
     remove_discovery_file,
@@ -59,40 +60,51 @@ def test_every_catalog_entry_is_a_real_route(app):
     assert missing == []
 
 
-def test_catalog_names_unique_and_scopes_valid():
+def _route_key(method: str, path: str) -> str:
+    return f"{method.upper()} {re.sub(r'{[^}]+}', '{}', path)}"
+
+
+def test_every_route_is_a_tool_or_says_why_not(app):
+    """The reverse of the test above: a route added without a tool fails here
+    until someone decides, and NOT_TOOLS says why each one isn't a tool. The
+    OpenAPI schema is FastAPI's own listing, the same across versions."""
+    tools = {_route_key(t.method, t.path) for t in CATALOG}
+    not_tools = {_route_key(*key.split(" ", 1)) for key in NOT_TOOLS}
+    routes = {
+        _route_key(method, path)
+        for path, operations in app.openapi()["paths"].items()
+        for method in operations
+    }
+    assert sorted(routes - tools - not_tools) == []
+    # An entry that is a tool now, or names no route, is stale.
+    assert sorted(not_tools & tools) == []
+    assert sorted(not_tools - routes) == []
+    assert all(reason.strip() for reason in NOT_TOOLS.values())
+
+
+def test_catalog_names_unique_and_levels_valid():
     names = [t.name for t in CATALOG]
     assert len(names) == len(set(names))
-    assert set(t.scope for t in CATALOG) <= {
-        "read",
-        "control",
-        "configure",
-        "hardware",
-        "stop",
-    }
-
-
-def test_tools_for_scopes_filters_hardware():
-    read_only = tools_for_scopes({"read": True, "hardware": False})
-    assert all(t.scope == "read" for t in read_only)
-    # A watching agent stops nothing (FIB-1035); whoever can act may stop.
-    assert not any(t.name == "stop_milling" for t in read_only)
-    for can_act in ({"read": True, "control": True}, {"read": True, "hardware": True}):
-        assert any(t.name == "stop_milling" for t in tools_for_scopes(can_act))
-    armed = tools_for_scopes(
-        {"read": True, "control": True, "configure": True, "hardware": True}
-    )
-    assert len(armed) == len(CATALOG)
+    assert set(t.level for t in CATALOG) <= {"watch", "assist", "drive"}
+    # A stop needs Drive (Patrick, 2026-10-14), so at Assist it goes in a
+    # request; the agent's own mill it stops at any level, which the note says.
+    by_name = {t.name: t for t in CATALOG}
+    assert by_name["stop_milling"].level == "drive"
+    assert "any level" in by_name["stop_milling"].level_note
+    assert by_name["stop_workflow"].level == "drive"
+    # Only what drives the microscope takes control of it.
+    assert all(t.level == "drive" for t in CATALOG if t.hardware)
 
 
 def test_discovery_round_trip(tmp_path):
-    auth = AuthConfig.generate(arm_hardware=True, token="secret")
+    auth = AuthConfig.generate(level="drive", token="secret")
     path = tmp_path / "agent-server.json"
     write_discovery_file("0.0.0.0", 8001, auth, path=path)
     data = read_discovery_file(path)
     assert data is not None
     assert data["url"] == "http://127.0.0.1:8001"  # 0.0.0.0 is not connectable
     assert data["token"] == "secret"
-    assert "scopes" not in data  # live in /capabilities, never stale here
+    assert "level" not in data  # live in /capabilities, never stale here
     if os.name != "nt":
         assert (path.stat().st_mode & 0o777) == 0o600
     remove_discovery_file(path)
