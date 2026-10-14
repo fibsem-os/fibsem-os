@@ -428,9 +428,8 @@ def emission_filter_named(
 
     ``None`` is reflection. A label is the filter of that name, or else the multi-band
     filter, as the FM classes take any label to mean fluorescence. A number is the
-    band whose bottom edge is closest, as on Odemis; a filter set with no bands (Thermo,
-    the simulator) has only its multi-band filter, which is what Thermo reports a
-    number as.
+    band whose bottom edge is closest; a filter set with no bands has only its
+    multi-band filter, which is what such an FM reports a number as.
     """
     multi_band = [f for f in filters if f != REFLECTION and f.low is None]
     if value is None:

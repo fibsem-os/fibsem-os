@@ -248,8 +248,8 @@ class EmissionFilter:
 
     ``bands`` are the edges in nm of each band it passes, lowest first: one for a
     single-band filter, two for a dual-band one. Reflection has none. A multi-band
-    filter whose bands the driver doesn't know (Thermo reports only "fluorescence
-    mode") has ``multi_band`` set and no bands. A driver that knows only a band's
+    filter whose bands the driver doesn't know (an FM that reports only a
+    fluorescence mode) has ``multi_band`` set and no bands. A driver that knows only a band's
     bottom edge gives ``(low, None)``.
 
     ``EmissionFilter("GFP", low=510, high=560)`` is shorthand for one band.
@@ -318,7 +318,7 @@ class EmissionFilter:
     @property
     def label(self) -> str:
         """The name to show. A multi-band filter of unknown bands that the FM calls
-        "Fluorescence" (Thermo, the simulator) shows as "Multi-band"."""
+        "Fluorescence", the name saved channels give it, shows as "Multi-band"."""
         if self.multi_band and not self.bands and self.name.lower() == "fluorescence":
             return "Multi-band"
         return self.name
