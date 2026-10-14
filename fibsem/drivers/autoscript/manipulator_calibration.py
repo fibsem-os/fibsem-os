@@ -54,7 +54,7 @@ def calibrate_manipulator(
                 else [detection.NeedleTipBottom(), detection.ImageCentre()]
             )
 
-            image = acquire.new_image(microscope, settings.image)
+            image = acquire.acquire_image(microscope, settings.image)
             det = detection.detect_features(
                 image,
                 model,

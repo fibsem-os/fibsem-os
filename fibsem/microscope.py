@@ -294,7 +294,7 @@ class FibsemMicroscope(ABC):
                 "Must provide either image_settings (to acquire with specific settings) or beam_type (to acquire with current microscope settings for that beam type)."
             )
         target = image_settings.beam_type if image_settings is not None else beam_type
-        return self._beam_device(target).acquire(image_settings)
+        return self._imaging_service().acquire(target, image_settings)
 
     @property
     def is_acquiring(self) -> bool:
@@ -336,7 +336,7 @@ class FibsemMicroscope(ABC):
             # as it connects it.
             beam.live_frame.connect(lambda image, signal=signal: signal.emit(image))
             self._live_forwarded.add(beam_type)
-        beam.start_live()
+        self._imaging_service().start_live(beam_type)
 
     def stop_acquisition(self) -> None:
         """Stop the image acquisition process."""
@@ -355,7 +355,7 @@ class FibsemMicroscope(ABC):
     ) -> None:
         """Run the instrument's brightness and contrast routine for `beam_type`,
         optionally on a rectangle of the frame (0 to 1)."""
-        self._beam_device(beam_type).autocontrast(reduced_area)
+        self._imaging_service().autocontrast(beam_type, reduced_area)
 
     def auto_focus(
         self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle] = None
@@ -2389,7 +2389,7 @@ class FibsemMicroscope(ABC):
         ``payload`` is small plain data built by the caller -- no pixels. Kinds
         recorded today:
 
-        * ``image_acquired`` -- from ``acquire.new_image``, with the saved path
+        * ``image_acquired`` -- from ``acquire.acquire_image``, with the saved path
         * ``task_step`` -- from the AutoLamella task bases
         * ``milling_stage_started`` -- from ``FibsemMillingTask``, with the stage
         * ``spot_burn_started`` -- from the spot burn service, with the field of view

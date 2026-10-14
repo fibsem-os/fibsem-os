@@ -209,7 +209,7 @@ the stop rule above and never take control.
 | `GET` | `/microscope/devices/{device}/{parameter}` | Live read of a parameter |
 | `PUT` | `/microscope/devices/{device}/{parameter}` | Write a parameter (`{"value": ...}`) |
 | `GET` | `/microscope/devices/{device}/{parameter}/metadata` | Limits, choices, settable |
-| `POST` | `/microscope/devices/{device}/commands/{command}` | Run a command (`{"kwargs": {...}}`); an image answers as TIFF, or `{"answer": "preview"}` for a JSON preview |
+| `POST` | `/microscope/devices/{device}/commands/{command}` | Run a command (`{"kwargs": {...}}`); an image answers as its data (TIFF, npy), or with `{"answer": "preview"}` as `{"result": {"summary", "path", "preview"}}`, the shape agents get for every image (a beam image, a camera frame, a z-stack) |
 | `POST` | `/microscope/devices/{device}/queries/{query}` | Ask a query (`{"kwargs": {...}}`), read-only |
 | `GET` | `/microscope/services` | Every service (`imaging`, `milling`, `stage_movement`, ...) and what it offers |
 | `GET` | `/microscope/services/{service}/{parameter}` | A service's state, e.g. `milling/state` |
