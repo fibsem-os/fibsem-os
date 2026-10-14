@@ -19,7 +19,7 @@ The frame is anchored at an *origin*: the stage position it is built around. Who
 owns the frame fixes that once and keeps it, because re-deriving it from whatever
 arrived last would shift the whole scene each time something did.
 
-The projections themselves live in :mod:`fibsem.projection`, outside ``fibsem/ui``:
+The projections themselves live in :mod:`fibsem.geometry.projection`, outside ``fibsem/ui``:
 they are arithmetic over recorded geometry with no Qt in them, and importing
 ``fibsem.ui`` pulls in the whole widget package, which CI does not install. They are
 re-exported here because this is where callers expect to find them alongside the frame
@@ -31,7 +31,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Tuple
 
 # Re-exported for the callers that reach for a projection and a frame together.
-from fibsem.projection import (  # noqa: F401
+from fibsem.geometry.projection import (  # noqa: F401
     BeamStageProjection,
     FMStageProjection,
     StageProjection,

@@ -296,7 +296,10 @@ CATALOG: Tuple[ToolSpec, ...] = (
         path="/microscope/services/stage_movement/commands/move_to_milling_angle",
         level="drive",
         hardware=True,
-        params={"milling_angle_deg": "target milling angle in degrees"},
+        params={
+            "milling_angle_deg": "target milling angle in degrees",
+            "rotation_deg": "stage rotation in degrees; the rotation reference if left out",
+        },
     ),
     ToolSpec(
         name="set_parameter",
@@ -527,6 +530,18 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         level="watch",
         router="app",
         params={"grid_name": "the grid name"},
+    ),
+    ToolSpec(
+        name="get_grid_output_image",
+        description="One saved overview (mosaic) of a grid, as an image you can look at: a 768 px JPEG preview of a file get_grids / get_grid_detail lists. A preview, not the data; get_grid_markers places the items on it. An unlisted name is refused with the valid ones.",
+        method="GET",
+        path="/app/experiment/grids/{grid_name}/outputs/{filename}",
+        level="watch",
+        router="app",
+        params={
+            "grid_name": "the grid name",
+            "filename": "an overview basename from get_grids / get_grid_detail",
+        },
     ),
     ToolSpec(
         name="get_grid_markers",
@@ -875,7 +890,6 @@ NOT_TOOLS: Dict[str, str] = {
     "GET /dashboard/log": "The operator's event log page, HTML; get_events is the agent's read.",
     "GET /app/events/history": "The event log page's read of the run before the live buffer; an agent reads a finished run from its experiment folder.",
     "GET /app/agent/requests": "The app's list of every request; the agent follows its own with get_request.",
-    "GET /app/experiment/grids/{grid}/outputs/{filename}": "A JPEG for the dashboard; get_grid_markers is the agent's read of an overview.",
     "GET /microscope/devices/{device}": "list_devices carries every device's description.",
     "GET /microscope/devices/{device}/{parameter}/metadata": "list_devices carries limits, choices and settable.",
     "GET /microscope/services/{service}": "list_services carries every service's description.",
@@ -989,8 +1003,12 @@ _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict
     "move_stage_absolute": lambda a: ({}, _kwargs(position=_absolute(a))),
     "move_to_milling_angle": lambda a: (
         {},
-        # The tool speaks degrees; the stage movement command takes radians (FIB-853).
-        _kwargs(milling_angle=math.radians(float(a["milling_angle_deg"]))),
+        _kwargs(
+            milling_angle=float(a["milling_angle_deg"]),
+            rotation=(
+                None if a.get("rotation_deg") is None else float(a["rotation_deg"])
+            ),
+        ),
     ),
     "call_command": lambda a: (
         {"device": a.get("device"), "command": a.get("command")},
