@@ -152,12 +152,21 @@ CATALOG: Tuple[ToolSpec, ...] = (
     # --- hardware ---
     ToolSpec(
         name="acquire_image_preview",
-        description="Acquire a fresh image and return an agent-sized JPEG preview with metadata.",
+        description=(
+            "Acquire a fresh image and return an agent-sized JPEG preview with its "
+            "scale (hfw, pixel size). With no image_settings the beam images as it "
+            "is set now. image_settings set the beam first and stay set; a field "
+            "left out takes its default (resolution [1536, 1024], dwell_time 1e-6, "
+            "hfw 150e-6), not the beam's current value. Nothing is saved."
+        ),
         method="POST",
-        path="/microscope/devices/{device}/commands/acquire",
+        path="/microscope/services/imaging/commands/acquire",
         level="drive",
         hardware=True,
-        params={"beam_type": "ELECTRON or ION"},
+        params={
+            "beam_type": "ELECTRON or ION",
+            "image_settings": 'optional: ImageSettings fields, e.g. {"hfw": 150e-6, "resolution": [1536, 1024], "dwell_time": 1e-6}',
+        },
     ),
     ToolSpec(
         name="stable_move",
@@ -380,7 +389,20 @@ CATALOG: Tuple[ToolSpec, ...] = (
         name="autocontrast",
         description="Run autocontrast for a beam (changes detector settings).",
         method="POST",
-        path="/microscope/devices/{device}/commands/autocontrast",
+        path="/microscope/services/imaging/commands/autocontrast",
+        level="drive",
+        hardware=True,
+        params={"beam_type": "ELECTRON or ION"},
+    ),
+    ToolSpec(
+        name="auto_focus",
+        description=(
+            "Focus a beam: the instrument's own autofocus where the beam has one, "
+            "else an image-based sweep of the working distance at the beam's field "
+            "of view. Moves the working distance. Take a fresh image to check."
+        ),
+        method="POST",
+        path="/microscope/services/imaging/commands/auto_focus",
         level="drive",
         hardware=True,
         params={"beam_type": "ELECTRON or ION"},
@@ -893,12 +915,14 @@ def _absolute(a: Dict[str, Any]) -> dict:
     return _position(a)
 
 
-def _beam_device(a: Dict[str, Any]) -> str:
-    """The beam device a beam_type names: "electron" or "ion"."""
-    beam = str(a.get("beam_type", "ELECTRON")).lower()
-    if beam not in ("electron", "ion"):
+def _beam(a: Dict[str, Any], **more: Any) -> dict:
+    """An imaging command's kwargs: its beam_type, checked, and *more* when set."""
+    beam = str(a.get("beam_type", "ELECTRON")).upper()
+    if beam not in ("ELECTRON", "ION"):
         raise ValueError(f"beam_type must be ELECTRON or ION, not {beam!r}")
-    return beam
+    if more.get("image_settings") is not None:
+        more["image_settings"] = dict(more["image_settings"], beam_type=beam)
+    return {"beam_type": beam, **{k: v for k, v in more.items() if v is not None}}
 
 
 def _kwargs(**values: Any) -> dict:
@@ -909,10 +933,14 @@ def _kwargs(**values: Any) -> dict:
 # gives (path values, body).
 _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict]]]] = {
     "acquire_image_preview": lambda a: (
-        {"device": _beam_device(a)},
-        {"kwargs": {}, "answer": "preview"},
+        {},
+        {
+            "kwargs": _beam(a, image_settings=a.get("image_settings")),
+            "answer": "preview",
+        },
     ),
-    "autocontrast": lambda a: ({"device": _beam_device(a)}, _kwargs()),
+    "autocontrast": lambda a: ({}, _kwargs(**_beam(a))),
+    "auto_focus": lambda a: ({}, _kwargs(**_beam(a))),
     # A service command or query with no arguments still sends its kwargs.
     "stop_milling": lambda a: ({}, _kwargs()),
     "estimate_milling_time": lambda a: ({}, _kwargs()),

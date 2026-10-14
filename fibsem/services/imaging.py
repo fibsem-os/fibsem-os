@@ -1,12 +1,13 @@
-"""Imaging as a service: the imaging routines that step a beam over time, starting
-with focus.
+"""Imaging as a service: one place for a microscope's imaging, by beam type.
 
 The beam's own operations (``acquire``, ``autocontrast``, the instrument's own
-``auto_focus``, live view) are commands on the beam. What is here coordinates them
-over time, the same way on every backend: ``auto_focus`` is the one place that
-chooses between the instrument's autofocus and the image-based sweep, and
-``focus_sweep`` is the sweep (`fibsem.autofunctions.autofocus.run_auto_focus`),
-which a ``stop`` from another caller ends.
+``auto_focus``, live view) are commands on the beam, which stay their
+implementation. The service passes them through by ``beam_type``, so a caller
+needs only ``microscope.imaging``, and adds what coordinates them over time, the
+same way on every backend: ``auto_focus`` is the one place that chooses between
+the instrument's autofocus and the image-based sweep, and ``focus_sweep`` is the
+sweep (`fibsem.autofunctions.autofocus.run_auto_focus`), which a ``stop`` from
+another caller ends.
 
 No driver needs its own imaging code yet, so every backend builds this class.
 Being a service is what lets an agent find and run these routines over the App
@@ -26,7 +27,7 @@ from fibsem.cancellation import AnyStopEvent
 from fibsem.devices.beam import Beam
 from fibsem.devices.core import Role, RoleUnfilled, command
 from fibsem.services.core import Service
-from fibsem.structures import BeamType, FibsemRectangle
+from fibsem.structures import BeamType, FibsemImage, FibsemRectangle, ImageSettings
 
 # The role each beam fills.
 _BEAM_ROLES: Dict[BeamType, str] = {
@@ -38,8 +39,10 @@ _I = TypeVar("_I", bound="Imaging")
 
 
 class Imaging(Service):
-    """Imaging routines over the beams: ``auto_focus`` (the instrument's own where
-    the beam has one, else the sweep), ``focus_sweep`` and ``stop``."""
+    """Imaging over the beams: the beam commands by ``beam_type`` (``acquire``,
+    ``autocontrast``, ``start_live``, ``stop_live``), ``auto_focus`` (the
+    instrument's own where the beam has one, else the sweep), ``focus_sweep`` and
+    ``stop``."""
 
     electron = Role(Beam, required=False, doc="The electron beam.")
     ion = Role(Beam, required=False, doc="The ion beam.")
@@ -56,7 +59,43 @@ class Imaging(Service):
         except RoleUnfilled:
             raise ValueError(f"The {beam_type.name} beam is not enabled.") from None
 
-    # -- commands ----------------------------------------------------------------
+    # -- the beam commands, by beam type ------------------------------------------
+    # One line each: the beam does the work, here or under /microscope/devices.
+
+    @command
+    def acquire(
+        self,
+        beam_type: BeamType = BeamType.ELECTRON,
+        image_settings: Optional[ImageSettings] = None,
+    ) -> FibsemImage:
+        """Acquire an image with ``beam_type``: with ``image_settings`` when given
+        (their own beam type wins), else with the beam's current settings."""
+        if image_settings is not None and image_settings.beam_type is not None:
+            beam_type = image_settings.beam_type
+        return self.beam(beam_type).acquire(image_settings)
+
+    @command
+    def autocontrast(
+        self,
+        beam_type: BeamType = BeamType.ELECTRON,
+        reduced_area: Optional[FibsemRectangle] = None,
+    ) -> None:
+        """Run ``beam_type``'s brightness and contrast routine, optionally on a
+        rectangle of the frame (0 to 1)."""
+        self.beam(beam_type).autocontrast(reduced_area)
+
+    @command
+    def start_live(self, beam_type: BeamType = BeamType.ELECTRON) -> None:
+        """Image continuously with ``beam_type``'s current settings until
+        `stop_live`; the frames come on the beam's ``live_frame``."""
+        self.beam(beam_type).start_live()
+
+    @command
+    def stop_live(self, beam_type: BeamType = BeamType.ELECTRON) -> None:
+        """Stop ``beam_type``'s live view. Safe when it isn't live."""
+        self.beam(beam_type).stop_live()
+
+    # -- routines ------------------------------------------------------------------
 
     @command
     def auto_focus(
