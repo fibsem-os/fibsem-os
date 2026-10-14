@@ -2,8 +2,8 @@
 
 One task for both beams, an orientation to acquire in, the standard overview
 settings. It starts from the grid's calibrated slot position re-expressed for the
-orientation, refuses a grid that is not reachable, and records the stitched image
-and a thumbnail by role under the grid's own directory.
+orientation, refuses a grid that is not reachable, and records the stitched image,
+its tiles and a thumbnail by role under the grid's own directory.
 """
 
 import threading
@@ -155,7 +155,11 @@ class TestRun:
 
         entry = grid.task_history[-1]
         assert entry.status is AutoLamellaTaskStatus.Completed
-        assert set(entry.outputs) == {"overview_sem", "overview_sem_thumbnail"}
+        assert set(entry.outputs) == {
+            "overview_sem",
+            "overview_sem_tiles",
+            "overview_sem_thumbnail",
+        }
         (overview,) = grid_outputs(experiment, grid, "overview_sem")
         assert overview.startswith(
             str(tmp_path / "exp" / "grids" / "grid-aspen" / "overview_sem")
@@ -167,6 +171,22 @@ class TestRun:
 
         with Image.open(thumbnail) as im:
             assert max(im.size) <= 512
+
+    def test_records_each_tile_beside_the_stitch(self, microscope, experiment):
+        grid = experiment.get_grid_by_name("grid-aspen")
+        run_grid_task(microscope, "overview_sem", experiment, grid)
+
+        (overview,) = grid_outputs(experiment, grid, "overview_sem")
+        tiles = grid_outputs(experiment, grid, "overview_sem_tiles")
+        assert sorted(Path(t).name for t in tiles) == [
+            "tile_0_0_eb.tif",
+            "tile_0_1_eb.tif",
+            "tile_1_0_eb.tif",
+            "tile_1_1_eb.tif",
+        ]
+        # in the folder named after the stitched image, which is beside it
+        for tile in tiles:
+            assert Path(tile).parent == Path(overview).with_suffix("")
 
     def test_fib_overview_lands_under_its_own_role_and_task(
         self, microscope, experiment
@@ -220,13 +240,16 @@ class TestRun:
         assert grid.task_state.status is AutoLamellaTaskStatus.Cancelled
 
     def test_the_operation_is_callable_standalone(self, microscope, tmp_path):
+        tiles = []
         image = acquire_beam_overview(
             microscope,
             _small_settings(),
             microscope.get_stage_position(),
             tmp_path / "standalone",
             stem="ov",
+            tile_paths=tiles,
         )
+        assert len(tiles) == 4 and all(Path(t).is_file() for t in tiles)
         assert image.filepath
         assert Path(image.filepath).parent.name == "standalone"
         assert Path(image.filepath).name.startswith("ov-")
