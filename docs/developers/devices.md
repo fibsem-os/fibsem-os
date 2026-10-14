@@ -611,6 +611,15 @@ fault in fibsem.
 connection per address. Each device built from an entry records its driver's
 registry name in `device.driver`, which the device server's description carries.
 
+When the microscope disconnects, each device's `disconnect()` is called, in reverse
+build order. A device that holds its
+own controller connection overrides it to close that connection. A connection that
+several entries share belongs to no one device, so its builder registers the close
+with `context.on_disconnect(connection.close)`. These run after the devices, and the
+driver's own client is closed last. One that raises is logged, and the rest still
+run. A whole-microscope driver puts its client's close in `_disconnect`, not
+`disconnect`.
+
 A driver like this one, that only builds devices, has no `microscope_class`. It is
 never offered as a manufacturer, and connecting with it as `info.manufacturer` is
 refused. Its name matches a `driver:` in any case (`knifeco` finds `KnifeCo`).

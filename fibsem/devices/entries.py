@@ -170,37 +170,47 @@ def build_device_entries(
     context = BuildContext(
         microscope=microscope, built=built, shared=shared if shared is not None else {}
     )
-    for item in resolved:
-        try:
-            builder = _builder(item)
-        except ImportError as e:
-            # such as the remote driver without the server extra
-            reason = f"driver '{item.driver}' could not be loaded: {e}"
-            _not_built(item, microscope, reason, e)
-            continue
-        except NotImplementedError:
-            # nothing is registered as the driver: a plugin not installed in this
-            # environment, or a typo
-            reason = (
-                f"no driver '{item.driver}' is installed (installed: "
-                f"{', '.join(_installed_drivers())}); check that its plugin is "
-                "installed in this environment"
-            )
-            _not_built(item, microscope, reason)
-            continue
-        if builder is None:
-            reason = f"driver '{item.driver}' has no builder for a '{item.type}' device"
-            _not_built(item, microscope, reason)
-            continue
-        try:
-            device = builder.load()(item.entry, context)
-        except Exception as e:
-            _not_built(item, microscope, f"building it failed: {e}", e)
-            continue
-        if device is not None:
-            if getattr(device, "driver", None) is None and isinstance(device, Device):
-                device.driver = item.driver
-            built[item.name] = device
+    try:
+        for item in resolved:
+            try:
+                builder = _builder(item)
+            except ImportError as e:
+                # such as the remote driver without the server extra
+                reason = f"driver '{item.driver}' could not be loaded: {e}"
+                _not_built(item, microscope, reason, e)
+                continue
+            except NotImplementedError:
+                # nothing is registered as the driver: a plugin not installed in this
+                # environment, or a typo
+                reason = (
+                    f"no driver '{item.driver}' is installed (installed: "
+                    f"{', '.join(_installed_drivers())}); check that its plugin is "
+                    "installed in this environment"
+                )
+                _not_built(item, microscope, reason)
+                continue
+            if builder is None:
+                reason = (
+                    f"driver '{item.driver}' has no builder for a '{item.type}' device"
+                )
+                _not_built(item, microscope, reason)
+                continue
+            try:
+                device = builder.load()(item.entry, context)
+            except Exception as e:
+                _not_built(item, microscope, f"building it failed: {e}", e)
+                continue
+            if device is not None:
+                if getattr(device, "driver", None) is None and isinstance(
+                    device, Device
+                ):
+                    device.driver = item.driver
+                built[item.name] = device
+    finally:
+        # registered even when a required device fails, so what was opened closes
+        cleanups = getattr(microscope, "_disconnect_cleanups", None)
+        if context.cleanups and cleanups is not None:
+            cleanups.extend(context.cleanups)
     return built
 
 

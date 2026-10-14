@@ -347,7 +347,7 @@ class OdemisThermoMicroscope(FibsemMicroscope):
     ) -> None:
         pass
 
-    def disconnect(self):
+    def _disconnect(self) -> None:
         pass
 
     def set_channel(self, channel: BeamType):
