@@ -27,6 +27,7 @@ from typing import Iterable, List, Optional
 
 import tifffile as tff
 
+from fibsem.geometry.angles import wrap_angle
 from fibsem.structures import FibsemStagePosition
 from fibsem.util.timestamps import to_datetime
 
@@ -113,11 +114,6 @@ def read_image_position(path: str) -> ImagePosition:
     )
 
 
-def _wrap(angle: float) -> float:
-    """*angle* in [-pi, pi], so 359.9 degrees is 0.1 degrees from 0."""
-    return math.atan2(math.sin(angle), math.cos(angle))
-
-
 def compare_positions(
     image_position: Optional[FibsemStagePosition],
     pose_position: Optional[FibsemStagePosition],
@@ -140,20 +136,14 @@ def compare_positions(
     if all(frames) and frames[0].upper() != frames[1].upper():
         return PositionComparison(PositionMatch.UNKNOWN)
 
-    deltas = [
-        image_position.x - pose_position.x,
-        image_position.y - pose_position.y,
-    ]
-    if image_position.z is not None and pose_position.z is not None:
-        deltas.append(image_position.z - pose_position.z)
-    distance = math.sqrt(sum(d * d for d in deltas))
+    distance = image_position.distance(pose_position)
 
     tilt = None
     if image_position.t is not None and pose_position.t is not None:
-        tilt = _wrap(image_position.t - pose_position.t)
+        tilt = wrap_angle(image_position.t - pose_position.t)
     rotation = None
     if image_position.r is not None and pose_position.r is not None:
-        rotation = _wrap(image_position.r - pose_position.r)
+        rotation = wrap_angle(image_position.r - pose_position.r)
 
     moved = (
         distance > POSITION_TOLERANCE_M

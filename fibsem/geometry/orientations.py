@@ -54,8 +54,6 @@ def classify_orientation(
                 "SEM, FIB or MILLING orientation must have both rotation (r) and tilt "
                 "(t) defined."
             )
-    r = r % (2 * np.pi)
-
     nearest, nearest_distance = None, np.inf
     for name, pose in orientations.items():
         if name == "MILLING":
