@@ -82,7 +82,7 @@ def test_lists_every_device_the_microscope_built(read_client, microscope):
     resp = read_client.get("/devices")
     assert resp.status_code == 200
     body = resp.json()
-    assert set(body) == set(microscope.devices)
+    assert set(body) == set(microscope.devices) - {"chamber"}
     assert "current" in body["ion"]["parameters"]
     assert "move_relative" in body["stage"]["commands"]
 
@@ -136,6 +136,17 @@ def test_unknown_device_or_parameter_is_404(read_client):
 def test_command_is_hardware_scope(read_client):
     resp = read_client.post("/devices/ion/commands/blank", json={})
     assert resp.status_code == 403
+
+
+def test_the_chamber_is_not_served(read_client, armed_client, microscope):
+    # Pumping and venting are the operator's, at the microscope: the chamber
+    # is not served at all, whatever is armed.
+    assert "chamber" in microscope.devices
+    assert "chamber" not in read_client.get("/devices").json()
+    assert read_client.get("/devices/chamber/state").status_code == 404
+    for command in ("vent", "pump"):
+        resp = armed_client.post(f"/devices/chamber/commands/{command}", json={})
+        assert resp.status_code == 404
 
 
 def test_stop_commands_pass_with_read_scope_whoever_is_in_control(
@@ -224,3 +235,25 @@ def test_client_settings_round_trip(fibsem_client):
 def test_client_parameter_metadata_and_list(fibsem_client):
     assert "stage" in fibsem_client.list_devices()
     assert "choices" in fibsem_client.parameter_metadata("ion", "current")
+
+
+@pytest.mark.parametrize(
+    "path, body",
+    [
+        ("/acquire_image", {"beam_type": "ION"}),
+        ("/acquire_image_preview", {"beam_type": "ION"}),
+        ("/devices/ion/commands/acquire", {}),
+    ],
+)
+def test_an_acquired_image_reaches_the_apps_views(armed_client, microscope, path, body):
+    # FIB-1375: the app's FIB view listens on this signal, as for the workflow's
+    # images, so an agent's frame replaces the one from before its move.
+    shown = []
+    microscope.fib_acquisition_signal.connect(shown.append)
+    try:
+        resp = armed_client.post(path, json=body)
+    finally:
+        microscope.fib_acquisition_signal.disconnect(shown.append)
+    assert resp.status_code == 200
+    assert len(shown) == 1
+    assert shown[0].metadata.beam_type is BeamType.ION

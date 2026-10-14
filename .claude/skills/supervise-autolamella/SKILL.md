@@ -360,6 +360,14 @@ when a task may start (ISO-8601, instrument-local when naive; null
 clears). The workflow reads it at each task start, so it never interrupts
 anything running.
 
+So is the run summary: by default the summary dialog opens at the end of
+every run. Before you start runs yourself, turn it off with
+`set_workflow_options(show_run_summary=false)` so no dialog is left over
+the operator's window, and tell them you did. Each run's end still shows a
+toast with a Show summary link, and it stays in the notification bell.
+Read `/app/run_summary` for the outcome yourself. If the operator turns it
+back on, leave it on.
+
 Etiquette:
 
 - **Change what was asked, exactly.** "Make the fiducial 2 µm deeper" is

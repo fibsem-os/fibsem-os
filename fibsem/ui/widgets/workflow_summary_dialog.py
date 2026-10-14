@@ -1,5 +1,5 @@
 """
-Modal dialog showing a summary of the tasks run in a single workflow run.
+Dialog showing a summary of the tasks run in a single workflow run.
 
 Displays one row per (lamella, task) attempted in the run with status,
 completion time and duration, count chips and a primary OK button.
@@ -101,6 +101,20 @@ def _item_column(df: Optional[pd.DataFrame]):
     return _ITEM_COLUMNS[0]
 
 
+def run_counts_text(df: Optional[pd.DataFrame]) -> str:
+    """'1 completed, 1 skipped': the run's tasks counted by status, in the
+    order of the dialog's chips, leaving out the statuses that did not occur."""
+    if df is None or df.empty or "task_status" not in df.columns:
+        return "no tasks run"
+    counts = df["task_status"].value_counts().to_dict()
+    statuses = list(STATUS_CHIP_ORDER) + [
+        s for s in counts if s not in STATUS_CHIP_ORDER
+    ]
+    return ", ".join(
+        f"{int(counts[s])} {status_label(str(s))}" for s in statuses if counts.get(s)
+    )
+
+
 class _NumericItem(QTableWidgetItem):
     """Table item that sorts by its numeric Qt.UserRole value rather than text.
 
@@ -117,7 +131,7 @@ class _NumericItem(QTableWidgetItem):
 
 
 class WorkflowSummaryDialog(QDialog):
-    """A modal dialog that displays a per-run task summary table with an OK button."""
+    """A dialog that displays a per-run task summary table with an OK button."""
 
     def __init__(
         self,

@@ -23,6 +23,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
 )
 
+from fibsem.applications.autolamella.ui.agent_level_chip import last_heard_text
 from fibsem.ui import stylesheets
 from fibsem.ui.tokens import OK_COLOR, TEXT_MUTED_COLOR, TEXT_STRONG_COLOR
 
@@ -177,11 +178,11 @@ class AppServerDialog(QDialog):
             age = host.agent_seconds_since_seen()
         except Exception:
             age = None
-        if age is None:
-            return "Agent · not heard from yet"
-        if age < 60:
-            return f"Agent · last heard {int(age)} s ago"
-        return f"Agent · last heard {int(age // 60)} min ago"
+        try:
+            client = host.agent_client()
+        except Exception:
+            client = None
+        return last_heard_text(age, client)
 
     def refresh(self) -> None:
         """Re-read the session's server into the dialog."""
