@@ -277,10 +277,8 @@ def cmd_autocontrast(microscope, _settings, args) -> int:
 
 
 def cmd_mill_angle(microscope, _settings, args) -> int:
-    milling_angle = _deg_to_rad(args.angle)
-    rotation = _deg_to_rad(args.rotation)
     print(f"Moving to milling angle {args.angle:.2f} deg...")
-    at_target = microscope.move_to_milling_angle(milling_angle, rotation)
+    at_target = microscope.move_to_milling_angle(args.angle, args.rotation)
     pos = microscope.get_stage_position()
     status = "at target" if at_target else "WARNING: not at target angle"
     print(f"Done ({status}).")

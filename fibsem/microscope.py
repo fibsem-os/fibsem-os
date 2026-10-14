@@ -2252,16 +2252,15 @@ class FibsemMicroscope(ABC):
         self, milling_angle: float, rotation: Optional[float] = None
     ) -> bool:
         """Move the stage to the milling angle, based on the current pretilt and column tilt.
+        Degrees, like the other milling-angle methods.
         Args:
-            milling_angle (float): The target milling angle in radians.
-            rotation (Optional[float]): The target rotation angle in radians. If None, uses the current rotation reference.
+            milling_angle (float): The target milling angle in degrees.
+            rotation (Optional[float]): The target rotation angle in degrees. If None, uses the current rotation reference.
         Returns:
             bool: True if the stage is close to the target milling angle after the move, False otherwise.
         """
-        # The service speaks degrees, like its other milling-angle reads.
         return self._movement_service().move_to_milling_angle(
-            float(np.degrees(milling_angle)),
-            rotation=None if rotation is None else float(np.degrees(rotation)),
+            milling_angle, rotation=rotation
         )
 
     def _beam_view_tilt(self, beam_type: BeamType) -> float:
