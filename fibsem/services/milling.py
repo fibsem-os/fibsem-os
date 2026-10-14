@@ -48,9 +48,12 @@ import dataclasses
 import logging
 import threading
 import time
+import uuid
+from contextlib import contextmanager
 from typing import (
     Any,
     Dict,
+    Iterator,
     List,
     Optional,
     Sequence,
@@ -68,6 +71,7 @@ from fibsem.cancellation import (
     CANCELLED,
     COMPLETED,
     AnyStopEvent,
+    ended_by,
     raise_if_cancelled,
 )
 from fibsem.devices.beam import Beam
@@ -88,6 +92,7 @@ from fibsem.structures import (
     MillingState,
     get_fields_with_metadata,
 )
+from fibsem.util.timestamps import now_iso
 
 # The beam conditions milling changes and `restore` puts back, in the order they are
 # written back: a preset first, since it sets the others on a column that has one,
@@ -176,6 +181,10 @@ class Milling(Service):
         self._drawn: List[FibsemPatternSettings] = []
         # Set by ``stop`` while a run is on, so the run can say it was stopped.
         self._stop_requested = threading.Event()
+        # The name the last setup was given, for a run outside a task to go by.
+        self._name: Optional[str] = None
+        # Inside ``part_of``: a run there is part of something with its own record.
+        self._part_of = threading.local()
 
     @property
     def drawn_patterns(self) -> List[FibsemPatternSettings]:
@@ -318,6 +327,7 @@ class Milling(Service):
         """
         if self._saved is None:
             self._save(self.beam(settings.milling_channel))
+        self._name = name
         self._setup(settings, name)
         if self._drawn:
             self._set_drawn([])
@@ -397,8 +407,55 @@ class Milling(Service):
         `OperationCancelledError`; ``stop`` from another thread ends it, and it
         answers ``cancelled`` rather than ``completed`` (FIB-1377). A failure stops
         the beam before it is raised.
+
+        Outside a milling task, the run is on the record as one ``milling`` event,
+        with the name ``setup`` was given and how it ended.
         """
         self._stop_requested.clear()
+        if self._run_context or getattr(self._part_of, "depth", 0):
+            # A task's run, or a spot burn's: that records the whole.
+            return self._run(stop_event)
+        return self._run_on_the_record(stop_event)
+
+    @contextmanager
+    def part_of(self) -> Iterator[None]:
+        """Runs in the block, on this thread, are part of something that records
+        itself (a spot burn), so they record no ``milling`` event of their own."""
+        self._part_of.depth = getattr(self._part_of, "depth", 0) + 1
+        try:
+            yield
+        finally:
+            self._part_of.depth -= 1
+
+    def _run_on_the_record(
+        self, stop_event: Optional[Union[threading.Event, AnyStopEvent]]
+    ) -> str:
+        """A run outside a milling task (an agent's ``prepare`` and ``run``, or a
+        script's): its stage updates carry the name it was set up with, and it
+        records one ``milling`` event with how it ended, as a task's run does
+        (FIB-1257, FIB-1377)."""
+        payload: Dict[str, Any] = {
+            "milling_run_id": str(uuid.uuid4()),
+            "milling_task_name": self._name,
+            "started_at": now_iso(),
+        }
+        self._run_context = {
+            name: value for name, value in payload.items() if name in _RUN_CONTEXT
+        }
+        try:
+            status = self._run(stop_event)
+        except BaseException as error:
+            payload.update(ended_by(error))
+            raise
+        else:
+            payload["status"] = status
+        finally:
+            self._run_context = {}
+            payload["ended_at"] = now_iso()
+            self.session.record("milling", payload)
+        return status
+
+    def _run(self, stop_event: Optional[Union[threading.Event, AnyStopEvent]]) -> str:
         self._before_run()
         try:
             total = float(self._estimate() or 0.0)

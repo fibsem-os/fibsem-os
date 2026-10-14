@@ -2675,7 +2675,8 @@ class FibsemMicroscope(ABC):
           service's, the outermost only (`Stage.recording_move`)
         * ``beam_shifted`` -- from the beam device's ``shift_by``
         * ``milling`` -- from ``FibsemMillingTask``, how a run ended, stage by
-          stage; and from a task that milled nothing, why
+          stage; from a task that milled nothing, why; and from the milling
+          service's ``run`` outside a task, its name and how it ended
         * ``spot_burn_started`` -- from ``run_spot_burn``, with the field of view
         * ``stage_moved`` -- from each backend's stage moves, the outermost only
         * ``beam_shifted`` -- from each backend's ``beam_shift``
