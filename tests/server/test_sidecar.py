@@ -254,3 +254,17 @@ def test_a_command_that_images_answers_the_agent_an_image(armed_sidecar, device)
     answer = json.loads(text)
     assert answer["result"]["summary"]["shape"]
     assert answer["result"]["preview"]["image_index"] == 0
+
+
+def test_the_milling_state_is_answered_by_name(armed_sidecar):
+    """The tool says IDLE, RUNNING, ...; the wire carries the enum's number."""
+    from fibsem.mcp.sidecar import _MILLING_STATES
+    from fibsem.structures import MillingState
+
+    assert _MILLING_STATES == tuple(state.name for state in MillingState)
+    assert [MillingState[name].value for name in _MILLING_STATES] == list(
+        range(len(_MILLING_STATES))
+    )
+    result = asyncio.run(armed_sidecar.call_tool("get_milling_state", {}))
+    text = "".join(getattr(c, "text", "") for c in _contents(result))
+    assert json.loads(text) == {"state": "IDLE"}

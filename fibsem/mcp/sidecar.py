@@ -188,6 +188,11 @@ def _connect_with_retry(client_factory, url, token, wait_s, sleep_fn=None):
         sleep_fn(1.0)
 
 
+# fibsem.structures.MillingState by value, without importing it: the sidecar
+# stays light. tests/server/test_sidecar.py pins the two in step.
+_MILLING_STATES = ("IDLE", "RUNNING", "STOPPING", "PAUSED", "ERROR", "UNKNOWN")
+
+
 def _refusal(resp):
     try:
         detail = resp.json().get("detail", resp.text)
@@ -335,7 +340,16 @@ def build_sidecar(client, capabilities):
 
     def get_milling_state():
         data, err = _call(client, "GET", by_name["get_milling_state"].path)
-        return err if err else {"state": data["value"]}
+        if err:
+            return err
+        # The wire carries the enum's number; the agent reads its name.
+        value = data["value"]
+        names = _MILLING_STATES
+        return {
+            "state": names[value]
+            if isinstance(value, int) and 0 <= value < len(names)
+            else value
+        }
 
     def estimate_milling_time():
         return _service_call("estimate_milling_time", {}, "seconds")
@@ -534,7 +548,9 @@ def build_sidecar(client, capabilities):
         return err if err else data
 
     def get_request(request_id: str):
-        return _app_get(f"/app/agent/requests/{request_id}")
+        # An applied image action carries its preview: an image, not base64 text.
+        data, err = _call(client, "GET", f"/app/agent/requests/{request_id}")
+        return err if err else _with_images(data)
 
     def apply_protocol_to_item(item_name: str, task_names=None):
         data, err = _call(
@@ -889,8 +905,7 @@ def main(argv=None):
     )
     print(
         f"fibsem-mcp: connected to {client.base_url} "
-        f"({capabilities.get('manufacturer')}, agent level "
-        f"{capabilities.get('level')})",
+        f"(agent level {capabilities.get('level')})",
         file=sys.stderr,
     )
     if args.check:
