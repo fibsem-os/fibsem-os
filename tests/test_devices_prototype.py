@@ -23,7 +23,7 @@ from fibsem.devices import (
     Resources,
     command,
 )
-from fibsem.devices.beam import DEFAULT_WORKING_DISTANCE_LIMITS
+from fibsem.devices.beam import DEFAULT_WORKING_DISTANCE_LIMITS, UNBOUNDED_SHIFT_LIMITS
 from fibsem.drivers.demo.simulator import SIMULATOR_BEAM_CURRENTS
 from fibsem.structures import BeamType, FibsemImage, RangeLimit
 
@@ -444,14 +444,15 @@ def test_a_named_method_write_emits_the_parameter_change():
     assert seen == [150e-6]
 
 
-def test_a_relative_shift_is_clipped_only_by_limits_the_driver_reports(beams):
-    """The Demo reports no shift limits, so the declared default (what the beam panel
-    allows) does not clip a relative shift; limits the driver reports do."""
+def test_a_relative_shift_is_clamped_to_the_shift_limits(beams):
+    """Every beam reports its shift limits. The Demo's are unbounded, so its shift is
+    not clamped; limits a driver reports clamp it."""
     sem = beams[BeamType.ELECTRON]
-    assert sem.shift.reported_limits is None
+    assert sem.shift.limits == UNBOUNDED_SHIFT_LIMITS
     start = sem.shift.get_value()
     after = sem.shift_by(1e-3, 0.0)
     assert after.x == pytest.approx(start.x + 1e-3)
+    assert after.y == pytest.approx(start.y)
 
     sem.shift._metadata_source = ParameterMetadata(
         limits={"x": RangeLimit(min=-5e-6, max=5e-6)}
