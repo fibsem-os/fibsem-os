@@ -28,11 +28,13 @@ def _microscope(config_path: str):
 
 def _declare(microscope, poses):
     """Make the stage declare *poses*, whatever type it reported."""
-    microscope._stage_poses = lambda: poses(
+    movement = microscope.stage_movement
+    movement.stage_poses = lambda: poses(
         rotation_reference=microscope.system.stage.rotation_reference,
         shuttle_pre_tilt=microscope.system.stage.shuttle_pre_tilt,
         fib_column_tilt=microscope.system.ion.column_tilt,
     )
+    movement.update_orientations()
 
 
 def test_the_fm_is_a_pose_on_a_compustage_and_a_place_on_an_offset_mount():

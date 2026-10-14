@@ -483,6 +483,11 @@ class AutoLamellaAppContext:
                 }
                 for task in config.tasks
             ],
+            # the run options set_workflow_options changes
+            "options": {
+                "turn_beams_off": task_protocol.options.turn_beams_off,
+                "show_run_summary": task_protocol.options.show_run_summary,
+            },
         }
 
     def task_outputs(self, item_name: str) -> Dict[str, Any]:
@@ -1643,6 +1648,42 @@ class AutoLamellaAppContext:
             "applied": False,
             "error": f"No task named {task_name!r} in the protocol.",
             "task_names": [t.name for t in config.tasks],
+        }
+
+    def set_workflow_options(self, show_run_summary: bool) -> Dict[str, Any]:
+        """Set whether the run summary dialog opens when a run ends.
+
+        The workflow's "Show summary after completion", and like the operator's
+        checkbox it persists with the protocol. Off leaves the run-end toast
+        and its Show summary link: an agent starting many short runs turns it
+        off so no dialog stands over the window (FIB-1376). Read when a run
+        ends, so it applies from the next end, mid-run included; a plain bool
+        rebind, so no GUI marshal, like ``set_task_schedule``.
+        """
+        experiment = self._experiment
+        protocol = getattr(experiment, "task_protocol", None) if experiment else None
+        if protocol is None:
+            return {"available": False, "applied": False}
+        protocol.options.show_run_summary = bool(show_run_summary)
+        saved = True
+        try:
+            experiment.save(save_protocol=True)
+        except Exception:
+            saved = False
+            logging.exception(
+                "save after workflow option change failed; the change is "
+                "applied in memory but not yet on disk"
+            )
+        if self._event_buffer is not None:
+            self._event_buffer.append(
+                "workflow_changed",
+                {"field": "show_run_summary", "value": bool(show_run_summary)},
+            )
+        return {
+            "available": True,
+            "applied": True,
+            "saved": saved,
+            "show_run_summary": bool(show_run_summary),
         }
 
     def requeue_task(

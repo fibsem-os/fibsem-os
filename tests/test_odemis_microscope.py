@@ -481,6 +481,7 @@ def test_a_move_to_an_orientation_carries_x_and_y_round_the_rotation_centre(micr
     without it, SEM (1.0, 0.5) mm to FIB turned the stage and left x and y."""
     assert microscope.rotation_centre == (0.0, 0.0)
     stage = microscope._connection.vendor_stage
+    microscope._build_stage_movement()  # the fixture skips it; __init__ builds it
     sem = microscope.get_orientation("SEM")
     stage.position._value = {
         "x": 1e-3,
@@ -490,7 +491,6 @@ def test_a_move_to_an_orientation_carries_x_and_y_round_the_rotation_centre(micr
         "rx": sem.t,
     }
 
-    microscope._build_stage_movement()  # the fixture skips it; __init__ builds it
     microscope.move_to_orientation("FIB")
 
     fib = microscope.get_orientation("FIB")
