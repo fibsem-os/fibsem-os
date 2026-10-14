@@ -227,8 +227,8 @@ class FibsemMicroscope(ABC):
 
     # Where a half turn of this backend's stage is centred, raw (x, y) in metres: a
     # position p on one side of the stage is at 2c - p on the other. A property of the
-    # hardware, so the driver sets it (ThermoFisher adds the configured
-    # `rotation_centre_correction` to xT's centre). None means no rotating stage is
+    # hardware, so the driver sets it (adding the configured
+    # `rotation_centre_correction` to the centre its instrument reports). None means no rotating stage is
     # known: stage moves and image reprojection assume the stage origin (FIB-1081).
     rotation_centre: Optional[Tuple[float, float]] = None
 
@@ -1528,8 +1528,8 @@ class FibsemMicroscope(ABC):
         beam_type = beam_settings.beam_type
         setters = (
             (self.set_working_distance, beam_settings.working_distance),
-            # voltage before current: on some instruments (ThermoFisher FIB) the
-            # available currents are calibrated per voltage.
+            # voltage before current: on some instruments the available currents
+            # are calibrated per voltage.
             (self.set_beam_voltage, beam_settings.voltage),
             (self.set_beam_current, beam_settings.beam_current),
             (self.set_field_of_view, beam_settings.hfw),
