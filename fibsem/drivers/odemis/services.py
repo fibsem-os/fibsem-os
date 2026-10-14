@@ -81,9 +81,9 @@ class OdemisMilling(Milling):
         self._connection.set_default_application_file(settings.application_file)
         logging.info(f"Default application file set to {settings.application_file}.")
         self._set_patterning_mode(settings.patterning_mode)
-        microscope._write_beam("hfw", settings.hfw, channel)
-        microscope._write_beam("current", settings.milling_current, channel)
-        microscope._write_beam("voltage", settings.milling_voltage, channel)
+        self._write_condition(channel, "hfw", settings.hfw)
+        self._write_condition(channel, "current", settings.milling_current)
+        self._write_condition(channel, "voltage", settings.milling_voltage)
         self._clear()
         logging.debug({"msg": "setup_milling", "mill_settings": settings.to_dict()})
 

@@ -116,10 +116,10 @@ class AutoScriptMilling(Milling):
         self._set_application_file(settings.application_file, default=True)
         self._set_patterning_mode(settings.patterning_mode)
         self._clear()  # clear any existing patterns
-        microscope.set_field_of_view(hfw=settings.hfw, beam_type=channel)
+        self._write_condition(channel, "hfw", settings.hfw)
         # voltage before current: the available ion currents are calibrated per voltage
-        microscope.set_beam_voltage(voltage=settings.milling_voltage, beam_type=channel)
-        microscope.set_beam_current(current=settings.milling_current, beam_type=channel)
+        self._write_condition(channel, "voltage", settings.milling_voltage)
+        self._write_condition(channel, "current", settings.milling_current)
         logging.debug({"msg": "setup_milling", "mill_settings": settings.to_dict()})
 
     def _set_application_file(
