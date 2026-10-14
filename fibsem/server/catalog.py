@@ -809,6 +809,21 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         },
     ),
     ToolSpec(
+        name="suggest_answer",
+        description="Suggest an answer to the pending supervision question, for the operator to take or not. Nothing is answered: the prompt shows 'Agent suggests: <the button>' with your reason under it, and the operator's click on it answers as theirs, recorded with you as the one who suggested it (prompt_suggested, then prompt_answered with suggested_by). Answering any other way ignores it; a new posting of the question drops it. Echo the question_id from get_pending_prompt (409 stale_prompt if it has gone). value is as for answer_prompt, and is placed in the widget only when the operator takes the suggestion. Not for a question whose prompt says answer_via: \"decide\" (409 not_suggestible): at Assist, decide it through request_actions.",
+        method="POST",
+        path="/app/prompt/suggest",
+        scope="read",
+        router="app",
+        params={
+            "response": "true for the positive option, false for the negative",
+            "question_id": "the question_id from get_pending_prompt",
+            "reason": "why: shown under the suggestion for the operator",
+            "value": "optional geometry, as for answer_prompt",
+        },
+        level="Works at Assist and Drive; refused (403) at Watch. At Drive you may answer_prompt directly instead.",
+    ),
+    ToolSpec(
         name="list_recent_experiments",
         description="Recently opened experiments on this machine, without loading them.",
         method="GET",

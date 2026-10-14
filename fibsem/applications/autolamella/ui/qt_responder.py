@@ -97,6 +97,9 @@ class QtResponder(QObject):
         bool, object, object, object
     )  # (clicked_yes, question_id, value, Future[bool])
     _agent_peeked = pyqtSignal(object)  # (Future[(question_id, live value)])
+    _agent_suggested = pyqtSignal(
+        bool, object, object, object, object
+    )  # (response, question_id, value, reason, Future[bool])
 
     def __init__(self, ui: "AutoLamellaUI"):
         super().__init__()
@@ -147,7 +150,12 @@ class QtResponder(QObject):
         # signal so each observer is exception-isolated — a failing observer
         # must never break the click (or the other observers) it is watching.
         self._question_observers: List[Callable[[str, Dict], None]] = []
+        # The agent's suggested answer to the pending question (FIB-1283):
+        # (question_id, response, value, reason), shown as a button the operator
+        # may take. Dropped when that question goes.
+        self._suggestion: Optional[Tuple[int, bool, Optional[object], str]] = None
         self._submitted.connect(self._dispatch)
+        self._agent_suggested.connect(self._apply_agent_suggestion)
         self._agent_answered.connect(self._apply_agent_answer)
         self._agent_peeked.connect(self._apply_agent_peek)
 
@@ -313,6 +321,126 @@ class QtResponder(QObject):
             return
         outcome.adjusted = adjusted
         self._deliver(outcome, applied)
+
+    def submit_suggestion(
+        self,
+        response: bool,
+        question_id: int,
+        value: Optional[object] = None,
+        reason: str = "",
+    ) -> "Future":
+        """Suggest an answer to the pending question, for the operator to take
+        or not (FIB-1283). Any thread; a Future[bool], True once the suggestion
+        is shown. Nothing is answered: the operator's click on the suggestion
+        answers, as theirs, with the agent named as the one who suggested it.
+
+        Fails with :class:`StalePromptError` when that question is no longer
+        pending, and with ValueError for a question on the record (decided in
+        the Review tab) or a value on a question that takes none.
+        """
+        from concurrent.futures import Future as _Future
+
+        outcome: "_Future" = _Future()
+        self._agent_suggested.emit(response, question_id, value, reason, outcome)
+        return outcome
+
+    @property
+    def suggestion(self) -> Optional[Tuple[int, bool, Optional[object], str]]:
+        """``(question_id, response, value, reason)`` while one stands, else None."""
+        suggestion = self._suggestion
+        if suggestion is None:
+            return None
+        _, question_id = self.pending_question_and_id()
+        return suggestion if suggestion[0] == question_id else None
+
+    def _apply_agent_suggestion(
+        self,
+        response: bool,
+        question_id: int,
+        value: Optional[object],
+        reason: str,
+        outcome: "Future",
+    ) -> None:
+        """GUI thread: put the suggestion up beside the prompt's buttons."""
+        pending = self._pending_question
+        if pending is None or pending[1].cancelled() or pending[2] != question_id:
+            self._fail(
+                outcome,
+                StalePromptError(
+                    f"That question is no longer pending (question {question_id})"
+                ),
+            )
+            return
+        if self._recorded is not None:
+            _experiment, item_id, task_name, _proposal_id = self._recorded
+            self._fail(
+                outcome,
+                ValueError(
+                    f"this question is on the record: at Assist, decide {task_name!r} "
+                    f"on item {item_id!r} through a request"
+                ),
+            )
+            return
+        if value is not None and not isinstance(
+            pending[0], (PickPOI, EditAlignmentArea)
+        ):
+            self._fail(outcome, ValueError("this question takes no value"))
+            return
+        self._suggestion = (question_id, bool(response), value, str(reason))
+        payload = {
+            "type": type(pending[0]).__name__,
+            "question_id": question_id,
+            "response": bool(response),
+            "reason": str(reason),
+        }
+        if value is not None:
+            payload["has_value"] = True
+        self._emit_question_event("prompt_suggested", payload)
+        self._show_suggestion()
+        self._deliver(outcome, True)
+
+    def take_suggestion(self) -> bool:
+        """GUI thread, from the suggestion's button: answer with it, as the
+        operator. A suggested value is placed in the widget first, so what is
+        answered is what the operator saw. False when the suggestion is gone."""
+        suggestion = self.suggestion
+        if suggestion is None:
+            self._clear_suggestion()
+            return False
+        _question_id, response, value, _reason = suggestion
+        pending = self._pending_question
+        adjusted = False
+        if value is not None and pending is not None:
+            _, live = self._live_answer()
+            adjusted = not _same_geometry(pending[0], live, value)
+            if adjusted:
+                self._apply_value(pending[0], value)
+        return self.answer_confirm(
+            response, source="operator", adjusted=adjusted, suggested_by="agent"
+        )
+
+    def _clear_suggestion(self) -> None:
+        if self._suggestion is not None:
+            self._suggestion = None
+            self._show_suggestion()
+
+    def _show_suggestion(self) -> None:
+        show = getattr(self._ui, "show_suggestion", None)
+        if show is None:
+            return
+        suggestion = self.suggestion
+        if suggestion is None:
+            show(None, "")
+            return
+        _question_id, response, _value, reason = suggestion
+        pending = self._pending_question
+        label = self._button_label(pending[0], response) if pending else None
+        show(label or ("Yes" if response else "No"), reason)
+
+    @staticmethod
+    def _button_label(request: "Request", response: bool) -> Optional[str]:
+        """The prompt button the suggested answer stands for."""
+        return getattr(request, "positive" if response else "negative", None)
 
     def _apply_value(self, request: "Request", value: object) -> None:
         """Put ``value`` into the widget the pending question reads from.
@@ -527,6 +655,7 @@ class QtResponder(QObject):
             self._pending_question[1].cancel()
         self._question_seq += 1
         self._pending_question = (request, future, self._question_seq)
+        self._clear_suggestion()
         self._emit_question_event(
             "prompt_raised",
             {
@@ -891,6 +1020,7 @@ class QtResponder(QObject):
             return
         request, future, question_id = pending
         self._pending_question = None
+        self._clear_suggestion()
         self._stop_listening()
         self._ui.hold = None
         self._ui.workflow_status_signal.emit(WorkflowStatusEvent(message=""))
@@ -1026,7 +1156,11 @@ class QtResponder(QObject):
         return settings
 
     def answer_confirm(
-        self, clicked_yes: bool, source: str = "operator", adjusted: bool = False
+        self,
+        clicked_yes: bool,
+        source: str = "operator",
+        adjusted: bool = False,
+        suggested_by: Optional[str] = None,
     ) -> bool:
         """Complete the pending question from the yes/no click.
 
@@ -1043,7 +1177,8 @@ class QtResponder(QObject):
         ``prompt_answered`` event can never disagree with what happened.
         ``adjusted`` marks an answer that carried its own geometry (the value
         path), so the record shows the agent changed the widget, not just
-        accepted what stood.
+        accepted what stood. ``suggested_by`` names who suggested the answer the
+        operator took (FIB-1283): the answer is still the operator's.
         """
         pending = self._pending_question
         if pending is None:
@@ -1059,6 +1194,7 @@ class QtResponder(QObject):
             return True
         self._stop_listening()
         self._pending_question = None
+        self._clear_suggestion()
         self._ui.hold = None
         if future.cancelled():
             # The asker aborted while the prompt stood. The click means nothing
@@ -1082,6 +1218,8 @@ class QtResponder(QObject):
         }
         if adjusted:
             answered_payload["adjusted"] = True
+        if suggested_by:
+            answered_payload["suggested_by"] = suggested_by
         self._emit_question_event("prompt_answered", answered_payload)
         # And to the asker, which records the decision the answer makes.
         mark_answered_by(future, source)

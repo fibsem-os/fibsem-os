@@ -140,10 +140,14 @@ def _print_events(events, since, out):
         elif kind == "prompt_raised":
             out(f"PROMPT question={data.get('question_id')} type={data.get('type')}")
         elif kind == "prompt_answered":
-            out(
+            line = (
                 f"ANSWERED question={data.get('question_id')} by={data.get('answered_by')} "
                 f"response={data.get('response')}"
             )
+            # The operator took the agent's suggestion (FIB-1283).
+            if data.get("suggested_by"):
+                line += f" suggested_by={data['suggested_by']}"
+            out(line)
         elif kind == "prompt_cancelled":
             out(f"PROMPT WITHDRAWN question={data.get('question_id')}")
         elif kind in TERMINAL:

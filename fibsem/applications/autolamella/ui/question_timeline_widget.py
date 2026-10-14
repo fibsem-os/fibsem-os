@@ -85,7 +85,13 @@ class QuestionTimelineWidget(QWidget):
             who = "agent" if payload.get("answered_by") == "agent" else "you"
             verb = "answered" if payload.get("response") else "declined"
             label = _QUESTION_LABELS.get(payload.get("type"), payload.get("type"))
-            self._show(f"{who} · {verb} {label} · {self._now()}", who == "agent")
+            took = (
+                " (agent suggested)" if payload.get("suggested_by") == "agent" else ""
+            )
+            self._show(
+                f"{who} · {verb} {label}{took} · {self._now()}",
+                who == "agent" or bool(took),
+            )
         elif kind == "prompt_cancelled":
             self._show(f"question withdrawn · {self._now()}", False)
 
