@@ -59,6 +59,7 @@ from superqt import ensure_main_thread
 
 from fibsem import conversions
 from fibsem.applications.autolamella.poses import sync_fluorescence_pose
+from fibsem.applications.autolamella.task_outputs import run_folder
 from fibsem.applications.autolamella.ui.lamella_name_list_widget import (
     LamellaNameListWidget,
 )
@@ -2250,10 +2251,9 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         recorded (the panel dedups by name); per-run images stay archived in the
         strategy's own coincidence-images folders.
 
-        The file keeps the review-panel naming, and is overwritten each run, purely
-        so experiments opened by a build predating task outputs still resolve it
-        through the filename convention. Once that fallback is no longer needed the
-        name is free to become per-run, and runs will stop overwriting each other.
+        Saved in the recorded run's own folder, ``<lamella>/<task>/<YYYYMMDD-
+        HHMMSS>/`` (FIB-1275), as a task's run would, so recording again keeps
+        the earlier image. The file keeps the review-panel naming.
         """
         lamella = self._selected_lamella
         image = self._latest_fib_image
@@ -2265,13 +2265,13 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         )
 
         try:
+            now = timestamps.now()
             filename = os.path.join(
-                lamella.path,
+                run_folder(lamella, COINCIDENCE_REVIEW_TASK_NAME, now),
                 f"ref_{COINCIDENCE_REVIEW_TASK_NAME}_final_res_01_ib.tif",
             )
             written = image.save(filename)
 
-            now = timestamps.now()
             lamella.task_history.append(
                 AutoLamellaTaskState(
                     name=COINCIDENCE_REVIEW_TASK_NAME,

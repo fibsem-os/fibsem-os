@@ -171,7 +171,7 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
         # Generate timestamp-based filename
         timestamp = utils.current_timestamp_v3(timeonly=True)
         basename = f"{self.lamella.name}-zstack-{timestamp}.ome.tiff"
-        filename = os.path.join(self.lamella.path, basename)
+        filename = os.path.join(self.output_dir, basename)  # the run's (FIB-1275)
 
         # Acquire image
         self.log_status_message(

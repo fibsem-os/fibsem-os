@@ -96,8 +96,9 @@ def test_from_the_sem_orientation_the_task_ends_coincident_at_the_milling_angle(
     # the site the operator chose is still centred: the walk was undone
     drift = np.hypot(*np.subtract(_anchor_in_fib_view(microscope), before))
     assert drift < 2e-6, f"site drifted {drift * 1e6:.1f} um"
-    # diagnostics for the pre-tilt alignment and the tilt landed with the lamella
-    saved = os.listdir(task.lamella.path / ALIGNMENT_SUBDIR)
+    # diagnostics for the pre-tilt alignment and the tilt landed with the run's
+    # other alignments, in its own folder (FIB-1275)
+    saved = os.listdir(os.path.join(task.output_dir, ALIGNMENT_SUBDIR))
     assert any(f.startswith("start_") for f in saved)
     assert any(f.startswith("tilt01_") for f in saved)
 
@@ -116,6 +117,6 @@ def test_at_the_milling_angle_the_task_only_aligns(microscope, tmp_path):
     assert microscope.get_stage_position().t == pytest.approx(pose.t, abs=1e-6)
     m = check_coincidence(microscope)
     assert m.is_reliable and abs(m.dz) < 1e-6, (m.refusal_reason, m.dz)
-    saved = os.listdir(task.lamella.path / ALIGNMENT_SUBDIR)
+    saved = os.listdir(os.path.join(task.output_dir, ALIGNMENT_SUBDIR))
     assert any(f.startswith("start_") for f in saved)
     assert not any(f.startswith("tilt") for f in saved)
