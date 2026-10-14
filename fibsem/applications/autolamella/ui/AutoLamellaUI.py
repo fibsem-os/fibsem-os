@@ -103,6 +103,7 @@ from fibsem.applications.autolamella.ui.autolamella_load_task_protocol_widget im
 from fibsem.applications.autolamella.ui.autolamella_overview_image_widget import (
     create_overview_image_widget,
 )
+from fibsem.applications.autolamella.workflows.grid_gate import run_refusal
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.hooks import HookManager
 from fibsem.ui.widgets.fluorescence_control_widget import FMControlWidget
@@ -1390,6 +1391,14 @@ class AutoLamellaUI(QMainWindow):
                     "reason": f"unknown items: {missing!r}",
                     "item_names": known_items,
                 }
+        names = list(item_names) if item_names is not None else known_items
+        # The Run click's grid gate: a lamella whose grid is not on the stage
+        # is refused by name, with no override, before anything moves.
+        refused = self.lamella_run_refusal(
+            [p for p in experiment.positions if p.name in names]
+        )
+        if refused:
+            return {"started": False, "reason": refused}
         # The chrome the Run click supplies around the shared start. Guarded:
         # the standalone window has no parent to decorate.
         parent = self.parent_widget
@@ -1400,9 +1409,7 @@ class AutoLamellaUI(QMainWindow):
                 parent.lamella_widget.flush_pending_save()
             except Exception:
                 logging.exception("flush before agent start failed; continuing")
-        self._start_run_workflow_thread(
-            task_names, list(item_names) if item_names is not None else known_items
-        )
+        self._start_run_workflow_thread(task_names, names)
         started = self.is_workflow_running
         if started and parent is not None:
             try:
@@ -1416,6 +1423,18 @@ class AutoLamellaUI(QMainWindow):
             except Exception:
                 logging.exception("window chrome after agent start failed")
         return {"started": started}
+
+    def lamella_run_refusal(self, lamellae) -> str:
+        """Why these lamellae cannot run now, or "": a lamella linked to a grid
+        that is not on the stage. Reads the inventory first; see `grid_gate`.
+
+        The one gate for the Run click, Add to queue and the agent's start and
+        requeue, so none of them can run a lamella on the wrong grid.
+        """
+        stage = getattr(self.microscope, "sample_handling", None)
+        if self.experiment is None or stage is None:
+            return ""
+        return run_refusal(self.experiment, stage, lamellae)
 
     def request_start_grid_workflow(
         self,

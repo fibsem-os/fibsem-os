@@ -97,7 +97,6 @@ from fibsem.applications.autolamella.ui.workflow_preflight_dialog import (
 from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
     WorkflowProgressWidget,
 )
-from fibsem.applications.autolamella.workflows.grid_gate import run_refusal
 from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     LOAD_ENTRY_NAME as GRID_LOAD_STEP,
 )
@@ -1757,10 +1756,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Why these lamellae cannot run now, or "": a lamella linked to a grid
         that is not on the stage. Reads the inventory first; see `grid_gate`."""
         ui = self.autolamella_ui
-        stage = getattr(getattr(ui, "microscope", None), "sample_handling", None)
-        if ui is None or ui.experiment is None or stage is None:
+        if ui is None:
             return ""
-        return run_refusal(ui.experiment, stage, lamellae)
+        return ui.lamella_run_refusal(lamellae)
 
     def _grid_workflow_active(self) -> bool:
         """Whether the Workflow tab's Grids view is the one showing: Run acts on it."""
