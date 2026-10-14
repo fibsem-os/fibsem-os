@@ -360,3 +360,32 @@ def test_every_acting_tool_resolves_to_its_route():
         method, path, _ = route_call(spec, arguments)
         assert method == spec.method
         assert "{" not in path, spec.name
+
+
+def test_each_action_is_described_by_the_server_with_old_and_new(client, context):
+    item = context._host.experiment.positions[0]
+    item.description = "first pass"
+    edit = {
+        "tool": "update_item_detail",
+        "arguments": {
+            "item_name": item.name,
+            "patch": {"description": "trench floor high"},
+            "version": "v",
+        },
+    }
+    filed = _file(client, NUDGE, edit, SUPERVISE).json()
+    lines = [(a["what"], a["change"]) for a in filed["actions"]]
+    assert lines == [
+        ("Stage", "Move by x 1 µm"),
+        (item.name, "description: first pass → trench floor high"),
+        ("MILL_ROUGH", "Supervised: ask at each decision"),
+    ]
+
+
+def test_an_unknown_tool_in_the_describer_falls_back_to_its_name():
+    from fibsem.server.request_text import describe_action
+
+    assert describe_action("new_tool", {}, "/x") == {
+        "what": "new_tool",
+        "change": "Run",
+    }

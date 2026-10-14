@@ -16,11 +16,9 @@ class AgentLevel(str, Enum):
     - ``off``: every agent-token request is refused, reads included.
     - ``watch``: reads everything and adds notes; acts on nothing, stops nothing.
     - ``assist``: as Drive, but each action is a request the operator approves
-      (FIB-1283). Defined, not offered yet.
+      (FIB-1283); stopping needs no approval.
     - ``drive``: acts on the session: starts, stops, schedules, answers, edits;
       and on the microscope, when the devices setting is on (FIB-1267).
-
-    Hardware joins Assist with FIB-1267's requests.
     """
 
     OFF = "off"

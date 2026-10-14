@@ -32,6 +32,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fibsem.acting import AGENT, acting
 from fibsem.server.auth import AgentLevel, AuthConfig, Scope, granting, require_scope
 from fibsem.server.catalog import CATALOG, ToolSpec
+from fibsem.server.request_text import describe_action
 
 # The scopes a request may carry: every acting scope. Reads need no request.
 REQUEST_SCOPES = frozenset((Scope.CONTROL, Scope.CONFIGURE, Scope.HARDWARE))
@@ -99,6 +100,9 @@ class Action:
     method: str
     path: str
     body: Optional[Dict[str, Any]]
+    # The operator's two lines for it, written by the server (request_text).
+    what: str = ""
+    change: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -106,6 +110,8 @@ class Action:
             "arguments": self.arguments,
             "method": self.method,
             "path": self.path,
+            "what": self.what,
+            "change": self.change,
         }
 
 
@@ -297,6 +303,11 @@ class RequestStore:
             )
         if on_expiry not in ("approve", "reject"):
             raise ValueError("on_expiry is 'approve' or 'reject'")
+        for action in resolved:
+            described = describe_action(
+                action.tool, action.arguments, action.path, read=self._read
+            )
+            action.what, action.change = described["what"], described["change"]
         with self._lock:
             waiting = self._pending_locked()
             if waiting is not None:
@@ -532,6 +543,13 @@ class RequestStore:
         self._changed(request)
 
     # --- helpers ---
+
+    def _read(self, path: str) -> Optional[Dict[str, Any]]:
+        """GET a route in this process: the document a config edit patches."""
+        code, answer = asyncio.run(
+            _asgi_call(self._app, "GET", path, None, self._auth.token)
+        )
+        return answer if code < 400 and isinstance(answer, dict) else None
 
     def _assisting(self) -> bool:
         return self._auth.level is AgentLevel.ASSIST and not self._auth.stopped
