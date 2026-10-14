@@ -1154,11 +1154,9 @@ class GuidedSetupDialog(QtWidgets.QDialog):
         if hasattr(self, "_stage_diagram"):
             # The column tilt the configuration will be written with: the chosen
             # driver's (`build_configuration`), or the diagram's own when it has none.
-            defaults = cfg.DEFAULT_CONFIGURATION_VALUES.get(
-                self.choices.manufacturer.config_value
-            )
-            if defaults and "ion-column-tilt" in defaults:
-                self._stage_diagram.set_column_tilt(defaults["ion-column-tilt"])
+            for entry in self.choices.manufacturer.devices:
+                if entry.get("name") == "ion" and "column_tilt" in entry:
+                    self._stage_diagram.set_column_tilt(entry["column_tilt"])
 
     # -- step 2: computer and connection ------------------------------------
 
