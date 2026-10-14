@@ -835,6 +835,25 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
 
 CATALOG = CATALOG + APP_TOOLS
 
+# Every route the server serves is a tool above or here, with why it is not one
+# (tests/server/test_catalog_discovery.py). A new route fails that test until
+# someone decides. Path parameter names don't matter.
+NOT_TOOLS: Dict[str, str] = {
+    "GET /health": "Open liveness check, no token; the agent's first read is get_capabilities.",
+    "GET /dashboard": "The operator's monitor page, HTML.",
+    "GET /app/agent/requests": "The app's list of every request; the agent follows its own with get_request.",
+    "GET /app/experiment/grids/{grid}/outputs/{filename}": "A JPEG for the dashboard; get_grid_markers is the agent's read of an overview.",
+    "GET /microscope/devices/{device}": "list_devices carries every device's description.",
+    "GET /microscope/devices/{device}/{parameter}/metadata": "list_devices carries limits, choices and settable.",
+    "GET /microscope/services/{service}": "list_services carries every service's description.",
+    "GET /microscope/services/{service}/{parameter}/metadata": "list_services carries limits, choices and settable.",
+    "GET /microscope/devices/{device}/values": "Not decided yet; get_parameter reads one value at a time.",
+    "GET /microscope/services/{service}/values": "Not decided yet; get_service_parameter reads one value at a time.",
+    "POST /microscope/devices/{device}/queries/{query}": "Not decided yet; services hold the questions an agent asks (call_service_query).",
+    "PUT /microscope/services/{service}/{parameter}": "Not decided yet: set_service_parameter, for the milling-angle write.",
+    "PUT /microscope/state": "Not decided yet: restoring beams and stage is allowed, but has no tool.",
+}
+
 
 def tools_for_capabilities(capabilities: Dict) -> Tuple[ToolSpec, ...]:
     """Catalog entries to offer given a full /capabilities payload.
