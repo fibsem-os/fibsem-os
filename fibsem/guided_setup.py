@@ -18,7 +18,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional
 
 from fibsem import config as cfg
 
@@ -35,8 +35,8 @@ logger = logging.getLogger(__name__)
 # There is no "Offline PC" here. Wanting the simulator is a statement about what you
 # are connecting to, not about where you are sitting, and it is asked as a
 # manufacturer instead. Having it in both places meant two ways to say the same thing
-# that could disagree -- an Offline PC with a ThermoFisher chosen silently became a
-# Demo, discarding the answer to the question just above it.
+# that could disagree -- an Offline PC with an instrument's manufacturer chosen silently
+# became a Demo, discarding the answer to the question just above it.
 LOCATION_SUPPORT = "support"
 LOCATION_MICROSCOPE = "microscope"
 
@@ -101,15 +101,6 @@ def location_summary(location: ComputerLocation, manufacturer: "Manufacturer") -
 # Which manufacturer
 # ---------------------------------------------------------------------------
 
-MANUFACTURER_THERMO = "thermo"
-MANUFACTURER_TESCAN = "tescan"
-MANUFACTURER_SIMULATOR = "simulator"
-
-# The frame an ordinary ThermoFisher stage is driven in. Named here rather than spelled
-# into a sentence so the caution the wizard shows and the value ``microscope.py`` sets
-# cannot drift apart silently.
-STAGE_COORDINATE_SYSTEM = "Raw"
-
 
 @dataclass(frozen=True)
 class Manufacturer:
@@ -121,32 +112,36 @@ class Manufacturer:
     projection between the two beams; and it decides which vendor API has to be
     installed for the connection to work at all.
 
-    The simulator is offered here rather than as a computer location. It *is* a
-    manufacturer as far as the configuration is concerned -- ``manufacturer: Demo`` is
-    what the file ends up saying either way -- and asking once means the answer cannot
-    contradict itself.
+    One per driver the registry offers for setup (``DriverEntry.setup``), so what each
+    one says lives with its driver. The simulator is offered here rather than as a
+    computer location: as far as the configuration is concerned it *is* a manufacturer,
+    and asking once means the answer cannot contradict itself.
     """
 
     key: str
+    """The driver's registry name, which is also what ``info.manufacturer`` says."""
+
     label: str
     summary: str
-    config_value: str
     # What this manufacturer's own control software is called, for the places the
-    # wizard has to refer to it -- "alongside xT" beats "alongside xT or Essence",
-    # which names one piece of software the reader does not have. The default is the
-    # generic phrase, so a manufacturer added without one still reads sensibly rather
-    # than naming somebody else's product.
+    # wizard has to refer to it. The default is the generic phrase, so a manufacturer
+    # added without one still reads sensibly rather than naming somebody else's
+    # product.
     control_software: str = "the microscope control software"
-    # The module the backend imports. None where there is nothing to install, which is
-    # true only of the simulator. Checked with ``find_spec`` rather than imported: the
-    # question is whether the package is present, and importing AutoScript to find out
-    # is slow and has side effects.
+    # The module the backend imports. None where there is nothing to install. Checked
+    # with ``find_spec`` rather than imported: the question is whether the package is
+    # present, and importing a vendor SDK to find out is slow and has side effects.
     api_module: Optional[str] = None
     api_label: str = ""
+    simulated: bool = False
+
+    @property
+    def config_value(self) -> str:
+        return self.key
 
     @property
     def is_simulator(self) -> bool:
-        return self.key == MANUFACTURER_SIMULATOR
+        return self.simulated
 
 
 # One icon for every manufacturer, for the reason given at MODEL_ICON below: a distinct
@@ -154,36 +149,95 @@ class Manufacturer:
 # someone else's company is not this dialog's job.
 MANUFACTURER_ICON = "mdi:domain"
 
-MANUFACTURERS: List[Manufacturer] = [
-    Manufacturer(
-        key=MANUFACTURER_THERMO,
-        label="ThermoFisher",
-        summary="Arctis, Hydra and Aquilos.",
-        config_value="ThermoFisher",
-        control_software="xT",
-        api_module="autoscript_sdb_microscope_client",
-        api_label="AutoScript",
-    ),
-    Manufacturer(
-        key=MANUFACTURER_TESCAN,
-        label="Tescan",
-        summary="Driven by presets rather than beam currents.",
-        config_value="Tescan",
-        control_software="Essence",
-        api_module="tescanautomation",
-        api_label="TESCAN Automation",
-    ),
-    Manufacturer(
-        key=MANUFACTURER_SIMULATOR,
-        label="Simulator",
-        summary="No instrument. Everything runs against the built-in simulator.",
-        config_value="Demo",
-    ),
-]
 
-_MANUFACTURERS_BY_KEY: Dict[str, Manufacturer] = {
-    manufacturer.key: manufacturer for manufacturer in MANUFACTURERS
-}
+@dataclass(frozen=True)
+class MicroscopeModel:
+    """A shipped configuration, offered as a starting point.
+
+    ``knows_stage`` is what makes the stage step read-only. Nothing is ever skipped:
+    the step is shown either way, because a filled-in page that cannot be edited says
+    the answer is already known, and an absent one says nothing at all.
+
+    Every shipped file carries ``rotation_reference`` and ``shuttle_pre_tilt``, but
+    carrying a value is not the same as the value being right for the instrument in
+    front of you: on a pre-tilted-shuttle system the pre-tilt belongs to whichever
+    shuttle is fitted, and the reference rotation to how the sample is loaded at that
+    site. Both are site facts, so the shipped numbers are a starting point and the step
+    still has to be confirmed. A stage that reaches the other side of the sample by
+    tilting rather than rotating has neither, by design, so its configuration can
+    answer outright.
+
+    ``config_overrides`` are what the driver writes beyond the shipped file, such as a
+    simulator's ``sim`` block, which nothing else in the file implies.
+    """
+
+    key: str
+    manufacturer_key: str
+    label: str
+    summary: str
+    filename: str
+    knows_stage: bool = True
+    stage_note: str = ""
+    config_overrides: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
+
+    @property
+    def path(self) -> str:
+        return os.path.join(cfg.CONFIG_PATH, self.filename)
+
+    @property
+    def manufacturer(self) -> Manufacturer:
+        return get_manufacturer(self.manufacturer_key)
+
+
+# One icon for every model, rather than one per manufacturer. A distinct glyph per card
+# reads as a distinction between the instruments, and there is none to draw: these are
+# starting points for the same dialog, differing only in which file they open. It also
+# spares inventing a visual identity for someone else's product.
+MODEL_ICON = "mdi:microscope"
+
+
+def _setups():
+    from fibsem.drivers.registry import driver_setups
+
+    return driver_setups()
+
+
+def manufacturers() -> List[Manufacturer]:
+    """The manufacturers offered, one per driver with a setup, in registry order.
+
+    A driver without one (Odemis, reached without the address this wizard collects) is
+    not offered.
+    """
+    return [
+        Manufacturer(
+            key=name,
+            label=setup.label,
+            summary=setup.summary,
+            control_software=setup.control_software,
+            api_module=setup.api_module,
+            api_label=setup.api_label,
+            simulated=setup.simulated,
+        )
+        for name, setup in _setups()
+    ]
+
+
+def microscope_models() -> List[MicroscopeModel]:
+    """Every instrument offered, grouped by manufacturer in the order shown."""
+    return [
+        MicroscopeModel(
+            key=model.key,
+            manufacturer_key=name,
+            label=model.label,
+            summary=model.summary,
+            filename=model.filename,
+            knows_stage=model.knows_stage,
+            stage_note=model.stage_note,
+            config_overrides=model.config_overrides,
+        )
+        for name, setup in _setups()
+        for model in setup.models
+    ]
 
 
 def get_manufacturer(key: str) -> Manufacturer:
@@ -192,7 +246,8 @@ def get_manufacturer(key: str) -> Manufacturer:
     A fallback rather than a KeyError for the same reason as ``get_location``: this is
     read while drawing a dialog.
     """
-    return _MANUFACTURERS_BY_KEY.get(key, MANUFACTURERS[0])
+    offered = manufacturers()
+    return next((m for m in offered if m.key == key), offered[0])
 
 
 def api_is_installed(manufacturer: Manufacturer) -> Optional[bool]:
@@ -221,134 +276,10 @@ def api_is_installed(manufacturer: Manufacturer) -> Optional[bool]:
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class MicroscopeModel:
-    """A shipped configuration, offered as a starting point.
-
-    ``knows_stage`` is what makes the stage step read-only. Nothing is ever skipped:
-    the step is shown either way, because a filled-in page that cannot be edited says
-    the answer is already known, and an absent one says nothing at all.
-
-    Every shipped file carries ``rotation_reference`` and ``shuttle_pre_tilt``, but
-    carrying a value is not the same as the value being right for the instrument in
-    front of you: on a pre-tilted-shuttle system the pre-tilt belongs to whichever
-    shuttle is fitted, and the reference rotation to how the sample is loaded at that
-    site. Both are site facts, so the shipped numbers are a starting point and the step
-    still has to be confirmed.
-
-    A compustage is different in kind rather than in degree. It reaches the other side
-    of the sample by tilting rather than rotating, so there is no reference rotation to
-    measure, and it has no pre-tilted shuttle. Both values are properties of the
-    design, which is why those configurations read 0 throughout and why they are the
-    ones that can answer the question outright.
-
-    ``is_compustage`` is carried separately because nothing in the file says so. The
-    simulator reads ``sim.is_compustage`` and overwrites ``info.model`` with
-    "DemoMicroscope" the moment it connects, so a simulated Arctis is only a
-    compustage if that flag is written. Real backends read the capability from the
-    instrument and ignore this entirely.
-    """
-
-    key: str
-    manufacturer_key: str
-    label: str
-    summary: str
-    filename: str
-    is_compustage: bool = False
-    knows_stage: bool = True
-
-    @property
-    def path(self) -> str:
-        return os.path.join(cfg.CONFIG_PATH, self.filename)
-
-    @property
-    def manufacturer(self) -> Manufacturer:
-        return get_manufacturer(self.manufacturer_key)
-
-
-# One icon for every model, rather than one per manufacturer. A distinct glyph per card
-# reads as a distinction between the instruments, and there is none to draw: these are
-# five starting points for the same dialog, differing only in which file they open. It
-# also spared inventing a visual identity for someone else's product.
-MODEL_ICON = "mdi:microscope"
-
-# Odemis is absent although a configuration ships for it: it is a different control
-# stack, reached without the address this wizard collects, and
-# ``DEFAULT_CONFIGURATION_VALUES`` has no column tilts for it. Offering it would mean
-# answering both of those first.
-#
-# Labels carry no manufacturer, because the manufacturer was the question before this
-# one. "ThermoFisher Arctis" under a ThermoFisher heading says it twice.
-MICROSCOPE_MODELS: List[MicroscopeModel] = [
-    MicroscopeModel(
-        key="tfs-arctis",
-        manufacturer_key=MANUFACTURER_THERMO,
-        label="Arctis",
-        summary="Compustage, no shuttle pre-tilt",
-        filename="tfs-arctis-configuration.yaml",
-        is_compustage=True,
-    ),
-    MicroscopeModel(
-        key="tfs-hydra",
-        manufacturer_key=MANUFACTURER_THERMO,
-        label="Hydra",
-        summary="Plasma FIB, 35° pre-tilted shuttle",
-        filename="tfs-hydra-configuration.yaml",
-        knows_stage=False,
-    ),
-    MicroscopeModel(
-        key="tfs-aquilos2",
-        manufacturer_key=MANUFACTURER_THERMO,
-        label="Aquilos 2",
-        summary="Cryo-FIB, 35° pre-tilted shuttle",
-        filename="tfs-aquilos2-configuration.yaml",
-        knows_stage=False,
-    ),
-    MicroscopeModel(
-        key="tfs-other",
-        manufacturer_key=MANUFACTURER_THERMO,
-        label="Another ThermoFisher instrument",
-        summary="Start from the default configuration and enter the stage settings.",
-        filename="microscope-configuration.yaml",
-        knows_stage=False,
-    ),
-    MicroscopeModel(
-        key="tescan",
-        manufacturer_key=MANUFACTURER_TESCAN,
-        label="Tescan instrument",
-        summary="Presets rather than beam currents",
-        filename="tescan-configuration.yaml",
-        knows_stage=False,
-    ),
-    # The generic simulator ships a 35 degree pre-tilt, so it stands in for an ordinary
-    # shuttle system and is still asked about the stage. A run set up against the
-    # simulator should behave like the instrument it stands in for.
-    MicroscopeModel(
-        key="sim-demo",
-        manufacturer_key=MANUFACTURER_SIMULATOR,
-        label="Demo microscope",
-        summary="The default simulated instrument, on a 35° pre-tilted shuttle.",
-        filename="microscope-configuration.yaml",
-        knows_stage=False,
-    ),
-    MicroscopeModel(
-        key="sim-arctis",
-        manufacturer_key=MANUFACTURER_SIMULATOR,
-        label="Simulated Arctis",
-        summary="A simulated compustage, for trying the Arctis workflow.",
-        filename="sim-arctis-configuration.yaml",
-        is_compustage=True,
-    ),
-]
-
-_MODELS_BY_KEY: Dict[str, MicroscopeModel] = {
-    model.key: model for model in MICROSCOPE_MODELS
-}
-
-
 def get_model(key: str) -> MicroscopeModel:
     """The model with this key, falling back to the first offered."""
-    return _MODELS_BY_KEY.get(key, MICROSCOPE_MODELS[0])
+    offered = microscope_models()
+    return next((m for m in offered if m.key == key), offered[0])
 
 
 def models_for(manufacturer_key: str) -> List[MicroscopeModel]:
@@ -358,7 +289,7 @@ def models_for(manufacturer_key: str) -> List[MicroscopeModel]:
     manufacturer selects its first instrument, so an empty list would leave the step
     with nothing chosen and the Next button enabled.
     """
-    return [m for m in MICROSCOPE_MODELS if m.manufacturer_key == manufacturer_key]
+    return [m for m in microscope_models() if m.manufacturer_key == manufacturer_key]
 
 
 def shipped_stage_values(model: MicroscopeModel) -> Dict[str, float]:
@@ -398,14 +329,15 @@ class SetupChoices:
 
     ``rotation_reference`` and ``shuttle_pre_tilt`` are Optional because None is a
     real answer here: it means *the wizard did not ask*, so the shipped file's own
-    values stand -- which for ``tfs-arctis`` includes ``rotation: false``, the flag
-    that says a compustage has no 180-degree rotation to reach (FIB-834). Overwriting
+    values stand -- which for a stage that tilts to the other side includes
+    ``rotation: false``, the flag that says there is no 180-degree rotation to reach
+    (FIB-834). Overwriting
     the reference on a model the wizard never asked about would leave that flag
     describing a stage the file no longer describes.
     """
 
-    manufacturer_key: str = MANUFACTURERS[0].key
-    model_key: str = MICROSCOPE_MODELS[0].key
+    manufacturer_key: str = field(default_factory=lambda: manufacturers()[0].key)
+    model_key: str = field(default_factory=lambda: microscope_models()[0].key)
     location_key: str = LOCATION_SUPPORT
     address: str = cfg.DEFAULT_IP_ADDRESS
     rotation_reference: Optional[float] = None
@@ -457,7 +389,8 @@ class SetupChoices:
     def stage_is_readonly(self) -> bool:
         """Whether the stage step is shown but not editable.
 
-        True for the compustage alone, and the step is *shown* rather than skipped so
+        True for a model whose configuration answers the stage questions outright (a
+        stage that tilts to the other side), and the step is *shown* rather than skipped so
         the diagram can say why there is nothing to enter: a flat holder, no wedge, no
         rotation to measure. Skipping left that as an absence, which reads as an
         omission rather than an answer.
@@ -476,26 +409,15 @@ class SetupChoices:
 
     @property
     def stage_coordinate_note(self) -> str:
-        """A caution about the coordinate frame, where one is warranted.
+        """A caution about the coordinate frame, where the driver gives one.
 
-        ThermoFisher's ordinary stages are driven in RAW (``microscope.py`` sets
-        ``CoordinateSystem.RAW`` for them), while xT normally shows the linked frame.
-        The rotation read here can therefore differ from the number on the
-        instrument's own screen. That is not an error -- but someone comparing the two
-        without knowing will reasonably assume it is, and "correct" a value that was
-        right.
-
-        Empty where the claim would not be true: a compustage is driven in SPECIMEN,
-        not RAW, and neither Tescan nor the simulator has an xT to disagree with.
+        A driver may read the stage in a different frame from the one the instrument's
+        own software shows, so the rotation read here can differ from the number on
+        its screen. That is not an error -- but someone comparing the two without
+        knowing will reasonably assume it is, and "correct" a value that was right.
+        Empty where the driver gives no note for the model.
         """
-        if self.manufacturer_key != MANUFACTURER_THERMO or self.model.is_compustage:
-            return ""
-        return (
-            f"Stage values here are {STAGE_COORDINATE_SYSTEM} coordinates, which can "
-            f"differ from the ones {self.manufacturer.control_software} displays. A "
-            "mismatch between the two is expected rather than a sign something is "
-            "wrong."
-        )
+        return self.model.stage_note
 
     @property
     def connection_is_editable(self) -> bool:
@@ -511,8 +433,8 @@ class SetupChoices:
 def default_address(location_key: str) -> str:
     """The address to offer for a location.
 
-    From the location, not from the chosen model's file. Two shipped files
-    (``tfs-arctis``, ``tescan``) record ``localhost``, which describes a computer
+    From the location, not from the chosen model's file. Some shipped files record
+    ``localhost``, which describes a computer
     rather than an instrument -- seeding a support PC from either would prefill an
     address that can only ever work somewhere else.
     """
@@ -583,8 +505,8 @@ def build_configuration(choices: SetupChoices) -> dict:
     info["model"] = model.label
     # Written unconditionally, because the manufacturer is now always asked. It agrees
     # with the shipped file for every model that has one of its own; the exception is
-    # "Another ThermoFisher instrument", whose base is a Demo configuration and would
-    # otherwise claim to be a Demo.
+    # a driver's "another instrument" model, whose base is the generic (Demo)
+    # configuration and would otherwise claim to be a Demo.
     info["manufacturer"] = manufacturer.config_value
 
     # Column tilt is geometry -- every projection between the two beams runs through it
@@ -600,11 +522,11 @@ def build_configuration(choices: SetupChoices) -> dict:
             "electron-column-tilt"
         ]
 
-    if choices.is_simulator:
-        # Only meaningful to the simulator, and only written when the simulator is what
-        # will read it. On a Thermo or Tescan configuration this key would be inert
-        # noise in a file people read by hand.
-        config.setdefault("sim", {})["is_compustage"] = model.is_compustage
+    # What the driver writes for this model beyond the shipped file (a simulator's
+    # ``sim`` block). Only the model's own driver reads it, so nothing is written for
+    # a model that has none.
+    for section, values in model.config_overrides.items():
+        config.setdefault(section, {}).update(values)
 
     stage = utils.configuration_device(config, "stage", create=True)
     if choices.rotation_reference is not None:

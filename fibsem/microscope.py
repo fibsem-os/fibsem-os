@@ -934,22 +934,21 @@ class FibsemMicroscope(ABC):
         """Whether this site has said its instrument has a fluorescence microscope.
 
         The **flag decides**; the driver's own probe only confirms afterwards, and
-        that order matters. There is no `is_installed` for the FM in AutoScript --
-        every other subsystem has one -- so the only capability test available is to
-        select it and see whether the microscope throws. Running that on every system
-        would be autodetection, and an Aquilos or Helios with an iFLM fitted would
-        find half-built offset support appearing in its UI on upgrade: a fluorescence
-        tab that builds, a button that traverses 48 mm, pose derivation that is only
-        partly right. Probing also touches the shared imaging channel on machines that
-        have never had an FM.
+        that order matters. A driver may have no way to ask whether an FM is fitted
+        short of selecting it and seeing whether the microscope refuses. Running that
+        on every system would be autodetection, and an instrument with an FM on an
+        offset mount would find half-built support appearing in its UI on upgrade: a
+        fluorescence tab that builds, a button that traverses the offset, pose
+        derivation that is only partly right. Probing also touches the shared imaging
+        channel on machines that have never had an FM.
 
-        **A compustage keeps its answer.** The stage type is read from the
-        hardware (`compustage.is_installed`), not from configuration, and no shipped
-        Arctis configuration carries the flag -- `tfs-arctis-configuration.yaml` has
-        no `fm:` block at all. Replacing the old check rather than widening it would
-        take the FM away from every Arctis site on upgrade. So a configuration that
-        does not state the flag keeps the compustage exactly as it was, and an offset
-        mount must opt in. An explicit `false` turns the FM off on either.
+        **A stage that reaches the FM by re-posing keeps its answer.** The stage type
+        is read from the hardware, not from configuration, and the shipped
+        configurations for such stages carry no `fm:` block at all. Replacing the old
+        check rather than widening it would take the FM away from every such site on
+        upgrade. So a configuration that does not state the flag keeps a re-posing
+        stage exactly as it was, and an offset mount must opt in. An explicit `false`
+        turns the FM off on either.
         """
         if self.system.fm.enabled is None:
             return self._fluorescence_default()
@@ -3033,9 +3032,9 @@ class FibsemMicroscope(ABC):
         if not self._fm_is_a_pose() and devices == DEFAULT_STAGE_DEVICES:
             logging.warning(
                 "A fluorescence microscope is enabled but its device entry declares "
-                "no `origin`, so the FM defaults to the beams' origin. An offset "
-                "mount (METEOR, iFLM) must declare where it is -- see "
-                "sim-iflm-configuration.yaml."
+                "no `origin`, so the FM defaults to the beams' origin. An FM on an "
+                "offset mount must declare where it is, as the `origin` of its "
+                "stage device entry."
             )
 
     def _device_translation(self, source: str, target: str) -> FibsemStagePosition:

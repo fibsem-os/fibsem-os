@@ -627,9 +627,9 @@ def test_the_available_manufacturers_are_registry_names():
 def test_the_setup_wizard_writes_registry_names():
     """The guided setup writes config_value into configurations and keys the column
     tilt defaults with it, so another spelling would miss both."""
-    from fibsem.guided_setup import MANUFACTURERS
+    from fibsem.guided_setup import manufacturers
 
-    for m in MANUFACTURERS:
+    for m in manufacturers():
         assert registry.normalize_name(m.config_value) == m.config_value
 
 
