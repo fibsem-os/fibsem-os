@@ -499,8 +499,9 @@ class FibsemClient:
 
     # --- Milling angle ---
     # The stage movement service's: the stored milling angle is its parameter, in
-    # degrees; the reads are its queries. move_to_milling_angle takes radians, as
-    # the FibsemMicroscope method does (FIB-853).
+    # degrees; the reads are its queries and so is its move_to_milling_angle
+    # command. This client's move_to_milling_angle takes radians, as the
+    # FibsemMicroscope method does, and converts.
 
     def get_current_milling_angle(
         self, stage_position: Optional[FibsemStagePosition] = None
@@ -526,8 +527,8 @@ class FibsemClient:
         return self.call_service_command(
             STAGE_MOVEMENT,
             "move_to_milling_angle",
-            milling_angle=milling_angle,
-            rotation=rotation,
+            milling_angle=float(np.degrees(milling_angle)),
+            rotation=None if rotation is None else float(np.degrees(rotation)),
         )
 
     def is_close_to_milling_angle(

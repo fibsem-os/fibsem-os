@@ -625,6 +625,32 @@ def test_grid_overview_serves_jpeg_and_refuses_unlisted_names(
     assert no_grid.json()["detail"]["grid_names"] == ["grid-aspen"]
 
 
+def test_sidecar_returns_a_grid_overview_as_image_content(client, grid_with_overview):
+    pytest.importorskip("mcp")
+    from fibsem.mcp.sidecar import build_sidecar
+
+    client.headers["Authorization"] = f"Bearer {TOKEN}"
+    sidecar = build_sidecar(client, client.get("/capabilities").json())
+
+    def call(filename):
+        result = asyncio.run(
+            sidecar.call_tool(
+                "get_grid_output_image",
+                {"grid_name": "grid-aspen", "filename": filename},
+            )
+        )
+        if isinstance(result, tuple):
+            result = result[0]
+        return list(getattr(result, "content", result))
+
+    contents = call("overview.tif")
+    image = next(c for c in contents if getattr(c, "type", None) == "image")
+    assert image.mime_type == "image/jpeg"
+    refused = "".join(getattr(c, "text", "") for c in call("nope.tif"))
+    assert "refused (404)" in refused
+    assert "overview.tif" in refused
+
+
 def test_grid_markers_place_items_in_source_pixels(client, host, grid_with_overview):
     body = client.get(
         "/app/experiment/grids/grid-aspen/outputs/overview.tif/markers", headers=AUTH

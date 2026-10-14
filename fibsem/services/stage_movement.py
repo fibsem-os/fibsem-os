@@ -1184,34 +1184,34 @@ class StageMovement(Service):
     def move_to_milling_angle(
         self, milling_angle: float, rotation: Optional[float] = None
     ) -> bool:
-        """Move the stage to a milling angle, in radians, from the pretilt and the
-        column tilt. Returns whether the stage is close to it afterwards.
+        """Move the stage to a milling angle, in degrees like the service's other
+        milling-angle reads, from the pretilt and the column tilt. Returns whether
+        the stage is close to it afterwards.
 
         Args:
-            milling_angle: the milling angle, in radians.
-            rotation: the stage rotation, in radians; the rotation reference if None.
+            milling_angle: the milling angle, in degrees.
+            rotation: the stage rotation, in degrees; the rotation reference if None.
         """
+        microscope = self.parent
+        if rotation is None:
+            rotation = microscope.system.stage.rotation_reference
+        # The move event keeps radians, the stage's own unit, as it always has.
         with recording_move(
             self.session,
             self.stage,
             "move_to_milling_angle",
-            milling_angle=milling_angle,
-            rotation=rotation,
+            milling_angle=float(np.radians(milling_angle)),
+            rotation=float(np.radians(rotation)),
         ):
             from fibsem.transformations import get_stage_tilt_from_milling_angle
 
-            microscope = self.parent
-            if rotation is None:
-                rotation = np.radians(microscope.system.stage.rotation_reference)
-
-            stage_tilt = get_stage_tilt_from_milling_angle(microscope, milling_angle)
-            self.safe_absolute_stage_movement(
-                FibsemStagePosition(t=stage_tilt, r=rotation)
+            stage_tilt = get_stage_tilt_from_milling_angle(
+                microscope, np.radians(milling_angle)
             )
-
-            # milling_angle is radians here; is_close_to_milling_angle compares degrees
-            # (FIB-853)
-            return microscope.is_close_to_milling_angle(np.degrees(milling_angle))
+            self.safe_absolute_stage_movement(
+                FibsemStagePosition(t=stage_tilt, r=float(np.radians(rotation)))
+            )
+            return microscope.is_close_to_milling_angle(milling_angle)
 
     def _objective(self) -> Any:
         """The objective to insert and retract, through the FM API, which tells the

@@ -5,6 +5,7 @@ against the in-process ASGI app — full stack minus the socket."""
 
 import asyncio
 import json
+import math
 import os
 
 import pytest
@@ -169,8 +170,8 @@ def _call_json(sidecar, tool, arguments):
 
 
 def test_the_milling_angle_tools_speak_degrees(armed_sidecar):
-    """The tools speak degrees; the stage movement command they call takes
-    radians (FIB-853). Moving to 15 deg must read back as ~15 deg, not ~859."""
+    """The tools and the stage movement command all speak degrees (FIB-853).
+    Moving to 15 deg must read back as ~15 deg, not ~859."""
     moved = _call_json(
         armed_sidecar, "move_to_milling_angle", {"milling_angle_deg": 15.0}
     )
@@ -179,6 +180,17 @@ def test_the_milling_angle_tools_speak_degrees(armed_sidecar):
     assert angle["milling_angle_deg"] == pytest.approx(15.0, abs=0.5)
     orientation = _call_json(armed_sidecar, "get_stage_orientation", {})
     assert orientation == {"orientation": "MILLING"}
+
+
+def test_the_milling_angle_move_takes_a_rotation_in_degrees(armed_sidecar):
+    moved = _call_json(
+        armed_sidecar,
+        "move_to_milling_angle",
+        {"milling_angle_deg": 15.0, "rotation_deg": 10.0},
+    )
+    assert moved == {"success": True}
+    position = _call_json(armed_sidecar, "get_stage_position", {})["position"]
+    assert math.degrees(position["r"]) == pytest.approx(10.0, abs=0.1)
 
 
 def _contents(result):
