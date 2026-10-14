@@ -227,11 +227,6 @@ def test_the_image_says_which_scanner_made_it(microscope):
     assert "fake_scanner" in str(image.metadata.to_dict())
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="GAP: Device has no close/disconnect hook, so microscope.disconnect() "
-    "never reaches a plugin device's own connection",
-)
 def test_disconnect_closes_the_scanners_connection(tmp_path):
     microscope = _connect(tmp_path, _config())
     controller = microscope.devices["fake_scanner"]._controller

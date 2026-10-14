@@ -134,8 +134,8 @@ def build_fake_scanner(entry: "DeviceEntry", context: "BuildContext") -> FakeSca
     """The scanner a ``type: scan_generator, driver: FakeScan`` entry names.
 
     Entries at one address share one controller connection, through the connect's
-    shared scratch space. The unit has its own resources: scanning with it doesn't
-    hold the microscope's locks.
+    shared scratch space, closed when the microscope disconnects. The unit has its
+    own resources: scanning with it doesn't hold the microscope's locks.
     """
     options = {
         key: entry.options.get(key, default) for key, default in ENTRY_KEYS.items()
@@ -151,6 +151,8 @@ def build_fake_scanner(entry: "DeviceEntry", context: "BuildContext") -> FakeSca
         controllers[address] = FakeScanController(
             address, simulate_delay=bool(options["simulate_delay"])
         )
+        # shared by every entry at this address, so the builder closes it
+        context.on_disconnect(controllers[address].close)
     controller = controllers[address]
     controller.pattern = options["pattern"]
     return FakeScanner(
