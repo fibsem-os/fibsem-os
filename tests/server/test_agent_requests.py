@@ -413,3 +413,19 @@ def test_an_unknown_tool_in_the_describer_falls_back_to_its_name():
         "what": "new_tool",
         "change": "Run",
     }
+
+
+def test_an_approved_request_is_refused_what_the_agent_may_never_touch(client, app):
+    """The operator's approval lends Drive, not the allowlist: a blocked command
+    is refused in a request as it is called directly."""
+    home = {
+        "tool": "call_command",
+        "arguments": {"device": "stage", "command": "home"},
+    }
+    filed = _file(client, home)
+    assert filed.status_code == 202, filed.text
+    store = app.state.requests
+    store.approve(filed.json()["request_id"])
+    done = store.wait(filed.json()["request_id"], timeout=10)
+    assert done.status == "failed"
+    assert done.results[0]["status_code"] == 403

@@ -13,7 +13,7 @@ microscope_busy`` naming who, rather than interleaved or queued.
 """
 
 import logging
-from typing import Optional
+from typing import Any, Callable, Mapping, Optional
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
@@ -22,6 +22,7 @@ from fastapi.routing import APIRoute
 from fibsem.acting import AGENT, acting
 from fibsem.devices.chamber import Chamber
 from fibsem.microscope import FibsemMicroscope
+from fibsem.server import allowlist
 from fibsem.server.app_routes import (
     build_app_config_router,
     build_app_control_router,
@@ -97,6 +98,23 @@ def _served_devices(microscope: FibsemMicroscope) -> dict:
         for name, device in microscope.devices.items()
         if not isinstance(device, Chamber)
     }
+
+
+def _refuse(app_context) -> Callable[[Any, str, str, Mapping[str, Any]], Optional[str]]:
+    """The App Server's allowlist (`fibsem.server.allowlist`): what the agent may
+    never touch, and a ``path`` it may only give inside the open experiment."""
+
+    def experiment_path() -> Optional[str]:
+        return getattr(app_context, "experiment_path", None)
+
+    def refuse(device, kind: str, name: str, kwargs: Mapping[str, Any]):
+        return allowlist.blocked(device, kind, name) or (
+            allowlist.path_outside(kwargs, experiment_path)
+            if kind == "command"
+            else None
+        )
+
+    return refuse
 
 
 def _device_command_gate(request: Request, command: str):
@@ -292,6 +310,7 @@ def build_server(
     app.include_router(base)
     if serve_microscope:
         app.include_router(whole)
+        refuse = _refuse(app_context)
         # Every device's parameters and commands but the chamber's, as the
         # device server serves them: reads at Watch, writes and commands at
         # Drive with control of the microscope.
@@ -302,6 +321,7 @@ def build_server(
                 write=[Depends(_drive), Depends(take_control)],
                 command=[Depends(_device_command_gate), Depends(_stop_reason)],
                 prefix=MICROSCOPE + "/devices",
+                refuse=refuse,
                 on_image=lambda image: _show_in_app(microscope, image),
             )
         )
@@ -315,6 +335,7 @@ def build_server(
                 write=[Depends(_drive), Depends(take_control)],
                 command=[Depends(_device_command_gate), Depends(_stop_reason)],
                 prefix=MICROSCOPE + "/services",
+                refuse=refuse,
                 noun="service",
                 on_image=lambda image: _show_in_app(microscope, image),
             )
