@@ -132,6 +132,34 @@ def test_query_works_at_watch_and_takes_no_control(read_client, microscope):
     assert resp.json()["result"] == to_wire(expected)
 
 
+def test_the_estimates_and_the_stage_poses_are_queries(read_client, microscope):
+    from fibsem.imaging.spot import SpotBurnSettings
+    from fibsem.structures import Point
+
+    settings = SpotBurnSettings(
+        coordinates=[Point(0.5, 0.5), Point(0.1, 0.1)], exposure_time=2.0
+    )
+    resp = read_client.post(
+        "/microscope/services/spot_burn/queries/estimate",
+        json={"kwargs": {"settings": to_wire(settings)}},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["result"] == microscope.spot_burn.estimate(settings)
+
+    geometry = {
+        "rotation_reference": 0.0,
+        "shuttle_pre_tilt": 35.0,
+        "fib_column_tilt": 52.0,
+    }
+    resp = read_client.post(
+        "/microscope/devices/stage/queries/pose_table", json={"kwargs": geometry}
+    )
+    assert resp.status_code == 200, resp.text
+    assert set(resp.json()["result"]) == set(
+        microscope.devices["stage"].poses(**geometry)
+    )
+
+
 def test_the_orientation_reads_are_queries(read_client, microscope):
     sem = microscope.get_orientation("SEM")
     at_sem = FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=sem.r, t=sem.t)

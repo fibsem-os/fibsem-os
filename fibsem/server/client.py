@@ -328,6 +328,13 @@ class FibsemClient:
         """A service parameter's value, as JSON."""
         return self._get(f"{MICROSCOPE}/services/{service}/{parameter}")["value"]
 
+    def set_service_parameter(self, service: str, parameter: str, value: Any) -> Any:
+        """Write a service parameter; the server checks it and answers the value
+        written."""
+        return self._put(
+            f"{MICROSCOPE}/services/{service}/{parameter}", {"value": to_wire(value)}
+        )["value"]
+
     # --- Microscope state ---
 
     def get_microscope_state(self) -> MicroscopeState:
