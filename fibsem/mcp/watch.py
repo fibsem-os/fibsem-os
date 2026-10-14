@@ -15,7 +15,7 @@ The lines: ``PROMPT``, ``ANSWERED``, ``PROMPT WITHDRAWN``, ``QUESTION``,
 cancelled, FIB-1283), task ``EVENT`` lines, ``GAP`` and ``RUN ENDED``.
 Exits 0 when the run ends, 1 when the server cannot be watched. A run that
 stops without an end event still ends the watch: ``RUN ENDED (stopped
-without an end event)``, once ``/app/status`` says nothing is running.
+without an end event)``, once ``/app/workflow/status`` says nothing is running.
 
 It finds the server the way the sidecar does (``--url``/``--token``, the
 environment, the discovery file) and follows a restarted server the same way
@@ -54,8 +54,8 @@ FAILURES_BEFORE_GIVING_UP = 4
 RETRY_DELAY_S = 5.0
 
 GAP_LINE = (
-    "GAP: events were lost before they could be read -- re-read /app/prompt "
-    "and /app/status rather than assuming nothing happened."
+    "GAP: events were lost before they could be read -- re-read /app/workflow/prompt "
+    "and /app/workflow/status rather than assuming nothing happened."
 )
 
 
@@ -208,9 +208,9 @@ def _counts(counts):
 
 
 def _run_is_live(client):
-    """Whether /app/status says a run is going; None when it cannot say."""
+    """Whether /app/workflow/status says a run is going; None when it cannot say."""
     try:
-        response = client.request("GET", "/app/status", timeout=10.0)
+        response = client.request("GET", "/app/workflow/status", timeout=10.0)
         if response.status_code >= 400:
             return None
         return bool(response.json()["workflow"]["running"])
@@ -246,7 +246,7 @@ def watch(client, out=None, sleep_fn=None, poll_s=POLL_S, clock=None, since=None
     if since is None:
         since = snapshot.get("latest_seq") or 0
     # A run can end without an end event: one that dies outside a task fires
-    # none (FIB-1331). So while a run is live, /app/status is the backstop.
+    # none (FIB-1331). So while a run is live, /app/workflow/status is the backstop.
     run_live = _run_is_live(client) is True
     checked_at = clock()
 

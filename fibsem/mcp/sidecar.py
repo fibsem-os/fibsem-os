@@ -410,22 +410,22 @@ def build_sidecar(client, capabilities):
         return err if err else data
 
     def get_app_status():
-        return _app_get("/app/status")
+        return _app_get("/app/workflow/status")
 
     def get_app_queue():
-        return _app_get("/app/queue")
+        return _app_get("/app/workflow/queue")
 
     def get_experiment_summary():
-        return _app_get("/app/experiment_summary")
+        return _app_get("/app/experiment")
 
     def get_task_history():
-        return _app_get("/app/task_history")
+        return _app_get("/app/experiment/task_history")
 
     def get_run_summary():
-        return _app_get("/app/run_summary")
+        return _app_get("/app/workflow/run_summary")
 
     def get_protocol():
-        return _app_get("/app/protocol")
+        return _app_get("/app/experiment/protocol")
 
     def get_log(
         task_id: Optional[str] = None,
@@ -446,14 +446,12 @@ def build_sidecar(client, capabilities):
         )
 
     def get_task_outputs(item_name: str):
-        return _app_get(f"/app/task_outputs/{item_name}")
+        return _app_get(f"/app/experiment/items/{item_name}/outputs")
 
     def get_item_output_image(item_name: str, filename: str):
         # The route answers image/jpeg for the dashboard's <img>, so this reads
         # the bytes itself rather than through _call. Basenames carry spaces.
-        path = (
-            f"/app/items/{quote(item_name, safe='')}/outputs/{quote(filename, safe='')}"
-        )
+        path = f"/app/experiment/items/{quote(item_name, safe='')}/outputs/{quote(filename, safe='')}"
         resp = client.request("GET", path)
         if resp.status_code >= 400:
             return _refusal(resp)
@@ -461,22 +459,22 @@ def build_sidecar(client, capabilities):
         return [json.dumps(meta), Image(data=resp.content, format="jpeg")]
 
     def get_item_detail(item_name: str):
-        return _app_get(f"/app/items/{item_name}")
+        return _app_get(f"/app/experiment/items/{item_name}")
 
     def get_grids():
-        return _app_get("/app/grids")
+        return _app_get("/app/experiment/grids")
 
     def get_grid_detail(grid_name: str):
-        return _app_get(f"/app/grids/{grid_name}")
+        return _app_get(f"/app/experiment/grids/{grid_name}")
 
     def get_grid_markers(grid_name: str, filename: str):
-        return _app_get(f"/app/grids/{grid_name}/outputs/{filename}/markers")
+        return _app_get(f"/app/experiment/grids/{grid_name}/outputs/{filename}/markers")
 
     def get_protocol_task_config(task_name: str):
-        return _app_get(f"/app/protocol/task_config/{task_name}")
+        return _app_get(f"/app/experiment/protocol/task_config/{task_name}")
 
     def get_item_task_config(item_name: str, task_name: str):
-        return _app_get(f"/app/items/{item_name}/task_config/{task_name}")
+        return _app_get(f"/app/experiment/items/{item_name}/task_config/{task_name}")
 
     def add_note(text: str, item_name=None):
         data, err = _call(
@@ -503,7 +501,7 @@ def build_sidecar(client, capabilities):
         data, err = _call(
             client,
             "POST",
-            f"/app/items/{item_name}/apply_protocol",
+            f"/app/experiment/items/{item_name}/apply_protocol",
             {"task_names": list(task_names) if task_names else None},
         )
         return err if err else data
@@ -514,7 +512,7 @@ def build_sidecar(client, capabilities):
         data, err = _call(
             client,
             "POST",
-            f"/app/items/{item_name}/task_config/{task_name}/stages/reorder",
+            f"/app/experiment/items/{item_name}/task_config/{task_name}/stages/reorder",
             {"milling_key": milling_key, "order": list(order), "version": version},
         )
         return err if err else data
@@ -525,7 +523,7 @@ def build_sidecar(client, capabilities):
         data, err = _call(
             client,
             "POST",
-            f"/app/protocol/task_config/{task_name}/stages/reorder",
+            f"/app/experiment/protocol/task_config/{task_name}/stages/reorder",
             {"milling_key": milling_key, "order": list(order), "version": version},
         )
         return err if err else data
@@ -543,7 +541,7 @@ def build_sidecar(client, capabilities):
         data, err = _call(
             client,
             "POST",
-            f"/app/items/{item_name}",
+            f"/app/experiment/items/{item_name}",
             {"patch": dict(patch), "version": str(version)},
         )
         return err if err else data
@@ -552,7 +550,7 @@ def build_sidecar(client, capabilities):
         data, err = _call(
             client,
             "POST",
-            f"/app/protocol/task_config/{task_name}",
+            f"/app/experiment/protocol/task_config/{task_name}",
             {"patch": dict(patch), "version": str(version)},
         )
         return err if err else data
@@ -563,13 +561,13 @@ def build_sidecar(client, capabilities):
         data, err = _call(
             client,
             "POST",
-            f"/app/items/{item_name}/task_config/{task_name}",
+            f"/app/experiment/items/{item_name}/task_config/{task_name}",
             {"patch": dict(patch), "version": str(version)},
         )
         return err if err else data
 
     def list_recent_experiments():
-        return _app_get("/app/recent_experiments")
+        return _app_get("/app/experiment/recent")
 
     def get_events(since: int = 0, timeout: float = 0.0):
         return _app_get(f"/app/events?since={since}&timeout={timeout}")
@@ -610,20 +608,20 @@ def build_sidecar(client, capabilities):
 
     def set_task_supervision(task_name: str, supervise: bool):
         payload = {"task_name": task_name, "supervise": bool(supervise)}
-        data, err = _call(client, "POST", "/app/supervision", payload)
+        data, err = _call(client, "POST", "/app/agent/supervision", payload)
         return err if err else data
 
     def requeue_task(item_name: str, task_name: str, front: bool = False):
         data, err = _call(
             client,
             "POST",
-            "/app/queue/requeue",
+            "/app/workflow/queue/requeue",
             {"item_name": item_name, "task_name": task_name, "front": bool(front)},
         )
         return err if err else data
 
     def get_display_images():
-        data, err = _call(client, "GET", "/app/images", None)
+        data, err = _call(client, "GET", "/app/experiment/images", None)
         if err:
             return err
         # The previews travel as MCP images so the agent sees them directly;
@@ -639,11 +637,11 @@ def build_sidecar(client, capabilities):
         return content
 
     def get_pending_prompt():
-        data, err = _call(client, "GET", "/app/prompt")
+        data, err = _call(client, "GET", "/app/workflow/prompt")
         return err if err else _with_images(data)
 
     def get_pending_reviews():
-        data, err = _call(client, "GET", "/app/reviews")
+        data, err = _call(client, "GET", "/app/workflow/reviews")
         return err if err else _with_images(data)
 
     def decide_review(
@@ -671,7 +669,7 @@ def build_sidecar(client, capabilities):
             body["task_id"] = str(task_id)
         if values is not None:
             body["values"] = dict(values)
-        data, err = _call(client, "POST", "/app/decide", body)
+        data, err = _call(client, "POST", "/app/workflow/decide", body)
         return err if err else data
 
     def suggest_answer(
@@ -684,14 +682,14 @@ def build_sidecar(client, capabilities):
         }
         if value is not None:
             body["value"] = dict(value)
-        data, err = _call(client, "POST", "/app/prompt/suggest", body)
+        data, err = _call(client, "POST", "/app/workflow/prompt/suggest", body)
         return err if err else data
 
     def answer_prompt(response: bool, question_id: int, value: Optional[dict] = None):
         body = {"response": bool(response), "question_id": int(question_id)}
         if value is not None:
             body["value"] = dict(value)
-        data, err = _call(client, "POST", "/app/prompt/answer", body)
+        data, err = _call(client, "POST", "/app/workflow/prompt/answer", body)
         return err if err else data
 
     implementations = {

@@ -220,7 +220,7 @@ class AppServerHost:
             # The question-lifecycle feed: prompt_raised / prompt_answered /
             # prompt_cancelled straight from the responder into the buffer, so a
             # supervising agent can sleep on the events long-poll instead of
-            # polling /app/prompt, and answers carry who answered them.
+            # polling /app/workflow/prompt, and answers carry who answered them.
             responder = getattr(self._ui, "ui_responder", None)
             if responder is not None:
                 self._disposers.append(

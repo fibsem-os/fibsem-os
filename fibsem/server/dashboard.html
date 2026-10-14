@@ -223,8 +223,8 @@ async function renderCard(name) {
   const el = document.getElementById("card-" + name);
   if (!el) return;
   const [item, outputs] = await Promise.all([
-    api("/app/items/" + encodeURIComponent(name)),
-    api("/app/task_outputs/" + encodeURIComponent(name)),
+    api("/app/experiment/items/" + encodeURIComponent(name)),
+    api("/app/experiment/items/" + encodeURIComponent(name) + "/outputs"),
   ]);
   const done = new Set(outputs.completed_tasks || []);
   const segs = protocolTasks.map(t =>
@@ -280,7 +280,7 @@ async function renderCard(name) {
   for (const img of el.querySelectorAll("img[data-src]")) {
     try {
       const r = await fetch(
-        "/app/items/" + encodeURIComponent(name) + "/outputs/" +
+        "/app/experiment/items/" + encodeURIComponent(name) + "/outputs/" +
         encodeURIComponent(img.dataset.src),
         { headers: { Authorization: "Bearer " + TOKEN } });
       if (r.ok) img.src = URL.createObjectURL(await r.blob());
@@ -320,7 +320,7 @@ function markerSvg(markers, image) {
 }
 
 async function renderOverview(gridName, role, label, filename) {
-  const base = "/app/grids/" + encodeURIComponent(gridName) + "/outputs/" + encodeURIComponent(filename);
+  const base = "/app/experiment/grids/" + encodeURIComponent(gridName) + "/outputs/" + encodeURIComponent(filename);
   const [url, markers] = await Promise.all([
     fetchBlobUrl(base),
     api(base + "/markers").catch(() => ({ markers: [], unplaced: [] })),
@@ -341,7 +341,7 @@ async function renderOverview(gridName, role, label, filename) {
 async function refreshGrids() {
   const panel = document.getElementById("grids");
   let body;
-  try { body = await api("/app/grids"); } catch (e) { panel.style.display = "none"; return; }
+  try { body = await api("/app/experiment/grids"); } catch (e) { panel.style.display = "none"; return; }
   const grids = (body.items || []).filter(g => Object.keys(g.overviews || {}).length);
   if (!grids.length) { panel.style.display = "none"; return; }
   const rows = await Promise.all(grids.map(async g => {
@@ -371,7 +371,7 @@ async function refreshGrids() {
 /* ── workflow queue ────────────────────────────────────────────────── */
 
 async function refreshQueue() {
-  const q = await api("/app/queue");
+  const q = await api("/app/workflow/queue");
   const panel = document.getElementById("queue");
   const items = q.available ? (q.items || []) : [];
   if (!items.length) { panel.style.display = "none"; return; }
@@ -430,7 +430,7 @@ function appendEvents(events) {
 
 async function refreshTop() {
   const [status, protocol, runSummary] = await Promise.all([
-    api("/app/status"), api("/app/protocol"), api("/app/run_summary"),
+    api("/app/workflow/status"), api("/app/experiment/protocol"), api("/app/workflow/run_summary"),
   ]);
   protocolTasks = protocol.tasks || [];
   renderHeader(status);
@@ -439,7 +439,7 @@ async function refreshTop() {
 }
 
 async function refreshCards() {
-  const summary = await api("/app/experiment_summary");
+  const summary = await api("/app/experiment");
   itemNames = (summary.items || [])
     .map(r => r.lamella_name || r.item_name || r.name).filter(Boolean);
   const cards = document.getElementById("cards");

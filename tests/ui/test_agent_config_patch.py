@@ -107,7 +107,9 @@ def test_a_patch_lands_with_diff_version_and_event(ui, qapp):
     buffer = EventBuffer()
     item = ui.experiment.positions[0].name
     with _client(ui, buffer=buffer) as client:
-        doc = client.get(f"/app/items/{item}/task_config/{TASK}", headers=AUTH).json()
+        doc = client.get(
+            f"/app/experiment/items/{item}/task_config/{TASK}", headers=AUTH
+        ).json()
         old_depth = (
             ui.experiment.positions[0]
             .task_config[TASK]
@@ -119,7 +121,7 @@ def test_a_patch_lands_with_diff_version_and_event(ui, qapp):
         resp = _post_on_worker(
             qapp,
             client,
-            f"/app/items/{item}/task_config/{TASK}",
+            f"/app/experiment/items/{item}/task_config/{TASK}",
             {"patch": {DEPTH: 2.5e-6}, "version": doc["version"]},
         )
         assert resp.status_code == 200
@@ -131,7 +133,7 @@ def test_a_patch_lands_with_diff_version_and_event(ui, qapp):
         assert config.milling["mill_rough"].stages[0].pattern.depth == 2.5e-6
         assert body["version"] != doc["version"]
         reread = client.get(
-            f"/app/items/{item}/task_config/{TASK}", headers=AUTH
+            f"/app/experiment/items/{item}/task_config/{TASK}", headers=AUTH
         ).json()
         assert reread["version"] == body["version"]
         # And the record shows it: config_edited on the event stream.
@@ -144,13 +146,15 @@ def test_a_stale_version_is_refused_and_nothing_changes(ui, qapp):
     item = ui.experiment.positions[0].name
     config = ui.experiment.positions[0].task_config[TASK]
     with _client(ui) as client:
-        doc = client.get(f"/app/items/{item}/task_config/{TASK}", headers=AUTH).json()
+        doc = client.get(
+            f"/app/experiment/items/{item}/task_config/{TASK}", headers=AUTH
+        ).json()
         # The operator edits in between: the agent's version is now stale.
         config.milling["mill_rough"].stages[0].pattern.depth = 1.9e-6
         resp = _post_on_worker(
             qapp,
             client,
-            f"/app/items/{item}/task_config/{TASK}",
+            f"/app/experiment/items/{item}/task_config/{TASK}",
             {"patch": {DEPTH: 2.5e-6}, "version": doc["version"]},
         )
         assert resp.status_code == 409
@@ -161,11 +165,13 @@ def test_a_stale_version_is_refused_and_nothing_changes(ui, qapp):
 def test_invalid_patches_and_unknown_names_refuse_structuredly(ui, qapp):
     item = ui.experiment.positions[0].name
     with _client(ui) as client:
-        doc = client.get(f"/app/items/{item}/task_config/{TASK}", headers=AUTH).json()
+        doc = client.get(
+            f"/app/experiment/items/{item}/task_config/{TASK}", headers=AUTH
+        ).json()
         bad = _post_on_worker(
             qapp,
             client,
-            f"/app/items/{item}/task_config/{TASK}",
+            f"/app/experiment/items/{item}/task_config/{TASK}",
             {"patch": {DEPTH: "deep"}, "version": doc["version"]},
         )
         assert bad.status_code == 422
@@ -175,14 +181,14 @@ def test_invalid_patches_and_unknown_names_refuse_structuredly(ui, qapp):
         missing = _post_on_worker(
             qapp,
             client,
-            f"/app/items/no-such-item/task_config/{TASK}",
+            f"/app/experiment/items/no-such-item/task_config/{TASK}",
             {"patch": {DEPTH: 2e-6}, "version": doc["version"]},
         )
         assert missing.status_code == 404
         assert missing.json()["detail"]["error_type"] == "not_found"
 
         malformed = client.post(
-            f"/app/items/{item}/task_config/{TASK}",
+            f"/app/experiment/items/{item}/task_config/{TASK}",
             headers=AUTH,
             json={"patch": {}, "version": doc["version"]},
         )
@@ -194,10 +200,12 @@ def test_the_configure_scope_gates_the_route(ui, qapp):
     item = ui.experiment.positions[0].name
     with _client(ui, arm_configure=False) as client:
         # Reads stay read-scope; the write needs configure armed.
-        doc = client.get(f"/app/items/{item}/task_config/{TASK}", headers=AUTH).json()
+        doc = client.get(
+            f"/app/experiment/items/{item}/task_config/{TASK}", headers=AUTH
+        ).json()
         assert doc["available"] is True
         resp = client.post(
-            f"/app/items/{item}/task_config/{TASK}",
+            f"/app/experiment/items/{item}/task_config/{TASK}",
             headers=AUTH,
             json={"patch": {DEPTH: 2e-6}, "version": doc["version"]},
         )
@@ -208,11 +216,13 @@ def test_the_configure_scope_gates_the_route(ui, qapp):
 def test_a_protocol_level_patch_lands_and_is_recorded(ui, qapp):
     buffer = EventBuffer()
     with _client(ui, buffer=buffer) as client:
-        doc = client.get(f"/app/protocol/task_config/{TASK}", headers=AUTH).json()
+        doc = client.get(
+            f"/app/experiment/protocol/task_config/{TASK}", headers=AUTH
+        ).json()
         resp = _post_on_worker(
             qapp,
             client,
-            f"/app/protocol/task_config/{TASK}",
+            f"/app/experiment/protocol/task_config/{TASK}",
             {"patch": {DEPTH: 2.8e-6}, "version": doc["version"]},
         )
         assert resp.status_code == 200
@@ -230,7 +240,7 @@ def test_a_protocol_level_patch_lands_and_is_recorded(ui, qapp):
         stale = _post_on_worker(
             qapp,
             client,
-            f"/app/protocol/task_config/{TASK}",
+            f"/app/experiment/protocol/task_config/{TASK}",
             {"patch": {DEPTH: 3.1e-6}, "version": doc["version"]},
         )
         assert stale.status_code == 409
@@ -241,11 +251,13 @@ def test_a_patch_is_durable_on_disk(ui, qapp):
 
     item = ui.experiment.positions[0].name
     with _client(ui) as client:
-        doc = client.get(f"/app/items/{item}/task_config/{TASK}", headers=AUTH).json()
+        doc = client.get(
+            f"/app/experiment/items/{item}/task_config/{TASK}", headers=AUTH
+        ).json()
         resp = _post_on_worker(
             qapp,
             client,
-            f"/app/items/{item}/task_config/{TASK}",
+            f"/app/experiment/items/{item}/task_config/{TASK}",
             {"patch": {DEPTH: 2.2e-6}, "version": doc["version"]},
         )
         assert resp.json()["saved"] is True
@@ -268,12 +280,12 @@ def test_item_fields_patch_moves_poi_and_sets_defect(ui, qapp):
     lamella.poi = Point(x=1e-6, y=2e-6)
     item = lamella.name
     with _client(ui, buffer=buffer) as client:
-        doc = client.get(f"/app/items/{item}", headers=AUTH).json()
+        doc = client.get(f"/app/experiment/items/{item}", headers=AUTH).json()
         assert "version" in doc and doc["defect"]["verdict"] == "UNASSESSED"
         resp = _post_on_worker(
             qapp,
             client,
-            f"/app/items/{item}",
+            f"/app/experiment/items/{item}",
             {
                 "patch": {
                     "poi.x": 5e-6,
@@ -291,7 +303,7 @@ def test_item_fields_patch_moves_poi_and_sets_defect(ui, qapp):
         assert lamella.defect.reason == "curtained face"
         assert lamella.defect.updated_at is not None
         # New version serves on the next read; the event stream records it.
-        reread = client.get(f"/app/items/{item}", headers=AUTH).json()
+        reread = client.get(f"/app/experiment/items/{item}", headers=AUTH).json()
         assert reread["version"] == body["version"] != doc["version"]
         events = client.get("/app/events?since=0", headers=AUTH).json()["events"]
         edited = [e for e in events if e["kind"] == "config_edited"][-1]
@@ -305,11 +317,11 @@ def test_item_fields_allowlist_and_alignment_validity(ui, qapp):
     lamella.alignment_area = FibsemRectangle(left=0.6, top=0.3, width=0.3, height=0.4)
     item = lamella.name
     with _client(ui) as client:
-        doc = client.get(f"/app/items/{item}", headers=AUTH).json()
+        doc = client.get(f"/app/experiment/items/{item}", headers=AUTH).json()
         off_list = _post_on_worker(
             qapp,
             client,
-            f"/app/items/{item}",
+            f"/app/experiment/items/{item}",
             {"patch": {"path": "/tmp/evil"}, "version": doc["version"]},
         )
         assert off_list.status_code == 422
@@ -319,7 +331,7 @@ def test_item_fields_allowlist_and_alignment_validity(ui, qapp):
         angle = _post_on_worker(
             qapp,
             client,
-            f"/app/items/{item}",
+            f"/app/experiment/items/{item}",
             {"patch": {"milling_angle": 17.0}, "version": doc["version"]},
         )
         assert angle.status_code == 422
@@ -328,7 +340,7 @@ def test_item_fields_allowlist_and_alignment_validity(ui, qapp):
         bad = _post_on_worker(
             qapp,
             client,
-            f"/app/items/{item}",
+            f"/app/experiment/items/{item}",
             {"patch": {"alignment_area.left": 0.9}, "version": doc["version"]},
         )
         assert bad.status_code == 422
@@ -350,7 +362,7 @@ def test_apply_protocol_recopies_configs_and_repoints_paths(ui, qapp):
         resp = _post_on_worker(
             qapp,
             client,
-            f"/app/items/{item}/apply_protocol",
+            f"/app/experiment/items/{item}/apply_protocol",
             {"task_names": [TASK]},
         )
         assert resp.status_code == 200
@@ -368,7 +380,7 @@ def test_apply_protocol_recopies_configs_and_repoints_paths(ui, qapp):
         unknown = _post_on_worker(
             qapp,
             client,
-            f"/app/items/{item}/apply_protocol",
+            f"/app/experiment/items/{item}/apply_protocol",
             {"task_names": ["Nope"]},
         )
         assert unknown.status_code == 404
@@ -388,11 +400,11 @@ def test_a_poi_patch_moves_the_attached_patterns_with_it(ui, qapp):
 
     item = lamella.name
     with _client(ui) as client:
-        doc = client.get(f"/app/items/{item}", headers=AUTH).json()
+        doc = client.get(f"/app/experiment/items/{item}", headers=AUTH).json()
         resp = _post_on_worker(
             qapp,
             client,
-            f"/app/items/{item}",
+            f"/app/experiment/items/{item}",
             {"patch": {"poi.x": 6e-6, "poi.y": 2e-6}, "version": doc["version"]},
         )
         assert resp.status_code == 200
@@ -415,7 +427,7 @@ def test_stage_reorder_is_same_set_versioned_and_recorded(ui, qapp):
     new_order = list(reversed(names))
 
     item = lamella.name
-    base = f"/app/items/{item}/task_config/{TASK}"
+    base = f"/app/experiment/items/{item}/task_config/{TASK}"
     with _client(ui, buffer=buffer) as client:
         doc = client.get(base, headers=AUTH).json()
         resp = _post_on_worker(

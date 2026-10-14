@@ -93,11 +93,11 @@ def _ask_on_worker(ui, qapp):
 def test_agent_sees_and_answers_the_question_over_http(ui, qapp):
     with _client(ui, arm_control=True) as client:
         # Nothing pending yet: available, but no question.
-        body = client.get("/app/prompt", headers=AUTH).json()
+        body = client.get("/app/workflow/prompt", headers=AUTH).json()
         assert body == {"available": True, "pending": None}
 
         thread, outcome = _ask_on_worker(ui, qapp)
-        pending = client.get("/app/prompt", headers=AUTH).json()["pending"]
+        pending = client.get("/app/workflow/prompt", headers=AUTH).json()["pending"]
         assert pending["type"] == "Confirm"
         assert pending["message"] == "Continue to polishing?"
         assert pending["positive"] == "Continue"
@@ -112,7 +112,7 @@ def test_agent_sees_and_answers_the_question_over_http(ui, qapp):
 
         def do_post():
             posted["response"] = client.post(
-                "/app/prompt/answer",
+                "/app/workflow/prompt/answer",
                 headers=AUTH,
                 json={"response": True, "question_id": pending["question_id"]},
             )
@@ -131,15 +131,15 @@ def test_agent_sees_and_answers_the_question_over_http(ui, qapp):
 def test_a_stale_question_id_is_refused_and_the_question_stands(ui, qapp):
     with _client(ui, arm_control=True) as client:
         thread, outcome = _ask_on_worker(ui, qapp)
-        question_id = client.get("/app/prompt", headers=AUTH).json()["pending"][
-            "question_id"
-        ]
+        question_id = client.get("/app/workflow/prompt", headers=AUTH).json()[
+            "pending"
+        ]["question_id"]
 
         posted = {}
 
         def do_post():
             posted["response"] = client.post(
-                "/app/prompt/answer",
+                "/app/workflow/prompt/answer",
                 headers=AUTH,
                 json={"response": True, "question_id": question_id - 1},
             )
@@ -161,7 +161,7 @@ def test_a_stale_question_id_is_refused_and_the_question_stands(ui, qapp):
 
 def test_display_images_are_served_read_scope(ui, qapp):
     with _client(ui, arm_control=False) as client:
-        body = client.get("/app/images", headers=AUTH).json()
+        body = client.get("/app/experiment/images", headers=AUTH).json()
         assert body["available"] is True
         # A connected UI displays the seeded placeholder images on both sides.
         for beam in ("sem", "fib"):
@@ -169,11 +169,11 @@ def test_display_images_are_served_read_scope(ui, qapp):
 
 
 def test_display_images_follow_a_one_shot_acquisition(ui, qapp):
-    """The post-mill inspect image reaches /app/images, pixels AND acquired_at.
+    """The post-mill inspect image reaches /app/experiment/images, pixels AND acquired_at.
 
     A milling task's inspect acquisition is a one-shot emit on
     fib_acquisition_signal with no live stream running. On the 2026-08-31
-    supervised run, /app/images kept serving the pre-mill reference through
+    supervised run, /app/experiment/images kept serving the pre-mill reference through
     the whole inspect prompt — the supervising agent refuses images whose
     acquired_at predates the mill, so staleness here blocks supervision."""
     from datetime import datetime
@@ -193,7 +193,7 @@ def test_display_images_follow_a_one_shot_acquisition(ui, qapp):
         assert not ui.microscope.is_acquiring, "this test pins the one-shot path"
         ui.microscope.fib_acquisition_signal.emit(inspect_image)
         qapp.processEvents()
-        fib = client.get("/app/images", headers=AUTH).json()["fib"]
+        fib = client.get("/app/experiment/images", headers=AUTH).json()["fib"]
         # With its UTC offset, as the event stream's times carry theirs (FIB-1190).
         assert fib["acquired_at"] == stamp.astimezone().isoformat()
         # The display cache serves the same scale facts as the acquisition
@@ -237,9 +237,9 @@ def test_alignment_prompt_carries_the_fib_display_frame(ui, qapp):
         fetched = {}
 
         def do_get():
-            fetched["pending"] = client.get("/app/prompt", headers=AUTH).json()[
-                "pending"
-            ]
+            fetched["pending"] = client.get(
+                "/app/workflow/prompt", headers=AUTH
+            ).json()["pending"]
 
         # GET from a separate thread: the live-half peek marshals to the GUI
         # thread, which in this test is the thread spinning the loop.
@@ -266,12 +266,12 @@ def test_a_value_on_a_valueless_question_is_refused(ui, qapp):
     clicks nothing, and the question stands."""
     with _client(ui, arm_control=True) as client:
         thread, outcome = _ask_on_worker(ui, qapp)
-        question_id = client.get("/app/prompt", headers=AUTH).json()["pending"][
-            "question_id"
-        ]
+        question_id = client.get("/app/workflow/prompt", headers=AUTH).json()[
+            "pending"
+        ]["question_id"]
 
         malformed = client.post(
-            "/app/prompt/answer",
+            "/app/workflow/prompt/answer",
             headers=AUTH,
             json={"response": True, "question_id": question_id, "value": [1, 2]},
         )
@@ -282,7 +282,7 @@ def test_a_value_on_a_valueless_question_is_refused(ui, qapp):
 
         def do_post():
             posted["response"] = client.post(
-                "/app/prompt/answer",
+                "/app/workflow/prompt/answer",
                 headers=AUTH,
                 json={
                     "response": True,
@@ -304,7 +304,7 @@ def test_a_value_on_a_valueless_question_is_refused(ui, qapp):
 
         def do_plain_post():
             posted["response"] = client.post(
-                "/app/prompt/answer",
+                "/app/workflow/prompt/answer",
                 headers=AUTH,
                 json={"response": True, "question_id": question_id},
             )
@@ -321,7 +321,7 @@ def test_a_value_on_a_valueless_question_is_refused(ui, qapp):
 def test_an_answer_without_a_question_id_is_rejected(ui, qapp):
     with _client(ui, arm_control=True) as client:
         rejected = client.post(
-            "/app/prompt/answer", headers=AUTH, json={"response": True}
+            "/app/workflow/prompt/answer", headers=AUTH, json={"response": True}
         )
         assert rejected.status_code == 422
         assert rejected.json()["detail"]["error_type"] == "missing_question_id"
@@ -329,7 +329,7 @@ def test_an_answer_without_a_question_id_is_rejected(ui, qapp):
 
 def test_prompt_lifecycle_reaches_the_event_stream_with_attribution(ui, qapp):
     # Wired the way hosting wires it: responder feeds the same buffer the
-    # events endpoint serves — the long-poll replaces polling /app/prompt.
+    # events endpoint serves — the long-poll replaces polling /app/workflow/prompt.
     from fibsem.applications.autolamella.server.events import EventBuffer
 
     buffer = EventBuffer()
@@ -350,7 +350,7 @@ def test_prompt_lifecycle_reaches_the_event_stream_with_attribution(ui, qapp):
 
             def do_post():
                 posted["response"] = client.post(
-                    "/app/prompt/answer",
+                    "/app/workflow/prompt/answer",
                     headers=AUTH,
                     json={"response": True, "question_id": question_id},
                 )
@@ -476,14 +476,17 @@ def test_start_workflow_requires_control_and_a_valid_body(ui, qapp):
 def test_supervision_and_requeue_require_the_control_scope(ui, qapp):
     with _client(ui, arm_control=False) as client:
         for path, payload in (
-            ("/app/supervision", {"task_name": "Rough Milling", "supervise": True}),
-            ("/app/queue/requeue", {"item_name": "01", "task_name": "x"}),
+            (
+                "/app/agent/supervision",
+                {"task_name": "Rough Milling", "supervise": True},
+            ),
+            ("/app/workflow/queue/requeue", {"item_name": "01", "task_name": "x"}),
         ):
             refused = client.post(path, headers=AUTH, json=payload)
             assert refused.status_code == 403
             assert refused.json()["detail"]["level"] == "watch"
     with _client(ui, arm_control=True) as client:
-        for path in ("/app/supervision", "/app/queue/requeue"):
+        for path in ("/app/agent/supervision", "/app/workflow/queue/requeue"):
             rejected = client.post(path, headers=AUTH, json={})
             assert rejected.status_code == 422
             assert rejected.json()["detail"]["error_type"] == "missing_field"
@@ -492,9 +495,9 @@ def test_supervision_and_requeue_require_the_control_scope(ui, qapp):
 def test_answering_requires_the_control_scope(ui, qapp):
     with _client(ui, arm_control=False) as client:
         # Reading the prompt is observation: read scope suffices.
-        assert client.get("/app/prompt", headers=AUTH).status_code == 200
+        assert client.get("/app/workflow/prompt", headers=AUTH).status_code == 200
         refused = client.post(
-            "/app/prompt/answer",
+            "/app/workflow/prompt/answer",
             headers=AUTH,
             json={"response": True, "question_id": 1},
         )

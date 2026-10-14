@@ -847,7 +847,7 @@ class AutoLamellaTask(ABC):
     def _answer_author(self) -> Author:
         """Who answered the question this task just asked in the workflow: the
         agent when it answered over the App Server, else the operator at the
-        window (FIB-1328). The agent is named as ``/app/decide`` names one
+        window (FIB-1328). The agent is named as ``/app/workflow/decide`` names one
         that gave no name."""
         if answered_by() == AGENT:
             return agent_author("remote")

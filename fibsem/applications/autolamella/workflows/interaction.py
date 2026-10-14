@@ -173,7 +173,7 @@ class EditAlignmentArea(Request["FibsemRectangle"]):
     The area is fractions of the FIB frame; the frame itself is display state
     the workflow does not own, so it does not travel in the request — the
     App Server attaches the FIB display image when it serializes the
-    question (the same seam that serves ``/app/images``).
+    question (the same seam that serves ``/app/experiment/images``).
     """
 
     lends_control = True

@@ -313,7 +313,7 @@ def test_a_stalled_or_failed_run_ends_the_watch(app, kind, payload, line):
 
 def test_a_run_that_stops_without_an_end_event_ends_the_watch(app):
     # FIB-1331: the run died outside a task, so no end event was recorded;
-    # only /app/status knows it is over.
+    # only /app/workflow/status knows it is over.
     app.set_running(True)
 
     def crash():

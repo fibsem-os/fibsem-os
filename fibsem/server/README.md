@@ -37,17 +37,22 @@ explicit choice: the token then travels in cleartext HTTP, which keeps
 strangers out but is not sniff-proof — see the AutoLamella App Server design
 doc for the trust model.
 
-### App route naming
+### App route layout
 
-App routes address session resources directly — `/app/items/{name}`,
-`/app/protocol/...`, `/app/workflow/...` — without an `/app/experiment/`
-prefix, even though all of them belong to an experiment. This is deliberate
-and rests on an invariant: **exactly one experiment is open per session**, so
-"the app's items" and "the open experiment's items" are the same set and the
-shorter paths are unambiguous. If that invariant ever breaks (multiple
-experiments addressable at once, or experiment switching over the API), the
-migration is mechanical: mount the same routers under `/app/experiment` as
-well and deprecate the short forms.
+The `/app` routes sort by what they act on:
+
+- `/app/experiment`: the open experiment. `GET /app/experiment` summarises it;
+  under it are `recent`, `protocol`, `items/{item}` (with its `task_config`
+  and `outputs`), `grids/{grid}`, `images` and `task_history`.
+- `/app/workflow`: the run. `status`, `queue`, `run_summary`, `start`,
+  `stop`, `schedule`, `options`, and the questions the run asks: `prompt`,
+  `prompt/answer`, `prompt/suggest`, `decide`, `reviews`.
+- `/app/agent`: the agent's own records and settings: `notes`, `requests`,
+  `supervision`.
+- `events` and `log` stay at `/app`: they cover the whole session.
+
+Exactly one experiment is open per session, so `/app/experiment` needs no
+experiment name in the path.
 
 ---
 

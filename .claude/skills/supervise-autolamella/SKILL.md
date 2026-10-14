@@ -87,7 +87,7 @@ error to work around, and never retry it in another form.
 
 ## Watch
 
-Sleep on the events long-poll; never poll `/app/prompt` on a timer. **Run
+Sleep on the events long-poll; never poll `/app/workflow/prompt` on a timer. **Run
 the watcher as a background monitor** — do not write your own (the first
 fresh agent to try matched the wrong JSON key and slept through a question),
 and do not run it in the foreground: each line it prints is your wake-up
@@ -105,7 +105,7 @@ Wake and act on its lines: `PROMPT` (a question is standing, with its
 `question_id`), `QUESTION` (the run is stopped on a recorded question — rule 5),
 `ANSWERED` (check who — if the operator answered, your read of that
 question is stale), task lifecycle `EVENT` lines, `GAP` (events were lost:
-re-read `/app/prompt` and `/app/status`), and `RUN ENDED` (report and stop
+re-read `/app/workflow/prompt` and `/app/workflow/status`), and `RUN ENDED` (report and stop
 watching). A run that ended badly says how: `workflow_stalled` (decisions
 are pending), `workflow_failed: <error>`, or `stopped without an end event`
 (it died without saying so). For the last two, read `get_log` with the
@@ -119,19 +119,19 @@ the foreground of a single bounded command instead: run the watcher with
 your tool timeout as the cap, act on whatever lines it printed when the
 command returns, and run it again with `--since <the last seq you saw>`
 (`latest_seq` from `get_events`) so the gap between runs is not lost. A stalled watch looks exactly like a
-quiet run — when in doubt, read `/app/prompt` directly.
+quiet run — when in doubt, read `/app/workflow/prompt` directly.
 
 ## Answer — the rules that are never optional
 
-1. **Name the question.** Read `GET /app/prompt`, take its `question_id`, echo it in
-   `POST /app/prompt/answer {"response": ..., "question_id": N}`. A `409
+1. **Name the question.** Read `GET /app/workflow/prompt`, take its `question_id`, echo it in
+   `POST /app/workflow/prompt/answer {"response": ..., "question_id": N}`. A `409
    stale_prompt` means the question changed under you (usually: the operator
    answered first) — that refusal is correct behaviour; re-read and continue.
    Never retry the same `question_id`.
 2. **Separate reading from acting.** Freshness check, *then* look, *then*
    answer — three tool calls, never one chained command. A chained
    guard-and-answer once fired an accept before a stale reading could stop it.
-3. **Check image freshness before judging.** `GET /app/images` carries
+3. **Check image freshness before judging.** `GET /app/experiment/images` carries
    `acquired_at`. If the image predates the mill you are inspecting, you are
    looking at the wrong frame: on the simulator the display does not refresh
    between passes, and on hardware a stale frame means the acquisition has not
@@ -256,7 +256,7 @@ The argument selects a variation on the same loop:
   size. One mill pass sufficed on the exemplar means one pass with a fresh
   image is acceptable — not that the pixels must match. Record from durable
   state, not the live prompt: after an `ANSWERED by=operator` line, read
-  `GET /app/items/{item_name}` — the accepted POI, alignment area, and
+  `GET /app/experiment/items/{item_name}` — the accepted POI, alignment area, and
   milling angle are there — and pair it with the display image. Never race
   the operator for the prompt's `current` value. A small drift against a
   criterion you can state is a correction, not an escalation: answer with a
@@ -265,8 +265,8 @@ The argument selects a variation on the same loop:
   Escalate when you cannot state the correction, when you cannot evaluate a
   criterion, or when a question type the exemplar never showed appears.
 - **batch-review**: supervision is off or minimal; let the run complete, then
-  present the outputs (`/app/run_summary`, `/app/task_outputs/{item}`,
-  `/app/items/{item}`, final images) and act on the verdicts —
+  present the outputs (`/app/workflow/run_summary`, `/app/experiment/items/{item}/outputs`,
+  `/app/experiment/items/{item}`, final images) and act on the verdicts —
   `requeue_task` for items in a running workflow, `start_workflow` for a
   fresh round. Whose verdicts is a **policy question you settle up front**,
   never a judgment you assume: at the start of the session, ask the operator
@@ -276,8 +276,8 @@ The argument selects a variation on the same loop:
   per item unless told otherwise) and report every rerun with the evidence
   behind it. A rerun spends beam time and dose on a possibly marginal
   lamella — whenever the delegation is unclear, propose.
-- **grid review**: after a screening run, `GET /app/grids` lists each grid
-  with its latest overview per role; `GET /app/grids/{grid}/outputs/{file}`
+- **grid review**: after a screening run, `GET /app/experiment/grids` lists each grid
+  with its latest overview per role; `GET /app/experiment/grids/{grid}/outputs/{file}`
   is the preview and `.../markers` places the experiment's items on it in
   source pixels with their status — use it for "which items sit near the
   edge / off the grid" judgments, never re-derive stage geometry yourself.
@@ -297,11 +297,11 @@ The argument selects a variation on the same loop:
 - `POST /app/workflow/stop` — if you believe the run is doing damage, stop
   first and explain second. At Watch you cannot stop it: tell the operator
   at once, plainly, what you see and that they should press Stop.
-- `POST /app/supervision {"task_name", "supervise"}` — takes effect at the
+- `POST /app/agent/supervision {"task_name", "supervise"}` — takes effect at the
   next decision point. A supervised task's questions go to the operator and
   to you alike; the first answer wins, and the operator can always answer
   first.
-- `POST /app/queue/requeue {"item_name", "task_name"}` — re-runs a completed
+- `POST /app/workflow/queue/requeue {"item_name", "task_name"}` — re-runs a completed
   pair inside a running workflow.
 
 ## Using the microscope (Drive)
@@ -396,7 +396,7 @@ every run. Before you start runs yourself, turn it off with
 `set_workflow_options(show_run_summary=false)` so no dialog is left over
 the operator's window, and tell them you did. Each run's end still shows a
 toast with a Show summary link, and it stays in the notification bell.
-Read `/app/run_summary` for the outcome yourself. If the operator turns it
+Read `/app/workflow/run_summary` for the outcome yourself. If the operator turns it
 back on, leave it on.
 
 Etiquette:
@@ -416,7 +416,7 @@ Etiquette:
 Keep the operator oriented without flooding them: say what you answered and
 why when it was a judgment call (the note already records it); stay quiet
 for laddered repeats; always report task completions/failures, escalations,
-and the end-of-run summary (items, durations, outcomes — `/app/run_summary`
+and the end-of-run summary (items, durations, outcomes — `/app/workflow/run_summary`
 survives the run's end).
 Every answer you give is attributed on the timeline in the app; write nothing
 the timeline would contradict.

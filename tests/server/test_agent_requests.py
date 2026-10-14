@@ -124,7 +124,7 @@ def test_assist_files_a_request_and_reads_it_back(client):
     assert body["status"] == "pending"
     assert [a["path"] for a in body["actions"]] == [
         MOVE_RELATIVE,
-        "/app/supervision",
+        "/app/agent/supervision",
     ]
     read = client.get(f"/app/agent/requests/{body['request_id']}", headers=AGENT)
     assert read.json() == body
@@ -272,7 +272,7 @@ def test_assist_stops_without_asking_and_asks_for_the_rest(client):
         ).status_code
         == 200
     )
-    for path in (MOVE_RELATIVE, "/app/prompt/answer"):
+    for path in (MOVE_RELATIVE, "/app/workflow/prompt/answer"):
         refused = client.post(path, headers=AGENT, json={})
         assert refused.status_code == 403, path
         assert _detail(refused)["error_type"] == "ask_first"

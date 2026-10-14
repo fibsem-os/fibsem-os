@@ -46,7 +46,7 @@ The tools this skill uses, with their routes for plain HTTP:
 |---|---|
 | `request_actions` | `POST /app/agent/requests` |
 | `get_request` | `GET /app/agent/requests/{request_id}` |
-| `suggest_answer` | `POST /app/prompt/suggest` |
+| `suggest_answer` | `POST /app/workflow/prompt/suggest` |
 | `add_note` | `POST /app/agent/notes` |
 | `stop_workflow`, `stop_milling` | `POST /app/workflow/stop`, `POST /microscope/services/milling/commands/stop` |
 
