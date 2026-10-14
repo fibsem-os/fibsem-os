@@ -29,7 +29,7 @@ from psygnal import Signal
 from fibsem.control import Control
 from fibsem.devices.core import IMAGING_CHANNEL, Resources, Session
 from fibsem.fm.microscope import FluorescenceMicroscope
-from fibsem.geometry.movement import image_to_stage_delta
+from fibsem.geometry.movement import beam_view_tilt
 from fibsem.geometry.orientations import (
     compucentric_rotation,
 )
@@ -66,9 +66,6 @@ from fibsem.structures import (
     Point,
     StageDeviceSettings,
     SystemSettings,
-)
-from fibsem.transformations import (
-    inverse_view_corrected_dy,
 )
 
 if TYPE_CHECKING:
@@ -2267,79 +2264,37 @@ class FibsemMicroscope(ABC):
         )
 
     def _beam_view_tilt(self, beam_type: BeamType) -> float:
-        """Tilt of a beam column's viewing axis from the electron column, in radians."""
-        if beam_type is BeamType.ELECTRON:
-            return 0.0
-        if beam_type is BeamType.ION:
-            return np.deg2rad(self.system.ion.column_tilt)
-        # the previous inline form left the adjustment unbound here; keep failing loudly
-        raise ValueError(f"Unsupported beam type: {beam_type}")
+        """Tilt of a beam column's viewing axis from the electron column, in radians.
+        See `fibsem.geometry.movement.beam_view_tilt`."""
+        return beam_view_tilt(beam_type, self.hardware_geometry())
 
     def _view_corrected_stage_movement(
         self,
         expected_y: float,
         view_tilt: float = 0.0,
     ) -> FibsemStagePosition:
-        """Project a displacement seen in an image onto the tilted sample plane.
-
-        Every view of the sample shares this projection and differs only in how far
-        its viewing axis is tilted from the electron column: the electron column is
-        0, the ion column is its ``column_tilt``, and the fluorescence camera is its
-        ``camera_tilt``. The sample is additionally tilted by the shuttle pre-tilt,
-        so an in-image y-displacement becomes a movement along the holder, split
-        across the stage y- and z-axes.
-
-        Args:
-            expected_y: distance along the image y-axis, in metres.
-            view_tilt: tilt of the viewing axis from the electron column, in radians.
-
-        Returns:
-            FibsemStagePosition: y-corrected stage movement (relative position)
-        """
-
-        delta = self._view_stage_delta(0, expected_y, view_tilt=view_tilt)
-        return FibsemStagePosition(x=0, y=delta.y, z=delta.z)
+        """The relative y/z stage movement for a y-displacement in a view. See
+        `StageMovement.view_corrected_movement`."""
+        return self._movement_service().view_corrected_movement(
+            expected_y, view_tilt=view_tilt
+        )
 
     def _view_stage_delta(
         self, dx: float, dy: float, view_tilt: float
     ) -> FibsemStagePosition:
         """:func:`fibsem.geometry.movement.image_to_stage_delta` at the current pose.
-
-        The same answer a saved image gets at that pose: nothing here reads the
-        orientation table.
-        """
-        # TODO: replace with camera matrix * inverse kinematics
-        position = self.get_stage_position()
-        return image_to_stage_delta(
-            dx,
-            dy,
-            view_tilt=view_tilt,
-            geometry=self.hardware_geometry(),
-            stage_rotation=position.r,
-            stage_tilt=position.t,
-        )
+        See `StageMovement._view_stage_delta`."""
+        return self._movement_service()._view_stage_delta(dx, dy, view_tilt=view_tilt)
 
     def _y_corrected_stage_movement(
         self,
         expected_y: float,
         beam_type: BeamType = BeamType.ELECTRON,
     ) -> FibsemStagePosition:
-        """
-        Calculate the y corrected stage movement, corrected for the additional tilt of the sample holder (pre-tilt angle).
-
-        Thin wrapper over :meth:`_view_corrected_stage_movement`: a beam is just a
-        view whose axis is tilted from the electron column by its ``column_tilt``.
-
-        Args:
-            expected_y (float, optional): distance along y-axis.
-            beam_type (BeamType, optional): beam_type to move in. Defaults to BeamType.ELECTRON.
-
-        Returns:
-            StagePosition: y corrected stage movement (relative position)
-        """
-        return self._view_corrected_stage_movement(
-            expected_y=expected_y,
-            view_tilt=self._beam_view_tilt(beam_type),
+        """The relative y/z stage movement for a y-displacement in a beam's view,
+        corrected for the shuttle pre-tilt. See `StageMovement.y_corrected_movement`."""
+        return self._movement_service().y_corrected_movement(
+            expected_y, beam_type=beam_type
         )
 
     def _inverse_y_corrected_stage_movement(
@@ -2348,24 +2303,10 @@ class FibsemMicroscope(ABC):
         dz: float,
         beam_type: BeamType = BeamType.ELECTRON,
     ) -> float:
-        """
-        Calculate the expected_y input from dy, dz stage movements and beam_type.
-        This is the inverse of _y_corrected_stage_movement.
-
-        Thin wrapper over :meth:`_inverse_view_corrected_stage_movement`.
-
-        Args:
-            dy (float): actual y stage movement
-            dz (float): actual z stage movement
-            beam_type (BeamType, optional): beam_type used. Defaults to BeamType.ELECTRON.
-
-        Returns:
-            float: expected_y input that would produce the given dy, dz movements
-        """
-        return self._inverse_view_corrected_stage_movement(
-            dy=dy,
-            dz=dz,
-            view_tilt=self._beam_view_tilt(beam_type),
+        """The y-displacement in a beam's view that a y/z stage movement corresponds
+        to. See `StageMovement.inverse_y_corrected_movement`."""
+        return self._movement_service().inverse_y_corrected_movement(
+            dy, dz, beam_type=beam_type
         )
 
     def _inverse_view_corrected_stage_movement(
@@ -2374,43 +2315,10 @@ class FibsemMicroscope(ABC):
         dz: float,
         view_tilt: float = 0.0,
     ) -> float:
-        """Recover the in-image y-displacement from a y/z stage movement.
-
-        Inverse of :meth:`_view_corrected_stage_movement`.
-
-        Deferred to :func:`fibsem.transformations.inverse_view_corrected_dy` rather than
-        derived here. This method used to carry its own copy of the trigonometry, as did
-        `imaging/tiling/reprojection.py`, so one decision about the geometry lived in
-        three places and only stayed consistent by everyone editing all three. They now
-        share the one implementation, which is what `transformations` was extracted for.
-
-        Two consequences, both wanted:
-
-        * **No hardware read for the orientation.** The old copy asked
-          `get_stage_orientation()` to decide whether a compustage was at the FIB pose;
-          the shared version derives it from the pose it was handed. The stage position
-          is still read here, because "the current pose" is this method's contract.
-        * **The compustage FIB test gains the rotation term** the live path always had
-          and the tiled copy lacked (FIB-500). Only reachable poses matter and none
-          change: a compustage has no rotation axis, so the combinations that differ --
-          tilt -128 with a non-zero rotation -- cannot be produced by any acquisition.
-
-        Args:
-            dy: actual y stage movement
-            dz: actual z stage movement
-            view_tilt: tilt of the viewing axis from the electron column, in radians.
-
-        Returns:
-            float: expected_y input that would produce the given dy, dz movements
-        """
-        position = self.get_stage_position()
-        return inverse_view_corrected_dy(
-            dy=dy,
-            dz=dz,
-            view_tilt=view_tilt,
-            geometry=self.hardware_geometry(),
-            stage_rotation=position.r if position.r is not None else 0.0,
-            stage_tilt=position.t if position.t is not None else 0.0,
+        """The y-displacement in a view that a y/z stage movement corresponds to. See
+        `StageMovement.inverse_view_corrected_movement`."""
+        return self._movement_service().inverse_view_corrected_movement(
+            dy, dz, view_tilt=view_tilt
         )
 
     def project_fm_stable_move(

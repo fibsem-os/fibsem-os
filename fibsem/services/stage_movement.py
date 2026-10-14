@@ -34,6 +34,7 @@ from fibsem.devices.stage import Stage, recording_move
 from fibsem.geometry.frames import fm_camera_tilt as derived_camera_tilt
 from fibsem.geometry.movement import (
     apply_delta,
+    beam_view_tilt,
     fib_offset_after_sem_move,
     image_to_stage_delta,
     undo_scan_rotation,
@@ -55,7 +56,10 @@ from fibsem.structures import (
     InsertableDeviceState,
     StageDeviceSettings,
 )
-from fibsem.transformations import get_stage_tilt_from_milling_angle
+from fibsem.transformations import (
+    get_stage_tilt_from_milling_angle,
+    inverse_view_corrected_dy,
+)
 
 _S = TypeVar("_S", bound="StageMovement")
 
@@ -730,11 +734,7 @@ class StageMovement(Service):
 
     def _view_tilt(self, beam_type: BeamType) -> float:
         """Tilt of a beam column's viewing axis from the electron column, in radians."""
-        if beam_type is BeamType.ELECTRON:
-            return 0.0
-        if beam_type is BeamType.ION:
-            return np.deg2rad(self.parent.system.ion.column_tilt)
-        raise ValueError(f"Unsupported beam type: {beam_type}")
+        return beam_view_tilt(beam_type, self.parent.hardware_geometry())
 
     def _view_stage_delta(
         self, dx: float, dy: float, view_tilt: float
@@ -748,6 +748,61 @@ class StageMovement(Service):
             geometry=self.parent.hardware_geometry(),
             stage_rotation=position.r,
             stage_tilt=position.t,
+        )
+
+    # -- a displacement seen in a view, as a stage movement, and back ------------------
+    #
+    # The sample sits on the shuttle pre-tilt, so a y-displacement in an image moves it
+    # along the holder, split across the stage y- and z-axes. Every view shares one
+    # projection and differs only in how far its axis is tilted from the electron
+    # column: 0 for the electron beam, the column tilt for the ion beam, the camera tilt
+    # for the FM. Taken at the current pose; nothing moves.
+
+    @query
+    def view_corrected_movement(
+        self, expected_y: float, view_tilt: float = 0.0
+    ) -> FibsemStagePosition:
+        """The relative y/z stage movement for a y-displacement (metres) in a view
+        tilted ``view_tilt`` radians from the electron column."""
+        delta = self._view_stage_delta(0, expected_y, view_tilt=view_tilt)
+        return FibsemStagePosition(x=0, y=delta.y, z=delta.z)
+
+    @query
+    def y_corrected_movement(
+        self, expected_y: float, beam_type: BeamType = BeamType.ELECTRON
+    ) -> FibsemStagePosition:
+        """`view_corrected_movement` in a beam's view."""
+        return self.view_corrected_movement(
+            expected_y, view_tilt=self._view_tilt(beam_type)
+        )
+
+    @query
+    def inverse_view_corrected_movement(
+        self, dy: float, dz: float, view_tilt: float = 0.0
+    ) -> float:
+        """The y-displacement in the view that a y/z stage movement corresponds to.
+
+        The inverse of `view_corrected_movement`, through the
+        `fibsem.transformations.inverse_view_corrected_dy` the saved-image
+        reprojection shares.
+        """
+        position = self._position()
+        return inverse_view_corrected_dy(
+            dy=dy,
+            dz=dz,
+            view_tilt=view_tilt,
+            geometry=self.parent.hardware_geometry(),
+            stage_rotation=position.r if position.r is not None else 0.0,
+            stage_tilt=position.t if position.t is not None else 0.0,
+        )
+
+    @query
+    def inverse_y_corrected_movement(
+        self, dy: float, dz: float, beam_type: BeamType = BeamType.ELECTRON
+    ) -> float:
+        """`inverse_view_corrected_movement` in a beam's view."""
+        return self.inverse_view_corrected_movement(
+            dy, dz, view_tilt=self._view_tilt(beam_type)
         )
 
     # -- moves the stage device has itself --------------------------------------------------
