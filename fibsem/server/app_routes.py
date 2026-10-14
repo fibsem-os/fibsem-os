@@ -88,6 +88,8 @@ class AppContext(Protocol):
         self, task_name: str, scheduled_at: Optional[str]
     ) -> Dict[str, Any]: ...
 
+    def set_workflow_options(self, show_run_summary: bool) -> Dict[str, Any]: ...
+
     def apply_protocol_to_item(
         self, item_name: str, task_names: Optional[List[str]] = None
     ) -> Dict[str, Any]: ...
@@ -663,6 +665,21 @@ def build_app_config_router(context: AppContext) -> APIRouter:
                 },
             )
         return result
+
+    @router.post("/workflow/options")
+    def set_workflow_options(body: Dict[str, Any]):
+        # The workflow's run options, on the configure scope like the
+        # schedule. One so far: whether the run summary dialog opens.
+        show_run_summary = body.get("show_run_summary")
+        if not isinstance(show_run_summary, bool):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_type": "missing_field",
+                    "message": "Pass show_run_summary (boolean).",
+                },
+            )
+        return context.set_workflow_options(show_run_summary)
 
     def _validated_reorder(body: Dict[str, Any]):
         milling_key = body.get("milling_key")

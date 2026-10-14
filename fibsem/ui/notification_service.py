@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Callable, Optional, Tuple
 
 from PyQt5 import sip
 from PyQt5.QtCore import QObject, pyqtSignal
@@ -18,6 +18,8 @@ class _NotificationService(QObject):
     """App-wide toast signal bus. Thread-safe: cross-thread emits are queued to main thread."""
 
     toast = pyqtSignal(str, str, bool)  # (message, notification_type, temporary)
+    # The same, with a link on the toast: (..., action_text, callback).
+    toast_action = pyqtSignal(str, str, bool, str, object)
 
 
 _service: Optional[_NotificationService] = None
@@ -40,12 +42,24 @@ def _get_service() -> _NotificationService:
 
 
 def show(
-    message: str, notification_type: str = "info", temporary: bool = False
+    message: str,
+    notification_type: str = "info",
+    temporary: bool = False,
+    action: Optional[Tuple[str, Callable[[], None]]] = None,
 ) -> None:
     """Emit a toast. Persists to notification history by default (temporary=False).
 
+    ``action`` is a (text, callback) link shown on the toast and on its history
+    entry, e.g. ("Show summary", open_summary). The callback runs on the GUI thread.
+
     Use show_toast() for transient validation messages that should not appear in history.
     """
+    if action is not None:
+        text, callback = action
+        _get_service().toast_action.emit(
+            message, notification_type, temporary, text, callback
+        )
+        return
     _get_service().toast.emit(message, notification_type, temporary)
 
 

@@ -160,8 +160,9 @@ seconds = microscope.estimate_milling_time() # float
 ### Devices and beam settings
 
 Every device the microscope built (`microscope.devices`: `electron`, `ion`,
-`stage`, `chamber`, `manipulator`, FM parts) is served generically, the same
-routes the device server (`fibsem/server/devices.py`) serves:
+`stage`, `manipulator`, FM parts) but the chamber is served generically, the same
+routes the device server (`fibsem/server/devices.py`) serves. The chamber is not
+served: pumping and venting are the operator's, at the microscope.
 
 ```python
 microscope.list_devices()                               # parameters + commands per device

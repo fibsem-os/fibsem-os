@@ -40,6 +40,7 @@ from fastapi.routing import APIRoute
 
 from fibsem import utils
 from fibsem.acting import AGENT, acting
+from fibsem.devices.chamber import Chamber
 from fibsem.microscope import FibsemMicroscope
 from fibsem.server.app_routes import (
     build_app_config_router,
@@ -127,6 +128,21 @@ def _image_response(image) -> Response:
     return Response(content=tiff_bytes(image), media_type=TIFF_MEDIA_TYPE)
 
 
+def _show_in_app(microscope: FibsemMicroscope, image) -> None:
+    """Send an image a route acquired to the microscope's acquisition signal, as
+    the workflow's one-shots do, so the app's SEM/FIB views show it (FIB-1375).
+
+    Before this, an agent's image went back to the agent only: the app kept the
+    frame from before the agent's move, and a question raised next showed that.
+    """
+    metadata = getattr(image, "metadata", None)
+    beam_type = getattr(metadata, "beam_type", None) if metadata is not None else None
+    if beam_type is BeamType.ELECTRON:
+        microscope.sem_acquisition_signal.emit(image)
+    elif beam_type is BeamType.ION:
+        microscope.fib_acquisition_signal.emit(image)
+
+
 def _beam_type(value: str) -> BeamType:
     try:
         return BeamType[value.upper()]
@@ -164,6 +180,18 @@ class _RefusingRoute(APIRoute):
 STOP_COMMANDS = frozenset(("stop", "stop_live"))
 
 _read_scope = require_scope(Scope.READ)
+
+
+def _served_devices(microscope: FibsemMicroscope) -> dict:
+    """The devices the server serves: all but the chamber. Pumping and venting
+    are the operator's, at the microscope, so the chamber is not served at all."""
+    return {
+        name: device
+        for name, device in microscope.devices.items()
+        if not isinstance(device, Chamber)
+    }
+
+
 _hardware_scope = require_scope(Scope.HARDWARE)
 
 
@@ -313,9 +341,9 @@ def build_server(
             if body.image_settings
             else None
         )
-        return _image_response(
-            microscope.acquire_image(image_settings=image_settings, beam_type=bt)
-        )
+        image = microscope.acquire_image(image_settings=image_settings, beam_type=bt)
+        _show_in_app(microscope, image)
+        return _image_response(image)
 
     @hw.post("/acquire_chamber_image")
     def acquire_chamber_image() -> Response:
@@ -332,6 +360,7 @@ def build_server(
             else None
         )
         image = microscope.acquire_image(image_settings=image_settings, beam_type=bt)
+        _show_in_app(microscope, image)
         return preview_payload(image)
 
     @hw.post("/autocontrast")
@@ -598,15 +627,16 @@ def build_server(
         app.include_router(read)
         app.include_router(stop)
         app.include_router(hw)
-        # Every device's parameters and commands, as the device server serves
-        # them: reads are read scope, writes and commands hardware scope and
-        # control of the microscope.
+        # Every device's parameters and commands but the chamber's, as the
+        # device server serves them: reads are read scope, writes and commands
+        # hardware scope and control of the microscope.
         app.include_router(
             build_device_router(
-                lambda: microscope.devices,
+                lambda: _served_devices(microscope),
                 read=[Depends(require_scope(Scope.READ))],
                 write=[Depends(require_scope(Scope.HARDWARE)), Depends(take_control)],
                 command=[Depends(_device_command_gate)],
+                on_image=lambda image: _show_in_app(microscope, image),
             )
         )
         # The microscope's services (milling, stage movement, ...) have the

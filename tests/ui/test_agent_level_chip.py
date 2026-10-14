@@ -130,6 +130,7 @@ def test_the_menu_says_when_the_agent_was_last_heard_from(qapp):
     chip.menu_.aboutToShow.emit()
     assert chip.last_heard_action.text() == "Agent · last heard 4 s ago"
     assert last_heard_text(200) == "Agent · last heard 3 min ago"
+    assert last_heard_text(5, "claude-code/2.1.3") == "claude-code · last heard 5 s ago"
     chip.deleteLater()
 
 

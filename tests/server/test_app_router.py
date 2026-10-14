@@ -392,6 +392,40 @@ def test_task_schedule_verb_sets_clears_and_refuses(microscope, host, event_buff
         assert "Rough Milling" in unknown.json()["detail"]["task_names"]
 
 
+def test_workflow_options_verb_sets_and_refuses(microscope, host, event_buffer):
+    armed = build_server(
+        microscope,
+        app_context=AutoLamellaAppContext(host, event_buffer=event_buffer),
+        auth=AuthConfig.generate(arm_configure=True, token=TOKEN),
+    )
+    with TestClient(armed, raise_server_exceptions=False) as client:
+        resp = client.post(
+            "/app/workflow/options", headers=AUTH, json={"show_run_summary": False}
+        )
+        assert resp.status_code == 200
+        assert resp.json()["applied"] is True
+        shown = client.get("/app/protocol", headers=AUTH).json()["options"]
+        assert shown["show_run_summary"] is False
+        events = client.get("/app/events?since=0", headers=AUTH).json()["events"]
+        assert any(
+            e["kind"] == "workflow_changed"
+            and e["payload"].get("field") == "show_run_summary"
+            for e in events
+        )
+
+        bad = client.post(
+            "/app/workflow/options", headers=AUTH, json={"show_run_summary": "no"}
+        )
+        assert bad.status_code == 422
+
+
+def test_workflow_options_need_the_configure_scope(client):
+    resp = client.post(
+        "/app/workflow/options", headers=AUTH, json={"show_run_summary": False}
+    )
+    assert resp.status_code == 403
+
+
 def test_task_schedule_needs_the_configure_scope(client):
     resp = client.post(
         "/app/workflow/schedule",
