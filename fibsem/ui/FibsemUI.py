@@ -26,7 +26,6 @@ from PyQt5.QtWidgets import (
     QApplication,
     QLabel,
     QMainWindow,
-    QSplashScreen,
     QSplitter,
     QTabWidget,
     QVBoxLayout,
@@ -37,6 +36,7 @@ from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import MicroscopeSettings
 from fibsem.tools.app_identity import set_app_identity
 from fibsem.tools.apps import FIBSEM_UI
+from fibsem.tools.launcher import Splash
 from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
 from fibsem.ui.FibsemManipulatorWidget import FibsemManipulatorWidget
 from fibsem.ui.FibsemMovementWidget import FibsemMovementWidget
@@ -315,7 +315,7 @@ class FibsemUI(QMainWindow):
         self._overview_placeholder.show()
 
 
-def main(argv: Optional[List[str]] = None, splash: Optional[QSplashScreen] = None):
+def main(argv: Optional[List[str]] = None, splash: Optional[Splash] = None):
     """Run the fibsemOS UI.
 
     ``argv`` is accepted for the launcher's common signature; the UI takes no

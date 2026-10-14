@@ -22,7 +22,7 @@ import importlib.resources
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 ENTRY_POINT_GROUP = "fibsem.apps"
 ICONS_DIR = Path(str(importlib.resources.files("fibsem"))) / "ui" / "icons"
@@ -44,6 +44,14 @@ class App:
     icon: Path
     """The full-colour SVG. A ``<stem>-16.svg`` beside it is the 16 px drawing,
     and a ``<stem>.ico`` beside it is the Windows shortcut icon."""
+    load_steps: Tuple[Tuple[str, Tuple[str, ...]], ...] = ()
+    """What the splash says while it imports, and the modules each step imports
+    ahead of ``target``. Importing blocks Qt's event loop, so the splash can only
+    repaint between steps: several steps of similar length keep its status line
+    current."""
+    splash_animation: Optional[str] = None
+    """``"milling"`` mills AutoLamella's icon in passes once the window is up;
+    otherwise the icon is drawn as it is."""
 
     @property
     def icon_16(self) -> Path:
@@ -56,12 +64,35 @@ class App:
         return ico if ico.is_file() else None
 
 
+# The import-heavy dependencies, in the order the apps reach them. Measured on
+# a 2026 MacBook: about 1.2 s for the libraries, 1.0 s for fluorescence and
+# correlation, 0.5 s for the app itself; a microscope PC is slower.
+_COMMON_STEPS: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
+    ("Loading numerical libraries", ("numpy", "scipy.spatial", "pandas")),
+    ("Loading statistics", ("scipy.stats",)),
+    ("Loading plotting", ("matplotlib.pyplot",)),
+    ("Loading fluorescence", ("fibsem.fm",)),
+    ("Loading correlation", ("fibsem.correlation",)),
+)
+
 AUTOLAMELLA = App(
     name="AutoLamella",
     app_id="fibsemOS.AutoLamella",
     command="fibsem-autolamella-ui",
     target="fibsem.applications.autolamella.ui.AutoLamellaMainUI:run_ui",
     icon=ICONS_DIR / "autolamella.svg",
+    load_steps=_COMMON_STEPS
+    + (
+        (
+            "Loading AutoLamella",
+            (
+                "fibsem.applications.autolamella.structures",
+                "fibsem.ui",
+                "fibsem.applications.autolamella.ui.AutoLamellaMainUI",
+            ),
+        ),
+    ),
+    splash_animation="milling",
 )
 
 FIBSEM_UI = App(
@@ -70,6 +101,8 @@ FIBSEM_UI = App(
     command="fibsem_ui",
     target="fibsem.ui.FibsemUI:main",
     icon=ICONS_DIR / "fibsemos.svg",
+    load_steps=_COMMON_STEPS
+    + (("Loading the microscope UI", ("fibsem.ui.FibsemUI",)),),
 )
 
 BUILTIN_APPS: Dict[str, App] = {"autolamella": AUTOLAMELLA, "fibsem-ui": FIBSEM_UI}
