@@ -1,4 +1,5 @@
-"""The fluorescence microscope's steps in the hardware check (:mod:`fibsem.hardware_check`).
+"""The fluorescence microscope's steps in the hardware check
+(:mod:`fibsem.tools.hardware_check`).
 
 What each level does here:
 
@@ -21,7 +22,7 @@ from __future__ import annotations
 import time
 from typing import Any, Callable, Optional
 
-from fibsem.hardware_check import (
+from fibsem.tools.hardware_check import (
     Finding,
     Level,
     Report,

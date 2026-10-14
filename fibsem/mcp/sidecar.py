@@ -26,6 +26,7 @@ and needs nothing beyond fibsem itself (see :mod:`fibsem.mcp.watch`).
 import argparse
 import base64
 import json
+import math
 import os
 import re
 import sys
@@ -316,14 +317,19 @@ def build_sidecar(client, capabilities):
     def get_stage_position():
         return _json_tool("get_stage_position")[1]()
 
+    def _service_call(name, kwargs, key):
+        """A stage movement query or command as a named tool: *key* holds its result."""
+        data, err = _call(client, "POST", by_name[name].path, {"kwargs": kwargs})
+        return err if err else {key: data["result"]}
+
     def get_stage_orientation():
-        return _json_tool("get_stage_orientation")[1]()
+        return _service_call("get_stage_orientation", {}, "orientation")
 
     def get_microscope_state():
         return _json_tool("get_microscope_state")[1]()
 
     def get_milling_angle():
-        return _json_tool("get_milling_angle")[1]()
+        return _service_call("get_milling_angle", {}, "milling_angle_deg")
 
     def get_milling_state():
         return _json_tool("get_milling_state")[1]()
@@ -368,13 +374,9 @@ def build_sidecar(client, capabilities):
         return err if err else data
 
     def move_to_milling_angle(milling_angle_deg: float):
-        data, err = _call(
-            client,
-            "POST",
-            "/milling_angle/move",
-            {"milling_angle_deg": milling_angle_deg},
-        )
-        return err if err else data
+        # The tool speaks degrees; the stage movement command takes radians (FIB-853).
+        kwargs = {"milling_angle": math.radians(milling_angle_deg)}
+        return _service_call("move_to_milling_angle", kwargs, "success")
 
     def list_devices():
         return _json_tool("list_devices")[1]()

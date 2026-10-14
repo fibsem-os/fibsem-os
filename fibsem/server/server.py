@@ -29,7 +29,6 @@ Or as a script:
 
 import atexit
 import logging
-import math
 import os
 from typing import Optional
 
@@ -73,14 +72,9 @@ from fibsem.server.models import (
     DrawPatternsRequest,
     FinishMillingRequest,
     ImageSettingsRequest,
-    IsCloseToMillingAngleRequest,
     MicroscopeStateRequest,
-    MillingAngleFromPositionRequest,
-    MillingAngleRequest,
     MillingSettingsRequest,
-    MoveToMillingAngleRequest,
     OrientationRequest,
-    ProjectStableMoveRequest,
     StableMoveRequest,
     StagePositionRequest,
     StagePositionResponse,
@@ -379,10 +373,6 @@ def build_server(
     def get_stage_position():
         return {"position": microscope.get_stage_position().to_dict()}
 
-    @read.get("/stage_orientation")
-    def get_stage_orientation():
-        return {"orientation": microscope.get_stage_orientation()}
-
     @hw.post("/move_stage_absolute", response_model=StagePositionResponse)
     def move_stage_absolute(body: StagePositionRequest):
         result = microscope.move_stage_absolute(
@@ -401,18 +391,6 @@ def build_server(
     def stable_move(body: StableMoveRequest):
         result = microscope.stable_move(
             dx=body.dx, dy=body.dy, beam_type=_beam_type(body.beam_type)
-        )
-        return StagePositionResponse(position=result.to_dict())
-
-    # read, not hardware: pure geometry from an explicit base position, no motion.
-    @read.post("/project_stable_move", response_model=StagePositionResponse)
-    def project_stable_move(body: ProjectStableMoveRequest):
-        base_position = FibsemStagePosition.from_dict(body.base_position)
-        result = microscope.project_stable_move(
-            dx=body.dx,
-            dy=body.dy,
-            beam_type=_beam_type(body.beam_type),
-            base_position=base_position,
         )
         return StagePositionResponse(position=result.to_dict())
 
@@ -508,53 +486,6 @@ def build_server(
             beam_type=_beam_type(beam),
         )
         return {"status": "ok"}
-
-    # --- Milling angle ---
-    # The HTTP boundary speaks DEGREES everywhere (fields named *_deg).
-    # The ABC's move_to_milling_angle takes radians (FIB-853); converted here.
-
-    @read.get("/milling_angle")
-    def get_milling_angle():
-        return {"milling_angle_deg": microscope.get_current_milling_angle()}
-
-    @read.post("/milling_angle/from_position")
-    def get_milling_angle_from_position(body: MillingAngleFromPositionRequest):
-        position = (
-            FibsemStagePosition.from_dict(body.stage_position)
-            if body.stage_position
-            else None
-        )
-        return {
-            "milling_angle_deg": microscope.get_current_milling_angle(
-                stage_position=position
-            )
-        }
-
-    @hw.post("/milling_angle/set")
-    def set_milling_angle(body: MillingAngleRequest):
-        microscope.set_milling_angle(body.milling_angle_deg)
-        return {"status": "ok"}
-
-    @hw.post("/milling_angle/move")
-    def move_to_milling_angle(body: MoveToMillingAngleRequest):
-        rotation = (
-            math.radians(body.rotation_deg) if body.rotation_deg is not None else None
-        )
-        success = microscope.move_to_milling_angle(
-            math.radians(body.milling_angle_deg), rotation=rotation
-        )
-        return {
-            "success": success,
-            "milling_angle_deg": microscope.get_current_milling_angle(),
-        }
-
-    @read.post("/milling_angle/is_close")
-    def is_close_to_milling_angle(body: IsCloseToMillingAngleRequest):
-        return {
-            "is_close": microscope.is_close_to_milling_angle(
-                body.milling_angle_deg, atol=body.atol_deg
-            )
-        }
 
     # --- Milling ---
 

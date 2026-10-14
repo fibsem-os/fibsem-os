@@ -160,6 +160,24 @@ def test_service_query_tool_round_trip(armed_sidecar):
     assert answer["result"]["x"] == pytest.approx(position["position"]["x"])
 
 
+def _call_json(sidecar, tool, arguments):
+    result = asyncio.run(sidecar.call_tool(tool, arguments))
+    return json.loads("".join(getattr(c, "text", "") for c in _contents(result)))
+
+
+def test_the_milling_angle_tools_speak_degrees(armed_sidecar):
+    """The tools speak degrees; the stage movement command they call takes
+    radians (FIB-853). Moving to 15 deg must read back as ~15 deg, not ~859."""
+    moved = _call_json(
+        armed_sidecar, "move_to_milling_angle", {"milling_angle_deg": 15.0}
+    )
+    assert moved == {"success": True}
+    angle = _call_json(armed_sidecar, "get_milling_angle", {})
+    assert angle["milling_angle_deg"] == pytest.approx(15.0, abs=0.5)
+    orientation = _call_json(armed_sidecar, "get_stage_orientation", {})
+    assert orientation == {"orientation": "MILLING"}
+
+
 def _contents(result):
     # FastMCP.call_tool returns a content sequence; newer versions may return
     # (contents, structured). Normalize.

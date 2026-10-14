@@ -97,9 +97,9 @@ CATALOG: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="get_stage_orientation",
-        description="Named stage orientation (e.g. SEM, FIB, MILLING, UNKNOWN).",
-        method="GET",
-        path="/stage_orientation",
+        description="Named stage orientation (SEM, FIB, MILLING, FM or NONE).",
+        method="POST",
+        path="/services/stage_movement/queries/stage_orientation",
         scope="read",
     ),
     ToolSpec(
@@ -133,9 +133,9 @@ CATALOG: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="get_milling_angle",
-        description="Current milling angle in degrees.",
-        method="GET",
-        path="/milling_angle",
+        description="Current milling angle in degrees, from the stage tilt.",
+        method="POST",
+        path="/services/stage_movement/queries/current_milling_angle",
         scope="read",
     ),
     ToolSpec(
@@ -199,7 +199,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
         name="move_to_milling_angle",
         description="Tilt the stage to a milling angle, in degrees.",
         method="POST",
-        path="/milling_angle/move",
+        path="/services/stage_movement/commands/move_to_milling_angle",
         scope="hardware",
         params={"milling_angle_deg": "target milling angle in degrees"},
     ),
