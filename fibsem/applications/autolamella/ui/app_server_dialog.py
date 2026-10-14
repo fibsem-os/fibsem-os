@@ -58,6 +58,14 @@ def note(text: str) -> QLabel:
     return label
 
 
+def open_in_browser(url: str) -> None:
+    """Open *url* in the system browser."""
+    from PyQt5.QtCore import QUrl
+    from PyQt5.QtGui import QDesktopServices
+
+    QDesktopServices.openUrl(QUrl(url))
+
+
 class AppServerDialog(QDialog):
     """Live view of the embedded App Server."""
 
@@ -130,7 +138,13 @@ class AppServerDialog(QDialog):
             "Item progress, the workflow, and the live event feed."
         )
         self._btn_dashboard.clicked.connect(self._on_dashboard_clicked)
+        self._btn_event_log = QPushButton("Open Event Log")
+        self._btn_event_log.setToolTip(
+            "What the agent, the operator and the run did, filterable."
+        )
+        self._btn_event_log.clicked.connect(self._on_event_log_clicked)
         dashboard_row.addWidget(self._btn_copy_link)
+        dashboard_row.addWidget(self._btn_event_log)
         dashboard_row.addWidget(self._btn_dashboard)
         layout.addLayout(dashboard_row)
 
@@ -189,6 +203,7 @@ class AppServerDialog(QDialog):
         host = self._host()
         running = host is not None
         self._btn_dashboard.setEnabled(running)
+        self._btn_event_log.setEnabled(running)
         self._btn_copy_link.setEnabled(running)
         if not running:
             self._status_dot.setStyleSheet(f"color: {TEXT_MUTED_COLOR};")
@@ -229,14 +244,22 @@ class AppServerDialog(QDialog):
         script and nothing else (no server log, no referrer)."""
         return f"{host.url}/dashboard#token={host.auth.dashboard_token}"
 
+    @staticmethod
+    def event_log_url(host) -> str:
+        """The event log page, with the dashboard's token as the dashboard has it."""
+        return f"{host.url}/dashboard/log#token={host.auth.dashboard_token}"
+
     def _on_dashboard_clicked(self) -> None:
         host = self._host()
         if host is None:
             return
-        from PyQt5.QtCore import QUrl
-        from PyQt5.QtGui import QDesktopServices
+        open_in_browser(self.dashboard_url(host))
 
-        QDesktopServices.openUrl(QUrl(self.dashboard_url(host)))
+    def _on_event_log_clicked(self) -> None:
+        host = self._host()
+        if host is None:
+            return
+        open_in_browser(self.event_log_url(host))
 
     def _on_copy_link_clicked(self) -> None:
         host = self._host()

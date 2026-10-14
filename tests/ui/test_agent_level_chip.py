@@ -121,6 +121,17 @@ def test_the_menu_offers_to_connect_an_agent(qapp):
     chip.deleteLater()
 
 
+def test_the_menu_opens_the_event_log(qapp):
+    chip = AgentLevelChip()
+    clicked = []
+    chip.event_log_clicked.connect(lambda: clicked.append(True))
+    assert chip.menu_.actions()[-2] is chip.event_log_action
+    assert chip.event_log_action.text() == "Open event log"
+    chip.event_log_action.trigger()
+    assert clicked == [True]
+    chip.deleteLater()
+
+
 def test_the_menu_says_when_the_agent_was_last_heard_from(qapp):
     seconds = [None]
     chip = AgentLevelChip(last_heard=lambda: seconds[0])
