@@ -260,6 +260,27 @@ def test_sequences_decode_each_element():
     assert from_wire(Tuple[BeamType, float], [1, 2.0]) == (BeamType.ELECTRON, 2.0)
 
 
+def test_numbers_sent_as_text_decode_as_the_declared_type():
+    """An agent's MCP client sends a value whose schema names no type as text."""
+    from fibsem.devices.wire import from_wire
+
+    assert from_wire(float, "4.0") == 4.0 and isinstance(from_wire(float, "4"), float)
+    assert from_wire(float, " 1.2e-6 ") == pytest.approx(1.2e-6)
+    assert from_wire(int, "4.0") == 4 and isinstance(from_wire(int, "4.0"), int)
+    assert from_wire(int, 4.0) == 4 and isinstance(from_wire(int, 4.0), int)
+    assert from_wire(bool, "true") is True and from_wire(bool, "False") is False
+    # Not a number of that type: left for the parameter's own check to refuse.
+    assert from_wire(int, "4.5") == "4.5"
+    assert from_wire(int, 4.5) == 4.5
+    assert from_wire(float, "fast") == "fast"
+    assert from_wire(float, True) is True
+    assert from_wire(str, "4.0") == "4.0"
+    assert from_wire(BeamType, "1") is BeamType.ELECTRON
+    assert from_wire(BeamType, "ION") is BeamType.ION
+    with pytest.raises(ValueError):
+        from_wire(BeamType, "9")
+
+
 def test_a_pattern_dict_names_its_shape():
     from fibsem.structures import FibsemPatternSettings, FibsemRectangleSettings
 
