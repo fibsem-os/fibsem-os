@@ -80,6 +80,9 @@ A refusal names its reason in `detail.error_type`:
   watch.
 - `ask_first` — you are at Assist: the operator wants to approve each
   action. Switch to the assist-autolamella skill and ask through a request.
+- `not_allowed` — you may never use that write or command, at any level
+  (the listings mark it `agent: false`), and no request makes it allowed.
+  Say what you wanted and that it is the operator's to do.
 
 If `level` drops from Drive to Watch mid-session for any reason, the rule is
 the same as `agent_stopped`: report and stop acting. Never treat a 403 as an

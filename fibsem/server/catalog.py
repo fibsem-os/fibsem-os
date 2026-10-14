@@ -104,7 +104,8 @@ CATALOG: Tuple[ToolSpec, ...] = (
         description=(
             "Every device on the microscope (electron, ion, stage, manipulator, ...): "
             "its parameters with type, unit, limits, choices and whether settable, "
-            "and its commands."
+            "and its commands. agent: false marks a write or command you may never "
+            "use, at any level (403 not_allowed); its value stays readable."
         ),
         method="GET",
         path="/microscope/devices",
@@ -324,7 +325,8 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "Every service on the microscope (milling, stage_movement, spot_burn, "
             "sample_handling, ...): what the instrument does with its devices over "
             "time. Each lists its parameters (e.g. milling progress) and its commands "
-            "with their signatures and whether this microscope has them."
+            "with their signatures and whether this microscope has them; agent: "
+            "false marks one you may never use."
         ),
         method="GET",
         path="/microscope/services",

@@ -164,7 +164,21 @@ def _facts(device: Device) -> Dict[str, Any]:
         return {}
 
 
-def describe_device(device: Device) -> Dict[str, Any]:
+# Why the server refuses a write or a command on a device, or None when it
+# doesn't: (device, "write" or "command", name, the command's arguments).
+Refuse = Callable[[Device, str, str, Mapping[str, Any]], Optional[str]]
+
+
+def describe_device(device: Device, refuse: Optional[Refuse] = None) -> Dict[str, Any]:
+    """A device's parameters, commands, queries and facts. With *refuse*, each
+    parameter and command also says whether the agent may use it (``agent``):
+    a parameter it may read but never set is ``settable`` and ``agent: false``."""
+
+    def agent(kind: str, name: str) -> Dict[str, bool]:
+        if refuse is None:
+            return {}
+        return {"agent": refuse(device, kind, name, {}) is None}
+
     return {
         "name": device.name,
         "class": type(device).__name__,
@@ -173,11 +187,16 @@ def describe_device(device: Device) -> Dict[str, Any]:
                 **info,
                 "limits": _limits_to_wire(info["limits"]),
                 "choices": _choices_to_wire(info["choices"]),
+                **agent("write", name),
             }
             for name, info in device.describe().items()
         },
         "commands": {
-            name: {"signature": info.signature, "available": info.available}
+            name: {
+                "signature": info.signature,
+                "available": info.available,
+                **agent("command", name),
+            }
             for name, info in device.commands.items()
         },
         "queries": {
@@ -285,6 +304,7 @@ def build_device_router(
     prefix: str = "/devices",
     noun: str = "device",
     on_image: Optional[Callable[[FibsemImage], None]] = None,
+    refuse: Optional[Refuse] = None,
 ) -> APIRouter:
     """The ``/devices`` routes over whatever *devices* returns, by name.
 
@@ -296,7 +316,9 @@ def build_device_router(
     server passes none, the App Server its token, level and hardware lock. A query
     moves nothing, so it takes the *read* dependencies, not the hardware lock.
     *on_image* is given each image a command acquired, before it is answered: the
-    App Server shows it in the app's views (FIB-1375).
+    App Server shows it in the app's views (FIB-1375). *refuse* says why a write
+    or a command is never allowed here (403 ``not_allowed``), and the listings
+    mark those (``agent: false``): the App Server's allowlist.
     """
     router = APIRouter()
 
@@ -312,6 +334,18 @@ def build_device_router(
             raise HTTPException(404, f"'{device}' declares no parameter '{name}'")
         return getattr(d, name)  # ParameterUnavailable when this backend lacks it
 
+    def check(d: Device, kind: str, name: str, kwargs: Mapping[str, Any]) -> None:
+        why = refuse(d, kind, name, kwargs) if refuse is not None else None
+        if why is not None:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error_type": "not_allowed",
+                    "message": f"The agent may not use {d.name}.{name}, at any "
+                    f"level: {why}. Its value stays readable.",
+                },
+            )
+
     def run(call: Any, what: str) -> Any:
         try:
             return call()
@@ -322,11 +356,11 @@ def build_device_router(
 
     @router.get(prefix, dependencies=list(read))
     def list_devices() -> Dict[str, Any]:
-        return {name: describe_device(d) for name, d in devices().items()}
+        return {name: describe_device(d, refuse) for name, d in devices().items()}
 
     @router.get(prefix + "/{device}", dependencies=list(read))
     def get_device(device: str) -> Dict[str, Any]:
-        return describe_device(lookup(device))
+        return describe_device(lookup(device), refuse)
 
     # Before /{parameter}, which would otherwise take "values" as a name.
     @router.get(prefix + "/{device}/values", dependencies=list(read))
@@ -360,6 +394,7 @@ def build_device_router(
     ) -> Dict[str, Any]:
         what = f"{noun} {device}.{parameter}"
         param = run(lambda: parameter_of(device, parameter), what)
+        check(lookup(device), "write", parameter, {})
         value = run(lambda: from_wire(param.type, body["value"]), what)
         return {"value": to_wire(run(lambda: param.set_value(value), what))}
 
@@ -380,6 +415,7 @@ def build_device_router(
         method = getattr(d, command)
         what = f"{noun} {device}.{command}"
         kwargs = run(lambda: decode_kwargs(method, body.get("kwargs", {})), what)
+        check(d, "command", command, kwargs)
         result = run(lambda: method(**kwargs), what)
         headers = {}
         if isinstance(result, FibsemImage):  # a beam's image: TIFF, or a preview

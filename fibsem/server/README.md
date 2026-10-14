@@ -25,7 +25,13 @@ Every request needs the server's bearer token, sent as an
 `Authorization: Bearer <token>` header. What the token may do is the agent
 level the operator sets from the Agent chip: reads at Watch, acting at Drive;
 at Off everything is refused. A refusal is a structured 403
-naming why (`level`, `ask_first`, `agent_off`, `agent_stopped`). A hardware
+naming why (`level`, `ask_first`, `agent_off`, `agent_stopped`, `not_allowed`).
+Separate from the level, an allowlist (`fibsem/server/allowlist.py`) names what
+the agent may never write or run, at any level and in an approved request too:
+a beam's `on`, `angular_correction`, `tilt_correction` and `plasma_gas`; the
+stage's `home` and `link`; every manipulator write and command; the objective's
+`limit_position`. `GET /microscope/devices` and `/microscope/services` mark those
+`agent: false`. A command's `path` argument must be inside the open experiment. A hardware
 command takes control of the microscope while it runs: when a run, a script or
 another command is in control it gets `409 microscope_busy`, naming who.
 A stop (`POST /microscope/services/milling/commands/stop`, a device's `stop`,
