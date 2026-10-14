@@ -575,13 +575,10 @@ class FibsemClient:
 
     def finish_milling(self, imaging_current: float, imaging_voltage: float) -> None:
         """Clear the patterns, put the milling beam back as setup found it, then
-        the imaging voltage and current given."""
-        self._milling("clear")
-        self._milling("restore")
-        if imaging_voltage is not None:
-            self.set_beam_voltage(imaging_voltage, BeamType.ION)
-        if imaging_current is not None:
-            self.set_beam_current(imaging_current, BeamType.ION)
+        the imaging voltage and current given, on the milling channel."""
+        self._milling(
+            "finish", imaging_current=imaging_current, imaging_voltage=imaging_voltage
+        )
 
     def clear_patterns(self) -> None:
         self._milling("clear")
