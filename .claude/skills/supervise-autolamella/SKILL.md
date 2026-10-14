@@ -280,8 +280,8 @@ The argument selects a variation on the same loop:
   behind it. A rerun spends beam time and dose on a possibly marginal
   lamella — whenever the delegation is unclear, propose.
 - **grid review**: after a screening run, `GET /app/experiment/grids` lists each grid
-  with its latest overview per role; `GET /app/experiment/grids/{grid}/outputs/{file}`
-  is the preview and `.../markers` places the experiment's items on it in
+  with its latest overview per role; `get_grid_output_image` (`GET
+  /app/experiment/grids/{grid}/outputs/{file}`) is the preview and `.../markers` places the experiment's items on it in
   source pixels with their status — use it for "which items sit near the
   edge / off the grid" judgments, never re-derive stage geometry yourself.
   `quality` is the operator's verdict, not yours: say what you see, propose,

@@ -370,9 +370,14 @@ def build_sidecar(client, capabilities):
     def safe_move_stage_absolute(x: float, y: float, z: float, r: float, t: float):
         return _routed("safe_move_stage_absolute", "position", x=x, y=y, z=z, r=r, t=t)
 
-    def move_to_milling_angle(milling_angle_deg: float):
+    def move_to_milling_angle(
+        milling_angle_deg: float, rotation_deg: Optional[float] = None
+    ):
         return _routed(
-            "move_to_milling_angle", "success", milling_angle_deg=milling_angle_deg
+            "move_to_milling_angle",
+            "success",
+            milling_angle_deg=milling_angle_deg,
+            rotation_deg=rotation_deg,
         )
 
     def list_devices():
@@ -486,6 +491,15 @@ def build_sidecar(client, capabilities):
 
     def get_grid_detail(grid_name: str):
         return _app_get(f"/app/experiment/grids/{grid_name}")
+
+    def get_grid_output_image(grid_name: str, filename: str):
+        # A JPEG, like an item's output image.
+        path = f"/app/experiment/grids/{quote(grid_name, safe='')}/outputs/{quote(filename, safe='')}"
+        resp = client.request("GET", path)
+        if resp.status_code >= 400:
+            return _refusal(resp)
+        meta = {"grid_name": grid_name, "filename": filename}
+        return [json.dumps(meta), Image(data=resp.content, format="jpeg")]
 
     def get_grid_markers(grid_name: str, filename: str):
         return _app_get(f"/app/experiment/grids/{grid_name}/outputs/{filename}/markers")
@@ -754,6 +768,7 @@ def build_sidecar(client, capabilities):
             get_item_detail,
             get_grids,
             get_grid_detail,
+            get_grid_output_image,
             get_grid_markers,
             get_protocol_task_config,
             get_item_task_config,

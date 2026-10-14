@@ -2258,8 +2258,10 @@ class FibsemMicroscope(ABC):
         Returns:
             bool: True if the stage is close to the target milling angle after the move, False otherwise.
         """
+        # The service speaks degrees, like its other milling-angle reads.
         return self._movement_service().move_to_milling_angle(
-            milling_angle, rotation=rotation
+            float(np.degrees(milling_angle)),
+            rotation=None if rotation is None else float(np.degrees(rotation)),
         )
 
     def _beam_view_tilt(self, beam_type: BeamType) -> float:
