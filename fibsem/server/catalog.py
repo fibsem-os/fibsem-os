@@ -841,6 +841,7 @@ CATALOG = CATALOG + APP_TOOLS
 NOT_TOOLS: Dict[str, str] = {
     "GET /health": "Open liveness check, no token; the agent's first read is get_capabilities.",
     "GET /dashboard": "The operator's monitor page, HTML.",
+    "GET /dashboard/log": "The operator's event log page, HTML; get_events is the agent's read.",
     "GET /app/agent/requests": "The app's list of every request; the agent follows its own with get_request.",
     "GET /app/experiment/grids/{grid}/outputs/{filename}": "A JPEG for the dashboard; get_grid_markers is the agent's read of an overview.",
     "GET /microscope/devices/{device}": "list_devices carries every device's description.",

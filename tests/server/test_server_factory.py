@@ -79,6 +79,13 @@ def test_dashboard_page_is_served_open_like_health(read_client):
     assert "AutoLamella Dashboard" in resp.text
 
 
+def test_event_log_page_is_served_open_like_the_dashboard(read_client):
+    resp = read_client.get("/dashboard/log")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/html")
+    assert "AutoLamella Event Log" in resp.text
+
+
 def test_missing_token_is_401(read_client):
     resp = read_client.get("/capabilities")
     assert resp.status_code == 401
