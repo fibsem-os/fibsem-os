@@ -97,7 +97,7 @@ class Parameter:
     A backend implements a parameter in its device subclass with plain methods named
     after it, and the device binds them at ``connect()``::
 
-        class AutoscriptBeam(Beam):
+        class VendorBeam(Beam):
             def read_current(self):
                 return self._beam.beam_current.value
 

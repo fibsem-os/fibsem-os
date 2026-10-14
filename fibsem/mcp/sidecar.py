@@ -15,7 +15,7 @@ Register with Claude Code:
 
     claude mcp add -s user fibsem -- fibsem-mcp
     # or explicitly:
-    claude mcp add -s user fibsem -- fibsem-mcp --url http://hydra-support:8001 --token <token>
+    claude mcp add -s user fibsem -- fibsem-mcp --url http://microscope-pc:8001 --token <token>
 
 Requires the [mcp] extra (Python 3.10+): pip install fibsem[mcp]
 
