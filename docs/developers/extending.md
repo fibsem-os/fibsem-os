@@ -205,12 +205,15 @@ work unchanged.
   a `DriverEntry` in the registry (`fibsem/drivers/registry.py`): a
   module-level `DRIVER` record listed in `_BUILT_IN` for a backend in the
   fibsem tree, or a `fibsem.drivers` entry point for one in its own package.
-  The record names the driver (`manufacturer`) and the other spellings it
-  accepts (`aliases`), and the microscope class sets the same name as its
+  The record names the driver (`manufacturer`), the other spellings it
+  accepts (`aliases`) and the port it connects on (`port`), and the
+  microscope class sets the same name as its
   `driver_name`. A manufacturer without one raises `NotImplementedError` at
   connection time, not at import. To be offered by the first-run wizard,
   the record names a `DriverSetup` (`setup`, see `fibsem/drivers/setup.py`):
-  its label, its vendor package, and a `SetupModel` per instrument.
+  its label, its vendor package, the device values every instrument of the
+  driver has (`devices`, such as each column's `column_tilt`, written in the
+  configuration file's layout), and a `SetupModel` per instrument.
 - **Configuration.** Instruments are described by a YAML file in
   `fibsem/config/`; the setup wizard creates one. For a manufacturer it
   does not know, start from a Demo configuration and edit it. The devices
