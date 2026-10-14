@@ -33,6 +33,7 @@ SUPERVISE = {
     "arguments": {"task_name": "MILL_ROUGH", "supervise": True},
 }
 STOP_MILL = {"tool": "stop_milling", "arguments": {}}
+MOVE_RELATIVE = "/microscope/services/stage_movement/commands/move_relative"
 
 
 class Host:
@@ -122,8 +123,8 @@ def test_assist_files_a_request_and_reads_it_back(client):
     body = filed.json()
     assert body["status"] == "pending"
     assert [a["path"] for a in body["actions"]] == [
-        "/move_stage_relative",
-        "/app/supervision",
+        MOVE_RELATIVE,
+        "/app/agent/supervision",
     ]
     read = client.get(f"/app/agent/requests/{body['request_id']}", headers=AGENT)
     assert read.json() == body
@@ -159,7 +160,9 @@ def test_a_malformed_request_is_refused(client, action, reason, error_type):
 
 
 def test_hardware_needs_the_devices_service(microscope, context, auth):
-    app = build_server(microscope, app_context=context, auth=auth, devices=False)
+    app = build_server(
+        microscope, app_context=context, auth=auth, serve_microscope=False
+    )
     with TestClient(app, raise_server_exceptions=False) as client:
         refused = _file(client, NUDGE)
     assert refused.status_code == 422
@@ -180,8 +183,8 @@ def test_approve_runs_each_action_through_its_route(client, app, auth, microscop
     assert microscope.get_stage_position().x == pytest.approx(before.x + 1e-6)
     # The app ran these, not the agent: it was not heard from.
     assert auth.last_seen_monotonic == heard
-    # The lent scope was for those calls only.
-    direct = client.post("/move_stage_relative", headers=AGENT, json={})
+    # Drive was lent for those calls only.
+    direct = client.post(MOVE_RELATIVE, headers=AGENT, json={})
     assert direct.status_code == 403
 
 
@@ -263,8 +266,13 @@ def test_a_request_made_at_assist_is_not_run_after_the_level_drops(client, app, 
 
 def test_assist_stops_without_asking_and_asks_for_the_rest(client):
     assert client.post("/app/workflow/stop", headers=AGENT).status_code == 200
-    assert client.post("/stop_milling", headers=AGENT).status_code == 200
-    for path in ("/move_stage_relative", "/app/prompt/answer"):
+    assert (
+        client.post(
+            "/microscope/services/milling/commands/stop", headers=AGENT
+        ).status_code
+        == 200
+    )
+    for path in (MOVE_RELATIVE, "/app/workflow/prompt/answer"):
         refused = client.post(path, headers=AGENT, json={})
         assert refused.status_code == 403, path
         assert _detail(refused)["error_type"] == "ask_first"
@@ -350,13 +358,26 @@ def test_an_expiring_request_lapses_as_it_says(app):
     assert request.decided_by == "expiry"
 
 
+# The arguments a named tool cannot be called without.
+_AXES = {axis: 0.0 for axis in "xyzrt"}
+_SAMPLE_ARGUMENTS = {
+    "stable_move": {"dx": 1e-6, "dy": 0.0},
+    "vertical_move": {"dy": 1e-6},
+    "move_to_orientation": {"orientation": "SEM"},
+    "move_stage_absolute": _AXES,
+    "safe_move_stage_absolute": _AXES,
+    "move_to_milling_angle": {"milling_angle_deg": 18.0},
+    "call_command": {"device": "stage", "command": "home"},
+    "call_service_command": {"service": "milling", "command": "run"},
+}
+
+
 def test_every_acting_tool_resolves_to_its_route():
     for spec in CATALOG:
         if spec.level != "drive":
             continue
         arguments = {name: "x" for name in spec.params if "{" + name + "}" in spec.path}
-        if spec.name == "move_stage_absolute":
-            arguments.update(x=0.0, y=0.0, z=0.0, r=0.0, t=0.0)
+        arguments.update(_SAMPLE_ARGUMENTS.get(spec.name, {}))
         method, path, _ = route_call(spec, arguments)
         assert method == spec.method
         assert "{" not in path, spec.name

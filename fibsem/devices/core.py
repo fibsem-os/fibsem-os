@@ -472,9 +472,9 @@ def query(
 ) -> Any:
     """Mark a method as a query: it takes arguments and answers, and moves nothing.
 
-    A command acts on the hardware, so the servers run it under the hardware lock with
-    hardware scope. A query only reads (where would this move land, which orientation
-    is this position), so they serve it with read scope and no lock. It stays a plain
+    A command acts on the hardware, so the App Server runs it at Drive, in control of
+    the microscope. A query only reads (where would this move land, which orientation
+    is this position), so it is served at Watch, taking no control. It stays a plain
     method, listed like a command.
     """
 

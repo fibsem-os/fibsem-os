@@ -100,9 +100,9 @@ def test_the_devices_send_the_token(client, port):
     client.devices["electron"].parameters["current"].get_value()
     session = client._device_client._session
     assert session.headers["Authorization"] == f"Bearer {TOKEN}"
-    url = f"http://127.0.0.1:{port}/devices/electron/current"
+    url = f"http://127.0.0.1:{port}/microscope/devices/electron/current"
     assert requests.get(url, timeout=5).status_code == 401
-    tokenless = DeviceClient("127.0.0.1", port, events=False)
+    tokenless = DeviceClient("127.0.0.1", port, events=False, root="/microscope")
     try:
         with pytest.raises(RemoteDeviceError, match="401"):
             tokenless.describe()

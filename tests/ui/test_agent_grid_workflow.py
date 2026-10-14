@@ -121,7 +121,7 @@ def test_grid_start_validates_and_starts_on_the_gui_thread(ui, qapp):
 
     with _client(ui, arm_control=True) as client:
         # The protocol read names the grid tasks a run can use.
-        protocol = client.get("/app/protocol", headers=AUTH).json()
+        protocol = client.get("/app/experiment/protocol", headers=AUTH).json()
         assert protocol["grid_tasks"] == [
             {"name": "overview_sem", "type": "BEAM_OVERVIEW_GRID"}
         ]

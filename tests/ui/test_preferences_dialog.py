@@ -102,15 +102,15 @@ def test_app_server_section_round_trips(qapp):
     dialog.deleteLater()
 
 
-def test_the_devices_service_is_offered_only_with_the_app_server_on(qapp):
+def test_the_microscope_is_offered_only_with_the_app_server_on(qapp):
     prefs = UserPreferences()
     dialog = PreferencesDialog(prefs)
-    assert not dialog._chk_app_server_devices.isEnabled()
+    assert not dialog._chk_app_server_microscope.isEnabled()
     dialog._chk_app_server.setChecked(True)
-    assert dialog._chk_app_server_devices.isEnabled()
-    dialog._chk_app_server_devices.setChecked(True)
+    assert dialog._chk_app_server_microscope.isEnabled()
+    dialog._chk_app_server_microscope.setChecked(True)
     rebuilt = dialog.get_preferences()
-    assert rebuilt.app_server.enabled and rebuilt.app_server.devices
+    assert rebuilt.app_server.enabled and rebuilt.app_server.microscope
     dialog.deleteLater()
 
 
@@ -119,7 +119,7 @@ def test_the_app_server_fails_closed():
     # `agent_server_enabled` was never in a release, so it is not migrated.
     assert UserPreferences.from_dict({"features": {}}).app_server.enabled is False
     assert UserPreferences.from_dict({"app_server": {}}).app_server.enabled is False
-    assert UserPreferences.from_dict({"app_server": {}}).app_server.devices is False
+    assert UserPreferences.from_dict({"app_server": {}}).app_server.microscope is False
     retired = {"features": {"agent_server_enabled": True}}
     assert UserPreferences.from_dict(retired).app_server.enabled is False
 
@@ -161,7 +161,7 @@ def _every_field_changed() -> UserPreferences:
     prefs.reporting.update_check_enabled = True
 
     prefs.app_server.enabled = True
-    prefs.app_server.devices = True
+    prefs.app_server.microscope = True
 
     prefs.hooks = [{"type": "notification", "name": "custom"}]
     return prefs

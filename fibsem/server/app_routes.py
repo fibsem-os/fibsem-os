@@ -213,27 +213,27 @@ def _jpeg_or_404(result: Dict[str, Any]) -> Response:
 def build_app_router(context: AppContext) -> APIRouter:
     router = APIRouter(prefix="/app")
 
-    @router.get("/status")
+    @router.get("/workflow/status")
     def app_status():
         return context.status()
 
-    @router.get("/queue")
+    @router.get("/workflow/queue")
     def app_queue():
         return context.queue()
 
-    @router.get("/experiment_summary")
+    @router.get("/experiment")
     def experiment_summary():
         return context.experiment_summary()
 
-    @router.get("/task_history")
+    @router.get("/experiment/task_history")
     def task_history():
         return context.task_history()
 
-    @router.get("/run_summary")
+    @router.get("/workflow/run_summary")
     def run_summary():
         return context.run_summary()
 
-    @router.get("/protocol")
+    @router.get("/experiment/protocol")
     def protocol():
         return context.protocol()
 
@@ -265,58 +265,58 @@ def build_app_router(context: AppContext) -> APIRouter:
             raise HTTPException(status_code=status, detail=detail)
         return result
 
-    @router.get("/task_outputs/{item_name}")
+    @router.get("/experiment/items/{item_name}/outputs")
     def task_outputs(item_name: str):
         return context.task_outputs(item_name)
 
-    @router.get("/items/{item_name}")
+    @router.get("/experiment/items/{item_name}")
     def item_detail(item_name: str):
         return context.item_detail(item_name)
 
-    @router.get("/protocol/task_config/{task_name}")
+    @router.get("/experiment/protocol/task_config/{task_name}")
     def protocol_task_config(task_name: str):
         return context.protocol_task_config(task_name)
 
-    @router.get("/items/{item_name}/task_config/{task_name}")
+    @router.get("/experiment/items/{item_name}/task_config/{task_name}")
     def item_task_config(item_name: str, task_name: str):
         return context.item_task_config(item_name, task_name)
 
-    @router.get("/items/{item_name}/outputs/{filename}")
+    @router.get("/experiment/items/{item_name}/outputs/{filename}")
     def output_image(item_name: str, filename: str):
         # Serves actual image/jpeg (not a JSON payload) so a browser <img>
         # can consume it; filename must be a basename the item's own
-        # task_outputs listing names — the context refuses anything else.
+        # outputs listing names — the context refuses anything else.
         return _jpeg_or_404(context.output_image(item_name, filename))
 
-    @router.get("/grids")
+    @router.get("/experiment/grids")
     def grids():
         return context.grids()
 
-    @router.get("/grids/{grid_name}")
+    @router.get("/experiment/grids/{grid_name}")
     def grid_detail(grid_name: str):
         return context.grid_detail(grid_name)
 
-    @router.get("/grids/{grid_name}/outputs/{filename}")
+    @router.get("/experiment/grids/{grid_name}/outputs/{filename}")
     def grid_output_image(grid_name: str, filename: str):
         return _jpeg_or_404(context.grid_output_image(grid_name, filename))
 
-    @router.get("/grids/{grid_name}/outputs/{filename}/markers")
+    @router.get("/experiment/grids/{grid_name}/outputs/{filename}/markers")
     def grid_markers(grid_name: str, filename: str):
         return context.grid_markers(grid_name, filename)
 
-    @router.get("/recent_experiments")
+    @router.get("/experiment/recent")
     def recent_experiments():
         return {"items": context.recent_experiments()}
 
-    @router.get("/images")
+    @router.get("/experiment/images")
     def display_images():
         return context.display_images()
 
-    @router.get("/prompt")
+    @router.get("/workflow/prompt")
     def pending_prompt():
         return context.pending_prompt()
 
-    @router.get("/reviews")
+    @router.get("/workflow/reviews")
     def reviews():
         return context.reviews()
 
@@ -379,10 +379,10 @@ def build_app_control_router(context: AppContext) -> APIRouter:
     """
     router = APIRouter(prefix="/app")
 
-    @router.post("/prompt/answer")
+    @router.post("/workflow/prompt/answer")
     def answer_prompt(body: Dict[str, Any]):
         # The question id is mandatory: an answer must name the question it answers
-        # (from GET /app/prompt), never "whatever is pending by the time this
+        # (from GET /app/workflow/prompt), never "whatever is pending by the time this
         # lands" — the prompt can change between the read and the answer.
         try:
             question_id = int(body["question_id"])
@@ -391,7 +391,7 @@ def build_app_control_router(context: AppContext) -> APIRouter:
                 status_code=422,
                 detail={
                     "error_type": "missing_question_id",
-                    "message": "Echo the integer question_id from GET /app/prompt; "
+                    "message": "Echo the integer question_id from GET /app/workflow/prompt; "
                     "an answer must name the question it answers.",
                 },
             )
@@ -415,7 +415,7 @@ def build_app_control_router(context: AppContext) -> APIRouter:
                 detail={
                     "error_type": "stale_prompt",
                     "message": f"That question is no longer pending (question {question_id}); "
-                    "re-read /app/prompt and answer the current one.",
+                    "re-read /app/workflow/prompt and answer the current one.",
                 },
             )
         if result.get("invalid_value"):
@@ -428,7 +428,7 @@ def build_app_control_router(context: AppContext) -> APIRouter:
             )
         return result
 
-    @router.post("/decide")
+    @router.post("/workflow/decide")
     def decide(body: Dict[str, Any]):
         # The same function the Review tab calls, on the main thread, blocking
         # until applied. Item by id, never by name: names change.
@@ -449,7 +449,7 @@ def build_app_control_router(context: AppContext) -> APIRouter:
                 detail={
                     "error_type": "missing_field",
                     "message": "Pass item_id, task_name, proposal_id and outcome "
-                    "(Confirmed or Rejected) from GET /app/reviews.",
+                    "(Confirmed or Rejected) from GET /app/workflow/reviews.",
                 },
             )
         values = body.get("values")
@@ -539,7 +539,7 @@ def build_app_control_router(context: AppContext) -> APIRouter:
         task_names, grid_names, screen_all = _grid_run_body(body)
         return context.start_grid_workflow(task_names, grid_names, screen_all)
 
-    @router.post("/supervision")
+    @router.post("/agent/supervision")
     def set_supervision(body: Dict[str, Any]):
         task_name = body.get("task_name")
         if not isinstance(task_name, str) or "supervise" not in body:
@@ -552,7 +552,7 @@ def build_app_control_router(context: AppContext) -> APIRouter:
             )
         return context.set_supervision(task_name, bool(body["supervise"]))
 
-    @router.post("/queue/requeue")
+    @router.post("/workflow/queue/requeue")
     def requeue_task(body: Dict[str, Any]):
         item_name = body.get("item_name")
         task_name = body.get("task_name")
@@ -578,7 +578,7 @@ def build_app_suggest_router(context: AppContext) -> APIRouter:
     needs no request."""
     router = APIRouter(prefix="/app")
 
-    @router.post("/prompt/suggest")
+    @router.post("/workflow/prompt/suggest")
     def suggest_answer(body: Dict[str, Any]):
         try:
             question_id = int(body["question_id"])
@@ -587,7 +587,7 @@ def build_app_suggest_router(context: AppContext) -> APIRouter:
                 status_code=422,
                 detail={
                     "error_type": "missing_question_id",
-                    "message": "Echo the integer question_id from GET /app/prompt; "
+                    "message": "Echo the integer question_id from GET /app/workflow/prompt; "
                     "a suggestion must name the question it is for.",
                 },
             )
@@ -627,7 +627,7 @@ def build_app_suggest_router(context: AppContext) -> APIRouter:
                 detail={
                     "error_type": "stale_prompt",
                     "message": f"That question is no longer pending (question "
-                    f"{question_id}); re-read /app/prompt.",
+                    f"{question_id}); re-read /app/workflow/prompt.",
                 },
             )
         if result.get("invalid_value"):
@@ -688,14 +688,14 @@ def build_app_config_router(context: AppContext) -> APIRouter:
             )
         return patch, version
 
-    @router.post("/protocol/task_config/{task_name}")
+    @router.post("/experiment/protocol/task_config/{task_name}")
     def patch_protocol_task_config(task_name: str, body: Dict[str, Any]):
         patch, version = _validated(body)
         return _refused_or(
             context.apply_protocol_task_config_patch(task_name, patch, version)
         )
 
-    @router.post("/items/{item_name}/task_config/{task_name}")
+    @router.post("/experiment/items/{item_name}/task_config/{task_name}")
     def patch_item_task_config(item_name: str, task_name: str, body: Dict[str, Any]):
         patch, version = _validated(body)
         return _refused_or(
@@ -705,7 +705,7 @@ def build_app_config_router(context: AppContext) -> APIRouter:
     @router.post("/workflow/schedule")
     def set_task_schedule(body: Dict[str, Any]):
         # Workflow structure, not a config document: a verb like
-        # /app/supervision. scheduled_at is ISO-8601 or null to clear.
+        # /app/agent/supervision. scheduled_at is ISO-8601 or null to clear.
         task_name = body.get("task_name")
         scheduled_at = body.get("scheduled_at")
         if not isinstance(task_name, str) or (
@@ -775,7 +775,7 @@ def build_app_config_router(context: AppContext) -> APIRouter:
             )
         return milling_key, order, version
 
-    @router.post("/items/{item_name}/task_config/{task_name}/stages/reorder")
+    @router.post("/experiment/items/{item_name}/task_config/{task_name}/stages/reorder")
     def reorder_item_stages(item_name: str, task_name: str, body: Dict[str, Any]):
         milling_key, order, version = _validated_reorder(body)
         return _refused_or(
@@ -784,7 +784,7 @@ def build_app_config_router(context: AppContext) -> APIRouter:
             )
         )
 
-    @router.post("/protocol/task_config/{task_name}/stages/reorder")
+    @router.post("/experiment/protocol/task_config/{task_name}/stages/reorder")
     def reorder_protocol_stages(task_name: str, body: Dict[str, Any]):
         milling_key, order, version = _validated_reorder(body)
         return _refused_or(
@@ -793,7 +793,7 @@ def build_app_config_router(context: AppContext) -> APIRouter:
             )
         )
 
-    @router.post("/items/{item_name}/apply_protocol")
+    @router.post("/experiment/items/{item_name}/apply_protocol")
     def apply_protocol_to_item(item_name: str, body: Dict[str, Any]):
         # Wholesale by design — the verb IS "replace with the protocol
         # defaults" — so no version field; refusals ride _refused_or.
@@ -812,10 +812,10 @@ def build_app_config_router(context: AppContext) -> APIRouter:
             )
         return _refused_or(context.apply_protocol_to_item(item_name, task_names))
 
-    @router.post("/items/{item_name}")
+    @router.post("/experiment/items/{item_name}")
     def patch_item(item_name: str, body: Dict[str, Any]):
         # The item's own document (geometry, verdict, notes) — the write-side
-        # mirror of GET /app/items/{item_name}, whose payload carries the
+        # mirror of GET /app/experiment/items/{item_name}, whose payload carries the
         # version this patch must echo.
         patch, version = _validated(body)
         return _refused_or(context.apply_item_patch(item_name, patch, version))

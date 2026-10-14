@@ -204,10 +204,12 @@ def test_the_server_move_endpoint_answers_with_where_a_tescan_stage_went():
     app = build_server(microscope, auth=AuthConfig.generate(level="drive", token="t"))
     with TestClient(app, raise_server_exceptions=False) as client:
         resp = client.post(
-            "/move_stage_absolute",
+            "/microscope/services/stage_movement/commands/move_absolute",
             headers={"Authorization": "Bearer t"},
-            json={"position": {**TARGET.to_dict(), "coordinate_system": "RAW"}},
+            json={
+                "kwargs": {"position": {**TARGET.to_dict(), "coordinate_system": "RAW"}}
+            },
         )
 
     assert resp.status_code == 200, resp.text
-    assert _close(FibsemStagePosition.from_dict(resp.json()["position"]), TARGET)
+    assert _close(FibsemStagePosition.from_dict(resp.json()["result"]), TARGET)

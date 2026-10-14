@@ -1327,7 +1327,7 @@ class FibsemMicroscope(ABC):
     def services(self) -> Mapping[str, Any]:
         """Every service this microscope built, by name (``services["milling"] is
         microscope.milling``). Read-only. A service the backend didn't build (None)
-        is left out. The App Server serves them under ``/services``."""
+        is left out. The App Server serves them under ``/microscope/services``."""
         services = (getattr(self, name, None) for name in self._SERVICE_ATTRIBUTES)
         return MappingProxyType(
             {service.name: service for service in services if service is not None}

@@ -3,6 +3,7 @@ file round-trips."""
 
 import json
 import os
+import re
 
 import pytest
 
@@ -11,7 +12,7 @@ pytest.importorskip("httpx")
 
 from fibsem import utils  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.server.catalog import CATALOG  # noqa: E402
+from fibsem.server.catalog import CATALOG, NOT_TOOLS  # noqa: E402
 from fibsem.server.discovery import (  # noqa: E402
     read_discovery_file,
     remove_discovery_file,
@@ -57,6 +58,28 @@ def test_every_catalog_entry_is_a_real_route(app):
         if resp.status_code in (404, 405)
     ]
     assert missing == []
+
+
+def _route_key(method: str, path: str) -> str:
+    return f"{method.upper()} {re.sub(r'{[^}]+}', '{}', path)}"
+
+
+def test_every_route_is_a_tool_or_says_why_not(app):
+    """The reverse of the test above: a route added without a tool fails here
+    until someone decides, and NOT_TOOLS says why each one isn't a tool. The
+    OpenAPI schema is FastAPI's own listing, the same across versions."""
+    tools = {_route_key(t.method, t.path) for t in CATALOG}
+    not_tools = {_route_key(*key.split(" ", 1)) for key in NOT_TOOLS}
+    routes = {
+        _route_key(method, path)
+        for path, operations in app.openapi()["paths"].items()
+        for method in operations
+    }
+    assert sorted(routes - tools - not_tools) == []
+    # An entry that is a tool now, or names no route, is stale.
+    assert sorted(not_tools & tools) == []
+    assert sorted(not_tools - routes) == []
+    assert all(reason.strip() for reason in NOT_TOOLS.values())
 
 
 def test_catalog_names_unique_and_levels_valid():

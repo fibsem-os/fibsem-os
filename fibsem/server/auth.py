@@ -323,7 +323,7 @@ def action_name(request: Request) -> str:
     words = [
         part.replace("_", " ")
         for part in request.url.path.split("/")
-        if part and part not in ("beams", "devices", "services")
+        if part and part not in ("microscope", "beams", "devices", "services")
     ]
     if request.method == "PUT":
         return " ".join(["set", *words])

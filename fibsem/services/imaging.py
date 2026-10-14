@@ -10,7 +10,7 @@ which a ``stop`` from another caller ends.
 
 No driver needs its own imaging code yet, so every backend builds this class.
 Being a service is what lets an agent find and run these routines over the App
-Server, under ``/services/imaging``.
+Server, under ``/microscope/services/imaging``.
 """
 
 from __future__ import annotations

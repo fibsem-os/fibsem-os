@@ -94,7 +94,7 @@ preview over HTTP into your scratch folder. Basenames have spaces in them
 
 ```bash
 curl -s -o out.jpg -H "Authorization: Bearer $TOKEN" \
-  "http://127.0.0.1:8001/app/items/01-tough-mako/outputs/ref_Mill%20Fiducial_start_ib.tif"
+  "http://127.0.0.1:8001/app/experiment/items/01-tough-mako/outputs/ref_Mill%20Fiducial_start_ib.tif"
 ```
 
 On the microscope PC, `read_record.py --preview` on the TIFF works too.

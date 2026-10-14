@@ -27,10 +27,10 @@ class _Host:
     running = True
     url = "http://127.0.0.1:8001"
 
-    def __init__(self, devices=False, age=None):
+    def __init__(self, serve_microscope=False, age=None):
         self.auth = AuthConfig.generate(token="tok")
         self.auth.set_level(AgentLevel.WATCH)
-        self.devices = devices
+        self.serve_microscope = serve_microscope
         self._age = age
 
     def agent_seconds_since_seen(self):
@@ -46,37 +46,37 @@ def host():
 
 
 def test_the_dialog_shows_status_services_and_the_agent(qapp):
-    dialog = AppServerDialog(lambda: _Host(devices=True, age=5.4))
+    dialog = AppServerDialog(lambda: _Host(serve_microscope=True, age=5.4))
     assert dialog._status_label.text() == "Running on http://127.0.0.1:8001"
-    assert dialog._services_label.text() == "Services: monitoring · devices on"
+    assert dialog._services_label.text() == "Services: monitoring · microscope on"
     assert dialog._agent_label.text() == "Agent · last heard 5 s ago"
     assert dialog._btn_dashboard.isEnabled()
     dialog.deleteLater()
 
 
-def test_the_dialog_serves_the_devices_this_session(qapp):
-    """FIB-1359: the devices toggle is here, per session, not in Preferences."""
-    hosts = [_Host(devices=False)]
+def test_the_dialog_serves_the_microscope_this_session(qapp):
+    """FIB-1359: the microscope toggle is here, per session, not in Preferences."""
+    hosts = [_Host(serve_microscope=False)]
     chosen = []
 
-    def set_devices(on):
+    def set_microscope(on):
         chosen.append(on)
-        hosts.append(_Host(devices=on))  # the restarted server
+        hosts.append(_Host(serve_microscope=on))  # the restarted server
 
-    dialog = AppServerDialog(lambda: hosts[-1], set_devices=set_devices)
-    assert dialog._chk_devices.isEnabled() and not dialog._chk_devices.isChecked()
-    dialog._chk_devices.setChecked(True)
+    dialog = AppServerDialog(lambda: hosts[-1], set_microscope=set_microscope)
+    assert dialog._chk_microscope.isEnabled() and not dialog._chk_microscope.isChecked()
+    dialog._chk_microscope.setChecked(True)
     assert chosen == [True]
-    assert dialog._services_label.text() == "Services: monitoring · devices on"
+    assert dialog._services_label.text() == "Services: monitoring · microscope on"
     # A refresh that reads the box back sets nothing.
     dialog.refresh()
     assert chosen == [True]
     dialog.deleteLater()
 
 
-def test_the_devices_toggle_waits_for_a_running_server(qapp):
-    dialog = AppServerDialog(lambda: None, set_devices=lambda on: None)
-    assert not dialog._chk_devices.isEnabled()
+def test_the_microscope_toggle_waits_for_a_running_server(qapp):
+    dialog = AppServerDialog(lambda: None, set_microscope=lambda on: None)
+    assert not dialog._chk_microscope.isEnabled()
     dialog.deleteLater()
 
 

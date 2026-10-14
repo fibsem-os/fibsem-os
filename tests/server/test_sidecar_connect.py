@@ -110,7 +110,7 @@ def test_a_401_re_reads_the_discovery_file_and_retries(monkeypatch):
         stale,
         ("http://x:1", "old"),
     )
-    resp = client.request("GET", "/app/status")
+    resp = client.request("GET", "/app/workflow/status")
     assert resp.status_code == 200
     assert made == [("http://x:2", "new")]
     assert stale.closed
@@ -136,7 +136,7 @@ def test_a_dropped_connection_follows_a_moved_server(monkeypatch):
     client = sidecar._ReconnectingClient(
         lambda url, token: moved, None, None, gone, ("http://x", "t")
     )
-    assert client.request("GET", "/app/status").status_code == 200
+    assert client.request("GET", "/app/workflow/status").status_code == 200
     assert client.base_url == "http://fake:1"  # delegated to the live client
 
 
@@ -217,5 +217,5 @@ def test_the_named_user_agent_survives_a_reconnect(monkeypatch):
         lambda url, token: moved, None, None, gone, ("http://x", "t")
     )
     client.set_user_agent("fibsem-mcp/0.6 claude-code/2.1.3")
-    client.request("GET", "/app/status")
+    client.request("GET", "/app/workflow/status")
     assert moved.headers["User-Agent"] == "fibsem-mcp/0.6 claude-code/2.1.3"

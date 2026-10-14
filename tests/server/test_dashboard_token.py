@@ -61,7 +61,12 @@ def client(tmp_path, microscope, auth):
         yield client
 
 
-MONITORING = ["/capabilities", "/app/status", "/app/queue", "/app/events"]
+MONITORING = [
+    "/capabilities",
+    "/app/workflow/status",
+    "/app/workflow/queue",
+    "/app/events",
+]
 
 
 @pytest.mark.parametrize("path", MONITORING)
@@ -74,10 +79,10 @@ def test_the_dashboard_token_reads_the_monitoring_routes(client, path):
     "method, path",
     [
         ("POST", "/app/workflow/stop"),  # on the read router, but it acts
-        ("POST", "/app/prompt/answer"),  # control
+        ("POST", "/app/workflow/prompt/answer"),  # control
         ("POST", "/app/workflow/schedule"),  # configure
-        ("GET", "/stage_position"),  # the microscope
-        ("GET", "/devices"),
+        ("GET", "/microscope/devices/stage/position"),  # the microscope
+        ("GET", "/microscope/devices"),
     ],
 )
 def test_the_dashboard_token_reaches_nothing_else(client, method, path):
@@ -87,14 +92,16 @@ def test_the_dashboard_token_reaches_nothing_else(client, method, path):
 
 
 def test_an_unknown_token_is_still_unauthorized(client):
-    assert client.get("/app/status", headers=_bearer("nope")).status_code == 401
-    assert client.get("/stage_position", headers=_bearer("nope")).status_code == 401
+    assert (
+        client.get("/app/workflow/status", headers=_bearer("nope")).status_code == 401
+    )
+    assert client.get("/microscope", headers=_bearer("nope")).status_code == 401
 
 
 def test_the_dashboard_is_not_the_agent_being_heard_from(client, auth):
-    client.get("/app/status", headers=_bearer(DASHBOARD))
+    client.get("/app/workflow/status", headers=_bearer(DASHBOARD))
     assert auth.seconds_since_seen() is None
-    client.get("/app/status", headers=_bearer(AGENT))
+    client.get("/app/workflow/status", headers=_bearer(AGENT))
     assert auth.seconds_since_seen() is not None
 
 
@@ -114,14 +121,18 @@ def test_the_discovery_file_carries_only_the_agent_token(tmp_path, auth):
 def test_the_sidecar_names_the_agent_and_other_clients_keep_it(client, auth):
     assert auth.agent_client is None
     sidecar_ua = "fibsem-mcp/0.6.0 claude-code/2.1.3"
-    client.get("/app/status", headers={**_bearer(AGENT), "User-Agent": sidecar_ua})
+    client.get(
+        "/app/workflow/status", headers={**_bearer(AGENT), "User-Agent": sidecar_ua}
+    )
     assert auth.agent_client == "claude-code/2.1.3"
     # fibsem-mcp watch and curl are the same agent's other hands.
-    client.get("/app/status", headers={**_bearer(AGENT), "User-Agent": "curl/8.5"})
+    client.get(
+        "/app/workflow/status", headers={**_bearer(AGENT), "User-Agent": "curl/8.5"}
+    )
     assert auth.agent_client == "claude-code/2.1.3"
     # The dashboard is never the agent.
     client.get(
-        "/app/status",
+        "/app/workflow/status",
         headers={**_bearer(DASHBOARD), "User-Agent": "fibsem-mcp/0.6.0 x/1"},
     )
     assert auth.agent_client == "claude-code/2.1.3"

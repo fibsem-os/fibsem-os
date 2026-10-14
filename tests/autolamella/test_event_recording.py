@@ -474,12 +474,14 @@ def test_a_request_to_the_app_server_is_the_agent_s(tmp_path, microscope):
     try:
         with TestClient(app, raise_server_exceptions=False) as client:
             response = client.post(
-                "/move_stage_relative",
+                "/microscope/services/stage_movement/commands/move_relative",
                 headers={"Authorization": "Bearer t"},
                 json={
-                    "position": FibsemStagePosition(
-                        x=1e-6, y=0, z=0, r=0, t=0, coordinate_system="RAW"
-                    ).to_dict()
+                    "kwargs": {
+                        "delta": FibsemStagePosition(
+                            x=1e-6, y=0, z=0, r=0, t=0, coordinate_system="RAW"
+                        ).to_dict()
+                    }
                 },
             )
         assert response.status_code == 200, response.text

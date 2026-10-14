@@ -20,7 +20,7 @@ pip install -e ".[server,mcp]"
 
 In AutoLamella, turn the App Server on in Preferences → App Server (the guide,
 [docs/app-server.md](../../docs/app-server.md), walks through it). *Serve the
-microscope's devices* there adds the microscope tools; the Agent chip sets what
+microscope* there adds the microscope tools; the Agent chip sets what
 the agent may do with them.
 
 - While running, the server writes `~/.fibsem/app-server.json`
