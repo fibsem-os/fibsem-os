@@ -149,7 +149,7 @@ def test_out_of_splits_reports_the_refusal_and_stays_at_the_target(microscope):
 def _anchor_in_sem_view(microscope) -> tuple:
     """Where the world anchor projects into the SEM view (m) - the sim's
     own projection, so exact and alias-free."""
-    from fibsem.projection import BeamStageProjection
+    from fibsem.geometry.projection import BeamStageProjection
     from fibsem.structures import BeamType
 
     projection = BeamStageProjection.from_microscope(microscope, BeamType.ELECTRON)

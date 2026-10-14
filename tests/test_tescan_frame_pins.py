@@ -35,8 +35,8 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
+from fibsem.geometry.projection import BeamStageProjection
 from fibsem.imaging.tiling.reprojection import reproject_stage_positions_onto_image2
-from fibsem.projection import BeamStageProjection
 from fibsem.structures import BeamType, FibsemStagePosition
 from tests.fixtures.tescan_sdk import connect, image_at
 

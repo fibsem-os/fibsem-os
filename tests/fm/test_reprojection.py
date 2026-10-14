@@ -22,11 +22,11 @@ from fibsem.fm.structures import (
     ChannelSettings,
     FibsemHardwareGeometry,
 )
-from fibsem.structures import FibsemStagePosition, Point
-from fibsem.transformations import (
+from fibsem.geometry.movement import (
     inverse_view_corrected_dy,
     view_corrected_stage_movement,
 )
+from fibsem.structures import FibsemStagePosition, Point
 
 TRANSFORMS = list(CameraImageTransform)
 SHAPE = (1024, 1024)

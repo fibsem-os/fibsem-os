@@ -152,7 +152,7 @@ def in_plane_move(
 ) -> Tuple[float, float]:
     """The stage (y, z) move along the sample surface that shifts the image by expected_y.
 
-    The geometric form of `fibsem.transformations.view_corrected_stage_movement`.
+    The geometric form of `fibsem.geometry.movement.view_corrected_stage_movement`.
     """
     direction_y, direction_z = model.in_plane_direction(r)
     per_unit = image_y_shift(model, direction_y, direction_z, view_tilt, t)

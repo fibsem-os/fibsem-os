@@ -37,6 +37,7 @@ from fibsem.geometry.movement import (
     beam_view_tilt,
     fib_offset_after_sem_move,
     image_to_stage_delta,
+    inverse_view_corrected_dy,
     undo_scan_rotation,
     vertical_move_delta,
 )
@@ -56,10 +57,7 @@ from fibsem.structures import (
     InsertableDeviceState,
     StageDeviceSettings,
 )
-from fibsem.transformations import (
-    get_stage_tilt_from_milling_angle,
-    inverse_view_corrected_dy,
-)
+from fibsem.transformations import get_stage_tilt_from_milling_angle
 
 _S = TypeVar("_S", bound="StageMovement")
 
@@ -783,7 +781,7 @@ class StageMovement(Service):
         """The y-displacement in the view that a y/z stage movement corresponds to.
 
         The inverse of `view_corrected_movement`, through the
-        `fibsem.transformations.inverse_view_corrected_dy` the saved-image
+        `fibsem.geometry.movement.inverse_view_corrected_dy` the saved-image
         reprojection shares.
         """
         position = self._position()
