@@ -26,6 +26,7 @@ from PyQt5.QtWidgets import (
     QApplication,
     QLabel,
     QMainWindow,
+    QSplashScreen,
     QSplitter,
     QTabWidget,
     QVBoxLayout,
@@ -39,7 +40,7 @@ from fibsem.ui.FibsemManipulatorWidget import FibsemManipulatorWidget
 from fibsem.ui.FibsemMovementWidget import FibsemMovementWidget
 from fibsem.ui.FibsemSampleWidget import FibsemSampleWidget
 from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget
-from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.icon import fibsem_icon, fibsemos_icon
 from fibsem.ui.stylesheets import NAPARI_STYLE
 from fibsem.ui.tokens import GRAY_ICON_COLOR
 from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
@@ -312,13 +313,22 @@ class FibsemUI(QMainWindow):
         self._overview_placeholder.show()
 
 
-def main():
+def main(splash: Optional[QSplashScreen] = None):
+    """Run the fibsemOS UI.
+
+    ``splash`` is the launcher's splash screen (fibsem.tools.launcher), closed once
+    the main window is up.
+    """
     # Fully viewer-less: the quad-view controller is the display, and the overview is a
     # tab beside it rather than a napari viewer of its own.
     app = QApplication.instance() or QApplication([])
+    app.setApplicationName("fibsemOS")
     app.setStyle("Fusion")
+    app.setWindowIcon(fibsemos_icon())
     fibsem_ui = FibsemUI()
     fibsem_ui.show()
+    if splash is not None:
+        splash.finish(fibsem_ui)
     app.exec_()
 
 
