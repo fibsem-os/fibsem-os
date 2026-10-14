@@ -341,17 +341,53 @@ feature goes out of focus and drifts out of the other beam, and you have no
 way to tell from the numbers where it will land. Use it only when the
 operator gives you stage coordinates.
 
+`stable_move` uses the stage and scan rotation as they are now. An offset
+measured on an older image is only right if neither has changed since; after
+a rotation or a scan-rotation change, take a new image and measure again.
+Before a large stable move, `call_service_query` `project_stable_move` with
+the same offset answers where the stage would go without moving it.
+
+Measure on a preview with its own scale: `hfw / width` per preview pixel.
+The `pixelsize` in an image answer is per pixel of the full image, which is
+larger than the preview.
+
 The rest of the moves, by when to use them:
-- `vertical_move`: the feature is centred in the electron image but off in
-  the ion image. Pass its offset in the ion image; it moves the stage along
-  the chamber vertical, which the electron beam doesn't see.
+- `vertical_move`: the feature is centred in one beam's image but off in
+  the other. Pass its offset in the image where it is off, and that beam as
+  `beam_type` (ION, the default, or ELECTRON); it moves the stage along the
+  chamber vertical, which the beam where the feature is centred doesn't see.
 - `move_to_orientation` (SEM, FIB, MILLING) and `move_to_milling_angle`:
   change the stage's rotation and tilt.
 - `safe_move_stage_absolute`: go back to a saved position. It tilts flat
   before a large rotation; `move_stage_absolute` moves every axis at once.
 
-After every move, take a fresh image and check where the feature landed
-before the next one.
+After every move, read the position back and compare it with what you
+asked for, then take a fresh image and check where the feature landed before
+the next one. A move under about 1 µm may not happen at all; the position
+read back says so. Move z in small steps and tilt in steps, with an image
+after each.
+
+**Coincidence: do it yourself.** To bring the beams onto the same feature,
+centre it in one beam with `stable_move`, find it in the other beam's image,
+and `vertical_move` by its offset there (`beam_type` = the beam you measured
+in). Cap each step to a few µm, take both images again, and repeat until it
+is centred in both. Work from whichever beam has it centred already. Don't
+use the coincidence commands: this loop worked better on a real instrument.
+The horizontal offset between the beams changes with tilt; note it.
+
+**A refused move and a failed move are different.** A move refused before it
+starts (outside the stage limits, `microscope_busy`, a bad argument, the
+level or the allowlist) changed nothing: fix the request and go again. A move
+that fails while moving (a hardware error, the touch alarm, stopped partway)
+may have hit something. Then stop moving: don't retry it, and don't reach the
+same place another way. Read the stage position, add a note saying what you
+asked for and what happened, and hand back to the operator.
+
+**Milling.** `prepare` the settings and patterns, mill with `run` (not
+`start`, which reports no progress and records nothing), then `clear` and
+`restore`, and check the ion beam current is back where it was. A long
+`run` can outlast your tool call; read `get_service_parameter` milling
+`progress` and the events to follow it.
 
 **`409 microscope_busy` is someone else working.** Its
 `detail.in_control` names who (`workflow`, `script`, or another command)

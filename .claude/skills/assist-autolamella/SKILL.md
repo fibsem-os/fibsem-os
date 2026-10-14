@@ -208,7 +208,9 @@ commands) go in requests like any other action. They need the devices
 setting (`routers.microscope` true). Without it they are refused when you
 file them (`not_available`). Follow the supervise skill's *Using the
 microscope* rules: read the stage before each move, take a fresh image
-before judging, and treat `409 microscope_busy` as someone else working.
+before judging, and treat `409 microscope_busy` as someone else working. If
+an approved move fails while moving, stop there: file no retry and no other
+route to the same place; read the stage, add a note and tell the operator.
 An image costs dose on a real sample. If you need one to check a move,
 say so in chat first, and when the operator agrees put the move and the
 image in one request.
