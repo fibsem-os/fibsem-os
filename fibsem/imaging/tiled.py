@@ -6,7 +6,7 @@ import os
 import threading
 from copy import deepcopy
 from dataclasses import replace
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -38,6 +38,7 @@ from fibsem.imaging.tiling.progress import (
     TiledProgress,
     TiledStatus,
 )
+from fibsem.imaging.tiling.registration import compose_mosaic, registered_positions
 from fibsem.imaging.tiling.reprojection import (  # noqa: E402,F401
     _inverse_y_corrected_stage_movement,
     _transform_position,
@@ -481,6 +482,10 @@ class TiledAcquisitionRunner:
         self._layout_check: Optional[TileLayoutCheck] = TileLayoutCheck(
             {(t.row, t.col): (t.canvas_y, t.canvas_x) for t in self._ordered}
         )
+        # Only with `register_tiles`: every tile is needed again at the end, to place
+        # it where its picture says. The canvas is still painted as planned meanwhile,
+        # which is what a run falls back to.
+        self._kept_tiles: Dict[Tuple[int, int], np.ndarray] = {}
         prev_row = -1
 
         for tile, stage_pos in zip(self._ordered, self._tile_stage_positions):
@@ -522,6 +527,8 @@ class TiledAcquisitionRunner:
 
             self._paint_preview(tile, image)
             self._measure_layout(tile, image)
+            if self.settings.register_tiles:
+                self._kept_tiles[(tile.row, tile.col)] = image.filtered_data
             self._n_tiles_acquired += 1
             self.microscope.tiled_acquisition_signal.emit(
                 TiledProgress(
@@ -581,7 +588,10 @@ class TiledAcquisitionRunner:
         # `_start_state`, where the stage began, which was the same thing until a run
         # could be planned somewhere else -- a grid dragged 500 um away recorded 0, and
         # the saved overview reloaded half a millimetre out.
-        image = FibsemImage(data=self._canvas, metadata=deepcopy(self._mosaic_metadata))
+        data, registration = self._canvas, None
+        if self.settings.register_tiles:
+            data, registration = self._registered_canvas()
+        image = FibsemImage(data=data, metadata=deepcopy(self._mosaic_metadata))
         # The path is a per-run detail of the request, and the mosaic goes in the parent
         # of the tile folder, so it is taken from the live settings rather than the
         # snapshot taken before `_setup` rewrote them.
@@ -597,7 +607,9 @@ class TiledAcquisitionRunner:
                 modality=MODALITY_BEAM,
                 completed=total_tiles,
                 total=total_tiles,
-                warning=self._report_layout(tile_dir=filename),
+                warning=self._report_layout(
+                    tile_dir=filename, registration=registration
+                ),
             )
         )
         return image
@@ -613,7 +625,48 @@ class TiledAcquisitionRunner:
             logging.warning(f"Tile layout check stopped: {e}")
             self._layout_check = None
 
-    def _report_layout(self, tile_dir: str) -> Optional[str]:
+    def _registered_canvas(self) -> Tuple[np.ndarray, dict]:
+        """The mosaic with each tile where its picture says it is (`register_tiles`),
+        or the planned canvas when the layout check says not to, and a record of which.
+
+        Refused when the check warns: then the stage model is out of scale, and a
+        registered mosaic would put positions out by that scale times their distance
+        from the centre, where the planned one is out by half a seam at most.
+        """
+        tiles, self._kept_tiles = self._kept_tiles, {}
+        if self._layout_check is None:
+            note = "Tiles were left as planned: the layout check did not run."
+            logging.info(note)
+            return self._canvas, {"applied": False, "note": note}
+        try:
+            planned = {
+                (t.row, t.col): (float(t.canvas_y), float(t.canvas_x))
+                for t in self._ordered
+                if (t.row, t.col) in tiles
+            }
+            positions, note = registered_positions(
+                planned,
+                self._layout_check.pairs,
+                self._layout_check.summary(),
+                tile_size=max(self._image_settings.resolution),
+            )
+            logging.info(note)
+            if positions is None:
+                return self._canvas, {"applied": False, "note": note}
+            data = compose_mosaic(tiles, positions, self._canvas.shape, np.uint8)
+            shifts = {
+                f"{r},{c}": [y - planned[(r, c)][0], x - planned[(r, c)][1]]
+                for (r, c), (y, x) in positions.items()
+            }
+            return data, {"applied": True, "note": note, "shifts": shifts}
+        except Exception as e:
+            note = f"Tiles were left as planned: aligning them failed ({e})."
+            logging.warning(note)
+            return self._canvas, {"applied": False, "note": note}
+
+    def _report_layout(
+        self, tile_dir: str, registration: Optional[dict] = None
+    ) -> Optional[str]:
         """Log the layout check, write it into the run's tile folder, and return its
         warning. The folder is the mosaic's path without the extension, and is named
         for the run, so one run's record never lands on another's."""
@@ -627,7 +680,12 @@ class TiledAcquisitionRunner:
             self._layout_check.save(
                 os.path.join(tile_dir, LAYOUT_FILE),
                 pixel_size=self._mosaic_metadata.pixel_size.x,
+                registration=registration,
             )
+            if summary.warning and registration is not None:
+                # Asked to align and did not: say so, or the operator would take the
+                # mosaic for an aligned one.
+                return f"{summary.warning} {registration['note']}"
             return summary.warning
         except Exception as e:
             logging.warning(f"Could not report the tile layout check: {e}")

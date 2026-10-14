@@ -377,7 +377,12 @@ class TileLayoutCheck:
             pairs_total=len(self.pairs),
         )
 
-    def save(self, path: str, pixel_size: Optional[float] = None) -> None:
+    def save(
+        self,
+        path: str,
+        pixel_size: Optional[float] = None,
+        registration: Optional[dict] = None,
+    ) -> None:
         """Write the summary and every pair to `path` as JSON, for looking back at a
         run's calibration without the tiles."""
         summary = self.summary()
@@ -388,6 +393,8 @@ class TileLayoutCheck:
             "warn_angle_deg": WARN_ANGLE_DEG,
             "min_score": DEFAULT_MIN_SCORE,
             "pixel_size": pixel_size,
+            # What `register_tiles` did with the measurements, when it was asked to.
+            "registration": registration,
             "pairs": [
                 {
                     **asdict(p),
