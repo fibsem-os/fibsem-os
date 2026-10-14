@@ -151,17 +151,16 @@ def test_the_chamber_is_not_served(read_client, armed_client, microscope):
         assert resp.status_code == 404
 
 
-def test_stop_commands_pass_at_assist_whoever_is_in_control(read_client, microscope):
-    # A stop must reach a device whoever is in control, and a watching agent
-    # stops nothing.
+def test_a_stop_reaches_a_device_whoever_is_in_control(read_client, microscope):
+    # A stop must reach a device whoever is in control; one the agent didn't
+    # start needs Drive, and every stop a reason.
     stop = "/microscope/devices/electron/commands/stop_live"
-    assert read_client.post(stop).status_code == 403
-    app = build_server(
-        microscope, auth=AuthConfig.generate(level="assist", token=TOKEN)
-    )
+    why = {"reason": "live view left running"}
+    assert read_client.post(stop, json=why).status_code == 403
+    app = build_server(microscope, auth=AuthConfig.generate(level="drive", token=TOKEN))
     with TestClient(app, raise_server_exceptions=False) as client:
         with microscope.control.take("workflow", "a lamellae run"):
-            resp = client.post(stop, headers=AUTH)
+            resp = client.post(stop, headers=AUTH, json=why)
     assert resp.status_code == 200
 
 

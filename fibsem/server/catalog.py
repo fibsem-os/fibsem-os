@@ -144,10 +144,12 @@ CATALOG: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="stop_milling",
-        description="Emergency stop for an in-progress mill. Allowed at Assist and Drive without asking, and is never refused for someone else being in control of the microscope. Not at Watch: a watching agent stops nothing.",
+        description="Stop an in-progress mill, with the reason the operator reads.",
         method="POST",
         path="/microscope/services/milling/commands/stop",
-        level="assist",
+        level="drive",
+        params={"reason": "why you are stopping it, for the operator (required)"},
+        note="A mill the agent started itself it can stop at any level; anyone else's (the workflow's, the operator's) needs Drive, and at Assist goes in request_actions for the operator to approve. Never refused for someone else being in control of the microscope.",
     ),
     # --- hardware ---
     ToolSpec(
@@ -313,6 +315,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "device": "device name from list_devices",
             "command": "command name",
             "kwargs": "the command's arguments, by name",
+            "reason": "for a stop (stop, stop_live, cancel): why, for the operator (required there)",
         },
     ),
     ToolSpec(
@@ -346,7 +349,8 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "Run a service command listed by list_services, e.g. service=stage_movement "
             "command=move_to_orientation kwargs={'orientation': 'SEM'}. A long command "
             "(milling run, spot burn run) answers when it ends; command=stop from "
-            "another call stops it."
+            "another call stops it: the agent's own run at any level, anyone "
+            "else's at Drive, always with a reason."
         ),
         method="POST",
         path="/microscope/services/{service}/commands/{command}",
@@ -356,6 +360,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "service": "service name from list_services",
             "command": "command name",
             "kwargs": "the command's arguments, by name",
+            "reason": "for a stop (stop, stop_live, cancel): why, for the operator (required there)",
         },
     ),
     ToolSpec(
@@ -546,7 +551,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="request_actions",
-        description="At Assist, ask the operator to approve one or more actions: each is {tool, arguments}, the tool you would call and the arguments you would give it, run in order once approved. Give the reason the operator reads before deciding. One request waits at a time (409 request_pending names it). Answers the request, status pending; follow it with get_request or the request_* events (request_decided, request_applied per action, request_finished). Approved actions run through their own routes, so each is checked and can be refused as a direct call would be; the first refusal stops the batch. A rejection carries the operator's reason. Changing the level or Stop agent cancels a waiting request. Reads need no request, nor does stopping (stop_workflow, stop_milling): call those directly.",
+        description="At Assist, ask the operator to approve one or more actions: each is {tool, arguments}, the tool you would call and the arguments you would give it, run in order once approved. Give the reason the operator reads before deciding. One request waits at a time (409 request_pending names it). Answers the request, status pending; follow it with get_request or the request_* events (request_decided, request_applied per action, request_finished). Approved actions run through their own routes, so each is checked and can be refused as a direct call would be; the first refusal stops the batch. A rejection carries the operator's reason. Changing the level or Stop agent cancels a waiting request. Reads need no request, nor does stopping your own mill (stop_milling): call those directly. Stopping anything else (stop_workflow, someone else's mill) goes in a request.",
         method="POST",
         path="/app/agent/requests",
         level="watch",
@@ -684,11 +689,13 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="stop_workflow",
-        description="Stop the running workflow — the same path as the GUI's Stop button; the mill halts too. Allowed at Assist and Drive without asking, and is never refused for someone else being in control of the microscope. Not at Watch: a watching agent stops nothing.",
+        description="Stop the running workflow — the same path as the GUI's Stop button; the mill halts too. Give the reason the operator reads.",
         method="POST",
         path="/app/workflow/stop",
-        level="assist",
+        level="drive",
         router="app",
+        params={"reason": "why you are stopping it, for the operator (required)"},
+        note="Needs the agent at Drive: the workflow is never the agent's own. At Assist, put it in request_actions and the operator approves it (a direct call is refused, 403 ask_first); the operator can also press Stop. Refused (403) at Watch. Never refused for someone else being in control of the microscope.",
     ),
     ToolSpec(
         name="start_workflow",
@@ -905,6 +912,13 @@ def _kwargs(**values: Any) -> dict:
     return {"kwargs": values}
 
 
+def _stop(body: dict, a: Dict[str, Any]) -> dict:
+    """A command's body with the agent's reason, which every stop carries."""
+    if a.get("reason") is not None:
+        body["reason"] = str(a["reason"])
+    return body
+
+
 # Tools whose arguments are not their route's path and body as they stand: each
 # gives (path values, body).
 _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict]]]] = {
@@ -914,7 +928,7 @@ _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict
     ),
     "autocontrast": lambda a: ({"device": _beam_device(a)}, _kwargs()),
     # A service command or query with no arguments still sends its kwargs.
-    "stop_milling": lambda a: ({}, _kwargs()),
+    "stop_milling": lambda a: ({}, _stop(_kwargs(), a)),
     "estimate_milling_time": lambda a: ({}, _kwargs()),
     "get_stage_orientation": lambda a: ({}, _kwargs()),
     "get_milling_angle": lambda a: ({}, _kwargs()),
@@ -944,11 +958,11 @@ _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict
     ),
     "call_command": lambda a: (
         {"device": a.get("device"), "command": a.get("command")},
-        {"kwargs": dict(a.get("kwargs") or {})},
+        _stop({"kwargs": dict(a.get("kwargs") or {})}, a),
     ),
     "call_service_command": lambda a: (
         {"service": a.get("service"), "command": a.get("command")},
-        {"kwargs": dict(a.get("kwargs") or {})},
+        _stop({"kwargs": dict(a.get("kwargs") or {})}, a),
     ),
     "call_service_query": lambda a: (
         {"service": a.get("service"), "query": a.get("query")},

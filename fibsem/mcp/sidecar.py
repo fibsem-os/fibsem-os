@@ -340,8 +340,8 @@ def build_sidecar(client, capabilities):
     def estimate_milling_time():
         return _service_call("estimate_milling_time", {}, "seconds")
 
-    def stop_milling():
-        data, err = _route("stop_milling")
+    def stop_milling(reason: str):
+        data, err = _route("stop_milling", reason=reason)
         return err if err else {"status": "ok"}
 
     def acquire_image_preview(beam_type: str = "ELECTRON"):
@@ -383,8 +383,15 @@ def build_sidecar(client, capabilities):
     def set_parameter(device: str, parameter: str, value: Any):
         return _routed("set_parameter", device=device, parameter=parameter, value=value)
 
-    def call_command(device: str, command: str, kwargs: Optional[dict] = None):
-        return _routed("call_command", device=device, command=command, kwargs=kwargs)
+    def call_command(
+        device: str,
+        command: str,
+        kwargs: Optional[dict] = None,
+        reason: Optional[str] = None,
+    ):
+        return _routed(
+            "call_command", device=device, command=command, kwargs=kwargs, reason=reason
+        )
 
     def list_services():
         return _json_tool("list_services")[1]()
@@ -392,9 +399,18 @@ def build_sidecar(client, capabilities):
     def get_service_parameter(service: str, parameter: str):
         return _routed("get_service_parameter", service=service, parameter=parameter)
 
-    def call_service_command(service: str, command: str, kwargs: Optional[dict] = None):
+    def call_service_command(
+        service: str,
+        command: str,
+        kwargs: Optional[dict] = None,
+        reason: Optional[str] = None,
+    ):
         return _routed(
-            "call_service_command", service=service, command=command, kwargs=kwargs
+            "call_service_command",
+            service=service,
+            command=command,
+            kwargs=kwargs,
+            reason=reason,
         )
 
     def call_service_query(service: str, query: str, kwargs: Optional[dict] = None):
@@ -572,8 +588,8 @@ def build_sidecar(client, capabilities):
     def get_events(since: int = 0, timeout: float = 0.0):
         return _app_get(f"/app/events?since={since}&timeout={timeout}")
 
-    def stop_workflow():
-        data, err = _call(client, "POST", "/app/workflow/stop", None)
+    def stop_workflow(reason: str):
+        data, err = _call(client, "POST", "/app/workflow/stop", {"reason": reason})
         return err if err else data
 
     def start_workflow(task_names: list, item_names: list = None):  # noqa: RUF013
