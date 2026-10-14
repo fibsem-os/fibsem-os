@@ -107,9 +107,7 @@ class MillUndercutTask(AutoLamellaTask):
             self.log_status_message(
                 f"TILT_UNDERCUT_{nid}", f"Tilting to Undercut Position {nid}..."
             )
-            self.microscope.move_to_milling_angle(
-                milling_angle=np.radians(undercut_milling_angle)
-            )
+            self.microscope.move_to_milling_angle(milling_angle=undercut_milling_angle)
 
             # detect
             self.log_status_message(
