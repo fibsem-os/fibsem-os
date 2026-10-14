@@ -53,3 +53,24 @@ class Display:
 
 # A composite value (a Point, a stage position) takes one hint per field.
 DisplayHint = Union[Display, Mapping[str, Display]]
+
+
+def display_to_dict(hint: Optional[DisplayHint]) -> Optional[Dict[str, Any]]:
+    """A hint as JSON-ready data, with only the fields it sets: one dict, or one per
+    field for a composite value. ``None`` for no hint. What a device's description
+    carries, so a client with no copy of the class (an agent) shows it the same way."""
+    if hint is None:
+        return None
+    if isinstance(hint, Mapping):
+        return {name: display_to_dict(field) for name, field in hint.items()}
+    fields = {
+        "label": hint.label,
+        "scale": hint.scale,
+        "unit": hint.unit,
+        "step": hint.step,
+        "decimals": hint.decimals,
+    }
+    shown = {key: value for key, value in fields.items() if value is not None}
+    if hint.advanced:
+        shown["advanced"] = True
+    return shown
