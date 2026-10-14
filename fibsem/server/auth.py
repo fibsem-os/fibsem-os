@@ -25,9 +25,11 @@ dashboard.
 import hmac
 import secrets
 import time
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import FrozenSet, Iterable, Optional
+from typing import FrozenSet, Iterable, Iterator, Optional
 
 from fastapi import HTTPException, Request
 
@@ -187,6 +189,25 @@ def client_from_user_agent(user_agent: Optional[str]) -> Optional[str]:
     return products[1]
 
 
+# Scopes lent to the calls an approved request makes (FIB-1283), for those calls
+# only. A context variable: set by the request's worker around each call it
+# makes into the app, so nothing arriving over the network can carry it.
+_granted: "ContextVar[FrozenSet[Scope]]" = ContextVar(
+    "fibsem_granted_scopes", default=frozenset()
+)
+
+
+@contextmanager
+def granting(scopes: Iterable[Scope]) -> Iterator[None]:
+    """Lend *scopes* to the calls made inside this block: an action the operator
+    approved runs as if its scope were armed. Off still refuses everything."""
+    token = _granted.set(frozenset(scopes))
+    try:
+        yield
+    finally:
+        _granted.reset(token)
+
+
 def _bearer_token(request: Request) -> Optional[str]:
     header = request.headers.get("Authorization")
     if header is None or not header.startswith("Bearer "):
@@ -258,9 +279,12 @@ def require_scope(scope: Scope, *alternatives: Scope):
             if _matches(token, auth.dashboard_token):
                 raise _dashboard_refused()
             raise _unauthorized()
+        granted = _granted.get()
         # A valid token is proof of life whatever happens next — a scope
-        # refusal below is still the agent talking.
-        auth.mark_seen(request.headers.get("User-Agent"))
+        # refusal below is still the agent talking. An approved request's call
+        # is the app's doing, not the agent's.
+        if not granted:
+            auth.mark_seen(request.headers.get("User-Agent"))
         if auth.level is AgentLevel.OFF:
             raise HTTPException(
                 status_code=403,
@@ -271,7 +295,7 @@ def require_scope(scope: Scope, *alternatives: Scope):
                     "agent level to Off in AutoLamella.",
                 },
             )
-        if not any(auth.is_armed(s) for s in (scope, *alternatives)):
+        if not any(auth.is_armed(s) or s in granted for s in (scope, *alternatives)):
             raise HTTPException(
                 status_code=403,
                 detail=_not_armed_detail(auth, scope),

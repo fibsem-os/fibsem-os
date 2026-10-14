@@ -1142,6 +1142,12 @@ class AutoLamellaAppContext:
             )
         return {"available": True, "recorded": True}
 
+    def record_event(self, kind: str, payload: Dict[str, Any]) -> None:
+        """Put an event on the experiment's record: the agent's requests and
+        their outcomes (FIB-1283)."""
+        if self._event_buffer is not None:
+            self._event_buffer.append(kind, payload)
+
     def reorder_milling_stages(
         self,
         level: str,
