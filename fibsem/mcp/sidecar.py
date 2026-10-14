@@ -208,8 +208,7 @@ def _call(client, method, path, payload=None):
     try:
         return resp.json(), None
     except ValueError:
-        # An image or array from a device command: nothing an agent can read as
-        # text. The preview tools are how an agent looks at an image.
+        # Data no tool asked for as a preview: nothing an agent can read as text.
         return None, (
             f"answered {len(resp.content)} bytes that are not JSON; "
             "use acquire_image_preview to see images"
@@ -275,11 +274,12 @@ def build_sidecar(client, capabilities):
         return _call(client, method, path, body)
 
     def _routed(name, key=None, **arguments):
-        """A routed tool's answer, its route's result under *key* when given."""
+        """A routed tool's answer, its route's result under *key* when given; an
+        image in it (a command answered with a preview) as MCP image content."""
         data, err = _route(name, **arguments)
         if err:
             return err
-        return {key: data["result"]} if key else data
+        return _with_images({key: data["result"]} if key else data)
 
     def _with_images(data):
         """Move every base64 preview in *data* out into MCP image content.
@@ -344,12 +344,13 @@ def build_sidecar(client, capabilities):
         data, err = _route("stop_milling")
         return err if err else {"status": "ok"}
 
-    def acquire_image_preview(beam_type: str = "ELECTRON"):
-        data, err = _route("acquire_image_preview", beam_type=beam_type)
-        if err:
-            return err
-        jpeg = base64.b64decode(data.pop("image_b64_jpeg"))
-        return [json.dumps(data), Image(data=jpeg, format="jpeg")]
+    def acquire_image_preview(
+        beam_type: str = "ELECTRON", image_settings: Optional[dict] = None
+    ):
+        data, err = _route(
+            "acquire_image_preview", beam_type=beam_type, image_settings=image_settings
+        )
+        return err if err else _with_images(data["result"])
 
     def move_stage_relative(dx: float = 0.0, dy: float = 0.0, dz: float = 0.0):
         return _routed("move_stage_relative", "position", dx=dx, dy=dy, dz=dz)
@@ -404,6 +405,9 @@ def build_sidecar(client, capabilities):
 
     def autocontrast(beam_type: str = "ELECTRON"):
         return _routed("autocontrast", beam_type=beam_type)
+
+    def auto_focus(beam_type: str = "ELECTRON"):
+        return _routed("auto_focus", "result", beam_type=beam_type)
 
     def _app_get(path):
         data, err = _call(client, "GET", path)
@@ -721,6 +725,7 @@ def build_sidecar(client, capabilities):
             call_service_command,
             call_service_query,
             autocontrast,
+            auto_focus,
             get_app_status,
             get_app_queue,
             get_experiment_summary,

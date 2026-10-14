@@ -187,3 +187,20 @@ def _contents(result):
     if isinstance(result, tuple):
         result = result[0]
     return list(getattr(result, "content", result))
+
+
+@pytest.mark.parametrize("device", ["electron", "chamber_camera"])
+def test_a_command_that_images_answers_the_agent_an_image(armed_sidecar, device):
+    """A beam's image or a camera frame from call_command comes back as a
+    summary and an image the agent can look at, not bytes it can't read."""
+    result = asyncio.run(
+        armed_sidecar.call_tool(
+            "call_command", {"device": device, "command": "acquire"}
+        )
+    )
+    contents = _contents(result)
+    assert any(getattr(c, "type", None) == "image" for c in contents)
+    text = "".join(getattr(c, "text", "") for c in contents)
+    answer = json.loads(text)
+    assert answer["result"]["summary"]["shape"]
+    assert answer["result"]["preview"]["image_index"] == 0
