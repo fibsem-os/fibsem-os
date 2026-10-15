@@ -176,6 +176,18 @@ async def _asgi_call(app, method: str, path: str, body, token: str):
         return status, None
 
 
+def _call_named(spec: ToolSpec, tool: str, arguments: Dict[str, Any]) -> str:
+    """A tool call as the record names it: the tool and what its route names
+    ("device_set_parameter electron.on"), so a refusal at filing says what was
+    refused rather than "requests" (FIB-1421)."""
+    target = ".".join(
+        str(arguments[name])
+        for name in re.findall(r"{(\w+)}", spec.path)
+        if name in arguments
+    )
+    return f"{tool} {target}" if target else tool
+
+
 def _cut_short(answer: Any) -> bool:
     """Whether an action ran but was stopped part way: a mill answers
     ``cancelled`` rather than failing (FIB-1377). Applied, but the operator and
@@ -374,6 +386,7 @@ class RequestStore:
                     "not_allowed",
                     f"Action {index + 1}: the agent may not use {tool} this way, "
                     f"at any level: {why}.",
+                    call=_call_named(spec, tool, arguments),
                 )
             resolved.append(Action(tool, dict(arguments), method, path, body))
         return resolved

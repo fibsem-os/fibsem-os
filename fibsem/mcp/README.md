@@ -97,11 +97,12 @@ same thing.
 
 ## Order and troubleshooting
 
-- **Order barely matters**: the sidecar waits up to 30 s for a server to
-  appear (`--wait` tunes it), so starting the server a moment later is fine.
-  If none appears in time it exits with guidance, which an MCP client shows
-  as `CONNECTION_CLOSED` — start the server and reconnect (`/mcp` in the
-  session). `fibsem-mcp --check` prints the connection status and exits;
+- **Order doesn't matter**: the sidecar answers the MCP client at once, even
+  with no server running, and connects on the first tool call, which waits up
+  to 30 s for a server to appear (`--wait` tunes it). If none appears, that
+  call answers with what to do; start the server and call again, no reconnect
+  needed. Started with no server, the sidecar offers every tool, including
+  the app's. `fibsem-mcp --check` prints the connection status and exits;
   run it in a terminal to see what the sidecar sees.
 - **Wrong server version / unknown arguments**: if you launched with
   `python -m` from inside another fibsem checkout, that directory shadows

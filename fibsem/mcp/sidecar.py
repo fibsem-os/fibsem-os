@@ -36,6 +36,9 @@ from urllib.parse import quote, urlencode
 from fibsem.server.catalog import CATALOG, route_call, tools_for_capabilities
 
 _TIMEOUT_S = 120.0  # acquisitions and moves on real hardware are slow
+# How long start-up looks for the server before answering the MCP client anyway:
+# a client gives a server only so long to start (FIB-1416).
+_PROBE_S = 2.0
 
 
 _NO_SERVER_MSG = (
@@ -82,6 +85,11 @@ def _try_resolve(url, token):
     if found is not None:
         return url or found["url"], token or found["token"]
     return None
+
+
+class ServerUnreachable(Exception):
+    """No server found, or none answering, within the wait: the message says
+    which and what to do."""
 
 
 class _ReconnectingClient:
@@ -151,7 +159,7 @@ def _connect_with_retry(client_factory, url, token, wait_s, sleep_fn=None):
     re-trying /capabilities until ``wait_s`` runs out.
 
     Returns (client, capabilities), the client a :class:`_ReconnectingClient`.
-    Exits with guidance on timeout.
+    Raises :class:`ServerUnreachable` with guidance on timeout.
     """
     import time
 
@@ -174,8 +182,8 @@ def _connect_with_retry(client_factory, url, token, wait_s, sleep_fn=None):
             client.close()
         if time.monotonic() >= deadline:
             if resolved is None:
-                sys.exit(_NO_SERVER_MSG)
-            sys.exit(
+                raise ServerUnreachable(_NO_SERVER_MSG)
+            raise ServerUnreachable(
                 f"fibsem-mcp: cannot reach the server at {resolved[0]} — "
                 "is it running, and is the token current?"
             )
@@ -186,6 +194,69 @@ def _connect_with_retry(client_factory, url, token, wait_s, sleep_fn=None):
             )
             waiting_reported = True
         sleep_fn(1.0)
+
+
+class _LazyClient:
+    """The server's client, connected on the first tool call rather than at
+    start-up (FIB-1416).
+
+    An MCP client gives a server only so long to answer its handshake, and the
+    App Server may be slow to answer, or not started yet, while the client
+    launches all its servers at once. So the sidecar answers the handshake
+    first, and the wait for a server (``--wait``) happens in the first call,
+    whose answer says what was wrong if none turns up.
+    """
+
+    def __init__(self, connect):
+        import threading
+
+        self._connect = connect
+        self._client = None
+        self._user_agent = None
+        self._lock = threading.Lock()
+
+    def _connected(self):
+        with self._lock:
+            if self._client is None:
+                client, capabilities = self._connect()
+                print(
+                    f"fibsem-mcp: connected to {client.base_url} "
+                    f"(agent level {capabilities.get('level')})",
+                    file=sys.stderr,
+                )
+                if self._user_agent is not None:
+                    client.set_user_agent(self._user_agent)
+                self._client = client
+            return self._client
+
+    def request(self, method, path, **kwargs):
+        return self._connected().request(method, path, **kwargs)
+
+    def set_user_agent(self, user_agent: str) -> None:
+        with self._lock:
+            self._user_agent = user_agent
+            if self._client is not None:
+                self._client.set_user_agent(user_agent)
+
+    def close(self):
+        if self._client is not None:
+            self._client.close()
+
+
+def _probe(client_factory, url, token):
+    """The server's /capabilities if it answers within ``_PROBE_S``, so the
+    tools can match it; None otherwise, and the sidecar starts anyway."""
+    resolved = _try_resolve(url, token)
+    if resolved is None:
+        return None
+    client = client_factory(resolved[0], resolved[1])
+    try:
+        resp = client.request("GET", "/capabilities", timeout=_PROBE_S)
+        return resp.json() if resp.status_code == 200 else None
+    except Exception:  # noqa: BLE001 - refused, timed out: start without it
+        return None
+    finally:
+        client.close()
 
 
 # fibsem.structures.MillingState by value, without importing it: the sidecar
@@ -216,7 +287,10 @@ def _call(client, method, path, payload=None):
     403 teaches them nothing. A server error comes back as a `_Failure`: it
     says "failed", not "refused", because the call may have done part of its work.
     """
-    resp = client.request(method, path, json=payload)
+    try:
+        resp = client.request(method, path, json=payload)
+    except ServerUnreachable as exc:
+        return None, str(exc)
     if resp.status_code >= 400:
         return None, _refusal(resp)
     try:
@@ -261,12 +335,18 @@ def build_sidecar(client, capabilities):
     ``capabilities`` is the full /capabilities payload; a tool registers when
     its router is mounted (an app tool exists only when the server hosts an
     application), whatever the agent's level. The server enforces the level.
+    None (no server answered at start-up) registers every tool.
     """
     from mcp.server.mcpserver import Image, MCPServer
 
     mcp = MCPServer("fibsem")
     _name_the_client(mcp, client)
-    offered = {t.name for t in tools_for_capabilities(capabilities)}
+    offered = {
+        t.name
+        for t in (
+            CATALOG if capabilities is None else tools_for_capabilities(capabilities)
+        )
+    }
     by_name = {t.name: t for t in CATALOG}
 
     def _json_tool(name, payload_fn=None):
@@ -850,6 +930,12 @@ def build_sidecar(client, capabilities):
             {"item_name": item_name, "task_name": task_name, "front": bool(front)},
         )
 
+    def workflow_edit_queue(item_name: str, task_name: str, action: str):
+        return _app_post(
+            "/app/workflow/queue/edit",
+            {"item_name": item_name, "task_name": task_name, "action": action},
+        )
+
     def app_get_display_images():
         data, err = _call(client, "GET", "/app/experiment/images", None)
         if err:
@@ -1014,6 +1100,7 @@ def build_sidecar(client, capabilities):
             protocol_set_supervision,
             workflow_set_options,
             workflow_requeue,
+            workflow_edit_queue,
             workflow_start,
         )
     }
@@ -1107,7 +1194,8 @@ def main(argv=None):
         "--wait",
         type=float,
         default=30.0,
-        help="seconds to keep retrying for a server before giving up (default 30)",
+        help="seconds the first tool call keeps retrying for a server before "
+        "giving up (default 30)",
     )
     parser.add_argument(
         "--check",
@@ -1123,17 +1211,32 @@ def main(argv=None):
             timeout=_TIMEOUT_S,
         )
 
-    wait_s = 0.0 if args.check else max(0.0, args.wait)
-    client, capabilities = _connect_with_retry(
-        client_factory, args.url, args.token, wait_s
-    )
-    print(
-        f"fibsem-mcp: connected to {client.base_url} "
-        f"(agent level {capabilities.get('level')})",
-        file=sys.stderr,
-    )
     if args.check:
+        try:
+            client, capabilities = _connect_with_retry(
+                client_factory, args.url, args.token, 0.0
+            )
+        except ServerUnreachable as exc:
+            sys.exit(str(exc))
+        print(
+            f"fibsem-mcp: connected to {client.base_url} "
+            f"(agent level {capabilities.get('level')})",
+            file=sys.stderr,
+        )
         return
+    # Answer the MCP client's handshake first, and wait for a server in the
+    # first call (FIB-1416).
+    capabilities = _probe(client_factory, args.url, args.token)
+    if capabilities is None:
+        print(
+            "fibsem-mcp: no fibsem server answered yet; the first tool call "
+            f"waits up to {args.wait:.0f}s for one.",
+            file=sys.stderr,
+        )
+    wait_s = max(0.0, args.wait)
+    client = _LazyClient(
+        lambda: _connect_with_retry(client_factory, args.url, args.token, wait_s)
+    )
     build_sidecar(client, capabilities).run()
 
 

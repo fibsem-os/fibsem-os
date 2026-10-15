@@ -376,12 +376,14 @@ def test_a_value_answer_moves_the_marker_and_answers_with_it(window, ui, qapp):
     _finish(thread, qapp)
 
     assert result["applied"] is True
-    assert result["adjusted"] is True
+    px = image.metadata.pixel_size.x
+    # FIB-1420: the answer says what the value moved, not just "adjusted".
+    assert result["moved_from"]["x"] == pytest.approx(1e-6, abs=px)
+    assert result["moved_from"]["y"] == pytest.approx(2e-6, abs=px)
     poi = outcome.get("poi")
     assert isinstance(poi, Point)
     # The marker landed where proposed, and the answer read it back
     # (pixel-rounded through the overlay).
-    px = image.metadata.pixel_size.x
     assert poi.x == pytest.approx(proposed["x"], abs=px)
     assert poi.y == pytest.approx(proposed["y"], abs=px)
 
@@ -400,7 +402,7 @@ def test_echoing_the_marker_is_not_an_adjustment(window, ui, qapp):
     _finish(thread, qapp)
 
     assert result["applied"] is True
-    assert "adjusted" not in result
+    assert "moved_from" not in result
     assert outcome["poi"].x == pytest.approx(live.x)
 
 

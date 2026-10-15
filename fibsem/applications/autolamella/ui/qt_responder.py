@@ -324,7 +324,7 @@ class QtResponder(QObject):
         other question type fails the future without clicking anything. A
         value equal to what the widget already shows moves nothing, and the
         future's ``adjusted`` attribute (set before it resolves) says which
-        it was.
+        it was, and ``moved_from`` holds what the widget showed before.
         """
         from concurrent.futures import Future as _Future
 
@@ -388,6 +388,8 @@ class QtResponder(QObject):
             self._fail(outcome, exc)
             return
         outcome.adjusted = adjusted
+        # What the value replaced, so the answer can say what moved.
+        outcome.moved_from = live if adjusted else None
         self._deliver(outcome, applied)
 
     def submit_suggestion(

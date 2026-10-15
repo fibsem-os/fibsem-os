@@ -51,6 +51,10 @@ class WorkItem:
         return self.status is AutoLamellaTaskStatus.NotStarted
 
 
+# The edits the timeline's menu makes on a pending item (TaskQueue.apply).
+QUEUE_ACTIONS = ("remove", "move_up", "move_down", "run_next")
+
+
 class QueueOp(Enum):
     """Outcome of a queue mutation."""
 
@@ -318,6 +322,25 @@ class TaskQueue:
                 return QueueResult(op, self._version)
             return self._move(item_id, current + delta)
 
+    def apply(self, item_id: str, action: str) -> QueueResult:
+        """One of the timeline's edits on a pending item, by name.
+
+        The verbs the queue's own menu offers (:data:`QUEUE_ACTIONS`), so the
+        timeline and the App Server edit the queue the same way. An unknown
+        action raises ``ValueError``.
+        """
+        call = {
+            "move_up": lambda: self.nudge(item_id, -1),
+            "move_down": lambda: self.nudge(item_id, +1),
+            "run_next": lambda: self.move_to_front(item_id),
+            "remove": lambda: self.remove(item_id),
+        }.get(action)
+        if call is None:
+            raise ValueError(
+                f"Unknown queue action {action!r}; one of {', '.join(QUEUE_ACTIONS)}."
+            )
+        return call()
+
     def reorder_pending(self, item_ids: List[str]) -> QueueResult:
         """Pull the named pending items to the front, in the order given.
 
@@ -361,11 +384,21 @@ class TaskQueue:
 
     def has_pending_pair(self, item_name: str, task_name: str) -> bool:
         """Whether a (item, task) pair is still waiting to run."""
+        found = self.find_pair(item_name, task_name)
+        return found is not None and found.is_pending
+
+    def find_pair(self, item_name: str, task_name: str) -> Optional[WorkItem]:
+        """A copy of the (item, task) pair to edit: the one waiting, else the
+        latest one (running or already run), or None if it was never queued."""
         with self._lock:
-            return any(
-                i.is_pending and i.item_name == item_name and i.task_name == task_name
+            matches = [
+                i
                 for i in self._items
-            )
+                if i.item_name == item_name and i.task_name == task_name
+            ]
+            waiting = [i for i in matches if i.is_pending]
+            found = waiting[0] if waiting else (matches[-1] if matches else None)
+            return copy.copy(found) if found is not None else None
 
     def mark_done(self, item: WorkItem, status: AutoLamellaTaskStatus) -> None:
         """Mark item as completed/failed/skipped.
