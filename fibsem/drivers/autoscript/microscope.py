@@ -545,7 +545,7 @@ class ThermoMicroscope(FibsemMicroscope):
         else:
             self.connect_to_microscope(self.system.info.ip_address, port=self._port)
 
-    def disconnect(self):
+    def _disconnect(self) -> None:
         """Disconnect from the microscope client."""
         if self._connection is None:
             logging.warning("Microscope client is not connected.")

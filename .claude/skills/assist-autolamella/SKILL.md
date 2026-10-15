@@ -197,7 +197,8 @@ the wrong place, a stage move that makes no sense, a task repeating), file
 `stop_workflow` or `stop_milling` as a request at once, with what you saw as
 the reason, and say it in chat: the operator approves it or presses Stop.
 
-A mill you started yourself you may stop directly, at any level. Every stop
+A mill you started yourself you may stop directly, at Assist or Drive (never at
+Watch). Every stop
 takes a `reason`, which the operator reads. Never use a stop to "pause and
 think". Ask in chat instead.
 
@@ -208,7 +209,9 @@ commands) go in requests like any other action. They need the devices
 setting (`routers.microscope` true). Without it they are refused when you
 file them (`not_available`). Follow the supervise skill's *Using the
 microscope* rules: read the stage before each move, take a fresh image
-before judging, and treat `409 microscope_busy` as someone else working.
+before judging, and treat `409 microscope_busy` as someone else working. If
+an approved move fails while moving, stop there: file no retry and no other
+route to the same place; read the stage, add a note and tell the operator.
 An image costs dose on a real sample. If you need one to check a move,
 say so in chat first, and when the operator agrees put the move and the
 image in one request.

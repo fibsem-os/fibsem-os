@@ -275,7 +275,7 @@ def acquire_image(
     if not state.allows_acquisition:
         raise ValueError(
             "Cannot start acquisition. "
-            + microscope.parent.describe_device_imaging_state("FM", state)
+            + microscope.parent.explain_imaging_state("FM", state)
         )
 
     if zparams is not None:
@@ -614,7 +614,7 @@ class FMTiledAcquisitionRunner:
         if state is not DeviceImagingState.READY:
             raise ValueError(
                 "Cannot start a tiled acquisition. "
-                + microscope.describe_device_imaging_state("FM", state)
+                + microscope.explain_imaging_state("FM", state)
             )
 
         if not isinstance(self.channel_settings, list):

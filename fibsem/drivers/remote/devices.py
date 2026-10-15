@@ -910,6 +910,7 @@ def build_remote_fm(
         raise ConnectionError(
             f"could not connect to the FM at {address}:{port}: {error}"
         ) from error
+    context.on_disconnect(fm.client.close)
     apply_calibration = getattr(microscope, "_apply_fluorescence_calibration", None)
     if apply_calibration is not None:
         fm.client.reconnected.connect(apply_calibration)
@@ -931,6 +932,9 @@ def _server(
         except Exception as error:
             client.close()
             servers[key] = error
+        else:
+            # one client per server, shared by its devices: closed at disconnect
+            context.on_disconnect(client.close)
     server = servers[key]
     if isinstance(server, Exception):
         raise server

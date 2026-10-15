@@ -257,9 +257,37 @@ class FibsemMicroscope(ABC):
     ) -> None:
         pass
 
+    # What the builders asked to have closed at disconnect (`BuildContext.on_disconnect`).
+    _disconnect_cleanups = _PerInstance(lambda _: [])
+
+    def disconnect(self) -> None:
+        """Let go of the microscope: each device's own connection, then what the
+        builders share, then the driver's client.
+
+        The devices are disconnected in reverse build order, last built first. A
+        device or cleanup that raises is logged and the rest still run: one stuck
+        controller must not keep the vendor client open. The driver's own client is closed last, by
+        `_disconnect`, and an error there is raised.
+        """
+        for name, device in reversed(list(self._devices.items())):
+            close = getattr(device, "disconnect", None)
+            if close is None:
+                continue
+            try:
+                close()
+            except Exception as e:
+                logging.warning(f"Device '{name}' did not disconnect cleanly: {e}")
+        cleanups, self._disconnect_cleanups = self._disconnect_cleanups, []
+        for cleanup in reversed(cleanups):
+            try:
+                cleanup()
+            except Exception as e:
+                logging.warning(f"A device connection did not close cleanly: {e}")
+        self._disconnect()
+
     @abstractmethod
-    def disconnect(self):
-        pass
+    def _disconnect(self) -> None:
+        """Close the driver's own client. `disconnect` calls it after the devices."""
 
     def try_disconnect(self) -> bool:
         """Disconnect, logging rather than raising if the client will not close.
@@ -2387,64 +2415,16 @@ class FibsemMicroscope(ABC):
             stage_position, device, orientation=orientation
         )
 
-    def describe_device_imaging_state(
+    def explain_imaging_state(
         self,
         device: str,
         state: Optional[DeviceImagingState] = None,
         stage_position: Optional[FibsemStagePosition] = None,
     ) -> str:
-        """One sentence a person can act on, for each imaging state.
-
-        The vocabulary is the two axes' (FIB-858): the stage travels between
-        *devices* and is re-posed between *orientations*, and the failing term names
-        the verb -- so a refusal built from this says which of the two to do, in
-        which order, rather than announcing a false generality like "not in a valid
-        orientation" for a stage that is 48.8 mm from the instrument.
-
-        Pass `state` when it has already been asked, so a message and the decision it
-        explains cannot be about two different moments.
-        """
-        if state is None:
-            state = self.get_device_imaging_state(device, stage_position)
-
-        instrument = (
-            "the fluorescence microscope" if device == "FM" else f"the {device} device"
-        )
-
-        if state is DeviceImagingState.NO_DEVICE:
-            return "This system has no fluorescence microscope."
-        if state is DeviceImagingState.READY:
-            return f"{instrument.capitalize()} can image the sample from here."
-
-        orientation = self.get_stage_orientation(stage_position)
-        held = (
-            f"held in the {orientation} orientation"
-            if orientation != "NONE"
-            else "held in an unrecognised orientation"
-        )
-        allowed = self._get_device(device).available_orientations
-        images_from = (
-            f"images from the {' or '.join(allowed)} orientation"
-            if allowed
-            else "images from any orientation"
-        )
-
-        if state is DeviceImagingState.NEEDS_TRAVEL:
-            return (
-                f"The stage is {held}, which {instrument} images from, but it is "
-                f"away from the {device} device: travel there "
-                f"(move_to_device('{device}'))."
-            )
-        if state is DeviceImagingState.NEEDS_REPOSE:
-            return (
-                f"The stage is at the {device} device but {held}; {instrument} "
-                f"{images_from}. Re-pose via the beams "
-                f"(move_to_device('{device}', orientation='{allowed[0]}'))."
-            )
-        return (
-            f"The stage is {held}, away from the {device} device; {instrument} "
-            f"{images_from}. Re-pose at the beams and travel out "
-            f"(move_to_device('{device}'))."
+        """One sentence a person can act on, for each imaging state. See
+        `StageMovement.explain_imaging_state`."""
+        return self._movement_service().explain_imaging_state(
+            device, state=state, stage_position=stage_position
         )
 
     def _warn_on_fluorescence_geometry(self) -> None:

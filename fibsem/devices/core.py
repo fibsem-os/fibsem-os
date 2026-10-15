@@ -44,7 +44,7 @@ from typing import (
 
 from psygnal import Signal
 
-from fibsem.devices.display import DisplayHint
+from fibsem.devices.display import DisplayHint, display_to_dict
 from fibsem.structures import RangeLimit
 
 IMAGING_CHANNEL = "imaging_channel"
@@ -898,6 +898,12 @@ class _Controllable:
 class Device(_Controllable):
     """One piece of hardware: named, with parameters and commands, and a parent."""
 
+    driver: Optional[str] = None
+    """The registry name of the driver that built it (``Demo``, ``remote``, a
+    plugin's), set when it is built from its configuration entry
+    (``fibsem.devices.entries.build_device_entries``). ``None`` for a device built
+    by hand."""
+
     def facts(self) -> Dict[str, Any]:
         """What the device says about itself that is neither a parameter nor a
         command, as JSON-ready data: what a remote copy of it needs to answer the
@@ -905,6 +911,16 @@ class Device(_Controllable):
         server sends it with the device's description. Nothing by default.
         """
         return {}
+
+    def disconnect(self) -> None:
+        """Close what this device alone holds open: its own controller connection.
+        The microscope calls it when it disconnects, in reverse build order.
+        Nothing by default.
+
+        A connection several devices share (one controller per address) is not one
+        device's to close: its builder registers that with
+        `BuildContext.on_disconnect` instead.
+        """
 
 
 class Axis:
@@ -1035,6 +1051,11 @@ def _describe(p: BoundParameter) -> Dict[str, Any]:
         "choices": list(p.choices) if p.choices is not None else None,
         "settable": p.settable,
     }
+    # How to show it, when the class says: a client with no copy of the class (an
+    # agent) shows it the same way.
+    display = display_to_dict(p.display)
+    if display is not None:
+        described["display"] = display
     # Only a fraction of a hardware maximum has these, so only it carries them.
     if p.metadata.native_max is not None:
         described["native_max"] = p.metadata.native_max
