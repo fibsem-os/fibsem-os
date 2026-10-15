@@ -173,3 +173,29 @@ def test_the_bound_role_survives_a_save(tmp_path):
     assert electron["roles"] == {"scanner": "scan_generator"}
     assert any(e["name"] == "scan_generator" for e in saved)
     assert np.asarray(microscope.beams[BeamType.ELECTRON].acquire().data).ndim == 2
+
+
+def test_an_image_names_the_scanner_that_made_it(bound):
+    image = bound.acquire_image(
+        ImageSettings(
+            resolution=(64, 48), dwell_time=1e-7, hfw=80e-6, beam_type=BeamType.ELECTRON
+        )
+    )
+
+    record = image.metadata.roles["scanner"]
+    assert record["name"] == "scan_generator"
+    assert record["class"] == "DemoScanGenerator"
+    assert record["driver"] == bound.devices["scan_generator"].driver
+    assert {"values", "facts"} <= set(record)
+    # it survives the file
+    loaded = type(image.metadata).from_dict(image.metadata.to_dict())
+    assert loaded.roles == image.metadata.roles
+
+
+def test_an_image_from_the_vendors_scan_names_no_scanner(bound):
+    image = bound.acquire_image(
+        ImageSettings(
+            resolution=(64, 48), dwell_time=1e-7, hfw=80e-6, beam_type=BeamType.ION
+        )
+    )
+    assert image.metadata.roles == {}

@@ -133,6 +133,27 @@ _ERRORS: Dict[str, Callable[[str], Exception]] = {
 }
 
 
+def error_from(
+    detail: Dict[str, Any], status: Optional[int] = None
+) -> Optional[Exception]:
+    """The local exception a server's error *detail* names, or None when it has
+    no local meaning. *status* is the answer's HTTP status, when there was one.
+
+    The detail has error_type and message; a server from before FIB-1377 sends
+    error and detail. A long command's failed run carries the same detail
+    (``fibsem.server.client.FibsemClient.wait_for_run``).
+    """
+    kind = detail.get("error_type", detail.get("error"))
+    message = detail.get("message", detail.get("detail"))
+    if kind == "DeviceFault" or status == 502:
+        # the hardware refused on the far side: a driver's own subclass arrives
+        # as the fault it is
+        return DeviceFault(message, device=detail.get("device"))
+    if kind in _ERRORS:
+        return _ERRORS[kind](message)
+    return None
+
+
 def _range(payload: Dict[str, Any]) -> RangeLimit:
     """An end sent as None is unbounded: JSON has no infinity."""
     low, high = payload["min"], payload["max"]
@@ -245,16 +266,9 @@ class DeviceClient:
         except ValueError:  # not JSON: an unhandled server error
             detail = response.text
         if isinstance(detail, dict):
-            # error_type and message; a server from before FIB-1377 sends error
-            # and detail.
-            kind = detail.get("error_type", detail.get("error"))
-            message = detail.get("message", detail.get("detail"))
-            if kind == "DeviceFault" or response.status_code == 502:
-                # the hardware refused on the far side: a driver's own subclass
-                # arrives as the fault it is
-                raise DeviceFault(message, device=detail.get("device"))
-            if kind in _ERRORS:
-                raise _ERRORS[kind](message)
+            error = error_from(detail, response.status_code)
+            if error is not None:
+                raise error
         raise RemoteDeviceError(f"{method} {path}: {response.status_code} {detail}")
 
     def health(self) -> Dict[str, Any]:

@@ -75,6 +75,7 @@ def serialize_request(request) -> Dict[str, Any]:
         EditAlignmentArea,
         PickPOI,
         RunMillingTask,
+        RunSpotBurn,
     )
 
     payload: Dict[str, Any] = {"type": type(request).__name__}
@@ -94,7 +95,9 @@ def serialize_request(request) -> Dict[str, Any]:
         payload.update(
             {
                 "message": "Confirm the detected features (answering yes accepts "
-                "the positions as currently shown).",
+                "the positions as currently shown; a value "
+                '{"features": [{"name", "px": {"x", "y"}}]} moves the named '
+                "ones first).",
                 "features": [
                     {"name": f.name, "px": to_plain(f.px.to_dict())}
                     for f in getattr(detection, "features", [])
@@ -135,6 +138,31 @@ def serialize_request(request) -> Dict[str, Any]:
                 "coordinates": "points are microscope image coordinates: "
                 "metres, origin at the image centre, +x right, +y UP",
                 "image": _preview_payload(request.image),
+            }
+        )
+        return payload
+
+    if isinstance(request, RunSpotBurn):
+        settings = request.settings
+        payload.update(
+            {
+                "message": f"{request.message}. Answering yes burns the points "
+                "as currently shown and asks again; answering no continues. A "
+                'value {"points": [{"x", "y"}]} replaces the points first.',
+                "positive": "Run Spot Burn",
+                "negative": "Continue",
+                "points": [
+                    to_plain(pt.to_dict())
+                    for pt in getattr(settings, "coordinates", [])
+                ],
+                "milling_current": to_plain(getattr(settings, "milling_current", None)),
+                "exposure_time": to_plain(getattr(settings, "exposure_time", None)),
+                "coordinates": "points are fractions of the frame (origin "
+                "top-left, +y down), so they need no rescaling against the "
+                "preview; current and exposure are the protocol's",
+                # The FIB frame the points sit on is display state;
+                # AutoLamellaAppContext.pending_prompt attaches it.
+                "image": None,
             }
         )
         return payload

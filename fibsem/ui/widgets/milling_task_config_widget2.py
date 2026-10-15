@@ -278,7 +278,7 @@ class MillingTaskConfigWidget2(QWidget):
     def get_settings(self) -> FibsemMillingTaskConfig:
         self._settings.name = self.name_edit.text()
         self._settings.field_of_view = (
-            self.field_of_view_spinbox.value() * constants.MICRO_TO_SI
+            self.field_of_view_spinbox.value() / constants.SI_TO_MICRO
         )
         self._settings.alignment = self.alignment_widget.get_settings()
         self._settings.acquisition = self.acquisition_widget.get_settings()

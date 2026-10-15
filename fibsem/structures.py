@@ -4409,6 +4409,12 @@ class FibsemImageMetadata:
     # files from before v11 and on images built rather than acquired -- read the
     # time through `acquisition_datetime_of`, which falls back for those.
     acquisition_datetime: Optional[datetime] = None
+    # Provenance: the device in each role the acquiring beam had filled (v12), by
+    # role name, such as the external scanner that made the frame: its ``name``,
+    # ``class``, ``driver``, its parameters' last known ``values`` and its
+    # ``facts``. Empty when the beam imaged through the vendor's own scan;
+    # ``microscope_state`` still carries the vendor detector either way.
+    roles: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
     @property
     def beam_type(self) -> BeamType:
@@ -4461,6 +4467,7 @@ class FibsemImageMetadata:
             if self.hardware_geometry is not None
             else {}
         )
+        settings_dict["roles"] = deepcopy(self.roles)
 
         return settings_dict
 
@@ -4547,6 +4554,7 @@ class FibsemImageMetadata:
             system_info=system_info,
             hardware_geometry=hardware_geometry,
             acquisition_datetime=to_aware(settings.get("acquisition_datetime")),
+            roles=deepcopy(settings.get("roles") or {}),
         )
         return metadata
 

@@ -39,7 +39,11 @@ from fibsem.util.timestamps import to_datetime
 # is `microscope_state.timestamp`: a POSIX float, or AutoScript's naive
 # `%m/%d/%Y %H:%M:%S` string on a ThermoFisher image. Read either through
 # `fibsem.util.timestamps.acquisition_datetime_of`.
-METADATA_VERSION = "v11"
+# v12 added `roles` -- for each role the acquiring beam had filled (its `scanner`),
+# the device in it: name, class, driver, its parameters' last known values and its
+# facts. Absent in earlier files, and empty for a beam with no role filled: the
+# image came from the vendor's own scan.
+METADATA_VERSION = "v12"
 # What an unversioned file is. Absent means written before versioning existed, i.e.
 # older than v1 -- not "current", which is what defaulting to METADATA_VERSION claimed.
 UNVERSIONED_METADATA = "v0"
