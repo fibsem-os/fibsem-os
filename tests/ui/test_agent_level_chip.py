@@ -608,6 +608,39 @@ def test_the_window_draws_a_waiting_request_s_mill_and_takes_it_down(main_ui, ho
     assert main_ui.agent_previews.drawn == []
 
 
+def test_the_card_is_narrow_until_something_waits(qapp):
+    from PyQt5.QtWidgets import QMainWindow
+
+    from fibsem.applications.autolamella.ui.agent_card import STACK_BELOW
+    from fibsem.applications.autolamella.ui.agent_level_chip import (
+        NARROW_WIDTH,
+        WIDE_WIDTH,
+    )
+
+    window = QMainWindow()
+    chip = AgentLevelChip()
+    window.statusBar().addPermanentWidget(chip)
+    window.show()
+    chip.set_level(AgentLevel.WATCH)
+    chip.toggle_card()
+    qapp.processEvents()
+    assert NARROW_WIDTH <= chip.popup.width() < STACK_BELOW and not chip.card.wide
+
+    chip.set_request(_request())
+    qapp.processEvents()
+    assert chip.popup.width() == WIDE_WIDTH and chip.card.wide
+
+    chip.set_request(None)
+    chip.set_suggestion({"question": "Pick the point", "answer": "Here"})
+    qapp.processEvents()
+    assert chip.popup.width() == WIDE_WIDTH
+
+    chip.set_suggestion(None)
+    qapp.processEvents()
+    assert NARROW_WIDTH <= chip.popup.width() < STACK_BELOW and not chip.card.wide
+    window.close()
+
+
 def test_the_card_floats_in_its_own_window_and_goes_back_on_the_chip(qapp):
     from PyQt5.QtCore import Qt
     from PyQt5.QtWidgets import QMainWindow

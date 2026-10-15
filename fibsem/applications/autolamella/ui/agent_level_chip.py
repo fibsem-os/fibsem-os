@@ -33,6 +33,11 @@ from fibsem.applications.autolamella.ui.agent_card import (
     AgentCard,
     last_heard_text,
 )
+
+# The card's width on the chip: wide while something waits for the operator (the
+# actions beside the reason and the decision), narrow otherwise.
+WIDE_WIDTH = 820
+NARROW_WIDTH = 440
 from fibsem.server.levels import AgentLevel
 from fibsem.ui.tokens import (
     BORDER_COLOR,
@@ -180,7 +185,7 @@ class _CardPopup(QFrame):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(1, 1, 1, 1)
         layout.addWidget(card)
-        self.setFixedWidth(820)
+        self.setFixedWidth(NARROW_WIDTH)
 
 
 class FloatingPanel(QWidget):
@@ -356,7 +361,7 @@ class AgentLevelChip(QPushButton):
         if self._panel_geometry is not None:
             self.panel.setGeometry(self._panel_geometry)
         else:
-            self.panel.resize(820, self.card.sizeHint().height())
+            self.panel.resize(self._card_width(), self.card.sizeHint().height())
             if start is not None:
                 self.panel.move(start.topLeft())
         self.panel.show()
@@ -373,11 +378,19 @@ class AgentLevelChip(QPushButton):
         if panel.isVisible():
             panel.hide()
 
+    def _card_width(self) -> int:
+        """Wide while a request or a suggestion waits, else narrow (no narrower
+        than the stacked card needs)."""
+        if self._request is not None or self._suggestion is not None:
+            return WIDE_WIDTH
+        return max(NARROW_WIDTH, self.card.minimumSizeHint().width() + 2)
+
     def _fit_popup(self) -> None:
         """Above the chip, its right edge on the chip's, inside the screen."""
         if self.floating:
             return
         popup = self.popup
+        popup.setFixedWidth(self._card_width())
         popup.adjustSize()
         if not popup.isVisible():
             return
