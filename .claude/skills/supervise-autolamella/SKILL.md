@@ -45,7 +45,7 @@ Check the capabilities response before doing anything else:
   sentence, what that level means you can and can't do this session.
 
 No discovery file → no server. Tell the operator to enable it
-(Preferences → App Server) and connect a microscope. Do not go looking for
+(Tools → App Server) and connect a microscope. Do not go looking for
 other ways in.
 
 ## Your level
