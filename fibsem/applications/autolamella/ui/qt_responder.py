@@ -163,6 +163,8 @@ class QtResponder(QObject):
     def __init__(self, ui: "AutoLamellaUI"):
         super().__init__()
         self._ui = ui
+        # The pending prompt's buttons, positive and negative, as it shows them.
+        self._buttons: Tuple[Optional[str], Optional[str]] = (None, None)
         self._handlers: Dict[Type[Request], Callable] = {
             SetImages: self._set_images,
             SetMillingConfig: self._set_milling_config,
@@ -542,6 +544,8 @@ class QtResponder(QObject):
         _question_id, response, value, reason = suggestion[:4]
         pending = self._pending_question
         label = self._button_label(pending[0], response) if pending else None
+        shown = self._buttons[0 if response else 1]
+        label = shown or label
         point = None
         if pending is not None and isinstance(pending[0], PickPOI):
             point = self._suggested_pixel(pending[0], value)
@@ -825,6 +829,8 @@ class QtResponder(QObject):
             self._pending_question[1].cancel()
         self._question_seq += 1
         self._pending_question = (request, future, self._question_seq)
+        # The buttons the prompt shows: what a suggestion is said as.
+        self._buttons = (pos, neg)
         self._clear_suggestion()
         self._emit_question_event(
             "prompt_raised",

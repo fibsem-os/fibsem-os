@@ -945,8 +945,19 @@ class AgentCard(QFrame):
 
     def _stacked(self) -> bool:
         """The picture under the steps and the reason, not beside them: narrow,
-        or with details open, so their table has the card's width."""
-        return not self._wide or (self._details_open and self._request is not None)
+        or with details open, so their table has the card's width. With no
+        picture, the buttons go under them too: an empty column beside them
+        would squeeze the steps for nothing."""
+        return (
+            not self._wide
+            or (self._details_open and self._request is not None)
+            or not self._showing_picture()
+        )
+
+    def _showing_picture(self) -> bool:
+        """Whether what waits has a picture, or a note in its place."""
+        key = "suggestion" if self._request is None else "request"
+        return key in self._images or bool(self._notes.get(key))
 
     def _inner_width(self) -> int:
         margins = self.layout().contentsMargins()

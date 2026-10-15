@@ -52,15 +52,21 @@ def _beam(value: Any, default: BeamType) -> BeamType:
     return default
 
 
+# The milling tools that are a service command by another name: their
+# arguments are the command's kwargs.
+_MILLING_TOOLS = {"milling_run_task": "run_task", "milling_run_stage": "run_stage"}
+
+
 def _milling_commands(request: Dict[str, Any]):
-    """``(command, kwargs)`` for each of the request's milling service commands."""
+    """``(command, kwargs)`` for each of the request's milling service commands,
+    called as one or through a milling tool."""
     for action in request.get("actions", []):
         arguments = action.get("arguments") or {}
-        if (
-            action.get("tool") == "service_call_command"
-            and arguments.get("service") == "milling"
-        ):
+        tool = action.get("tool")
+        if tool == "service_call_command" and arguments.get("service") == "milling":
             yield arguments.get("command"), arguments.get("kwargs") or {}
+        elif tool in _MILLING_TOOLS:
+            yield _MILLING_TOOLS[tool], arguments
 
 
 def request_patterns(request: Dict[str, Any]) -> List:
@@ -395,6 +401,46 @@ def picture_caption(frame, beam: BeamType) -> str:
     return f"{word} · {when}"
 
 
+def _on_frame(frame, corners) -> bool:
+    """Whether the box *corners* spans (two pixels) overlaps *frame*."""
+    height, width = frame.data.shape[:2]
+    (x0, y0), (x1, y1) = corners[0], corners[-1]
+    return (
+        min(x0, x1) < width
+        and max(x0, x1) >= 0
+        and min(y0, y1) < height
+        and max(y0, y1) >= 0
+    )
+
+
+def _patterns_on_frame(frame, patterns) -> bool:
+    """Whether any of *patterns* shows on *frame*, as `draw_picture` places them."""
+    from fibsem.milling.patterning.utils import pattern_outline
+
+    for pattern in patterns:
+        try:
+            rings = pattern_outline(pattern)
+        except Exception:  # noqa: BLE001 - not drawn either
+            continue
+        for ring in rings:
+            pixels = [_offset_pixel(frame, Point(x=x, y=y)) for x, y in ring]
+            if not pixels:
+                continue
+            xs, ys = [p[0] for p in pixels], [p[1] for p in pixels]
+            if _on_frame(frame, [(min(xs), min(ys)), (max(xs), max(ys))]):
+                return True
+    return False
+
+
+def _key_past_field(frame, layer: "_Layer") -> None:
+    """Key *layer*'s past-the-field patterns, saying so when none is on the
+    picture: the view can be narrower than the milling field."""
+    if layer.patterns and not _patterns_on_frame(frame, layer.patterns):
+        layer.key(OUTLINE, "past the field, off the picture")
+    else:
+        layer.key(OUTLINE, "past the field", layer.patterns)
+
+
 def draw_picture(frame, layers: List[_Layer]):
     """*frame* with *layers* drawn on it, as the card shows it: a QImage at most
     `PICTURE_WIDTH` wide (FIB-1411). Patterns are drawn as the milling view
@@ -673,7 +719,7 @@ class AgentPreviews:
             purple.key(
                 FILL, "after the edit" if before else "patterns", purple.patterns
             )
-            red.key(OUTLINE, "past the field", red.patterns)
+            _key_past_field(frame, red)
         self._add_marks(frame, [m for m in marks.values() if not m.before], purple)
         self._add_marks(frame, [m for m in marks.values() if m.before], grey)
         title = next((m.title for m in marks.values() if m.title and m.places), "")
@@ -951,7 +997,7 @@ class AgentPreviews:
         purple.patterns = _stage_patterns(stages)
         red.patterns = request_outside_field({}, aspect, stages)
         purple.key(FILL, "patterns", purple.patterns)
-        red.key(OUTLINE, "past the field", red.patterns)
+        _key_past_field(frame, red)
         self._picture(
             frame,
             BeamType.ION,
@@ -1015,15 +1061,23 @@ class AgentPreviews:
 
     @staticmethod
     def _add_marks(frame, marks, layer: _Layer) -> None:
-        """*marks* re-projected onto *frame*, into *layer*."""
+        """*marks* re-projected onto *frame*, into *layer*. A mark that falls
+        off the picture is not drawn, and its key says so."""
         for mark in marks:
             pixels = mark.pixels(frame)
             if mark.area:
-                layer.areas.append(pixels[:2])
-                layer.key(AREA, mark.legend)
+                shown = len(pixels) >= 2 and _on_frame(frame, pixels[:2])
+                if shown:
+                    layer.areas.append(pixels[:2])
+                shape = AREA
             else:
-                layer.points(mark.shape).extend(pixels)
-                layer.key(mark.shape, mark.legend)
+                inside = [p for p in pixels if _on_frame(frame, [p, p])]
+                layer.points(mark.shape).extend(inside)
+                shown = bool(inside) or not pixels
+                shape = mark.shape
+            layer.key(
+                shape, mark.legend if shown else f"{mark.legend}, off the picture"
+            )
 
     def _picture(
         self,

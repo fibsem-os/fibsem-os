@@ -228,6 +228,15 @@ def _words(name) -> str:
     return str(name or "").replace("_", " ")
 
 
+# What an app route refused at Watch was for, where its last word says too
+# little ("Tried to requests").
+_REFUSED_ACTIONS = {
+    "/app/agent/requests": "file a request",
+    "/app/workflow/prompt/suggest": "suggest an answer",
+    "/app/workflow/prompt/answer": "answer the run's question",
+}
+
+
 # The refusals of the agent's permissions: its level, Assist's ask-first, Off,
 # a stop, and the allowlist. The 409s and 422s are the call's own trouble, and
 # the routes log those (``devices.refusal``).
@@ -250,13 +259,19 @@ def _record_refusal(request: Request, exc: StarletteHTTPException) -> None:
         ):
             return
         auth: AuthConfig = request.app.state.auth
+        call = current_call()
         payload = {
             # a request refused at filing names the call it carried
-            "action": detail.get("call") or action_name(request),
+            "action": detail.get("call")
+            or _REFUSED_ACTIONS.get(request.url.path.rstrip("/"))
+            or action_name(request),
             "route": f"{request.method} {request.url.path}",
             "error_type": error_type,
             "level": auth.level.value,
         }
+        if call is not None and call.action and not detail.get("call"):
+            # The call as the card says it (FIB-1426), when the sidecar named it.
+            payload["line"] = call.action
         logging.info(
             f"agent refused: {payload['action']} ({payload['route']}): "
             f"403 {error_type} at {payload['level']}"

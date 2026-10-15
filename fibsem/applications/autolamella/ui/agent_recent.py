@@ -356,7 +356,7 @@ class RecentActions:
     def _on_agent_refused(self, record, p, agent):
         error = p.get("error_type")
         why = _REFUSED.get(error) or f"not at {p.get('level')}"
-        text = f"Tried to {_words(p.get('action'))}"
+        text = p.get("line") or f"Tried to {_words(p.get('action'))}"
         return self._put(
             ("refused", record.get("seq")),
             record,

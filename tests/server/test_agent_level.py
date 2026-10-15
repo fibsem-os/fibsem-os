@@ -409,3 +409,24 @@ def test_a_direct_call_is_described_and_recorded(client, auth, microscope):
             "level": "drive",
         },
     ]
+
+
+def test_a_refused_request_at_watch_says_what_was_tried(client, auth, microscope):
+    """Sim session 2026-10-15b (O3): Recent read "Tried to requests"."""
+    recorded = []
+
+    def record(kind, payload):
+        recorded.append((kind, payload))
+
+    microscope.session.record_signal.connect(record)
+    try:
+        refused = client.post(
+            "/app/agent/requests",
+            headers=AGENT,
+            json={"actions": [], "reason": "x"},
+        )
+    finally:
+        microscope.session.record_signal.disconnect(record)
+    assert refused.status_code == 403
+    refusal = next(p for kind, p in recorded if kind == "agent_refused")
+    assert refusal["action"] == "file a request"

@@ -1117,3 +1117,17 @@ def test_a_row_s_outcome_changes_on_the_card(qapp):
     card.set_recent(recent.rows)
     assert "done" in _labels(card) and "running" not in _labels(card)
     card.deleteLater()
+
+
+def test_a_card_with_no_picture_keeps_no_empty_column(qapp):
+    # Sim session 2026-10-15b (O6): the steps squeezed beside an empty 420 px.
+    from PyQt5.QtGui import QImage
+
+    card = AgentCard()
+    card.resize(900, 400)
+    card.set_request(_request())
+    assert card._stacked()
+    image = QImage(300, 200, QImage.Format_RGB32)
+    card.set_image(image, "FIB")
+    assert not card._stacked()
+    card.deleteLater()

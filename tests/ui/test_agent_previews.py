@@ -203,6 +203,16 @@ def test_a_run_stage_or_run_task_request_draws_the_stages_it_would_mill():
         ],
     }
     assert [stage.name for stage in request_stages(request)] == ["Trench", "Polish"]
+    # The same through the milling tools (#1841): their arguments are the kwargs.
+    tools = {
+        "request_id": "ef57",
+        "status": "pending",
+        "actions": [
+            {"tool": "milling_run_stage", "arguments": {"stage": trench.to_dict()}},
+            {"tool": "milling_run_task", "arguments": {"config": task.to_dict()}},
+        ],
+    }
+    assert [stage.name for stage in request_stages(tools)] == ["Trench", "Polish"]
 
     controller = _Controller()
     previews = AgentPreviews(lambda: controller)
@@ -740,6 +750,50 @@ def test_a_pose_move_and_a_pose_set_are_marked_through_the_stage(monkeypatch):
     assert purple.targets == [pytest.approx((100.0, 50.0))]
     assert white.targets == [(30.0, 20.0)]
     assert white.keys == [("target", "MILLING pose now")]
+
+
+def test_a_mark_off_the_picture_is_not_drawn_and_its_key_says_so(monkeypatch):
+    # Sim session 2026-10-15b (F3): the pose now was keyed but off the left edge.
+    from fibsem.geometry import projection
+    from fibsem.structures import FibsemStagePosition
+
+    monkeypatch.setattr(projection, "stage_to_pixel", lambda frame, pose: (-537, 43))
+    controller = _Controller()  # 200 × 100 px
+    previews = AgentPreviews(
+        lambda: controller, item_pose=lambda item, name: FibsemStagePosition(x=0.0)
+    )
+    previews.show_request(
+        _one("item_set_pose", {"item_name": "01", "pose_name": "MILLING"})
+    )
+    _, white = _layer(previews.request_picture, "#ffffff")
+    assert white.targets == []
+    assert white.keys == [("target", "MILLING pose now, off the picture")]
+
+
+def test_past_the_field_off_the_picture_says_so():
+    from fibsem.applications.autolamella.ui.agent_previews import (
+        _key_past_field,
+        _Layer,
+    )
+    from fibsem.structures import FibsemRectangleSettings
+
+    frame = FibsemImage.generate_blank_image(resolution=(200, 100), hfw=100e-6)
+    layer = _Layer("#ff0000")
+    layer.patterns = [
+        FibsemRectangleSettings(
+            width=4e-6, height=4e-6, depth=1e-6, centre_x=72e-6, centre_y=0.0
+        )
+    ]
+    _key_past_field(frame, layer)
+    assert layer.keys == [("outline", "past the field, off the picture")]
+    seen = _Layer("#ff0000")
+    seen.patterns = [
+        FibsemRectangleSettings(
+            width=4e-6, height=4e-6, depth=1e-6, centre_x=48e-6, centre_y=0.0
+        )
+    ]
+    _key_past_field(frame, seen)
+    assert seen.keys == [("outline", "past the field")]
 
 
 def test_the_agent_s_own_image_is_the_picture_with_the_values_on_it():
