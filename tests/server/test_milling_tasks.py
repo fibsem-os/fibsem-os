@@ -83,8 +83,9 @@ def test_run_stage_mills_the_stage_as_a_task_of_its_own(client, tmp_path):
     assert result["status"] == "completed"
     assert [stage["name"] for stage in result["stages"]] == ["Rough"]
     assert result["stages"][0]["status"] == "completed"
-    # No path: the app's data folder, never the imaging path the stage carries.
-    assert result["path"].startswith(str(tmp_path / "data"))
+    # The stage acquires no images, so nothing is saved, and no folder is named.
+    assert result["path"] is None
+    assert not os.path.exists(tmp_path / "data" / "Milling" / "Rough")
 
 
 def test_run_task_saves_inside_the_experiment(client, experiment):
@@ -92,6 +93,7 @@ def test_run_task_saves_inside_the_experiment(client, experiment):
         [_stage("Rough"), _stage("Polish")], name="Trench"
     )
     config.acquisition.imaging.path = "/somewhere/else"
+    config.acquisition.acquire_fib = True  # so the task saves something
     run = _run(
         client,
         "run_task",
@@ -99,6 +101,7 @@ def test_run_task_saves_inside_the_experiment(client, experiment):
     )
     assert run["state"] == "done", run
     assert run["result"]["path"].startswith(str(experiment))
+    assert os.listdir(run["result"]["path"])
     assert [s["status"] for s in run["result"]["stages"]] == ["completed"] * 2
 
 

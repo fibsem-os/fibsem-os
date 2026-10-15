@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import os
 import threading
 import time
 import uuid
@@ -510,14 +511,21 @@ class Milling(Service):
                 raise_on_failure=True,
                 output_dir=path,
             )
-        return task.ended()
+        ended = task.ended()
+        if ended.get("path") and not os.path.isdir(ended["path"]):
+            # Nothing was saved (a task that acquires no images, as run_stage's
+            # usually is): answer no folder rather than one that isn't there.
+            ended["path"] = None
+        return ended
 
     @command(long=True)
     def run_stage(
         self, stage: FibsemMillingStage, path: Optional[str] = None
     ) -> Dict[str, Any]:
         """Run one milling stage as a task of its own, named after the stage:
-        ``run_task`` with that one stage, answering the same."""
+        ``run_task`` with that one stage, answering the same. It saves images
+        only when the stage's ``milling.acquire_images`` is set; otherwise its
+        answer's ``path`` is None."""
         from fibsem.milling.tasks import FibsemMillingTaskConfig
 
         return self.run_task(
