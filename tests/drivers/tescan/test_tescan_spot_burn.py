@@ -3,7 +3,7 @@
 TESCAN cannot do the blank -> park -> unblank sequence the other backends use: FIB.Scan is a
 strict subset of SEM.Scan, missing exactly SetBlanker, GetBlanker and SetBeamPosition. The
 spot burn service draws one DrawBeam dot per point instead, through the milling service
-(tests/test_tescan_spot_burn_service.py). This file checks where those dots go.
+(tests/drivers/tescan/test_tescan_spot_burn_service.py). This file checks where those dots go.
 """
 
 import pytest

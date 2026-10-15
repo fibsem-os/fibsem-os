@@ -202,6 +202,10 @@ class AppContext(Protocol):
         self, item_name: str, task_name: str, front: bool = False
     ) -> Dict[str, Any]: ...
 
+    def edit_queue(
+        self, item_name: str, task_name: str, action: str
+    ) -> Dict[str, Any]: ...
+
 
 def _grid_run_body(body: Dict[str, Any]):
     """Validate the shared body of the grid plan/start verbs, or raise 422."""
@@ -257,7 +261,12 @@ def _jpeg_or_404(result: Dict[str, Any]) -> Response:
     return Response(content=jpeg, media_type="image/jpeg", headers=headers)
 
 
-_REFUSAL_STATUS = {"not_found": 404, "invalid": 422, "task_running": 409}
+_REFUSAL_STATUS = {
+    "not_found": 404,
+    "invalid": 422,
+    "task_running": 409,
+    "not_pending": 409,
+}
 
 
 def _missing_field(message: str) -> HTTPException:
@@ -660,6 +669,15 @@ def build_app_control_router(context: AppContext) -> APIRouter:
                 detail={"error_type": "already_queued", "message": result["reason"]},
             )
         return result
+
+    @router.post("/workflow/queue/edit")
+    def edit_queue(body: Dict[str, Any]):
+        item_name = _required_text(body, "item_name", "the item whose task to edit")
+        task_name = _required_text(body, "task_name", "the waiting task to edit")
+        action = _required_text(
+            body, "action", "remove, move_up, move_down or run_next"
+        )
+        return _answer_or_refusal(context.edit_queue(item_name, task_name, action))
 
     return router
 

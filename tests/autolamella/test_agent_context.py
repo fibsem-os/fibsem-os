@@ -484,3 +484,58 @@ def test_stage_position_reads_the_cache_only(microscope):
 def test_recent_experiments_is_json_safe():
     ctx = AutoLamellaAppContext(Host())
     _assert_json_safe(ctx.recent_experiments())
+
+
+def test_edit_queue_removes_or_moves_a_waiting_pair(experiment, microscope):
+    from fibsem.applications.autolamella.server.events import EventBuffer
+    from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
+
+    host = Host()
+    host.experiment = experiment
+    buffer = EventBuffer()
+    ctx = AutoLamellaAppContext(host, event_buffer=buffer)
+    first, second = (p.name for p in experiment.positions[:2])
+
+    # No run, no queue: a structured refusal.
+    assert ctx.edit_queue(first, "Rough Milling", "remove")["applied"] is False
+
+    manager = TaskManager(microscope, experiment, parent_ui=None)
+    manager.queue.build_from_matrix(["Rough Milling"], [first, second])
+    host._task_manager = manager
+
+    running = manager.queue.next()
+    assert running.item_name == first
+    refused = ctx.edit_queue(first, "Rough Milling", "remove")
+    assert refused["error_type"] == "not_pending"
+    assert "running" in refused["error"]
+
+    removed = ctx.edit_queue(second, "Rough Milling", "remove")
+    assert removed["applied"] is True and removed["changed"] is True
+    assert removed["queue_version"] == manager.queue.version
+    _assert_json_safe(removed)
+    assert manager.queue.pending == []
+    again = ctx.edit_queue(second, "Rough Milling", "remove")
+    assert again["error_type"] == "not_pending"
+    assert "removed" in again["error"]
+
+    (event,) = [
+        e for e in buffer.events_since(0)["events"] if e["kind"] == "queue_changed"
+    ]
+    assert event["payload"]["action"] == "remove"
+    assert event["payload"]["item_name"] == second
+
+    assert ctx.edit_queue("no-such", "Rough Milling", "remove")["error_type"] == (
+        "not_found"
+    )
+    bad = ctx.edit_queue(second, "Rough Milling", "shuffle")
+    assert bad["error_type"] == "invalid"
+    assert "remove" in bad["action_names"]
+
+
+def test_item_version_changes_when_a_pose_moves(experiment):
+    from fibsem.applications.autolamella.server.context import item_fields_version
+
+    lamella = experiment.positions[0]
+    before = item_fields_version(lamella)
+    lamella.milling_pose.stage_position.x = 10e-6
+    assert item_fields_version(lamella) != before

@@ -522,6 +522,9 @@ into a folder you name inside the experiment and are long commands:
 imaging `stop`, with a reason, ends either one. `fm_acquire_overview` is the
 fluorescence one, from the FM pose with the objective in; `fm_estimate_overview`
 gives its whole run time, stage moves included, and the same `stop` ends it.
+`register_tiles` (experimental, off by default) places each tile where its
+picture says it is rather than where the stage step put it; the answer's
+`layout` says whether it moved the tiles and why not when it didn't.
 
 **`409 microscope_busy` is someone else working.** Its
 `detail.in_control` names who (`workflow`, `script`, or another command)

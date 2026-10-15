@@ -176,7 +176,7 @@ def test_a_value_answer_moves_the_area_and_answers_with_it(ui, qapp):
     _finish(thread, qapp)
 
     assert result["applied"] is True
-    assert result["adjusted"] is True
+    assert set(result["moved_from"]) == {"left", "top", "width", "height"}
     area = outcome.get("area")
     assert isinstance(area, FibsemRectangle)
     assert area.left == pytest.approx(proposed["left"])
@@ -206,7 +206,7 @@ def test_echoing_the_area_is_not_an_adjustment(ui, qapp):
     _finish(thread, qapp)
 
     assert result["applied"] is True
-    assert "adjusted" not in result
+    assert "moved_from" not in result
     answered = [p for k, p in events if k == "prompt_answered"][-1]
     assert "adjusted" not in answered
 
