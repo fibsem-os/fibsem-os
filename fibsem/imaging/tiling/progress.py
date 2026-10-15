@@ -168,6 +168,10 @@ class TiledProgress:
     # or a stage-limits rejection naming every offending tile. The *reason*, never the
     # label: a consumer words `FAILED` itself, and puts this behind it.
     error: Optional[str] = None
+    # Something about a run that finished which the operator should know -- the tiles
+    # not lining up with the stage steps (`layout_check`). A finished run, not a
+    # failed one: the mosaic is saved either way.
+    warning: Optional[str] = None
 
     @property
     def display_tile(self) -> Optional[Tuple[int, int]]:

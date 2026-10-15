@@ -50,7 +50,9 @@ def test_a_blocked_entry_is_refused_at_drive_and_stays_readable(client):
     refused = client.put("/microscope/devices/electron/on", json={"value": False})
     assert refused.status_code == 403
     assert _error(refused) == "not_allowed"
-    assert "electron.on" in refused.json()["detail"]["message"]
+    message = refused.json()["detail"]["message"]
+    assert "may not set electron.on" in message
+    assert "stays readable" in message
     assert client.get("/microscope/devices/electron/on").status_code == 200
 
     for device, command in (
@@ -63,6 +65,9 @@ def test_a_blocked_entry_is_refused_at_drive_and_stays_readable(client):
         )
         assert refused.status_code == 403, (device, command)
         assert _error(refused) == "not_allowed"
+        message = refused.json()["detail"]["message"]
+        assert f"may not run {device}.{command}" in message
+        assert "readable" not in message
 
 
 def test_risky_but_legitimate_entries_are_left_to_the_level(client, microscope):
@@ -83,6 +88,8 @@ def test_the_listings_mark_what_the_agent_may_not_use(client):
     assert all(
         not info["agent"] for info in devices["manipulator"]["commands"].values()
     )
+    # Nobody can set the chamber's state; reading it is never refused.
+    assert devices["chamber"]["parameters"]["state"]["agent"] is True
     services = client.get("/microscope/services").json()
     assert services["stage_movement"]["commands"]["move_to_device"]["agent"] is True
 
@@ -95,6 +102,10 @@ def test_a_path_is_refused_outside_the_open_experiment(client, tmp_path):
     )
     assert refused.status_code == 403
     assert _error(refused) == "not_allowed"
+    # Refused for its path, not for being the focus sweep.
+    message = refused.json()["detail"]["message"]
+    assert message.startswith("imaging.focus_sweep refused:")
+    assert "may not" not in message
 
     experiment = tmp_path / "experiment"
     experiment.mkdir()

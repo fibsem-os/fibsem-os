@@ -131,7 +131,7 @@ def test_a_move_to_a_device_is_one_event_not_three():
     )
     microscope.move_to_orientation("SEM")
     events = []
-    microscope.record_signal.connect(
+    microscope.session.record_signal.connect(
         lambda kind, payload: events.append((kind, payload))
     )
 
@@ -270,7 +270,7 @@ def test_a_tescan_stable_move_is_one_event_not_three(monkeypatch):
     ).system
     microscope, fake = connect(monkeypatch, system)
     events = []
-    microscope.record_signal.connect(
+    microscope.session.record_signal.connect(
         lambda kind, payload: events.append((kind, payload))
     )
 

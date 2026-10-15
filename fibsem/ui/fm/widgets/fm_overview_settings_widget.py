@@ -199,6 +199,13 @@ class FMOverviewSettingsWidget(QWidget):
         self.filename_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.label_destination = QLabel("")
         self.label_destination.setStyleSheet(MUTED)
+        # How the saved mosaic is put together, so it sits with where it is saved.
+        self.check_register_tiles = QCheckBox()
+        self.check_register_tiles.setToolTip(
+            "Experimental. Place each tile where it matches its neighbours rather "
+            "than where the grid planned it. Only applied when the tiles match the "
+            "stage steps; otherwise the overview is left as planned."
+        )
 
         output_form = QFormLayout()
         output_form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
@@ -208,6 +215,7 @@ class FMOverviewSettingsWidget(QWidget):
         output_form.addRow("Folder", self.path_edit)
         output_form.addRow("Name", self.filename_edit)
         output_form.addRow("", self.label_destination)
+        output_form.addRow("Align tiles", self.check_register_tiles)
         output_content = QWidget()
         output_content.setLayout(output_form)
         self.output_panel = TitledPanel("Output", content=output_content)
@@ -251,6 +259,7 @@ class FMOverviewSettingsWidget(QWidget):
             self._on_autofocus_changed
         )
         self.combo_objective_start.currentIndexChanged.connect(self._on_any_change)
+        self.check_register_tiles.stateChanged.connect(self._on_any_change)
         self.autofocus_widget.settings_changed.connect(self._on_any_change)
 
         self._on_autofocus_changed()
@@ -453,6 +462,7 @@ class FMOverviewSettingsWidget(QWidget):
             tile_order=self.grid.tile_order,
             tile_mask=self.grid.mask,
             objective_start=self.combo_objective_start.value(),
+            register_tiles=self.check_register_tiles.isChecked(),
         )
 
     @parameters.setter
@@ -461,6 +471,7 @@ class FMOverviewSettingsWidget(QWidget):
             self.check_zstack,
             self.combo_autofocus_mode,
             self.combo_objective_start,
+            self.check_register_tiles,
         )
         for widget in widgets:
             widget.blockSignals(True)
@@ -473,6 +484,7 @@ class FMOverviewSettingsWidget(QWidget):
             self.check_zstack.setChecked(value.use_zstack)
             self.combo_autofocus_mode.set_value(value.autofocus_mode)
             self.combo_objective_start.set_value(value.objective_start)
+            self.check_register_tiles.setChecked(value.register_tiles)
         finally:
             for widget in widgets:
                 widget.blockSignals(False)

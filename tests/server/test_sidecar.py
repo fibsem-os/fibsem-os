@@ -77,7 +77,7 @@ def test_each_description_names_the_level_it_needs(armed_sidecar):
     listed = asyncio.run(armed_sidecar.list_tools())
     described = {t.name: t.description for t in getattr(listed, "tools", listed)}
     assert described["get_stage_position"].endswith("Works at Watch, Assist and Drive.")
-    assert "started itself it can stop at any level" in described["stop_milling"]
+    assert "started itself it can stop at Assist or Drive" in described["stop_milling"]
     assert "Needs the agent at Drive" in described["move_stage_relative"]
     assert "request_actions" in described["move_stage_relative"]
     assert "(409)" in described["move_stage_relative"]
@@ -143,6 +143,18 @@ def test_set_service_parameter_sets_the_milling_angle(armed_sidecar):
                 },
             )
         )
+
+
+def test_vertical_move_works_from_either_view(armed_sidecar):
+    """Coincidence from either beam: with the feature centred in the FIB, the
+    offset is measured in the SEM view (beam_type ELECTRON)."""
+    for arguments in (
+        {"dy": 2e-6},
+        {"dy": 2e-6, "beam_type": "ELECTRON", "relaxation": 0.8},
+    ):
+        before = _call_json(armed_sidecar, "get_stage_position", {})["position"]
+        after = _call_json(armed_sidecar, "vertical_move", arguments)["position"]
+        assert after["z"] != pytest.approx(before["z"]), arguments
 
 
 def test_stable_move_tool_round_trip(armed_sidecar):
@@ -220,6 +232,13 @@ def test_the_milling_angle_tools_speak_degrees(armed_sidecar):
     assert orientation == {"orientation": "MILLING"}
 
 
+def test_the_geometry_is_one_read(armed_sidecar):
+    geometry = _call_json(armed_sidecar, "get_geometry", {})["geometry"]
+    assert set(geometry["views"]) == {"ELECTRON", "ION"}
+    assert geometry["milling_angle"]["stored_deg"] is not None
+    assert "FIB" in geometry["orientations"]
+
+
 def test_the_milling_angle_move_takes_a_rotation_in_degrees(armed_sidecar):
     moved = _call_json(
         armed_sidecar,
@@ -254,3 +273,17 @@ def test_a_command_that_images_answers_the_agent_an_image(armed_sidecar, device)
     answer = json.loads(text)
     assert answer["result"]["summary"]["shape"]
     assert answer["result"]["preview"]["image_index"] == 0
+
+
+def test_the_milling_state_is_answered_by_name(armed_sidecar):
+    """The tool says IDLE, RUNNING, ...; the wire carries the enum's number."""
+    from fibsem.mcp.sidecar import _MILLING_STATES
+    from fibsem.structures import MillingState
+
+    assert _MILLING_STATES == tuple(state.name for state in MillingState)
+    assert [MillingState[name].value for name in _MILLING_STATES] == list(
+        range(len(_MILLING_STATES))
+    )
+    result = asyncio.run(armed_sidecar.call_tool("get_milling_state", {}))
+    text = "".join(getattr(c, "text", "") for c in _contents(result))
+    assert json.loads(text) == {"state": "IDLE"}
