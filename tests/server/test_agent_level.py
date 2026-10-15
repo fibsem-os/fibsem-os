@@ -210,13 +210,20 @@ def test_assist_asks_first_to_stop_what_is_not_its_own(client, auth):
     assert _error(moved) == "ask_first"
 
 
-def test_the_agent_stops_its_own_action_at_any_level(client, auth, microscope):
+def test_the_agent_stops_its_own_action_at_assist_and_drive(client, auth, microscope):
     """While the agent's own command holds control (its mill, say), it can stop
-    it at Watch; the workflow is never its own."""
+    it at the levels it acts at; Watch never stops (Patrick, 2026-10-14). The
+    workflow is never its own."""
     with microscope.control.take(AGENT_ACTOR, "milling run"):
+        auth.set_level(AgentLevel.WATCH)
+        refused = client.post(STOP_MILLING, headers=AGENT, json=WHY)
+        assert refused.status_code == 403
+        assert _error(refused) == "level"
+        auth.set_level(AgentLevel.ASSIST)
         assert client.post(STOP_MILLING, headers=AGENT, json=WHY).status_code == 200
         refused = client.post("/app/workflow/stop", headers=AGENT, json=WHY)
     assert refused.status_code == 403
+    auth.set_level(AgentLevel.WATCH)
     with microscope.control.take(WORKFLOW, "a lamella run"):
         refused = client.post(STOP_MILLING, headers=AGENT, json=WHY)
     assert refused.status_code == 403
@@ -231,7 +238,7 @@ def test_a_stop_needs_a_reason_and_records_it(client, auth, microscope):
             assert refused.status_code == 422, (path, body)
             assert _error(refused) == "missing_reason"
     recorded = []
-    microscope.record_signal.connect(
+    microscope.session.record_signal.connect(
         lambda kind, payload: recorded.append((kind, payload))
     )
     assert client.post(STOP_MILLING, headers=AGENT, json=WHY).status_code == 200

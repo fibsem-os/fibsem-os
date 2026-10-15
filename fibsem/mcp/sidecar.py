@@ -188,6 +188,11 @@ def _connect_with_retry(client_factory, url, token, wait_s, sleep_fn=None):
         sleep_fn(1.0)
 
 
+# fibsem.structures.MillingState by value, without importing it: the sidecar
+# stays light. tests/server/test_sidecar.py pins the two in step.
+_MILLING_STATES = ("IDLE", "RUNNING", "STOPPING", "PAUSED", "ERROR", "UNKNOWN")
+
+
 def _refusal(resp):
     try:
         detail = resp.json().get("detail", resp.text)
@@ -333,9 +338,21 @@ def build_sidecar(client, capabilities):
     def get_milling_angle():
         return _service_call("get_milling_angle", {}, "milling_angle_deg")
 
+    def get_geometry():
+        return _service_call("get_geometry", {}, "geometry")
+
     def get_milling_state():
         data, err = _call(client, "GET", by_name["get_milling_state"].path)
-        return err if err else {"state": data["value"]}
+        if err:
+            return err
+        # The wire carries the enum's number; the agent reads its name.
+        value = data["value"]
+        names = _MILLING_STATES
+        return {
+            "state": names[value]
+            if isinstance(value, int) and 0 <= value < len(names)
+            else value
+        }
 
     def estimate_milling_time():
         return _service_call("estimate_milling_time", {}, "seconds")
@@ -361,8 +378,20 @@ def build_sidecar(client, capabilities):
     def stable_move(dx: float, dy: float, beam_type: str = "ELECTRON"):
         return _routed("stable_move", "position", dx=dx, dy=dy, beam_type=beam_type)
 
-    def vertical_move(dy: float, dx: float = 0.0):
-        return _routed("vertical_move", "position", dy=dy, dx=dx)
+    def vertical_move(
+        dy: float,
+        dx: float = 0.0,
+        beam_type: Optional[str] = None,
+        relaxation: Optional[float] = None,
+    ):
+        return _routed(
+            "vertical_move",
+            "position",
+            dy=dy,
+            dx=dx,
+            beam_type=beam_type,
+            relaxation=relaxation,
+        )
 
     def move_to_orientation(orientation: str):
         return _routed("move_to_orientation", "position", orientation=orientation)
@@ -478,6 +507,17 @@ def build_sidecar(client, capabilities):
     def get_task_outputs(item_name: str):
         return _app_get(f"/app/experiment/items/{item_name}/outputs")
 
+    def _image_header(resp):
+        # The image's scale and state ride on the JPEG answer as a header
+        # (app_routes.IMAGE_METADATA_HEADER); absent for a non-fibsem image.
+        raw = resp.headers.get("X-Image-Metadata")
+        if not raw:
+            return {}
+        try:
+            return {"metadata": json.loads(raw)}
+        except ValueError:
+            return {}
+
     def get_item_output_image(item_name: str, filename: str):
         # The route answers image/jpeg for the dashboard's <img>, so this reads
         # the bytes itself rather than through _call. Basenames carry spaces.
@@ -485,8 +525,11 @@ def build_sidecar(client, capabilities):
         resp = client.request("GET", path)
         if resp.status_code >= 400:
             return _refusal(resp)
-        meta = {"item_name": item_name, "filename": filename}
+        meta = {"item_name": item_name, "filename": filename, **_image_header(resp)}
         return [json.dumps(meta), Image(data=resp.content, format="jpeg")]
+
+    def get_image_metadata(path: str):
+        return _app_get("/app/experiment/images/metadata?" + urlencode({"path": path}))
 
     def get_item_detail(item_name: str):
         return _app_get(f"/app/experiment/items/{item_name}")
@@ -503,7 +546,7 @@ def build_sidecar(client, capabilities):
         resp = client.request("GET", path)
         if resp.status_code >= 400:
             return _refusal(resp)
-        meta = {"grid_name": grid_name, "filename": filename}
+        meta = {"grid_name": grid_name, "filename": filename, **_image_header(resp)}
         return [json.dumps(meta), Image(data=resp.content, format="jpeg")]
 
     def get_grid_markers(grid_name: str, filename: str):
@@ -534,7 +577,9 @@ def build_sidecar(client, capabilities):
         return err if err else data
 
     def get_request(request_id: str):
-        return _app_get(f"/app/agent/requests/{request_id}")
+        # An applied image action carries its preview: an image, not base64 text.
+        data, err = _call(client, "GET", f"/app/agent/requests/{request_id}")
+        return err if err else _with_images(data)
 
     def apply_protocol_to_item(item_name: str, task_names=None):
         data, err = _call(
@@ -740,6 +785,7 @@ def build_sidecar(client, capabilities):
             get_stage_orientation,
             get_microscope_state,
             get_milling_angle,
+            get_geometry,
             get_milling_state,
             estimate_milling_time,
             stop_milling,
@@ -771,6 +817,7 @@ def build_sidecar(client, capabilities):
             get_protocol,
             get_task_outputs,
             get_item_output_image,
+            get_image_metadata,
             get_item_detail,
             get_grids,
             get_grid_detail,
@@ -889,8 +936,7 @@ def main(argv=None):
     )
     print(
         f"fibsem-mcp: connected to {client.base_url} "
-        f"({capabilities.get('manufacturer')}, agent level "
-        f"{capabilities.get('level')})",
+        f"(agent level {capabilities.get('level')})",
         file=sys.stderr,
     )
     if args.check:

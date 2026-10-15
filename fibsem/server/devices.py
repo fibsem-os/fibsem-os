@@ -196,20 +196,22 @@ def describe_device(device: Device, refuse: Optional[Refuse] = None) -> Dict[str
     parameter and command also says whether the agent may use it (``agent``):
     a parameter it may read but never set is ``settable`` and ``agent: false``."""
 
-    def agent(kind: str, name: str) -> Dict[str, bool]:
+    def agent(kind: str, name: str, settable: bool = True) -> Dict[str, bool]:
         if refuse is None:
             return {}
-        return {"agent": refuse(device, kind, name, {}) is None}
+        # A parameter nobody can set is only read, and reads are never refused.
+        return {"agent": not settable or refuse(device, kind, name, {}) is None}
 
     return {
         "name": device.name,
         "class": type(device).__name__,
+        "driver": getattr(device, "driver", None),
         "parameters": {
             name: {
                 **info,
                 "limits": _limits_to_wire(info["limits"]),
                 "choices": _choices_to_wire(info["choices"]),
-                **agent("write", name),
+                **agent("write", name, info["settable"]),
             }
             for name, info in device.describe().items()
         },
@@ -358,15 +360,22 @@ def build_device_router(
 
     def check(d: Device, kind: str, name: str, kwargs: Mapping[str, Any]) -> None:
         why = refuse(d, kind, name, kwargs) if refuse is not None else None
-        if why is not None:
-            raise HTTPException(
-                status_code=403,
-                detail={
-                    "error_type": "not_allowed",
-                    "message": f"The agent may not use {d.name}.{name}, at any "
-                    f"level: {why}. Its value stays readable.",
-                },
+        if why is None:
+            return
+        if refuse(d, kind, name, {}) is None:
+            # Refused for its arguments (a path outside the experiment), not itself.
+            message = f"{d.name}.{name} refused: {why}."
+        elif kind == "write":
+            message = (
+                f"The agent may not set {d.name}.{name}, at any level: {why}. "
+                "Its value stays readable."
             )
+        else:
+            message = f"The agent may not run {d.name}.{name}, at any level: {why}."
+        raise HTTPException(
+            status_code=403,
+            detail={"error_type": "not_allowed", "message": message},
+        )
 
     def run(call: Any, what: str) -> Any:
         try:

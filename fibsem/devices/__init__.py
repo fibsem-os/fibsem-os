@@ -40,9 +40,13 @@ from fibsem.devices.core import (
     ParameterReadOnly,
     ParameterUnavailable,
     Resources,
+    Role,
     command,
+    query,
 )
+from fibsem.devices.display import Display
 from fibsem.devices.manipulator import MANIPULATOR_RESOURCE, Manipulator
+from fibsem.devices.scanner import Scanner
 from fibsem.devices.stage import (
     AXIS_UNITS,
     STAGE_RESOURCE,
@@ -67,13 +71,17 @@ __all__ = [
     "BoundParameter",
     "Device",
     "DeviceFault",
+    "Display",
     "ParameterMetadata",
     "Parameter",
     "ParameterReadOnly",
     "ParameterUnavailable",
     "Resources",
+    "Role",
+    "Scanner",
     "Stage",
     "StageLimitError",
     "UNLIMITED",
     "command",
+    "query",
 ]

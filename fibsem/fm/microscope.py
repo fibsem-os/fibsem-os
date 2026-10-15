@@ -729,8 +729,7 @@ class FluorescenceMicroscope:
         state = self.parent.get_device_imaging_state("FM")
         if not state.allows_acquisition:
             return (
-                f"Cannot start {what}. "
-                f"{self.parent.describe_device_imaging_state('FM', state)}"
+                f"Cannot start {what}. {self.parent.explain_imaging_state('FM', state)}"
             )
         return None
 
