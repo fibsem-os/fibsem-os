@@ -464,6 +464,9 @@ def build_sidecar(client, capabilities):
     def auto_focus(beam_type: str = "ELECTRON"):
         return _routed("auto_focus", "result", beam_type=beam_type)
 
+    def auto_brightness_contrast(beam_type: str = "ELECTRON"):
+        return _routed("auto_brightness_contrast", "result", beam_type=beam_type)
+
     def _app_get(path):
         data, err = _call(client, "GET", path)
         return err if err else data
@@ -808,6 +811,7 @@ def build_sidecar(client, capabilities):
             call_service_query,
             autocontrast,
             auto_focus,
+            auto_brightness_contrast,
             get_app_status,
             get_app_queue,
             get_experiment_summary,
