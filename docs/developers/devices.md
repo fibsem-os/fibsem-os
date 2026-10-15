@@ -692,4 +692,20 @@ coordinator, the entry is the type's interface class, with a warning naming what
 available; a type fibsem has no interface for is then not built.
 `examples/plugins/fibsem-fake-scanner` does both.
 
+On the unit's computer, `python -m fibsem.server.devices --config devices.yaml` serves
+what the file's `hardware.devices` lists, in the same shape as a microscope
+configuration, so an entry copies across:
+
+```yaml
+hardware:
+  devices:
+    - name: fake_scanner
+      type: scan_generator
+      driver: FakeScan
+```
+
+Each entry is built by its own driver with no microscope (`BuildContext.microscope` is
+`None`), so a builder must not need one; what it registers with `on_disconnect` runs
+when the server stops. Roles are not bound on the server: the coordinator binds them.
+
 The server has no authentication yet. Keep it on the microscope's private network.

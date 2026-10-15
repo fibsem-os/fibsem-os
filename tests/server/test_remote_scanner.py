@@ -1,4 +1,5 @@
-"""A scan generator on another computer, and a plugin driver's device reached remotely.
+"""A scan generator on another computer, a plugin driver's device reached remotely, and
+the devices a configuration file lists, served (``--config``).
 
 ``RemoteScanner`` scans on the device server and takes its limits from the served
 device's facts. A served device names its driver and entry type, so the coordinator
@@ -11,6 +12,7 @@ import logging
 
 import numpy as np
 import pytest
+import yaml
 
 pytest.importorskip("fastapi")
 pytest.importorskip("websockets")
@@ -19,6 +21,7 @@ from fibsem.devices import Device, Parameter  # noqa: E402
 from fibsem.devices.entries import (  # noqa: E402
     ResolvedEntry,
     build_device_entries,
+    disconnect_devices,
 )
 from fibsem.drivers import registry  # noqa: E402
 from fibsem.drivers.demo.devices import DemoScanGenerator  # noqa: E402
@@ -28,7 +31,11 @@ from fibsem.drivers.remote.devices import (  # noqa: E402
     RemoteScanner,
     remote_class,
 )
-from fibsem.server.devices import DeviceServer, describe_device  # noqa: E402
+from fibsem.server.devices import (  # noqa: E402
+    DeviceServer,
+    configured_devices,
+    describe_device,
+)
 from fibsem.structures import DeviceEntry, RangeLimit  # noqa: E402
 
 DWELL = RangeLimit(min=100e-9, max=10e-6)
@@ -158,3 +165,48 @@ def test_an_entry_of_another_type_than_the_served_device_is_refused(server, capl
     assert "'scanner' is a scan_generator on the device server, not a camera" in (
         caplog.text
     )
+
+
+# -- serving what a configuration file lists ------------------------------------
+
+
+def _devices_file(tmp_path, *entries, **settings):
+    path = tmp_path / "devices.yaml"
+    path.write_text(
+        yaml.safe_dump({**settings, "hardware": {"devices": list(entries)}})
+    )
+    return str(path)
+
+
+def test_a_config_file_builds_each_device_with_its_own_driver(tmp_path):
+    path = _devices_file(
+        tmp_path, {"name": "unit", "type": "scan_generator", "driver": "Demo"}
+    )
+    built, cleanups = configured_devices(path)
+    unit = built["unit"]
+    assert isinstance(unit, DemoScanGenerator)
+    assert (unit.driver, unit.entry_type) == ("Demo", "scan_generator")
+    assert unit.parent is None  # no microscope on the unit's PC
+    assert describe_device(unit)["type"] == "scan_generator"
+    disconnect_devices(built, cleanups)
+
+
+def test_a_config_file_entry_names_its_driver(tmp_path):
+    path = _devices_file(tmp_path, {"name": "unit", "type": "scan_generator"})
+    with pytest.raises(ValueError, match="no driver"):
+        configured_devices(path)
+    # unless the file names one for all of them
+    path = _devices_file(
+        tmp_path,
+        {"name": "unit", "type": "scan_generator"},
+        info={"manufacturer": "Demo"},
+    )
+    assert configured_devices(path)[0]["unit"].driver == "Demo"
+
+
+def test_the_command_line_stops_on_a_file_it_cant_build(tmp_path):
+    from fibsem.server.devices import main
+
+    path = _devices_file(tmp_path, {"name": "unit", "type": "scan_generator"})
+    with pytest.raises(SystemExit):
+        main(["--config", path])

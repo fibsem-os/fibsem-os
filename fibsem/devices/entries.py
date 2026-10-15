@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from typing import (
     TYPE_CHECKING,
     Any,
+    Callable,
     Collection,
     Dict,
     List,
@@ -153,8 +154,9 @@ class DeviceBuildError(RuntimeError):
 
 def build_device_entries(
     resolved: Sequence[ResolvedEntry],
-    microscope: "FibsemMicroscope",
+    microscope: Optional["FibsemMicroscope"],
     shared: Optional[Dict[str, Any]] = None,
+    cleanups: Optional[List[Callable[[], None]]] = None,
 ) -> Dict[str, Any]:
     """Build each device with its driver's builder for its type, in order.
 
@@ -209,10 +211,34 @@ def build_device_entries(
                 built[item.name] = device
     finally:
         # registered even when a required device fails, so what was opened closes
-        cleanups = getattr(microscope, "_disconnect_cleanups", None)
+        if cleanups is None:
+            cleanups = getattr(microscope, "_disconnect_cleanups", None)
         if context.cleanups and cleanups is not None:
             cleanups.extend(context.cleanups)
     return built
+
+
+def disconnect_devices(
+    devices: Mapping[str, Any], cleanups: List[Callable[[], None]]
+) -> None:
+    """Disconnect *devices* in reverse build order, then run *cleanups* (what their
+    builders registered with ``BuildContext.on_disconnect``) last first, and empty
+    the list so none runs twice. One that raises is logged and the rest still run."""
+    for name, device in reversed(list(devices.items())):
+        close = getattr(device, "disconnect", None)
+        if close is None:
+            continue
+        try:
+            close()
+        except Exception as e:
+            logging.warning(f"Device '{name}' did not disconnect cleanly: {e}")
+    pending = list(cleanups)
+    cleanups.clear()
+    for cleanup in reversed(pending):
+        try:
+            cleanup()
+        except Exception as e:
+            logging.warning(f"A device connection did not close cleanly: {e}")
 
 
 def _builder(item: ResolvedEntry) -> Optional["DeviceBuilder"]:

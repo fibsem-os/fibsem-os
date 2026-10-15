@@ -28,6 +28,7 @@ from fibsem_fake_scanner.devices import FakeScanner, build_fake_scanner  # noqa:
 
 import fibsem.config as cfg  # noqa: E402
 from fibsem import utils  # noqa: E402
+from fibsem.devices import DeviceFault  # noqa: E402
 from fibsem.devices.entries import (  # noqa: E402
     DeviceBuildError,
     ResolvedEntry,
@@ -351,13 +352,37 @@ def _remote(server):
     }
 
 
+def _served_from_a_file(tmp_path):
+    """What ``python -m fibsem.server.devices --config`` serves on the unit's PC."""
+    from fibsem.server.devices import configured_devices
+
+    path = tmp_path / "devices.yaml"
+    path.write_text(yaml.safe_dump({"hardware": {"devices": [ENTRY]}}))
+    return configured_devices(str(path))
+
+
+def test_the_device_server_builds_the_scanner_from_a_config_file(tmp_path):
+    from fibsem.devices.entries import disconnect_devices
+
+    built, cleanups = _served_from_a_file(tmp_path)
+    scanner = built["fake_scanner"]
+    assert isinstance(scanner, FakeScanner)
+    assert (scanner.driver, scanner.entry_type) == ("FakeScan", "scan_generator")
+    assert scanner.pattern.get_value() == "checker"
+    disconnect_devices(built, cleanups)
+    with pytest.raises(DeviceFault):  # its shared controller connection was closed
+        scanner.acquire((16, 8), 1e-7)
+
+
 def test_a_remote_entry_reaches_a_served_scanner(tmp_path):
     pytest.importorskip("websockets")
     from fibsem_fake_scanner.remote import RemoteFakeScanner
 
+    from fibsem.devices.entries import disconnect_devices
     from fibsem.server.devices import DeviceServer
 
-    served = _standalone()
+    built, cleanups = _served_from_a_file(tmp_path)
+    served = built["fake_scanner"]
     server = DeviceServer([served]).start()
     try:
         microscope = _connect(tmp_path, _config(_remote(server)))
@@ -377,6 +402,7 @@ def test_a_remote_entry_reaches_a_served_scanner(tmp_path):
         microscope.disconnect()
     finally:
         server.stop()
+        disconnect_devices(built, cleanups)
 
 
 def test_without_the_plugin_here_it_is_a_plain_remote_scanner(tmp_path, caplog):

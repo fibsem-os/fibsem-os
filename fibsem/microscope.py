@@ -268,20 +268,9 @@ class FibsemMicroscope(ABC):
         controller must not keep the vendor client open. The driver's own client is closed last, by
         `_disconnect`, and an error there is raised.
         """
-        for name, device in reversed(list(self._devices.items())):
-            close = getattr(device, "disconnect", None)
-            if close is None:
-                continue
-            try:
-                close()
-            except Exception as e:
-                logging.warning(f"Device '{name}' did not disconnect cleanly: {e}")
-        cleanups, self._disconnect_cleanups = self._disconnect_cleanups, []
-        for cleanup in reversed(cleanups):
-            try:
-                cleanup()
-            except Exception as e:
-                logging.warning(f"A device connection did not close cleanly: {e}")
+        from fibsem.devices.entries import disconnect_devices
+
+        disconnect_devices(self._devices, self._disconnect_cleanups)
         self._disconnect()
 
     @abstractmethod
