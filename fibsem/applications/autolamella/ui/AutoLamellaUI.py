@@ -78,6 +78,7 @@ from superqt import ensure_main_thread
 # from fibsem.applications.autolamella.tools.artifacts import write_completion_summary
 import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella import config as cfg
+from fibsem.applications.autolamella.experiment_setup import load_for_adoption
 from fibsem.applications.autolamella.hook_defaults import build_hook_manager
 from fibsem.applications.autolamella.poses import (
     add_lamella,
@@ -650,19 +651,9 @@ class AutoLamellaUI(QMainWindow):
             notification_service.show_toast(msg, "warning")
             return
 
-        try:
-            experiment = Experiment.load(Path(experiment_path))
-        except Exception as e:
-            logging.warning(f"Quickload: unable to load {experiment_path}: {e}")
-            notification_service.show_toast(
-                f"Quickload: could not load experiment: {e}", "error"
-            )
-            return
-
-        # The same bar the load dialog sets. An experiment with no protocol has
-        # nothing to run, and adopting one here would only look loaded.
-        if experiment.task_protocol is None:
-            msg = f"Quickload: {experiment.name} has no protocol; not loaded."
+        experiment, why = load_for_adoption(experiment_path)
+        if experiment is None:
+            msg = f"Quickload: {why}; not loaded."
             logging.warning(msg)
             notification_service.show_toast(msg, "warning")
             return
@@ -2816,16 +2807,18 @@ class AutoLamellaUI(QMainWindow):
             notification_service.show_toast("Protocol loading cancelled.", "info")
             return
 
-        # assign protocol to experiment
-        self.experiment.task_protocol = protocol
-        self.experiment.save_protocol()
-
+        self._adopt_protocol(protocol)
         notification_service.show_toast(
             f"Protocol '{protocol.name}' loaded successfully with {len(protocol.task_config)} tasks.",
             "info",
         )
 
-        # Update UI
+    def _adopt_protocol(self, protocol) -> None:
+        """Make *protocol* the open experiment's, save it beside the experiment
+        and redraw: the Load Protocol dialog's OK, and an agent's load. GUI
+        thread."""
+        self.experiment.task_protocol = protocol
+        self.experiment.save_protocol()
         self.update_ui()
         self.experiment_update_signal.emit()
 

@@ -37,6 +37,19 @@ __all__ = [
 class AppContext(Protocol):
     """What a hosted application must answer. Matched structurally."""
 
+    def protocols(self) -> Dict[str, Any]: ...
+
+    def create_experiment(
+        self,
+        name: str,
+        protocol: Optional[str] = None,
+        description: Optional[str] = None,
+    ) -> Dict[str, Any]: ...
+
+    def load_experiment(self, path: str) -> Dict[str, Any]: ...
+
+    def load_protocol(self, protocol: str) -> Dict[str, Any]: ...
+
     def overview_stage_position(
         self, grid_name: str, filename: str, px: Any = None, fraction: Any = None
     ) -> Dict[str, Any]: ...
@@ -209,15 +222,11 @@ def _grid_run_body(body: Dict[str, Any]):
         and isinstance(screen_all, bool)
     )
     if not ok:
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "error_type": "missing_field",
-                "message": "Pass task_names (non-empty list of grid task names); "
-                "grid_names (list of strings) is optional — omitted means every "
-                "recorded grid; screen_all (bool) inventories first and runs over "
-                "every present grid, and takes no grid_names.",
-            },
+        raise _missing_field(
+            "Pass task_names (non-empty list of grid task names); "
+            "grid_names (list of strings) is optional — omitted means every "
+            "recorded grid; screen_all (bool) inventories first and runs over "
+            "every present grid, and takes no grid_names."
         )
     return task_names, grid_names, screen_all
 
@@ -251,6 +260,22 @@ def _jpeg_or_404(result: Dict[str, Any]) -> Response:
 _REFUSAL_STATUS = {"not_found": 404, "invalid": 422, "task_running": 409}
 
 
+def _missing_field(message: str) -> HTTPException:
+    """The 422 for a request missing what a route needs, *message* saying what
+    to pass."""
+    return HTTPException(
+        status_code=422, detail={"error_type": "missing_field", "message": message}
+    )
+
+
+def _required_text(body: Dict[str, Any], key: str, what: str) -> str:
+    """*body*'s non-empty string *key*, or the 422 saying to pass it (*what*)."""
+    value = body.get(key)
+    if not isinstance(value, str) or not value:
+        raise _missing_field(f"Pass {key}: {what}.")
+    return value
+
+
 def _answer_or_refusal(result: Dict[str, Any]) -> Dict[str, Any]:
     """A context answer, or its refusal as an HTTP error: ``error_type`` picks the
     status, ``error`` is the message, and any lists of valid names ride along."""
@@ -259,7 +284,7 @@ def _answer_or_refusal(result: Dict[str, Any]) -> Dict[str, Any]:
         return result
     detail = {"error_type": error_type, "message": result.get("error", "")}
     for key, value in result.items():
-        if key.endswith("_names") or key == "filenames":
+        if key.endswith(("_names", "_paths")) or key == "filenames":
             detail[key] = value
     raise HTTPException(status_code=_REFUSAL_STATUS.get(error_type, 422), detail=detail)
 
@@ -374,6 +399,10 @@ def build_app_router(context: AppContext) -> APIRouter:
     def grid_markers(grid_name: str, filename: str):
         return context.grid_markers(grid_name, filename)
 
+    @router.get("/experiment/protocols")
+    def protocols():
+        return context.protocols()
+
     @router.get("/experiment/recent")
     def recent_experiments():
         return {"items": context.recent_experiments()}
@@ -420,13 +449,9 @@ def build_app_router(context: AppContext) -> APIRouter:
             or len(text) > 4000
             or (item_name is not None and not isinstance(item_name, str))
         ):
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_type": "missing_field",
-                    "message": "Pass text (a non-empty string, at most 4000 "
-                    "characters); item_name (string) is optional.",
-                },
+            raise _missing_field(
+                "Pass text (a non-empty string, at most 4000 "
+                "characters); item_name (string) is optional."
             )
         result = context.add_note(text, item_name)
         if not result.get("recorded") and result.get("error"):
@@ -529,13 +554,9 @@ def build_app_control_router(context: AppContext) -> APIRouter:
         if not all(isinstance(v, str) and v for v in (item_id, task_name, outcome)) or (
             not named or not all(isinstance(v, str) for v in named)
         ):
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_type": "missing_field",
-                    "message": "Pass item_id, task_name, proposal_id and outcome "
-                    "(Confirmed or Rejected) from GET /app/workflow/reviews.",
-                },
+            raise _missing_field(
+                "Pass item_id, task_name, proposal_id and outcome "
+                "(Confirmed or Rejected) from GET /app/workflow/reviews."
             )
         values = body.get("values")
         if values is not None and not isinstance(values, dict):
@@ -548,13 +569,7 @@ def build_app_control_router(context: AppContext) -> APIRouter:
                 },
             )
         if outcome == "Rejected" and not str(body.get("reason", "")).strip():
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_type": "missing_field",
-                    "message": "A reject needs a reason; it is recorded on the item.",
-                },
-            )
+            raise _missing_field("A reject needs a reason; it is recorded on the item.")
         result = context.decide(
             item_id,
             task_name,
@@ -606,14 +621,10 @@ def build_app_control_router(context: AppContext) -> APIRouter:
                 )
             )
         ):
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_type": "missing_field",
-                    "message": "Pass task_names (non-empty list of strings); "
-                    "item_names (list of strings) is optional — omitted "
-                    "means every item.",
-                },
+            raise _missing_field(
+                "Pass task_names (non-empty list of strings); "
+                "item_names (list of strings) is optional — omitted "
+                "means every item."
             )
         return context.start_workflow(task_names, item_names)
 
@@ -628,13 +639,7 @@ def build_app_control_router(context: AppContext) -> APIRouter:
     def set_supervision(body: Dict[str, Any]):
         task_name = body.get("task_name")
         if not isinstance(task_name, str) or "supervise" not in body:
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_type": "missing_field",
-                    "message": "Pass task_name (string) and supervise (boolean).",
-                },
-            )
+            raise _missing_field("Pass task_name (string) and supervise (boolean).")
         return context.set_supervision(task_name, bool(body["supervise"]))
 
     @router.post("/workflow/queue/requeue")
@@ -642,13 +647,8 @@ def build_app_control_router(context: AppContext) -> APIRouter:
         item_name = body.get("item_name")
         task_name = body.get("task_name")
         if not isinstance(item_name, str) or not isinstance(task_name, str):
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_type": "missing_field",
-                    "message": "Pass item_name and task_name (strings); "
-                    "front (boolean) is optional.",
-                },
+            raise _missing_field(
+                "Pass item_name and task_name (strings); front (boolean) is optional."
             )
         return context.requeue_task(
             item_name, task_name, front=bool(body.get("front", False))
@@ -678,13 +678,9 @@ def build_app_suggest_router(context: AppContext) -> APIRouter:
             )
         reason = body.get("reason")
         if not isinstance(reason, str) or not reason.strip():
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_type": "missing_field",
-                    "message": "Pass a reason: it is shown under the suggestion, "
-                    "for the operator deciding whether to take it.",
-                },
+            raise _missing_field(
+                "Pass a reason: it is shown under the suggestion, "
+                "for the operator deciding whether to take it."
             )
         value = body.get("value")
         if value is not None and not isinstance(value, dict):
@@ -762,14 +758,10 @@ def build_app_config_router(context: AppContext) -> APIRouter:
             or not all(isinstance(k, str) for k in patch)
             or not isinstance(version, str)
         ):
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_type": "missing_field",
-                    "message": "Pass patch (a non-empty object of dotted-path: "
-                    "value entries) and version (from the config read it was "
-                    "written against).",
-                },
+            raise _missing_field(
+                "Pass patch (a non-empty object of dotted-path: "
+                "value entries) and version (from the config read it was "
+                "written against)."
             )
         return patch, version
 
@@ -796,13 +788,9 @@ def build_app_config_router(context: AppContext) -> APIRouter:
         if not isinstance(task_name, str) or (
             scheduled_at is not None and not isinstance(scheduled_at, str)
         ):
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_type": "missing_field",
-                    "message": "Pass task_name (string) and scheduled_at "
-                    "(ISO-8601 string, or null to clear).",
-                },
+            raise _missing_field(
+                "Pass task_name (string) and scheduled_at "
+                "(ISO-8601 string, or null to clear)."
             )
         result = context.set_task_schedule(task_name, scheduled_at)
         if result.get("invalid_value"):
@@ -829,13 +817,7 @@ def build_app_config_router(context: AppContext) -> APIRouter:
         # The workflow's run options, beside the schedule. One so far: whether the run summary dialog opens.
         show_run_summary = body.get("show_run_summary")
         if not isinstance(show_run_summary, bool):
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_type": "missing_field",
-                    "message": "Pass show_run_summary (boolean).",
-                },
-            )
+            raise _missing_field("Pass show_run_summary (boolean).")
         return context.set_workflow_options(show_run_summary)
 
     def _validated_reorder(body: Dict[str, Any]):
@@ -849,14 +831,10 @@ def build_app_config_router(context: AppContext) -> APIRouter:
             or not all(isinstance(n, str) for n in order)
             or not isinstance(version, str)
         ):
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_type": "missing_field",
-                    "message": "Pass milling_key (string), order (the current "
-                    "stage names in their new sequence), and version (from "
-                    "the config read).",
-                },
+            raise _missing_field(
+                "Pass milling_key (string), order (the current "
+                "stage names in their new sequence), and version (from "
+                "the config read)."
             )
         return milling_key, order, version
 
@@ -886,16 +864,33 @@ def build_app_config_router(context: AppContext) -> APIRouter:
         if task_names is not None and not (
             isinstance(task_names, list) and all(isinstance(t, str) for t in task_names)
         ):
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_type": "missing_field",
-                    "message": "task_names, when given, is a list of task "
-                    "name strings; omitted means every task the protocol "
-                    "defines.",
-                },
+            raise _missing_field(
+                "task_names, when given, is a list of task "
+                "name strings; omitted means every task the protocol "
+                "defines."
             )
         return _refused_or(context.apply_protocol_to_item(item_name, task_names))
+
+    # -- experiments and protocols: kept to known places -----------------------
+
+    @router.post("/experiment/create")
+    def create_experiment(body: Dict[str, Any]):
+        name = _required_text(body, "name", "the new experiment's folder name")
+        return _answer_or_refusal(
+            context.create_experiment(
+                name, protocol=body.get("protocol"), description=body.get("description")
+            )
+        )
+
+    @router.post("/experiment/load")
+    def load_experiment(body: Dict[str, Any]):
+        path = _required_text(body, "path", "a path from the recent experiments")
+        return _answer_or_refusal(context.load_experiment(path))
+
+    @router.post("/experiment/protocol/load")
+    def load_protocol(body: Dict[str, Any]):
+        name = _required_text(body, "protocol", "a protocol name from the list")
+        return _answer_or_refusal(context.load_protocol(name))
 
     # -- lamella positions: the Lamella tab's buttons ---------------------------
 
@@ -930,15 +925,7 @@ def build_app_config_router(context: AppContext) -> APIRouter:
         "/experiment/items/{item_name}/move_to", dependencies=[Depends(take_control)]
     )
     def move_to_item_pose(item_name: str, body: Dict[str, Any]):
-        pose = body.get("pose")
-        if not isinstance(pose, str):
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_type": "missing_field",
-                    "message": "Pass pose: a pose name from the item (MILLING, ...).",
-                },
-            )
+        pose = _required_text(body, "pose", "a pose name from the item (MILLING, ...)")
         return _answer_or_refusal(context.move_to_item_pose(item_name, pose))
 
     @router.post("/experiment/items/{item_name}/poses/{pose_name}")
