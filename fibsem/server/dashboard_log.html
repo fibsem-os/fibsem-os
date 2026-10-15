@@ -261,6 +261,8 @@ function describe(e) {
     case "prompt_suggested":
       return ["suggested", `${esc(p.type)} · <b>${p.response ? "yes" : "no"}</b>${p.reason ? ` <span class="muted">${esc(p.reason)}</span>` : ""}`];
     case "prompt_cancelled": return ["withdrawn", esc(p.type)];
+    case "prompt_suggestion_dismissed":
+      return ["suggestion dismissed", `${esc(p.type)}${p.reason ? ` <span class="muted">${esc(p.reason)}</span>` : ""}`];
     case "question_asked": return ["question held", `the run waits on a recorded question`];
     case "question_released": return ["question released", ""];
     case "proposal_asked": return ["proposed", esc(p.field || p.kind || p.type || "")];

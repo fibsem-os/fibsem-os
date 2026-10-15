@@ -192,6 +192,24 @@ def test_an_answer_says_when_it_took_the_agent_s_suggestion(app):
     )
 
 
+def test_a_dismissed_suggestion_says_why(app):
+    # FIB-1424: the operator declined the agent's suggestion on the card.
+    def run():
+        app.buffer.append(
+            "prompt_suggestion_dismissed",
+            {"question_id": 3, "response": True, "reason": "still curtaining"},
+        )
+        app.buffer.append("prompt_suggestion_dismissed", {"question_id": 4})
+        app.buffer.append("workflow_completed", {})
+
+    code, lines = _watch({2: run})
+
+    assert lines[:2] == [
+        "SUGGESTION DISMISSED question=3 reason=still curtaining",
+        "SUGGESTION DISMISSED question=4",
+    ]
+
+
 def test_the_agent_s_request_is_followed_to_its_end(app):
     def run():
         app.buffer.append(

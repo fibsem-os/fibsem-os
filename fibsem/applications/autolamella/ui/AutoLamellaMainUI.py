@@ -1598,6 +1598,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.agent_chip.approve_clicked.connect(self._on_approve_agent_request)
         self.agent_chip.reject_clicked.connect(self._on_reject_agent_request)
         self.agent_chip.accept_clicked.connect(self._on_accept_agent_suggestion)
+        self.agent_chip.dismiss_clicked.connect(self._on_dismiss_agent_suggestion)
         # The suggestion the operator dropped by answering otherwise, until the
         # answer that dropped it is heard (the responder takes the suggestion
         # down before it says the question was answered).
@@ -4169,6 +4170,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 "taken down",
                 "info",
             )
+
+    def _on_dismiss_agent_suggestion(self, reason: str) -> None:
+        """Dismiss on the agent's card: the operator declines the suggestion,
+        recorded with their reason for the agent; the question stays up."""
+        self.autolamella_ui.dismiss_suggestion(reason)
+        # Declined, not dropped: no "you answered it yourself" later.
+        self._dropped_agent_suggestion = None
 
     def _refresh_workflow_indicators(self) -> None:
         """Re-read the waiting/supervised/running state into the window chrome."""

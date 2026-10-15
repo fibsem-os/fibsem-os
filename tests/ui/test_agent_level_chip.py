@@ -368,6 +368,26 @@ def test_a_suggestion_turns_the_chip_and_the_card_offers_accept(qapp):
     assert card.accept_button is None
 
 
+def test_a_suggestion_can_be_dismissed_with_why(qapp):
+    # FIB-1424: Dismiss beside Accept, an optional why, then Dismiss.
+    chip = AgentLevelChip()
+    chip.set_level(AgentLevel.ASSIST)
+    chip.set_suggestion(_SUGGESTION)
+    card = chip.card
+    dismissed = []
+    chip.dismiss_clicked.connect(dismissed.append)
+    card.dismiss_button.click()  # "Dismiss…": asks why
+    assert card.reason_edit is not None and card.accept_button is None
+    card.back_button.click()
+    assert card.reason_edit is None and card.accept_button is not None
+    card.dismiss_button.click()
+    card.reason_edit.setText("the trench is off to the left")
+    card.dismiss_button.click()
+    assert dismissed == ["the trench is off to the left"]
+    chip.set_suggestion(None)
+    assert card.dismiss_button is None and card.reason_edit is None
+
+
 def test_a_request_shows_before_a_suggestion(qapp):
     chip = AgentLevelChip()
     chip.set_suggestion(_SUGGESTION)

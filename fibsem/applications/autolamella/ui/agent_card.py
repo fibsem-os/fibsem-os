@@ -404,6 +404,7 @@ class AgentCard(QFrame):
     approve_clicked = pyqtSignal(str)  # request id
     reject_clicked = pyqtSignal(str, str)  # request id, the operator's reason
     accept_clicked = pyqtSignal()  # the suggestion shown
+    dismiss_clicked = pyqtSignal(str)  # the suggestion shown, the operator's why
     float_clicked = pyqtSignal()  # float the card, or put it back on the chip
     keep_on_top_toggled = pyqtSignal(bool)  # the floating card over every window
 
@@ -415,6 +416,7 @@ class AgentCard(QFrame):
         self._request: Optional[Dict[str, Any]] = None
         self._suggestion: Optional[Dict[str, str]] = None
         self.accept_button: Optional[QPushButton] = None
+        self.dismiss_button: Optional[QPushButton] = None
         self._now: Optional[str] = None
         # The images under Why, with their captions: the request's, the
         # suggestion's.
@@ -609,6 +611,10 @@ class AgentCard(QFrame):
         suggestion = dict(suggestion) if suggestion is not None else None
         if suggestion == self._suggestion:
             return
+        if suggestion is None or suggestion.get("question") != (
+            self._suggestion or {}
+        ).get("question"):
+            self._rejecting = False
         if (suggestion or {}).get("reason") != (self._suggestion or {}).get("reason"):
             self._why_open = False
         self._suggestion = suggestion
@@ -727,6 +733,7 @@ class AgentCard(QFrame):
         self._picture_holder = None
         request = self._request
         self.accept_button = self.details_link = self.why_link = None
+        self.dismiss_button = None
         self.approve_button = self.reject_button = None
         self.confirm_reject_button = self.back_button = None
         self.reason_edit = None
@@ -903,12 +910,38 @@ class AgentCard(QFrame):
         right.addStretch(1)
         buttons = QHBoxLayout()
         buttons.addStretch(1)
+        self.back_button = self.confirm_reject_button = self.reason_edit = None
+        if self._rejecting and self._request is None:
+            # Dismiss, with why if the operator likes: recorded for the agent
+            # (FIB-1424). The question stays up.
+            self.reason_edit = QLineEdit()
+            self.reason_edit.setPlaceholderText("Tell the agent why (optional)")
+            right.addWidget(self.reason_edit)
+            self.back_button = _button("Back")
+            self.back_button.clicked.connect(lambda: self._set_rejecting(False))
+            self.dismiss_button = _button("Dismiss", primary=True)
+            self.dismiss_button.clicked.connect(
+                lambda: self.dismiss_clicked.emit(
+                    self.reason_edit.text() if self.reason_edit else ""
+                )
+            )
+            buttons.addWidget(self.back_button)
+            buttons.addWidget(self.dismiss_button)
+            right.addLayout(buttons)
+            return left, right
+        self.dismiss_button = _button("Dismiss…")
+        self.dismiss_button.setToolTip(
+            "Decline the suggestion and tell the agent why. The question stays "
+            "up for you to answer."
+        )
+        self.dismiss_button.clicked.connect(lambda: self._set_rejecting(True))
         self.accept_button = _button("Accept", primary=True)
         self.accept_button.setToolTip(
             "Answer the question with this, as your answer. The record names the "
             "agent as the one who suggested it."
         )
         self.accept_button.clicked.connect(self.accept_clicked)
+        buttons.addWidget(self.dismiss_button)
         buttons.addWidget(self.accept_button)
         right.addLayout(buttons)
         return left, right

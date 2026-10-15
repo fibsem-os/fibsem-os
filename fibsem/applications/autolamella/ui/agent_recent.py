@@ -222,6 +222,14 @@ class RecentActions:
             changed = self._put(("answer", question_id), record, text, "done", OK)
         return changed
 
+    def _on_prompt_suggestion_dismissed(self, record, p, agent):
+        reason = str(p.get("reason") or "").strip()
+        return self._end(
+            ("suggestion", p.get("question_id")),
+            f"dismissed: {reason}" if reason else "dismissed",
+            MUTED,
+        )
+
     def _on_prompt_cancelled(self, record, p, agent):
         row = self._rows.get(("suggestion", p.get("question_id")))
         if row is not None and row.tone == WAITING:

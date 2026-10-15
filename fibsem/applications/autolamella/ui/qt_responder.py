@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple, Type
 
 from PyQt5.QtCore import QObject, pyqtSignal
 
-from fibsem.acting import AGENT, TASK, acting
+from fibsem.acting import AGENT, OPERATOR, TASK, acting
 from fibsem.applications.autolamella.proposals import AuthorKind, DecisionOutcome
 from fibsem.applications.autolamella.workflows.interaction import (
     ClearMillingConfig,
@@ -488,6 +488,27 @@ class QtResponder(QObject):
         return self.answer_confirm(
             response, source="operator", adjusted=adjusted, suggested_by="agent"
         )
+
+    def dismiss_suggestion(self, reason: str = "") -> bool:
+        """GUI thread, from Dismiss on the agent's card: the operator declines
+        the suggestion, saying why if they like. Recorded as
+        ``prompt_suggestion_dismissed`` with the reason, for the agent to read
+        (FIB-1424); the question stays up. False when it had gone."""
+        suggestion = self.suggestion
+        pending = self._pending_question
+        if suggestion is None or pending is None:
+            self._clear_suggestion()
+            return False
+        payload = {
+            "type": type(pending[0]).__name__,
+            "question_id": suggestion[0],
+            "response": suggestion[1],
+        }
+        if str(reason or "").strip():
+            payload["reason"] = str(reason).strip()
+        self._clear_suggestion()
+        self._emit_question_event("prompt_suggestion_dismissed", payload, OPERATOR)
+        return True
 
     def _clear_suggestion(self) -> None:
         if self._suggestion is not None:

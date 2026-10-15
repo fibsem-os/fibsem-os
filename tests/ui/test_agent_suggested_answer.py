@@ -190,6 +190,43 @@ def test_answering_otherwise_drops_the_suggestion(ui, qapp, client):
     assert "suggested_by" not in events[-1][1]
 
 
+def test_the_operator_dismisses_the_suggestion_with_why(ui, qapp, client):
+    # FIB-1424: the card had Accept only; declining by answering another way
+    # dropped the suggestion silently, so the agent never learned why.
+    from fibsem.applications.autolamella.ui.agent_recent import RecentActions
+
+    events = _record(ui)
+    thread, outcome = _ask_on_worker(ui, qapp)
+    question_id = ui.ui_responder.pending_question_and_id()[1]
+    _post(
+        qapp,
+        client,
+        "/app/workflow/prompt/suggest",
+        {"response": True, "question_id": question_id, "reason": "looks done"},
+    )
+    assert ui.dismiss_suggestion("the face still curtains") is True
+    assert ui.suggestion_shown is None and ui.ui_responder.suggestion is None
+    # The question stays up for the operator.
+    assert "answer" not in outcome
+    assert ui.ui_responder.pending_question() is not None
+    kind, payload, actor = events[-1]
+    assert kind == "prompt_suggestion_dismissed" and actor == "operator"
+    assert payload["question_id"] == question_id
+    assert payload["reason"] == "the face still curtains"
+    assert ui.dismiss_suggestion("again") is False  # gone already
+
+    # Recent says so, with the reason.
+    recent = RecentActions()
+    for seq, (kind, payload, actor) in enumerate(events, start=1):
+        recent.add({"seq": seq, "kind": kind, "payload": payload, "actor": actor})
+    assert recent.rows[0].outcome == "dismissed: the face still curtains"
+
+    ui.pushButton_no.click()
+    _spin_until(qapp, lambda: "answer" in outcome or "error" in outcome)
+    thread.join(timeout=5)
+    assert outcome.get("answer") is False
+
+
 def test_a_suggestion_needs_a_live_question_a_reason_and_the_agent_acting(
     ui, qapp, client, auth
 ):
