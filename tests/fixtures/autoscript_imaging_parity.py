@@ -203,12 +203,7 @@ def _live(microscope, beam_type, frames=4):
             stop.set()
             done.set()
 
-    signal = (
-        microscope.sem_acquisition_signal
-        if beam_type is BeamType.ELECTRON
-        else microscope.fib_acquisition_signal
-    )
-    signal.connect(on_frame)
+    microscope.beams[beam_type].live_frame.connect(on_frame)
 
     def call():
         microscope.start_acquisition(beam_type)

@@ -223,3 +223,47 @@ def test_a_stop_interrupts_the_prompt(ui, qapp):
         ui._workflow_stop_event.clear()
 
     assert isinstance(outcome.get("error"), InterruptedError)
+
+
+def _question_id(ui):
+    _request, question_id = ui.ui_responder.pending_question_and_id()
+    assert question_id is not None
+    return question_id
+
+
+def test_an_answer_can_carry_the_points_to_burn(ui, qapp):
+    # The agent places the points as the operator would: the burn runs on them,
+    # and the protocol's current and exposure stay.
+    request = RunSpotBurn(settings=_settings(), message=MSG)
+    thread, outcome = _ask_on_worker_thread(ui, qapp, request)
+    points = [Point(x=0.25, y=0.75), Point(x=0.6, y=0.1)]
+
+    answered = ui.ui_responder.submit_answer(True, _question_id(ui), value=points)
+    assert answered.result(timeout=5) is True
+    assert answered.adjusted is True
+    _wait_for_prompt(ui, qapp, MSG)
+    assert [(p.x, p.y) for p in ui._burn_runs[0].coordinates] == [
+        (0.25, 0.75),
+        (0.6, 0.1),
+    ]
+    assert ui._burn_runs[0].exposure_time == 7.0
+
+    ui.pushButton_no.click()
+    _finish(thread, qapp)
+    assert len(outcome["settings"].coordinates) == 2
+
+
+def test_the_live_points_are_what_a_peek_reads(ui, qapp):
+    request = RunSpotBurn(settings=_settings(), message=MSG)
+    thread, outcome = _ask_on_worker_thread(ui, qapp, request)
+
+    question_id, live = ui.ui_responder.peek_live_answer().result(timeout=5)
+    assert question_id == _question_id(ui)
+    assert [(p.x, p.y) for p in live] == [(0.5, 0.5)]
+
+    # Echoing the points that stand is accepting them, not adjusting them.
+    answered = ui.ui_responder.submit_answer(False, question_id, value=live)
+    assert answered.result(timeout=5) is True
+    assert answered.adjusted is False
+    _finish(thread, qapp)
+    assert ui._burn_runs == []

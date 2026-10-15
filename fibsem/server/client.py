@@ -13,12 +13,14 @@ Usage:
 
 import io
 import threading
+import time
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Tuple
 
 import numpy as np
 import requests
 
+from fibsem.cancellation import OperationCancelledError
 from fibsem.devices.wire import NPY_MEDIA_TYPE, to_wire
 from fibsem.server.images import TIFF_MEDIA_TYPE
 from fibsem.structures import (
@@ -99,8 +101,12 @@ class FibsemClient:
         if "manipulator" in fitted:
             self.system.manipulator.enabled = bool(fitted["manipulator"])
 
-    def _get(self, endpoint: str, timeout: int = 10) -> dict:
-        resp = self._session.get(f"{self.base_url}/{endpoint}", timeout=timeout)
+    def _get(
+        self, endpoint: str, timeout: int = 10, params: Optional[dict] = None
+    ) -> dict:
+        resp = self._session.get(
+            f"{self.base_url}/{endpoint}", params=params, timeout=timeout
+        )
         resp.raise_for_status()
         return resp.json()
 
@@ -561,8 +567,46 @@ class FibsemClient:
     def draw_patterns(self, patterns: List[FibsemPatternSettings]) -> None:
         self._milling("draw", patterns=list(patterns))
 
-    def run_milling(self) -> None:
-        self._milling("run", timeout=3600)
+    def run_milling(self, timeout: float = 3600) -> str:
+        """Mill what is drawn and wait for the end: how it ended (``completed``,
+        ``cancelled``). The server answers a run at once and runs it on; a failed
+        run raises as the command would have."""
+        run = self._milling("run")
+        return self.wait_for_run(MILLING, run["run_id"], timeout=timeout)
+
+    def wait_for_run(self, service: str, run_id: str, timeout: float = 3600) -> Any:
+        """Wait for a long command's run to end and return its result. A run
+        that raised raises again: the exception its error names (a stop as
+        OperationCancelledError, a hardware refusal as DeviceFault), else
+        RuntimeError with its error; TimeoutError past *timeout*. A run stopped
+        without raising (a mill answering ``cancelled``) returns that answer."""
+        deadline = time.monotonic() + timeout
+        while True:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                raise TimeoutError(f"{service} run {run_id} is still running")
+            run = self._get(
+                f"{MICROSCOPE}/services/{service}/run",
+                params={"run_id": run_id, "wait": min(left, 60.0)},
+                timeout=70,
+            )["run"]
+            if run["run_id"] != run_id:
+                raise RuntimeError(f"{service} run {run_id} was replaced by another")
+            if run["state"] == "running":
+                continue
+            error = run.get("error")
+            if error is None:
+                return run["result"]
+            # It raised: a stop, or a failure.
+            from fibsem.drivers.remote.devices import error_from
+
+            raised = error_from(error)
+            if raised is None and run["state"] == "cancelled":
+                raised = OperationCancelledError(error.get("message"))
+            raise raised or RuntimeError(
+                f"{service}.{run['command']} failed: "
+                f"{error.get('error_type')}: {error.get('message')}"
+            )
 
     def start_milling(self) -> None:
         self._milling("start")
