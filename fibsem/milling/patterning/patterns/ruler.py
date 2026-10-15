@@ -6,16 +6,18 @@ from typing import (
     List,
 )
 
+from fibsem.display import Display
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.milling.properties import (
-    DEFAULT_CROSS_SECTION_METADATA,
-    DEFAULT_DISTANCE_METADATA,
-    DEFAULT_PASSES_METADATA,
-    DEFAULT_SCAN_DIRECTION_METADATA,
+    cross_section_metadata,
+    distance_metadata,
+    passes_metadata,
+    scan_direction_metadata,
 )
 from fibsem.structures import (
     CrossSectionPattern,
     FibsemRectangleSettings,
+    RangeLimit,
     field_meta,
 )
 
@@ -40,75 +42,57 @@ class RulerPattern(BasePattern[FibsemRectangleSettings]):
     n_ticks: int = field(
         default=20,
         metadata=field_meta(
-            label="Number of Ticks",
-            type=int,
-            minimum=1,
-            maximum=500,
-            step=1,
-            decimals=0,
-            tooltip="Number of notches, counted down from the origin.",
+            limits=RangeLimit(1, 500),
+            doc="Number of notches, counted down from the origin.",
+            display=Display("Number of Ticks", step=1, decimals=0),
         ),
     )
     pitch: float = field(
         default=2.0e-6,
-        metadata=field_meta(
-            DEFAULT_DISTANCE_METADATA,
-            label="Pitch",
-            tooltip="Spacing between notches. Must stay above the fluorescence "
+        metadata=distance_metadata(
+            "Pitch",
+            "Spacing between notches. Must stay above the fluorescence "
             "resolution, or neighbouring notches cannot be told apart.",
         ),
     )
     tick_length: float = field(
         default=2.0e-6,
-        metadata=field_meta(
-            DEFAULT_DISTANCE_METADATA,
-            label="Tick Length",
-            tooltip="Length of a minor notch.",
-        ),
+        metadata=distance_metadata("Tick Length", "Length of a minor notch."),
     )
     major_length: float = field(
         default=4.0e-6,
-        metadata=field_meta(
-            DEFAULT_DISTANCE_METADATA,
-            label="Major Tick Length",
-            tooltip="Length of a major notch, so position can be counted at a glance.",
+        metadata=distance_metadata(
+            "Major Tick Length",
+            "Length of a major notch, so position can be counted at a glance.",
         ),
     )
     major_every: int = field(
         default=5,
         metadata=field_meta(
-            label="Major Tick Every",
-            type=int,
-            minimum=0,
-            maximum=100,
-            step=1,
-            decimals=0,
-            tooltip="Draw every Nth notch at the major length. 0 for a uniform comb.",
+            limits=RangeLimit(0, 100),
+            doc="Draw every Nth notch at the major length. 0 for a uniform comb.",
+            display=Display("Major Tick Every", step=1, decimals=0),
         ),
     )
     tick_thickness: float = field(
         default=0.5e-6,
-        metadata=field_meta(
-            DEFAULT_DISTANCE_METADATA,
-            label="Tick Thickness",
-            tooltip="Thickness of each notch, across the ruler.",
+        metadata=distance_metadata(
+            "Tick Thickness", "Thickness of each notch, across the ruler."
         ),
     )
     depth: float = field(
         default=1.0e-6,
-        metadata=field_meta(
-            DEFAULT_DISTANCE_METADATA,
-            label="Depth",
-            tooltip="Milling depth. Deep enough to show up in fluorescence.",
+        metadata=distance_metadata(
+            "Depth", "Milling depth. Deep enough to show up in fluorescence."
         ),
     )
     scan_direction: str = field(
-        default="TopToBottom", metadata=DEFAULT_SCAN_DIRECTION_METADATA
+        default="TopToBottom", metadata=scan_direction_metadata()
     )
     cross_section: CrossSectionPattern = field(
-        default=CrossSectionPattern.Rectangle, metadata=DEFAULT_CROSS_SECTION_METADATA
+        default=CrossSectionPattern.Rectangle, metadata=cross_section_metadata()
     )
-    passes: int = field(default=0, metadata=DEFAULT_PASSES_METADATA)
+    passes: int = field(default=0, metadata=passes_metadata())
 
     name: ClassVar[str] = "Ruler"
 

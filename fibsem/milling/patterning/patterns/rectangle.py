@@ -9,12 +9,12 @@ from typing import (
 from fibsem import constants
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.milling.properties import (
-    DEFAULT_ANGLE_METADATA,
-    DEFAULT_CROSS_SECTION_METADATA,
-    DEFAULT_DISTANCE_METADATA,
-    DEFAULT_DURATION_METADATA,
-    DEFAULT_PASSES_METADATA,
-    DEFAULT_SCAN_DIRECTION_METADATA,
+    angle_metadata,
+    cross_section_metadata,
+    distance_metadata,
+    duration_metadata,
+    passes_metadata,
+    scan_direction_metadata,
 )
 from fibsem.structures import (
     CrossSectionPattern,
@@ -26,46 +26,32 @@ from fibsem.structures import (
 class RectanglePattern(BasePattern[FibsemRectangleSettings]):
     width: float = field(
         default=10.0e-6,
-        metadata={
-            "label": "Width",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Width of the rectangle pattern.",
-        },
+        metadata=distance_metadata("Width", "Width of the rectangle pattern."),
     )
     height: float = field(
         default=5.0e-6,
-        metadata={
-            "label": "Height",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Height of the rectangle pattern.",
-        },
+        metadata=distance_metadata("Height", "Height of the rectangle pattern."),
     )
     depth: float = field(
         default=1.0e-6,
-        metadata={
-            "label": "Depth",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Depth of the rectangle pattern.",
-        },
+        metadata=distance_metadata("Depth", "Depth of the rectangle pattern."),
     )
     rotation: float = field(
         default=0.0,
-        metadata={
-            **DEFAULT_ANGLE_METADATA,
-            "tooltip": "Rotation of the rectangle pattern in degrees.",
-            "advanced": True,
-        },
+        metadata=angle_metadata(
+            "Rotation", "Rotation of the rectangle pattern in degrees.", advanced=True
+        ),
     )
 
-    time: float = field(default=0.0, metadata=DEFAULT_DURATION_METADATA)
-    passes: int = field(default=0, metadata=DEFAULT_PASSES_METADATA)
+    time: float = field(default=0.0, metadata=duration_metadata())
+    passes: int = field(default=0, metadata=passes_metadata())
     scan_direction: str = field(
         default="TopToBottom",
-        metadata=DEFAULT_SCAN_DIRECTION_METADATA,
+        metadata=scan_direction_metadata(),
     )
     cross_section: CrossSectionPattern = field(
         default=CrossSectionPattern.Rectangle,
-        metadata=DEFAULT_CROSS_SECTION_METADATA,
+        metadata=cross_section_metadata(),
     )
     name: ClassVar[str] = "Rectangle"
 

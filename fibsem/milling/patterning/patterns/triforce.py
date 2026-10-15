@@ -10,7 +10,7 @@ import numpy as np
 
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.milling.properties import (
-    DEFAULT_DISTANCE_METADATA,
+    distance_metadata,
 )
 from fibsem.structures import (
     FibsemRectangleSettings,
@@ -22,27 +22,15 @@ from fibsem.structures import (
 class TriForcePattern(BasePattern[FibsemRectangleSettings]):
     width: float = field(
         default=1.0e-6,
-        metadata={
-            "label": "Width",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Width of the triangles.",
-        },
+        metadata=distance_metadata("Width", "Width of the triangles."),
     )
     height: float = field(
         default=10.0e-6,
-        metadata={
-            "label": "Height",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Height of the triangles.",
-        },
+        metadata=distance_metadata("Height", "Height of the triangles."),
     )
     depth: float = field(
         default=5.0e-6,
-        metadata={
-            "label": "Depth",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Depth of the triangles.",
-        },
+        metadata=distance_metadata("Depth", "Depth of the triangles."),
     )
 
     name: ClassVar[str] = "TriForce"
