@@ -20,7 +20,9 @@ def scope():
     import fibsem.config as fibsem_config
 
     path = os.path.join(
-        os.path.dirname(fibsem_config.__file__), "config", "sim-arctis-configuration.yaml"
+        os.path.dirname(fibsem_config.__file__),
+        "config",
+        "sim-arctis-configuration.yaml",
     )
     microscope, _ = utils.setup_session(manufacturer="Demo", config_path=path)
     yield microscope
@@ -66,7 +68,9 @@ def test_after_a_stage_move_the_pixel_is_the_same_place_on_the_sample(scope):
         (there.x, there.y, there.z), abs=1e-9
     )
     # Moved 10 µm in x, the place sits 10 µm (about 15 px at 100 µm) to the left.
-    assert x == pytest.approx(768 + (900 - 768) * 1.5 - 10e-6 / (100e-6 / 1536), abs=0.5)
+    assert x == pytest.approx(
+        768 + (900 - 768) * 1.5 - 10e-6 / (100e-6 / 1536), abs=0.5
+    )
 
 
 def test_a_beam_point_onto_the_other_beam(scope):

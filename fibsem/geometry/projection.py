@@ -450,6 +450,7 @@ def reproject_pixel(source, target, x: float, y: float) -> Tuple[float, float]:
     one stage position. The one way an agent's value measured on one frame is
     drawn on the frame a view shows now (FIB-1411).
     """
+
     def pixel_size(image) -> float:
         size = getattr(getattr(image, "metadata", None), "pixel_size", None)
         return float(getattr(size, "x", size))
