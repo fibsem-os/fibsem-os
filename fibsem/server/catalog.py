@@ -147,8 +147,53 @@ CATALOG: Tuple[ToolSpec, ...] = (
         name="milling_estimate_time",
         description="Estimated time in seconds for the currently drawn patterns.",
         method="POST",
-        path="/microscope/services/milling/queries/estimate",
+        path="/microscope/services/milling/queries/estimate_time",
         level="watch",
+    ),
+    ToolSpec(
+        name="milling_run_stage",
+        description=(
+            "Mill one stage as a task of its own: prepare its patterns, run them "
+            "with the stage's strategy, and put the beam back. stage is a "
+            "FibsemMillingStage dict, e.g. one from item_get_task_config; "
+            "milling_preview_patterns first to see where it mills. It saves images "
+            "only when the stage's milling.acquire_images is set, under path "
+            "(a folder inside the open experiment; left out, the app's data "
+            "folder). A long command: it answers "
+            "with its run at once; service_wait_for_run milling gives how it "
+            "ended and the folder it saved to; milling_stop ends it."
+        ),
+        method="POST",
+        path="/microscope/services/milling/commands/run_stage",
+        level="drive",
+        hardware=True,
+        params={
+            "stage": "a FibsemMillingStage dict",
+            "path": "optional folder inside the open experiment to save into",
+        },
+    ),
+    ToolSpec(
+        name="milling_run_task",
+        description=(
+            "Run a milling task as the app runs a protocol's: each enabled stage "
+            "in turn with its strategy, aligning to the task's reference image "
+            "between stages, and the beam put back at the end. config is a "
+            "FibsemMillingTaskConfig dict, e.g. one from item_get_task_config. "
+            "It saves its reference and stage images under "
+            "<path>/Milling/<name>, path a folder inside the open experiment "
+            "(left out, the app's data folder). "
+            "A long command: it answers with its run at once; "
+            "service_wait_for_run milling gives the task's status, the folder "
+            "and how each stage ended; milling_stop ends it."
+        ),
+        method="POST",
+        path="/microscope/services/milling/commands/run_task",
+        level="drive",
+        hardware=True,
+        params={
+            "config": "a FibsemMillingTaskConfig dict",
+            "path": "optional folder inside the open experiment to save into",
+        },
     ),
     ToolSpec(
         name="milling_preview_patterns",
@@ -160,7 +205,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "image_path must be inside the open experiment. Moves nothing."
         ),
         method="POST",
-        path="/microscope/services/milling/queries/pattern_preview",
+        path="/microscope/services/milling/queries/preview_patterns",
         level="watch",
         params={
             "image_path": "a saved ion image inside the open experiment",
@@ -181,7 +226,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "how far off the view is."
         ),
         method="POST",
-        path="/microscope/services/alignment/commands/align",
+        path="/microscope/services/alignment/commands/align_to_reference",
         level="drive",
         hardware=True,
         params={
@@ -433,8 +478,9 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "Run a service command listed by service_list, e.g. service=stage_movement "
             "command=move_to_orientation kwargs={'orientation': 'SEM'}. A long command "
             "(listed with long: true: milling run, run_stage and run_task, spot burn "
-            "run, alignment align, imaging fm_focus_sweep, tiled_overview, "
-            "fm_tiled_overview and focus_stack) answers at once with "
+            "run, alignment align_to_reference, imaging fm_auto_focus, "
+            "fm_acquire_image, acquire_overview, fm_acquire_overview and "
+            "acquire_focus_stack) answers at once with "
             "its run (run_id, state: running) and runs on, in control of the "
             "microscope; service_wait_for_run says how it ended. command=stop from "
             "another call stops it: the agent's own run at Assist or Drive, "
@@ -525,7 +571,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "with a reason, ends it before the next tile."
         ),
         method="POST",
-        path="/microscope/services/imaging/commands/tiled_overview",
+        path="/microscope/services/imaging/commands/acquire_overview",
         level="drive",
         hardware=True,
         params={
@@ -546,7 +592,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "often more than the scanning. Moves nothing."
         ),
         method="POST",
-        path="/microscope/services/imaging/queries/estimate_tiled_overview",
+        path="/microscope/services/imaging/queries/estimate_overview",
         level="watch",
         params={
             "settings": "OverviewAcquisitionSettings dict, as beam_acquire_overview"
@@ -565,7 +611,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "a reason, ends it before the next strip."
         ),
         method="POST",
-        path="/microscope/services/imaging/commands/focus_stack",
+        path="/microscope/services/imaging/commands/acquire_focus_stack",
         level="drive",
         hardware=True,
         params={
@@ -588,12 +634,41 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "reason, ends it."
         ),
         method="POST",
-        path="/microscope/services/imaging/commands/fm_focus_sweep",
+        path="/microscope/services/imaging/commands/fm_auto_focus",
         level="drive",
         hardware=True,
         params={
             "channel_name": "the channel to focus on; left out, the current one",
             "path": "a folder inside the open experiment to save the sweep to",
+        },
+    ),
+    ToolSpec(
+        name="fm_acquire_image",
+        description=(
+            "A fluorescence image where the stage and objective are, in each of "
+            "the channels; with zparams, a z-stack about the objective's position, "
+            "which it comes back to after. Refused while the FM is in use or "
+            "can't image the sample from here. path must be a folder inside "
+            "the open experiment. A long command: it answers with its run at "
+            "once; service_wait_for_run imaging gives the image's path and "
+            "summary; service_call_command imaging stop, with a reason, ends it "
+            "before the next frame and saves nothing."
+        ),
+        method="POST",
+        path="/microscope/services/imaging/commands/fm_acquire_image",
+        level="drive",
+        hardware=True,
+        params={
+            "channels": (
+                "list of ChannelSettings dicts: name, excitation_wavelength, "
+                "emission_wavelength, power, exposure_time"
+            ),
+            "path": "a folder inside the open experiment to save it in",
+            "name": "the file name, stamped with the time (default image)",
+            "zparams": (
+                "ZParameters dict (zmin, zmax, zstep, metres about the objective's "
+                "position) for a z-stack; left out, one plane"
+            ),
         },
     ),
     ToolSpec(
@@ -611,7 +686,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "next tile."
         ),
         method="POST",
-        path="/microscope/services/imaging/commands/fm_tiled_overview",
+        path="/microscope/services/imaging/commands/fm_acquire_overview",
         level="drive",
         hardware=True,
         params={
@@ -636,7 +711,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "objective moves and focus sweeps counted. Moves nothing."
         ),
         method="POST",
-        path="/microscope/services/imaging/queries/estimate_fm_tiled_overview",
+        path="/microscope/services/imaging/queries/fm_estimate_overview",
         level="watch",
         params={
             "channels": "list of ChannelSettings dicts, as fm_acquire_overview",
@@ -1389,6 +1464,23 @@ _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict
             n_steps=int(a.get("n_steps") or 3),
             auto_focus=a.get("auto_focus", True),
         ),
+    ),
+    "fm_acquire_image": lambda a: (
+        {},
+        _kwargs(
+            channels=[dict(c) for c in a["channels"]],
+            path=str(a["path"]),
+            name=str(a.get("name") or "image"),
+            zparams=a.get("zparams"),
+        ),
+    ),
+    "milling_run_stage": lambda a: (
+        {},
+        _kwargs(stage=dict(a["stage"]), path=a.get("path")),
+    ),
+    "milling_run_task": lambda a: (
+        {},
+        _kwargs(config=dict(a["config"]), path=a.get("path")),
     ),
     "fm_acquire_overview": lambda a: (
         {},

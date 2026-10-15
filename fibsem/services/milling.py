@@ -533,7 +533,7 @@ class Milling(Service):
         )
 
     @query
-    def pattern_preview(
+    def preview_patterns(
         self,
         image_path: str,
         stages: Optional[List[FibsemMillingStage]] = None,
@@ -694,7 +694,7 @@ class Milling(Service):
             logging.warning(f"Error stopping milling after a failure: {e}")
 
     @query
-    def estimate(self) -> float:
+    def estimate_time(self) -> float:
         """How long milling what is drawn takes, in seconds. Moves nothing, so a
         query."""
         return self._estimate()

@@ -616,6 +616,27 @@ def build_sidecar(client, capabilities):
             auto_focus=auto_focus,
         )
 
+    def fm_acquire_image(
+        channels: List[dict],
+        path: str,
+        name: str = "image",
+        zparams: Optional[dict] = None,
+    ):
+        return _routed(
+            "fm_acquire_image",
+            "run",
+            channels=channels,
+            path=path,
+            name=name,
+            zparams=zparams,
+        )
+
+    def milling_run_stage(stage: dict, path: Optional[str] = None):
+        return _routed("milling_run_stage", "run", stage=stage, path=path)
+
+    def milling_run_task(config: dict, path: Optional[str] = None):
+        return _routed("milling_run_task", "run", config=config, path=path)
+
     def fm_acquire_overview(
         channels: List[dict],
         parameters: dict,
@@ -1038,6 +1059,9 @@ def build_sidecar(client, capabilities):
             beam_acquire_overview,
             beam_estimate_overview,
             beam_acquire_focus_stack,
+            fm_acquire_image,
+            milling_run_stage,
+            milling_run_task,
             fm_acquire_overview,
             fm_estimate_overview,
             beam_auto_brightness_contrast,

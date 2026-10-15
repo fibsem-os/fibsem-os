@@ -1286,7 +1286,7 @@ def acquire_fm_tiled_overview(
 
     The one entry point to `FMTiledAcquisitionRunner`, for the FM Overview tab, the
     fluorescence overview grid task and the imaging service's
-    ``fm_tiled_overview``. The tiles go in ``destination.tiles_directory`` and the
+    ``fm_acquire_overview``. The tiles go in ``destination.tiles_directory`` and the
     mosaic to ``destination.mosaic_path``; with no ``destination`` nothing is
     saved. ``zparams`` z-stacks each tile, None for none. ``centre_position`` is
     the grid's centre, None for wherever the stage is; the stage and objective

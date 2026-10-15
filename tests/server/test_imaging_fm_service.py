@@ -1,6 +1,6 @@
 """The fluorescence microscope on the imaging service (map 8d): an ``fm`` role
-next to the beams, ``fm_focus_sweep`` as a long command, and one ``stop`` that
-ends it. The FM's own ``cancel`` is the imaging stop's for the agent.
+next to the beams, ``fm_auto_focus`` and ``fm_acquire_image`` as long commands,
+and one ``stop`` that ends them. The FM's own ``cancel`` is the imaging stop's for the agent.
 """
 
 import os
@@ -22,12 +22,15 @@ from fibsem.autofunctions.autofocus import (  # noqa: E402
     FocusSweepPass,
 )
 from fibsem.fm.microscope import AcquisitionRefused  # noqa: E402
+from fibsem.fm.structures import ChannelSettings, ZParameters  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
 
 TOKEN = "test-token"
 IMAGING = "/microscope/services/imaging"
 # One short pass, so a sweep on the sim takes a few frames.
 SHORT = AutoFocusSettings(passes=[FocusSweepPass(search_range=2e-6, step_size=1e-6)])
+CHANNELS = [ChannelSettings(name="GFP", exposure_time=0.01)]
+THREE_PLANES = ZParameters(zmin=-1e-6, zmax=1e-6, zstep=1e-6)
 
 
 @pytest.fixture(scope="module")
@@ -66,7 +69,7 @@ def client(microscope, experiment):
 
 
 def _sweep(client, kwargs):
-    resp = client.post(f"{IMAGING}/commands/fm_focus_sweep", json={"kwargs": kwargs})
+    resp = client.post(f"{IMAGING}/commands/fm_auto_focus", json={"kwargs": kwargs})
     assert resp.status_code == 200, resp.text
     run = resp.json()["result"]
     assert run["state"] == "running"
@@ -78,7 +81,7 @@ def _sweep(client, kwargs):
 def test_the_fm_joins_the_imaging_service(microscope, client):
     assert microscope.imaging.fm is microscope.fm_devices["fm"]
     command = client.get("/microscope/services").json()["imaging"]["commands"][
-        "fm_focus_sweep"
+        "fm_auto_focus"
     ]
     assert command["long"] is True and command["available"] is True
 
@@ -95,7 +98,7 @@ def test_fm_focus_sweep_runs_on_and_saves_inside_the_experiment(client, experime
 
 def test_a_path_outside_the_experiment_is_refused(client, tmp_path):
     resp = client.post(
-        f"{IMAGING}/commands/fm_focus_sweep",
+        f"{IMAGING}/commands/fm_auto_focus",
         json={"kwargs": {"path": str(tmp_path / "elsewhere")}},
     )
     assert resp.status_code == 403
@@ -115,7 +118,7 @@ def test_stop_ends_the_sweep_cancelled(microscope):
 
     group.acquire_frame = stopping_frame
     try:
-        result = imaging.fm_focus_sweep(settings=SHORT)
+        result = imaging.fm_auto_focus(settings=SHORT)
     finally:
         del group.acquire_frame
     assert frames.is_set()
@@ -127,7 +130,7 @@ def test_the_sweep_is_refused_while_the_fm_is_in_use(microscope):
     microscope.fm.set_acquiring(True, "overview acquisition")
     try:
         with pytest.raises(AcquisitionRefused, match="overview acquisition"):
-            microscope.imaging.fm_focus_sweep(settings=SHORT)
+            microscope.imaging.fm_auto_focus(settings=SHORT)
     finally:
         microscope.fm.set_acquiring(False)
 
@@ -140,7 +143,7 @@ def test_the_sweep_is_refused_while_the_fm_device_is_live(microscope):
     try:
         assert not microscope.fm.is_acquiring
         with pytest.raises(AcquisitionRefused, match="live view"):
-            microscope.imaging.fm_focus_sweep(settings=SHORT)
+            microscope.imaging.fm_auto_focus(settings=SHORT)
     finally:
         device.stop_live()
 
@@ -151,7 +154,7 @@ def test_the_sweep_is_refused_away_from_the_fm_pose(microscope):
     microscope.move_to_orientation("SEM")
     try:
         with pytest.raises(AcquisitionRefused, match="Cannot start auto-focus"):
-            microscope.imaging.fm_focus_sweep(settings=SHORT)
+            microscope.imaging.fm_auto_focus(settings=SHORT)
     finally:
         microscope.move_to_orientation("FM")
 
@@ -163,3 +166,93 @@ def test_the_agent_stops_the_fm_through_imaging(client):
     )
     assert resp.status_code == 403
     assert resp.json()["detail"]["error_type"] == "not_allowed"
+
+
+def _acquire(client, kwargs):
+    resp = client.post(f"{IMAGING}/commands/fm_acquire_image", json={"kwargs": kwargs})
+    assert resp.status_code == 200, resp.text
+    run = resp.json()["result"]
+    assert run["state"] == "running"
+    return client.get(
+        f"{IMAGING}/run", params={"run_id": run["run_id"], "wait": 60}
+    ).json()["run"]
+
+
+def test_an_fm_image_runs_on_and_saves_inside_the_experiment(client, experiment):
+    folder = experiment / "fm"
+    run = _acquire(
+        client,
+        {
+            "channels": [c.to_dict() for c in CHANNELS],
+            "path": str(folder),
+            "name": "gfp",
+        },
+    )
+    assert run["state"] == "done", run
+    result = run["result"]
+    assert result["status"] == "completed"
+    image = result["image"]
+    assert os.path.basename(image["path"]).startswith("gfp-")
+    assert image["path"].startswith(str(folder)) and os.path.isfile(image["path"])
+    assert image["summary"]["channels"] == ["GFP"]
+
+
+def test_an_fm_z_stack_takes_its_planes_and_puts_the_objective_back(
+    client, microscope, experiment
+):
+    objective = microscope.fm.objective.position
+    run = _acquire(
+        client,
+        {
+            "channels": [c.to_dict() for c in CHANNELS],
+            "path": str(experiment / "fm"),
+            "zparams": THREE_PLANES.to_dict(),
+        },
+    )
+    assert run["state"] == "done", run
+    shape = run["result"]["image"]["summary"]["shape"]
+    assert 3 in shape[:-2]  # the planes, before the frame's height and width
+    assert microscope.fm.objective.position == pytest.approx(objective)
+    assert not microscope.fm.is_acquiring
+
+
+def test_an_fm_image_outside_the_experiment_is_refused(client, tmp_path):
+    resp = client.post(
+        f"{IMAGING}/commands/fm_acquire_image",
+        json={
+            "kwargs": {
+                "channels": [c.to_dict() for c in CHANNELS],
+                "path": str(tmp_path / "elsewhere"),
+            }
+        },
+    )
+    assert resp.status_code == 403
+    assert resp.json()["detail"]["error_type"] == "not_allowed"
+
+
+def test_stop_ends_an_fm_z_stack_cancelled(microscope, tmp_path):
+    imaging = microscope.imaging
+    group = microscope.fm_devices["fm"]
+    acquire = group.acquire_frame
+
+    def stopping_frame(*args, **kwargs):
+        imaging.stop()
+        return acquire(*args, **kwargs)
+
+    group.acquire_frame = stopping_frame
+    try:
+        result = imaging.fm_acquire_image(CHANNELS, str(tmp_path), zparams=THREE_PLANES)
+    finally:
+        del group.acquire_frame
+    assert result == {"status": "cancelled", "image": None}
+    assert not microscope.fm.is_acquiring
+    assert not any(name.endswith(".ome.tiff") for name in os.listdir(tmp_path))
+
+
+def test_an_fm_image_is_refused_while_the_fm_is_in_use(microscope, tmp_path):
+    microscope.fm.set_acquiring(True, "overview acquisition")
+    try:
+        with pytest.raises(AcquisitionRefused, match="overview acquisition"):
+            microscope.imaging.fm_acquire_image(CHANNELS, str(tmp_path))
+    finally:
+        microscope.fm.set_acquiring(False)
