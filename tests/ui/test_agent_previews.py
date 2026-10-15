@@ -144,11 +144,9 @@ class _Card:
 
     def __init__(self):
         self.shown = {}
-        self.keys = {}
 
-    def __call__(self, image, caption, suggestion=False, key=()):
+    def __call__(self, image, caption, suggestion=False):
         self.shown[suggestion] = (image, caption) if image is not None else None
-        self.keys[suggestion] = list(key)
 
 
 def _layer(picture, colour=PURPLE_COLOR):
@@ -347,8 +345,8 @@ def test_a_review_decision_s_point_is_drawn_on_the_card_on_its_own_image():
     assert controller.overlays == {}
     image, caption = card.shown[False]
     assert image.width() == 200 and caption.startswith("FIB")
-    # The key under it names what the cross is.
-    assert card.keys[False] == [(PURPLE_COLOR, "+ point of interest")]
+    # The legend on it names what the cross is.
+    assert layer.keys == [("cross", "point of interest")]
     previews.show_request(None)
     assert previews.request_picture is None and card.shown[False] is None
 
@@ -443,12 +441,11 @@ def test_a_task_config_edit_draws_the_milling_as_it_would_be_and_as_it_is():
     _, purple = _layer(previews.request_picture)
     assert purple.patterns[0].width == pytest.approx(width * 2)
     assert grey.patterns[0].width == pytest.approx(width)
-    # As it is now: solid white, seen on a grey image; the key says which is which.
+    # As it is now: solid white, seen on a grey image; the legend says which
+    # is which.
     assert not grey.dashed
-    assert card.keys[False][:2] == [
-        (None, "▭ as now"),
-        (PURPLE_COLOR, "▭ after the edit"),
-    ]
+    assert grey.keys == [("box", "as now")]
+    assert purple.keys == [("box", "after the edit")]
     # The item's own config is untouched: the edit was drawn on a copy.
     assert config.milling["milling"].stages[0].pattern.width == pytest.approx(width)
 
@@ -470,7 +467,7 @@ def test_a_suggested_area_and_spot_burn_points_are_drawn_on_the_card():
     _, layer = _layer(previews.suggestion_picture)
     assert layer.areas == [[pytest.approx((50.0, 50.0)), pytest.approx((150.0, 75.0))]]
     assert card.shown[True] is not None
-    assert card.keys[True] == [(PURPLE_COLOR, "▭ alignment area")]
+    assert layer.keys == [("box", "alignment area")]
 
     points = [Point(0.5, 0.5), Point(0.75, 0.25)]
     previews.show_suggestion(RunSpotBurn(settings=None), points)

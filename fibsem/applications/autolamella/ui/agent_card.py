@@ -27,8 +27,7 @@ click does is the window's.
 
 from __future__ import annotations
 
-import html
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from PyQt5.QtCore import QSize, Qt, pyqtSignal
 from PyQt5.QtGui import QImage, QMouseEvent, QPixmap
@@ -337,11 +336,15 @@ class _Picture(QLabel):
         self.setObjectName("agentImage")
         self._image = image
         self._caption = caption
-        self.setPixmap(
-            QPixmap.fromImage(image).scaledToWidth(width, Qt.SmoothTransformation)  # type: ignore
-        )
+        pixmap = QPixmap.fromImage(image).scaledToWidth(width, Qt.SmoothTransformation)  # type: ignore
+        self.setPixmap(pixmap)
+        # All of it: squeezed, the label would show its middle and cut the legend.
+        self.setFixedHeight(pixmap.height())
         self.setCursor(Qt.PointingHandCursor)  # type: ignore
-        self.setToolTip("Show it at full size")
+        # What it is ("FIB · 07:41"): here, and the enlarged window's title.
+        self.setToolTip(
+            f"{caption} · click to enlarge" if caption else "Click to enlarge"
+        )
         self.window_: Optional[QDialog] = None
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802
@@ -388,9 +391,8 @@ class AgentCard(QFrame):
         self._now: Optional[str] = None
         # The images under Why, with their captions: the request's, the
         # suggestion's.
-        self._images: Dict[str, Tuple[QImage, str, Tuple]] = {}
+        self._images: Dict[str, Tuple[QImage, str]] = {}
         self.image_label: Optional[QLabel] = None
-        self.image_key: Optional[QLabel] = None
         self._details_open = False
         self._rejecting = False
         self._why_open = False
@@ -581,22 +583,17 @@ class AgentCard(QFrame):
         self._render()
 
     def set_image(
-        self,
-        image: Optional[QImage],
-        caption: str = "",
-        suggestion: bool = False,
-        key: Sequence[Tuple[Optional[str], str]] = (),
+        self, image: Optional[QImage], caption: str = "", suggestion: bool = False
     ) -> None:
         """The image the waiting request's (or, *suggestion*, the suggested
         answer's) values were measured on, drawn on it, with what it is
-        ("FIB · 07:41") and its *key*: what each colour draws, ``(colour,
-        words)``, colour None for the text's own; None for none."""
-        which = "suggestion" if suggestion else "request"
+        ("FIB · 07:41"); None for none."""
+        key = "suggestion" if suggestion else "request"
         if image is None or image.isNull():
-            if self._images.pop(which, None) is None:
+            if self._images.pop(key, None) is None:
                 return
         else:
-            self._images[which] = (image, caption, tuple(key))
+            self._images[key] = (image, caption)
         self._render()
 
     def set_now(self, action: Optional[str]) -> None:
@@ -859,14 +856,6 @@ class AgentCard(QFrame):
         self.accept_button.clicked.connect(self.accept_clicked)
         buttons.addWidget(self.accept_button)
         right.addLayout(buttons)
-        right.addWidget(
-            _label(
-                "Answering on the prompt yourself drops it.",
-                TEXT_MUTED_COLOR,
-                small=True,
-                wrap=True,
-            )
-        )
         return left, right
 
     def _why_width(self) -> int:
@@ -883,26 +872,10 @@ class AgentCard(QFrame):
         self.image_label = None
         if image not in self._images:
             return
-        picture, caption, key = self._images[image]
+        picture, caption = self._images[image]
         label = _Picture(picture, self._why_width(), caption)
         self.image_label = label
         column.addWidget(label)
-        self.image_key = None
-        if key:
-            self.image_key = _label(
-                "&nbsp;&nbsp;".join(
-                    f'<span style="color: {colour or TEXT_COLOR};">'
-                    f"{html.escape(text).replace(' ', '&nbsp;')}</span>"
-                    for colour, text in key
-                ),
-                small=True,
-                wrap=True,
-            )
-            self.image_key.setTextFormat(Qt.RichText)  # type: ignore
-            column.addWidget(self.image_key)
-        column.addWidget(
-            _label(f"{caption} · click to enlarge", TEXT_MUTED_COLOR, small=True)
-        )
 
     def _add_reason(self, column: QVBoxLayout, reason: str) -> None:
         column.addWidget(_label("Why", TEXT_MUTED_COLOR, small=True))

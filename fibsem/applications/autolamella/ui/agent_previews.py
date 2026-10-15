@@ -276,13 +276,14 @@ class _Layer:
         self.crosses: List[Tuple[float, float]] = []
         self.areas: List[List[Tuple[float, float]]] = []
         self.patterns: List = []
-        # What it draws, in the words of the key under the picture.
-        self.keys: List[str] = []
+        # What it draws, for the picture's legend: (shape, words), shape
+        # "box" or "cross".
+        self.keys: List[Tuple[str, str]] = []
 
-    def key(self, text: str, drawn=True) -> None:
-        """Name what this colour draws in the picture's key, when it draws it."""
-        if drawn and text not in self.keys:
-            self.keys.append(text)
+    def key(self, shape: str, text: str, drawn=True) -> None:
+        """Name what this colour draws in the picture's legend, when it draws it."""
+        if drawn and (shape, text) not in self.keys:
+            self.keys.append((shape, text))
 
     def __bool__(self) -> bool:
         return bool(self.crosses or self.areas or self.patterns)
@@ -361,8 +362,59 @@ def draw_picture(frame, layers: List[_Layer]):
             painter.drawLine(
                 QLineF(centre.x(), centre.y() - arm, centre.x(), centre.y() + arm)
             )
+    _draw_legend(painter, image.width(), line, layers)
     painter.end()
     return image
+
+
+def _draw_legend(painter, width: int, line: float, layers: List[_Layer]) -> None:
+    """What each colour draws, in a box at the picture's top left: a sample of
+    the mark, then its words, as the canvas legend does."""
+    from PyQt5.QtCore import QLineF, QPointF, QRectF, Qt
+    from PyQt5.QtGui import QColor, QFont, QFontMetricsF, QPen
+
+    entries = [(layer, shape, text) for layer in layers for shape, text in layer.keys]
+    if not entries:
+        return
+    font = QFont()
+    # Read at the Why column's width, a third of the picture's or less.
+    font.setPixelSize(max(11, int(width / 30)))
+    painter.setFont(font)
+    metrics = QFontMetricsF(font)
+    row = metrics.height() * 1.3
+    sample = metrics.height() * 1.2
+    pad = metrics.height() * 0.5
+    box = QRectF(
+        pad,
+        pad,
+        pad * 3 + sample + max(metrics.horizontalAdvance(t) for _, _, t in entries),
+        pad * 2 + row * len(entries),
+    )
+    painter.setPen(Qt.NoPen)  # type: ignore
+    painter.setBrush(QColor(0, 0, 0, 170))
+    painter.drawRoundedRect(box, pad / 2, pad / 2)
+    painter.setBrush(Qt.NoBrush)  # type: ignore
+    for index, (layer, shape, text) in enumerate(entries):
+        top = box.top() + pad + row * index
+        middle = top + row / 2
+        left = box.left() + pad
+        pen = QPen(QColor(layer.colour), max(1.5, line * 0.75))
+        if shape == "box" and layer.dashed:
+            pen.setStyle(Qt.DashLine)  # type: ignore
+        painter.setPen(pen)
+        if shape == "box":
+            painter.drawRect(QRectF(left, middle - sample * 0.3, sample, sample * 0.6))
+        else:
+            centre = QPointF(left + sample / 2, middle)
+            arm = sample * 0.4
+            painter.drawLine(QLineF(centre.x() - arm, middle, centre.x() + arm, middle))
+            painter.drawLine(QLineF(centre.x(), middle - arm, centre.x(), middle + arm))
+        painter.setPen(QColor("#ffffff"))
+        painter.drawText(
+            QRectF(left + sample + pad, top, box.width(), row),
+            int(Qt.AlignVCenter | Qt.AlignLeft),  # type: ignore
+            text,
+        )
 
 
 def _stage_patterns(stages) -> List:
@@ -394,8 +446,7 @@ class AgentPreviews:
         # An item's task config (item name, task name), for a config edit's
         # patterns; None when there is none.
         self._task_config = task_config or (lambda item, task: None)
-        # The card's picture: (QImage or None, caption, suggestion=bool, and its
-        # key=[(colour, words)], colour None for the text's own).
+        # The card's picture: (QImage or None, caption, suggestion=bool).
         self._show_picture = show_picture or (lambda *args, **kwargs: None)
         self._request_id: Optional[str] = None
         # The card's pictures, as drawn: (frame, layers), for tests and reading.
@@ -442,9 +493,11 @@ class AgentPreviews:
             # Past the field, red over purple.
             purple.patterns = patterns + _stage_patterns(milled)
             red.patterns = outside
-            grey.key("▭ as now", grey.patterns)
-            purple.key("▭ after the edit" if before else "▭ patterns", purple.patterns)
-            red.key("▭ past the field", red.patterns)
+            grey.key("box", "as now", grey.patterns)
+            purple.key(
+                "box", "after the edit" if before else "patterns", purple.patterns
+            )
+            red.key("box", "past the field", red.patterns)
         self._add_marks(frame, marks.values(), purple)
         self._picture(frame, beam, layers, suggestion=False)
 
@@ -592,7 +645,7 @@ class AgentPreviews:
         if frame is not None:
             layer = _Layer(PURPLE_COLOR)
             layer.crosses.append(tuple(pixel))
-            layer.key("+ point of interest")
+            layer.key("cross", "point of interest")
             self._picture(frame, BeamType.ION, [layer], suggestion=True, point=True)
 
     # --- drawing ----------------------------------------------------------------
@@ -604,10 +657,10 @@ class AgentPreviews:
             pixels = mark.pixels(frame)
             if mark.area:
                 layer.areas.append(pixels[:2])
-                layer.key(f"▭ {mark.legend}")
+                layer.key("box", mark.legend)
             else:
                 layer.crosses.extend(pixels)
-                layer.key(f"+ {mark.legend}")
+                layer.key("cross", mark.legend)
 
     def _picture(
         self,
@@ -631,11 +684,6 @@ class AgentPreviews:
             draw_picture(frame, layers),
             picture_caption(frame, beam),
             suggestion=suggestion,
-            key=[
-                (None if layer.colour == _BEFORE else layer.colour, text)
-                for layer in layers
-                for text in layer.keys
-            ],
         )
 
 
