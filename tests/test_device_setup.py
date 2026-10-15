@@ -119,8 +119,8 @@ def test_the_wizard_writes_a_chosen_device_and_its_role(unit_driver):
     assert wizard.chosen_device_rows(choices) == [
         (
             "Test lock-in",
-            "address: 127.0.0.1, gain: 4.0, channels: 2, simulate: False; "
-            "electron's detector",
+            "Address: 127.0.0.1, gain: 4.0, channels: 2, simulate: False; "
+            "the detector of electron",
         )
     ]
 

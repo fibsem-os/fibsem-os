@@ -1564,13 +1564,17 @@ class GuidedSetupDialog(QtWidgets.QDialog):
             inner.addWidget(_label(setup.summary, 10, TEXT_MUTED_COLOR, wrap=True))
 
             body = QtWidgets.QWidget()
-            body.setStyleSheet("background: transparent;")
+            # by name, so the key editors keep their own backgrounds
+            body.setObjectName("deviceKeys")
+            body.setStyleSheet("QWidget#deviceKeys { background: transparent; }")
             form = QtWidgets.QFormLayout(body)
             form.setContentsMargins(22, 4, 0, 0)
             editors: Dict[str, QtWidgets.QWidget] = {}
             for key in setup.keys:
                 editor = _key_editor(key.default)
                 editor.setToolTip(key.doc)
+                if not isinstance(editor, QtWidgets.QCheckBox):
+                    editor.setFixedWidth(200)
                 form.addRow(_label(key.label or key.name, 11, TEXT_COLOR), editor)
                 editors[key.name] = editor
             role_check = None

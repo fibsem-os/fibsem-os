@@ -620,9 +620,11 @@ def chosen_device_rows(choices: SetupChoices) -> List[Tuple[str, str]]:
         if offered is None:
             continue
         setup = offered.setup
-        detail = ", ".join(f"{k}: {v}" for k, v in setup.options(choice.values).items())
+        labels = {key.name: key.label or key.name for key in setup.keys}
+        values = setup.options(choice.values)
+        detail = ", ".join(f"{labels[k]}: {v}" for k, v in values.items())
         if choice.bind_role and setup.role:
-            detail += f"; {setup.role[0]}'s {setup.role[1]}"
+            detail += f"; the {setup.role[1]} of {setup.role[0]}"
         rows.append((setup.label, detail or setup.name))
     return rows
 
