@@ -463,7 +463,7 @@ class _StageAt:
     def get_device_imaging_state(self, device: str, stage_position=None):
         return self._state
 
-    def describe_device_imaging_state(
+    def explain_imaging_state(
         self, device: str, state=None, stage_position=None
     ) -> str:
         return f"described({(state or self._state).value})"
