@@ -30,6 +30,9 @@ from fibsem.ui.tokens import PURPLE_COLOR, RED_COLOR
 TARGET_MARK = "target"
 POI_MARK = "poi"
 AREA_MARK = "area"
+ITEM_MARK = "item"
+POSE_MARK = "pose"
+POSE_NOW_MARK = "pose_now"
 
 # The beam a move tool works in when the agent does not say: as the tools do.
 _MOVE_BEAMS = {
@@ -202,6 +205,32 @@ def _offset_pixel(frame, offset: Point) -> Tuple[float, float]:
     return (pixel.x, pixel.y)
 
 
+def _overview_pixel(image, overview: Dict[str, Any]) -> Optional[Tuple[float, float]]:
+    """An item_add's point on its overview (``px``, or ``fraction`` of it) as
+    the image's pixel; None for no image or no point."""
+    if not _has_pixel_size(image) or getattr(image.data, "ndim", 0) != 2:
+        return None
+    height, width = image.data.shape
+    try:
+        if overview.get("px") is not None:
+            x, y = overview["px"]
+            return (float(x), float(y))
+        fx, fy = overview["fraction"]
+        return (float(fx) * width, float(fy) * height)
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _stage_position(value: Dict[str, Any]):
+    """``{x, y, z, r, t}`` as the stage tools give it, as a stage position."""
+    from fibsem.structures import FibsemStagePosition
+
+    try:
+        return FibsemStagePosition.from_dict({"coordinate_system": "RAW", **value})
+    except Exception:  # noqa: BLE001 - described, not drawn
+        return None
+
+
 def _has_pixel_size(image) -> bool:
     size = getattr(getattr(image, "metadata", None), "pixel_size", None)
     return image is not None and size is not None
@@ -254,22 +283,27 @@ class _Mark:
         places,
         area: bool = False,
         shape: str = CROSS,
+        before: bool = False,
     ):
         self.beam = beam
         self.legend = legend
         self.places: List[Tuple[Optional[object], Any]] = list(places)
         self.area = area
         self.shape = shape
+        # Where something is now, drawn as a config edit's patterns as they are.
+        self.before = before
 
     def pixels(self, frame) -> List[Tuple[float, float]]:
-        """The places as *frame*'s pixels."""
+        """The places as *frame*'s pixels; one the frame cannot place (None) is
+        left out."""
         from fibsem.geometry.projection import reproject_pixel
 
         measured = []
         for measured_on, value in self.places:
             if measured_on is None:
                 measured_on, value = frame, value(frame)
-            measured.append((measured_on, value))
+            if value is not None:
+                measured.append((measured_on, value))
         self.places = measured
         return [reproject_pixel(on, frame, *value) for on, value in measured]
 
@@ -483,6 +517,8 @@ class AgentPreviews:
         reference_image: Optional[Callable[[Dict[str, Any]], object]] = None,
         task_config: Optional[Callable[[str, str], object]] = None,
         show_picture: Optional[Callable[..., None]] = None,
+        item_pose: Optional[Callable[[str, str], object]] = None,
+        overview_image: Optional[Callable[[str, str], object]] = None,
     ) -> None:
         # Asked when there is something to draw: the views are built after this.
         self._view_controller = view_controller
@@ -492,6 +528,12 @@ class AgentPreviews:
         # An item's task config (item name, task name), for a config edit's
         # patterns; None when there is none.
         self._task_config = task_config or (lambda item, task: None)
+        # Where an item's pose puts the stage (item name, pose name): a
+        # FibsemStagePosition, or None.
+        self._item_pose = item_pose or (lambda item, pose: None)
+        # A grid's recorded overview (grid name, file name), for an item added
+        # on it; None when there is none.
+        self._overview_image = overview_image or (lambda grid, filename: None)
         # The card's picture: (QImage or None, caption, suggestion=bool,
         # legend=legend_entries).
         self._show_picture = show_picture or (lambda *args, **kwargs: None)
@@ -545,7 +587,8 @@ class AgentPreviews:
                 "box", "after the edit" if before else "patterns", purple.patterns
             )
             red.key("box", "past the field", red.patterns)
-        self._add_marks(frame, marks.values(), purple)
+        self._add_marks(frame, [m for m in marks.values() if not m.before], purple)
+        self._add_marks(frame, [m for m in marks.values() if m.before], grey)
         self._picture(frame, beam, layers, suggestion=False)
 
     def _measured_on(self, controller, marks: Dict[str, "_Mark"], milling: bool):
@@ -569,8 +612,10 @@ class AgentPreviews:
         item edit's point of interest, an item edit's alignment area."""
         marks: Dict[str, _Mark] = {}
 
-        def add(overlay_id, beam, legend, places, area=False, shape=CROSS):
-            mark = marks.setdefault(overlay_id, _Mark(beam, legend, [], area, shape))
+        def add(overlay_id, beam, legend, places, area=False, shape=CROSS, **kw):
+            mark = marks.setdefault(
+                overlay_id, _Mark(beam, legend, [], area, shape, **kw)
+            )
             mark.places.extend(places)
 
         for beam, offset in request_targets(request):
@@ -584,6 +629,7 @@ class AgentPreviews:
         for action in request.get("actions", []):
             tool = action.get("tool")
             arguments = action.get("arguments") or {}
+            self._item_marks(tool, arguments, add)
             if tool == "review_decide":
                 poi = _point((arguments.get("values") or {}).get("poi"))
                 image = self._reference_image(arguments) if poi is not None else None
@@ -621,6 +667,67 @@ class AgentPreviews:
                         area=True,
                     )
         return marks
+
+    def _item_marks(self, tool: str, arguments: Dict[str, Any], add) -> None:
+        """Where an item edit puts a lamella: a new one on its overview or where
+        the stage is or would be; a pose it moves to; a pose it sets, and that
+        pose as it is now. Drawn on the FIB view's frame, through the stage."""
+        from fibsem.geometry.projection import stage_to_pixel
+
+        def centre(frame):
+            height, width = frame.data.shape[-2:]
+            return (width / 2, height / 2)
+
+        def at(position):
+            return lambda frame: stage_to_pixel(frame, position)
+
+        item = arguments.get("item_name")
+        if tool == "item_add":
+            overview = arguments.get("overview")
+            position = arguments.get("stage_position")
+            if isinstance(overview, dict):
+                image = self._overview_image(
+                    overview.get("grid_name"), overview.get("filename")
+                )
+                pixel = _overview_pixel(image, overview)
+                if pixel is not None:
+                    add(ITEM_MARK, BeamType.ELECTRON, "new lamella", [(image, pixel)])
+            elif isinstance(position, dict):
+                stage = _stage_position(position)
+                if stage is not None:
+                    add(ITEM_MARK, BeamType.ION, "new lamella", [(None, at(stage))])
+            else:
+                add(ITEM_MARK, BeamType.ION, "new lamella", [(None, centre)])
+        elif tool == "item_move_to_pose":
+            pose = arguments.get("pose")
+            stage = self._item_pose(item, pose)
+            if stage is not None:
+                add(
+                    POSE_MARK,
+                    BeamType.ION,
+                    f"{item} {pose} pose",
+                    [(None, at(stage))],
+                    shape=TARGET,
+                )
+        elif tool == "item_set_pose":
+            pose = arguments.get("pose_name")
+            add(
+                POSE_MARK,
+                BeamType.ION,
+                f"new {pose} pose",
+                [(None, centre)],
+                shape=TARGET,
+            )
+            stage = self._item_pose(item, pose)
+            if stage is not None:
+                add(
+                    POSE_NOW_MARK,
+                    BeamType.ION,
+                    f"{pose} pose now",
+                    [(None, at(stage))],
+                    shape=TARGET,
+                    before=True,
+                )
 
     # --- suggestions ------------------------------------------------------------
 

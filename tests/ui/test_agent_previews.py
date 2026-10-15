@@ -534,3 +534,74 @@ def test_the_legend_is_drawn_on_the_picture_at_its_own_size(qapp):
             max(x for x in range(width) if image.pixelColor(x, 10).lightness() < 128)
         )
     assert sizes[0] == sizes[1]
+
+
+def _one(tool, arguments):
+    return {
+        "request_id": f"{tool}-{sorted(arguments)}",
+        "status": "pending",
+        "actions": [{"tool": tool, "arguments": arguments}],
+    }
+
+
+def test_a_new_lamella_is_marked_where_it_would_go():
+    # FIB-1411: item_add drew nothing.
+    controller = _Controller()  # 200 × 100 px
+    overview = FibsemImage.generate_blank_image(resolution=(400, 300), hfw=1e-3)
+    asked = []
+
+    def overview_image(grid, filename):
+        asked.append((grid, filename))
+        return overview
+
+    previews = AgentPreviews(lambda: controller, overview_image=overview_image)
+    # Where the stage is: the centre of the FIB view.
+    previews.show_request(_one("item_add", {}))
+    frame, layer = _layer(previews.request_picture)
+    assert frame is controller.image(BeamType.ION)
+    assert layer.crosses == [pytest.approx((100.0, 50.0))]
+    assert layer.keys == [("cross", "new lamella")]
+    # On a grid's overview: on that overview.
+    point = {"grid_name": "G1", "filename": "overview.tif", "fraction": [0.25, 0.5]}
+    previews.show_request(_one("item_add", {"overview": point}))
+    frame, layer = _layer(previews.request_picture)
+    assert asked == [("G1", "overview.tif")] and frame is overview
+    assert layer.crosses == [pytest.approx((100.0, 150.0))]
+
+
+def test_a_pose_move_and_a_pose_set_are_marked_through_the_stage(monkeypatch):
+    # FIB-1411: item_move_to_pose and item_set_pose drew nothing.
+    from fibsem.geometry import projection
+    from fibsem.structures import FibsemStagePosition
+
+    pose = FibsemStagePosition(x=1e-6)
+    placed = []
+
+    def stage_to_pixel(frame, position):
+        placed.append(position)
+        return (30.0, 20.0)
+
+    monkeypatch.setattr(projection, "stage_to_pixel", stage_to_pixel)
+    controller = _Controller()
+    previews = AgentPreviews(
+        lambda: controller,
+        item_pose=lambda item, name: (
+            pose if (item, name) == ("01", "MILLING") else None
+        ),
+    )
+    previews.show_request(
+        _one("item_move_to_pose", {"item_name": "01", "pose": "MILLING"})
+    )
+    _, layer = _layer(previews.request_picture)
+    assert placed == [pose]
+    assert layer.targets == [(30.0, 20.0)]
+    assert layer.keys == [("target", "01 MILLING pose")]
+    # Set: the new pose where the stage is, the pose as it is now in white.
+    previews.show_request(
+        _one("item_set_pose", {"item_name": "01", "pose_name": "MILLING"})
+    )
+    _, purple = _layer(previews.request_picture)
+    _, white = _layer(previews.request_picture, "#ffffff")
+    assert purple.targets == [pytest.approx((100.0, 50.0))]
+    assert white.targets == [(30.0, 20.0)]
+    assert white.keys == [("target", "MILLING pose now")]
