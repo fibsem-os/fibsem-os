@@ -102,7 +102,27 @@ fibsem-mcp watch
 
 It comes with fibsem and finds the app the way the MCP tools do. If
 `fibsem-mcp` is not on your PATH, run `python -m fibsem.mcp.sidecar watch`
-with the Python fibsem is installed in.
+with the Python fibsem is installed in, from a folder that holds no other
+fibsem checkout (the current folder is searched first). Check it is the
+fibsem the app runs: a watcher from before Assist prints no `REQUEST` lines
+and has no `--since`.
+
+A process that only runs in the background is not a wake-up call: its
+lines go to a file, and you read them on your next turn, which may be
+long after the question. In Claude Code, run the watcher in the
+background writing to a file, then stream that file with the Monitor
+tool, so each new line wakes you:
+
+```
+fibsem-mcp watch > watch.log 2>&1        # Bash, run_in_background
+tail -n +1 -f watch.log                  # Monitor
+```
+
+A monitor expires after 30 minutes. Re-arm it each time it ends, starting
+after the last line you read (`tail -n +43 -f watch.log` when you have read
+42 lines), so a line written in between still reaches you. The watcher
+itself keeps running. Other harnesses need the same thing: a line from the
+watcher has to start your turn.
 
 Wake and act on its lines: `PROMPT` (a question is standing, with its
 `question_id`), `QUESTION` (the run is stopped on a recorded question — rule 5),

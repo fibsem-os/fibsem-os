@@ -57,7 +57,8 @@ request; the server says so when it can't (`not_an_action`).
 
 ## Watch the session
 
-Run the watcher as a background monitor, as the supervise skill says,
+Run the watcher as a background monitor, as the supervise skill says (in
+Claude Code, a Monitor on its output, re-armed every 30 minutes),
 and start it before you file anything. The operator often decides within
 seconds.
 
