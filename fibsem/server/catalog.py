@@ -151,6 +151,62 @@ CATALOG: Tuple[ToolSpec, ...] = (
         level="watch",
     ),
     ToolSpec(
+        name="get_pattern_preview",
+        description=(
+            "Milling stages drawn over a saved ion image, to see where they would "
+            "mill before running them: an image you can look at, the saved image's "
+            "shape scaled to 1024 px wide. stages is a list of FibsemMillingStage "
+            "dicts (as run_stage takes); left out, the patterns prepare drew. "
+            "image_path must be inside the open experiment. Moves nothing."
+        ),
+        method="POST",
+        path="/microscope/services/milling/queries/pattern_preview",
+        level="watch",
+        params={
+            "image_path": "a saved ion image inside the open experiment",
+            "stages": "FibsemMillingStage dicts; left out, what prepare drew",
+        },
+    ),
+    ToolSpec(
+        name="align_to_reference",
+        description=(
+            "Bring the view back onto a saved reference image: acquire with its "
+            "settings, measure the shift and correct it, steps times, with the "
+            "beam shift (fine, small range), the stage (stable move) or "
+            "stage-vertical. reference_path must be inside the open experiment "
+            "(a path from get_task_outputs or an image you saved). A long command: "
+            "it answers with its run at once; wait_for_run alignment gives each "
+            "step's shift, whether the methods agree on what is left, and the "
+            "folder the run saved to. measure_shift first if you only want to know "
+            "how far off the view is."
+        ),
+        method="POST",
+        path="/microscope/services/alignment/commands/align",
+        level="drive",
+        hardware=True,
+        params={
+            "reference_path": "a saved image inside the open experiment",
+            "steps": "how many measure-and-correct steps (default 3)",
+            "subsystem": "beam-shift (default), stage or stage-vertical",
+        },
+    ),
+    ToolSpec(
+        name="measure_shift",
+        description=(
+            "The shift of one saved image from another, as align_to_reference "
+            "measures it: metres and pixels, a score (higher is better) and "
+            "whether it cleared the minimum. Both paths inside the open "
+            "experiment. Reads the files and moves nothing."
+        ),
+        method="POST",
+        path="/microscope/services/alignment/queries/measure_shift",
+        level="watch",
+        params={
+            "reference_path": "the saved reference image",
+            "image_path": "the saved image to measure against it",
+        },
+    ),
+    ToolSpec(
         name="stop_milling",
         description="Stop an in-progress mill, with the reason the operator reads.",
         method="POST",
@@ -392,7 +448,10 @@ CATALOG: Tuple[ToolSpec, ...] = (
         description=(
             "Run a service command listed by list_services, e.g. service=stage_movement "
             "command=move_to_orientation kwargs={'orientation': 'SEM'}. A long command "
-            "(milling run, spot burn run) answers when it ends; command=stop from "
+            "(listed with long: true: milling run, run_stage and run_task, spot burn "
+            "run, alignment align) answers at once with "
+            "its run (run_id, state: running) and runs on, in control of the "
+            "microscope; wait_for_run says how it ended. command=stop from "
             "another call stops it: the agent's own run at Assist or Drive, "
             "anyone else's at Drive, never at Watch, always with a reason."
         ),
@@ -405,6 +464,25 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "command": "command name",
             "kwargs": "the command's arguments, by name",
             "reason": "for a stop (stop, stop_live, cancel): why, for the operator (required there)",
+        },
+    ),
+    ToolSpec(
+        name="wait_for_run",
+        description=(
+            "How a long command you started (milling run, spot burn run) is going: "
+            "its run with state running, done, failed or cancelled, and when it has "
+            "ended its result or error. Waits up to wait seconds (at most 60) for "
+            "it to end, so call it again while it says running. With run_id, waits "
+            "for that run; a later run on the service answers at once. The same end "
+            "comes as a command_ended event on get_events."
+        ),
+        method="GET",
+        path="/microscope/services/{service}/run",
+        level="watch",
+        params={
+            "service": "the service the command ran on, e.g. milling",
+            "run_id": "the run_id the command answered with",
+            "wait": "seconds to wait for the end, at most 60 (default 60)",
         },
     ),
     ToolSpec(
@@ -585,6 +663,22 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         },
     ),
     ToolSpec(
+        name="get_overview_stage_position",
+        description="The stage position under a point of a recorded grid overview: the inverse of get_grid_markers, from the overview's own metadata, so it holds wherever the stage is now. Give x, y in source pixels (as the markers use), or fx, fy from 0 to 1 for a point read off a preview. Nothing moves.",
+        method="GET",
+        path="/app/experiment/grids/{grid_name}/outputs/{filename}/stage_position",
+        level="watch",
+        router="app",
+        params={
+            "grid_name": "the grid name",
+            "filename": "an overview basename from get_grids / get_grid_detail",
+            "x": "source-pixel x (with y)",
+            "y": "source-pixel y, +y down (with x)",
+            "fx": "fraction across the image, 0-1 (with fy)",
+            "fy": "fraction down the image, 0-1 (with fx)",
+        },
+    ),
+    ToolSpec(
         name="get_grid_markers",
         description="Where the experiment's items fall on one recorded overview, in source-image pixels with each item's status, plus the image's scale block (size, pixel size, field width, stage position). Computed server-side; never re-derive stage geometry. Items that cannot be placed are listed with the reason.",
         method="GET",
@@ -675,6 +769,56 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "item_name": "the item (lamella) name",
             "task_names": "optional list of task names; omitted = every task in the protocol",
         },
+    ),
+    ToolSpec(
+        name="add_item",
+        description="Add a lamella, as the Lamella tab's Add does: at the stage position now (no where), at stage_position, or under a point of a recorded grid overview (overview = {grid_name, filename, px: [x, y] source pixels or fraction: [x, y] 0-1}), which also puts it on that grid. Its poses, milling angle and grid are worked out as for a click, and it is saved. The app names it unless name is given. Answers with the new item.",
+        method="POST",
+        path="/app/experiment/items",
+        level="drive",
+        router="app",
+        params={
+            "name": "optional name; the app picks one when omitted",
+            "stage_position": "optional {x, y, z, r, t} (metres, radians) to add at",
+            "overview": "optional {grid_name, filename, px | fraction}: a point on a grid overview",
+        },
+    ),
+    ToolSpec(
+        name="remove_item",
+        description="Remove a lamella from the experiment, as its row's Remove does. Its files stay on disk. Refused while a workflow runs.",
+        method="DELETE",
+        path="/app/experiment/items/{item_name}",
+        level="drive",
+        router="app",
+        params={"item_name": "the item (lamella) name"},
+    ),
+    ToolSpec(
+        name="move_to_item_pose",
+        description="Move the stage to one of a lamella's poses (MILLING, FLUORESCENCE, ... as get_item_detail lists), through the safe move that goes flat before a large rotation. Answers with the stage position after.",
+        method="POST",
+        path="/app/experiment/items/{item_name}/move_to",
+        level="drive",
+        router="app",
+        hardware=True,
+        params={"item_name": "the item (lamella) name", "pose": "the pose name"},
+    ),
+    ToolSpec(
+        name="set_item_pose",
+        description="Set the stage position now as one of a lamella's poses, as the tab's Set pose does. Setting MILLING moves the lamella: its milling angle and fluorescence pose follow. Saved; answers with the item.",
+        method="POST",
+        path="/app/experiment/items/{item_name}/poses/{pose_name}",
+        level="drive",
+        router="app",
+        params={"item_name": "the item (lamella) name", "pose_name": "the pose name"},
+    ),
+    ToolSpec(
+        name="set_item_objective_position",
+        description="Store the FM objective's position now on a lamella's fluorescence pose, as the tab's Use current does: where it is when inserted, else its focus position. Saved.",
+        method="POST",
+        path="/app/experiment/items/{item_name}/objective_position",
+        level="drive",
+        router="app",
+        params={"item_name": "the item (lamella) name"},
     ),
     ToolSpec(
         name="reorder_item_milling_stages",
@@ -897,7 +1041,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="answer_prompt",
-        description='Answer the pending supervision question, exactly as clicking the matching button would. Not for a question whose prompt says answer_via: "decide" -- that one is refused here, with nothing clicked, and decided with decide_review. True = the positive option. Echo the question_id from get_pending_prompt; if that question is no longer pending the answer is refused (409 stale_prompt) — re-read and answer the current one. For EditAlignmentArea and PickPOI the answer may carry a value: adjusted geometry that is placed into the widget (the operator sees it land) and then accepted through the same click path. An out-of-bounds or wrong-shape value is refused (422 invalid_value) without clicking anything.',
+        description='Answer the pending supervision question, exactly as clicking the matching button would. Not for a question whose prompt says answer_via: "decide" -- that one is refused here, with nothing clicked, and decided with decide_review. True = the positive option. Echo the question_id from get_pending_prompt; if that question is no longer pending the answer is refused (409 stale_prompt) — re-read and answer the current one. For EditAlignmentArea, PickPOI, ConfirmDetection and RunSpotBurn the answer may carry a value: the edit the operator could make in that widget, placed into it (the operator sees it land) and then answered through the same click path. For RunSpotBurn, yes burns the points as shown and asks again, no continues. An out-of-bounds or wrong-shape value is refused (422 invalid_value) without clicking anything.',
         method="POST",
         path="/app/workflow/prompt/answer",
         level="drive",
@@ -905,7 +1049,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "response": "true for the positive option, false for the negative",
             "question_id": "the question_id from get_pending_prompt, naming the question being answered",
-            "value": "optional adjusted geometry: {left, top, width, height} (fractions of the frame, origin top-left) for EditAlignmentArea, or {x, y} (metres, microscope image coordinates, origin centre, +y up) for PickPOI",
+            "value": "optional edit: {left, top, width, height} (fractions of the frame, origin top-left) for EditAlignmentArea; {x, y} (metres, microscope image coordinates, origin centre, +y up) for PickPOI; {features: [{name, px: {x, y}}]} (source-image pixels, origin top-left, only the named features move) for ConfirmDetection; {points: [{x, y}]} (fractions of the frame, origin top-left; current and exposure stay the protocol's) for RunSpotBurn",
         },
     ),
     ToolSpec(
@@ -925,11 +1069,50 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="list_recent_experiments",
-        description="Recently opened experiments on this machine, without loading them.",
+        description="Recently opened experiments on this machine, without loading them. load_experiment takes a path from here.",
         method="GET",
         path="/app/experiment/recent",
         level="watch",
         router="app",
+    ),
+    ToolSpec(
+        name="list_protocols",
+        description="The protocol files in the protocol folder, by name, with the default marked: what create_experiment and load_protocol take.",
+        method="GET",
+        path="/app/experiment/protocols",
+        level="watch",
+        router="app",
+    ),
+    ToolSpec(
+        name="create_experiment",
+        description="Create an experiment in the default experiments folder and open it in place of the current one, with a protocol from list_protocols (the default when omitted). An existing name is refused, never overwritten. Refused while a workflow runs.",
+        method="POST",
+        path="/app/experiment/create",
+        level="drive",
+        router="app",
+        params={
+            "name": "the new experiment's folder name",
+            "protocol": "optional protocol name from list_protocols",
+            "description": "optional one-line description",
+        },
+    ),
+    ToolSpec(
+        name="load_experiment",
+        description="Open one of the recent experiments (a path from list_recent_experiments) in place of the current one. Any other experiment is the operator's to open. Refused while a workflow runs.",
+        method="POST",
+        path="/app/experiment/load",
+        level="drive",
+        router="app",
+        params={"path": "a path from list_recent_experiments"},
+    ),
+    ToolSpec(
+        name="load_protocol",
+        description="Load a protocol from list_protocols into the open experiment, replacing its protocol, and save it beside the experiment. Existing items keep their task configs; apply_protocol_to_item updates one. Refused while a workflow runs.",
+        method="POST",
+        path="/app/experiment/protocol/load",
+        level="drive",
+        router="app",
+        params={"protocol": "a protocol name from list_protocols"},
     ),
 )
 
@@ -1037,6 +1220,24 @@ _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict
     # A service command or query with no arguments still sends its kwargs.
     "stop_milling": lambda a: ({}, _stop(_kwargs(), a)),
     "estimate_milling_time": lambda a: ({}, _kwargs()),
+    "align_to_reference": lambda a: (
+        {},
+        _kwargs(
+            reference_path=str(a["reference_path"]),
+            steps=int(a.get("steps") or 3),
+            subsystem=str(a.get("subsystem") or "beam-shift"),
+        ),
+    ),
+    "measure_shift": lambda a: (
+        {},
+        _kwargs(
+            reference_path=str(a["reference_path"]), image_path=str(a["image_path"])
+        ),
+    ),
+    "get_pattern_preview": lambda a: (
+        {},
+        _kwargs(image_path=str(a["image_path"]), stages=a.get("stages")),
+    ),
     "get_stage_orientation": lambda a: ({}, _kwargs()),
     "get_milling_angle": lambda a: ({}, _kwargs()),
     "get_geometry": lambda a: ({}, _kwargs()),

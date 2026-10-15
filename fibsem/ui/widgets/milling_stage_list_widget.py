@@ -67,7 +67,6 @@ def _add_flex_column(layout: QHBoxLayout, widget: QWidget, spec: tuple) -> None:
 
 
 _SI_TO_MICRO = 1e6
-_MICRO_TO_SI = 1e-6
 
 _NAME_EDIT_STYLE = (
     "QLineEdit { background: transparent; border: none; }"
@@ -346,7 +345,7 @@ class MillingStageRowWidget(QWidget):
     def _on_depth_changed(self) -> None:
         if not hasattr(self.stage.pattern, "depth"):
             return
-        new_depth = self.depth_spin.value() * _MICRO_TO_SI
+        new_depth = self.depth_spin.value() / _SI_TO_MICRO
         if new_depth == self.stage.pattern.depth:
             return
         self.stage.pattern.depth = new_depth
