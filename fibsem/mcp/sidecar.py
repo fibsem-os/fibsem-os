@@ -549,6 +549,21 @@ def build_sidecar(client, capabilities):
         meta = {"grid_name": grid_name, "filename": filename, **_image_header(resp)}
         return [json.dumps(meta), Image(data=resp.content, format="jpeg")]
 
+    def get_overview_stage_position(
+        grid_name: str,
+        filename: str,
+        x: Optional[float] = None,
+        y: Optional[float] = None,
+        fx: Optional[float] = None,
+        fy: Optional[float] = None,
+    ):
+        query = {"x": x, "y": y, "fx": fx, "fy": fy}
+        return _app_get(
+            f"/app/experiment/grids/{quote(grid_name, safe='')}/outputs/"
+            f"{quote(filename, safe='')}/stage_position?"
+            + urlencode({k: v for k, v in query.items() if v is not None})
+        )
+
     def get_grid_markers(grid_name: str, filename: str):
         return _app_get(f"/app/experiment/grids/{grid_name}/outputs/{filename}/markers")
 
@@ -580,6 +595,51 @@ def build_sidecar(client, capabilities):
         # An applied image action carries its preview: an image, not base64 text.
         data, err = _call(client, "GET", f"/app/agent/requests/{request_id}")
         return err if err else _with_images(data)
+
+    def add_item(
+        name: Optional[str] = None,
+        stage_position: Optional[dict] = None,
+        overview: Optional[dict] = None,
+    ):
+        data, err = _call(
+            client,
+            "POST",
+            "/app/experiment/items",
+            {"name": name, "stage_position": stage_position, "overview": overview},
+        )
+        return err if err else data
+
+    def remove_item(item_name: str):
+        data, err = _call(
+            client, "DELETE", f"/app/experiment/items/{quote(item_name, safe='')}"
+        )
+        return err if err else data
+
+    def move_to_item_pose(item_name: str, pose: str):
+        data, err = _call(
+            client,
+            "POST",
+            f"/app/experiment/items/{quote(item_name, safe='')}/move_to",
+            {"pose": pose},
+        )
+        return err if err else data
+
+    def set_item_pose(item_name: str, pose_name: str):
+        data, err = _call(
+            client,
+            "POST",
+            f"/app/experiment/items/{quote(item_name, safe='')}"
+            f"/poses/{quote(pose_name, safe='')}",
+        )
+        return err if err else data
+
+    def set_item_objective_position(item_name: str):
+        data, err = _call(
+            client,
+            "POST",
+            f"/app/experiment/items/{quote(item_name, safe='')}/objective_position",
+        )
+        return err if err else data
 
     def apply_protocol_to_item(item_name: str, task_names=None):
         data, err = _call(
@@ -823,6 +883,7 @@ def build_sidecar(client, capabilities):
             get_grid_detail,
             get_grid_output_image,
             get_grid_markers,
+            get_overview_stage_position,
             get_protocol_task_config,
             get_item_task_config,
             update_item_task_config,
@@ -830,6 +891,11 @@ def build_sidecar(client, capabilities):
             update_item_detail,
             set_task_schedule,
             apply_protocol_to_item,
+            add_item,
+            remove_item,
+            move_to_item_pose,
+            set_item_pose,
+            set_item_objective_position,
             add_note,
             request_actions,
             get_request,

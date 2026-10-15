@@ -15,7 +15,9 @@ one place (build_server).
 import json
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Response
+
+from fibsem.server.auth import take_control
 
 try:  # Protocol is typing-only; keep import robust on the 3.8 floor
     from typing import Protocol
@@ -34,6 +36,25 @@ __all__ = [
 
 class AppContext(Protocol):
     """What a hosted application must answer. Matched structurally."""
+
+    def overview_stage_position(
+        self, grid_name: str, filename: str, px: Any = None, fraction: Any = None
+    ) -> Dict[str, Any]: ...
+
+    def add_item(
+        self,
+        name: Optional[str] = None,
+        stage_position: Optional[Dict[str, Any]] = None,
+        overview: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]: ...
+
+    def remove_item(self, item_name: str) -> Dict[str, Any]: ...
+
+    def move_to_item_pose(self, item_name: str, pose_name: str) -> Dict[str, Any]: ...
+
+    def set_item_pose(self, item_name: str, pose_name: str) -> Dict[str, Any]: ...
+
+    def set_item_objective_position(self, item_name: str) -> Dict[str, Any]: ...
 
     def status(self) -> Dict[str, Any]: ...
 
@@ -227,6 +248,22 @@ def _jpeg_or_404(result: Dict[str, Any]) -> Response:
     return Response(content=jpeg, media_type="image/jpeg", headers=headers)
 
 
+_REFUSAL_STATUS = {"not_found": 404, "invalid": 422, "task_running": 409}
+
+
+def _answer_or_refusal(result: Dict[str, Any]) -> Dict[str, Any]:
+    """A context answer, or its refusal as an HTTP error: ``error_type`` picks the
+    status, ``error`` is the message, and any lists of valid names ride along."""
+    error_type = result.get("error_type")
+    if error_type is None:
+        return result
+    detail = {"error_type": error_type, "message": result.get("error", "")}
+    for key, value in result.items():
+        if key.endswith("_names") or key == "filenames":
+            detail[key] = value
+    raise HTTPException(status_code=_REFUSAL_STATUS.get(error_type, 422), detail=detail)
+
+
 def build_app_router(context: AppContext) -> APIRouter:
     router = APIRouter(prefix="/app")
 
@@ -316,6 +353,22 @@ def build_app_router(context: AppContext) -> APIRouter:
     @router.get("/experiment/grids/{grid_name}/outputs/{filename}")
     def grid_output_image(grid_name: str, filename: str):
         return _jpeg_or_404(context.grid_output_image(grid_name, filename))
+
+    @router.get("/experiment/grids/{grid_name}/outputs/{filename}/stage_position")
+    def overview_stage_position(
+        grid_name: str,
+        filename: str,
+        x: Optional[float] = None,
+        y: Optional[float] = None,
+        fx: Optional[float] = None,
+        fy: Optional[float] = None,
+    ):
+        # The inverse of the markers: a point on the overview as a stage position.
+        px = None if x is None or y is None else [x, y]
+        fraction = None if fx is None or fy is None else [fx, fy]
+        return _answer_or_refusal(
+            context.overview_stage_position(grid_name, filename, px, fraction)
+        )
 
     @router.get("/experiment/grids/{grid_name}/outputs/{filename}/markers")
     def grid_markers(grid_name: str, filename: str):
@@ -843,6 +896,60 @@ def build_app_config_router(context: AppContext) -> APIRouter:
                 },
             )
         return _refused_or(context.apply_protocol_to_item(item_name, task_names))
+
+    # -- lamella positions: the Lamella tab's buttons ---------------------------
+
+    @router.post("/experiment/items")
+    def add_item(body: Dict[str, Any]):
+        # Where: the stage now (neither field), a stage position, or a point on a
+        # grid overview ({grid_name, filename, px | fraction}). The app names it
+        # unless a name is given.
+        stage_position = body.get("stage_position")
+        overview = body.get("overview")
+        if stage_position is not None and overview is not None:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_type": "invalid",
+                    "message": "Give stage_position or overview, not both.",
+                },
+            )
+        return _answer_or_refusal(
+            context.add_item(
+                name=body.get("name"),
+                stage_position=stage_position,
+                overview=overview,
+            )
+        )
+
+    @router.delete("/experiment/items/{item_name}")
+    def remove_item(item_name: str):
+        return _answer_or_refusal(context.remove_item(item_name))
+
+    @router.post(
+        "/experiment/items/{item_name}/move_to", dependencies=[Depends(take_control)]
+    )
+    def move_to_item_pose(item_name: str, body: Dict[str, Any]):
+        pose = body.get("pose")
+        if not isinstance(pose, str):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_type": "missing_field",
+                    "message": "Pass pose: a pose name from the item (MILLING, ...).",
+                },
+            )
+        return _answer_or_refusal(context.move_to_item_pose(item_name, pose))
+
+    @router.post("/experiment/items/{item_name}/poses/{pose_name}")
+    def set_item_pose(item_name: str, pose_name: str):
+        # From the stage position now: the tab's Set pose.
+        return _answer_or_refusal(context.set_item_pose(item_name, pose_name))
+
+    @router.post("/experiment/items/{item_name}/objective_position")
+    def set_item_objective_position(item_name: str):
+        # From the FM objective now: the tab's Use current.
+        return _answer_or_refusal(context.set_item_objective_position(item_name))
 
     @router.post("/experiment/items/{item_name}")
     def patch_item(item_name: str, body: Dict[str, Any]):
