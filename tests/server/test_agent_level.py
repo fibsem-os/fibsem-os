@@ -14,6 +14,7 @@ from psygnal.containers import EventedDict  # noqa: E402
 
 from fibsem import utils  # noqa: E402
 from fibsem.acting import AGENT as AGENT_ACTOR  # noqa: E402
+from fibsem.acting import current_actor  # noqa: E402
 from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
@@ -81,6 +82,12 @@ def client(tmp_path, microscope, auth):
         yield client
 
 
+@pytest.fixture
+def milling_now(monkeypatch, microscope):
+    """A mill in progress, so a stop has something to stop (FIB-1398)."""
+    monkeypatch.setattr(microscope.milling, "_running", True)
+
+
 def _error(response) -> str:
     return response.json()["detail"]["error_type"]
 
@@ -99,7 +106,7 @@ def test_watch_reads_and_notes_but_acts_on_nothing(client):
         assert response.json()["detail"]["level"] == "watch"
 
 
-def test_drive_acts_on_the_session_and_the_hardware(client, auth):
+def test_drive_acts_on_the_session_and_the_hardware(client, auth, milling_now):
     auth.set_level(AgentLevel.DRIVE)
     capabilities = client.get("/capabilities", headers=AGENT).json()
     assert capabilities["level"] == "drive"
@@ -131,7 +138,9 @@ def test_watch_refuses_a_hardware_command_naming_the_level(client, auth):
     assert moved.json()["detail"]["level"] == "watch"
 
 
-def test_at_drive_a_run_in_control_refuses_a_hardware_command(client, auth, microscope):
+def test_at_drive_a_run_in_control_refuses_a_hardware_command(
+    client, auth, microscope, milling_now
+):
     auth.set_level(AgentLevel.DRIVE)
     with microscope.control.take(WORKFLOW, "a lamella run"):
         moved = client.post(MOVE_RELATIVE, headers=AGENT, json=_NUDGE)
@@ -210,7 +219,9 @@ def test_assist_asks_first_to_stop_what_is_not_its_own(client, auth):
     assert _error(moved) == "ask_first"
 
 
-def test_the_agent_stops_its_own_action_at_assist_and_drive(client, auth, microscope):
+def test_the_agent_stops_its_own_action_at_assist_and_drive(
+    client, auth, microscope, milling_now
+):
     """While the agent's own command holds control (its mill, say), it can stop
     it at the levels it acts at; Watch never stops (Patrick, 2026-10-14). The
     workflow is never its own."""
@@ -230,7 +241,7 @@ def test_the_agent_stops_its_own_action_at_assist_and_drive(client, auth, micros
     assert _error(refused) == "level"
 
 
-def test_a_stop_needs_a_reason_and_records_it(client, auth, microscope):
+def test_a_stop_needs_a_reason_and_records_it(client, auth, microscope, milling_now):
     auth.set_level(AgentLevel.DRIVE)
     for path in (STOP_MILLING, "/app/workflow/stop"):
         for body in (None, {}, {"reason": "  "}):
@@ -247,6 +258,73 @@ def test_a_stop_needs_a_reason_and_records_it(client, auth, microscope):
     assert stops == [
         {"action": "milling stop", "reason": WHY["reason"], "own": False},
         {"action": "workflow", "reason": WHY["reason"], "own": False},
+    ]
+
+
+def test_a_stop_with_nothing_milling_is_refused_and_not_recorded(
+    client, auth, microscope
+):
+    """A stop that stops nothing says so, rather than answering ok and putting a
+    stop on the record (FIB-1398)."""
+    auth.set_level(AgentLevel.DRIVE)
+    recorded = []
+    microscope.session.record_signal.connect(
+        lambda kind, payload: recorded.append((kind, payload))
+    )
+    refused = client.post(STOP_MILLING, headers=AGENT, json=WHY)
+    assert refused.status_code == 409
+    assert _error(refused) == "NothingToStop"
+    assert [kind for kind, _ in recorded if kind == "agent_stop"] == []
+
+
+def test_a_refused_action_is_recorded_and_a_refused_read_is_not(
+    client, auth, microscope
+):
+    recorded = []
+
+    def record(kind, payload):
+        recorded.append((kind, payload, current_actor()))
+
+    microscope.session.record_signal.connect(record)
+    try:
+        auth.set_level(AgentLevel.ASSIST)
+        refused = client.post(MOVE_RELATIVE, headers=AGENT, json=_NUDGE)
+        assert _error(refused) == "ask_first"
+        auth.set_level(AgentLevel.DRIVE)
+        vent = client.post(
+            "/microscope/devices/chamber/commands/vent", headers=AGENT, json={}
+        )
+        assert _error(vent) == "not_allowed"
+        auth.set_level(AgentLevel.OFF)
+        assert client.get("/app/workflow/status", headers=AGENT).status_code == 403
+        # Not the agent: no token, or the dashboard's.
+        assert client.post(MOVE_RELATIVE, json=_NUDGE).status_code == 401
+        assert (
+            client.post(MOVE_RELATIVE, headers=DASHBOARD, json=_NUDGE).status_code
+            == 403
+        )
+    finally:
+        microscope.session.record_signal.disconnect(record)
+    refusals = [(p, actor) for kind, p, actor in recorded if kind == "agent_refused"]
+    assert refusals == [
+        (
+            {
+                "action": "move relative",
+                "route": f"POST {MOVE_RELATIVE}",
+                "error_type": "ask_first",
+                "level": "assist",
+            },
+            AGENT_ACTOR,
+        ),
+        (
+            {
+                "action": "chamber vent",
+                "route": "POST /microscope/devices/chamber/commands/vent",
+                "error_type": "not_allowed",
+                "level": "drive",
+            },
+            AGENT_ACTOR,
+        ),
     ]
 
 

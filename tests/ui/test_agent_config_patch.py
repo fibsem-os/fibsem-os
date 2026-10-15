@@ -20,6 +20,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 from psygnal.containers import EventedDict
 
+from fibsem.applications.autolamella.event_recording import EventRecorder
 from fibsem.applications.autolamella.server import AutoLamellaAppContext
 from fibsem.applications.autolamella.server.events import EventBuffer
 from fibsem.applications.autolamella.structures import (
@@ -70,6 +71,14 @@ def ui(qapp, monkeypatch, tmp_path):
     qapp.processEvents()
 
 
+@pytest.fixture
+def recorded(ui, tmp_path):
+    """The app's event buffer: the record's own events land in it, as in the app."""
+    recorder = EventRecorder(ui.microscope, experiment_path=tmp_path)
+    yield recorder.buffer
+    recorder.close()
+
+
 def _client(ui, buffer=None, arm_configure=True):
     app = build_server(
         ui.microscope,
@@ -103,8 +112,8 @@ def _post_on_worker(qapp, client, path, body):
     return posted["response"]
 
 
-def test_a_patch_lands_with_diff_version_and_event(ui, qapp):
-    buffer = EventBuffer()
+def test_a_patch_lands_with_diff_version_and_event(ui, qapp, recorded):
+    buffer = recorded
     item = ui.experiment.positions[0].name
     with _client(ui, buffer=buffer) as client:
         doc = client.get(
@@ -136,10 +145,13 @@ def test_a_patch_lands_with_diff_version_and_event(ui, qapp):
             f"/app/experiment/items/{item}/task_config/{TASK}", headers=AUTH
         ).json()
         assert reread["version"] == body["version"]
-        # And the record shows it: config_edited on the event stream.
+        # And the record shows it once, as the agent's edit on the event stream.
         events = client.get("/app/events?since=0", headers=AUTH).json()["events"]
-        edited = [e for e in events if e["kind"] == "config_edited"]
-        assert edited and edited[-1]["payload"]["changes"][0]["path"] == DEPTH
+        edited = [e for e in events if e["kind"] == "edit"]
+        assert len(edited) == 1
+        assert edited[0]["actor"] == "agent"
+        assert edited[0]["payload"]["task"] == TASK
+        assert not [e for e in events if e["kind"] == "config_edited"]
 
 
 def test_a_stale_version_is_refused_and_nothing_changes(ui, qapp):
@@ -213,8 +225,8 @@ def test_the_configure_scope_gates_the_route(ui, qapp):
         assert resp.json()["detail"]["level"] == "watch"
 
 
-def test_a_protocol_level_patch_lands_and_is_recorded(ui, qapp):
-    buffer = EventBuffer()
+def test_a_protocol_level_patch_lands_and_is_recorded(ui, qapp, recorded):
+    buffer = recorded
     with _client(ui, buffer=buffer) as client:
         doc = client.get(
             f"/app/experiment/protocol/task_config/{TASK}", headers=AUTH
@@ -234,8 +246,8 @@ def test_a_protocol_level_patch_lands_and_is_recorded(ui, qapp):
         item_config = ui.experiment.positions[0].task_config[TASK]
         assert item_config.milling["mill_rough"].stages[0].pattern.depth != 2.8e-6
         events = client.get("/app/events?since=0", headers=AUTH).json()["events"]
-        edited = [e for e in events if e["kind"] == "config_edited"][-1]
-        assert edited["payload"]["level"] == "protocol"
+        edited = [e for e in events if e["kind"] == "edit"][-1]
+        assert edited["payload"]["target"] == "protocol.task_config"
 
         stale = _post_on_worker(
             qapp,
@@ -272,8 +284,8 @@ def test_a_patch_is_durable_on_disk(ui, qapp):
     assert depth == 2.2e-6
 
 
-def test_item_fields_patch_moves_poi_and_sets_defect(ui, qapp):
-    buffer = EventBuffer()
+def test_item_fields_patch_moves_poi_and_sets_defect(ui, qapp, recorded):
+    buffer = recorded
     lamella = ui.experiment.positions[0]
     from fibsem.structures import Point
 
@@ -306,8 +318,8 @@ def test_item_fields_patch_moves_poi_and_sets_defect(ui, qapp):
         reread = client.get(f"/app/experiment/items/{item}", headers=AUTH).json()
         assert reread["version"] == body["version"] != doc["version"]
         events = client.get("/app/events?since=0", headers=AUTH).json()["events"]
-        edited = [e for e in events if e["kind"] == "config_edited"][-1]
-        assert edited["payload"]["level"] == "item_fields"
+        targets = {e["payload"]["target"] for e in events if e["kind"] == "edit"}
+        assert {"poi", "defect"} <= targets
 
 
 def test_item_fields_allowlist_and_alignment_validity(ui, qapp):
@@ -347,10 +359,10 @@ def test_item_fields_allowlist_and_alignment_validity(ui, qapp):
         assert lamella.alignment_area.left == 0.6
 
 
-def test_apply_protocol_recopies_configs_and_repoints_paths(ui, qapp):
+def test_apply_protocol_recopies_configs_and_repoints_paths(ui, qapp, recorded):
     from fibsem.applications.autolamella.server.context import config_version
 
-    buffer = EventBuffer()
+    buffer = recorded
     lamella = ui.experiment.positions[0]
     protocol_config = ui.experiment.task_protocol.task_config[TASK]
     # Diverge the two, as real runs do.
@@ -375,7 +387,11 @@ def test_apply_protocol_recopies_configs_and_repoints_paths(ui, qapp):
         for mtc in copied.milling.values():
             assert str(mtc.acquisition.imaging.path) == str(lamella.path)
         events = client.get("/app/events?since=0", headers=AUTH).json()["events"]
-        assert [e for e in events if e["payload"].get("level") == "protocol_applied"]
+        assert [
+            e
+            for e in events
+            if e["kind"] == "edit" and e["payload"]["target"] == "task_config"
+        ]
 
         unknown = _post_on_worker(
             qapp,
@@ -418,8 +434,8 @@ def test_a_poi_patch_moves_the_attached_patterns_with_it(ui, qapp):
         assert stage.pattern.point.y == pytest.approx(2e-6)
 
 
-def test_stage_reorder_is_same_set_versioned_and_recorded(ui, qapp):
-    buffer = EventBuffer()
+def test_stage_reorder_is_same_set_versioned_and_recorded(ui, qapp, recorded):
+    buffer = recorded
     lamella = ui.experiment.positions[0]
     stages = lamella.task_config[TASK].milling["mill_rough"].stages
     names = [s.name for s in stages]
@@ -448,7 +464,9 @@ def test_stage_reorder_is_same_set_versioned_and_recorded(ui, qapp):
         ] == new_order
         assert body["version"] != doc["version"]
         events = client.get("/app/events?since=0", headers=AUTH).json()["events"]
-        assert [e for e in events if (e["payload"].get("reorder") or {}).get("order")]
+        assert [
+            e for e in events if e["kind"] == "edit" and e["payload"]["task"] == TASK
+        ]
 
         # Same-set enforcement: dropping a stage is refused.
         fresh = client.get(base, headers=AUTH).json()

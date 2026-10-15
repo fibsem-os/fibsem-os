@@ -247,8 +247,12 @@ def test_unknown_query_or_a_command_asked_as_one_is_404(read_client):
     assert resp.status_code == 404
 
 
-def test_a_stop_needs_drive_and_is_never_refused_for_control(read_client, microscope):
+def test_a_stop_needs_drive_and_is_never_refused_for_control(
+    read_client, microscope, monkeypatch
+):
     stop = "/microscope/services/milling/commands/stop"
+    # Something to stop (FIB-1398).
+    monkeypatch.setattr(microscope.milling, "_running", True)
     why = {"reason": "the mill is off target"}
     assert read_client.post(stop, json=why).status_code == 403
     app = build_server(microscope, auth=AuthConfig.generate(level="drive", token=TOKEN))
@@ -298,6 +302,28 @@ def test_an_agent_runs_a_focus_sweep(armed_client, microscope):
     assert beam.working_distance.get_value() == pytest.approx(
         result["working_distance"]
     )
+
+
+def test_an_agent_runs_auto_brightness_contrast(armed_client, microscope):
+    from fibsem.autofunctions.brightness_contrast import BrightnessContrastSettings
+    from fibsem.structures import BeamType
+
+    beam = microscope.beams[BeamType.ION]
+    beam.detector_brightness.set_value(0.95)
+    settings = BrightnessContrastSettings(probe_resolution=(384, 256))
+    resp = armed_client.post(
+        "/microscope/services/imaging/commands/auto_brightness_contrast",
+        json={
+            "kwargs": {
+                "beam_type": to_wire(BeamType.ION),
+                "settings": settings.to_dict(),
+            }
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    result = resp.json()["result"]
+    assert result["converged"] is True
+    assert beam.detector_brightness.get_value() == pytest.approx(result["brightness"])
 
 
 def test_every_service_command_and_query_hint_resolves(microscope):

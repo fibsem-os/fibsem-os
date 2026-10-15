@@ -52,7 +52,7 @@ from fibsem.devices.core import (
     plain,
     query,
 )
-from fibsem.devices.display import Display
+from fibsem.display import Display
 from fibsem.structures import (
     BEAMS_STAGE_DEVICE,
     KNOWN_ORIENTATIONS,

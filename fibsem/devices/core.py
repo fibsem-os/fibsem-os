@@ -45,7 +45,7 @@ from typing import (
 
 from psygnal import Signal
 
-from fibsem.devices.display import DisplayHint, display_to_dict
+from fibsem.display import DisplayHint, display_to_dict
 from fibsem.structures import RangeLimit
 
 IMAGING_CHANNEL = "imaging_channel"
@@ -136,7 +136,7 @@ class Parameter:
     the parameter is read back, so its cache and its ``changed`` signal carry what the
     hardware applied rather than what was asked for.
 
-    ``display`` says how to show it (a ``fibsem.devices.display.Display``, or one per field for
+    ``display`` says how to show it (a ``fibsem.display.Display``, or one per field for
     a composite value). Like the type and unit it means the same on every backend: a
     subclass that redeclares the parameter keeps it, and can't give another.
     """

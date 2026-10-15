@@ -43,7 +43,6 @@ else:
     _MISSING_UI_DEPS = ""
     from fibsem.applications.autolamella.ui.autolamella_task_config_widget import (
         AutoLamellaTaskParametersConfigWidget,
-        resolve_field_types,
     )
     from fibsem.ui.widgets.custom_widgets import IntegerValueSpinBox, ValueSpinBox
 
@@ -383,13 +382,12 @@ def test_to_from_dict_preserves_coordinates_as_points():
 
 
 @requires_ui
-def test_resolve_field_types_resolves_future_annotations():
+def test_future_annotations_resolve_to_concrete_types():
     """`from __future__ import annotations` string types resolve to concrete types."""
-    cfg = SpotBurnFiducialTaskConfig(task_name="Spot Burn Fiducial")
-    hints = resolve_field_types(cfg)
+    specs = SpotBurnFiducialTaskConfig(task_name="Spot Burn Fiducial").field_specs
 
-    assert hints["milling_current"] is float
-    assert hints["exposure_time"] is int
+    assert specs["milling_current"].type is float
+    assert specs["exposure_time"].type is int
 
 
 def _control_widget(widget, field: str):

@@ -18,6 +18,7 @@ pytest.importorskip("httpx")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
+from fibsem.acting import current_actor  # noqa: E402
 from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI  # noqa: E402
 from fibsem.applications.autolamella.workflows.interaction import (  # noqa: E402
@@ -108,9 +109,10 @@ def _ask_on_worker(ui, qapp):
 
 
 def _record(ui):
+    """``(kind, payload, actor)`` for each question event, as the record marks it."""
     events = []
     ui.ui_responder.add_question_observer(
-        lambda kind, payload: events.append((kind, dict(payload)))
+        lambda kind, payload: events.append((kind, dict(payload), current_actor()))
     )
     return events
 
@@ -156,9 +158,11 @@ def test_the_operator_takes_the_agent_s_suggestion(ui, qapp, client):
     assert ui.suggestion_shown is None
     assert shown[-1] is None
 
-    kinds = [kind for kind, _ in events]
+    kinds = [kind for kind, _, _ in events]
     assert kinds == ["prompt_raised", "prompt_suggested", "prompt_answered"]
     assert events[1][1]["reason"] == "trench is clear"
+    # The suggestion is the agent's on the record; the prompt is the task's.
+    assert [actor for _, _, actor in events] == ["task", "agent", "task"]
     answered = events[2][1]
     assert answered["answered_by"] == "operator"
     assert answered["suggested_by"] == "agent"

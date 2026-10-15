@@ -19,8 +19,8 @@ from fibsem.devices import (
     Resources,
     command,
 )
-from fibsem.devices.display import Display
 from fibsem.devices.scanner import Scanner
+from fibsem.display import Display
 from fibsem.structures import RangeLimit
 from fibsem_fake_scanner import MANUFACTURER
 from fibsem_fake_scanner.sdk import (

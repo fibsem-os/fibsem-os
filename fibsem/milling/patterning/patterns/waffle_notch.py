@@ -6,14 +6,16 @@ from typing import (
     List,
 )
 
+from fibsem.display import Display
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.milling.properties import (
-    DEFAULT_CROSS_SECTION_METADATA,
-    DEFAULT_DISTANCE_METADATA,
+    cross_section_metadata,
+    distance_metadata,
 )
 from fibsem.structures import (
     CrossSectionPattern,
     FibsemRectangleSettings,
+    field_meta,
 )
 
 
@@ -21,61 +23,44 @@ from fibsem.structures import (
 class WaffleNotchPattern(BasePattern[FibsemRectangleSettings]):
     vheight: float = field(
         default=2.0e-6,
-        metadata={
-            "label": "Vertical Height",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Height of the vertical notch sections.",
-        },
+        metadata=distance_metadata(
+            "Vertical Height", "Height of the vertical notch sections."
+        ),
     )
     vwidth: float = field(
         default=0.5e-6,
-        metadata={
-            "label": "Vertical Width",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Width of the vertical notch sections.",
-        },
+        metadata=distance_metadata(
+            "Vertical Width", "Width of the vertical notch sections."
+        ),
     )
     hheight: float = field(
         default=0.5e-6,
-        metadata={
-            "label": "Horizontal Height",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Height of the horizontal notch sections.",
-        },
+        metadata=distance_metadata(
+            "Horizontal Height", "Height of the horizontal notch sections."
+        ),
     )
     hwidth: float = field(
         default=2.0e-6,
-        metadata={
-            "label": "Horizontal Width",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Width of the horizontal notch sections.",
-        },
+        metadata=distance_metadata(
+            "Horizontal Width", "Width of the horizontal notch sections."
+        ),
     )
     depth: float = field(
         default=1.0e-6,
-        metadata={
-            "label": "Depth",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Depth of the notch sections.",
-        },
+        metadata=distance_metadata("Depth", "Depth of the notch sections."),
     )
     distance: float = field(
         default=2.0e-6,
-        metadata={
-            "label": "Distance",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Distance between notch sections.",
-        },
+        metadata=distance_metadata("Distance", "Distance between notch sections."),
     )
     inverted: bool = field(
         default=False,
-        metadata={
-            "label": "Inverted",
-            "tooltip": "Invert the notch pattern.",
-        },
+        metadata=field_meta(
+            doc="Invert the notch pattern.", display=Display("Inverted")
+        ),
     )
     cross_section: CrossSectionPattern = field(
-        default=CrossSectionPattern.Rectangle, metadata=DEFAULT_CROSS_SECTION_METADATA
+        default=CrossSectionPattern.Rectangle, metadata=cross_section_metadata()
     )
 
     name: ClassVar[str] = "WaffleNotch"

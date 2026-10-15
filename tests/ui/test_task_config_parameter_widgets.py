@@ -40,6 +40,8 @@ from fibsem.applications.autolamella.ui.autolamella_task_config_widget import ( 
     TASK_FORM_DEFAULTS,
     AutoLamellaTaskParametersConfigWidget,
 )
+from fibsem.display import Display  # noqa: E402
+from fibsem.structures import RangeLimit, field_meta  # noqa: E402
 from fibsem.ui.widgets.custom_widgets import (  # noqa: E402
     IntegerValueSpinBox,
     ValueComboBox,
@@ -84,7 +86,7 @@ class SampleTaskConfig(AutoLamellaTaskConfig):
     a_scalar_list: List[str] = field(default_factory=lambda: ["x", "y"])
     a_literal: Literal["cells", "hpf", "other"] = "hpf"
     an_optional_float: Optional[float] = 1.0
-    with_items: str = field(default="b", metadata={"items": ["a", "b", "c"]})
+    with_items: str = field(default="b", metadata=field_meta(choices=["a", "b", "c"]))
     # The two that used to be silently destroyed.
     nested: NestedSettings = field(default_factory=NestedSettings)
     nested_list: List[NestedSettings] = field(
@@ -233,7 +235,7 @@ def test_a_literal_field_offers_its_allowed_values(qapp, form_cls):
 
     It used to fall through to the unknown-type fallback and render as free text,
     so an operator could type a value the field does not accept and nothing
-    objected. It is the same thing the `items` metadata key expresses, so it gets
+    objected. It is the same thing a field's declared `choices` expresses, so it gets
     the same combo box.
     """
     config = SampleTaskConfig()
@@ -315,12 +317,20 @@ class VocabularyTaskConfig(AutoLamellaTaskConfig):
 
     bounded: float = field(
         default=5.0,
-        metadata={"minimum": -20.0, "maximum": 20.0, "step": 0.5, "decimals": 4},
+        metadata=field_meta(
+            limits=RangeLimit(-20.0, 20.0), display=Display(step=0.5, decimals=4)
+        ),
     )
-    bounded_int: int = field(default=3, metadata={"minimum": 1, "maximum": 9})
-    tucked_away: bool = field(default=True, metadata={"advanced": True})
-    not_shown: bool = field(default=True, metadata={"hidden": True})
-    labelled: float = field(default=1.0, metadata={"label": "Custom Label"})
+    bounded_int: int = field(default=3, metadata=field_meta(limits=RangeLimit(1, 9)))
+    tucked_away: bool = field(
+        default=True, metadata=field_meta(display=Display(advanced=True))
+    )
+    not_shown: bool = field(
+        default=True, metadata=field_meta(display=Display(hidden=True))
+    )
+    labelled: float = field(
+        default=1.0, metadata=field_meta(display=Display("Custom Label"))
+    )
     maybe_text: Optional[str] = None
 
 

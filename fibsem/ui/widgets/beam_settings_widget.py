@@ -15,15 +15,14 @@ from superqt.utils import qdebounced
 from fibsem import utils
 from fibsem.devices.beam import STANDARD_RESOLUTIONS, Beam
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import BeamSettings, BeamType, Point, Resolution
+from fibsem.structures import BeamSettings, BeamType, FieldSpec, Point, Resolution
 from fibsem.ui import notification_service
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.utils import find_data, install_wheel_blocker
 from fibsem.ui.widgets.custom_widgets import _create_combobox_control
 from fibsem.ui.widgets.form_builder import (
     configure_spinbox,
-    effective_scale,
-    parameter_field_metadata,
+    parameter_spec,
 )
 
 # Working-distance step per Shift+scroll notch (mm). 1 um — fine focus control.
@@ -76,7 +75,7 @@ class FibsemBeamSettingsWidget(QWidget):
             return sb
 
         def _make_label(name: str, suffix: str = "") -> QLabel:
-            return QLabel(self._field(name)["label"] + suffix)
+            return QLabel(self._field(name).label + suffix)
 
         def _make_point_row(name: str):
             x, y = _make_spinbox(), _make_spinbox()
@@ -588,18 +587,18 @@ class FibsemBeamSettingsWidget(QWidget):
             return [] if value is None else [value]
         return self._choices(key)
 
-    def _field(self, name: str, field=None) -> dict:
+    def _field(self, name: str, field=None) -> FieldSpec:
         """How to show the beam parameter ``name`` (one ``field`` of a point): its
         display hint, with the limits and choices this beam reports. With no such
         beam, or a beam without the parameter, what every beam declares."""
         parameter = self._beam_parameter(name) or getattr(Beam, name)
-        return parameter_field_metadata(parameter, field)
+        return parameter_spec(parameter, field)
 
     def _choices(self, name: str) -> list:
-        return self._field(name).get("items") or []
+        return self._field(name).choices or []
 
     def _scale(self, name: str, field=None) -> float:
-        return effective_scale(self._field(name, field)) or 1.0
+        return self._field(name, field).scale or 1.0
 
     def _to_si(self, name: str, shown: float, field=None) -> float:
         """A value as the box shows it, in the parameter's SI unit."""

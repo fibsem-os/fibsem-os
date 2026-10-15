@@ -13,7 +13,7 @@ class FixtureTaskConfig(AutoLamellaTaskConfig):
     task_type: ClassVar[str] = TASK_TYPE
     display_name: ClassVar[str] = "Fixture Task"
 
-    number: int = field(default=7, metadata={"tooltip": "A round-trippable parameter"})
+    number: int = field(default=7, metadata={"doc": "A round-trippable parameter"})
 
 
 class FixtureTask(AutoLamellaTask):
@@ -32,4 +32,3 @@ class NotATask:
     loader has to report it as a failure rather than let it through. Nothing
     registers it -- that is the point.
     """
-

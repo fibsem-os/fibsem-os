@@ -8,10 +8,11 @@ from typing import (
 
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.milling.properties import (
-    DEFAULT_DISTANCE_METADATA,
+    distance_metadata,
 )
 from fibsem.structures import (
     FibsemLineSettings,
+    RangeLimit,
 )
 
 
@@ -19,47 +20,39 @@ from fibsem.structures import (
 class LinePattern(BasePattern[FibsemLineSettings]):
     start_x: float = field(
         default=-10.0e-6,
-        metadata={
-            "label": "Start X",
-            **DEFAULT_DISTANCE_METADATA,
-            "minimum": -1000.0,
-            "maximum": 1000.0,
-        },
+        metadata=distance_metadata(
+            "Start X",
+            "The x coordinate of the line's start.",
+            limits=RangeLimit(-1000.0e-6, 1000.0e-6),
+        ),
     )
     end_x: float = field(
         default=10.0e-6,
-        metadata={
-            "label": "End X",
-            **DEFAULT_DISTANCE_METADATA,
-            "minimum": -1000.0,
-            "maximum": 1000.0,
-        },
+        metadata=distance_metadata(
+            "End X",
+            "The x coordinate of the line's end.",
+            limits=RangeLimit(-1000.0e-6, 1000.0e-6),
+        ),
     )
     start_y: float = field(
         default=0.0,
-        metadata={
-            "label": "Start Y",
-            **DEFAULT_DISTANCE_METADATA,
-            "minimum": -1000.0,
-            "maximum": 1000.0,
-        },
+        metadata=distance_metadata(
+            "Start Y",
+            "The y coordinate of the line's start.",
+            limits=RangeLimit(-1000.0e-6, 1000.0e-6),
+        ),
     )
     end_y: float = field(
         default=0.0,
-        metadata={
-            "label": "End Y",
-            **DEFAULT_DISTANCE_METADATA,
-            "minimum": -1000.0,
-            "maximum": 1000.0,
-        },
+        metadata=distance_metadata(
+            "End Y",
+            "The y coordinate of the line's end.",
+            limits=RangeLimit(-1000.0e-6, 1000.0e-6),
+        ),
     )
     depth: float = field(
         default=1.0e-6,
-        metadata={
-            "label": "Depth",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Depth of the line pattern.",
-        },
+        metadata=distance_metadata("Depth", "Depth of the line pattern."),
     )
     name: ClassVar[str] = "Line"
 

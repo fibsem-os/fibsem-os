@@ -8,35 +8,33 @@ from typing import (
 
 import numpy as np
 
+from fibsem.display import Display
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.milling.properties import (
-    DEFAULT_DISTANCE_METADATA,
+    distance_metadata,
 )
 from fibsem.structures import (
     FibsemPolygonSettings,
+    field_meta,
 )
 
 
 @dataclass
 class PolygonPattern(BasePattern):
     vertices: np.ndarray[float] = field(
-        default_factory=lambda: np.array([]), metadata={"hidden": True}
+        default_factory=lambda: np.array([]),
+        metadata=field_meta(display=Display(hidden=True)),
     )  # type: ignore[type-arg]
     depth: float = field(
         default=1.0e-6,
-        metadata={
-            "label": "Depth",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Depth of the polygon.",
-        },
+        metadata=distance_metadata("Depth", "Depth of the polygon."),
     )
     is_exclusion: bool = field(
         default=False,
-        metadata={
-            "label": "Is Exclusion",
-            "type": bool,
-            "tooltip": "If true, the polygon will be an exclusion area.",
-        },
+        metadata=field_meta(
+            doc="If true, the polygon will be an exclusion area.",
+            display=Display("Is Exclusion"),
+        ),
     )
     name: ClassVar[str] = "PolygonPattern"
 
