@@ -176,6 +176,14 @@ is dropped. That's their call, not an error. For `EditAlignmentArea`,
 `value`, as `prompt_answer` would. It is placed on screen only if the
 operator takes the suggestion.
 
+Two playbook rules hold at Assist too. Before you suggest a Setup position
+or a POI, check coincidence as *Before a position or a POI* says: the fresh
+SEM and FIB images and any `stage_stable_move` or `stage_vertical_move` go
+in one request, and you suggest only once both beams agree. And *When to
+propose auto*: propose switching the milling tasks to auto only after one
+lamella's mills all passed first time; the switch is a request too, and so
+is turning supervision back on.
+
 A **recorded question** (`QUESTION item=… task=…`, or a prompt saying
 `answer_via: "decide"`) is decided, not answered, so a suggestion is
 refused (`409 not_suggestible`). At Assist, file the `review_decide` call
