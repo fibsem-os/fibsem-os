@@ -312,3 +312,89 @@ def test_a_pattern_s_extent_from_its_numbers():
     assert pattern_extent(line) == pytest.approx((-1e-6, 2e-6, 0, 3e-6))
     assert not outside_field(ring, 12e-6, 10e-6)
     assert outside_field(ring, 11e-6, 10e-6)
+
+
+def test_a_review_decision_s_point_is_drawn_from_the_image_it_sits_on():
+    # FIB-1411: review_decide's POI was only JSON on the card. It is drawn on
+    # the FIB view from the proposal's reference image, and follows the view.
+    from fibsem.applications.autolamella.ui.agent_previews import POI_OVERLAY
+
+    reference = FibsemImage.generate_blank_image(resolution=(200, 100), hfw=200e-6)
+    asked = []
+
+    def reference_image(arguments):
+        asked.append(arguments["proposal_id"])
+        return reference
+
+    controller = _FramedController()  # its FIB frame: 100 µm wide
+    previews = AgentPreviews(lambda: controller, reference_image=reference_image)
+    request = {
+        "request_id": "ij90",
+        "status": "pending",
+        "actions": [
+            {
+                "tool": "review_decide",
+                "arguments": {
+                    "item_id": "01",
+                    "task_name": "Setup Lamella",
+                    "proposal_id": "p1",
+                    "outcome": "Confirmed",
+                    "values": {"poi": {"x": 10e-6, "y": 5e-6}},
+                },
+            }
+        ],
+    }
+    previews.show_request(request)
+    assert asked == ["p1"]
+    # 10 µm right, 5 µm up of the centre, on a 0.5 µm/px view.
+    assert controller.overlays[(BeamType.ION, POI_OVERLAY)].points == [
+        pytest.approx((120.0, 40.0))
+    ]
+    closer = FibsemImage.generate_blank_image(resolution=(200, 100), hfw=50e-6)
+    controller.show(BeamType.ION, closer)
+    assert controller.overlays[(BeamType.ION, POI_OVERLAY)].points == [
+        pytest.approx((140.0, 30.0))
+    ]
+
+
+def test_an_item_edit_s_point_and_alignment_area_are_drawn_on_the_fib_view():
+    from fibsem.applications.autolamella.ui.agent_previews import (
+        AREA_OVERLAY,
+        POI_OVERLAY,
+    )
+
+    controller = _FramedController()
+    previews = AgentPreviews(lambda: controller)
+    request = {
+        "request_id": "kl12",
+        "status": "pending",
+        "actions": [
+            {
+                "tool": "item_update",
+                "arguments": {
+                    "item_name": "01-full-magpie",
+                    "patch": {
+                        "poi.x": -10e-6,
+                        "poi.y": 0.0,
+                        "alignment_area.left": 0.25,
+                        "alignment_area.top": 0.5,
+                        "alignment_area.width": 0.5,
+                        "alignment_area.height": 0.25,
+                    },
+                    "version": "v",
+                },
+            }
+        ],
+    }
+    previews.show_request(request)
+    assert controller.overlays[(BeamType.ION, POI_OVERLAY)].points == [
+        pytest.approx((80.0, 50.0))
+    ]
+    area = controller.overlays[(BeamType.ION, AREA_OVERLAY)]
+    (rectangle,) = area.stages[0].define_patterns()
+    # 100 px × 25 px of a 0.5 µm/px frame, centred 12.5 px below its centre.
+    assert (rectangle.width, rectangle.height) == pytest.approx((50e-6, 12.5e-6))
+    assert (rectangle.centre_x, rectangle.centre_y) == pytest.approx((0.0, -6.25e-6))
+    assert area.dashed and area.colour == PURPLE_COLOR
+    previews.show_request(None)
+    assert controller.overlays == {}
