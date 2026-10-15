@@ -143,7 +143,8 @@ def test_with_nothing_waiting_the_card_says_what_the_agent_is_doing(qapp):
     card.set_now("stable move")
     shown = _labels(card)
     assert "stable move" in shown
-    assert "WAITING FOR YOU" in shown and "Nothing." in shown
+    # Nothing waits, so no "Waiting for you".
+    assert "WAITING FOR YOU" not in shown
     card.deleteLater()
 
 
