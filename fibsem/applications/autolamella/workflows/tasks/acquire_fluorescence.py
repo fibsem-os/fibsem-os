@@ -18,6 +18,7 @@ from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 from fibsem.applications.autolamella.workflows.ui import (
     ask_user,
 )
+from fibsem.display import Display
 from fibsem.fm.acquisition import acquire_image
 from fibsem.fm.calibration import AutoFocusResult, run_coarse_fine_autofocus
 from fibsem.fm.structures import AutoFocusSettings, ChannelSettings, ZParameters
@@ -34,34 +35,35 @@ class AcquireFluorescenceImageConfig(AutoLamellaTaskConfig):
     channel_settings: list[ChannelSettings] = field(
         default_factory=list,
         metadata=field_meta(
-            tooltip="Settings for each fluorescence channel", label="Channel Settings"
+            doc="Settings for each fluorescence channel",
+            display=Display("Channel Settings"),
         ),
     )
     zparams: ZParameters = field(
         default_factory=ZParameters,
         metadata=field_meta(
-            tooltip="Z-stack acquisition parameters", label="Z-Stack Parameters"
+            doc="Z-stack acquisition parameters", display=Display("Z-Stack Parameters")
         ),
     )
     autofocus_settings: AutoFocusSettings = field(
         default_factory=AutoFocusSettings,
         metadata=field_meta(
-            tooltip="Settings for autofocus before acquiring fluorescence images",
-            label="Autofocus Settings",
+            doc="Settings for autofocus before acquiring fluorescence images",
+            display=Display("Autofocus Settings"),
         ),
     )
     orientation: Optional[str] = field(
         default=None,
         metadata=field_meta(
-            tooltip="Orientation for acquisition. 'FM' or 'SEM'. None = use fluorescence_pose as-is.",
-            label="Orientation",
+            doc="Orientation for acquisition. 'FM' or 'SEM'. None = use fluorescence_pose as-is.",
+            display=Display("Orientation"),
         ),
     )
     retract_objective: bool = field(
         default=True,
         metadata=field_meta(
-            tooltip="Retract the objective when the task finishes, so it is clear of the stage for subsequent moves. Disable for back-to-back fluorescence tasks.",
-            label="Retract Objective",
+            doc="Retract the objective when the task finishes, so it is clear of the stage for subsequent moves. Disable for back-to-back fluorescence tasks.",
+            display=Display("Retract Objective"),
         ),
     )
 
