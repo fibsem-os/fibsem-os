@@ -521,7 +521,9 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "experiment. beam_estimate_overview first: a big grid at a long dwell runs "
             "for hours. A long command: it answers with its run at once; "
             "service_wait_for_run imaging gives the stitched image (summary, path, "
-            "preview) and the tiles' paths; service_call_command imaging stop, "
+            "preview), the tiles' paths and the layout (the layout check's warning, "
+            "and whether register_tiles moved the tiles and why); "
+            "service_call_command imaging stop, "
             "with a reason, ends it before the next tile."
         ),
         method="POST",
@@ -531,7 +533,9 @@ CATALOG: Tuple[ToolSpec, ...] = (
         params={
             "settings": (
                 "OverviewAcquisitionSettings dict: image_settings, nrows, ncols, "
-                "overlap, autofocus_mode, autocontrast_mode, focus_stack_settings"
+                "overlap, autofocus_mode, autocontrast_mode, focus_stack_settings, "
+                "register_tiles (experimental: place each tile where its picture "
+                "says it is, not where the stage step put it; default false)"
             ),
             "path": "a folder inside the open experiment to save it in",
             "name": "the file name, stamped with the time (default overview)",
@@ -606,7 +610,8 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "use. path must be a folder inside the open experiment. "
             "fm_estimate_overview first: tiles take seconds to minutes each. A "
             "long command: it answers with its run at once; service_wait_for_run imaging "
-            "gives the mosaic's path and summary and the tiles' paths; "
+            "gives the mosaic's path and summary, the tiles' paths and the layout, "
+            "as beam_acquire_overview's; "
             "service_call_command imaging stop, with a reason, ends it before the "
             "next tile."
         ),
@@ -621,7 +626,8 @@ CATALOG: Tuple[ToolSpec, ...] = (
             ),
             "parameters": (
                 "OverviewParameters dict: rows, cols, overlap, autofocus_mode "
-                "(none, once, each_row, each_tile), use_zstack"
+                "(none, once, each_row, each_tile), use_zstack, register_tiles "
+                "(experimental, as beam_acquire_overview's; default false)"
             ),
             "path": "a folder inside the open experiment to save it in",
             "name": "the file name, stamped with the time (default overview)",

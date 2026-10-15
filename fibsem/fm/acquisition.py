@@ -43,7 +43,11 @@ from fibsem.imaging.tiling.progress import (
     TiledProgress,
     TiledStatus,
 )
-from fibsem.imaging.tiling.registration import compose_mosaic, registered_positions
+from fibsem.imaging.tiling.registration import (
+    compose_mosaic,
+    layout_summary,
+    registered_positions,
+)
 from fibsem.structures import (
     BeamType,
     DeviceImagingState,
@@ -478,6 +482,8 @@ class FMTiledAcquisitionRunner:
         # What the tile layout check found, for whoever reports the run's end: None
         # when the tiles line up with the stage steps, or could not be checked.
         self.layout_warning: Optional[str] = None
+        # What `register_tiles` did ({applied, note, ...}), None when not asked.
+        self.registration: Optional[dict] = None
         self._layout_check: Optional[TileLayoutCheck] = None
         # Where each tile goes in the mosaic when `register_tiles` aligned them, or
         # None for the planned layout. Decided at the end of `run`.
@@ -523,6 +529,7 @@ class FMTiledAcquisitionRunner:
         registration = None
         if self.overview_parameters.register_tiles:
             registration = self._register_tiles()
+        self.registration = registration
         self.layout_warning = self._report_layout(registration)
         return self.tileset
 
@@ -1280,6 +1287,7 @@ def acquire_fm_tiled_overview(
     stop_event: Optional[threading.Event] = None,
     tile_paths: Optional[List[str]] = None,
     on_acquired: Optional[Callable[[FluorescenceImage, Optional[str]], None]] = None,
+    layout: Optional[Dict[str, Any]] = None,
 ) -> Tuple[FluorescenceImage, Optional[str]]:
     """Acquire a fluorescence overview, stitch, save and record it, and report how
     it ended on ``tiled_acquisition_signal``.
@@ -1302,7 +1310,8 @@ def acquire_fm_tiled_overview(
     ``destination`` or the write failed (the mosaic is still returned). A
     ``stop_event`` set while it runs raises `OperationCancelledError`. A
     ``tile_paths`` list is extended with each saved tile's path, also when the
-    run is stopped or fails part way. Taking the FM for the run
+    run is stopped or fails part way. A ``layout`` dict is filled with the
+    finished run's `layout_summary`. Taking the FM for the run
     (`FluorescenceMicroscope.acquiring`) is the caller's.
     """
     runner = FMTiledAcquisitionRunner(
@@ -1341,6 +1350,8 @@ def acquire_fm_tiled_overview(
     finally:
         if tile_paths is not None:
             tile_paths.extend(getattr(runner, "tile_paths", []))
+    if layout is not None:
+        layout.update(layout_summary(runner))
     report(TiledStatus.FINISHED, warning=getattr(runner, "layout_warning", None))
     return mosaic, path
 

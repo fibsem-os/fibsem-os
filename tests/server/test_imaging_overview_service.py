@@ -109,9 +109,34 @@ def test_an_overview_runs_on_and_saves_inside_the_experiment(
     assert image["preview"] and image["summary"]["kind"] == "image"
     assert len(result["tile_paths"]) == 4
     assert all(os.path.isfile(path) for path in result["tile_paths"])
+    # Not asked to register: the tiles stay as planned, and the answer says so.
+    assert result["layout"]["registration"] is None
     # The stage comes back to where it started.
     end = microscope.get_stage_position()
     assert abs(end.x - start.x) < 1e-9 and abs(end.y - start.y) < 1e-9
+
+
+def test_an_overview_says_what_tile_registration_did(client, experiment):
+    settings = _overview()
+    settings.register_tiles = True
+    resp = client.post(
+        f"{IMAGING}/commands/tiled_overview",
+        json={
+            "kwargs": {
+                "settings": settings.to_dict(),
+                "path": str(experiment / "overviews"),
+                "name": "reg",
+            }
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    ended = _wait(client, resp.json()["result"]["run_id"])
+    assert ended["state"] == "done", ended
+    layout = ended["result"]["layout"]
+    assert set(layout) == {"warning", "registration"}
+    registration = layout["registration"]
+    assert isinstance(registration["applied"], bool)
+    assert registration["note"]
 
 
 def test_a_path_outside_the_experiment_is_refused(client, tmp_path):
