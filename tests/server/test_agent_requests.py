@@ -681,7 +681,7 @@ def test_a_run_task_reads_by_its_stages_with_whose_estimate_it_is():
                 }
             },
             "Stage",
-            "Safe move to x 1.23 mm, y -9 µm, z 0 µm, tilt 0°, rotation 0°\n"
+            "Safe move to x 1.2346 mm, y −9 µm, z 0 µm, tilt 0°, rotation 0°\n"
             "from x 1 mm, y 0 µm, z 0 µm, tilt 0°, rotation 0°",
         ),
         (
@@ -717,7 +717,7 @@ def test_a_run_task_reads_by_its_stages_with_whose_estimate_it_is():
             {"item_name": "01-full-magpie", "patch": {"poi.x": 2e-6}, "version": "v"},
             {"/x": {"poi": {"x": 1e-6, "y": 0.0}}},
             "01-full-magpie",
-            "Point of interest: (1, 0) µm → (2, 0) µm",
+            "Point of interest: (+1, 0) → (+2, 0) µm",
         ),
         (
             "experiment_load",
@@ -751,7 +751,7 @@ def test_a_run_task_reads_by_its_stages_with_whose_estimate_it_is():
                 }
             },
             "02-saving-wolf · Setup",
-            "Confirm the proposal with POI x 1.2 µm, y -3 µm",
+            "Confirm the proposal with POI x 1.2 µm, y −3 µm",
         ),
         (
             "beam_acquire_overview",
@@ -765,14 +765,14 @@ def test_a_run_task_reads_by_its_stages_with_whose_estimate_it_is():
             },
             {},
             "Overview",
-            "Take a 3 × 3 SEM overview, 150 µm tiles (about 450 µm across), here",
+            "Take a 3 × 3 SEM overview, 150 µm tiles (about 420 × 280 µm), here",
         ),
         (
             "item_add",
             {"stage_position": {"x": 1.2e-6, "y": -9e-6, "z": 0.0, "r": 0.0, "t": 0.0}},
             {},
             "Lamella",
-            "Add at x 1.2 µm, y -9 µm, z 0 µm, tilt 0°, rotation 0°",
+            "Add at x 1.2 µm, y −9 µm, z 0 µm, tilt 0°, rotation 0°",
         ),
         (
             "experiment_create",
@@ -938,3 +938,77 @@ def test_a_waiting_request_is_described_again_with_the_values_now(client, app, c
     assert len(changed) == 1
     store.reject(filed["request_id"])
     assert not store.refresh(filed["request_id"])
+
+
+def test_an_image_s_settings_read_in_display_units_now_and_new():
+    """FIB-1428: no raw SI in the details; the beam's settings now beside what
+    the image sets them to."""
+    from fibsem.server.request_text import describe_action
+
+    answers = {
+        "/microscope/devices/ion/hfw": {"value": 3e-4},
+        "/microscope/devices/ion/dwell_time": {"value": 2e-7},
+    }
+    described = describe_action(
+        "beam_acquire_image",
+        {"beam_type": "ION", "image_settings": {"hfw": 1.5e-4, "save": True}},
+        "",
+        read=_reader(answers),
+    )
+    assert described["details"] == {
+        "columns": ["Setting", "Now", "New"],
+        "rows": [
+            ["Field of view", "300 µm", "150 µm"],
+            ["Resolution", "", "1536 × 1024"],
+            ["Dwell time", "200 ns", "1 µs"],
+            ["Save", "", "yes"],
+        ],
+    }
+
+
+def test_an_overview_s_details_are_labelled_and_short():
+    from fibsem.server.request_text import describe_action
+
+    described = describe_action(
+        "beam_acquire_overview",
+        {
+            "settings": {
+                "nrows": 2,
+                "ncols": 3,
+                "overlap": 0.1,
+                "image_settings": {"hfw": 1e-4, "dwell_time": 1e-6},
+            },
+            "path": "/data/assist-test/overviews",
+            "name": "grid-1",
+        },
+        "",
+    )
+    rows = dict(map(tuple, described["details"]["rows"]))
+    assert rows["Rows"] == "2" and rows["Columns"] == "3"
+    assert rows["Overlap"] == "10%"
+    assert rows["Field of view"] == "100 µm" and rows["Dwell time"] == "1 µs"
+    assert rows["Saved as"] == "grid-1 in overviews"
+
+
+def test_an_item_edit_with_no_old_value_says_none():
+    from fibsem.server.request_text import describe_action
+
+    described = describe_action(
+        "item_update",
+        {"item_name": "01", "patch": {"poi": {"x": -1.8e-6, "y": 0.5e-6}}},
+        "/x",
+        read=_reader({"/x": {"poi": {"x": None, "y": None}}}),
+    )
+    assert described["change"] == "Point of interest: (none) → (−1.8, +0.5) µm"
+
+
+def test_no_details_table_has_blank_headers():
+    from fibsem.server.request_text import describe_action
+
+    for tool, arguments in (
+        ("item_add", {"stage_position": {"x": 0.0, "coordinate_system": "RAW"}}),
+        ("experiment_create", {"name": "assist-test"}),
+        ("experiment_load", {"path": "/data/assist-test"}),
+    ):
+        details = describe_action(tool, arguments, "").get("details")
+        assert details is None or all(details["columns"]), tool
