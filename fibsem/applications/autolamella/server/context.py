@@ -61,19 +61,48 @@ def _content_hash(data) -> str:
     ).hexdigest()[:16]
 
 
-def item_fields_version(lamella) -> str:
-    """A content hash naming the state of an item's patchable fields.
+def item_pose_positions(lamella) -> Dict[str, Any]:
+    """Where each of an item's poses puts the stage, by pose name (None where a
+    pose has no position): the item document's ``poses``."""
+    poses = {}
+    for pose_name, pose in dict(lamella.poses).items():
+        position = getattr(pose, "stage_position", None)
+        poses[pose_name] = position.to_dict() if position is not None else None
+    return poses
 
-    The item document's version, hashing exactly the ITEM_PATCH_FIELDS — so a
-    task re-recording geometry rotates it (stales a pending patch, correctly),
-    while poses moving or history growing does not (they are not patchable,
-    so they cannot invalidate what a patch was written against).
+
+def item_fields_version(lamella) -> str:
+    """A content hash naming the state of an item's patchable fields and poses.
+
+    The item document's version, hashing the ITEM_PATCH_FIELDS and where the
+    poses put the stage — so a task re-recording geometry or moving the
+    milling pose rotates it, and a pending patch goes stale (FIB-1420): a POI
+    is in the milling frame, so one chosen before the pose moved names a
+    different place after. History growing does not rotate it.
     """
     from fibsem.applications.autolamella.server.events import to_plain
 
-    return _content_hash(
-        {name: to_plain(getattr(lamella, name, None)) for name in ITEM_PATCH_FIELDS}
-    )
+    fields = {
+        name: to_plain(getattr(lamella, name, None)) for name in ITEM_PATCH_FIELDS
+    }
+    fields["poses"] = item_pose_positions(lamella)
+    return _content_hash(fields)
+
+
+def _answer_value_to_wire(value) -> Any:
+    """An answer value (what ``_parse_answer_value`` parses) back in the shape
+    ``answer_prompt`` takes it: a rectangle or point as itself, detection
+    features as ``{"features": [{name, px}]}``, spot-burn points as
+    ``{"points": [...]}``."""
+    if isinstance(value, dict):
+        return {
+            "features": [
+                {"name": name, "px": px.to_dict()} for name, px in value.items()
+            ]
+        }
+    if isinstance(value, (list, tuple)):
+        return {"points": [point.to_dict() for point in value]}
+    return value.to_dict()
 
 
 def config_version(config) -> str:
@@ -1419,10 +1448,6 @@ class AutoLamellaAppContext:
             return {"available": False, "item_name": item_name, **refusal}
         from fibsem.applications.autolamella.server.events import to_plain
 
-        poses = {}
-        for pose_name, pose in dict(lamella.poses).items():
-            position = getattr(pose, "stage_position", None)
-            poses[pose_name] = position.to_dict() if position is not None else None
         return {
             "available": True,
             "item_name": lamella.name,
@@ -1439,7 +1464,7 @@ class AutoLamellaAppContext:
             "defect": to_plain(lamella.defect.to_dict())
             if getattr(lamella, "defect", None) is not None
             else None,
-            "poses": poses,
+            "poses": item_pose_positions(lamella),
             # The item document's version: patches echo it (see apply_item_patch).
             "version": item_fields_version(lamella),
         }
@@ -2295,6 +2320,7 @@ class AutoLamellaAppContext:
         if item is None:
             return {"available": True, "queued": False, "reason": "add refused"}
         manager.notify_queue_changed()
+        self._record_queue_change("requeue_front" if front else "requeue", item)
         return {
             "available": True,
             "queued": True,
@@ -2303,6 +2329,93 @@ class AutoLamellaAppContext:
             "task_name": task_name,
             "queue_version": manager.queue.version,
         }
+
+    def edit_queue(self, item_name: str, task_name: str, action: str) -> Dict[str, Any]:
+        """Remove or move a waiting (item, task) pair in the running workflow's
+        queue, as the timeline's menu does (FIB-1419).
+
+        ``action`` is one of :data:`QUEUE_ACTIONS`: ``remove`` (it will not run;
+        kept in the run record as Removed), ``move_up``, ``move_down`` or
+        ``run_next``. Only a pair still waiting can be edited: the running one
+        is refused (``not_pending``) -- stopping it is ``stop_workflow`` -- and
+        so is one that already ran.
+        """
+        from fibsem.applications.autolamella.workflows.tasks.queue import (
+            QUEUE_ACTIONS,
+            QueueOp,
+        )
+
+        if action not in QUEUE_ACTIONS:
+            return {
+                "available": True,
+                "applied": False,
+                "error_type": "invalid",
+                "error": f"Unknown action {action!r}.",
+                "action_names": list(QUEUE_ACTIONS),
+            }
+        manager = self._manager
+        if manager is None:
+            return {
+                "available": True,
+                "applied": False,
+                "reason": "no workflow is running — the queue exists only during a run",
+            }
+        item = manager.queue.find_pair(item_name, task_name)
+        if item is None:
+            return {
+                "available": True,
+                "applied": False,
+                "error_type": "not_found",
+                "error": f"{item_name} / {task_name} is not in the queue.",
+            }
+        result = manager.queue.apply(item.id, action)
+        if result.op is QueueOp.NOT_PENDING:
+            if item.status is AutoLamellaTaskStatus.InProgress:
+                state = "is running now; stop it instead"
+            elif item.status is AutoLamellaTaskStatus.Removed:
+                state = "was already removed"
+            else:
+                state = f"already ran ({item.status.name})"
+            return {
+                "available": True,
+                "applied": False,
+                "error_type": "not_pending",
+                "error": f"{item_name} / {task_name} {state}.",
+            }
+        if result.op is QueueOp.NOT_FOUND:
+            return {
+                "available": True,
+                "applied": False,
+                "error_type": "not_found",
+                "error": f"{item_name} / {task_name} is not in the queue.",
+            }
+        if result.ok:
+            manager.notify_queue_changed()
+            self._record_queue_change(action, item)
+        return {
+            "available": True,
+            "applied": True,
+            # Already first or last: nothing moved.
+            "changed": result.ok,
+            "item_id": item.id,
+            "item_name": item_name,
+            "task_name": task_name,
+            "action": action,
+            "queue_version": result.version,
+        }
+
+    def _record_queue_change(self, action: str, item) -> None:
+        """One ``queue_changed`` event; the stamp says who made the edit."""
+        if self._event_buffer is not None:
+            self._event_buffer.append(
+                "queue_changed",
+                {
+                    "action": action,
+                    "item_name": item.item_name,
+                    "task_name": item.task_name,
+                    "queue_item_id": item.id,
+                },
+            )
 
     # --- supervision prompts (FIB-851) ------------------------------------------
 
@@ -2476,8 +2589,13 @@ class AutoLamellaAppContext:
         except StalePromptError:
             return {"available": True, "applied": False, "stale": True}
         result = {"available": True, "applied": applied, "stale": False}
-        if getattr(outcome, "adjusted", parsed is not None):
-            result["adjusted"] = True
+        moved_from = getattr(outcome, "moved_from", None)
+        if moved_from is not None:
+            # The value moved the widget: say from where, in the value's own
+            # shape. Absent when the widget already showed it (FIB-1420).
+            from fibsem.applications.autolamella.server.events import to_plain
+
+            result["moved_from"] = to_plain(_answer_value_to_wire(moved_from))
         return result
 
     def suggest_answer(

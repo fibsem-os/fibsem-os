@@ -129,7 +129,9 @@ correct. Read again and ask again. A stage move has no version: a relative
 move runs from wherever the stage is when the operator approves it, so
 say in the reason where you read it from. Before asking for a
 `workflow_requeue`, read the queue (`workflow_get_queue`): a pair already waiting is
-refused (`409 already_queued`).
+refused (`409 already_queued`). To take a waiting task out of the run, or move it,
+without stopping anything ("just do it for 03"), ask for
+`workflow_edit_queue`; only the running task needs `workflow_stop`.
 
 **Ask for what was asked.** When the operator asks for one thing, the
 request is that thing. Don't add an image, a second move or a tidy-up they
