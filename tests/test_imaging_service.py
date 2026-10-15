@@ -4,6 +4,7 @@ beams, ``auto_focus`` choosing the instrument's own autofocus or the sweep, and
 
 import os
 import threading
+import time
 
 import pytest
 
@@ -196,12 +197,19 @@ def test_the_beam_commands_pass_through_by_beam_type(microscope, monkeypatch):
     imaging.autocontrast(BeamType.ION, area)
     assert areas == [area]
 
+    electron = microscope.beams[BeamType.ELECTRON]
     imaging.start_live(BeamType.ELECTRON)
     try:
-        assert microscope.beams[BeamType.ELECTRON].is_live
+        assert electron.is_live
     finally:
         imaging.stop_live(BeamType.ELECTRON)
-    assert not microscope.beams[BeamType.ELECTRON].is_live
+    # stop_live waits only briefly (two seconds) for the frame in flight. A frame
+    # takes about one second here and longer on a loaded Windows runner, where the
+    # beam still read live straight after stop_live; it must stop, not stop at once.
+    deadline = time.monotonic() + 30
+    while electron.is_live and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert not electron.is_live
 
 
 def test_the_microscope_images_through_the_service(microscope, monkeypatch):
