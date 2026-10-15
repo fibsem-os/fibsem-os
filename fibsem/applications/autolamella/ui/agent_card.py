@@ -27,10 +27,10 @@ click does is the window's.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from PyQt5.QtCore import QSize, Qt, pyqtSignal
-from PyQt5.QtGui import QImage, QMouseEvent, QPixmap
+from PyQt5.QtGui import QImage, QMouseEvent, QPainter, QPixmap
 from PyQt5.QtWidgets import (
     QAction,
     QActionGroup,
@@ -81,9 +81,14 @@ from fibsem.ui.tokens import (
 
 # The agent's reason, before "more".
 WHY_LINES = 3
-# The Why column when wide: the reason, and under it the image the agent's
-# values were measured on, drawn on it (FIB-1411).
-WHY_WIDTH = 340
+# When wide, the steps and the reason sit left and the image the agent's values
+# were measured on, drawn on it (FIB-1411), right: at least `PICTURE_MIN` wide,
+# and any width past the steps' `STEPS_MIN`, up to the image's own width. With
+# details open, or narrow, they stack and the image takes the card's width.
+PICTURE_MIN = 420
+STEPS_MIN = 300
+# The legend drawn on the image: this size on screen, however wide it shows.
+LEGEND_PX = 12
 # The image, clicked: at most this wide.
 ENLARGED_WIDTH = 1024
 
@@ -329,23 +334,48 @@ class _Details(QScrollArea):
 
 
 class _Picture(QLabel):
-    """An image scaled to the Why column; a click shows it at full size."""
+    """An image scaled to its column, its legend drawn on it; a click shows it
+    at full size."""
 
-    def __init__(self, image: QImage, width: int, caption: str) -> None:
+    def __init__(
+        self, image: QImage, width: int, caption: str, legend: Sequence = ()
+    ) -> None:
         super().__init__()
         self.setObjectName("agentImage")
         self._image = image
         self._caption = caption
-        pixmap = QPixmap.fromImage(image).scaledToWidth(width, Qt.SmoothTransformation)  # type: ignore
-        self.setPixmap(pixmap)
-        # All of it: squeezed, the label would show its middle and cut the legend.
-        self.setFixedHeight(pixmap.height())
+        self._legend = tuple(legend)
+        self.set_width(width)
         self.setCursor(Qt.PointingHandCursor)  # type: ignore
         # What it is ("FIB · 07:41"): here, and the enlarged window's title.
         self.setToolTip(
             f"{caption} · click to enlarge" if caption else "Click to enlarge"
         )
         self.window_: Optional[QDialog] = None
+
+    def set_width(self, width: int) -> None:
+        """Shown *width* wide, at most the image's own width."""
+        width = max(1, min(int(width), self._image.width()))
+        if self.pixmap() is not None and self.pixmap().width() == width:
+            return
+        pixmap = self._drawn(width)
+        self.setPixmap(pixmap)
+        # All of it: squeezed, the label would show its middle and cut the legend.
+        self.setFixedHeight(pixmap.height())
+
+    def _drawn(self, width: int) -> QPixmap:
+        """The image *width* wide with its legend, `LEGEND_PX` on screen."""
+        from fibsem.applications.autolamella.ui.agent_previews import draw_legend
+
+        pixmap = QPixmap.fromImage(self._image)
+        if pixmap.width() != width:
+            pixmap = pixmap.scaledToWidth(width, Qt.SmoothTransformation)  # type: ignore
+        if self._legend:
+            painter = QPainter(pixmap)
+            painter.setRenderHint(QPainter.Antialiasing)
+            draw_legend(painter, self._legend, LEGEND_PX)
+            painter.end()
+        return pixmap
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802
         if event.button() == Qt.LeftButton:  # type: ignore
@@ -358,10 +388,7 @@ class _Picture(QLabel):
         layout = QVBoxLayout(dialog)
         layout.setContentsMargins(0, 0, 0, 0)
         full = QLabel()
-        pixmap = QPixmap.fromImage(self._image)
-        if pixmap.width() > ENLARGED_WIDTH:
-            pixmap = pixmap.scaledToWidth(ENLARGED_WIDTH, Qt.SmoothTransformation)  # type: ignore
-        full.setPixmap(pixmap)
+        full.setPixmap(self._drawn(min(self._image.width(), ENLARGED_WIDTH)))
         layout.addWidget(full)
         dialog.show()
         self.window_ = dialog
@@ -391,8 +418,9 @@ class AgentCard(QFrame):
         self._now: Optional[str] = None
         # The images under Why, with their captions: the request's, the
         # suggestion's.
-        self._images: Dict[str, Tuple[QImage, str]] = {}
-        self.image_label: Optional[QLabel] = None
+        self._images: Dict[str, Tuple[QImage, str, Tuple]] = {}
+        self.image_label: Optional[_Picture] = None
+        self._picture_holder: Optional[QWidget] = None
         self._details_open = False
         self._rejecting = False
         self._why_open = False
@@ -583,17 +611,22 @@ class AgentCard(QFrame):
         self._render()
 
     def set_image(
-        self, image: Optional[QImage], caption: str = "", suggestion: bool = False
+        self,
+        image: Optional[QImage],
+        caption: str = "",
+        suggestion: bool = False,
+        legend: Sequence = (),
     ) -> None:
         """The image the waiting request's (or, *suggestion*, the suggested
         answer's) values were measured on, drawn on it, with what it is
-        ("FIB · 07:41"); None for none."""
+        ("FIB · 07:41") and its *legend* (`agent_previews.draw_legend`'s
+        entries); None for none."""
         key = "suggestion" if suggestion else "request"
         if image is None or image.isNull():
             if self._images.pop(key, None) is None:
                 return
         else:
-            self._images[key] = (image, caption)
+            self._images[key] = (image, caption, tuple(legend))
         self._render()
 
     def set_now(self, action: Optional[str]) -> None:
@@ -654,6 +687,11 @@ class AgentCard(QFrame):
             self._wide = wide
             self._place_about()
             self._render()
+        elif self.image_label is not None:
+            # The image follows the card's width.
+            if self._picture_holder is not None:
+                self._picture_holder.setFixedWidth(self._picture_width())
+            self.image_label.set_width(self._picture_width())
 
     def _place_about(self) -> None:
         about = (self.heard_label, self.connect_link)
@@ -675,8 +713,9 @@ class AgentCard(QFrame):
     def _render(self) -> None:
         _clear(self._body)
         self._body.setDirection(
-            QBoxLayout.LeftToRight if self._wide else QBoxLayout.TopToBottom
+            QBoxLayout.TopToBottom if self._stacked() else QBoxLayout.LeftToRight
         )
+        self._picture_holder = None
         request = self._request
         self.accept_button = self.details_link = self.why_link = None
         self.approve_button = self.reject_button = None
@@ -702,8 +741,9 @@ class AgentCard(QFrame):
         self._body.addLayout(left, 1)
         holder = QWidget()
         holder.setLayout(right)
-        if self._wide:
-            holder.setFixedWidth(WHY_WIDTH)
+        if not self._stacked():
+            holder.setFixedWidth(self._picture_width())
+            self._picture_holder = holder
         self._body.addWidget(holder)
         self.updateGeometry()
 
@@ -727,6 +767,12 @@ class AgentCard(QFrame):
         rows = QVBoxLayout(box)
         rows.setContentsMargins(10, 8, 10, 8)
         rows.setSpacing(8)
+        self.details_link = None
+        if any(action.get("details") for action in actions):
+            self.details_link = _link(
+                "Hide details" if self._details_open else "Show details"
+            )
+            self.details_link.clicked.connect(self._toggle_details)
         for index, action in enumerate(actions):
             row = QHBoxLayout()
             row.setSpacing(8)
@@ -745,13 +791,19 @@ class AgentCard(QFrame):
             row.addWidget(mark)
             text = QVBoxLayout()
             text.setSpacing(1)
-            text.addWidget(
-                _label(
-                    action.get("what") or action.get("tool", ""),
-                    TEXT_MUTED_COLOR,
-                    small=True,
-                )
+            what = _label(
+                action.get("what") or action.get("tool", ""),
+                TEXT_MUTED_COLOR,
+                small=True,
             )
+            if index == 0 and self.details_link is not None:
+                # Top right of the list.
+                head = QHBoxLayout()
+                head.addWidget(what, 1)
+                head.addWidget(self.details_link, 0, Qt.AlignTop)  # type: ignore
+                text.addLayout(head)
+            else:
+                text.addWidget(what)
             change = _label(action.get("change") or "", TEXT_STRONG_COLOR, wrap=True)
             change.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
             text.addWidget(change)
@@ -761,22 +813,14 @@ class AgentCard(QFrame):
             row.addLayout(text, 1)
             rows.addLayout(row)
         left.addWidget(box)
-        if any(action.get("details") for action in actions):
-            toggle = _link("Hide details" if self._details_open else "Show details")
-            toggle.clicked.connect(self._toggle_details)
-            self.details_link = toggle
-            line = QHBoxLayout()
-            line.addWidget(toggle)
-            line.addStretch(1)
-            left.addLayout(line)
-        else:
-            self.details_link = None
+        left.addSpacing(4)
+        self._add_reason(left, request.get("reason", ""))
         left.addStretch(1)
 
         right = QVBoxLayout()
         right.setContentsMargins(0, 0, 0, 0)
         right.setSpacing(8)
-        self._add_why(right, request.get("reason", ""), "request")
+        self._add_picture(right, "request")
         right.addStretch(1)
         self.approve_button = self.reject_button = None
         self.confirm_reject_button = self.back_button = None
@@ -839,12 +883,14 @@ class AgentCard(QFrame):
         answer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         rows.addWidget(answer)
         left.addWidget(box)
+        left.addSpacing(4)
+        self._add_reason(left, suggestion.get("reason", ""))
         left.addStretch(1)
 
         right = QVBoxLayout()
         right.setContentsMargins(0, 0, 0, 0)
         right.setSpacing(8)
-        self._add_why(right, suggestion.get("reason", ""), "suggestion")
+        self._add_picture(right, "suggestion")
         right.addStretch(1)
         buttons = QHBoxLayout()
         buttons.addStretch(1)
@@ -858,26 +904,44 @@ class AgentCard(QFrame):
         right.addLayout(buttons)
         return left, right
 
-    def _why_width(self) -> int:
-        if self._wide:
-            return WHY_WIDTH
+    def _stacked(self) -> bool:
+        """The picture under the steps and the reason, not beside them: narrow,
+        or with details open, so their table has the card's width."""
+        return not self._wide or (self._details_open and self._request is not None)
+
+    def _inner_width(self) -> int:
         margins = self.layout().contentsMargins()
         return max(self.width() - margins.left() - margins.right(), 200)
 
-    def _add_why(self, column: QVBoxLayout, reason: str, image: str) -> None:
-        """The agent's reason: always shown, as it is what makes an approval
-        mean something, but clamped to `WHY_LINES` lines with "more" (FIB-1412).
-        Under it, the *image* its values were measured on (FIB-1411)."""
-        self._add_reason(column, reason)
+    def _picture_width(self) -> int:
+        """The picture's column: the card's width stacked, else `PICTURE_MIN`
+        and whatever the steps' `STEPS_MIN` leaves."""
+        inner = self._inner_width()
+        if self._stacked():
+            return inner
+        return max(PICTURE_MIN, inner - STEPS_MIN - self._body.spacing())
+
+    def _why_width(self) -> int:
+        """The reason's width: the steps' column."""
+        if self._stacked():
+            return self._inner_width()
+        return max(
+            self._inner_width() - self._picture_width() - self._body.spacing(), 200
+        )
+
+    def _add_picture(self, column: QVBoxLayout, image: str) -> None:
+        """The *image* the values were measured on (FIB-1411), its legend on it."""
         self.image_label = None
         if image not in self._images:
             return
-        picture, caption = self._images[image]
-        label = _Picture(picture, self._why_width(), caption)
+        picture, caption, legend = self._images[image]
+        label = _Picture(picture, self._picture_width(), caption, legend)
         self.image_label = label
         column.addWidget(label)
 
     def _add_reason(self, column: QVBoxLayout, reason: str) -> None:
+        """The agent's reason: always shown, as it is what makes an approval
+        mean something, but clamped to `WHY_LINES` lines with "more" (FIB-1412)."""
         column.addWidget(_label("Why", TEXT_MUTED_COLOR, small=True))
         why = _label(reason, TEXT_COLOR, wrap=True)
         why.setTextInteractionFlags(Qt.TextSelectableByMouse)  # type: ignore
