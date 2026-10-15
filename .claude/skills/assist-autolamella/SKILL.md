@@ -197,7 +197,8 @@ the wrong place, a stage move that makes no sense, a task repeating), file
 `stop_workflow` or `stop_milling` as a request at once, with what you saw as
 the reason, and say it in chat: the operator approves it or presses Stop.
 
-A mill you started yourself you may stop directly, at any level. Every stop
+A mill you started yourself you may stop directly, at Assist or Drive (never at
+Watch). Every stop
 takes a `reason`, which the operator reads. Never use a stop to "pause and
 think". Ask in chat instead.
 

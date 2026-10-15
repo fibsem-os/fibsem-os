@@ -150,7 +150,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
         path="/microscope/services/milling/commands/stop",
         level="drive",
         params={"reason": "why you are stopping it, for the operator (required)"},
-        note="A mill the agent started itself it can stop at any level; anyone else's (the workflow's, the operator's) needs Drive, and at Assist goes in request_actions for the operator to approve. Never refused for someone else being in control of the microscope.",
+        note="A mill the agent started itself it can stop at Assist or Drive, never at Watch; anyone else's (the workflow's, the operator's) needs Drive, and at Assist goes in request_actions for the operator to approve. Never refused for someone else being in control of the microscope.",
     ),
     # --- hardware ---
     ToolSpec(
@@ -380,8 +380,8 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "Run a service command listed by list_services, e.g. service=stage_movement "
             "command=move_to_orientation kwargs={'orientation': 'SEM'}. A long command "
             "(milling run, spot burn run) answers when it ends; command=stop from "
-            "another call stops it: the agent's own run at any level, anyone "
-            "else's at Drive, always with a reason."
+            "another call stops it: the agent's own run at Assist or Drive, "
+            "anyone else's at Drive, never at Watch, always with a reason."
         ),
         method="POST",
         path="/microscope/services/{service}/commands/{command}",
