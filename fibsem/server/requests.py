@@ -32,6 +32,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from fibsem.acting import AGENT, acting
 from fibsem.server.auth import AgentLevel, AuthConfig, lending_drive, require_level
+from fibsem.server.calls import AgentCall, calling, join_line
 from fibsem.server.catalog import CATALOG, ToolSpec, route_call
 from fibsem.server.request_text import Describer, describe_actions
 
@@ -522,7 +523,13 @@ class RequestStore:
                 if request._abort is not None or not self._assisting():
                     status = CANCELLED
                     break
-                with lending_drive():
+                call = AgentCall(
+                    tool=action.tool,
+                    arguments=action.arguments,
+                    action=join_line(action.what, action.change),
+                    level=AgentLevel.ASSIST.value,
+                )
+                with lending_drive(), calling(call):
                     try:
                         code, answer = asyncio.run(
                             _asgi_call(

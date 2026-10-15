@@ -30,9 +30,11 @@ import math
 import os
 import re
 import sys
+from contextvars import ContextVar
 from typing import Any, List, Optional, Tuple
 from urllib.parse import quote, urlencode
 
+from fibsem.server.calls import headers_for
 from fibsem.server.catalog import CATALOG, route_call, tools_for_capabilities
 
 _TIMEOUT_S = 120.0  # acquisitions and moves on real hardware are slow
@@ -259,6 +261,11 @@ def _probe(client_factory, url, token):
         client.close()
 
 
+# The tool running and its arguments, for the server's words (`_flag_failures`).
+_calling: "ContextVar[Optional[Tuple[str, dict]]]" = ContextVar(
+    "fibsem_mcp_calling", default=None
+)
+
 # fibsem.structures.MillingState by value, without importing it: the sidecar
 # stays light. tests/server/test_sidecar.py pins the two in step.
 _MILLING_STATES = ("IDLE", "RUNNING", "STOPPING", "PAUSED", "ERROR", "UNKNOWN")
@@ -287,8 +294,13 @@ def _call(client, method, path, payload=None):
     403 teaches them nothing. A server error comes back as a `_Failure`: it
     says "failed", not "refused", because the call may have done part of its work.
     """
+    kwargs = {"json": payload}
+    tool = _calling.get()
+    if tool is not None and method != "GET":
+        # The server describes the call for the operator from these (FIB-1426).
+        kwargs["headers"] = headers_for(*tool)
     try:
-        resp = client.request(method, path, json=payload)
+        resp = client.request(method, path, **kwargs)
     except ServerUnreachable as exc:
         return None, str(exc)
     if resp.status_code >= 400:
@@ -1137,30 +1149,36 @@ def build_sidecar(client, capabilities):
     for name, fn in implementations.items():
         if name in offered:
             mcp.add_tool(
-                _flag_failures(fn),
+                _flag_failures(fn, name),
                 name=name,
                 description=by_name[name].full_description,
             )
     return mcp
 
 
-def _flag_failures(fn):
+def _flag_failures(fn, name=None):
     """*fn*, with a server error it answers (`_Failure`) raised as the MCP
     ToolError, so the call is flagged an error rather than read as a refusal.
     Any other exception is raised as a ToolError carrying its type and message:
-    the SDK would otherwise tell the agent only "Error executing tool X"."""
+    the SDK would otherwise tell the agent only "Error executing tool X".
+
+    While it runs, its acting calls name the tool *name* and its arguments to
+    the server (`_call`)."""
     import functools
 
     from mcp.server.mcpserver.exceptions import ToolError
 
     @functools.wraps(fn)
     def tool(*args, **kwargs):
+        token = _calling.set((name, kwargs) if name else None)
         try:
             answer = fn(*args, **kwargs)
         except ToolError:
             raise
         except Exception as exc:
             raise ToolError(f"{type(exc).__name__}: {exc}") from exc
+        finally:
+            _calling.reset(token)
         if isinstance(answer, _Failure):
             raise ToolError(str(answer))
         return answer

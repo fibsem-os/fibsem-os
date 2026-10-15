@@ -348,3 +348,27 @@ def test_an_unexpected_error_reaches_the_agent_with_its_message():
     sidecar = build_sidecar(client, shape)
     with pytest.raises(ToolError, match="ConnectError: the server went away"):
         asyncio.run(sidecar.call_tool("stage_get_position", {}))
+
+
+def test_an_acting_tool_names_itself_to_the_server():
+    """FIB-1426: the server describes the agent's call as a request's card does,
+    from the tool and arguments the sidecar names; a read names nothing."""
+    client = _make_client("drive")
+    sidecar = build_sidecar(client, _capabilities(client))
+    microscope = client.app.state.microscope
+    recorded = []
+
+    def record(kind, payload):
+        recorded.append((kind, payload))
+
+    microscope.session.record_signal.connect(record)
+    try:
+        asyncio.run(sidecar.call_tool("stage_get_position", {}))
+        asyncio.run(sidecar.call_tool("stage_move_relative", {"dx": 2e-6}))
+    finally:
+        microscope.session.record_signal.disconnect(record)
+    calls = [p for kind, p in recorded if kind == "agent_called"]
+    assert len(calls) == 1
+    assert calls[0]["tool"] == "stage_move_relative"
+    assert calls[0]["action"] == "Stage · Move by x 2 µm"
+    assert calls[0]["level"] == "drive" and calls[0]["ok"]

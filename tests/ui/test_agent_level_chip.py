@@ -159,7 +159,8 @@ def test_now_shows_under_the_title_while_a_request_waits_too(qapp):
     assert card.now_label.text() == "Milling 'trench' · stage 2 of 6"
     card.set_request(None)
     card.set_now(None)
-    assert card.now_row.isVisibleTo(card) and card.now_label.text() == "Nothing."
+    # Nothing runs: no Now line at all (FIB-1426).
+    assert not card.now_row.isVisibleTo(card)
     card.deleteLater()
 
 
@@ -170,9 +171,9 @@ def test_a_tall_card_keeps_its_rows_packed_at_the_top(qapp):
     card.show()
     card.set_now("Milling 'trench'")
     short = AgentCard()
+    short.set_now("Milling 'trench'")
     short.resize(900, short.sizeHint().height())
     short.show()
-    short.set_now("Milling 'trench'")
     qapp.processEvents()
     for tall_one, short_one in (
         (card.recent_link, short.recent_link),
@@ -331,7 +332,6 @@ def test_an_ended_request_leaves_the_card(qapp):
     chip.set_request(None)
     shown = _labels(chip.card)
     assert not any("Approved by you" in text for text in shown)
-    assert "Nothing." in shown
     chip.deleteLater()
 
 
@@ -931,10 +931,15 @@ def test_the_floating_card_can_be_kept_on_top_of_every_window(qapp):
 # --- Recent (FIB-1414), and the clamped Why (FIB-1412) ---------------------------
 
 
-def _row(text, outcome="done", tone="ok"):
+def _row(text, outcome="done", tone="ok", level=""):
     from fibsem.applications.autolamella.ui.agent_recent import RecentRow
 
-    return RecentRow("16:08", text, outcome, tone)
+    return RecentRow("16:08", text, outcome, tone, level)
+
+
+def _called(action, status=200, level="drive"):
+    """The server's record of the agent's direct call (FIB-1426)."""
+    return {"action": action, "status": status, "ok": status < 400, "level": level}
 
 
 def test_recent_shows_at_drive_and_is_hidden_below_it_until_asked_for(qapp):
@@ -1003,7 +1008,7 @@ def test_at_drive_what_the_agent_does_shows_in_the_card_now_then_recent(qapp):
     activity.follow_events(buffer)
     with acting(AGENT), control.take(AGENT, "move stage relative"):
         assert "move stage relative" in _labels(chip.card)
-        buffer.append("stage_moved", {"move": "move_relative"})
+        buffer.append("agent_called", _called("Stage · Move by x 2 µm"))
     buffer.append(
         "milling", {"milling_task_name": "agent test mill", "status": "completed"}
     )
@@ -1015,9 +1020,79 @@ def test_at_drive_what_the_agent_does_shows_in_the_card_now_then_recent(qapp):
     assert texts == [
         "Answered 'the run's question': yes",
         "Milled 'agent test mill'",
-        "Moved the stage: move relative",
+        "Stage · Move by x 2 µm",
     ]
     assert "move stage relative" not in _labels(chip.card)
+    activity.follow_events(None)
+    activity.set_microscope(None)
+    chip.deleteLater()
+    bar.deleteLater()
+
+
+def test_at_drive_each_direct_call_shows_in_now_then_recent_with_its_level(qapp):
+    """FIB-1426 done when: at Drive a move, a mill, a stop, an image and an
+    overview each show in Now while running, then in Recent with a plain line,
+    how it ended and its level."""
+    from types import SimpleNamespace
+
+    from fibsem.acting import AGENT, acting
+    from fibsem.applications.autolamella.server.events import EventBuffer
+    from fibsem.applications.autolamella.ui.agent_activity import AgentActivity
+    from fibsem.control import Control
+    from fibsem.ui.widgets.status_bar import FibsemStatusBar
+
+    bar = FibsemStatusBar()
+    activity = AgentActivity(bar)
+    control = Control()
+    activity.set_microscope(SimpleNamespace(control=control))
+    chip = AgentLevelChip()
+    activity.now_changed.connect(chip.set_now)
+    activity.recent_changed.connect(chip.set_recent)
+    chip.set_level(AgentLevel.DRIVE)
+    buffer = EventBuffer(stamp=lambda kind, payload: {"actor": AGENT})
+    activity.follow_events(buffer)
+
+    def now():
+        qapp.processEvents()
+        return (
+            chip.card.now_label.text()
+            if chip.card.now_row.isVisibleTo(chip.card)
+            else None
+        )
+
+    move, image = "Stage · Move by x 2 µm", "FIB · Take an image, 150 µm wide"
+    overview = "FIB · Overview, 3 × 3 tiles"
+    with acting(AGENT):
+        with control.take(AGENT, move):
+            assert now() == move
+        buffer.append("agent_called", _called(move))
+        with control.take(AGENT, image):
+            assert now() == image
+        buffer.append("agent_called", _called(image))
+        run = {"service": "imaging", "run_id": "o", "action": overview}
+        with control.take(AGENT, overview):
+            buffer.append("command_started", dict(run, level="drive"))
+            assert now() == overview
+            assert chip.card.recent_buttons[0].text() == overview
+            assert "running" in _labels(chip.card)
+        buffer.append("command_ended", dict(run, state="done", level="drive"))
+        with control.take(AGENT, "Milling · Run task 'trench'"):
+            assert now() == "Milling · Run task 'trench'"
+        buffer.append("milling", {"milling_task_name": "trench", "status": "cancelled"})
+        buffer.append(
+            "agent_stop",
+            {"what": "the mill", "reason": "through the lamella", "level": "drive"},
+        )
+    assert now() is None
+    rows = [(r.text, r.outcome, r.level) for r in activity.recent]
+    assert rows == [
+        ("Stopped the mill: through the lamella", "done", "drive"),
+        ("Milled 'trench'", "stopped", "drive"),
+        (overview, "done", "drive"),
+        (image, "done", "drive"),
+        (move, "done", "drive"),
+    ]
+    assert _labels(chip.card).count("Drive") == 5
     activity.follow_events(None)
     activity.set_microscope(None)
     chip.deleteLater()

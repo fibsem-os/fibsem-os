@@ -764,13 +764,10 @@ class AgentCard(QFrame):
         self.updateGeometry()
 
     def _paint_now(self) -> None:
-        """The Now line: what runs; with nothing waiting either, "Nothing."."""
-        waiting = self._request is not None or self._suggestion is not None
-        self.now_label.setText(self._now or "Nothing.")
-        self.now_label.setStyleSheet(
-            f"color: {TEXT_COLOR if self._now else TEXT_MUTED_COLOR};"
-        )
-        self.now_row.setVisible(bool(self._now) or not waiting)
+        """The Now line: what the agent is doing, shown only while it does
+        something (FIB-1426)."""
+        self.now_label.setText(self._now or "")
+        self.now_row.setVisible(bool(self._now))
 
     def _request_columns(self, request: Dict[str, Any], applying: bool):
         actions: List[Dict[str, Any]] = request.get("actions", [])
@@ -1058,6 +1055,12 @@ class AgentCard(QFrame):
             line.addWidget(
                 _label(row.outcome, _TONES.get(row.tone, TEXT_MUTED_COLOR), small=True)
             )
+            # At which level it was done (FIB-1426): Assist's were approved.
+            level = str(getattr(row, "level", "") or "")
+            tag = _label(level.title(), TEXT_MUTED_COLOR, small=True)
+            tag.setObjectName("agentLevelTag")
+            tag.setVisible(bool(level))
+            line.addWidget(tag)
             rows.addLayout(line)
             self.recent_buttons.append(button)
         self._recent_rows.addWidget(box)

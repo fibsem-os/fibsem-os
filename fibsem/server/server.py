@@ -12,6 +12,8 @@ another command is in control it is refused with a structured ``409
 microscope_busy`` naming who, rather than interleaved or queued.
 """
 
+import hmac
+import json
 import logging
 from typing import Any, Callable, Mapping, Optional
 
@@ -19,6 +21,7 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import JSONResponse, Response
 from fastapi.routing import APIRoute
+from starlette.datastructures import Headers
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from fibsem.acting import AGENT, acting
@@ -41,6 +44,7 @@ from fibsem.server.auth import (
     require_monitoring,
     take_control,
 )
+from fibsem.server.calls import calling, current_call, from_headers
 from fibsem.server.devices import ERROR_STATUS, build_device_router, refusal
 from fibsem.server.models import MicroscopeStateRequest
 from fibsem.server.requests import RequestStore, build_request_router
@@ -195,9 +199,33 @@ async def _stop_reason(request: Request):
     own = _agents_own_action(request)
     yield
     action = action_name(request) if command is not None else "workflow"
+    call = current_call()
+    if call is not None:
+        call.recorded = True
+    owner = request.path_params.get("service") or request.path_params.get("device")
     request.app.state.microscope.record_event(
-        "agent_stop", {"action": action, "reason": reason.strip(), "own": own}
+        "agent_stop",
+        {
+            "action": action,
+            "what": _STOPPED.get(owner or "workflow", f"the {_words(owner)}"),
+            "reason": reason.strip(),
+            "own": own,
+            "level": request.app.state.auth.level.value,
+        },
     )
+
+
+# What a stop stops, as the operator says it: "Stopped the mill: <why>".
+_STOPPED = {
+    "workflow": "the run",
+    "milling": "the mill",
+    "imaging": "imaging",
+    "fluorescence": "the fluorescence acquisition",
+}
+
+
+def _words(name) -> str:
+    return str(name or "").replace("_", " ")
 
 
 # The refusals of the agent's permissions: its level, Assist's ask-first, Off,
@@ -238,12 +266,25 @@ def _record_refusal(request: Request, exc: StarletteHTTPException) -> None:
         logging.debug("could not record an agent refusal", exc_info=True)
 
 
+# Routes that put the agent's call on the record themselves: its requests, notes
+# and level, its answers and suggestions to the run's questions. A stop says
+# so as it stops (`_stop_reason`).
+_RECORDS_ITSELF = ("/app/agent/", "/app/workflow/prompt/")
+
+
 class _AgentActs:
     """Every request is the agent acting, for the experiment's record (FIB-1062).
 
     Pure ASGI middleware. The mark is a context variable, and a route handler --
     a sync function, which FastAPI runs in a worker thread -- runs with a copy
     of the request's context, so the mark reaches whatever the handler calls.
+
+    An acting call is also the agent's call (`fibsem.server.calls`), named by
+    the sidecar's headers, and once answered is recorded as ``agent_called``
+    (FIB-1426): what it did in the operator's words, how it ended, and at which
+    level. Not a read, an approved request's call (the request's own events say
+    those), a refusal for the agent's permissions (``agent_refused``), a long
+    command (its run's events), or a route that records itself.
     """
 
     def __init__(self, app) -> None:
@@ -253,8 +294,73 @@ class _AgentActs:
         if scope["type"] not in ("http", "websocket"):
             await self.app(scope, receive, send)
             return
-        with acting(AGENT):
-            await self.app(scope, receive, send)
+        lent = current_call() if drive_is_lent() else None
+        if scope["type"] != "http" or scope.get("method") == "GET" or lent:
+            with acting(AGENT):
+                await self.app(scope, receive, send)
+            return
+        headers = {
+            key.decode("latin-1").lower(): value.decode("latin-1")
+            for key, value in scope.get("headers") or []
+        }
+        answer: dict = {"status": 500, "body": b""}
+
+        async def sending(message) -> None:
+            if message["type"] == "http.response.start":
+                answer["status"] = message["status"]
+            elif message["type"] == "http.response.body" and answer["status"] >= 400:
+                answer["body"] += message.get("body", b"")[:65536]
+            await send(message)
+
+        with acting(AGENT), calling(from_headers(headers)) as call:
+            call.level = self._level(scope)
+            try:
+                await self.app(scope, receive, sending)
+            finally:
+                self._record(scope, call, answer["status"], answer["body"])
+
+    @staticmethod
+    def _level(scope) -> Optional[str]:
+        auth = getattr(getattr(scope.get("app"), "state", None), "auth", None)
+        return auth.level.value if auth is not None else None
+
+    @staticmethod
+    def _record(scope, call, status: int, body: bytes) -> None:
+        """Put *call* on the record as ``agent_called``. Never raises."""
+        try:
+            path = scope.get("path", "")
+            auth = scope["app"].state.auth
+            token = Headers(scope=scope).get("authorization", "")
+            if (
+                not hmac.compare_digest(token, f"Bearer {auth.token}")
+                or status in (401, 403)
+                or call.run_id is not None
+                or call.recorded
+                or path.startswith(_RECORDS_ITSELF)
+            ):
+                return
+            request = Request(scope)
+            payload = {
+                "action": call.action or action_name(request),
+                "route": f"{scope.get('method')} {path}",
+                "status": status,
+                "ok": status < 400,
+                "level": call.level,
+            }
+            if call.tool:
+                payload["tool"] = call.tool
+            if call.arguments:
+                payload["arguments"] = call.arguments
+            if status >= 400:
+                try:
+                    detail = json.loads(body or b"{}").get("detail")
+                except (ValueError, AttributeError):
+                    detail = None
+                if isinstance(detail, dict) and detail.get("error_type"):
+                    payload["error_type"] = detail["error_type"]
+            scope["app"].state.microscope.record_event("agent_called", payload)
+        except Exception:  # noqa: BLE001 - recording must not change the answer
+            logging.debug("could not record an agent call", exc_info=True)
 
 
 def build_server(

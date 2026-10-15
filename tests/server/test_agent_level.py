@@ -256,9 +256,23 @@ def test_a_stop_needs_a_reason_and_records_it(client, auth, microscope, milling_
     assert client.post("/app/workflow/stop", headers=AGENT, json=WHY).status_code == 200
     stops = [payload for kind, payload in recorded if kind == "agent_stop"]
     assert stops == [
-        {"action": "milling stop", "reason": WHY["reason"], "own": False},
-        {"action": "workflow", "reason": WHY["reason"], "own": False},
+        {
+            "action": "milling stop",
+            "what": "the mill",
+            "reason": WHY["reason"],
+            "own": False,
+            "level": "drive",
+        },
+        {
+            "action": "workflow",
+            "what": "the run",
+            "reason": WHY["reason"],
+            "own": False,
+            "level": "drive",
+        },
     ]
+    # Recorded once, as a stop.
+    assert not [kind for kind, _ in recorded if kind == "agent_called"]
 
 
 def test_a_stop_with_nothing_milling_is_refused_and_not_recorded(
@@ -344,3 +358,54 @@ def test_stop_agent_drops_to_watch_and_says_so(client, auth):
     auth.set_level(AgentLevel.WATCH)
     refused = client.post("/app/workflow/stop", headers=AGENT, json=WHY)
     assert _error(refused) == "level"
+
+
+def test_a_direct_call_is_described_and_recorded(client, auth, microscope):
+    """FIB-1426: the agent's call reads as a request's card says it, on the Now
+    line (control) and on the record (``agent_called``), with its level; an
+    unnamed one (plain HTTP) by its route."""
+    auth.set_level(AgentLevel.DRIVE)
+    recorded, actions = [], []
+
+    def record(kind, payload):
+        recorded.append((kind, payload))
+
+    def control(in_control):
+        if in_control is not None:
+            actions.append(in_control.action)
+
+    named = {
+        **AGENT,
+        "X-Agent-Tool": "stage_move_relative",
+        "X-Agent-Arguments": '{"dx": 1e-06}',
+    }
+    microscope.session.record_signal.connect(record)
+    microscope.control.changed.connect(control)
+    try:
+        assert client.post(MOVE_RELATIVE, headers=named, json=_NUDGE).status_code == 200
+        assert client.post(MOVE_RELATIVE, headers=AGENT, json=_NUDGE).status_code == 200
+        # A read is not on the record.
+        assert client.get("/app/workflow/status", headers=AGENT).status_code == 200
+    finally:
+        microscope.session.record_signal.disconnect(record)
+        microscope.control.changed.disconnect(control)
+    assert actions == ["Stage · Move by x 1 µm", "move relative"]
+    calls = [p for kind, p in recorded if kind == "agent_called"]
+    assert calls == [
+        {
+            "action": "Stage · Move by x 1 µm",
+            "route": f"POST {MOVE_RELATIVE}",
+            "status": 200,
+            "ok": True,
+            "level": "drive",
+            "tool": "stage_move_relative",
+            "arguments": {"dx": 1e-06},
+        },
+        {
+            "action": "move relative",
+            "route": f"POST {MOVE_RELATIVE}",
+            "status": 200,
+            "ok": True,
+            "level": "drive",
+        },
+    ]
