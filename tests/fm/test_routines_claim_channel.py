@@ -28,6 +28,10 @@ import pytest
 
 from fibsem.drivers.demo.simulator import FM_ACTIVE_VIEW
 
+# Tens of seconds each on the simulator, so pull requests run these on one CI leg
+# only; the nightly and release runs take them everywhere (python-package.yml).
+pytestmark = pytest.mark.slow
+
 BEAM_VIEW = 1
 
 

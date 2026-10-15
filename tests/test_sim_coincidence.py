@@ -227,6 +227,7 @@ def test_views_share_the_scene_but_not_the_contrast():
     assert 0.2 < corr < 0.95, corr
 
 
+@pytest.mark.slow
 def test_measures_configured_offset(microscope):
     """The measurement and the scene now share BeamStageProjection, so the
     configured boot offset is recovered exactly. Noise off: the oracle is
@@ -242,6 +243,7 @@ def test_measures_configured_offset(microscope):
     assert abs(m.dz) == pytest.approx(COINCIDENCE_OFFSET, abs=0.5e-6)
 
 
+@pytest.mark.slow
 def test_known_z_move_changes_measurement_by_that_amount(microscope):
     """The offline oracle: apply a known stage-z move, the measured dz must
     change by exactly that amount. Noise off - see
