@@ -128,12 +128,17 @@ Wake and act on its lines: `PROMPT` (a question is standing, with its
 `question_id`), `QUESTION` (the run is stopped on a recorded question — rule 5),
 `ANSWERED` (check who — if the operator answered, your read of that
 question is stale), task lifecycle `EVENT` lines, `GAP` (events were lost:
-re-read `/app/workflow/prompt` and `/app/workflow/status`), and `RUN ENDED` (report and stop
-watching). A run that ended badly says how: `workflow_stalled` (decisions
-are pending), `workflow_failed: <error>`, or `stopped without an end event`
-(it died without saying so). For the last two, read `app_get_log` with the
-run's `task_id` and `level=WARNING` before you report. It exits 1 when the app cannot be watched; say so rather than
-going idle.
+re-read `/app/workflow/prompt` and `/app/workflow/status`), `WORKFLOW STARTED`, and
+`WORKFLOW ENDED` (report, and keep watching). A workflow that ended badly
+says how: `workflow_stalled` (decisions are pending), `workflow_failed:
+<error>`, or `stopped without an end event` (it died without saying so). For
+the last two, read `app_get_log` with the workflow's `task_id` and
+`level=WARNING` before you report.
+
+Keep the watcher running for the whole session, across workflows: you may
+start the next workflow yourself, and the operator may start one from the
+app. Stop it only when the operator says the session is done. It exits 1
+when the app cannot be watched; say so rather than going idle.
 
 If your harness cannot keep a background process alive while you are idle
 (spawned subagents usually cannot — the watcher dies with your turn, and no
@@ -141,7 +146,7 @@ line will ever wake you), do not go idle expecting one. Hold the watch in
 the foreground of a single bounded command instead: run the watcher with
 your tool timeout as the cap, act on whatever lines it printed when the
 command returns, and run it again with `--since <the last seq you saw>`
-(`latest_seq` from `app_get_events`) so the gap between runs is not lost. A stalled watch looks exactly like a
+(`latest_seq` from `app_get_events`) so nothing between two watches is lost. A stalled watch looks exactly like a
 quiet run — when in doubt, read `/app/workflow/prompt` directly.
 
 ## Answer — the rules that are never optional

@@ -77,8 +77,8 @@ fibsem-mcp watch --since 42
 
 The seq is in `app_get_events` (`latest_seq`). Read it just before you file.
 
-Besides the run's lines (`PROMPT`, `QUESTION`, `ANSWERED`, `EVENT`,
-`RUN ENDED`), it prints a `REQUEST` line each time your request moves:
+Besides the workflow's lines (`PROMPT`, `QUESTION`, `ANSWERED`, `EVENT`,
+`WORKFLOW STARTED`, `WORKFLOW ENDED`), it prints a `REQUEST` line each time your request moves:
 
 - `REQUEST ab12 approved`
 - `REQUEST ab12 applied (2 of 2 applied)` or `failed (1 of 2 applied)`
@@ -88,9 +88,11 @@ Besides the run's lines (`PROMPT`, `QUESTION`, `ANSWERED`, `EVENT`,
 Don't poll `request_get` on a timer. Wait for the line, then read the
 request once.
 
-Keep watching until the run ends or the operator tells you to stop. A
-question nobody has answered is not a reason to leave; run questions have
-no timeout.
+Keep the watcher running for the whole session, across workflows: a
+workflow's end is not the end of the session, and the operator may start
+the next one, or approve your request to. Stop only when the operator says
+the session is done. A question nobody has answered is not a reason to
+leave; the workflow's questions have no timeout.
 
 ## Asking: `request_create`
 
