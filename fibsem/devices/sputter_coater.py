@@ -21,15 +21,15 @@ from __future__ import annotations
 from contextlib import ExitStack
 from typing import Any, Optional, Sequence, Tuple
 
-from fibsem.devices.core import Device, Parameter, command
+from fibsem.devices.core import Device, DeviceParameter, command
 from fibsem.devices.stage import STAGE_RESOURCE
 
 SPUTTER_COATER_RESOURCE = "sputter_coater"
 
 
 class SputterCoater(Device):
-    current = Parameter(float, unit="A", doc="The sputter current.")
-    inserted = Parameter(bool, doc="The coater is in its working position.")
+    current = DeviceParameter(float, unit="A", doc="The sputter current.")
+    inserted = DeviceParameter(bool, doc="The coater is in its working position.")
 
     # Whether ``run`` takes the grids to coat: the instrument moves the stage to
     # each one itself.
