@@ -837,11 +837,14 @@ class AgentPreviews:
 
     # --- suggestions ------------------------------------------------------------
 
-    def show_suggestion(self, request: object, value: object) -> None:
+    def show_suggestion(
+        self, request: object, value: object, image: Optional[str] = None
+    ) -> None:
         """Draw the agent's suggested answer to the pending *request* (a
         question) on the card, on the image the question shows: an alignment
         area, detected features, spot-burn points; for a mill, the task's
-        patterns; for a position question, both beams' views (FIB-1424). A
+        patterns; for a position question, both beams' views (FIB-1424). The
+        agent's own *image*, when it gave one, takes the place of the view. A
         *request* of None takes it down. A suggested point of interest is
         :meth:`show_suggested_point`'s."""
         from fibsem.applications.autolamella.workflows.interaction import (
@@ -860,14 +863,29 @@ class AgentPreviews:
             if not isinstance(self.suggestion_picture, _PointPicture):
                 self._picture(None, None, [], suggestion=True)
             return
+        evidence = _agent_image(self._load_image, image)
         if isinstance(request, RunMillingTask):
-            self._show_mill(controller, request)
+            self._show_mill(controller, request, evidence)
             return
-        if isinstance(request, Confirm):
+        if isinstance(request, Confirm) and evidence is None:
             self._show_position(controller)
             return
-        if value is None:
-            self._picture(None, None, [], suggestion=True)
+        if value is None or isinstance(request, Confirm):
+            if evidence is None:
+                self._picture(None, None, [], suggestion=True)
+                return
+            # The agent's image, its centre marked as a position question's.
+            layer = _Layer(PURPLE_COLOR)
+            height, width = evidence.data.shape[-2:]
+            layer.targets.append((width / 2, height / 2))
+            layer.key(TARGET, "image centre")
+            self._picture(
+                evidence,
+                evidence.metadata.image_settings.beam_type or BeamType.ION,
+                [layer],
+                suggestion=True,
+                agent_image=True,
+            )
             return
         mark: Optional[_Mark] = None
         if isinstance(request, EditAlignmentArea):
@@ -902,21 +920,29 @@ class AgentPreviews:
         if mark is None:
             return
         frame = mark.places[0][0] if mark.places else None
+        own = frame is None and evidence is not None
         if frame is None:
-            frame = _frame(controller, mark.beam)
+            frame = evidence if own else _frame(controller, mark.beam)
         if frame is None:
             return
         layer = _Layer(PURPLE_COLOR)
         self._add_marks(frame, [mark], layer)
-        self._picture(frame, mark.beam, [layer], suggestion=True)
+        beam = (
+            (frame.metadata.image_settings.beam_type or mark.beam) if own else mark.beam
+        )
+        self._picture(frame, beam, [layer], suggestion=True, agent_image=own)
 
-    def _show_mill(self, controller, request) -> None:
+    def _show_mill(self, controller, request, evidence=None) -> None:
         """A mill question's task: its stages' patterns on the FIB view, the
-        image the task shows as it asks. What the operator approves by
-        answering Run (FIB-1424)."""
+        image the task shows as it asks, or on the agent's own FIB image. What
+        the operator approves by answering Run (FIB-1424)."""
         config = getattr(request, "config", None)
         stages = [s for s in getattr(config, "stages", []) or [] if s.enabled]
-        frame = _frame(controller, BeamType.ION)
+        own = (
+            evidence is not None
+            and evidence.metadata.image_settings.beam_type is BeamType.ION
+        )
+        frame = evidence if own else _frame(controller, BeamType.ION)
         if frame is None or not stages:
             self._picture(None, None, [], suggestion=True)
             return
@@ -931,7 +957,8 @@ class AgentPreviews:
             BeamType.ION,
             [purple, red],
             suggestion=True,
-            title=str(getattr(config, "name", "") or ""),
+            agent_image=own,
+            title="" if own else str(getattr(config, "name", "") or ""),
         )
 
     def _show_position(self, controller) -> None:

@@ -581,6 +581,35 @@ def test_a_suggested_answer_to_a_position_question_shows_both_beams():
     assert caption.startswith("SEM and FIB")
 
 
+def test_a_suggestion_shows_the_agent_s_own_image():
+    # FIB-1424: the agent judged a position on its own image; the card shows
+    # that image, not the live views, and a mill on its own FIB image.
+    from fibsem.applications.autolamella.workflows.interaction import (
+        Confirm,
+        RunMillingTask,
+    )
+    from fibsem.milling.base import FibsemMillingStage
+    from fibsem.milling.tasks import FibsemMillingTaskConfig
+
+    evidence = FibsemImage.generate_blank_image(resolution=(400, 200), hfw=100e-6)
+    evidence.metadata.image_settings.beam_type = BeamType.ION
+    controller = _Controller()
+    card = _Card()
+    previews = AgentPreviews(
+        lambda: controller, show_picture=card, load_image=lambda path: evidence
+    )
+    previews.show_suggestion(Confirm(message="Centred?"), None, image="/exp/a.tif")
+    frame, layer = _layer(previews.suggestion_picture)
+    assert frame is evidence and layer.targets == [(200.0, 100.0)]
+    assert card.shown[True][1].startswith("The agent's image · FIB")
+    config = FibsemMillingTaskConfig.from_stages(
+        [FibsemMillingStage(name="Trench")], name="Rough Milling"
+    )
+    previews.show_suggestion(RunMillingTask(config=config), None, image="/exp/a.tif")
+    frame, layer = _layer(previews.suggestion_picture)
+    assert frame is evidence and layer.patterns
+
+
 def test_a_suggested_point_is_on_the_card_until_the_suggestion_goes():
     controller = _Controller()
     card = _Card()

@@ -2627,6 +2627,7 @@ class AutoLamellaAppContext:
         reason: str,
         value: Optional[Dict[str, Any]] = None,
         timeout: float = 10.0,
+        image: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Suggest an answer to the pending question (FIB-1283).
 
@@ -2652,7 +2653,11 @@ class AutoLamellaAppContext:
             if refusal is not None:
                 return refusal
         outcome = responder.submit_suggestion(
-            bool(response), int(question_id), value=parsed, reason=str(reason)
+            bool(response),
+            int(question_id),
+            value=parsed,
+            reason=str(reason),
+            image=image,
         )
         try:
             outcome.result(timeout=timeout)

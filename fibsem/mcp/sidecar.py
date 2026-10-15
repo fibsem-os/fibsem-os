@@ -1022,7 +1022,11 @@ def build_sidecar(client, capabilities):
         return _app_post("/app/workflow/decide", body)
 
     def prompt_suggest_answer(
-        response: bool, question_id: int, reason: str, value: Optional[dict] = None
+        response: bool,
+        question_id: int,
+        reason: str,
+        value: Optional[dict] = None,
+        image: Optional[str] = None,
     ):
         body = {
             "response": bool(response),
@@ -1031,6 +1035,8 @@ def build_sidecar(client, capabilities):
         }
         if value is not None:
             body["value"] = dict(value)
+        if image:
+            body["image"] = str(image)
         return _app_post("/app/workflow/prompt/suggest", body)
 
     def prompt_answer(response: bool, question_id: int, value: Optional[dict] = None):

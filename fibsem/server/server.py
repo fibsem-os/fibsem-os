@@ -557,10 +557,7 @@ def build_server(
             emit=getattr(app_context, "record_event", None),
             describe=getattr(app_context, "describe_action", None),
             not_allowed=_not_allowed(microscope) if serve_microscope else None,
-            image_refused=lambda path: allowlist.path_outside(
-                {"image_path": path},
-                lambda: getattr(app_context, "experiment_path", None),
-            ),
+            experiment_path=lambda: getattr(app_context, "experiment_path", None),
         )
         app.include_router(build_request_router(app.state.requests))
     return app

@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 
+from fibsem.server import allowlist
 from fibsem.server.auth import take_control
 
 try:  # Protocol is typing-only; keep import robust on the 3.8 floor
@@ -719,6 +720,18 @@ def build_app_suggest_router(context: AppContext) -> APIRouter:
                     "ConfirmDetection, {points: [...]} for RunSpotBurn.",
                 },
             )
+        image = body.get("image") or None
+        if image is not None:
+            # The image the agent's evidence is in, shown on the card (FIB-1424).
+            refusal = allowlist.image_refusal(
+                image, lambda: getattr(context, "experiment_path", None)
+            )
+            if refusal is not None:
+                status, error_type, message = refusal
+                raise HTTPException(
+                    status_code=status,
+                    detail={"error_type": error_type, "message": message},
+                )
         suggest = getattr(context, "suggest_answer", None)
         if suggest is None:
             return {"available": False, "suggested": False, "stale": False}
@@ -727,6 +740,7 @@ def build_app_suggest_router(context: AppContext) -> APIRouter:
             question_id,
             reason.strip(),
             value=value,
+            **({"image": image} if image else {}),
         )
         if result.get("stale"):
             raise HTTPException(

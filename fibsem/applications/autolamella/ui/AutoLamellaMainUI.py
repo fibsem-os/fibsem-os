@@ -4158,6 +4158,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.agent_previews.show_suggestion(
             responder.pending_question() if standing else None,
             standing[2] if standing else None,
+            image=standing[4] if standing else None,
         )
 
     def _on_accept_agent_suggestion(self) -> None:

@@ -1304,6 +1304,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "question_id": "the question_id from prompt_get",
             "reason": "why: shown under the suggestion for the operator",
             "value": "optional geometry, as for prompt_answer",
+            "image": "optional: the path of the image your evidence is in, inside the experiment (as the image tools answered it); the card shows it with the suggested value drawn on it",
         },
         note="Works at Assist and Drive; refused (403) at Watch. At Drive you may prompt_answer directly instead.",
     ),

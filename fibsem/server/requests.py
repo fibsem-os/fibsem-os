@@ -31,6 +31,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from fibsem.acting import AGENT, acting
+from fibsem.server.allowlist import image_refusal
 from fibsem.server.auth import AgentLevel, AuthConfig, lending_drive, require_level
 from fibsem.server.calls import AgentCall, calling, join_line
 from fibsem.server.catalog import CATALOG, ToolSpec, route_call
@@ -223,11 +224,12 @@ class RequestStore:
         emit: Optional[Callable[[str, Dict[str, Any]], Any]] = None,
         describe: Optional[Describer] = None,
         not_allowed: Optional[Callable[[str, str], Optional[str]]] = None,
-        image_refused: Optional[Callable[[str], Optional[str]]] = None,
+        experiment_path: Optional[Callable[[], Optional[str]]] = None,
     ) -> None:
         self._app = app
         # Why a request's image path is refused (outside the experiment), or None.
-        self._image_refused = image_refused or (lambda path: None)
+        # The open experiment's folder: an image the agent shows is inside it.
+        self._experiment_path = experiment_path or (lambda: None)
         self._describe = describe
         self._auth = auth
         self._mounted = mounted
@@ -278,16 +280,9 @@ class RequestStore:
         open experiment."""
         if image is None or image == "":
             return None
-        if not isinstance(image, str) or not os.path.isfile(image):
-            raise RequestRefused(
-                422,
-                "invalid",
-                "image is the path of an image file you took or read (as the "
-                "image tools answered it), or left out.",
-            )
-        why = self._image_refused(image)
-        if why:
-            raise RequestRefused(403, "not_allowed", f"image: {why}.")
+        refusal = image_refusal(image, self._experiment_path)
+        if refusal is not None:
+            raise RequestRefused(*refusal)
         return image
 
     def create(
