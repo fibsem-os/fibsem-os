@@ -81,7 +81,9 @@ from fibsem.applications.autolamella import config as cfg
 from fibsem.applications.autolamella.hook_defaults import build_hook_manager
 from fibsem.applications.autolamella.poses import (
     add_lamella,
+    current_objective_position,
     grid_id_at,
+    remove_lamella,
     set_lamella_pose,
     sync_fluorescence_pose,
 )
@@ -1793,13 +1795,11 @@ class AutoLamellaUI(QMainWindow):
                     "task_names": list(config_map.keys()),
                 }
         else:
-            lamella = experiment.get_lamella_by_name(item_name)
-            if lamella is None:
-                return {
-                    "applied": False,
-                    "error": f"No item named {item_name!r} in this experiment.",
-                    "item_names": [p.name for p in experiment.positions],
-                }
+            from fibsem.applications.autolamella.server.context import find_item
+
+            lamella, refusal = find_item(experiment, item_name)
+            if refusal:
+                return {"applied": False, **refusal}
             config = dict(lamella.task_config).get(task_name)
             if config is None:
                 return {
@@ -1864,18 +1864,15 @@ class AutoLamellaUI(QMainWindow):
         """
         from fibsem.applications.autolamella.server.context import (
             ITEM_PATCH_FIELDS,
+            find_item,
             item_fields_version,
         )
         from fibsem.applications.autolamella.server.events import to_plain
         from fibsem.server.config_patch import PatchError, apply_patch
 
-        lamella = experiment.get_lamella_by_name(item_name)
-        if lamella is None:
-            return {
-                "applied": False,
-                "error": f"No item named {item_name!r} in this experiment.",
-                "item_names": [p.name for p in experiment.positions],
-            }
+        lamella, refusal = find_item(experiment, item_name)
+        if refusal:
+            return {"applied": False, **refusal}
         for path in patch:
             if path.split(".", 1)[0] not in ITEM_PATCH_FIELDS:
                 return {
@@ -1970,13 +1967,11 @@ class AutoLamellaUI(QMainWindow):
                 return {"applied": False, "error": "no protocol is loaded"}
             config = dict(config_map).get(task_name)
         else:
-            lamella = experiment.get_lamella_by_name(item_name)
-            if lamella is None:
-                return {
-                    "applied": False,
-                    "error": f"No item named {item_name!r} in this experiment.",
-                    "item_names": [p.name for p in experiment.positions],
-                }
+            from fibsem.applications.autolamella.server.context import find_item
+
+            lamella, refusal = find_item(experiment, item_name)
+            if refusal:
+                return {"applied": False, **refusal}
             config = dict(lamella.task_config).get(task_name)
         if config is None:
             return {
@@ -2044,13 +2039,11 @@ class AutoLamellaUI(QMainWindow):
         """
         from copy import deepcopy as _deepcopy
 
-        lamella = experiment.get_lamella_by_name(item_name)
-        if lamella is None:
-            return {
-                "applied": False,
-                "error": f"No item named {item_name!r} in this experiment.",
-                "item_names": [p.name for p in experiment.positions],
-            }
+        from fibsem.applications.autolamella.server.context import find_item
+
+        lamella, refusal = find_item(experiment, item_name)
+        if refusal:
+            return {"applied": False, **refusal}
         protocol = getattr(experiment, "task_protocol", None)
         config_map = getattr(protocol, "task_config", None)
         if config_map is None:
@@ -2494,11 +2487,8 @@ class AutoLamellaUI(QMainWindow):
         """
         if self.experiment is None:
             return
-        try:
-            self.experiment.positions.remove(lamella)
-        except ValueError:
+        if not remove_lamella(self.experiment, lamella):
             return
-        self.experiment.save()
         logging.debug("Lamella removed from experiment")
         self.update_lamella_combobox(latest=True)
         self.update_ui()
@@ -2686,11 +2676,7 @@ class AutoLamellaUI(QMainWindow):
         if lamella is None or lamella.fluorescence_pose is None:
             notification_service.show_toast("No lamella selected.", "warning")
             return
-        obj = self.microscope.fm.objective
-        if obj.state is InsertableDeviceState.INSERTED:
-            value_m = obj.position
-        else:
-            value_m = obj.focus_position
+        value_m = current_objective_position(self.microscope.fm)
         if value_m is None:
             notification_service.show_toast(
                 "Objective position unavailable.", "warning"
