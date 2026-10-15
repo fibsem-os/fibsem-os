@@ -1905,6 +1905,17 @@ class AutoLamellaUI(QMainWindow):
                 synced_tasks = list(lamella.sync_tasks_to_poi())
             except Exception:
                 logging.exception("pattern sync after POI patch failed")
+        # Moving the area moves the fiducial not milled yet, as Setup does
+        # when it chooses the area (FIB-1430).
+        if any(p.split(".", 1)[0] == "alignment_area" for p, _o, _n in changes):
+            from fibsem.applications.autolamella.workflows.tasks.fiducial import (
+                follow_alignment_area,
+            )
+
+            try:
+                synced_tasks += follow_alignment_area(lamella)
+            except Exception:
+                logging.exception("fiducial sync after alignment area patch failed")
         logging.info(
             f"agent item patch applied: {item_name}: "
             + ", ".join(f"{p}: {old!r} -> {new!r}" for p, old, new in changes)

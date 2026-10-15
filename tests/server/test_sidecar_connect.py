@@ -277,3 +277,28 @@ def test_a_server_that_answers_at_start_up_shapes_the_tools(monkeypatch):
     capabilities = sidecar._probe(lambda u, t: probe, None, None)
     assert capabilities == {"routers": {}, "level": "watch"}
     assert probe.closed
+
+
+def test_the_connected_line_leaves_out_what_the_server_does_not_say():
+    """``--check`` printed a raw None for a field the server left out (FIB-1429)."""
+    assert sidecar._connected_lines("http://127.0.0.1:8001", {}) == [
+        "fibsem-mcp: connected to http://127.0.0.1:8001"
+    ]
+    assert sidecar._connected_lines("http://h:1", {"level": "watch"}) == [
+        "fibsem-mcp: connected to http://h:1 (agent level watch)"
+    ]
+
+
+def test_the_connected_line_warns_when_the_app_runs_other_code(tmp_path):
+    """A sidecar registered bare imports the environment's fibsem, not the
+    worktree on the app's PYTHONPATH: say so, and how to fix it (FIB-1429)."""
+    from fibsem.server.discovery import fibsem_folder
+
+    same = {"level": "assist", "fibsem": {"path": fibsem_folder()}}
+    assert len(sidecar._connected_lines("http://h:1", same)) == 1
+
+    worktree = tmp_path / "worktree"
+    other = {"level": "assist", "fibsem": {"path": str(worktree / "fibsem")}}
+    line, warning = sidecar._connected_lines("http://h:1", other)
+    assert str(worktree / "fibsem") in warning and fibsem_folder() in warning
+    assert f"PYTHONPATH={worktree}" in warning

@@ -25,6 +25,7 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
 from fibsem.mcp import watch as watch_mod  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
 from fibsem.server.discovery import write_discovery_file  # noqa: E402
+from fibsem.server.levels import AgentLevel  # noqa: E402
 from fibsem.structures import MicroscopeState  # noqa: E402
 
 TOKEN = "test-token"
@@ -504,6 +505,52 @@ def test_a_server_that_stays_gone_ends_the_watch(app):
     assert code == 1
     assert lines[-1].startswith("SERVER GONE")
     assert len(sleeps) == watch_mod.FAILURES_BEFORE_GIVING_UP - 1
+
+
+def test_agent_off_is_not_the_app_stopping(app):
+    """The operator set the level to Off: the app still runs, and refuses the
+    agent until the level comes back (FIB-1429). Events wait in the buffer."""
+
+    def off():
+        app.auth.set_level(AgentLevel.OFF)
+        app.buffer.append("task_started", {"item_name": "lamella-01"})
+
+    def back():
+        app.auth.set_level(AgentLevel.WATCH)
+        app.buffer.append("workflow_completed", {})
+
+    sleeps = []
+    # request 2 is the status check, then four refused polls
+    code, lines = _watch({2: off, 7: back}, sleeps=sleeps)
+
+    assert code == 0
+    assert lines == [
+        watch_mod.AGENT_OFF_LINE,
+        watch_mod.AGENT_BACK_LINE,
+        "EVENT task_started lamella-01",
+        "RUN ENDED (workflow_completed)",
+    ]
+    # as many refusals as end a watch on a gone server: these never count
+    assert len(sleeps) == watch_mod.FAILURES_BEFORE_GIVING_UP
+
+
+def test_a_watch_started_while_the_agent_is_off_waits_for_it(app):
+    app.auth.set_level(AgentLevel.OFF)
+
+    def back():
+        app.auth.set_level(AgentLevel.WATCH)
+
+    def finish():
+        app.buffer.append("workflow_completed", {})
+
+    code, lines = _watch({3: back, 4: finish})
+
+    assert code == 0
+    assert lines == [
+        watch_mod.AGENT_OFF_LINE,
+        watch_mod.AGENT_BACK_LINE,
+        "RUN ENDED (workflow_completed)",
+    ]
 
 
 def test_a_refused_token_ends_the_watch_at_once(app, discovery, monkeypatch):

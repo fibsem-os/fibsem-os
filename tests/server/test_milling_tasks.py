@@ -105,6 +105,25 @@ def test_run_task_saves_inside_the_experiment(client, experiment):
     assert [s["status"] for s in run["result"]["stages"]] == ["completed"] * 2
 
 
+def test_a_task_that_saved_nothing_still_answers_its_folder(client, experiment):
+    """A task stopped before its first image answered ``path: null`` (FIB-1430):
+    the task's folder is answered however it ended, empty when nothing was
+    saved. Here nothing is: no alignment, no acquisition."""
+    config = FibsemMillingTaskConfig.from_stages([_stage()], name="Quiet")
+    config.alignment.enabled = False
+    config.acquisition.acquire_sem = config.acquisition.acquire_fib = False
+
+    run = _run(
+        client,
+        "run_task",
+        {"config": config.to_dict(), "path": str(experiment / "runs")},
+    )
+
+    folder = run["result"]["path"]
+    assert folder == str(experiment / "runs" / "Milling" / "Quiet")
+    assert os.path.isdir(folder) and not os.listdir(folder)
+
+
 def test_a_path_outside_the_experiment_is_refused(client, tmp_path):
     resp = client.post(
         f"{MILLING}/commands/run_stage",

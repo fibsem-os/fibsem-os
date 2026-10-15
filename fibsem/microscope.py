@@ -942,11 +942,14 @@ class FibsemMicroscope(ABC):
         """
         return self._movement_service().move_to_orientation(orientation)
 
-    def safe_absolute_stage_movement(self, stage_position: FibsemStagePosition) -> None:
+    def safe_absolute_stage_movement(
+        self, stage_position: FibsemStagePosition
+    ) -> FibsemStagePosition:
         """Move the stage to the desired position in a safe manner, using compucentric rotation.
-        Supports movements in the stage_position coordinate system
+        Supports movements in the stage_position coordinate system. Returns the new
+        stage position.
         """
-        self._movement_service().safe_absolute_stage_movement(stage_position)
+        return self._movement_service().safe_absolute_stage_movement(stage_position)
 
     def get_manipulator_state(self) -> Optional[bool]:
         """Get the manipulator state (Inserted = True, Retracted = False), or None

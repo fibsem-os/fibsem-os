@@ -194,7 +194,8 @@ def touch_agent_patch(
                     field,
                     lambda field=field: getattr(lamella, field, None),
                 )
-            if "poi" in fields:  # the patterns synced to it move with it
+            # the patterns synced to them move with them
+            if {"poi", "alignment_area"} & fields:
                 edits.touch_patterns(lamella)
             return
         tasks = [task_name]
