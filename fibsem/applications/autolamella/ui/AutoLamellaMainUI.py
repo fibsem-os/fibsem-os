@@ -1618,7 +1618,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._agent_request_described: Tuple[Optional[str], float] = (None, 0.0)
         # What the agent's waiting request or suggestion would do, on the views.
         self.agent_previews = AgentPreviews(
-            lambda: getattr(self, "view_controller", None)
+            lambda: getattr(self, "view_controller", None),
+            reference_image=self._agent_review_image,
+            task_config=self._agent_task_config,
         )
         self._agent_chip_timer = QTimer(self)
         self._agent_chip_timer.setInterval(1000)
@@ -4047,6 +4049,39 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             )
         self._refresh_workflow_indicators()
 
+    def _agent_task_config(self, item_name: str, task_name: str):
+        """An item's config for a task, for a waiting config edit's preview;
+        None when there is no such item or task."""
+        from fibsem.applications.autolamella.server.context import find_item
+
+        experiment = self.autolamella_ui.experiment
+        if experiment is None:
+            return None
+        lamella, refusal = find_item(experiment, item_name)
+        if refusal:
+            return None
+        return dict(lamella.task_config).get(task_name)
+
+    def _agent_review_image(self, arguments: dict):
+        """The image a waiting ``review_decide``'s values sit on: its proposal's
+        reference image, found as the Review tab finds it. None when the
+        proposal is not pending or has none."""
+        from fibsem.applications.autolamella.ui.review_tab_widget import (
+            _load_reference_image,
+        )
+
+        experiment = self.autolamella_ui.experiment
+        if experiment is None:
+            return None
+        for item, task_name, proposal in experiment.pending_proposals():
+            if proposal.id == arguments.get("proposal_id") or (
+                not arguments.get("proposal_id")
+                and arguments.get("item_id") == item.id
+                and arguments.get("task_name") == task_name
+            ):
+                return _load_reference_image(experiment, item, proposal)
+        return None
+
     def _on_agent_suggestion(self, suggestion: Optional[dict]) -> None:
         """GUI thread: the agent's suggested answer went up or came down. It
         shows on the agent's card, not on the prompt (FIB-1407)."""
@@ -4055,6 +4090,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.agent_chip.set_suggestion(suggestion)
         self.agent_previews.show_suggested_point(
             suggestion.get("point") if suggestion is not None else None
+        )
+        responder = self.autolamella_ui.ui_responder
+        standing = responder.suggestion if suggestion is not None else None
+        self.agent_previews.show_suggestion(
+            responder.pending_question(), standing[2] if standing else None
         )
 
     def _on_accept_agent_suggestion(self) -> None:
