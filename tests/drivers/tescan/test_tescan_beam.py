@@ -33,7 +33,9 @@ from tests.fixtures.tescan_sdk import connect
 
 E, I = BeamType.ELECTRON, BeamType.ION
 
-RECORDED = os.path.join(os.path.dirname(__file__), "..", "..", "fixtures", "tescan_beam_calls.json")
+RECORDED = os.path.join(
+    os.path.dirname(__file__), "..", "..", "fixtures", "tescan_beam_calls.json"
+)
 
 
 def _system(electron=True, ion=True):
