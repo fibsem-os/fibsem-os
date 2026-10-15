@@ -24,9 +24,11 @@ from dataclasses import dataclass, field
 import pytest
 
 import fibsem.structures as fstructures
+from fibsem.display import Display
 from fibsem.structures import (
     DEFAULT_FIELD_METADATA,
     RENAMED_METADATA_KEYS,
+    RangeLimit,
     field_meta,
     get_fields_with_metadata,
 )
@@ -57,7 +59,9 @@ def test_every_renamed_key_points_at_a_real_one():
     """The diagnostic map cannot advise a key the vocabulary does not define."""
     for old, new in RENAMED_METADATA_KEYS.items():
         assert new in DEFAULT_FIELD_METADATA, f"{old!r} -> unknown key {new!r}"
-        assert old not in DEFAULT_FIELD_METADATA, f"{old!r} is both superseded and current"
+        assert old not in DEFAULT_FIELD_METADATA, (
+            f"{old!r} is both superseded and current"
+        )
 
 
 def test_filepath_is_part_of_the_vocabulary():
@@ -152,7 +156,9 @@ def test_a_known_key_is_never_reported(caplog):
     with caplog.at_level(logging.WARNING):
         get_fields_with_metadata(Fine)
 
-    assert [r.message for r in caplog.records if "declares metadata key" in r.message] == []
+    assert [
+        r.message for r in caplog.records if "declares metadata key" in r.message
+    ] == []
 
 
 def test_in_tree_configs_declare_no_unreadable_keys(caplog):
@@ -173,7 +179,9 @@ def test_in_tree_configs_declare_no_unreadable_keys(caplog):
         for task in BUILTIN_TASKS.values():
             get_fields_with_metadata(task.config_cls)
 
-    offenders = [r.message for r in caplog.records if "declares metadata key" in r.message]
+    offenders = [
+        r.message for r in caplog.records if "declares metadata key" in r.message
+    ]
     assert offenders == []
 
 
@@ -199,8 +207,10 @@ def test_every_parameter_reaches_the_result():
     silently drop it, which is precisely the bug class `field_meta` exists to
     prevent -- and it would be invisible to every other test here.
     """
-    marker = object()
+    # limits and display are type-checked, so they take a real value of their type
+    typed = {"limits": RangeLimit(0.0, 1.0), "display": Display("A")}
     for name in keyword_only_parameters():
+        marker = typed.get(name, object())
         assert field_meta(**{name: marker}) == {name: marker}, name
 
 

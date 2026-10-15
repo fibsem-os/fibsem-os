@@ -10,7 +10,7 @@ import pytest
 
 from fibsem import utils
 from fibsem.devices import Device, Display, Parameter
-from fibsem.devices.display import display_to_dict
+from fibsem.display import display_to_dict
 from fibsem.structures import BeamType
 
 
