@@ -614,9 +614,9 @@ def test_the_window_shows_a_suggestion_on_the_card_and_says_when_it_is_dropped(
     assert main_ui.agent_chip.suggestion is None
 
 
-def test_the_window_draws_a_waiting_request_s_mill_and_takes_it_down(main_ui, host):
-    from fibsem.applications.autolamella.ui.agent_previews import PATTERNS_OVERLAY
-
+def test_the_window_draws_a_waiting_request_s_mill_on_the_card_and_takes_it_down(
+    main_ui, host
+):
     rectangle = {
         "type": "Rectangle",
         "width": 2e-6,
@@ -638,14 +638,20 @@ def test_the_window_draws_a_waiting_request_s_mill_and_takes_it_down(main_ui, ho
             "change": "Prepare: 1 rectangle",
         }
     ]
+    from fibsem.structures import FibsemImage
+
+    main_ui.view_controller.set_image(
+        BeamType.ION, FibsemImage.generate_blank_image(resolution=(200, 100))
+    )
     host.auth.set_level(AgentLevel.ASSIST)
     host.requests.requests = [waiting]
     main_ui._refresh_agent_chip()
-    assert (BeamType.ION, PATTERNS_OVERLAY) in main_ui.agent_previews.drawn
+    assert main_ui.agent_previews.request_picture is not None
+    assert main_ui.agent_chip.card.image_label is not None
 
     host.requests.requests = [dict(waiting, status="rejected")]
     main_ui._refresh_agent_chip()
-    assert main_ui.agent_previews.drawn == []
+    assert main_ui.agent_previews.request_picture is None
 
 
 def test_the_card_is_narrow_until_something_waits(qapp):

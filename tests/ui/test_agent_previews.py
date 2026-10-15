@@ -11,9 +11,6 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from fibsem.applications.autolamella.ui.agent_previews import (  # noqa: E402
-    PATTERNS_OVERLAY,
-    SUGGESTION_OVERLAY,
-    TARGET_OVERLAY,
     AgentPreviews,
     request_patterns,
     request_targets,
@@ -83,52 +80,41 @@ def test_a_request_s_patterns_and_move_targets():
     ]
 
 
-def test_a_waiting_request_is_drawn_dashed_in_purple_and_comes_down_when_decided():
+def test_a_waiting_request_is_drawn_on_the_card_only_and_comes_down_when_decided():
+    # Patrick, 2026-10-15: the agent's previews go on the card, not the live view.
     controller = _Controller()
-    previews = AgentPreviews(lambda: controller)
+    card = _Card()
+    previews = AgentPreviews(lambda: controller, show_picture=card)
     previews.show_request(_request())
-
-    spec = controller.overlays[(BeamType.ION, PATTERNS_OVERLAY)]
-    assert spec.colour == PURPLE_COLOR and spec.dashed
-    assert spec.legend_loc == "lower left"  # clear of the view's toolbar
-    assert len(spec.stages[0].define_patterns()) == 2
-    assert spec.stages[0].name == "Agent · waiting for you"
-    targets = controller.overlays[(BeamType.ION, TARGET_OVERLAY)]
-    # 1 µm a pixel at 100 µm over 100 px wide... 200 px: 0.5 µm a pixel, centre (100, 50).
-    assert targets.points == [(120.0, 60.0), (100.0, 46.0)]
-    assert targets.color == PURPLE_COLOR and targets.modal
+    frame, layer = _layer(previews.request_picture)
+    assert frame is controller.image(BeamType.ION)
+    assert len(layer.patterns) == 2
+    # 0.5 µm a pixel, centre (100, 50).
+    assert layer.crosses == [pytest.approx((120.0, 60.0)), pytest.approx((100.0, 46.0))]
+    assert controller.overlays == {}
+    assert card.shown[False] is not None
 
     previews.show_request(_request(status="applying"))
-    assert controller.overlays == {}
-    assert previews.drawn == []
+    assert previews.request_picture is None and card.shown[False] is None
 
 
-def test_a_new_request_replaces_the_last_one_s_previews():
+def test_a_new_request_replaces_the_last_one_s_picture():
     controller = _Controller()
     previews = AgentPreviews(lambda: controller)
     previews.show_request(_request())
     only_a_mill = _request(request_id="cd34")
     only_a_mill["actions"] = only_a_mill["actions"][:1]
     previews.show_request(only_a_mill)
-    assert set(controller.overlays) == {(BeamType.ION, PATTERNS_OVERLAY)}
-
-
-def test_a_suggested_point_is_drawn_until_the_suggestion_goes():
-    controller = _Controller()
-    previews = AgentPreviews(lambda: controller)
-    previews.show_suggested_point((40.0, 30.0))
-    spec = controller.overlays[(BeamType.ION, SUGGESTION_OVERLAY)]
-    assert spec.points == [(40.0, 30.0)]
-    assert spec.legend_label == "Agent's suggestion"
-    previews.show_suggested_point(None)
-    assert controller.overlays == {}
+    _, layer = _layer(previews.request_picture)
+    assert len(layer.patterns) == 2 and layer.crosses == []
 
 
 def test_without_views_nothing_is_drawn():
-    previews = AgentPreviews(lambda: None)
+    card = _Card()
+    previews = AgentPreviews(lambda: None, show_picture=card)
     previews.show_request(_request())
     previews.show_suggested_point((1.0, 2.0))
-    assert previews.drawn == []
+    assert previews.request_picture is None and previews.suggestion_picture is None
 
 
 def test_a_suggested_point_of_interest_is_in_the_view_s_pixels():
@@ -153,64 +139,37 @@ def test_a_suggested_point_of_interest_is_in_the_view_s_pixels():
     assert pixel == pytest.approx((60.0, 30.0))
 
 
-class _Signal:
-    def __init__(self):
-        self.slots = []
-
-    def connect(self, slot):
-        self.slots.append(slot)
-
-    def emit(self, *args):
-        for slot in self.slots:
-            slot(*args)
-
-
-class _FramedController(_Controller):
-    """A controller whose views take new frames, and say so."""
+class _Card:
+    """What the card was given to show under Why."""
 
     def __init__(self):
-        super().__init__()
-        self.frame_changed = _Signal()
+        self.shown = {}
 
-    def show(self, beam, image):
-        self._images[beam] = image
-        self.frame_changed.emit(beam)
+    def __call__(self, image, caption, suggestion=False):
+        self.shown[suggestion] = (image, caption) if image is not None else None
 
 
-def test_a_move_target_stays_on_the_sample_when_the_view_takes_another_frame():
-    # FIB-1411: the cross was fixed at its first pixels; on a closer frame it
-    # pointed somewhere else.
-    controller = _FramedController()
-    previews = AgentPreviews(lambda: controller)
-    request = _request()
-    request["actions"] = request["actions"][1:2]  # the stable move, 10 µm right
-    previews.show_request(request)
-    assert controller.overlays[(BeamType.ION, TARGET_OVERLAY)].points == [
-        pytest.approx((120.0, 60.0))
-    ]
+def _layer(picture, colour=PURPLE_COLOR):
+    frame, layers = picture
+    (layer,) = [layer for layer in layers if layer.colour == colour]
+    return frame, layer
+
+
+def test_a_move_target_on_another_frame_is_re_projected_onto_it():
+    # FIB-1411: measured on one frame, drawn on another, the target stays on
+    # the sample.
+    from fibsem.applications.autolamella.ui.agent_previews import (
+        _Mark,
+        _offset_pixel,
+    )
+
+    wide = FibsemImage.generate_blank_image(resolution=(200, 100), hfw=100e-6)
     closer = FibsemImage.generate_blank_image(resolution=(200, 100), hfw=50e-6)
-    controller.show(BeamType.ION, closer)
-    assert controller.overlays[(BeamType.ION, TARGET_OVERLAY)].points == [
-        pytest.approx((140.0, 70.0))
-    ]
-
-
-def test_a_move_target_with_no_frame_yet_is_drawn_when_one_arrives():
-    controller = _FramedController()
-    controller._images[BeamType.ION] = None
-    previews = AgentPreviews(lambda: controller)
-    request = _request()
-    request["actions"] = request["actions"][1:2]
-    previews.show_request(request)
-    assert (BeamType.ION, TARGET_OVERLAY) not in controller.overlays
-    frame = FibsemImage.generate_blank_image(resolution=(200, 100), hfw=100e-6)
-    controller.show(BeamType.ION, frame)
-    assert controller.overlays[(BeamType.ION, TARGET_OVERLAY)].points == [
-        pytest.approx((120.0, 60.0))
-    ]
-    previews.show_request(None)
-    controller.show(BeamType.ION, frame)
-    assert controller.overlays == {}
+    mark = _Mark(
+        BeamType.ION, "target", [(wide, _offset_pixel(wide, Point(10e-6, -5e-6)))]
+    )
+    assert mark.pixels(wide) == [pytest.approx((120.0, 60.0))]
+    assert mark.pixels(closer) == [pytest.approx((140.0, 70.0))]
 
 
 def test_a_run_stage_or_run_task_request_draws_the_stages_it_would_mill():
@@ -243,17 +202,18 @@ def test_a_run_stage_or_run_task_request_draws_the_stages_it_would_mill():
     assert [stage.name for stage in request_stages(request)] == ["Trench", "Polish"]
 
     controller = _Controller()
-    AgentPreviews(lambda: controller).show_request(request)
-    spec = controller.overlays[(BeamType.ION, PATTERNS_OVERLAY)]
-    assert [stage.name for stage in spec.stages] == ["Trench", "Polish"]
-    assert spec.dashed and spec.colour == PURPLE_COLOR
+    previews = AgentPreviews(lambda: controller)
+    previews.show_request(request)
+    _, layer = _layer(previews.request_picture)
+    stages = request_stages(request)
+    assert len(layer.patterns) == sum(len(s.define_patterns()) for s in stages)
+    assert layer.dashed
 
 
 def test_patterns_past_the_edge_of_the_field_are_drawn_again_in_red():
     # FIB-1411: patterns at (-30, +30) µm in a 100 µm field (y spans ±33 µm)
     # reached y ≈ 36-39 µm. The Demo milled them; a real instrument refuses.
     from fibsem.applications.autolamella.ui.agent_previews import (
-        OUTSIDE_OVERLAY,
         request_outside_field,
     )
     from fibsem.structures import FibsemMillingSettings
@@ -282,20 +242,13 @@ def test_patterns_past_the_edge_of_the_field_are_drawn_again_in_red():
     assert past.centre_y == pytest.approx(30e-6)
 
     controller = _Controller()
-    AgentPreviews(lambda: controller).show_request(request)
-    spec = controller.overlays[(BeamType.ION, OUTSIDE_OVERLAY)]
-    assert spec.colour == RED_COLOR
-    assert spec.stages[0].name == "Agent · outside the field"
-    assert len(spec.stages[0].define_patterns()) == 1
+    previews = AgentPreviews(lambda: controller)
+    previews.show_request(request)
+    _, red = _layer(previews.request_picture, RED_COLOR)
+    assert len(red.patterns) == 1
     # Both are drawn in purple too: the red is on top of what would mill.
-    assert (
-        len(
-            controller.overlays[(BeamType.ION, PATTERNS_OVERLAY)]
-            .stages[0]
-            .define_patterns()
-        )
-        == 2
-    )
+    _, purple = _layer(previews.request_picture)
+    assert len(purple.patterns) == 2
 
 
 def test_a_pattern_s_extent_from_its_numbers():
@@ -352,22 +305,6 @@ def test_a_pattern_s_outline_from_its_numbers():
     assert pattern_outline(line) == [[(0, 0), (1e-6, 0)]]
 
 
-class _Card:
-    """What the card was given to show under Why."""
-
-    def __init__(self):
-        self.shown = {}
-
-    def __call__(self, image, caption, suggestion=False):
-        self.shown[suggestion] = (image, caption) if image is not None else None
-
-
-def _layer(picture, colour=PURPLE_COLOR):
-    frame, layers = picture
-    (layer,) = [layer for layer in layers if layer.colour == colour]
-    return frame, layer
-
-
 def test_a_review_decision_s_point_is_drawn_on_the_card_on_its_own_image():
     # FIB-1411: review_decide's POI was only JSON on the card. It is drawn on
     # the proposal's reference image, under Why; not on the views.
@@ -378,7 +315,7 @@ def test_a_review_decision_s_point_is_drawn_on_the_card_on_its_own_image():
         asked.append(arguments["proposal_id"])
         return reference
 
-    controller = _FramedController()  # its FIB frame: 100 µm wide
+    controller = _Controller()  # its FIB frame: 100 µm wide
     card = _Card()
     previews = AgentPreviews(
         lambda: controller, reference_image=reference_image, show_picture=card
@@ -413,7 +350,7 @@ def test_a_review_decision_s_point_is_drawn_on_the_card_on_its_own_image():
 
 
 def test_an_item_edit_s_point_and_alignment_area_are_drawn_on_the_card():
-    controller = _FramedController()
+    controller = _Controller()
     previews = AgentPreviews(lambda: controller)
     request = {
         "request_id": "kl12",
@@ -443,20 +380,6 @@ def test_an_item_edit_s_point_and_alignment_area_are_drawn_on_the_card():
     assert layer.crosses == [pytest.approx((80.0, 50.0))]
     assert layer.areas == [[pytest.approx((50.0, 50.0)), pytest.approx((150.0, 75.0))]]
     assert controller.overlays == {}
-
-
-def test_a_mill_and_a_move_are_drawn_on_the_card_and_on_the_views():
-    controller = _Controller()
-    previews = AgentPreviews(lambda: controller)
-    previews.show_request(_request())
-    frame, layer = _layer(previews.request_picture)
-    assert frame is controller.image(BeamType.ION)
-    assert len(layer.patterns) == 2
-    assert layer.crosses == [pytest.approx((120.0, 60.0)), pytest.approx((100.0, 46.0))]
-    assert set(controller.overlays) == {
-        (BeamType.ION, PATTERNS_OVERLAY),
-        (BeamType.ION, TARGET_OVERLAY),
-    }
 
 
 def test_the_card_s_picture_is_the_image_with_its_marks_drawn():
@@ -509,9 +432,10 @@ def test_a_task_config_edit_draws_the_milling_as_it_would_be_and_as_it_is():
     }
     previews.show_request(request)
     assert asked == [("01-full-magpie", "Basic Milling")]
-    spec = controller.overlays[(BeamType.ION, PATTERNS_OVERLAY)]
-    assert spec.stages[0].pattern.width == pytest.approx(width * 2)
-    assert spec.background_stages[0].pattern.width == pytest.approx(width)
+    _, grey = _layer(previews.request_picture, "#9a9a9a")
+    _, purple = _layer(previews.request_picture)
+    assert purple.patterns[0].width == pytest.approx(width * 2)
+    assert grey.patterns[0].width == pytest.approx(width)
     # The item's own config is untouched: the edit was drawn on a copy.
     assert config.milling["milling"].stages[0].pattern.width == pytest.approx(width)
 
@@ -525,7 +449,7 @@ def test_a_suggested_area_and_spot_burn_points_are_drawn_on_the_card():
     )
     from fibsem.structures import FibsemRectangle
 
-    controller = _FramedController()  # 200 × 100 px, 0.5 µm/px
+    controller = _Controller()  # 200 × 100 px, 0.5 µm/px
     card = _Card()
     previews = AgentPreviews(lambda: controller, show_picture=card)
     area = FibsemRectangle(left=0.25, top=0.5, width=0.5, height=0.25)
@@ -554,7 +478,7 @@ def test_suggested_features_are_drawn_on_the_image_they_were_found_in():
     found_in = FibsemImage.generate_blank_image(resolution=(200, 100), hfw=100e-6)
     found_in.metadata.image_settings.beam_type = BeamType.ELECTRON
     request = ConfirmDetection(detection=SimpleNamespace(fibsem_image=found_in))
-    controller = _FramedController()
+    controller = _Controller()
     card = _Card()
     AgentPreviews(lambda: controller, show_picture=card).show_suggestion(
         request, {"LamellaCentre": Point(30.0, 40.0)}

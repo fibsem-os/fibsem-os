@@ -557,10 +557,6 @@ class MicroscopeViewController(QObject):
     # quad view emits this; the lamella editor view has no selection concept.
     view_selected = pyqtSignal(object)
 
-    # A beam's canvas took another frame (the beam): what is drawn on the sample,
-    # not on the field, re-projects onto it (FIB-1411).
-    frame_changed = pyqtSignal(object)
-
     def __init__(
         self, parent: Optional[QObject] = None, view: Optional[QWidget] = None
     ) -> None:
@@ -723,7 +719,6 @@ class MicroscopeViewController(QObject):
         self._show_fields(self._bars.get(beam), image)
         if new_frame:  # the image widget re-shows the image it already had, too
             self._frame_landed(canvas)
-            self.frame_changed.emit(beam)
 
     @staticmethod
     def _show_fields(bar: Optional[ViewInfoBar], image) -> None:
