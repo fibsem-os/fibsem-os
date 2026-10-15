@@ -88,13 +88,15 @@ same map:
 | `microscope.chamber_device` | `Chamber` | `chamber` |
 | `microscope.devices["chamber_camera"]` | `ChamberCamera` | `chamber_camera` |
 | `microscope.manipulator_device` | `Manipulator` | `manipulator` |
+| `microscope.devices["sample_loader"]` | `SampleLoader` | `sample_loader` |
 | `microscope.fm_devices` | `FM` and its parts | `fm`, `camera`, `light_source`, `filter_set`, `objective` |
 
 `microscope.stage_device` is an older name for `microscope.stage` and is kept as an
 alias. The vendor's own stage object is private to each backend.
 
 The device classes are in `fibsem.devices` (`Beam`, `Stage`, `Chamber`,
-`ChamberCamera`, `Manipulator`) and `fibsem.devices.fm` (`FM`, `Camera`, `LightSource`, `FilterSet`,
+`ChamberCamera`, `Manipulator`, `Scanner`), `fibsem.devices.sample_loader`
+(`SampleLoader`) and `fibsem.devices.fm` (`FM`, `Camera`, `LightSource`, `FilterSet`,
 `Objective`). Each backend subclasses them in `fibsem/drivers/<driver>/devices.py`.
 
 ## Parameters
@@ -122,7 +124,8 @@ sem.current.value          # the same as get_value()
 ```
 
 Use `get_value()` where the current value matters, such as a check before a move,
-and `cached` for displays. `cached` reads live only the first time, before anything
+and `cached` for displays. `last_known` is the last value read or written, or `None`;
+unlike `cached`, it never calls the instrument. `cached` reads live only the first time, before anything
 was read or written.
 
 ### What a parameter allows
@@ -138,7 +141,8 @@ sem.describe()["hfw"]      # all of it as plain data, for a UI or a remote clien
 
 These come from the instrument once, when the device connects, and are cached; reading
 them makes no instrument call. They are refreshed when a parameter they depend on
-changes (the ion beam's current choices depend on its plasma gas). Units are SI
+changes (a beam's current choices depend on its voltage and, on a plasma FIB, its
+gas). Units are SI
 throughout: metres, amps, volts, seconds, radians. `limits` on a composite value such
 as the stage position is one `RangeLimit` per field.
 
@@ -155,7 +159,9 @@ sem.hfw.value = 150e-6                # the same, without the return value
 `set_value` checks the value before writing it:
 
 - a value of the wrong type raises `TypeError`;
-- a value that is not one of the `choices` raises `ValueError`;
+- a value that is not one of the `choices` raises `ValueError`, unless the parameter
+  is declared `nearest=True`: then a number is snapped to the nearest choice, with a
+  logged warning, and read back after the write;
 - a number outside the `limits` is clipped to them, with a logged warning, and the
   clipped value is what `set_value` returns;
 - a read-only parameter raises `ParameterReadOnly`.
@@ -209,11 +215,36 @@ docstring, and whether it is available on this instrument right now. Check
 `available` before calling a command that not every instrument has.
 
 The beam's commands are `acquire`, `autocontrast`, `auto_focus`,
-`start_live`/`stop_live` (each frame on `beam.live_frame`), `blank`/`unblank`, and the
-scan modes `spot(point)`, `reduced_area(rectangle)` and `full_frame()`.
-`beam.acquire()` returns the frame as the instrument gives it. To apply
-autocontrast and gamma and save the image, use `fibsem.acquire.acquire_image`, as
-before.
+`start_live`/`stop_live` (each frame on `beam.live_frame`), `blank`/`unblank`,
+`shift_by(dx, dy)` (a relative beam shift, clamped to the shift limits and recorded as
+`beam_shifted`), and the scan modes `spot(point)`, `reduced_area(rectangle)` and
+`full_frame()`. `beam.acquire(image_settings=None)` returns a `FibsemImage` with its
+metadata, as the beam took it. To autocontrast first, save the file and record it, use
+the imaging service's `acquire_image(settings)` (see [Imaging](#imaging));
+`fibsem.acquire.acquire_image(microscope, settings)` goes to it.
+
+### Queries
+
+A query is a read that takes arguments and moves nothing, such as the stage's
+`pose_table()` or the milling service's `estimate()`. It is a method marked `@query`,
+listed in `device.queries` (and under `queries` in `describe()`) beside the commands.
+Over the App Server and the device server a query runs at Watch, with no control
+taken and without the hardware lock.
+
+A command marked `@command(long=True)` runs for minutes (a mill, a tiled overview);
+`commands[name].long` says so, and the App Server runs it in the background (see
+[Services](#services)).
+
+### The record
+
+Devices and services report what they did to the microscope's `Session`
+(`microscope.session`), never to the microscope itself. `session.record(kind,
+payload)` puts a fact on `session.record_signal`, which the App Server writes to the
+run's `events.jsonl`; `session.stamp(image)` writes the user and experiment onto an
+image. The kinds include `stage_moved` (one per outermost move), `beam_shifted`,
+`autofocus`, `image_acquired`, `milling`, `alignment` and `grid_loaded` /
+`grid_unloaded`; `FibsemMicroscope.record_event` lists them all. A device built with no
+microscope gets an empty session, which has no listeners and stamps nothing.
 
 ## The stage
 
@@ -239,10 +270,11 @@ check the target against each axis's limits and raise `StageLimitError` rather t
 clip. Axes left `None` do not move. `home()` and `link()` are available where the
 stage has them.
 
-`microscope.move_stage_absolute` and `move_stage_relative` keep their old behaviour
-and do not check limits. `microscope.safe_absolute_stage_movement` is still the move
+`microscope.move_stage_absolute` and `move_stage_relative` go to the device's moves,
+so they check limits too. `microscope.safe_absolute_stage_movement` is still the move
 for workflow code: it handles the order of the axes and the stage's poses, which the
-device's moves do not.
+device's moves do not. It and the view-corrected moves are the stage movement
+service's (see [Stage movement](#stage-movement)).
 
 `stage.position.changed` fires after every move. Each axis has its own `changed`,
 which fires only when that axis moved.
@@ -261,9 +293,13 @@ list(needle.axes)             # ["x", "y", "z"], with "r" or "t" if the arm rota
 needle.axes.x.limits          # RangeLimit, from the position limits the driver gives
 ```
 
-The chamber's commands are `pump()` and `vent()`. The manipulator's are
-`insert(name)`, `retract()`, `move_absolute`, `move_relative`, `move_to_offset` and
-`stop()`. `stop` does not wait for the move it stops; a driver that cannot stop its
+The chamber's commands are `pump()` and `vent()`; on a microscope with no chamber
+device, `microscope.pump()` and `vent()` raise rather than do nothing. The chamber
+camera's one command is `acquire()`, which returns the frame as an array
+(`microscope.acquire_chamber_image` goes to it). The manipulator's commands are
+`insert(name)`, `retract()`, `move_absolute`, `move_relative`, `move_to_offset`,
+`move_corrected(dx, dy, beam_type)` (a move in a beam's view, where the driver has
+one) and `stop()`. `stop` does not wait for the move it stops; a driver that cannot stop its
 needle raises `NotImplementedError`. As on the stage, the arm's axes are the keys of
 the per-axis limits its driver gives `position` (`metadata_position`; x, y and z
 unbounded by default), and a move outside them raises `ManipulatorLimitError`.
@@ -296,8 +332,20 @@ sorted(fm.commands)
 # ['acquire_channel', 'acquire_frame', 'acquire_z_stack', 'cancel', 'start_live', 'stop_live']
 ```
 
-`microscope.fm` is the older `FluorescenceMicroscope` interface. It drives the same
-hardware objects, so the two always agree.
+`microscope.fm` is the `FluorescenceMicroscope` API over these devices, local or
+remote: each of its parts forwards to its device, so the two always agree. The vendor
+classes live in their drivers (`DemoFluorescenceMicroscope`,
+`OdemisFluorescenceMicroscope`, ...). FM acquisitions that run over time (z-stacks
+at positions, focus sweeps, tiled overviews) are the imaging service's.
+
+### The sample loader
+
+A `SampleLoader` (`fibsem/devices/sample_loader.py`) is an autoloader's magazine. Its
+parameters are read-only (`magazine`, `on_stage`, `capacity`, `exchange_time`,
+`busy`), and its commands are `load(slot)`, `unload()`, `scan()` and
+`set_description`. An exchange claims the `stage` resource, so nothing moves the stage
+while a grid is exchanged. Workflow code goes through the sample handling service
+rather than the loader (see [Sample handling](#sample-handling)).
 
 ## Roles
 
@@ -379,13 +427,19 @@ coordinates devices or runs steps over time is a service. The base class is
 `fibsem.services.Service`.
 
 `microscope.services` maps each service the microscope built to its name (`milling`,
-`stage_movement`, `spot_burn`, `sample_handling`, `imaging`); one the backend didn't
-build is left out. The App Server serves them as it serves devices, under `/microscope/services`: `GET
+`stage_movement`, `spot_burn`, `sample_handling`, `imaging`, `alignment`); one the
+backend didn't build is left out. Each is also an attribute (`microscope.milling`,
+...). The App Server serves them as it serves devices, under `/microscope/services`: `GET
 /microscope/services` describes each one's parameters and commands, `GET
 /microscope/services/{service}/{parameter}` reads one, and `POST
 /microscope/services/{service}/commands/{command}` runs one, behind the same token, level and
-control of the microscope. A service's `stop` needs only the token and is never
-refused by whoever is in control, like a device's.
+control of the microscope. `POST .../queries/{query}` runs a query, and `GET
+/microscope/services/{service}/values` reads every parameter in one call. A long
+command (`long=True`) answers at once with a run id, and `GET
+/microscope/services/{service}/run` reports its latest run (or, with `run_id`, that
+one), waiting up to a minute with `wait`. A service's `stop` needs only the token and is never refused by whoever is
+in control, like a device's. Devices are served the same way under
+`/microscope/devices`. [The App Server](../app-server.md) covers the levels.
 
 ### Imaging
 
@@ -395,9 +449,23 @@ the instrument's own autofocus where the beam has one (its `auto_focus` command 
 available), else the image-based sweep at the beam's field of view, which skips with a
 warning on a beam whose working distance can't be set (a Tescan ion column).
 `microscope.auto_focus` goes to it on every backend. `focus_sweep(beam_type, hfw=None,
-settings=None)` is the sweep itself (`fibsem.autofunctions.autofocus.run_auto_focus`),
-and `stop()` ends one in progress from another caller. No backend needs its own imaging
-code, so every backend builds the shared class.
+settings=None, ...)` is the sweep itself (`fibsem.autofunctions.autofocus.run_auto_focus`).
+
+The rest of imaging is here too:
+
+- `acquire(beam_type, image_settings=None)` is the beam's frame;
+  `acquire_image(settings)` is the image as a task takes one: autocontrast first when
+  the settings ask, then acquire, save when `save` is set, and record
+  `image_acquired`. `reference_images` and `reference_image_sets` take both beams.
+- `autocontrast` and `auto_brightness_contrast` (image-based), and
+  `start_live`/`stop_live`.
+- Long commands: `focus_stack`, `tiled_overview`, and with an FM (the service's `fm`
+  role) `fm_focus_sweep` and `fm_tiled_overview`. The overviews' time estimates are
+  queries.
+
+`stop()` ends a sweep, a stack, an overview or an FM z-stack in progress from another
+caller. No backend needs its own imaging code, so every backend builds the shared
+class.
 
 ### Milling
 
@@ -428,25 +496,71 @@ assert ion.current.get_value() == imaging_current
 
 `setup(settings)` applies the recipe, `draw(patterns)` adds patterns, and `prepare`
 does both. `start`, `pause`, `resume` and `stop` run it, `state` says where it is,
-and `clear` removes the patterns. The first `setup` saves the milling beam's preset,
+and `clear` removes the patterns. `start` returns at once and reports nothing after;
+`run`, `run_stage` and `run_task` are the long commands that mill to the end, with
+`progress` and a `milling` record. `stop` also ends the milling task the pattern is
+part of, and raises `NothingToStop` when nothing is milling. `estimate()` and
+`pattern_preview` are queries. The first `setup` saves the milling beam's preset,
 voltage, current and field of view, and `restore` writes them back, so the beam ends
 as milling found it on every backend.
 
 Workflow code mills through `fibsem.milling` (milling stages, strategies and
 `fibsem.milling.tasks.run_milling_task`), as before. The microscope's named milling methods (`setup_milling`,
 `draw_rectangle`, `start_milling`, `run_milling`, `finish_milling`, ...) go to the
-service; `finish_milling` restores the beam. `run_milling(stop_event=None)` is the
+service; `finish_milling` is the service's `finish`, which clears the patterns and
+restores the beam. `run_milling(stop_event=None)` is the
 service's `run`: it mills what is drawn with the beam conditions `setup_milling`
 applied, reports `progress`, and returns when the mill ends; a set `stop_event` stops
 the beam. To start a mill and return at once, use `start_milling`. With the ion column
-disabled, `microscope.milling` is `None` and those methods raise.
+disabled, `microscope.milling` is `None` and those methods raise, except
+`stop_milling`, which does nothing, and `get_milling_state`, which answers `IDLE`.
 
 A driver adds milling by subclassing `fibsem.services.milling.Milling` and
-implementing its hooks (`_setup`, `_draw`, `_start`, `_stop`, `_pause`, `_resume`,
-`_estimate`, `_clear` and `read_state`) the way its instrument mills. The driver also
+implementing its hooks the way its instrument mills: `_setup`, one draw hook per
+shape (`_draw_rectangle`, `_draw_line`, `_draw_circle`, `_draw_bitmap`,
+`_draw_polygon`; a shape without one is refused before anything is drawn), `_start`,
+`_stop`, `_pause`, `_resume`, `_estimate`, `_clear` and `read_state`, and optionally
+`_restore`, `_poll`, `_before_run` and `_after_run`. The driver also
 applies the recipe's beam conditions, since backends use different recipe fields.
 `bind_milling(MyMilling, microscope)` builds it over the microscope's beams.
 `fibsem/drivers/demo/services.py` is the reference.
+
+### Stage movement
+
+`microscope.stage_movement` holds the moves that need more than the stage: its roles
+are the `stage` and, optionally, the beams and the FM. Its commands are the
+view-corrected moves (`stable_move`, `vertical_move`, `fm_stable_move`), the moves to a
+place (`move_to_orientation`, `move_to_milling_angle`, `move_to_device`,
+`safe_absolute_stage_movement`), and `move_absolute`/`move_relative` over the stage's
+checked moves. Its queries answer what a move would do without making it
+(`project_stable_move`, `target_position`, `blocked_axes`) and where the stage is
+(`stage_orientation`, `current_device`, `explain_imaging_state`, ...). The stored
+milling angle is its `milling_angle` parameter. The microscope's named moves
+(`stable_move`, `vertical_move`, `move_to_milling_angle`, ...) go to it. A driver whose
+stage moves differently subclasses `fibsem.services.stage_movement.StageMovement`, as
+Tescan does.
+
+### Spot burn
+
+`microscope.spot_burn` burns points with the ion beam: `run(settings)` is a long
+command, `stop` ends it, `estimate(settings)` is a query, and `progress` reports how
+far it is. `microscope.run_spot_burn` goes to it.
+
+### Sample handling
+
+`microscope.sample_handling` is the holder and its grids, over the stage and, where
+there is one, the sample loader (its optional `loader` role). Its commands are
+`move_to_slot`, `move_to_grid`, `ensure_loaded`, `unload`, `run_inventory` and
+`assign_grid`; its queries are `get_inventory`, `current` and `holder_slots`. A grid
+load or unload is recorded as `grid_loaded` / `grid_unloaded`.
+
+### Alignment
+
+`microscope.alignment` aligns the current view to a saved reference image:
+`align(reference_path, steps, subsystem, ...)` is a long command that shifts the beam
+(or moves the stage) until the two match, `stop` ends it, and the query
+`measure_shift(reference_path, image_path)` measures the shift between two saved images
+without moving anything.
 
 ## From get/set to devices
 
@@ -767,3 +881,25 @@ Each entry is built by its own driver with no microscope (`BuildContext.microsco
 when the server stops. Roles are not bound on the server: the coordinator binds them.
 
 The server has no authentication yet. Keep it on the microscope's private network.
+
+### Over the App Server
+
+`fibsem.server.client.FibsemClient` reaches a microscope through the App Server, with
+its token. `client.devices` gives the served beams and FM parts as live devices by
+name, as `microscope.devices` does:
+
+<!-- not run -->
+```python
+from fibsem.server.client import FibsemClient
+
+with FibsemClient("localhost", 8001, token="...") as client:
+    ion = client.devices["ion"]
+    ion.current.get_value()       # a live read through the App Server
+    client.call_service_query("milling", "estimate")
+```
+
+The App Server has no event stream for devices, so these are not told of changes made
+elsewhere: `cached` and the metadata are as current as this client's last read. The
+other devices and the services are reached by name: `get_parameter`/`set_parameter`,
+`get_values`, `call_command`/`call_query`, and `get_service_parameter`,
+`set_service_parameter`, `call_service_command` and `call_service_query`.
