@@ -26,6 +26,10 @@ class ToolSpec:
     path: str
     level: str  # the level the route needs: "watch" | "assist" | "drive"
     params: Dict[str, str] = field(default_factory=dict)  # name -> description
+    # The params that may be left out; the rest are required. With params, the
+    # tool's arguments: a request is checked against them at filing (FIB-1425),
+    # and the sidecar's signatures are pinned to them (test_sidecar).
+    optional: Tuple[str, ...] = ()
     # Which router serves it: "microscope" unless the App Server's devices
     # service is off (FIB-1035); "app" only when the server was built with an
     # app_context; "base" always. /capabilities reports which.
@@ -171,6 +175,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "stage": "a FibsemMillingStage dict",
             "path": "optional folder inside the open experiment to save into",
         },
+        optional=("path",),
     ),
     ToolSpec(
         name="milling_run_task",
@@ -194,6 +199,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "config": "a FibsemMillingTaskConfig dict",
             "path": "optional folder inside the open experiment to save into",
         },
+        optional=("path",),
     ),
     ToolSpec(
         name="milling_preview_patterns",
@@ -211,6 +217,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "image_path": "a saved ion image inside the open experiment",
             "stages": "FibsemMillingStage dicts; left out, what prepare drew",
         },
+        optional=("stages",),
     ),
     ToolSpec(
         name="alignment_align_to_reference",
@@ -234,6 +241,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "steps": "how many measure-and-correct steps (default 3)",
             "subsystem": "beam-shift (default), stage or stage-vertical",
         },
+        optional=("steps", "subsystem"),
     ),
     ToolSpec(
         name="alignment_measure_shift",
@@ -278,6 +286,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "beam_type": "ELECTRON or ION",
             "image_settings": 'optional: ImageSettings fields, e.g. {"hfw": 150e-6, "resolution": [1536, 1024], "dwell_time": 1e-6}',
         },
+        optional=("beam_type", "image_settings"),
     ),
     ToolSpec(
         name="stage_stable_move",
@@ -306,6 +315,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "dy": "the feature's offset from the image centre along y, metres, up positive",
             "beam_type": "the beam whose image the offset was measured in: ELECTRON or ION",
         },
+        optional=("beam_type",),
     ),
     ToolSpec(
         name="stage_vertical_move",
@@ -329,6 +339,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "beam_type": "the view the offset was measured in: ION (default) or ELECTRON",
             "relaxation": "fraction of the exact move to make, 0-1 (default 1); below 1 undershoots, to keep a repeated look-and-correct loop from overshooting",
         },
+        optional=("dx", "beam_type", "relaxation"),
     ),
     ToolSpec(
         name="stage_move_to_orientation",
@@ -383,6 +394,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "dy": "relative y in metres",
             "dz": "relative z in metres",
         },
+        optional=("dx", "dy", "dz"),
     ),
     ToolSpec(
         name="stage_move_to_milling_angle",
@@ -398,6 +410,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "milling_angle_deg": "target milling angle in degrees",
             "rotation_deg": "stage rotation in degrees; the current rotation if left out",
         },
+        optional=("rotation_deg",),
     ),
     ToolSpec(
         name="device_set_parameter",
@@ -428,6 +441,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "kwargs": "the command's arguments, by name",
             "reason": "for a stop (stop, stop_live): why, for the operator (required there)",
         },
+        optional=("kwargs", "reason"),
     ),
     ToolSpec(
         name="service_list",
@@ -496,6 +510,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "kwargs": "the command's arguments, by name",
             "reason": "for a stop (stop, stop_live): why, for the operator (required there)",
         },
+        optional=("kwargs", "reason"),
     ),
     ToolSpec(
         name="service_wait_for_run",
@@ -516,6 +531,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "run_id": "the run_id the command answered with",
             "wait": "seconds to wait for the end, at most 60 (default 60)",
         },
+        optional=("run_id", "wait"),
     ),
     ToolSpec(
         name="service_call_query",
@@ -534,6 +550,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "query": "query name",
             "kwargs": "the query's arguments, by name",
         },
+        optional=("kwargs",),
     ),
     ToolSpec(
         name="beam_auto_contrast",
@@ -543,6 +560,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
         level="drive",
         hardware=True,
         params={"beam_type": "ELECTRON or ION"},
+        optional=("beam_type",),
     ),
     ToolSpec(
         name="beam_auto_focus",
@@ -556,6 +574,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
         level="drive",
         hardware=True,
         params={"beam_type": "ELECTRON or ION"},
+        optional=("beam_type",),
     ),
     ToolSpec(
         name="beam_acquire_overview",
@@ -586,6 +605,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "path": "a folder inside the open experiment to save it in",
             "name": "the file name, stamped with the time (default overview)",
         },
+        optional=("name",),
     ),
     ToolSpec(
         name="beam_estimate_overview",
@@ -624,6 +644,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "n_steps": "how many strips (default 3)",
             "auto_focus": "focus each strip first (default true)",
         },
+        optional=("n_steps", "auto_focus"),
     ),
     ToolSpec(
         name="fm_auto_focus",
@@ -645,6 +666,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "channel_name": "the channel to focus on; left out, the current one",
             "path": "a folder inside the open experiment to save the sweep to",
         },
+        optional=("channel_name", "path"),
     ),
     ToolSpec(
         name="fm_acquire_image",
@@ -674,6 +696,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
                 "position) for a z-stack; left out, one plane"
             ),
         },
+        optional=("name", "zparams"),
     ),
     ToolSpec(
         name="fm_acquire_overview",
@@ -708,6 +731,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "name": "the file name, stamped with the time (default overview)",
             "zparams": "ZParameters dict (zmin, zmax, zstep), with use_zstack",
         },
+        optional=("name", "zparams"),
     ),
     ToolSpec(
         name="fm_estimate_overview",
@@ -724,6 +748,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "parameters": "OverviewParameters dict, as fm_acquire_overview",
             "zparams": "ZParameters dict, as fm_acquire_overview",
         },
+        optional=("zparams",),
     ),
     ToolSpec(
         name="beam_auto_brightness_contrast",
@@ -742,6 +767,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
         level="drive",
         hardware=True,
         params={"beam_type": "ELECTRON or ION"},
+        optional=("beam_type",),
     ),
 )
 
@@ -801,6 +827,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "level": "the lowest level to keep: DEBUG, INFO, WARNING, ERROR (default DEBUG, or INFO with task_id)",
             "lines": "the most records to return, the latest kept (default 200, max 2000)",
         },
+        optional=("task_id", "since", "until", "level", "lines"),
     ),
     ToolSpec(
         name="protocol_get",
@@ -895,6 +922,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "fx": "fraction across the image, 0-1 (with fy)",
             "fy": "fraction down the image, 0-1 (with fx)",
         },
+        optional=("x", "y", "fx", "fy"),
     ),
     ToolSpec(
         name="grid_get_markers",
@@ -940,6 +968,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "text": "the note, at most 4000 characters",
             "item_name": "optional: the item this note concerns",
         },
+        optional=("item_name",),
     ),
     ToolSpec(
         name="request_create",
@@ -953,6 +982,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "reason": "why, for the operator, in two or three short sentences: the evidence first (what you saw, in which image, when), then why these actions follow. The card already says what each action does: don't restate it",
             "image": "optional: the path of the image your evidence is in, as the image tools answered it (inside the experiment). The card shows it under Why with the actions' points, areas and patterns drawn on it; without it, the card uses the image the values were measured on",
         },
+        optional=("image",),
         note="Works at Assist only: at Drive make the calls yourself; refused (403 level) at Drive and Watch.",
     ),
     ToolSpec(
@@ -996,6 +1026,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "item_name": "the item (lamella) name",
             "task_names": "optional list of task names; omitted = every task in the protocol",
         },
+        optional=("task_names",),
     ),
     ToolSpec(
         name="item_add",
@@ -1009,6 +1040,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "stage_position": "optional {x, y, z, r, t} (metres, radians) to add at",
             "overview": "optional {grid_name, filename, px | fraction}: a point on a grid overview",
         },
+        optional=("name", "stage_position", "overview"),
     ),
     ToolSpec(
         name="item_remove",
@@ -1033,10 +1065,10 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         name="item_set_pose",
         description="Set the stage position now as one of a lamella's poses, as the tab's Set pose does. Setting MILLING moves the lamella: its milling angle and fluorescence pose follow. Saved; answers with the item.",
         method="POST",
-        path="/app/experiment/items/{item_name}/poses/{pose_name}",
+        path="/app/experiment/items/{item_name}/poses/{pose}",
         level="drive",
         router="app",
-        params={"item_name": "the item (lamella) name", "pose_name": "the pose name"},
+        params={"item_name": "the item (lamella) name", "pose": "the pose name"},
     ),
     ToolSpec(
         name="item_set_objective_position",
@@ -1087,6 +1119,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "task_name": "the task name, as listed by protocol_get",
             "scheduled_at": "ISO-8601 timestamp, or null to clear",
         },
+        optional=("scheduled_at",),
     ),
     ToolSpec(
         name="workflow_set_options",
@@ -1150,6 +1183,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "since": "return events with seq greater than this (0 for all held)",
             "timeout": "seconds to wait for new events before returning (max 30)",
         },
+        optional=("since", "timeout"),
     ),
     ToolSpec(
         name="workflow_stop",
@@ -1172,6 +1206,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "task_names": "the tasks to run, from the protocol's task names",
             "item_names": "the items (lamellae) to run them for; omit for all",
         },
+        optional=("item_names",),
     ),
     ToolSpec(
         name="workflow_plan_grids",
@@ -1185,6 +1220,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "grid_names": "grids to run them on; omit for every recorded grid",
             "screen_all": "true = inventory first, then every present grid (no grid_names)",
         },
+        optional=("grid_names", "screen_all"),
     ),
     ToolSpec(
         name="workflow_start_grids",
@@ -1198,6 +1234,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "grid_names": "grids to run them on; omit for every recorded grid",
             "screen_all": "true = inventory first, then every present grid (no grid_names)",
         },
+        optional=("grid_names", "screen_all"),
     ),
     ToolSpec(
         name="protocol_set_supervision",
@@ -1223,6 +1260,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "task_name": "the task to queue, from the protocol's task names",
             "front": "true to run it next instead of at the end (optional)",
         },
+        optional=("front",),
     ),
     ToolSpec(
         name="workflow_edit_queue",
@@ -1278,6 +1316,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "reason": "required on Rejected",
             "author": "optional agent/model name, recorded as agent:<name>",
         },
+        optional=("proposal_id", "values", "reason", "author", "task_id"),
     ),
     ToolSpec(
         name="prompt_answer",
@@ -1291,6 +1330,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "question_id": "the question_id from prompt_get, naming the question being answered",
             "value": "optional edit: {left, top, width, height} (fractions of the frame, origin top-left) for EditAlignmentArea; {x, y} (metres, microscope image coordinates, origin centre, +y up) for PickPOI; {features: [{name, px: {x, y}}]} (source-image pixels, origin top-left, only the named features move) for ConfirmDetection; {points: [{x, y}]} (fractions of the frame, origin top-left; current and exposure stay the protocol's) for RunSpotBurn",
         },
+        optional=("value",),
     ),
     ToolSpec(
         name="prompt_suggest_answer",
@@ -1305,6 +1345,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "reason": "why: shown under the suggestion for the operator",
             "value": "optional geometry, as for prompt_answer",
         },
+        optional=("value",),
         note="Works at Assist and Drive; refused (403) at Watch. At Drive you may prompt_answer directly instead.",
     ),
     ToolSpec(
@@ -1335,6 +1376,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "protocol": "optional protocol name from protocol_list",
             "description": "optional one-line description",
         },
+        optional=("protocol", "description"),
     ),
     ToolSpec(
         name="experiment_load",

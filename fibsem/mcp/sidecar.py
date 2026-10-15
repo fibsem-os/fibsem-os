@@ -831,10 +831,10 @@ def build_sidecar(client, capabilities):
             f"/app/experiment/items/{quote(item_name, safe='')}/move_to", {"pose": pose}
         )
 
-    def item_set_pose(item_name: str, pose_name: str):
+    def item_set_pose(item_name: str, pose: str):
         return _app_post(
             f"/app/experiment/items/{quote(item_name, safe='')}"
-            f"/poses/{quote(pose_name, safe='')}"
+            f"/poses/{quote(pose, safe='')}"
         )
 
     def item_set_objective_position(item_name: str):

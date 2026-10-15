@@ -1061,7 +1061,7 @@ def _line(
             change += f"\nfrom {_position(now)}"
         return {"what": str(item), "change": change}
     if tool == "item_set_pose":
-        pose = a.get("pose_name")
+        pose = a.get("pose")
         change = f"Set its {pose} pose to where the stage is now"
         now = stage_now()
         if now:
