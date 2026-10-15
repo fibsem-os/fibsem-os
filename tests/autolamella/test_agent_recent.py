@@ -200,7 +200,7 @@ def test_a_direct_call_says_how_it_ended():
     assert _rows(recent) == [
         ("Stopped the mill: through", "done", OK),
         ("FIB · Take an image", "failed", ERROR),
-        ("Stage · Move by x 2 µm", "refused: the microscope was busy", ERROR),
+        ("Stage · Move by x 2 µm", "refused: busy", ERROR),
     ]
 
 

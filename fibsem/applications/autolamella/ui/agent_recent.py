@@ -55,8 +55,8 @@ _MILL_START = "/services/milling/commands/start"
 
 # Why a direct call was refused, beyond the agent's permissions (agent_called).
 _CALL_REFUSED = {
-    "microscope_busy": "the microscope was busy",
-    "microscope_off": "the microscope isn't served",
+    "microscope_busy": "busy",
+    "microscope_off": "not served",
 }
 
 
