@@ -27,7 +27,8 @@ click does is the window's.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+import html
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from PyQt5.QtCore import QSize, Qt, pyqtSignal
 from PyQt5.QtGui import QImage, QMouseEvent, QPixmap
@@ -387,8 +388,9 @@ class AgentCard(QFrame):
         self._now: Optional[str] = None
         # The images under Why, with their captions: the request's, the
         # suggestion's.
-        self._images: Dict[str, Tuple[QImage, str]] = {}
+        self._images: Dict[str, Tuple[QImage, str, Tuple]] = {}
         self.image_label: Optional[QLabel] = None
+        self.image_key: Optional[QLabel] = None
         self._details_open = False
         self._rejecting = False
         self._why_open = False
@@ -579,17 +581,22 @@ class AgentCard(QFrame):
         self._render()
 
     def set_image(
-        self, image: Optional[QImage], caption: str = "", suggestion: bool = False
+        self,
+        image: Optional[QImage],
+        caption: str = "",
+        suggestion: bool = False,
+        key: Sequence[Tuple[Optional[str], str]] = (),
     ) -> None:
         """The image the waiting request's (or, *suggestion*, the suggested
         answer's) values were measured on, drawn on it, with what it is
-        ("FIB · 07:41"); None for none."""
-        key = "suggestion" if suggestion else "request"
+        ("FIB · 07:41") and its *key*: what each colour draws, ``(colour,
+        words)``, colour None for the text's own; None for none."""
+        which = "suggestion" if suggestion else "request"
         if image is None or image.isNull():
-            if self._images.pop(key, None) is None:
+            if self._images.pop(which, None) is None:
                 return
         else:
-            self._images[key] = (image, caption)
+            self._images[which] = (image, caption, tuple(key))
         self._render()
 
     def set_now(self, action: Optional[str]) -> None:
@@ -876,10 +883,23 @@ class AgentCard(QFrame):
         self.image_label = None
         if image not in self._images:
             return
-        picture, caption = self._images[image]
+        picture, caption, key = self._images[image]
         label = _Picture(picture, self._why_width(), caption)
         self.image_label = label
         column.addWidget(label)
+        self.image_key = None
+        if key:
+            self.image_key = _label(
+                "&nbsp;&nbsp;".join(
+                    f'<span style="color: {colour or TEXT_COLOR};">'
+                    f"{html.escape(text).replace(' ', '&nbsp;')}</span>"
+                    for colour, text in key
+                ),
+                small=True,
+                wrap=True,
+            )
+            self.image_key.setTextFormat(Qt.RichText)  # type: ignore
+            column.addWidget(self.image_key)
         column.addWidget(
             _label(f"{caption} · click to enlarge", TEXT_MUTED_COLOR, small=True)
         )

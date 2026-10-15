@@ -262,7 +262,8 @@ class _Mark:
 
 # The picture on the card: its width at most, and how its marks are drawn.
 PICTURE_WIDTH = 1024
-_GREY = "#9a9a9a"
+# A config edit's patterns as they are now: solid white, seen on any image.
+_BEFORE = "#ffffff"
 
 
 class _Layer:
@@ -275,6 +276,13 @@ class _Layer:
         self.crosses: List[Tuple[float, float]] = []
         self.areas: List[List[Tuple[float, float]]] = []
         self.patterns: List = []
+        # What it draws, in the words of the key under the picture.
+        self.keys: List[str] = []
+
+    def key(self, text: str, drawn=True) -> None:
+        """Name what this colour draws in the picture's key, when it draws it."""
+        if drawn and text not in self.keys:
+            self.keys.append(text)
 
     def __bool__(self) -> bool:
         return bool(self.crosses or self.areas or self.patterns)
@@ -386,7 +394,8 @@ class AgentPreviews:
         # An item's task config (item name, task name), for a config edit's
         # patterns; None when there is none.
         self._task_config = task_config or (lambda item, task: None)
-        # The card's picture: (QImage or None, caption, suggestion=bool).
+        # The card's picture: (QImage or None, caption, suggestion=bool, and its
+        # key=[(colour, words)], colour None for the text's own).
         self._show_picture = show_picture or (lambda *args, **kwargs: None)
         self._request_id: Optional[str] = None
         # The card's pictures, as drawn: (frame, layers), for tests and reading.
@@ -422,13 +431,20 @@ class AgentPreviews:
         # The card: the image the values were measured on, every value on it.
         if frame is None:
             return
-        layers = [_Layer(_GREY), _Layer(PURPLE_COLOR), _Layer(RED_COLOR)]
+        layers = [
+            _Layer(_BEFORE, dashed=False),
+            _Layer(PURPLE_COLOR),
+            _Layer(RED_COLOR),
+        ]
         grey, purple, red = layers
         if beam is BeamType.ION:
             grey.patterns = _stage_patterns(before)
             # Past the field, red over purple.
             purple.patterns = patterns + _stage_patterns(milled)
             red.patterns = outside
+            grey.key("▭ as now", grey.patterns)
+            purple.key("▭ after the edit" if before else "▭ patterns", purple.patterns)
+            red.key("▭ past the field", red.patterns)
         self._add_marks(frame, marks.values(), purple)
         self._picture(frame, beam, layers, suggestion=False)
 
@@ -461,7 +477,7 @@ class AgentPreviews:
             add(
                 TARGET_MARK,
                 beam,
-                "Agent · move target",
+                "move target",
                 [(None, lambda frame, o=offset: _offset_pixel(frame, o))],
             )
         for action in request.get("actions", []):
@@ -474,7 +490,7 @@ class AgentPreviews:
                     add(
                         POI_MARK,
                         BeamType.ION,
-                        "Agent · point of interest",
+                        "point of interest",
                         [(image, _offset_pixel(image, poi))],
                     )
             elif tool == "item_update":
@@ -488,7 +504,7 @@ class AgentPreviews:
                     add(
                         POI_MARK,
                         BeamType.ION,
-                        "Agent · point of interest",
+                        "point of interest",
                         [(None, lambda frame, p=poi: _offset_pixel(frame, p))],
                     )
                 area = _area(patch)
@@ -496,7 +512,7 @@ class AgentPreviews:
                     add(
                         AREA_MARK,
                         BeamType.ION,
-                        "Agent · alignment area",
+                        "alignment area",
                         [
                             (None, lambda frame, c=corner: _fraction_pixel(frame, c))
                             for corner in area
@@ -532,14 +548,14 @@ class AgentPreviews:
             ]
             mark = _Mark(
                 BeamType.ION,
-                "Agent's suggested area",
+                "alignment area",
                 [(None, lambda frame, c=c: _fraction_pixel(frame, c)) for c in corners],
                 area=True,
             )
         elif isinstance(request, RunSpotBurn):
             mark = _Mark(
                 BeamType.ION,
-                "Agent's suggested points",
+                "spot burn points",
                 [
                     (None, lambda frame, p=p: _fraction_pixel(frame, (p.x, p.y)))
                     for p in value
@@ -550,7 +566,7 @@ class AgentPreviews:
             if _has_pixel_size(image):
                 mark = _Mark(
                     image.metadata.image_settings.beam_type or BeamType.ION,
-                    "Agent's suggested features",
+                    "features",
                     [(image, (px.x, px.y)) for px in value.values()],
                 )
         if mark is None:
@@ -576,6 +592,7 @@ class AgentPreviews:
         if frame is not None:
             layer = _Layer(PURPLE_COLOR)
             layer.crosses.append(tuple(pixel))
+            layer.key("+ point of interest")
             self._picture(frame, BeamType.ION, [layer], suggestion=True, point=True)
 
     # --- drawing ----------------------------------------------------------------
@@ -587,8 +604,10 @@ class AgentPreviews:
             pixels = mark.pixels(frame)
             if mark.area:
                 layer.areas.append(pixels[:2])
+                layer.key(f"▭ {mark.legend}")
             else:
                 layer.crosses.extend(pixels)
+                layer.key(f"+ {mark.legend}")
 
     def _picture(
         self,
@@ -612,6 +631,11 @@ class AgentPreviews:
             draw_picture(frame, layers),
             picture_caption(frame, beam),
             suggestion=suggestion,
+            key=[
+                (None if layer.colour == _BEFORE else layer.colour, text)
+                for layer in layers
+                for text in layer.keys
+            ],
         )
 
 

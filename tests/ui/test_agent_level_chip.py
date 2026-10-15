@@ -176,6 +176,11 @@ def test_the_image_the_values_were_measured_on_shows_under_why(qapp):
     card.set_image(image, "FIB · 07:41")
     assert card.image_label.pixmap().width() == WHY_WIDTH
     assert "FIB · 07:41 · click to enlarge" in _labels(card)
+    assert card.image_key is None
+    # The key names what each colour draws, in its colour.
+    card.set_image(image, "FIB · 07:41", key=[("#8b5cf6", "+ move target")])
+    assert "#8b5cf6" in card.image_key.text()
+    assert "move&nbsp;target" in card.image_key.text()
     card.image_label.enlarge()
     assert card.image_label.window_.isVisible()
     card.image_label.window_.close()
