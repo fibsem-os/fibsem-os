@@ -810,6 +810,22 @@ def _add_item(a: Dict[str, Any], stage_now: Optional[Dict[str, Any]]) -> Dict[st
     return line
 
 
+def _open_experiment(get) -> Optional[str]:
+    """The name of the experiment open now, or None."""
+    status = get("/app/workflow/status")
+    current = (status or {}).get("experiment") if isinstance(status, dict) else None
+    return (current or {}).get("name") if isinstance(current, dict) else None
+
+
+def _experiment_name(path: str) -> str:
+    """An experiment's name from its path: the folder, not experiment.yaml."""
+    path = path.rstrip("/\\")
+    name = os.path.basename(path.replace("\\", "/"))
+    if os.path.splitext(name)[1].lower() in (".yaml", ".yml"):
+        name = os.path.basename(os.path.dirname(path.replace("\\", "/")))
+    return name or "an experiment"
+
+
 def _review_item(reviews: Any, item_id: Any) -> Optional[str]:
     if not isinstance(reviews, dict):
         return None
@@ -1147,9 +1163,7 @@ def _line(
         return {"what": "The run's question", "change": change}
     if tool == "experiment_create":
         protocol = a.get("protocol")
-        status = get("/app/workflow/status")
-        current = (status or {}).get("experiment") if isinstance(status, dict) else None
-        replaces = (current or {}).get("name") if isinstance(current, dict) else None
+        replaces = _open_experiment(get)
         return {
             "what": "Experiment",
             "change": f"Create and open '{a.get('name')}', with "
@@ -1165,12 +1179,15 @@ def _line(
             ),
         }
     if tool == "experiment_load":
-        opened = (
-            os.path.basename(str(a.get("path") or "").rstrip("/\\")) or "an experiment"
-        )
+        path = str(a.get("path") or "")
+        replaces = _open_experiment(get)
         return {
             "what": "Experiment",
-            "change": f"Open '{opened}' in place of the one open now",
+            "change": f"Open '{_experiment_name(path)}'"
+            + (f" in place of '{replaces}'" if replaces else ""),
+            "details": _table(
+                ("", ""), [("Path", path), ("Replaces", replaces or "none open")]
+            ),
         }
     if tool == "protocol_load":
         return {

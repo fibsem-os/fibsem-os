@@ -717,6 +717,24 @@ def test_a_run_task_reads_by_its_stages_with_whose_estimate_it_is():
             "Point of interest: (1, 0) µm → (2, 0) µm",
         ),
         (
+            "experiment_load",
+            {"path": "C:\\data\\AutoLamella-2026-10-15\\experiment.yaml"},
+            {
+                "/app/workflow/status": {
+                    "experiment": {"name": "AutoLamella-2026-10-14"}
+                }
+            },
+            "Experiment",
+            "Open 'AutoLamella-2026-10-15' in place of 'AutoLamella-2026-10-14'",
+        ),
+        (
+            "experiment_load",
+            {"path": "/data/AutoLamella-2026-10-15/"},
+            {},
+            "Experiment",
+            "Open 'AutoLamella-2026-10-15'",
+        ),
+        (
             "review_decide",
             {
                 "item_id": "abc",
