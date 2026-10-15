@@ -987,6 +987,18 @@ class Device(_Controllable):
         """
         return {}
 
+    def hardware_check(self, report: Any, level: Any) -> None:
+        """This device's steps in the hardware check (``fibsem.tools.hardware_check``),
+        recorded on *report* for *level*. By default the ``READ`` step: every
+        parameter read and checked against its own limits and choices. A driver adds
+        steps for the higher levels by overriding this and calling it first; each
+        step goes in ``report.step(...)``, so a failure is recorded and the run goes
+        on. A step must put back every setting it changes, and none may move
+        anything."""
+        from fibsem.tools.hardware_check import check_readings
+
+        check_readings(self, report)
+
     def disconnect(self) -> None:
         """Close what this device alone holds open: its own controller connection.
         The microscope calls it when it disconnects, in reverse build order.

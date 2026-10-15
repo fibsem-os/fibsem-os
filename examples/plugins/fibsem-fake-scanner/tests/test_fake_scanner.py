@@ -223,6 +223,20 @@ def test_one_scanner_serves_one_beam_at_a_time(tmp_path):
         microscope.disconnect()
 
 
+# -- the hardware check ------------------------------------------------------------
+
+
+def test_the_hardware_check_runs_the_scanners_own_steps(microscope):
+    from fibsem.tools.hardware_check import Level, run_hardware_check
+
+    gain = microscope.devices["fake_scanner"].gain.get_value()
+    report = run_hardware_check(microscope, Level.ACQUIRE)
+    steps = {f.step: f for f in report.findings if f.device == "fake_scanner"}
+    assert {"read input", "set gain", "restore gain", "scan a frame"} <= set(steps)
+    assert all(f.result.value == "pass" for f in steps.values()), report.format()
+    assert microscope.devices["fake_scanner"].gain.get_value() == gain
+
+
 # -- recording ---------------------------------------------------------------------
 
 

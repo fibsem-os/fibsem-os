@@ -109,6 +109,19 @@ class FakeScanner(FakeScanUnit):
     def _resolution_limits(self) -> Tuple[Tuple[int, int], Tuple[int, int]]:
         return (1, 1), self._controller.max_resolution
 
+    def hardware_check(self, report: Any, level: Any) -> None:
+        """The READ step every device has, then: at SETTINGS, the gain changed, read
+        back and put back; at ACQUIRE, one small frame scanned."""
+        from fibsem.tools.hardware_check import Level, check_round_trip
+
+        super().hardware_check(report, level)
+        if level.includes(Level.SETTINGS):
+            gain = self.gain.get_value()
+            check_round_trip(self, "gain", 0.25 if gain != 0.25 else 0.75, report)
+        if level.includes(Level.ACQUIRE):
+            with report.step(self.name, "scan a frame", (64, 48)) as finding:
+                finding.read = self.acquire((64, 48), self.dwell_time_limits.min).shape
+
     def _self_test(self) -> Dict[str, Any]:
         report = self._controller.self_test()
         self.session.record("scanner_self_test", {"device": self.name, **report})

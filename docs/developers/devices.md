@@ -638,6 +638,14 @@ driver's own client is closed last. One that raises is logged, and the rest stil
 run. A whole-microscope driver puts its client's close in `_disconnect`, not
 `disconnect`.
 
+`fibsem-cli check` (the hardware check) checks every device the microscope built, a plugin's too,
+through `Device.hardware_check(report, level)`. By default that is the `READ` step:
+every parameter read and checked against its own limits and choices. A driver adds
+steps for `SETTINGS` and `ACQUIRE` by overriding it, calling `super()` first, and
+putting each step in `report.step(...)`; `check_round_trip` changes a setting, reads
+it back and puts it back. No step may move anything, and each puts back what it
+changes. The fake scanner's checks its gain and scans one small frame.
+
 A driver like this one, that only builds devices, has no `microscope_class`. It is
 never offered as a manufacturer, and connecting with it as `info.manufacturer` is
 refused. Its name matches a `driver:` in any case (`knifeco` finds `KnifeCo`).
