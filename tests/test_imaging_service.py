@@ -139,7 +139,7 @@ def test_the_beams_own_autofocus_is_recorded(microscope):
     """It moves the working distance as the sweep does, so it is on the record too
     (FIB-1355)."""
     recorded = []
-    microscope.record_signal.connect(
+    microscope.session.record_signal.connect(
         lambda kind, payload: recorded.append((kind, payload))
     )
     beam = microscope.beams[BeamType.ELECTRON]
@@ -155,7 +155,7 @@ def test_the_beams_own_autofocus_is_recorded(microscope):
 
 def test_a_failed_beam_autofocus_is_recorded_and_raised(microscope, monkeypatch):
     recorded = []
-    microscope.record_signal.connect(
+    microscope.session.record_signal.connect(
         lambda kind, payload: recorded.append((kind, payload))
     )
     beam = microscope.beams[BeamType.ELECTRON]
@@ -221,9 +221,8 @@ def test_acquire_image_saves_and_records(microscope, tmp_path):
     from fibsem.structures import ImageSettings
 
     recorded = []
-    real = microscope.record_event
-    microscope.record_event = lambda kind, data: (
-        recorded.append((kind, data)) or real(kind, data)
+    microscope.session.record_signal.connect(
+        lambda kind, data: recorded.append((kind, data))
     )
     settings = ImageSettings(
         beam_type=BeamType.ION,

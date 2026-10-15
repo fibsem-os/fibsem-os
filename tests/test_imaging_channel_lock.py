@@ -257,7 +257,7 @@ def test_the_locked_region_stays_narrow(thermo):
                 call.func.attr
                 for call in _calls_named(block, "get_microscope_state")
                 + _calls_named(block, "get_imaging_settings")
-                + _calls_named(block, "_set_additional_metadata")
+                + _calls_named(block, "stamp")
             }
         )
         assert widened == [], (

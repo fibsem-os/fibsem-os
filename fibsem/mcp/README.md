@@ -113,5 +113,5 @@ Loopback bind keeps everything off the network by default; the per-session
 bearer token keeps other users on the same machine out; the agent level the
 operator sets from the Agent chip decides what the agent may do, and nothing
 moves or images below Drive; one hardware command runs at a time (a second gets
-`409 microscope_busy`); the agent stops its own mill at any level and anything
+`409 microscope_busy`); the agent stops its own mill at Assist or Drive and anything
 else at Drive, always with a reason, and a stop never waits.

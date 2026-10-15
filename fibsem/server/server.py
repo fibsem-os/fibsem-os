@@ -5,8 +5,8 @@
 that additionally mounts the app-level router.
 
 Every route requires a bearer token, and an agent level (``auth``): reads at
-Watch, acting at Drive. The agent stops its own action at any level, anything
-else only at Drive, and every stop carries a reason. A hardware command also takes control
+Watch, acting at Drive. The agent stops its own action at Assist or Drive,
+anything else only at Drive, and never at Watch; every stop carries a reason. A hardware command also takes control
 of the microscope (FIB-1270) for as long as it runs; when a run, a script or
 another command is in control it is refused with a structured ``409
 microscope_busy`` naming who, rather than interleaved or queued.
@@ -126,12 +126,13 @@ def _agents_own_action(request: Request) -> bool:
 
 
 def _stop_gate(request: Request) -> None:
-    """The stop rule (Patrick, 2026-10-14): the agent stops its own action at any
-    level, and anything else (a workflow, the operator's mill) only at Drive, or
-    in a request the operator approved. A wrong stop isn't free: a mill stopped
-    partway can spoil a lamella, and a stopped run loses hours."""
+    """The stop rule (Patrick, 2026-10-14): the agent stops its own action at the
+    levels it acts at, Assist and Drive, and anything else (a workflow, the
+    operator's mill) only at Drive, or in a request the operator approved. Watch
+    never stops. A wrong stop isn't free: a mill stopped partway can spoil a
+    lamella, and a stopped run loses hours."""
     if _agents_own_action(request):
-        _watch(request)
+        _assist(request)
     else:
         _drive(request)
 
