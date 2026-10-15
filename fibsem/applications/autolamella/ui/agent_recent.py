@@ -19,7 +19,7 @@ No Qt: the window feeds it records and draws `rows`.
 from __future__ import annotations
 
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Dict, List
 
 from fibsem.acting import AGENT
@@ -168,7 +168,9 @@ class RecentActions:
         row = self._rows.get(key)
         if row is None:
             return False
-        row.outcome, row.tone = outcome, tone
+        # A new row, not the old one changed: the card compares the rows it
+        # has with the ones it is given, and the same object never differs.
+        self._rows[key] = replace(row, outcome=outcome, tone=tone)
         return True
 
     # --- requests --------------------------------------------------------------

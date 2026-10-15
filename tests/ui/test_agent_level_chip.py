@@ -1097,3 +1097,23 @@ def test_at_drive_each_direct_call_shows_in_now_then_recent_with_its_level(qapp)
     activity.set_microscope(None)
     chip.deleteLater()
     bar.deleteLater()
+
+
+def test_a_row_s_outcome_changes_on_the_card(qapp):
+    # Round 8 screenshots: an overview read "running" after it ended, since
+    # the row was changed in place and the card saw the same rows.
+    from fibsem.applications.autolamella.ui.agent_recent import RecentActions
+
+    recent = RecentActions()
+    run = {"service": "imaging", "run_id": "o", "action": "Overview", "level": "drive"}
+    started = {"seq": 1, "kind": "command_started", "actor": "agent", "payload": run}
+    recent.add(started)
+    card = AgentCard()
+    card.set_level(AgentLevel.DRIVE)
+    card.set_recent(recent.rows)
+    assert "running" in _labels(card)
+    ended = dict(started, seq=2, kind="command_ended", payload=dict(run, state="done"))
+    recent.add(ended)
+    card.set_recent(recent.rows)
+    assert "done" in _labels(card) and "running" not in _labels(card)
+    card.deleteLater()
