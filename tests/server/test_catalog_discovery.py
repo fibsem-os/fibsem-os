@@ -82,6 +82,39 @@ def test_every_route_is_a_tool_or_says_why_not(app):
     assert all(reason.strip() for reason in NOT_TOOLS.values())
 
 
+# A named service tool is its group and its route's command or query
+# (``fm_acquire_overview`` -> ``imaging.fm_acquire_overview``,
+# ``beam_acquire_overview`` -> ``imaging.acquire_overview``), a read with ``get_``
+# before the query's name. These keep an older name, each for a reason.
+NAMED_OTHERWISE = {
+    # The beams' own command names, which the imaging service passes through.
+    "beam_acquire_image": "acquire",
+    "beam_auto_contrast": "autocontrast",
+    # The service's raw move holds move_absolute; renaming it would change every
+    # caller's move without a word.
+    "stage_move_absolute": "safe_absolute_stage_movement",
+    # milling_angle is the service's stored-angle parameter.
+    "stage_get_milling_angle": "current_milling_angle",
+    "stage_get_orientation": "stage_orientation",
+}
+
+
+def test_each_service_tool_is_named_for_its_route():
+    mismatched = {}
+    for tool in CATALOG:
+        match = re.match(
+            r"/microscope/services/\w+/(commands|queries)/(\w+)$", tool.path
+        )
+        if match is None:
+            continue
+        kind, route = match.groups()
+        rest = tool.name.split("_", 1)[1]
+        if route in (tool.name, rest) or (kind == "queries" and rest == f"get_{route}"):
+            continue
+        mismatched[tool.name] = route
+    assert mismatched == NAMED_OTHERWISE
+
+
 def test_catalog_names_unique_and_levels_valid():
     names = [t.name for t in CATALOG]
     assert len(names) == len(set(names))
