@@ -12,7 +12,7 @@ pytest.importorskip("httpx")
 
 from fibsem import utils  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.server.catalog import CATALOG, NOT_TOOLS  # noqa: E402
+from fibsem.server.catalog import CATALOG, GROUP_TITLES, NOT_TOOLS  # noqa: E402
 from fibsem.server.discovery import (  # noqa: E402
     read_discovery_file,
     remove_discovery_file,
@@ -130,11 +130,8 @@ def test_catalog_names_unique_and_levels_valid():
 
 
 # Group first, then verb (plans: mcp-tool-naming): sorted, a group reads as one
-# block. A new tool joins a group here, or the group is added on purpose.
-GROUPS = (
-    "server microscope device service stage beam fm milling alignment "
-    "app experiment protocol item grid workflow prompt review request"
-).split()
+# block. A new tool joins a group in the catalog, or the group is added on purpose.
+GROUPS = tuple(GROUP_TITLES)
 
 
 def test_every_tool_name_starts_with_its_group():

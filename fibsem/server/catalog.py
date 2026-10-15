@@ -60,6 +60,51 @@ class ToolSpec:
     def full_description(self) -> str:
         return f"{self.description} {self.level_note}"
 
+    @property
+    def title(self) -> str:
+        """The name a client shows: "Stage: Move absolute" for stage_move_absolute."""
+        group, _, rest = self.name.partition("_")
+        return f"{GROUP_TITLES[group]}: {rest.replace('_', ' ').capitalize()}"
+
+    @property
+    def read_only(self) -> bool:
+        """Changes nothing: a Watch tool other than the few that write a record."""
+        return self.level == "watch" and self.name not in _WRITES_AT_WATCH
+
+    @property
+    def destructive(self) -> bool:
+        """Commands the microscope, or deletes: worth a second look in a client."""
+        return self.hardware or self.method == "DELETE"
+
+
+# Group first, then verb (plans: mcp-tool-naming). A new tool joins a group
+# here, or the group is added on purpose; the title names it.
+GROUP_TITLES: Dict[str, str] = {
+    "server": "Server",
+    "microscope": "Microscope",
+    "device": "Device",
+    "service": "Service",
+    "stage": "Stage",
+    "beam": "Beam",
+    "fm": "FM",
+    "milling": "Milling",
+    "alignment": "Alignment",
+    "app": "App",
+    "experiment": "Experiment",
+    "protocol": "Protocol",
+    "item": "Item",
+    "grid": "Grid",
+    "workflow": "Workflow",
+    "prompt": "Prompt",
+    "review": "Review",
+    "request": "Request",
+}
+
+# Watch tools that write a record (a note, a request) rather than only read.
+_WRITES_AT_WATCH = frozenset(
+    {"experiment_add_note", "request_create", "request_withdraw"}
+)
+
 
 CATALOG: Tuple[ToolSpec, ...] = (
     # --- read ---
