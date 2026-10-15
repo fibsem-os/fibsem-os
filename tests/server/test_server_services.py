@@ -304,6 +304,28 @@ def test_an_agent_runs_a_focus_sweep(armed_client, microscope):
     )
 
 
+def test_an_agent_runs_auto_brightness_contrast(armed_client, microscope):
+    from fibsem.autofunctions.brightness_contrast import BrightnessContrastSettings
+    from fibsem.structures import BeamType
+
+    beam = microscope.beams[BeamType.ION]
+    beam.detector_brightness.set_value(0.95)
+    settings = BrightnessContrastSettings(probe_resolution=(384, 256))
+    resp = armed_client.post(
+        "/microscope/services/imaging/commands/auto_brightness_contrast",
+        json={
+            "kwargs": {
+                "beam_type": to_wire(BeamType.ION),
+                "settings": settings.to_dict(),
+            }
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    result = resp.json()["result"]
+    assert result["converged"] is True
+    assert beam.detector_brightness.get_value() == pytest.approx(result["brightness"])
+
+
 def test_every_service_command_and_query_hint_resolves(microscope):
     """The routes decode arguments from these hints; one that names a type imported
     only for type checking would leave its arguments as raw JSON (FIB-1354)."""

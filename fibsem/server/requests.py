@@ -92,6 +92,8 @@ class AgentRequest:
     decided_at: Optional[float] = None
     # The operator's words on a reject, for the agent.
     reject_reason: str = ""
+    # Why it was cancelled: the level changed, Stop agent, or the agent withdrew it.
+    cancel_reason: str = ""
     # One per action run: tool, status_code, ok, and the route's answer.
     results: List[Dict[str, Any]] = field(default_factory=list)
     # For Drive's countdown (FIB-1267): when it lapses, and what lapsing does.
@@ -112,6 +114,7 @@ class AgentRequest:
             "decided_by": self.decided_by,
             "decided_at": self.decided_at,
             "reject_reason": self.reject_reason,
+            "cancel_reason": self.cancel_reason,
             "results": list(self.results),
             "expires_at": self.expires_at,
             "on_expiry": self.on_expiry if self.expires_at is not None else None,
@@ -197,11 +200,15 @@ class RequestStore:
         auth: AuthConfig,
         mounted: frozenset,
         emit: Optional[Callable[[str, Dict[str, Any]], Any]] = None,
+        not_allowed: Optional[Callable[[str, str], Optional[str]]] = None,
     ) -> None:
         self._app = app
         self._auth = auth
         self._mounted = mounted
         self._emit_fn = emit
+        # Why a route call is never the agent's (the allowlist), or None: refused
+        # at filing, so the operator is never asked about what cannot run.
+        self._not_allowed = not_allowed
         self._lock = threading.Lock()
         self._requests: Dict[str, AgentRequest] = {}
         self._listeners: List[Callable[[AgentRequest], None]] = []
@@ -352,6 +359,14 @@ class RequestStore:
                 raise RequestRefused(
                     422, "invalid_arguments", f"Action {index + 1}: {exc}"
                 ) from None
+            why = self._not_allowed(method, path) if self._not_allowed else None
+            if why is not None:
+                raise RequestRefused(
+                    403,
+                    "not_allowed",
+                    f"Action {index + 1}: the agent may not use {tool} this way, "
+                    f"at any level: {why}.",
+                )
             resolved.append(Action(tool, dict(arguments), method, path, body))
         return resolved
 
@@ -404,6 +419,22 @@ class RequestStore:
             payload["reason"] = request.reject_reason
         self._emit("request_decided", payload)
         self._changed(request)
+        return request
+
+    def withdraw(self, request_id: str, reason: Any) -> AgentRequest:
+        """The agent takes back its pending request, with a reason: the operator
+        changed their mind, or the agent did. Only while it waits; once
+        decided, it is the operator's."""
+        if not isinstance(reason, str) or not reason.strip():
+            raise RequestRefused(
+                422,
+                "missing_field",
+                "Pass a reason: the operator reads why the request was withdrawn.",
+            )
+        with self._lock:
+            request = self._pending_or_refuse(request_id)
+            self._finish_locked(request, CANCELLED)
+        self._cancelled(request, f"withdrawn by the agent: {reason.strip()}")
         return request
 
     def cancel(self, why: str) -> Optional[AgentRequest]:
@@ -544,6 +575,7 @@ class RequestStore:
             del self._requests[request.id]
 
     def _cancelled(self, request: AgentRequest, why: str) -> None:
+        request.cancel_reason = why
         self._emit("request_cancelled", {"request_id": request.id, "why": why})
         self._changed(request)
 
@@ -560,7 +592,7 @@ class RequestStore:
 
 
 def build_request_router(store: RequestStore) -> APIRouter:
-    """The agent's side of requests: file one, read them back."""
+    """The agent's side of requests: file one, withdraw it, read them back."""
     router = APIRouter(
         prefix="/app/agent", dependencies=[Depends(require_level(AgentLevel.WATCH))]
     )
@@ -590,6 +622,14 @@ def build_request_router(store: RequestStore) -> APIRouter:
         except RequestRefused as refusal:
             raise _refused(refusal)
         return created.to_dict()
+
+    @router.post("/requests/{request_id}/withdraw")
+    def withdraw_request(request_id: str, body: Dict[str, Any]):
+        try:
+            withdrawn = store.withdraw(request_id, body.get("reason"))
+        except RequestRefused as refusal:
+            raise _refused(refusal)
+        return withdrawn.to_dict()
 
     @router.get("/requests")
     def list_requests():

@@ -525,6 +525,24 @@ CATALOG: Tuple[ToolSpec, ...] = (
         hardware=True,
         params={"beam_type": "ELECTRON or ION"},
     ),
+    ToolSpec(
+        name="auto_brightness_contrast",
+        description=(
+            "Set a beam's detector brightness and contrast from its own images, "
+            "not the instrument's routine: at most 6 images of the centre of the "
+            "field of view, starting from what last worked at this beam current. "
+            "Answers the brightness and contrast it set, whether it converged, "
+            "and each image's clipped fractions. Fails, with the detector at the "
+            "best it found, when every image was mostly black, mostly white or "
+            "flat; stop before aligning or milling on that beam. Changes detector "
+            "settings."
+        ),
+        method="POST",
+        path="/microscope/services/imaging/commands/auto_brightness_contrast",
+        level="drive",
+        hardware=True,
+        params={"beam_type": "ELECTRON or ION"},
+    ),
 )
 
 
@@ -725,7 +743,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="request_actions",
-        description="At Assist, ask the operator to approve one or more actions: each is {tool, arguments}, the tool you would call and the arguments you would give it, run in order once approved. Give the reason the operator reads before deciding. One request waits at a time (409 request_pending names it). Answers the request, status pending; follow it with get_request or the request_* events (request_decided, request_applied per action, request_finished). Approved actions run through their own routes, so each is checked and can be refused as a direct call would be; the first refusal stops the batch. A rejection carries the operator's reason. Changing the level or Stop agent cancels a waiting request. Reads need no request, nor does stopping your own mill (stop_milling): call those directly. Stopping anything else (stop_workflow, someone else's mill) goes in a request.",
+        description="At Assist, ask the operator to approve one or more actions: each is {tool, arguments}, the tool you would call and the arguments you would give it, run in order once approved. Give the reason the operator reads before deciding. One request waits at a time (409 request_pending names it): to change it, withdraw it (withdraw_request) and file again. Answers the request, status pending; follow it with get_request or the request_* events (request_decided, request_applied per action, request_finished). Approved actions run through their own routes, so each is checked and can be refused as a direct call would be; the first refusal stops the batch. A rejection carries the operator's reason. An action the agent may never use (agent: false in list_devices) is refused at filing (403 not_allowed). Changing the level or Stop agent cancels a waiting request. Reads need no request, nor does stopping your own mill (stop_milling): call those directly. Stopping anything else (stop_workflow, someone else's mill) goes in a request.",
         method="POST",
         path="/app/agent/requests",
         level="watch",
@@ -737,8 +755,21 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         note="Works at Assist only: at Drive make the calls yourself; refused (403 level) at Drive and Watch.",
     ),
     ToolSpec(
+        name="withdraw_request",
+        description='Withdraw a request you filed that is still waiting for the operator, with a reason: the plan changed, or the operator asked for something else. It ends cancelled, "withdrawn by the agent", and a new request can be filed. A request the operator has decided can no longer be withdrawn (409 not_pending).',
+        method="POST",
+        path="/app/agent/requests/{request_id}/withdraw",
+        level="watch",
+        router="app",
+        params={
+            "request_id": "the request_id request_actions answered",
+            "reason": "why you are withdrawing it, for the operator",
+        },
+        note="Works at any level the agent is on (a request only waits at Assist).",
+    ),
+    ToolSpec(
         name="get_request",
-        description="One request you filed with request_actions: its status (pending, applying, applied, failed, rejected, cancelled), who decided it, the operator's reason on a reject, and each action's result or the route's error.",
+        description="One request you filed with request_actions: its status (pending, applying, applied, failed, rejected, cancelled), who decided it, the operator's reason on a reject, why it was cancelled, and each action's result or the route's error.",
         method="GET",
         path="/app/agent/requests/{request_id}",
         level="watch",
@@ -973,7 +1004,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="requeue_task",
-        description="Queue a task for an item (again) in the RUNNING workflow — 'run 03's fiducial again'. Re-running a completed pair is the queue's own re-run mechanism; the queue only exists during a run.",
+        description="Queue a task for an item (again) in the RUNNING workflow — 'run 03's fiducial again'. Re-running a completed pair is the queue's own re-run mechanism; the queue only exists during a run. A pair already waiting in the queue is refused (409 already_queued): read the queue (get_app_queue) before asking for a requeue.",
         method="POST",
         path="/app/workflow/queue/requeue",
         level="drive",
@@ -1204,6 +1235,7 @@ _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict
     ),
     "autocontrast": lambda a: ({}, _kwargs(**_beam(a))),
     "auto_focus": lambda a: ({}, _kwargs(**_beam(a))),
+    "auto_brightness_contrast": lambda a: ({}, _kwargs(**_beam(a))),
     # A service command or query with no arguments still sends its kwargs.
     "stop_milling": lambda a: ({}, _stop(_kwargs(), a)),
     "estimate_milling_time": lambda a: ({}, _kwargs()),
