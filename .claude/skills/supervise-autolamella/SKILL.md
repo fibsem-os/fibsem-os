@@ -476,7 +476,6 @@ is centred in both. Work from whichever beam has it centred already. Don't
 use the coincidence commands: this loop worked better on a real instrument.
 A coincidence error shows only as a vertical offset in the image, never
 side to side.
-The horizontal offset between the beams changes with tilt; note it.
 
 **A refused move and a failed move are different.** A move refused before it
 starts (outside the stage limits, `microscope_busy`, a bad argument, the
