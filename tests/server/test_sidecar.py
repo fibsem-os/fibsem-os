@@ -94,6 +94,8 @@ def test_each_tool_has_a_title_and_says_whether_it_changes_anything(armed_sideca
     assert position.title == "Stage: Get position"
     assert position.annotations.read_only_hint is True
     assert tools["fm_acquire_image"].title == "FM: Acquire image"
+    assert tools["device_set_parameter"].annotations.idempotent_hint is True
+    assert move.annotations.idempotent_hint is False
     assert all(t.annotations.open_world_hint is False for t in tools.values())
 
 

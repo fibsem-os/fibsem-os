@@ -1147,6 +1147,7 @@ def build_sidecar(client, capabilities):
                     title=spec.title,
                     read_only_hint=spec.read_only,
                     destructive_hint=spec.destructive,
+                    idempotent_hint=spec.idempotent,
                     open_world_hint=False,
                 ),
             )

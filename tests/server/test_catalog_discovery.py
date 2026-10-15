@@ -134,6 +134,15 @@ def test_catalog_names_unique_and_levels_valid():
 GROUPS = tuple(GROUP_TITLES)
 
 
+def test_a_write_that_only_adds_is_not_destructive():
+    by_name = {t.name: t for t in CATALOG}
+    assert by_name["item_update"].destructive
+    assert by_name["workflow_stop"].destructive
+    assert not by_name["item_add"].destructive
+    assert not by_name["request_create"].destructive
+    assert not by_name["stage_get_position"].destructive
+
+
 def test_every_tool_name_starts_with_its_group():
     stray = [t.name for t in CATALOG if t.name.split("_", 1)[0] not in GROUPS]
     assert stray == []
