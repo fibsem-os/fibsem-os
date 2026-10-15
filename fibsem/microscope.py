@@ -941,6 +941,13 @@ class FibsemMicroscope(ABC):
         if fm is None:
             return None
         self.fm_devices = MappingProxyType(dict(fm.devices or {}))
+        # The imaging service is built first, over the beams; the FM joins it
+        # here, so one imaging service (and its one stop) covers the FM too.
+        from fibsem.devices.fm import FM
+
+        group = self.fm_devices.get("fm")
+        if self.imaging is not None and isinstance(group, FM):
+            self.imaging.fill_roles(fm=group)
         logging.info(f"Fluorescence microscope connected: {type(fm).__name__}.")
         return fm
 

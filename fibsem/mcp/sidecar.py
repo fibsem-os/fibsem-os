@@ -495,6 +495,9 @@ def build_sidecar(client, capabilities):
     def auto_focus(beam_type: str = "ELECTRON"):
         return _routed("auto_focus", "result", beam_type=beam_type)
 
+    def fm_auto_focus(channel_name: Optional[str] = None, path: Optional[str] = None):
+        return _routed("fm_auto_focus", "run", channel_name=channel_name, path=path)
+
     def _query(**params):
         """A query string of the *params* that are given (not None)."""
         return urlencode({k: v for k, v in params.items() if v is not None})
@@ -870,6 +873,7 @@ def build_sidecar(client, capabilities):
             wait_for_run,
             autocontrast,
             auto_focus,
+            fm_auto_focus,
             get_app_status,
             get_app_queue,
             get_experiment_summary,

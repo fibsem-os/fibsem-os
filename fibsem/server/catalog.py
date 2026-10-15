@@ -397,7 +397,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "device": "device name from list_devices",
             "command": "command name",
             "kwargs": "the command's arguments, by name",
-            "reason": "for a stop (stop, stop_live, cancel): why, for the operator (required there)",
+            "reason": "for a stop (stop, stop_live): why, for the operator (required there)",
         },
     ),
     ToolSpec(
@@ -449,7 +449,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "Run a service command listed by list_services, e.g. service=stage_movement "
             "command=move_to_orientation kwargs={'orientation': 'SEM'}. A long command "
             "(listed with long: true: milling run, run_stage and run_task, spot burn "
-            "run, alignment align) answers at once with "
+            "run, alignment align, imaging fm_focus_sweep) answers at once with "
             "its run (run_id, state: running) and runs on, in control of the "
             "microscope; wait_for_run says how it ended. command=stop from "
             "another call stops it: the agent's own run at Assist or Drive, "
@@ -463,7 +463,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "service": "service name from list_services",
             "command": "command name",
             "kwargs": "the command's arguments, by name",
-            "reason": "for a stop (stop, stop_live, cancel): why, for the operator (required there)",
+            "reason": "for a stop (stop, stop_live): why, for the operator (required there)",
         },
     ),
     ToolSpec(
@@ -524,6 +524,27 @@ CATALOG: Tuple[ToolSpec, ...] = (
         level="drive",
         hardware=True,
         params={"beam_type": "ELECTRON or ION"},
+    ),
+    ToolSpec(
+        name="fm_auto_focus",
+        description=(
+            "Focus the fluorescence microscope: sweep the objective, a coarse then "
+            "a fine pass, scoring a frame at each step on the current channel, as "
+            "the FM tab's auto-focus does, and leave it at the best position. "
+            "Refused while the FM is in use or can't see the sample from this "
+            "pose (move to the FM pose first). A long command: it answers with "
+            "its run at once; wait_for_run imaging gives the best objective "
+            "position and the scores; call_service_command imaging stop, with a "
+            "reason, ends it."
+        ),
+        method="POST",
+        path="/microscope/services/imaging/commands/fm_focus_sweep",
+        level="drive",
+        hardware=True,
+        params={
+            "channel_name": "the channel to focus on; left out, the current one",
+            "path": "a folder inside the open experiment to save the sweep to",
+        },
     ),
 )
 
@@ -1204,6 +1225,17 @@ _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict
     ),
     "autocontrast": lambda a: ({}, _kwargs(**_beam(a))),
     "auto_focus": lambda a: ({}, _kwargs(**_beam(a))),
+    "fm_auto_focus": lambda a: (
+        {},
+        _kwargs(
+            settings=(
+                {"channel_name": str(a["channel_name"])}
+                if a.get("channel_name")
+                else None
+            ),
+            path=a.get("path"),
+        ),
+    ),
     # A service command or query with no arguments still sends its kwargs.
     "stop_milling": lambda a: ({}, _stop(_kwargs(), a)),
     "estimate_milling_time": lambda a: ({}, _kwargs()),

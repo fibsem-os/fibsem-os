@@ -28,6 +28,7 @@ from fibsem.autofunctions.autofocus import AutoFocusResult, AutoFocusSettings
 from fibsem.cancellation import AnyStopEvent
 from fibsem.devices.beam import Beam
 from fibsem.devices.core import Role, RoleUnfilled, command
+from fibsem.devices.fm import FM
 from fibsem.services.core import Service
 from fibsem.structures import BeamType, FibsemImage, FibsemRectangle, ImageSettings
 
@@ -45,10 +46,12 @@ class Imaging(Service):
     ``autocontrast``, ``start_live``, ``stop_live``); a saved, recorded image
     (``acquire_image``) and reference images of both beams (``reference_images``,
     ``reference_image_sets``); ``auto_focus`` (the instrument's own where the
-    beam has one, else the sweep), ``focus_sweep`` and ``stop``."""
+    beam has one, else the sweep), ``focus_sweep``, the fluorescence
+    microscope's ``fm_focus_sweep``, and ``stop``, which ends any of them."""
 
     electron = Role(Beam, required=False, doc="The electron beam.")
     ion = Role(Beam, required=False, doc="The ion beam.")
+    fm = Role(FM, required=False, doc="The fluorescence microscope.")
 
     def __init__(self, name: str = "imaging", **kwargs: Any):
         super().__init__(name, **kwargs)
@@ -224,10 +227,50 @@ class Imaging(Service):
             name=name,
         )
 
+    def _has_fm(self) -> bool:
+        return "fm" in self._roles
+
+    @command(long=True, available=_has_fm)
+    def fm_focus_sweep(
+        self,
+        settings: Optional[AutoFocusSettings] = None,
+        path: Optional[str] = None,
+        name: str = "autofocus",
+    ) -> Dict[str, Any]:
+        """Focus the fluorescence microscope by sweeping its objective, a coarse
+        then a fine pass by default, scoring a frame at each step on its current
+        channel (``settings.channel_name`` picks another), as the FM tab's
+        auto-focus does (`fibsem.fm.calibration.run_coarse_fine_autofocus`).
+
+        Refused while the FM is in use (live view, a tileset, the tab's own
+        sweep) or can't see the sample from this pose. ``stop`` ends it between
+        steps, ``cancelled``, with the objective where the passes left it. Given
+        a ``path``, the result is saved to ``<path>/<name>``. Answers the best
+        objective position and the sweep's scores.
+        """
+        from fibsem.fm.calibration import run_coarse_fine_autofocus
+
+        fm = self.parent.fm
+        self._stop_requested.clear()
+        with fm.acquiring("auto-focus"):
+            result = run_coarse_fine_autofocus(
+                fm,
+                autofocus_settings=settings or AutoFocusSettings(),
+                stop_event=self._stop_requested,
+                path=path,
+                name=name,
+            )
+        if result is None or self._stop_requested.is_set():
+            return {"status": "cancelled", **(result.to_dict() if result else {})}
+        return {"status": "completed", **result.to_dict()}
+
     @command
     def stop(self) -> None:
-        """End the sweep in progress, as cancelled."""
+        """End the sweep in progress, a beam's or the FM's, as cancelled, and an
+        FM z-stack before its next frame."""
         self._stop_requested.set()
+        if self._has_fm():
+            self.fm.cancel()
 
 
 def acquisition_record(image: FibsemImage, path: Optional[str]) -> Dict[str, Any]:
