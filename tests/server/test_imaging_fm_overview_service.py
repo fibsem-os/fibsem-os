@@ -129,7 +129,7 @@ def test_an_overview_says_what_tile_registration_did(client, experiment):
     parameters = ONE_BY_TWO.to_dict()
     parameters["register_tiles"] = True
     resp = client.post(
-        f"{IMAGING}/commands/fm_tiled_overview",
+        f"{IMAGING}/commands/fm_acquire_overview",
         json={
             "kwargs": _kwargs(
                 parameters=parameters, path=str(experiment / "overviews"), name="reg"

@@ -120,7 +120,7 @@ def test_an_overview_says_what_tile_registration_did(client, experiment):
     settings = _overview()
     settings.register_tiles = True
     resp = client.post(
-        f"{IMAGING}/commands/tiled_overview",
+        f"{IMAGING}/commands/acquire_overview",
         json={
             "kwargs": {
                 "settings": settings.to_dict(),
