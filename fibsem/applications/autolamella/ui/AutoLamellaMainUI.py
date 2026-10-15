@@ -1630,6 +1630,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             QMessageBox.No,
         )
         if reply == QMessageBox.Yes and self.autolamella_ui is not None:
+            self._record_operator_stop("workflow", "Stop")
             self.autolamella_ui.stop_task_workflow()
             self._set_border_state("stopping")
 
@@ -3530,6 +3531,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             # Two halves, as Stop Workflow has: tell the queue this task is being
             # abandoned, and bring the hardware to a halt. Without the second, the
             # task stops waiting for the mill but the mill keeps going.
+            self._record_operator_stop("task", "Stop Task", task=label)
             manager.stop_task()
             self.autolamella_ui.stop_current_operations()
             # No queue mutation here: the task unwinds on the worker thread and the
@@ -3923,6 +3925,18 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 stopped=stopped,
             )
         self._refresh_agent_chip()
+
+    def _record_operator_stop(self, stopped: str, by: str, **extra) -> None:
+        """Put the operator's stop on the session's record (events.jsonl) and in
+        the log, before the stop runs: what was stopped (the workflow or one
+        task) and from where. Without it a stop leaves only the run's
+        ``task_cancelled``, which does not say who stopped it (FIB-1397). The
+        agent's stop records itself (``agent_stop``)."""
+        logging.info("%s stopped by the operator (%s)", stopped.capitalize(), by)
+        recorder = getattr(self.autolamella_ui, "_event_recorder", None)
+        if recorder is None:
+            return
+        recorder.buffer.append("workflow_stop", {"stopped": stopped, "by": by, **extra})
 
     def _record_agent_event(self, kind: str, previous, level, **extra) -> None:
         """Put a level change on the session's record (events.jsonl). Emitted
@@ -4398,6 +4412,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         box.setDefaultButton(QMessageBox.No)
         if box.exec_() != QMessageBox.Yes:
             return False
+        self._record_operator_stop("workflow", "closing the window")
         ui.stop_task_workflow()
         return True
 
