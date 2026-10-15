@@ -187,10 +187,18 @@ class Beam(Device):
     live_frame = Signal(object)
     """Each image live view acquires (a FibsemImage), from the live view's thread."""
 
+    image_acquired = Signal(object)
+    """Every image this beam produces (a FibsemImage): each `acquire` and each live
+    frame, once, from the thread that acquired it. Nothing in the app listens yet;
+    the viewers still show what is sent to them."""
+
     def __init__(self, beam_type: BeamType, parent: Any = None, **kwargs: Any):
         super().__init__(name=beam_type.name.lower(), parent=parent, **kwargs)
         self.beam_type = beam_type
         self._live_lock = threading.Lock()
+        # Live frames are images too. A driver's live view may acquire each frame
+        # through `acquire`, which then leaves the frame to this.
+        self.live_frame.connect(self._live_frame_acquired)
         self._live_stop = threading.Event()
         self._live_thread: Optional[threading.Thread] = None
         # The settings this beam last acquired with, when it was given some: where
@@ -424,6 +432,8 @@ class Beam(Device):
         if image_settings is not None:
             self._last_image_settings = image_settings
         self.session.stamp(image)
+        if threading.current_thread() is not getattr(self, "_live_thread", None):
+            self.image_acquired.emit(image)
         return image
 
     def _stamp_roles(self, image: Any) -> None:
@@ -434,6 +444,8 @@ class Beam(Device):
             metadata.roles = {
                 name: _role_record(device) for name, device in self._roles.items()
             }
+    def _live_frame_acquired(self, image: Any) -> None:
+        self.image_acquired.emit(image)
 
     def image_settings(self) -> ImageSettings:
         """The settings this beam would image with now: its resolution, dwell time and

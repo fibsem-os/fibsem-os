@@ -29,6 +29,10 @@ from fibsem.ui.tokens import OK_COLOR, TEXT_MUTED_COLOR, TEXT_STRONG_COLOR
 
 __all__ = ["AppServerDialog"]
 
+# A change to the microscope toggle restarts the server, so it applies once the
+# toggle has been still this long: a double click restarts nothing (FIB-1409).
+MICROSCOPE_SETTLE_MS = 600
+
 MICROSCOPE_LABEL = "Serve the microscope"
 MICROSCOPE_TIP = (
     "Also serve the routes that reach the instrument: its devices, stage, beams "
@@ -101,6 +105,10 @@ class AppServerDialog(QDialog):
         self._chk_microscope.setToolTip(MICROSCOPE_TIP)
         self._chk_microscope.setVisible(set_microscope is not None)
         self._chk_microscope.toggled.connect(self._on_microscope_toggled)
+        self._microscope_timer = QTimer(self)
+        self._microscope_timer.setSingleShot(True)
+        self._microscope_timer.setInterval(MICROSCOPE_SETTLE_MS)
+        self._microscope_timer.timeout.connect(self._apply_microscope)
         layout.addWidget(self._chk_microscope)
 
         layout.addSpacing(6)
@@ -222,9 +230,12 @@ class AppServerDialog(QDialog):
         self._status_label.setStyleSheet(f"color: {TEXT_STRONG_COLOR};")
         self._services_label.setText(self.services_text(host))
         self._chk_microscope.setEnabled(True)
-        self._chk_microscope.blockSignals(True)
-        self._chk_microscope.setChecked(bool(getattr(host, "serve_microscope", False)))
-        self._chk_microscope.blockSignals(False)
+        if not self._microscope_timer.isActive():  # keep a change not yet applied
+            self._chk_microscope.blockSignals(True)
+            self._chk_microscope.setChecked(
+                bool(getattr(host, "serve_microscope", False))
+            )
+            self._chk_microscope.blockSignals(False)
         self._agent_label.setText(self.agent_text(host))
         self._agent_label.setStyleSheet(f"color: {TEXT_STRONG_COLOR};")
 
@@ -233,8 +244,23 @@ class AppServerDialog(QDialog):
     def _on_microscope_toggled(self, checked: bool) -> None:
         if self._set_microscope is None:
             return
-        self._set_microscope(checked)
+        self._microscope_timer.start()  # restarts the wait on each toggle
+
+    def _apply_microscope(self) -> None:
+        """Apply the toggle as it stands; unchanged, nothing restarts."""
+        self._microscope_timer.stop()
+        host = self._host()
+        serve = self._chk_microscope.isChecked()
+        if self._set_microscope is not None and host is not None:
+            if serve != bool(getattr(host, "serve_microscope", False)):
+                self._set_microscope(serve)
         self.refresh()
+
+    def hideEvent(self, event) -> None:
+        # Closing the dialog applies a change that is still waiting.
+        if self._microscope_timer.isActive():
+            self._apply_microscope()
+        super().hideEvent(event)
 
     @staticmethod
     def dashboard_url(host) -> str:
