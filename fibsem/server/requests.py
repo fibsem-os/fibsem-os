@@ -19,6 +19,7 @@ with what expiry does, for Drive's countdown (FIB-1267).
 
 import asyncio
 import json
+import os
 import re
 import secrets
 import threading
@@ -102,6 +103,9 @@ class AgentRequest:
     # For Drive's countdown (FIB-1267): when it lapses, and what lapsing does.
     expires_at: Optional[float] = None
     on_expiry: str = "reject"
+    # The image the agent's evidence is in (a path inside the experiment): the
+    # card shows it under Why, the actions' values drawn on it (FIB-1411).
+    image: Optional[str] = None
     # Set when the level changes or the operator stops the agent mid-batch: the
     # actions not yet run are not run.
     _abort: Optional[str] = field(default=None, repr=False)
@@ -121,6 +125,7 @@ class AgentRequest:
             "results": list(self.results),
             "expires_at": self.expires_at,
             "on_expiry": self.on_expiry if self.expires_at is not None else None,
+            "image": self.image,
         }
 
 
@@ -217,8 +222,11 @@ class RequestStore:
         emit: Optional[Callable[[str, Dict[str, Any]], Any]] = None,
         describe: Optional[Describer] = None,
         not_allowed: Optional[Callable[[str, str], Optional[str]]] = None,
+        image_refused: Optional[Callable[[str], Optional[str]]] = None,
     ) -> None:
         self._app = app
+        # Why a request's image path is refused (outside the experiment), or None.
+        self._image_refused = image_refused or (lambda path: None)
         self._describe = describe
         self._auth = auth
         self._mounted = mounted
@@ -264,14 +272,33 @@ class RequestStore:
 
     # --- the agent files one ---
 
+    def _check_image(self, image: Any) -> Optional[str]:
+        """A request's image: None, or the path of an image file inside the
+        open experiment."""
+        if image is None or image == "":
+            return None
+        if not isinstance(image, str) or not os.path.isfile(image):
+            raise RequestRefused(
+                422,
+                "invalid",
+                "image is the path of an image file you took or read (as the "
+                "image tools answered it), or left out.",
+            )
+        why = self._image_refused(image)
+        if why:
+            raise RequestRefused(403, "not_allowed", f"image: {why}.")
+        return image
+
     def create(
         self,
         actions: Any,
         reason: Any,
         expires_at: Optional[float] = None,
         on_expiry: str = "reject",
+        image: Any = None,
     ) -> AgentRequest:
         resolved = self._resolve(actions)
+        image = self._check_image(image)
         if (
             not isinstance(reason, str)
             or not reason.strip()
@@ -302,6 +329,7 @@ class RequestStore:
                 reason=reason.strip(),
                 expires_at=expires_at,
                 on_expiry=on_expiry,
+                image=image,
             )
             self._requests[request.id] = request
             self._trim_locked()
@@ -313,6 +341,7 @@ class RequestStore:
                 "actions": [
                     {"tool": a.tool, "arguments": a.arguments} for a in resolved
                 ],
+                **({"image": image} if image else {}),
             },
         )
         self._changed(request)
@@ -656,7 +685,9 @@ def build_request_router(store: RequestStore) -> APIRouter:
                 },
             )
         try:
-            created = store.create(body.get("actions"), body.get("reason"))
+            created = store.create(
+                body.get("actions"), body.get("reason"), image=body.get("image")
+            )
         except RequestRefused as refusal:
             raise _refused(refusal)
         return created.to_dict()

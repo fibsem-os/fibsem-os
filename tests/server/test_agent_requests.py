@@ -166,6 +166,30 @@ def test_a_malformed_request_is_refused(client, action, reason, error_type):
     assert _detail(refused)["error_type"] == error_type
 
 
+def test_a_request_carries_the_image_its_evidence_is_in(client, tmp_path):
+    # FIB-1411: the agent's own image, shown under Why. Inside the experiment.
+    folder = tmp_path / "exp" / "requests-exp"
+    folder.mkdir(parents=True, exist_ok=True)
+    inside = folder / "ref_trench.tif"
+    inside.write_bytes(b"tif")
+    outside = tmp_path / "elsewhere.tif"
+    outside.write_bytes(b"tif")
+
+    def file(image):
+        return client.post(
+            "/app/agent/requests",
+            headers=AGENT,
+            json={"actions": [NUDGE], "reason": "the trench", "image": image},
+        )
+
+    assert _detail(file(str(outside)))["error_type"] == "not_allowed"
+    missing = file(str(folder / "none.tif"))
+    assert missing.status_code == 422 and _detail(missing)["error_type"] == "invalid"
+    filed = file(str(inside))
+    assert filed.status_code == 202, filed.text
+    assert filed.json()["image"] == str(inside)
+
+
 def test_hardware_needs_the_devices_service(microscope, context, auth):
     app = build_server(
         microscope, app_context=context, auth=auth, serve_microscope=False

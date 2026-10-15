@@ -876,6 +876,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "actions": "list of {tool, arguments}, at most 20",
             "reason": "why, for the operator, in two or three short sentences: the evidence first (what you saw, in which image, when), then why these actions follow. The card already says what each action does: don't restate it",
+            "image": "optional: the path of the image your evidence is in, as the image tools answered it (inside the experiment). The card shows it under Why with the actions' points, areas and patterns drawn on it; without it, the card uses the image the values were measured on",
         },
         note="Works at Assist only: at Drive make the calls yourself; refused (403 level) at Drive and Watch.",
     ),

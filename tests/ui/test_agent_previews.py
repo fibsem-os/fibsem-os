@@ -605,3 +605,28 @@ def test_a_pose_move_and_a_pose_set_are_marked_through_the_stage(monkeypatch):
     assert purple.targets == [pytest.approx((100.0, 50.0))]
     assert white.targets == [(30.0, 20.0)]
     assert white.keys == [("target", "MILLING pose now")]
+
+
+def test_the_agent_s_own_image_is_the_picture_with_the_values_on_it():
+    # FIB-1411: the agent names the image its evidence is in; the card shows it
+    # under Why, the request's values drawn on it, even with none to draw.
+    evidence = FibsemImage.generate_blank_image(resolution=(400, 200), hfw=100e-6)
+    evidence.metadata.image_settings.beam_type = BeamType.ELECTRON
+    controller = _Controller()
+    card = _Card()
+    previews = AgentPreviews(
+        lambda: controller, show_picture=card, load_image=lambda path: evidence
+    )
+    move = {"dx": 10e-6, "dy": 0.0, "beam_type": "ELECTRON"}
+    request = _one("stage_stable_move", move)
+    request["image"] = "/exp/ref_trench.tif"
+    previews.show_request(request)
+    frame, layer = _layer(previews.request_picture)
+    assert frame is evidence
+    # 0.25 µm a pixel: 10 µm right of the centre (200, 100).
+    assert layer.targets == [pytest.approx((240.0, 100.0))]
+    assert card.shown[False][1].startswith("The agent's image · SEM")
+    stop = _one("workflow_stop", {"reason": "the trench is off"})
+    stop["image"] = "/exp/ref_trench.tif"
+    previews.show_request(stop)
+    assert previews.request_picture[0] is evidence

@@ -765,10 +765,11 @@ def build_sidecar(client, capabilities):
             "/app/agent/notes", {"text": str(text), "item_name": item_name}
         )
 
-    def request_create(actions: list, reason: str):
-        return _app_post(
-            "/app/agent/requests", {"actions": list(actions), "reason": str(reason)}
-        )
+    def request_create(actions: list, reason: str, image: Optional[str] = None):
+        body = {"actions": list(actions), "reason": str(reason)}
+        if image:
+            body["image"] = str(image)
+        return _app_post("/app/agent/requests", body)
 
     def request_withdraw(request_id: str, reason: str):
         data, err = _call(

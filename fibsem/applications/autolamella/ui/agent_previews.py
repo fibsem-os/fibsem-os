@@ -231,6 +231,26 @@ def _stage_position(value: Dict[str, Any]):
         return None
 
 
+def _load_beam_image(path: str):
+    from fibsem.structures import FibsemImage
+
+    return FibsemImage.load(path)
+
+
+def _agent_image(load: Callable[[str], object], path: Any):
+    """The image a request names as its evidence, loaded; None for none, or one
+    that is not a beam image with a pixel size."""
+    if not path:
+        return None
+    try:
+        image = load(str(path))
+    except Exception:  # noqa: BLE001 - shown without it
+        return None
+    if not _has_pixel_size(image) or getattr(image.data, "ndim", 0) != 2:
+        return None
+    return image
+
+
 def _has_pixel_size(image) -> bool:
     size = getattr(getattr(image, "metadata", None), "pixel_size", None)
     return image is not None and size is not None
@@ -519,6 +539,7 @@ class AgentPreviews:
         show_picture: Optional[Callable[..., None]] = None,
         item_pose: Optional[Callable[[str, str], object]] = None,
         overview_image: Optional[Callable[[str, str], object]] = None,
+        load_image: Optional[Callable[[str], object]] = None,
     ) -> None:
         # Asked when there is something to draw: the views are built after this.
         self._view_controller = view_controller
@@ -534,6 +555,8 @@ class AgentPreviews:
         # A grid's recorded overview (grid name, file name), for an item added
         # on it; None when there is none.
         self._overview_image = overview_image or (lambda grid, filename: None)
+        # A request's own image, by path (the agent's evidence).
+        self._load_image = load_image or _load_beam_image
         # The card's picture: (QImage or None, caption, suggestion=bool,
         # legend=legend_entries).
         self._show_picture = show_picture or (lambda *args, **kwargs: None)
@@ -565,9 +588,16 @@ class AgentPreviews:
         aspect = live.data.shape[0] / live.data.shape[1] if live is not None else 2 / 3
         outside = request_outside_field(request, aspect, milled)
         marks = self._request_marks(request)
-        frame, beam = self._measured_on(
-            controller, marks, bool(patterns or milled or before)
-        )
+        # The agent's own image when it gave one; else the one the values were
+        # measured on.
+        evidence = _agent_image(self._load_image, request.get("image"))
+        if evidence is not None:
+            frame = evidence
+            beam = frame.metadata.image_settings.beam_type or BeamType.ION
+        else:
+            frame, beam = self._measured_on(
+                controller, marks, bool(patterns or milled or before)
+            )
         # The card: the image the values were measured on, every value on it.
         if frame is None:
             return
@@ -589,7 +619,9 @@ class AgentPreviews:
             red.key("box", "past the field", red.patterns)
         self._add_marks(frame, [m for m in marks.values() if not m.before], purple)
         self._add_marks(frame, [m for m in marks.values() if m.before], grey)
-        self._picture(frame, beam, layers, suggestion=False)
+        self._picture(
+            frame, beam, layers, suggestion=False, agent_image=evidence is not None
+        )
 
     def _measured_on(self, controller, marks: Dict[str, "_Mark"], milling: bool):
         """The frame the request's values were measured on: a review's or an
@@ -825,9 +857,11 @@ class AgentPreviews:
         layers: List[_Layer],
         suggestion: bool,
         point: bool = False,
+        agent_image: bool = False,
     ) -> None:
         drawn = None
-        if frame is not None and any(layers):
+        # The agent's own image shows with nothing drawn on it, too.
+        if frame is not None and (agent_image or any(layers)):
             drawn = (_PointPicture if point else tuple)((frame, layers))
         if suggestion:
             self.suggestion_picture = drawn
@@ -836,9 +870,10 @@ class AgentPreviews:
         if drawn is None:
             self._show_picture(None, "", suggestion=suggestion)
             return
+        caption = picture_caption(frame, beam)
         self._show_picture(
             draw_picture(frame, layers),
-            picture_caption(frame, beam),
+            f"The agent's image · {caption}" if agent_image else caption,
             suggestion=suggestion,
             legend=legend_entries(layers),
         )
