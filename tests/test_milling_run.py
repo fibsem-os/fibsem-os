@@ -30,6 +30,11 @@ def _elapsed(progress: MillingProgress) -> float:
     return progress.estimated_time - progress.remaining_time
 
 
+def _ticks(reports: List[MillingProgress]) -> List[MillingProgress]:
+    """The stage updates, without the report that ends a run outside a task."""
+    return [r for r in reports if not r.status.is_terminal]
+
+
 @pytest.fixture
 def microscope():
     microscope, _ = utils.setup_session(manufacturer="Demo", setup_logging=False)
@@ -134,8 +139,9 @@ def test_the_demo_mills_for_its_estimate_and_reports_as_it_goes(microscope):
     assert isinstance(microscope.milling, DemoMilling)
     assert microscope.get_milling_state() is IDLE
     assert microscope._connection.milling_system.patterns == []
-    assert [_elapsed(r) for r in reports] == list(range(11))
-    assert reports[-1] == MillingProgress(
+    ticks = _ticks(reports)
+    assert [_elapsed(r) for r in ticks] == list(range(11))
+    assert ticks[-1] == MillingProgress(
         status=MillingProgressStatus.STAGE_UPDATE,
         milling_state=IDLE,
         start_time=reports[0].start_time,
@@ -143,6 +149,7 @@ def test_the_demo_mills_for_its_estimate_and_reports_as_it_goes(microscope):
         remaining_time=0,
         milling_run_id=reports[0].milling_run_id,  # a run outside a task's own
     )
+    assert reports[-1].status is MillingProgressStatus.TASK_FINISHED
     # the stage updates the milling widget and AutoLamella have always had
     assert updates == reports
 
@@ -152,16 +159,19 @@ def test_a_set_stop_event_stops_the_beam_and_cancels(microscope):
     stop = threading.Event()
 
     def stop_after_two(progress):
-        if _elapsed(progress) >= 2:
+        if not progress.status.is_terminal and _elapsed(progress) >= 2:
             stop.set()
 
+    reports = []
+    microscope.milling.progress.changed.connect(reports.append)
     microscope.milling.progress.changed.connect(stop_after_two)
     with pytest.raises(OperationCancelledError):
         microscope.run_milling(stop_event=stop)
 
     assert microscope.get_milling_state() is IDLE
     assert microscope._connection.milling_system.patterns == []
-    assert _elapsed(microscope.milling.progress.cached) == 2
+    assert _elapsed(_ticks(reports)[-1]) == 2
+    assert reports[-1].status is MillingProgressStatus.TASK_CANCELLED
 
 
 def test_a_stop_from_elsewhere_just_ends_the_run(scripted):
@@ -199,6 +209,7 @@ def test_paused_time_does_not_count(scripted):
     seen = []
     service.progress.changed.connect(seen.append)
     service.run()
+    seen = _ticks(seen)
     assert [(p.milling_state, _elapsed(p)) for p in seen] == [
         (RUNNING, 0),
         (PAUSED, 0),
@@ -249,6 +260,7 @@ def test_the_instrument_s_times_win(scripted):
     seen = []
     service.progress.changed.connect(seen.append)
     service.run()
+    seen = _ticks(seen)
     assert [(p.milling_state, _elapsed(p), p.remaining_time) for p in seen] == [
         (RUNNING, 3.0, 9.0),
         (RUNNING, 8.0, 4.0),
@@ -270,7 +282,7 @@ def test_a_stop_event_the_beam_ignores_gives_up(scripted):
 
 def _milling_events(microscope):
     events = []
-    microscope.record_signal.connect(
+    microscope.session.record_signal.connect(
         lambda kind, payload: events.append(payload) if kind == "milling" else None
     )
     return events
@@ -321,6 +333,35 @@ def test_a_stopped_or_failed_mill_outside_a_task_records_how_it_ended(scripted):
         ("stopped", "failed"),
     ]
     assert events[1]["error"] == "RuntimeError: lost"
+
+
+def test_a_mill_outside_a_task_ends_its_progress(scripted):
+    """No task ends an agent's run, so the bars stayed at its last tick after a
+    stop (FIB-1401): the run ends its own progress, however it ends."""
+    service = scripted([RUNNING, IDLE, RUNNING, RUNNING])
+    updates = []
+    service.progress.changed.connect(updates.append)
+    service.setup(FibsemMillingSettings(), name="agent test mill")
+    service.run()
+    service._wait = lambda seconds: service.stop()
+    service.run()
+
+    def broken():
+        raise RuntimeError("lost")
+
+    service._poll = broken
+    with pytest.raises(RuntimeError):
+        service.run()
+
+    ends = [u for u in updates if u.status.is_terminal]
+    assert [u.status for u in ends] == [
+        MillingProgressStatus.TASK_FINISHED,
+        MillingProgressStatus.TASK_CANCELLED,
+        MillingProgressStatus.TASK_FAILED,
+    ]
+    assert {u.milling_task_name for u in ends} == {"agent test mill"}
+    assert ends[2].error == "RuntimeError: lost"
+    assert updates[-1] is ends[-1]
 
 
 def test_a_mill_inside_a_task_or_a_spot_burn_is_not_recorded_twice(scripted):

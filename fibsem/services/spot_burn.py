@@ -40,7 +40,7 @@ from typing import (
 # from its type hints (a SpotBurnSettings sent as a dict).
 from fibsem.cancellation import AnyStopEvent
 from fibsem.devices.beam import Beam
-from fibsem.devices.core import Parameter, ParameterMetadata, Role, command
+from fibsem.devices.core import Parameter, ParameterMetadata, Role, command, query
 from fibsem.imaging.spot import SpotBurnProgress, SpotBurnSettings, SpotBurnStatus
 from fibsem.services.core import Service, forward_to, save_beam_conditions
 from fibsem.structures import BeamType, Point
@@ -106,7 +106,7 @@ class SpotBurn(Service):
 
     # -- commands ----------------------------------------------------------------
 
-    @command
+    @command(long=True)
     def run(
         self,
         settings: SpotBurnSettings,
@@ -169,9 +169,10 @@ class SpotBurn(Service):
         """End the run in progress as cancelled."""
         self._stop_requested.set()
 
-    @command
+    @query
     def estimate(self, settings: SpotBurnSettings) -> float:
-        """How long burning ``settings`` takes, in seconds."""
+        """How long burning ``settings`` takes, in seconds. Moves nothing, so a
+        query."""
         points, _ = in_bounds(settings.coordinates)
         return len(points) * float(settings.exposure_time)
 
@@ -304,14 +305,18 @@ class SpotBurn(Service):
         )
 
 
+def in_frame(point: Point) -> bool:
+    """Whether *point* is inside the image: 0 to 1 on both axes."""
+    return 0 <= point.x <= 1 and 0 <= point.y <= 1
+
+
 def in_bounds(points: Sequence[Point]) -> Tuple[List[Point], List[Point]]:
     """The points inside the image (0 to 1 on both axes), and the ones dropped, with
     a warning: the instruments refuse a spot outside the scan field."""
     kept: List[Point] = []
     dropped: List[Point] = []
     for point in points:
-        inside = 0 <= point.x <= 1 and 0 <= point.y <= 1
-        (kept if inside else dropped).append(point)
+        (kept if in_frame(point) else dropped).append(point)
     if dropped:
         logging.warning(
             f"Skipping {len(dropped)} spot burn coordinate(s) outside image bounds "

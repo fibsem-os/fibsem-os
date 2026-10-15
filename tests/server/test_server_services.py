@@ -132,6 +132,34 @@ def test_query_works_at_watch_and_takes_no_control(read_client, microscope):
     assert resp.json()["result"] == to_wire(expected)
 
 
+def test_the_estimates_and_the_stage_poses_are_queries(read_client, microscope):
+    from fibsem.imaging.spot import SpotBurnSettings
+    from fibsem.structures import Point
+
+    settings = SpotBurnSettings(
+        coordinates=[Point(0.5, 0.5), Point(0.1, 0.1)], exposure_time=2.0
+    )
+    resp = read_client.post(
+        "/microscope/services/spot_burn/queries/estimate",
+        json={"kwargs": {"settings": to_wire(settings)}},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["result"] == microscope.spot_burn.estimate(settings)
+
+    geometry = {
+        "rotation_reference": 0.0,
+        "shuttle_pre_tilt": 35.0,
+        "fib_column_tilt": 52.0,
+    }
+    resp = read_client.post(
+        "/microscope/devices/stage/queries/pose_table", json={"kwargs": geometry}
+    )
+    assert resp.status_code == 200, resp.text
+    assert set(resp.json()["result"]) == set(
+        microscope.devices["stage"].poses(**geometry)
+    )
+
+
 def test_the_orientation_reads_are_queries(read_client, microscope):
     sem = microscope.get_orientation("SEM")
     at_sem = FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=sem.r, t=sem.t)
@@ -175,6 +203,24 @@ def test_the_device_reads_are_queries(read_client, microscope):
     assert answer["r"] == pytest.approx(target.r)
 
 
+def test_the_view_corrected_movements_are_queries(read_client, microscope):
+    def ask(query, **kwargs):
+        resp = read_client.post(
+            f"/microscope/services/stage_movement/queries/{query}",
+            json={"kwargs": kwargs},
+        )
+        assert resp.status_code == 200, resp.text
+        return resp.json()["result"]
+
+    ion = to_wire(BeamType.ION)
+    move = microscope._y_corrected_stage_movement(10e-6, beam_type=BeamType.ION)
+    answer = ask("y_corrected_movement", expected_y=10e-6, beam_type=ion)
+    assert answer["y"] == pytest.approx(move.y)
+    assert answer["z"] == pytest.approx(move.z)
+    back = ask("inverse_y_corrected_movement", dy=move.y, dz=move.z, beam_type=ion)
+    assert back == pytest.approx(10e-6)
+
+
 def test_the_milling_angle_is_a_parameter_that_moves_milling(armed_client, microscope):
     before = microscope.system.stage.milling_angle
     try:
@@ -201,15 +247,18 @@ def test_unknown_query_or_a_command_asked_as_one_is_404(read_client):
     assert resp.status_code == 404
 
 
-def test_stop_needs_assist_and_is_never_refused_for_control(read_client, microscope):
+def test_a_stop_needs_drive_and_is_never_refused_for_control(
+    read_client, microscope, monkeypatch
+):
     stop = "/microscope/services/milling/commands/stop"
-    assert read_client.post(stop, json={}).status_code == 403
-    app = build_server(
-        microscope, auth=AuthConfig.generate(level="assist", token=TOKEN)
-    )
+    # Something to stop (FIB-1398).
+    monkeypatch.setattr(microscope.milling, "_running", True)
+    why = {"reason": "the mill is off target"}
+    assert read_client.post(stop, json=why).status_code == 403
+    app = build_server(microscope, auth=AuthConfig.generate(level="drive", token=TOKEN))
     with TestClient(app, raise_server_exceptions=False) as client:
         with microscope.control.take("workflow", "a lamellae run"):
-            resp = client.post(stop, headers=AUTH, json={})
+            resp = client.post(stop, headers=AUTH, json=why)
     assert resp.status_code == 200
 
 
@@ -253,6 +302,28 @@ def test_an_agent_runs_a_focus_sweep(armed_client, microscope):
     assert beam.working_distance.get_value() == pytest.approx(
         result["working_distance"]
     )
+
+
+def test_an_agent_runs_auto_brightness_contrast(armed_client, microscope):
+    from fibsem.autofunctions.brightness_contrast import BrightnessContrastSettings
+    from fibsem.structures import BeamType
+
+    beam = microscope.beams[BeamType.ION]
+    beam.detector_brightness.set_value(0.95)
+    settings = BrightnessContrastSettings(probe_resolution=(384, 256))
+    resp = armed_client.post(
+        "/microscope/services/imaging/commands/auto_brightness_contrast",
+        json={
+            "kwargs": {
+                "beam_type": to_wire(BeamType.ION),
+                "settings": settings.to_dict(),
+            }
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    result = resp.json()["result"]
+    assert result["converged"] is True
+    assert beam.detector_brightness.get_value() == pytest.approx(result["brightness"])
 
 
 def test_every_service_command_and_query_hint_resolves(microscope):
@@ -334,7 +405,13 @@ def test_an_agent_runs_a_spot_burn(armed_client, microscope):
         json={"kwargs": {"settings": settings.to_dict()}},
     )
     assert resp.status_code == 200, resp.text
-    assert resp.json()["result"] == "finished"
+    # A long command: answered at once with its run, read back when it ends.
+    run = resp.json()["result"]
+    ended = armed_client.get(
+        "/microscope/services/spot_burn/run",
+        params={"run_id": run["run_id"], "wait": 10},
+    )
+    assert ended.json()["run"]["result"] == "finished"
 
 
 def test_an_agent_prepares_milling_with_patterns(armed_client, microscope):

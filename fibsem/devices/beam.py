@@ -9,16 +9,27 @@ from __future__ import annotations
 import copy
 import logging
 import threading
+from dataclasses import replace
 from math import pi
-from typing import Any, Dict, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Optional, Sequence, Tuple
 
 from psygnal import Signal
 
 from fibsem.cancellation import COMPLETED, ended_by
 from fibsem.constants import DEGREE_SYMBOL
-from fibsem.devices.core import Device, Parameter, Role, command
-from fibsem.devices.display import Display
-from fibsem.devices.scanner import Scanner
+from fibsem.devices.core import (
+    UNLIMITED,
+    BoundParameter,
+    Device,
+    MetadataSource,
+    Parameter,
+    ParameterMetadata,
+    Role,
+    command,
+)
+from fibsem.devices.scanner import Scanner, resolution_within
+from fibsem.devices.wire import to_wire
+from fibsem.display import Display
 from fibsem.structures import (
     BeamType,
     FibsemImage,
@@ -62,12 +73,16 @@ DEFAULT_HFW_LIMITS = RangeLimit(min=1e-9, max=1e-2)
 DEFAULT_DWELL_TIME_LIMITS = RangeLimit(min=1e-9, max=1e-3)
 
 # What the beam panel has always allowed for the parameters no driver reports a range
-# for yet. Shift and stigmation are per field, so a write isn't clipped by them.
+# for yet. A relative shift is clamped to the shift's; stigmation is per field, so a
+# write isn't clipped by it.
 DEFAULT_WORKING_DISTANCE_LIMITS = RangeLimit(min=1e-3, max=30e-3)
 DEFAULT_SHIFT_LIMITS = {
     "x": RangeLimit(min=-50e-6, max=50e-6),
     "y": RangeLimit(min=-50e-6, max=50e-6),
 }
+# For a driver that doesn't know its instrument's beam-shift range: a relative shift is
+# clamped to the shift's limits, and these clamp nothing.
+UNBOUNDED_SHIFT_LIMITS = {"x": UNLIMITED, "y": UNLIMITED}
 DEFAULT_STIGMATION_LIMITS = {
     "x": RangeLimit(min=-1.0, max=1.0),
     "y": RangeLimit(min=-1.0, max=1.0),
@@ -110,6 +125,7 @@ class Beam(Device):
         ),
     )
     blanked = Parameter(bool, display=Display("Blanked"))
+    live = Parameter(bool, doc="Whether live view is running. Read only.")
     preset = Parameter(str, display=Display("Preset"))
     detector_type = Parameter(str, display=Display("Detector Type"))
     detector_mode = Parameter(
@@ -171,15 +187,112 @@ class Beam(Device):
     live_frame = Signal(object)
     """Each image live view acquires (a FibsemImage), from the live view's thread."""
 
+    image_acquired = Signal(object)
+    """Every image this beam produces (a FibsemImage): each `acquire` and each live
+    frame, once, from the thread that acquired it. Nothing in the app listens yet;
+    the viewers still show what is sent to them."""
+
     def __init__(self, beam_type: BeamType, parent: Any = None, **kwargs: Any):
         super().__init__(name=beam_type.name.lower(), parent=parent, **kwargs)
         self.beam_type = beam_type
         self._live_lock = threading.Lock()
+        # Live frames are images too. A driver's live view may acquire each frame
+        # through `acquire`, which then leaves the frame to this.
+        self.live_frame.connect(self._live_frame_acquired)
         self._live_stop = threading.Event()
         self._live_thread: Optional[threading.Thread] = None
         # The settings this beam last acquired with, when it was given some: where
         # that image was saved, which `image_settings` carries on.
         self._last_image_settings: Optional[ImageSettings] = None
+
+    # -- a bound scanner's limits ------------------------------------------------
+    #
+    # While a scanner is bound, the beam's dwell time and resolution offer only what
+    # both the column and the scanner can do: the limits are intersected, and the
+    # resolution choices filtered. The values stay the beam's.
+
+    _SCANNER_LIMITED = ("dwell_time", "resolution")
+
+    def bind(
+        self,
+        name: str,
+        read: Callable[[], Any],
+        write: Optional[Callable[[Any], None]] = None,
+        metadata: MetadataSource = None,
+        needs_channel: bool = False,
+    ) -> BoundParameter:
+        if name in self._SCANNER_LIMITED:
+            metadata = self._within_scanner(name, metadata)
+        return super().bind(name, read, write, metadata, needs_channel)
+
+    def fill_roles(self, **devices: Device) -> "Beam":
+        super().fill_roles(**devices)
+        if "scanner" in devices:
+            for name in self._SCANNER_LIMITED:
+                param = self.parameters.get(name)
+                if param is not None:
+                    param.refresh_metadata()
+        return self
+
+    def _within_scanner(
+        self, name: str, source: MetadataSource
+    ) -> Callable[[], ParameterMetadata]:
+        spec = self.declared_parameters()[name]
+
+        def metadata() -> ParameterMetadata:
+            own = source() if callable(source) else (source or ParameterMetadata())
+            scanner = self._roles.get("scanner")
+            if scanner is None:
+                return own
+            if name == "dwell_time":
+                return self._dwell_within(own, spec.limits, scanner.dwell_time_limits)
+            return self._resolutions_within(
+                own, spec.choices, scanner.resolution_limits
+            )
+
+        return metadata
+
+    def _dwell_within(
+        self,
+        own: ParameterMetadata,
+        default: Optional[RangeLimit],
+        scanner: Optional[RangeLimit],
+    ) -> ParameterMetadata:
+        limits = own.limits if own.limits is not None else default
+        if scanner is None:
+            return own
+        if limits is None:
+            return replace(own, limits=scanner)
+        both = RangeLimit(
+            min=max(limits.min, scanner.min), max=min(limits.max, scanner.max)
+        )
+        if both.min > both.max:
+            logging.warning(
+                f"{self.name}: its dwell times ({limits.min}-{limits.max} s) and its "
+                f"scanner's ({scanner.min}-{scanner.max} s) don't overlap; offering "
+                "the scanner's"
+            )
+            both = scanner
+        return replace(own, limits=both)
+
+    def _resolutions_within(
+        self,
+        own: ParameterMetadata,
+        default: Optional[Sequence[Any]],
+        scanner: Optional[Tuple[Tuple[int, int], Tuple[int, int]]],
+    ) -> ParameterMetadata:
+        choices = own.choices if own.choices is not None else default
+        if scanner is None or choices is None:
+            return own
+        within = [c for c in choices if resolution_within(tuple(c), scanner)]
+        if not within:
+            logging.warning(
+                f"{self.name}: none of its resolutions is within its scanner's "
+                f"{scanner}; offering them all, and the scanner refuses what it "
+                "can't scan"
+            )
+            return own
+        return replace(own, choices=within)
 
     def facts(self) -> Dict[str, Any]:
         """The gas the column's source reports running, if any."""
@@ -228,9 +341,19 @@ class Beam(Device):
             return shift
 
     def _shift_by(self, dx: float, dy: float) -> None:
-        """Add (dx, dy) to the shift, unvalidated. A driver whose instrument needs
-        more (its own limits, a flipped scan) overrides this."""
-        self.shift.write_through(self.shift.get_value() + Point(dx, dy))
+        """Add (dx, dy) to the shift, unvalidated, clamped to the shift's limits: the
+        range the driver reports, or the declared default where it reports none. A
+        driver whose instrument needs more (a flipped scan) overrides this."""
+        shift = self.shift
+        shift.refresh_metadata(emit=False)  # the limits as the instrument has them now
+        target = shift.get_value() + Point(dx, dy)
+        limits = shift.limits or {}
+        x, y = limits.get("x"), limits.get("y")
+        target = Point(
+            x=x.clamp(target.x) if x is not None else target.x,
+            y=y.clamp(target.y) if y is not None else target.y,
+        )
+        shift.write_through(target)
 
     # The scan area. Each command changes scanning_mode; a backend implements
     # _spot, _reduced_area and _full_frame, and a beam that can't set the scan area
@@ -305,10 +428,25 @@ class Beam(Device):
             and not metadata.acquisition_datetime
         ):
             metadata.acquisition_datetime = started
+        self._stamp_roles(image)
         if image_settings is not None:
             self._last_image_settings = image_settings
         self.session.stamp(image)
+        if threading.current_thread() is not getattr(self, "_live_thread", None):
+            self.image_acquired.emit(image)
         return image
+
+    def _stamp_roles(self, image: Any) -> None:
+        """Record on *image* the device in each role this beam has filled, such as
+        the external scanner that made the frame (``FibsemImageMetadata.roles``)."""
+        metadata = getattr(image, "metadata", None)
+        if self._roles and hasattr(metadata, "roles"):
+            metadata.roles = {
+                name: _role_record(device) for name, device in self._roles.items()
+            }
+
+    def _live_frame_acquired(self, image: Any) -> None:
+        self.image_acquired.emit(image)
 
     def image_settings(self) -> ImageSettings:
         """The settings this beam would image with now: its resolution, dwell time and
@@ -455,6 +593,9 @@ class Beam(Device):
         thread = self._live_thread
         return thread is not None and thread.is_alive()
 
+    def read_live(self) -> bool:
+        return self.is_live
+
     def _run_live(self) -> None:
         live = self._live_with_scanner if "scanner" in self.roles else self._live
         try:
@@ -468,6 +609,7 @@ class Beam(Device):
     def _live_with_scanner(self, stop: threading.Event) -> None:
         while not stop.is_set():
             image = self._acquire_with_scanner(None)
+            self._stamp_roles(image)
             if not stop.is_set():
                 self.live_frame.emit(image)
 
@@ -475,3 +617,33 @@ class Beam(Device):
 def implements(beam: Beam, hook: str) -> bool:
     """Whether the beam's driver overrides *hook*."""
     return getattr(type(beam), hook) is not getattr(Beam, hook)
+
+
+def _role_record(device: Device) -> Dict[str, Any]:
+    """What an image records of the device in one of its beam's roles
+    (``FibsemImageMetadata.roles``): its name, class and driver, its parameters'
+    cached values and its facts. A value is read from the device only the first
+    time, before anything was cached; one that can't be read is None."""
+    try:
+        facts = device.facts()
+    except Exception as error:
+        logging.debug(f"{device.name}: facts: {error}")
+        facts = {}
+    return {
+        "name": device.name,
+        "class": type(device).__name__,
+        "driver": device.driver,
+        "values": {
+            name: to_wire(_cached_or_none(param))
+            for name, param in device.parameters.items()
+        },
+        "facts": facts,
+    }
+
+
+def _cached_or_none(param: BoundParameter) -> Any:
+    try:
+        return param.cached
+    except Exception as error:
+        logging.debug(f"{param.device.name}.{param.name}: {error}")
+        return param.last_known

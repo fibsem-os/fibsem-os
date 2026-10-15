@@ -31,7 +31,7 @@ from typing import (
 import numpy as np
 
 from fibsem._timing import sim_sleep
-from fibsem.devices.beam import Beam
+from fibsem.devices.beam import UNBOUNDED_SHIFT_LIMITS, Beam
 from fibsem.devices.chamber import Chamber
 from fibsem.devices.chamber_camera import ChamberCamera
 from fibsem.devices.core import Device, ParameterMetadata, Resources, resources_of
@@ -286,6 +286,10 @@ class DemoBeam(Beam):
 
     def write_shift(self, value: Point) -> None:
         self.sim_beam.shift = value
+
+    def metadata_shift(self) -> ParameterMetadata:
+        # the simulator has no beam-shift range
+        return ParameterMetadata(limits=UNBOUNDED_SHIFT_LIMITS)
 
     def read_on(self) -> bool:
         return self.sim_on

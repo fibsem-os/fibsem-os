@@ -102,11 +102,11 @@ def _pretend_to_be_a_task(window, experiment, lamella) -> None:
     """
     microscope = window.autolamella_ui.microscope
     # Acquired the way ``take_image_and_detect_features`` acquires: through
-    # ``acquire.new_image``, always saved, into the lamella's folder, named
+    # ``acquire.acquire_image``, always saved, into the lamella's folder, named
     # ``ml-<timestamp>``. The save is what gives the image its ``filepath`` --
     # beam suffix and extension included -- and that is the file the question
     # records, so the panel shows the task's own picture and not a copy.
-    image = acquire.new_image(
+    image = acquire.acquire_image(
         microscope,
         ImageSettings(
             beam_type=BeamType.ION,

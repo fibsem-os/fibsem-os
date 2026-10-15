@@ -104,7 +104,8 @@ CATALOG: Tuple[ToolSpec, ...] = (
         description=(
             "Every device on the microscope (electron, ion, stage, manipulator, ...): "
             "its parameters with type, unit, limits, choices and whether settable, "
-            "and its commands."
+            "and its commands. agent: false marks a write or command you may never "
+            "use, at any level (403 not_allowed); its value stays readable."
         ),
         method="GET",
         path="/microscope/devices",
@@ -123,9 +124,16 @@ CATALOG: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="get_milling_angle",
-        description="Current milling angle in degrees, from the stage tilt.",
+        description="Current milling angle in degrees: the angle between the ion beam and the sample surface at the stage's rotation and tilt (90 at the FIB pose).",
         method="POST",
         path="/microscope/services/stage_movement/queries/current_milling_angle",
+        level="watch",
+    ),
+    ToolSpec(
+        name="get_geometry",
+        description="The instrument's geometry in one read: column tilts, pre-tilt, rotation reference and centre, the orientation table, device origins, and what they mean at the stage's pose now: which way raw +z goes in the chamber, the milling angle here and the pose for the stored one, and per beam the stage move a +1 µm stable move along each image axis makes at the current scan rotation. Read it first on a new instrument, then confirm once with one small move. Angles in degrees.",
+        method="POST",
+        path="/microscope/services/stage_movement/queries/geometry",
         level="watch",
     ),
     ToolSpec(
@@ -143,21 +151,88 @@ CATALOG: Tuple[ToolSpec, ...] = (
         level="watch",
     ),
     ToolSpec(
+        name="get_pattern_preview",
+        description=(
+            "Milling stages drawn over a saved ion image, to see where they would "
+            "mill before running them: an image you can look at, the saved image's "
+            "shape scaled to 1024 px wide. stages is a list of FibsemMillingStage "
+            "dicts (as run_stage takes); left out, the patterns prepare drew. "
+            "image_path must be inside the open experiment. Moves nothing."
+        ),
+        method="POST",
+        path="/microscope/services/milling/queries/pattern_preview",
+        level="watch",
+        params={
+            "image_path": "a saved ion image inside the open experiment",
+            "stages": "FibsemMillingStage dicts; left out, what prepare drew",
+        },
+    ),
+    ToolSpec(
+        name="align_to_reference",
+        description=(
+            "Bring the view back onto a saved reference image: acquire with its "
+            "settings, measure the shift and correct it, steps times, with the "
+            "beam shift (fine, small range), the stage (stable move) or "
+            "stage-vertical. reference_path must be inside the open experiment "
+            "(a path from get_task_outputs or an image you saved). A long command: "
+            "it answers with its run at once; wait_for_run alignment gives each "
+            "step's shift, whether the methods agree on what is left, and the "
+            "folder the run saved to. measure_shift first if you only want to know "
+            "how far off the view is."
+        ),
+        method="POST",
+        path="/microscope/services/alignment/commands/align",
+        level="drive",
+        hardware=True,
+        params={
+            "reference_path": "a saved image inside the open experiment",
+            "steps": "how many measure-and-correct steps (default 3)",
+            "subsystem": "beam-shift (default), stage or stage-vertical",
+        },
+    ),
+    ToolSpec(
+        name="measure_shift",
+        description=(
+            "The shift of one saved image from another, as align_to_reference "
+            "measures it: metres and pixels, a score (higher is better) and "
+            "whether it cleared the minimum. Both paths inside the open "
+            "experiment. Reads the files and moves nothing."
+        ),
+        method="POST",
+        path="/microscope/services/alignment/queries/measure_shift",
+        level="watch",
+        params={
+            "reference_path": "the saved reference image",
+            "image_path": "the saved image to measure against it",
+        },
+    ),
+    ToolSpec(
         name="stop_milling",
-        description="Emergency stop for an in-progress mill. Allowed at Assist and Drive without asking, and is never refused for someone else being in control of the microscope. Not at Watch: a watching agent stops nothing.",
+        description="Stop an in-progress mill, with the reason the operator reads: the whole milling task, so no later stage starts. Refused 409 NothingToStop when nothing is milling.",
         method="POST",
         path="/microscope/services/milling/commands/stop",
-        level="assist",
+        level="drive",
+        params={"reason": "why you are stopping it, for the operator (required)"},
+        note="A mill the agent started itself it can stop at Assist or Drive, never at Watch; anyone else's (the workflow's, the operator's) needs Drive, and at Assist goes in request_actions for the operator to approve. Never refused for someone else being in control of the microscope.",
     ),
     # --- hardware ---
     ToolSpec(
         name="acquire_image_preview",
-        description="Acquire a fresh image and return an agent-sized JPEG preview with metadata.",
+        description=(
+            "Acquire a fresh image and return an agent-sized JPEG preview with its "
+            "scale (hfw, pixel size). With no image_settings the beam images as it "
+            "is set now. image_settings set the beam first and stay set; a field "
+            "left out takes its default (resolution [1536, 1024], dwell_time 1e-6, "
+            "hfw 150e-6), not the beam's current value. Nothing is saved."
+        ),
         method="POST",
-        path="/microscope/devices/{device}/commands/acquire",
+        path="/microscope/services/imaging/commands/acquire",
         level="drive",
         hardware=True,
-        params={"beam_type": "ELECTRON or ION"},
+        params={
+            "beam_type": "ELECTRON or ION",
+            "image_settings": 'optional: ImageSettings fields, e.g. {"hfw": 150e-6, "resolution": [1536, 1024], "dwell_time": 1e-6}',
+        },
     ),
     ToolSpec(
         name="stable_move",
@@ -172,8 +247,10 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "its own surface and stays at the same height: the feature stays in "
             "focus and, at the coincidence point, stays in the other beam's view "
             "too. Prefer it to move_stage_relative whenever the move comes from an "
-            "image. Take a fresh image afterwards to check where the feature "
-            "landed."
+            "image. It uses the stage and scan rotation as they are now, so an "
+            "offset measured on an older image is only right if neither has "
+            "changed since. Take a fresh image afterwards to check where the "
+            "feature landed."
         ),
         method="POST",
         path="/microscope/services/stage_movement/commands/stable_move",
@@ -188,20 +265,24 @@ CATALOG: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="vertical_move",
         description=(
-            "Restore coincidence: with a feature centred in the electron image, "
-            "move the stage along the chamber vertical so the same feature comes "
-            "to the centre of the ion image. dy (and dx) are the feature's offset "
-            "from the centre of the ION image, in metres, x right and y up. The "
-            "electron beam sees no change. Use it after a stable_move in the "
-            "electron image when the ion image is off; never a plain z move."
+            "Restore coincidence: with a feature centred in one beam's image, move "
+            "the stage along the chamber vertical so the same feature comes to the "
+            "centre of the other beam's image; the first beam sees no change. "
+            "beam_type names the view the offset was measured in: ION (the "
+            "default) when the feature is centred in the electron image, ELECTRON "
+            "when it is centred in the ion image. dy (and dx) are the feature's "
+            "offset from that image's centre, in metres, x right and y up. "
+            "Use it after a stable_move in the other beam; never a plain z move."
         ),
         method="POST",
         path="/microscope/services/stage_movement/commands/vertical_move",
         level="drive",
         hardware=True,
         params={
-            "dy": "the feature's offset from the ion image centre along y, metres, up positive",
+            "dy": "the feature's offset from the image centre along y, metres, up positive",
             "dx": "the offset along x, metres, right positive (usually 0)",
+            "beam_type": "the view the offset was measured in: ION (default) or ELECTRON",
+            "relaxation": "fraction of the exact move to make, 0-1 (default 1); below 1 undershoots, to keep a repeated look-and-correct loop from overshooting",
         },
     ),
     ToolSpec(
@@ -284,7 +365,10 @@ CATALOG: Tuple[ToolSpec, ...] = (
         path="/microscope/services/stage_movement/commands/move_to_milling_angle",
         level="drive",
         hardware=True,
-        params={"milling_angle_deg": "target milling angle in degrees"},
+        params={
+            "milling_angle_deg": "target milling angle in degrees",
+            "rotation_deg": "stage rotation in degrees; the rotation reference if left out",
+        },
     ),
     ToolSpec(
         name="set_parameter",
@@ -313,6 +397,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "device": "device name from list_devices",
             "command": "command name",
             "kwargs": "the command's arguments, by name",
+            "reason": "for a stop (stop, stop_live, cancel): why, for the operator (required there)",
         },
     ),
     ToolSpec(
@@ -321,7 +406,8 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "Every service on the microscope (milling, stage_movement, spot_burn, "
             "sample_handling, ...): what the instrument does with its devices over "
             "time. Each lists its parameters (e.g. milling progress) and its commands "
-            "with their signatures and whether this microscope has them."
+            "with their signatures and whether this microscope has them; agent: "
+            "false marks one you may never use."
         ),
         method="GET",
         path="/microscope/services",
@@ -341,12 +427,33 @@ CATALOG: Tuple[ToolSpec, ...] = (
         },
     ),
     ToolSpec(
+        name="set_service_parameter",
+        description=(
+            "Set one service parameter, e.g. service=stage_movement "
+            "parameter=milling_angle (degrees); the server checks it against the "
+            "parameter's limits and answers the value written."
+        ),
+        method="PUT",
+        path="/microscope/services/{service}/{parameter}",
+        level="drive",
+        hardware=True,
+        params={
+            "service": "service name from list_services",
+            "parameter": "parameter name",
+            "value": "the new value",
+        },
+    ),
+    ToolSpec(
         name="call_service_command",
         description=(
             "Run a service command listed by list_services, e.g. service=stage_movement "
             "command=move_to_orientation kwargs={'orientation': 'SEM'}. A long command "
-            "(milling run, spot burn run) answers when it ends; command=stop from "
-            "another call stops it."
+            "(listed with long: true: milling run, run_stage and run_task, spot burn "
+            "run, alignment align) answers at once with "
+            "its run (run_id, state: running) and runs on, in control of the "
+            "microscope; wait_for_run says how it ended. command=stop from "
+            "another call stops it: the agent's own run at Assist or Drive, "
+            "anyone else's at Drive, never at Watch, always with a reason."
         ),
         method="POST",
         path="/microscope/services/{service}/commands/{command}",
@@ -356,6 +463,26 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "service": "service name from list_services",
             "command": "command name",
             "kwargs": "the command's arguments, by name",
+            "reason": "for a stop (stop, stop_live, cancel): why, for the operator (required there)",
+        },
+    ),
+    ToolSpec(
+        name="wait_for_run",
+        description=(
+            "How a long command you started (milling run, spot burn run) is going: "
+            "its run with state running, done, failed or cancelled, and when it has "
+            "ended its result or error. Waits up to wait seconds (at most 60) for "
+            "it to end, so call it again while it says running. With run_id, waits "
+            "for that run; a later run on the service answers at once. The same end "
+            "comes as a command_ended event on get_events."
+        ),
+        method="GET",
+        path="/microscope/services/{service}/run",
+        level="watch",
+        params={
+            "service": "the service the command ran on, e.g. milling",
+            "run_id": "the run_id the command answered with",
+            "wait": "seconds to wait for the end, at most 60 (default 60)",
         },
     ),
     ToolSpec(
@@ -380,7 +507,38 @@ CATALOG: Tuple[ToolSpec, ...] = (
         name="autocontrast",
         description="Run autocontrast for a beam (changes detector settings).",
         method="POST",
-        path="/microscope/devices/{device}/commands/autocontrast",
+        path="/microscope/services/imaging/commands/autocontrast",
+        level="drive",
+        hardware=True,
+        params={"beam_type": "ELECTRON or ION"},
+    ),
+    ToolSpec(
+        name="auto_focus",
+        description=(
+            "Focus a beam: the instrument's own autofocus where the beam has one, "
+            "else an image-based sweep of the working distance at the beam's field "
+            "of view. Moves the working distance. Take a fresh image to check."
+        ),
+        method="POST",
+        path="/microscope/services/imaging/commands/auto_focus",
+        level="drive",
+        hardware=True,
+        params={"beam_type": "ELECTRON or ION"},
+    ),
+    ToolSpec(
+        name="auto_brightness_contrast",
+        description=(
+            "Set a beam's detector brightness and contrast from its own images, "
+            "not the instrument's routine: at most 6 images of the centre of the "
+            "field of view, starting from what last worked at this beam current. "
+            "Answers the brightness and contrast it set, whether it converged, "
+            "and each image's clipped fractions. Fails, with the detector at the "
+            "best it found, when every image was mostly black, mostly white or "
+            "flat; stop before aligning or milling on that beam. Changes detector "
+            "settings."
+        ),
+        method="POST",
+        path="/microscope/services/imaging/commands/auto_brightness_contrast",
         level="drive",
         hardware=True,
         params={"beam_type": "ELECTRON or ION"},
@@ -472,7 +630,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="get_item_output_image",
-        description="One saved image of an item, as an image you can look at: a 768 px JPEG preview of a file get_task_outputs lists (stacks and channels max-projected). A preview, not the data. An unlisted name is refused with the valid ones.",
+        description="One saved image of an item, as an image you can look at: a 768 px JPEG preview of a file get_task_outputs lists (stacks and channels max-projected). A preview, not the data. A beam image comes with its metadata block (pixel size, preview_pixelsize, stage position, beam, detector). An unlisted name is refused with the valid ones.",
         method="GET",
         path="/app/experiment/items/{item_name}/outputs/{filename}",
         level="watch",
@@ -480,6 +638,17 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "item_name": "the item (lamella) name",
             "filename": "a basename from get_task_outputs",
+        },
+    ),
+    ToolSpec(
+        name="get_image_metadata",
+        description="The full saved metadata of one image file in the experiment folder: the image settings, pixel size, microscope state (stage, both beams, detectors) and the item and task it was taken for. The image tools already carry a short block of this; use this for the rest. Paths outside the experiment are refused.",
+        method="GET",
+        path="/app/experiment/images/metadata",
+        level="watch",
+        router="app",
+        params={
+            "path": "an image file path inside the experiment folder, e.g. the path an image answer gives"
         },
     ),
     ToolSpec(
@@ -498,6 +667,34 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         level="watch",
         router="app",
         params={"grid_name": "the grid name"},
+    ),
+    ToolSpec(
+        name="get_grid_output_image",
+        description="One saved overview (mosaic) of a grid, as an image you can look at: a 768 px JPEG preview of a file get_grids / get_grid_detail lists. A preview, not the data; get_grid_markers places the items on it. A beam image comes with its metadata block (pixel size, preview_pixelsize, stage position, beam, detector). An unlisted name is refused with the valid ones.",
+        method="GET",
+        path="/app/experiment/grids/{grid_name}/outputs/{filename}",
+        level="watch",
+        router="app",
+        params={
+            "grid_name": "the grid name",
+            "filename": "an overview basename from get_grids / get_grid_detail",
+        },
+    ),
+    ToolSpec(
+        name="get_overview_stage_position",
+        description="The stage position under a point of a recorded grid overview: the inverse of get_grid_markers, from the overview's own metadata, so it holds wherever the stage is now. Give x, y in source pixels (as the markers use), or fx, fy from 0 to 1 for a point read off a preview. Nothing moves.",
+        method="GET",
+        path="/app/experiment/grids/{grid_name}/outputs/{filename}/stage_position",
+        level="watch",
+        router="app",
+        params={
+            "grid_name": "the grid name",
+            "filename": "an overview basename from get_grids / get_grid_detail",
+            "x": "source-pixel x (with y)",
+            "y": "source-pixel y, +y down (with x)",
+            "fx": "fraction across the image, 0-1 (with fy)",
+            "fy": "fraction down the image, 0-1 (with fx)",
+        },
     ),
     ToolSpec(
         name="get_grid_markers",
@@ -546,7 +743,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="request_actions",
-        description="At Assist, ask the operator to approve one or more actions: each is {tool, arguments}, the tool you would call and the arguments you would give it, run in order once approved. Give the reason the operator reads before deciding. One request waits at a time (409 request_pending names it). Answers the request, status pending; follow it with get_request or the request_* events (request_decided, request_applied per action, request_finished). Approved actions run through their own routes, so each is checked and can be refused as a direct call would be; the first refusal stops the batch. A rejection carries the operator's reason. Changing the level or Stop agent cancels a waiting request. Reads need no request, nor does stopping (stop_workflow, stop_milling): call those directly.",
+        description="At Assist, ask the operator to approve one or more actions: each is {tool, arguments}, the tool you would call and the arguments you would give it, run in order once approved. Give the reason the operator reads before deciding. One request waits at a time (409 request_pending names it): to change it, withdraw it (withdraw_request) and file again. Answers the request, status pending; follow it with get_request or the request_* events (request_decided, request_applied per action, request_finished). Approved actions run through their own routes, so each is checked and can be refused as a direct call would be; the first refusal stops the batch. A rejection carries the operator's reason. An action the agent may never use (agent: false in list_devices) is refused at filing (403 not_allowed). Changing the level or Stop agent cancels a waiting request. Reads need no request, nor does stopping your own mill (stop_milling): call those directly. Stopping anything else (stop_workflow, someone else's mill) goes in a request.",
         method="POST",
         path="/app/agent/requests",
         level="watch",
@@ -558,8 +755,21 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         note="Works at Assist only: at Drive make the calls yourself; refused (403 level) at Drive and Watch.",
     ),
     ToolSpec(
+        name="withdraw_request",
+        description='Withdraw a request you filed that is still waiting for the operator, with a reason: the plan changed, or the operator asked for something else. It ends cancelled, "withdrawn by the agent", and a new request can be filed. A request the operator has decided can no longer be withdrawn (409 not_pending).',
+        method="POST",
+        path="/app/agent/requests/{request_id}/withdraw",
+        level="watch",
+        router="app",
+        params={
+            "request_id": "the request_id request_actions answered",
+            "reason": "why you are withdrawing it, for the operator",
+        },
+        note="Works at any level the agent is on (a request only waits at Assist).",
+    ),
+    ToolSpec(
         name="get_request",
-        description="One request you filed with request_actions: its status (pending, applying, applied, failed, rejected, cancelled), who decided it, the operator's reason on a reject, and each action's result or the route's error.",
+        description="One request you filed with request_actions: its status (pending, applying, applied, failed, rejected, cancelled), who decided it, the operator's reason on a reject, why it was cancelled, and each action's result or the route's error.",
         method="GET",
         path="/app/agent/requests/{request_id}",
         level="watch",
@@ -577,6 +787,56 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "item_name": "the item (lamella) name",
             "task_names": "optional list of task names; omitted = every task in the protocol",
         },
+    ),
+    ToolSpec(
+        name="add_item",
+        description="Add a lamella, as the Lamella tab's Add does: at the stage position now (no where), at stage_position, or under a point of a recorded grid overview (overview = {grid_name, filename, px: [x, y] source pixels or fraction: [x, y] 0-1}), which also puts it on that grid. Its poses, milling angle and grid are worked out as for a click, and it is saved. The app names it unless name is given. Answers with the new item.",
+        method="POST",
+        path="/app/experiment/items",
+        level="drive",
+        router="app",
+        params={
+            "name": "optional name; the app picks one when omitted",
+            "stage_position": "optional {x, y, z, r, t} (metres, radians) to add at",
+            "overview": "optional {grid_name, filename, px | fraction}: a point on a grid overview",
+        },
+    ),
+    ToolSpec(
+        name="remove_item",
+        description="Remove a lamella from the experiment, as its row's Remove does. Its files stay on disk. Refused while a workflow runs.",
+        method="DELETE",
+        path="/app/experiment/items/{item_name}",
+        level="drive",
+        router="app",
+        params={"item_name": "the item (lamella) name"},
+    ),
+    ToolSpec(
+        name="move_to_item_pose",
+        description="Move the stage to one of a lamella's poses (MILLING, FLUORESCENCE, ... as get_item_detail lists), through the safe move that goes flat before a large rotation. Answers with the stage position after.",
+        method="POST",
+        path="/app/experiment/items/{item_name}/move_to",
+        level="drive",
+        router="app",
+        hardware=True,
+        params={"item_name": "the item (lamella) name", "pose": "the pose name"},
+    ),
+    ToolSpec(
+        name="set_item_pose",
+        description="Set the stage position now as one of a lamella's poses, as the tab's Set pose does. Setting MILLING moves the lamella: its milling angle and fluorescence pose follow. Saved; answers with the item.",
+        method="POST",
+        path="/app/experiment/items/{item_name}/poses/{pose_name}",
+        level="drive",
+        router="app",
+        params={"item_name": "the item (lamella) name", "pose_name": "the pose name"},
+    ),
+    ToolSpec(
+        name="set_item_objective_position",
+        description="Store the FM objective's position now on a lamella's fluorescence pose, as the tab's Use current does: where it is when inserted, else its focus position. Saved.",
+        method="POST",
+        path="/app/experiment/items/{item_name}/objective_position",
+        level="drive",
+        router="app",
+        params={"item_name": "the item (lamella) name"},
     ),
     ToolSpec(
         name="reorder_item_milling_stages",
@@ -684,11 +944,13 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="stop_workflow",
-        description="Stop the running workflow — the same path as the GUI's Stop button; the mill halts too. Allowed at Assist and Drive without asking, and is never refused for someone else being in control of the microscope. Not at Watch: a watching agent stops nothing.",
+        description="Stop the running workflow — the same path as the GUI's Stop button; the mill halts too. Give the reason the operator reads.",
         method="POST",
         path="/app/workflow/stop",
-        level="assist",
+        level="drive",
         router="app",
+        params={"reason": "why you are stopping it, for the operator (required)"},
+        note="Needs the agent at Drive: the workflow is never the agent's own. At Assist, put it in request_actions and the operator approves it (a direct call is refused, 403 ask_first); the operator can also press Stop. Refused (403) at Watch. Never refused for someone else being in control of the microscope.",
     ),
     ToolSpec(
         name="start_workflow",
@@ -742,7 +1004,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="requeue_task",
-        description="Queue a task for an item (again) in the RUNNING workflow — 'run 03's fiducial again'. Re-running a completed pair is the queue's own re-run mechanism; the queue only exists during a run.",
+        description="Queue a task for an item (again) in the RUNNING workflow — 'run 03's fiducial again'. Re-running a completed pair is the queue's own re-run mechanism; the queue only exists during a run. A pair already waiting in the queue is refused (409 already_queued): read the queue (get_app_queue) before asking for a requeue.",
         method="POST",
         path="/app/workflow/queue/requeue",
         level="drive",
@@ -797,7 +1059,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="answer_prompt",
-        description='Answer the pending supervision question, exactly as clicking the matching button would. Not for a question whose prompt says answer_via: "decide" -- that one is refused here, with nothing clicked, and decided with decide_review. True = the positive option. Echo the question_id from get_pending_prompt; if that question is no longer pending the answer is refused (409 stale_prompt) — re-read and answer the current one. For EditAlignmentArea and PickPOI the answer may carry a value: adjusted geometry that is placed into the widget (the operator sees it land) and then accepted through the same click path. An out-of-bounds or wrong-shape value is refused (422 invalid_value) without clicking anything.',
+        description='Answer the pending supervision question, exactly as clicking the matching button would. Not for a question whose prompt says answer_via: "decide" -- that one is refused here, with nothing clicked, and decided with decide_review. True = the positive option. Echo the question_id from get_pending_prompt; if that question is no longer pending the answer is refused (409 stale_prompt) — re-read and answer the current one. For EditAlignmentArea, PickPOI, ConfirmDetection and RunSpotBurn the answer may carry a value: the edit the operator could make in that widget, placed into it (the operator sees it land) and then answered through the same click path. For RunSpotBurn, yes burns the points as shown and asks again, no continues. An out-of-bounds or wrong-shape value is refused (422 invalid_value) without clicking anything.',
         method="POST",
         path="/app/workflow/prompt/answer",
         level="drive",
@@ -805,7 +1067,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "response": "true for the positive option, false for the negative",
             "question_id": "the question_id from get_pending_prompt, naming the question being answered",
-            "value": "optional adjusted geometry: {left, top, width, height} (fractions of the frame, origin top-left) for EditAlignmentArea, or {x, y} (metres, microscope image coordinates, origin centre, +y up) for PickPOI",
+            "value": "optional edit: {left, top, width, height} (fractions of the frame, origin top-left) for EditAlignmentArea; {x, y} (metres, microscope image coordinates, origin centre, +y up) for PickPOI; {features: [{name, px: {x, y}}]} (source-image pixels, origin top-left, only the named features move) for ConfirmDetection; {points: [{x, y}]} (fractions of the frame, origin top-left; current and exposure stay the protocol's) for RunSpotBurn",
         },
     ),
     ToolSpec(
@@ -825,11 +1087,50 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="list_recent_experiments",
-        description="Recently opened experiments on this machine, without loading them.",
+        description="Recently opened experiments on this machine, without loading them. load_experiment takes a path from here.",
         method="GET",
         path="/app/experiment/recent",
         level="watch",
         router="app",
+    ),
+    ToolSpec(
+        name="list_protocols",
+        description="The protocol files in the protocol folder, by name, with the default marked: what create_experiment and load_protocol take.",
+        method="GET",
+        path="/app/experiment/protocols",
+        level="watch",
+        router="app",
+    ),
+    ToolSpec(
+        name="create_experiment",
+        description="Create an experiment in the default experiments folder and open it in place of the current one, with a protocol from list_protocols (the default when omitted). An existing name is refused, never overwritten. Refused while a workflow runs.",
+        method="POST",
+        path="/app/experiment/create",
+        level="drive",
+        router="app",
+        params={
+            "name": "the new experiment's folder name",
+            "protocol": "optional protocol name from list_protocols",
+            "description": "optional one-line description",
+        },
+    ),
+    ToolSpec(
+        name="load_experiment",
+        description="Open one of the recent experiments (a path from list_recent_experiments) in place of the current one. Any other experiment is the operator's to open. Refused while a workflow runs.",
+        method="POST",
+        path="/app/experiment/load",
+        level="drive",
+        router="app",
+        params={"path": "a path from list_recent_experiments"},
+    ),
+    ToolSpec(
+        name="load_protocol",
+        description="Load a protocol from list_protocols into the open experiment, replacing its protocol, and save it beside the experiment. Existing items keep their task configs; apply_protocol_to_item updates one. Refused while a workflow runs.",
+        method="POST",
+        path="/app/experiment/protocol/load",
+        level="drive",
+        router="app",
+        params={"protocol": "a protocol name from list_protocols"},
     ),
 )
 
@@ -844,7 +1145,6 @@ NOT_TOOLS: Dict[str, str] = {
     "GET /dashboard/log": "The operator's event log page, HTML; get_events is the agent's read.",
     "GET /app/events/history": "The event log page's read of the run before the live buffer; an agent reads a finished run from its experiment folder.",
     "GET /app/agent/requests": "The app's list of every request; the agent follows its own with get_request.",
-    "GET /app/experiment/grids/{grid}/outputs/{filename}": "A JPEG for the dashboard; get_grid_markers is the agent's read of an overview.",
     "GET /microscope/devices/{device}": "list_devices carries every device's description.",
     "GET /microscope/devices/{device}/{parameter}/metadata": "list_devices carries limits, choices and settable.",
     "GET /microscope/services/{service}": "list_services carries every service's description.",
@@ -852,7 +1152,6 @@ NOT_TOOLS: Dict[str, str] = {
     "GET /microscope/devices/{device}/values": "Not decided yet; get_parameter reads one value at a time.",
     "GET /microscope/services/{service}/values": "Not decided yet; get_service_parameter reads one value at a time.",
     "POST /microscope/devices/{device}/queries/{query}": "Not decided yet; services hold the questions an agent asks (call_service_query).",
-    "PUT /microscope/services/{service}/{parameter}": "Not decided yet: set_service_parameter, for the milling-angle write.",
     "PUT /microscope/state": "Not decided yet: restoring beams and stage is allowed, but has no tool.",
 }
 
@@ -860,10 +1159,14 @@ NOT_TOOLS: Dict[str, str] = {
 def tools_for_capabilities(capabilities: Dict) -> Tuple[ToolSpec, ...]:
     """Catalog entries to offer given a full /capabilities payload.
 
-    Every tool whose router is mounted, whatever the agent's level: the level
-    changes mid-session and the server's 403 is the gate (FIB-1035).
+    Every tool whatever the agent's level: the level changes mid-session and
+    the server's 403 is the gate (FIB-1035). The microscope's tools too while
+    its routes are off: the operator can turn them on mid-session, and until
+    then each answers 404 ``microscope_off`` saying so, where tools fixed at
+    start would need the agent to reconnect. Only the app's tools depend on
+    the routers: a server hosts an application or not for its whole life.
     """
-    routers = dict(capabilities.get("routers", {}), base=True)
+    routers = dict(capabilities.get("routers", {}), base=True, microscope=True)
     return tuple(t for t in CATALOG if routers.get(t.router, False))
 
 
@@ -893,31 +1196,70 @@ def _absolute(a: Dict[str, Any]) -> dict:
     return _position(a)
 
 
-def _beam_device(a: Dict[str, Any]) -> str:
-    """The beam device a beam_type names: "electron" or "ion"."""
-    beam = str(a.get("beam_type", "ELECTRON")).lower()
-    if beam not in ("electron", "ion"):
+def _beam(a: Dict[str, Any], **more: Any) -> dict:
+    """An imaging command's kwargs: its beam_type, checked, and *more* when set."""
+    beam = str(a.get("beam_type", "ELECTRON")).upper()
+    if beam not in ("ELECTRON", "ION"):
         raise ValueError(f"beam_type must be ELECTRON or ION, not {beam!r}")
-    return beam
+    if more.get("image_settings") is not None:
+        more["image_settings"] = dict(more["image_settings"], beam_type=beam)
+    return {"beam_type": beam, **{k: v for k, v in more.items() if v is not None}}
 
 
 def _kwargs(**values: Any) -> dict:
     return {"kwargs": values}
 
 
+def _preview(kwargs: dict) -> dict:
+    """A generic command's body: an image it returns comes back as the agent's
+    answer (summary, saved path, preview), not as data it can't read."""
+    return {"kwargs": kwargs, "answer": "preview"}
+
+
+def _stop(body: dict, a: Dict[str, Any]) -> dict:
+    """A command's body with the agent's reason, which every stop carries."""
+    if a.get("reason") is not None:
+        body["reason"] = str(a["reason"])
+    return body
+
+
 # Tools whose arguments are not their route's path and body as they stand: each
 # gives (path values, body).
 _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict]]]] = {
     "acquire_image_preview": lambda a: (
-        {"device": _beam_device(a)},
-        {"kwargs": {}, "answer": "preview"},
+        {},
+        {
+            "kwargs": _beam(a, image_settings=a.get("image_settings")),
+            "answer": "preview",
+        },
     ),
-    "autocontrast": lambda a: ({"device": _beam_device(a)}, _kwargs()),
+    "autocontrast": lambda a: ({}, _kwargs(**_beam(a))),
+    "auto_focus": lambda a: ({}, _kwargs(**_beam(a))),
+    "auto_brightness_contrast": lambda a: ({}, _kwargs(**_beam(a))),
     # A service command or query with no arguments still sends its kwargs.
-    "stop_milling": lambda a: ({}, _kwargs()),
+    "stop_milling": lambda a: ({}, _stop(_kwargs(), a)),
     "estimate_milling_time": lambda a: ({}, _kwargs()),
+    "align_to_reference": lambda a: (
+        {},
+        _kwargs(
+            reference_path=str(a["reference_path"]),
+            steps=int(a.get("steps") or 3),
+            subsystem=str(a.get("subsystem") or "beam-shift"),
+        ),
+    ),
+    "measure_shift": lambda a: (
+        {},
+        _kwargs(
+            reference_path=str(a["reference_path"]), image_path=str(a["image_path"])
+        ),
+    ),
+    "get_pattern_preview": lambda a: (
+        {},
+        _kwargs(image_path=str(a["image_path"]), stages=a.get("stages")),
+    ),
     "get_stage_orientation": lambda a: ({}, _kwargs()),
     "get_milling_angle": lambda a: ({}, _kwargs()),
+    "get_geometry": lambda a: ({}, _kwargs()),
     "stable_move": lambda a: (
         {},
         _kwargs(
@@ -928,7 +1270,12 @@ _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict
     ),
     "vertical_move": lambda a: (
         {},
-        _kwargs(dy=float(a["dy"]), dx=float(a.get("dx", 0.0))),
+        _kwargs(
+            dy=float(a["dy"]),
+            dx=float(a.get("dx", 0.0)),
+            beam_type=str(a.get("beam_type") or "ION"),
+            relaxation=float(a.get("relaxation") or 1.0),
+        ),
     ),
     "move_to_orientation": lambda a: ({}, _kwargs(orientation=str(a["orientation"]))),
     "safe_move_stage_absolute": lambda a: ({}, _kwargs(stage_position=_absolute(a))),
@@ -939,20 +1286,24 @@ _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict
     "move_stage_absolute": lambda a: ({}, _kwargs(position=_absolute(a))),
     "move_to_milling_angle": lambda a: (
         {},
-        # The tool speaks degrees; the stage movement command takes radians (FIB-853).
-        _kwargs(milling_angle=math.radians(float(a["milling_angle_deg"]))),
+        _kwargs(
+            milling_angle=float(a["milling_angle_deg"]),
+            rotation=(
+                None if a.get("rotation_deg") is None else float(a["rotation_deg"])
+            ),
+        ),
     ),
     "call_command": lambda a: (
         {"device": a.get("device"), "command": a.get("command")},
-        {"kwargs": dict(a.get("kwargs") or {})},
+        _stop(_preview(dict(a.get("kwargs") or {})), a),
     ),
     "call_service_command": lambda a: (
         {"service": a.get("service"), "command": a.get("command")},
-        {"kwargs": dict(a.get("kwargs") or {})},
+        _stop(_preview(dict(a.get("kwargs") or {})), a),
     ),
     "call_service_query": lambda a: (
         {"service": a.get("service"), "query": a.get("query")},
-        {"kwargs": dict(a.get("kwargs") or {})},
+        _preview(dict(a.get("kwargs") or {})),
     ),
 }
 

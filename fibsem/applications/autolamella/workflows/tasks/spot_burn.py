@@ -14,6 +14,7 @@ from fibsem.applications.autolamella.workflows.tasks.base import (
     AutoLamellaTask,
 )
 from fibsem.applications.autolamella.workflows.ui import _abort_requested
+from fibsem.display import Display
 from fibsem.imaging.spot import SpotBurnSettings, run_spot_burn
 from fibsem.structures import BeamType, Point, field_meta
 
@@ -26,24 +27,26 @@ class SpotBurnFiducialTaskConfig(AutoLamellaTaskConfig):
     display_name: ClassVar[str] = "Spot Burn Fiducial"
     milling_current: float = field(
         default=100.0e-12,  # in Amperes; below this the marks are too faint to find
-        metadata=field_meta(tooltip="Milling current in Amperes", unit="A", scale=1e12),
+        metadata=field_meta(
+            unit="A", doc="Milling current in Amperes", display=Display(scale=1e12)
+        ),
     )
     exposure_time: int = field(
         default=10,
-        metadata=field_meta(tooltip="Exposure time in seconds", unit="s", scale=1),
+        metadata=field_meta(unit="s", doc="Exposure time in seconds"),
     )
     autofocus: bool = field(
         default=False,
         metadata=field_meta(
-            tooltip="Run a FIB autofocus before acquiring the reference image, so the "
+            doc="Run a FIB autofocus before acquiring the reference image, so the "
             "points are placed on (and burned into) a focused image",
-            label="Autofocus",
+            display=Display("Autofocus"),
         ),
     )
     coordinates: list[Point] = field(
         default_factory=list,
         metadata=field_meta(
-            tooltip="Spot burn positions in normalised image coordinates (0-1)"
+            doc="Spot burn positions in normalised image coordinates (0-1)"
         ),
     )
 

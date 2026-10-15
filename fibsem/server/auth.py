@@ -25,6 +25,7 @@ dashboard.
 import hmac
 import logging
 import secrets
+import threading
 import time
 import weakref
 from contextlib import contextmanager
@@ -188,6 +189,12 @@ def lending_drive() -> Iterator[None]:
         yield
     finally:
         _lent.reset(token)
+
+
+def drive_is_lent() -> bool:
+    """Whether this call is an approved request's (:func:`lending_drive`): the
+    app's doing, not the agent's."""
+    return _lent.get()
 
 
 def _bearer_token(request: Request) -> Optional[str]:
@@ -357,9 +364,28 @@ def take_control(request: Request):
                 },
             },
         ) from None
+    once = threading.Lock()
+
+    def release() -> None:
+        # The request and a run it started may both get here: give up once.
+        if once.acquire(blocking=False):
+            taking.__exit__(None, None, None)
+
+    request.state.release_control = release
     # Entered and exited by hand, not ``with``: an exception from the route is
     # thrown in here, and must reach FastAPI as it is.
     try:
         yield
     finally:
-        taking.__exit__(None, None, None)
+        if not getattr(request.state, "control_adopted", False):
+            release()
+
+
+def adopt_control(request: Request) -> Optional[Callable[[], None]]:
+    """Keep the control of the microscope this request took past its answer,
+    for a long command that runs on (`fibsem.server.runs`). Returns what gives
+    it up, which the run calls when it ends; None when the request took none."""
+    release = getattr(request.state, "release_control", None)
+    if release is not None:
+        request.state.control_adopted = True
+    return release

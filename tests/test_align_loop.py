@@ -19,6 +19,10 @@ from fibsem.alignment.coincidence import (
 )
 from fibsem.structures import BeamType, FibsemStagePosition
 
+# Tens of seconds each on the simulator, so pull requests run these on one CI leg
+# only; the nightly and release runs take them everywhere (python-package.yml).
+pytestmark = pytest.mark.slow
+
 # The geometry under test is a pre-tilted TFS shuttle; pin it rather than
 # inherit whatever configuration an earlier test left as the default
 TFS_SHUTTLE_CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
@@ -227,7 +231,7 @@ def _anchor_in_view(microscope, beam_type) -> tuple:
     Read straight off the projection the scene renders with, so it is
     exact and immune to the periodic mesh's correlation aliases.
     """
-    from fibsem.projection import BeamStageProjection
+    from fibsem.geometry.projection import BeamStageProjection
 
     projection = BeamStageProjection.from_microscope(microscope, beam_type)
     return projection.to_plane(

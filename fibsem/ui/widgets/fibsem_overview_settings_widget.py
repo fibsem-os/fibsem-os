@@ -39,16 +39,17 @@ from fibsem.structures import (
     AutoContrastMode,
     AutoFocusMode,
     BeamType,
+    FieldSpec,
     FocusStackSettings,
     ImageSettings,
     OverviewAcquisitionSettings,
     Resolution,
     TileOrderStrategy,
-    get_fields_with_metadata,
+    field_specs,
 )
 from fibsem.ui import stylesheets
 from fibsem.ui.tokens import NEUTRAL_400, TEXT_MUTED_COLOR
-from fibsem.ui.utils import beam_field_metadata, install_wheel_blocker
+from fibsem.ui.utils import beam_spec, install_wheel_blocker
 from fibsem.ui.widgets.custom_widgets import (
     IconToolButton,
     QDirectoryLineEdit,
@@ -56,7 +57,7 @@ from fibsem.ui.widgets.custom_widgets import (
     ValueComboBox,
     ValueSpinBox,
 )
-from fibsem.ui.widgets.form_builder import configure_spinbox, effective_scale
+from fibsem.ui.widgets.form_builder import configure_spinbox
 from fibsem.ui.widgets.overview_acquisition_settings_widget import (
     default_overview_acquisition_settings,
 )
@@ -64,11 +65,11 @@ from fibsem.ui.widgets.overview_grid_settings_widget import OverviewGridSettings
 
 # How a tile's imaging controls are shown: ImageSettings' field metadata, as the
 # Image tab shows them, with the selected beam's limits and resolutions laid over.
-_META = get_fields_with_metadata(ImageSettings)
+_SPECS = field_specs(ImageSettings)
 
 
 def _scale(name: str) -> float:
-    return effective_scale(_META[name]) or 1.0
+    return _SPECS[name].scale or 1.0
 
 
 _MUTED = f"color: {TEXT_MUTED_COLOR}; font-size: 11px;"
@@ -111,16 +112,14 @@ class FibsemOverviewSettingsWidget(QWidget):
             configure_spinbox(spinbox, self._beam_field(name))
             spinbox.blockSignals(blocked)
 
-    def _beam_field(self, name: str) -> dict:
-        return beam_field_metadata(
-            _META[name], self._microscope, self.combo_beam.value()
-        )
+    def _beam_field(self, name: str) -> FieldSpec:
+        return beam_spec(_SPECS[name], self._microscope, self.combo_beam.value())
 
     def _populate_resolutions(self, saved: Optional[tuple] = None) -> None:
         """List the selected beam's resolutions. A ``saved`` overview's size is
         shown as it is, not snapped; otherwise a size the beam doesn't list moves to
         the nearest one it does."""
-        items = [tuple(r) for r in self._beam_field("resolution")["items"]]
+        items = [tuple(r) for r in self._beam_field("resolution").choices]
         selected = saved if saved is not None else self.combo_resolution.value()
         if selected is not None and selected not in items:
             if saved is not None:
@@ -165,7 +164,7 @@ class FibsemOverviewSettingsWidget(QWidget):
     def _integration_box(cls, name: str) -> ValueSpinBox:
         """An integration count, within the bounds ImageSettings declares."""
         spinbox = ValueSpinBox(step=1, decimals=0)
-        configure_spinbox(spinbox, _META[name])
+        configure_spinbox(spinbox, _SPECS[name])
         return cls._field(spinbox)
 
     @staticmethod
@@ -186,9 +185,7 @@ class FibsemOverviewSettingsWidget(QWidget):
         )
         self.combo_resolution = self._field(
             ValueComboBox(
-                items=[
-                    tuple(r) for r in beam_field_metadata(_META["resolution"])["items"]
-                ],
+                items=[tuple(r) for r in beam_spec(_SPECS["resolution"]).choices],
                 format_fn=lambda r: str(Resolution(*r)),
             )
         )
@@ -236,12 +233,18 @@ class FibsemOverviewSettingsWidget(QWidget):
         self.spin_scan_interlacing = self._integration_box("scan_interlacing")
         self.spin_frame_integration = self._integration_box("frame_integration")
         self.check_drift_correction = QCheckBox()
+        self.check_register_tiles = QCheckBox()
+        self.check_register_tiles.setToolTip(
+            "Experimental. Place each tile where it matches its neighbours rather "
+            "than where the grid planned it. Only applied when the tiles match the "
+            "stage steps; otherwise the overview is left as planned."
+        )
 
         form = self._form()
         form.addRow("Beam", self.combo_beam)
-        form.addRow(_META["resolution"]["label"], self.combo_resolution)
-        form.addRow(_META["dwell_time"]["label"], self.spin_dwell)
-        form.addRow(_META["hfw"]["label"], self.spin_hfw)
+        form.addRow(_SPECS["resolution"].label, self.combo_resolution)
+        form.addRow(_SPECS["dwell_time"].label, self.spin_dwell)
+        form.addRow(_SPECS["hfw"].label, self.spin_hfw)
         form.addRow("Auto contrast", self.combo_autocontrast)
         form.addRow("Scan time", self.label_scan_time)
         # The advanced rows go in and out of the form rather than hiding in
@@ -249,10 +252,11 @@ class FibsemOverviewSettingsWidget(QWidget):
         # of them left a blank band above Scan time. Labels are kept here, so
         # they survive being taken out.
         self._advanced_rows = [
-            (QLabel(_META["line_integration"]["label"]), self.spin_line_integration),
-            (QLabel(_META["scan_interlacing"]["label"]), self.spin_scan_interlacing),
-            (QLabel(_META["frame_integration"]["label"]), self.spin_frame_integration),
+            (QLabel(_SPECS["line_integration"].label), self.spin_line_integration),
+            (QLabel(_SPECS["scan_interlacing"].label), self.spin_scan_interlacing),
+            (QLabel(_SPECS["frame_integration"].label), self.spin_frame_integration),
             (QLabel("Drift correction"), self.check_drift_correction),
+            (QLabel("Align tiles"), self.check_register_tiles),
         ]
         self._advanced_fields = [field for _, field in self._advanced_rows]
         self._advanced_labels = [label for label, _ in self._advanced_rows]
@@ -509,6 +513,7 @@ class FibsemOverviewSettingsWidget(QWidget):
             autofocus_mode=self.combo_autofocus.value(),
             autocontrast_mode=autocontrast_mode,
             tile_order=self.grid.tile_order,
+            register_tiles=self.check_register_tiles.isChecked(),
         )
 
     def update_from_settings(self, settings: OverviewAcquisitionSettings) -> None:
@@ -524,6 +529,7 @@ class FibsemOverviewSettingsWidget(QWidget):
             self.spin_scan_interlacing,
             self.spin_frame_integration,
             self.check_drift_correction,
+            self.check_register_tiles,
             self.check_focus_stack,
             self.spin_focus_steps,
             self.check_focus_autofocus,
@@ -544,6 +550,7 @@ class FibsemOverviewSettingsWidget(QWidget):
             self.spin_scan_interlacing.setValue(image.scan_interlacing or 1)
             self.spin_frame_integration.setValue(image.frame_integration or 1)
             self.check_drift_correction.setChecked(bool(image.drift_correction))
+            self.check_register_tiles.setChecked(settings.register_tiles)
             self.check_focus_stack.setChecked(settings.focus_stack_settings.enabled)
             self.spin_focus_steps.setValue(settings.focus_stack_settings.n_steps)
             self.check_focus_autofocus.setChecked(

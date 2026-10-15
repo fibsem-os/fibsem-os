@@ -71,6 +71,7 @@ from fibsem.cancellation import (
     CANCELLED,
     COMPLETED,
     AnyStopEvent,
+    NothingToStop,
     ended_by,
     raise_if_cancelled,
 )
@@ -84,13 +85,14 @@ from fibsem.structures import (
     BeamType,
     FibsemBitmapSettings,
     FibsemCircleSettings,
+    FibsemImage,
     FibsemLineSettings,
     FibsemMillingSettings,
     FibsemPatternSettings,
     FibsemPolygonSettings,
     FibsemRectangleSettings,
     MillingState,
-    get_fields_with_metadata,
+    field_specs,
 )
 from fibsem.util.timestamps import now_iso
 
@@ -109,6 +111,12 @@ _RUN_CONTEXT = (
     "current_stage",
     "total_stages",
 )
+
+# How a run outside a task ended, as the terminal report that ends its progress.
+_ENDED_AS = {
+    COMPLETED: MillingProgressStatus.TASK_FINISHED,
+    CANCELLED: MillingProgressStatus.TASK_CANCELLED,
+}
 
 _M = TypeVar("_M", bound="Milling")
 
@@ -181,6 +189,11 @@ class Milling(Service):
         self._drawn: List[FibsemPatternSettings] = []
         # Set by ``stop`` while a run is on, so the run can say it was stopped.
         self._stop_requested = threading.Event()
+        # The stop of the milling task running on this service, if one is: ``stop``
+        # sets it, so the task starts no later stage (FIB-1398).
+        self._task_stop: Optional[threading.Event] = None
+        # A run is in progress, for ``stop`` to know there is something to stop.
+        self._running = False
         # The name the last setup was given, for a run outside a task to go by.
         self._name: Optional[str] = None
         # Inside ``part_of``: a run there is part of something with its own record.
@@ -270,9 +283,9 @@ class Milling(Service):
             return {}
         beam = self.beam(channel)
         available: Dict[str, ParameterMetadata] = {}
-        fields = get_fields_with_metadata(FibsemMillingSettings)
+        specs = field_specs(FibsemMillingSettings)
         for name in self.setting_names:
-            beam_parameter = fields[name].get("microscope_parameter")
+            beam_parameter = specs[name].microscope_parameter
             if beam_parameter not in beam.parameters:
                 available[name] = self._metadata_of(name)
             elif _settable(beam, beam_parameter):
@@ -377,14 +390,50 @@ class Milling(Service):
 
     @command
     def start(self) -> None:
-        """Start milling what is drawn, and return."""
+        """Start milling what is drawn, and return at once. Nothing follows it:
+        no ``progress`` and no ``milling`` event, so an agent mills with ``run``."""
         self._start()
 
     @command
     def stop(self) -> None:
-        """Stop milling. A ``run`` in progress ends and answers ``cancelled``."""
+        """Stop milling: the pattern now, and the milling task it is part of, which
+        starts no later stage. A ``run`` in progress ends and answers ``cancelled``.
+
+        Refused with `NothingToStop` when nothing is milling and no task is running.
+        """
+        task_stop = self._task_stop
+        if task_stop is None and not self._is_milling():
+            raise NothingToStop("Nothing is milling.")
+        if task_stop is not None:
+            task_stop.set()
+        self.stop_pattern()
+
+    def stop_pattern(self) -> None:
+        """Stop the pattern milling now, and nothing more: a milling task goes on
+        to its next stage. For a strategy that ends a mill on purpose (coincidence
+        milling); ``stop`` is the way to stop a mill."""
         self._stop_requested.set()
         self._stop()
+
+    @contextmanager
+    def task_running(self, stop_event: threading.Event) -> Iterator[None]:
+        """A milling task runs on this service in the block: ``stop`` sets
+        ``stop_event`` as well as stopping the pattern, so the whole task ends."""
+        previous, self._task_stop = self._task_stop, stop_event
+        try:
+            yield
+        finally:
+            self._task_stop = previous
+
+    def _is_milling(self) -> bool:
+        """Whether a run is in progress, or the instrument says it is milling (a
+        ``start`` returns at once)."""
+        if self._running:
+            return True
+        try:
+            return self._poll().milling_state in ACTIVE_MILLING_STATES
+        except Exception:  # noqa: BLE001 - unsure counts as milling: stop it
+            return True
 
     @command
     def pause(self) -> None:
@@ -396,7 +445,7 @@ class Milling(Service):
         """Resume paused milling."""
         self._resume()
 
-    @command
+    @command(long=True)
     def run(
         self, stop_event: Optional[Union[threading.Event, AnyStopEvent]] = None
     ) -> str:
@@ -416,6 +465,85 @@ class Milling(Service):
             # A task's run, or a spot burn's: that records the whole.
             return self._run(stop_event)
         return self._run_on_the_record(stop_event)
+
+    @command(long=True)
+    def run_task(self, config: Any, path: Optional[str] = None) -> Dict[str, Any]:
+        """Run a milling task, as the app runs a protocol's: each enabled stage
+        in turn with its strategy, aligning to the task's reference image
+        between stages, and the beam put back at the end.
+
+        *config* is a ``FibsemMillingTaskConfig`` (or its dict). The task saves
+        its reference and stage images under ``<path>/Milling/<name>``; with
+        no *path*, under the app's data folder, never under the imaging path
+        the config carries. Answers the task's status (``completed``,
+        ``cancelled``, ``skipped`` when no stage is enabled), the folder it
+        saved into, and how each stage ended, as its ``milling`` event says.
+        A failed task raises its error, after the beam is put back. ``stop``
+        ends it ``cancelled``.
+        """
+        # Imported here: fibsem.milling.tasks imports this module.
+        from fibsem.milling.tasks import FibsemMillingTaskConfig, run_milling_task
+
+        if isinstance(config, dict):
+            config = FibsemMillingTaskConfig.from_dict(config)
+        if not isinstance(config, FibsemMillingTaskConfig):
+            raise TypeError("config must be a FibsemMillingTaskConfig or its dict")
+        # Where it saves is the path argument's to say, so the App Server can
+        # keep it inside the experiment; the config's own path is not checked.
+        config.acquisition.imaging.path = None
+        # Registered for the whole call, so a stop before the first stage mills
+        # (while the reference image is taken) ends the task too.
+        stop_event = threading.Event()
+        with self.task_running(stop_event):
+            task = run_milling_task(
+                self.parent,
+                config,
+                stop_event=stop_event,
+                raise_on_failure=True,
+                output_dir=path,
+            )
+        return task.ended()
+
+    @command(long=True)
+    def run_stage(
+        self, stage: FibsemMillingStage, path: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Run one milling stage as a task of its own, named after the stage:
+        ``run_task`` with that one stage, answering the same."""
+        from fibsem.milling.tasks import FibsemMillingTaskConfig
+
+        return self.run_task(
+            FibsemMillingTaskConfig.from_stages([stage], name=stage.name), path=path
+        )
+
+    @query
+    def pattern_preview(
+        self,
+        image_path: str,
+        stages: Optional[List[FibsemMillingStage]] = None,
+    ) -> Any:
+        """*stages* drawn over the saved image at *image_path* (an ion image, to
+        see where they would mill), or with no stages the patterns ``prepare``
+        drew. An RGB image the saved image's shape, scaled down to 1024 px wide;
+        reads the file and moves nothing."""
+        from fibsem.devices.wire import Frame
+        from fibsem.milling.patterning.plotting import render_milling_patterns
+
+        image = FibsemImage.load(image_path)
+        if stages is None:
+            drawn = [_Drawn(self.drawn_patterns)] if self.drawn_patterns else []
+        else:
+            drawn = list(stages)
+        data = render_milling_patterns(image, drawn)
+        return Frame(
+            data,
+            {
+                "image_path": image_path,
+                "stages": [stage.name for stage in drawn],
+                "full_width": int(image.data.shape[1]),
+                "full_height": int(image.data.shape[0]),
+            },
+        )
 
     @contextmanager
     def part_of(self) -> Iterator[None]:
@@ -453,10 +581,23 @@ class Milling(Service):
             self._run_context = {}
             payload["ended_at"] = now_iso()
             self.session.record("milling", payload)
+            # No task ends it, so the run does: the progress bars clear on a
+            # terminal report, and otherwise stay at the last tick (FIB-1401).
+            self._report(
+                MillingProgress(
+                    status=_ENDED_AS.get(
+                        payload.get("status"), MillingProgressStatus.TASK_FAILED
+                    ),
+                    milling_run_id=payload["milling_run_id"],
+                    milling_task_name=payload["milling_task_name"],
+                    error=payload.get("error"),
+                )
+            )
         return status
 
     def _run(self, stop_event: Optional[Union[threading.Event, AnyStopEvent]]) -> str:
         self._before_run()
+        self._running = True
         try:
             total = float(self._estimate() or 0.0)
             self._start()
@@ -465,6 +606,7 @@ class Milling(Service):
             self._abort()
             raise
         finally:
+            self._running = False
             try:
                 self._after_run()
             finally:
@@ -565,6 +707,12 @@ class Milling(Service):
                     self._write_back(beam, name, saved[name])
         self._restore()
 
+    @command
+    def finish(self) -> None:
+        """Clear the patterns and put the milling beam back as ``setup`` found it."""
+        self.clear()
+        self.restore()
+
     def _save(self, beam: Beam) -> None:
         """Keep the beam's conditions that it has, can set, and reports."""
         self._saved_beam = beam
@@ -640,6 +788,19 @@ class Milling(Service):
         time.sleep(seconds)
 
 
+class _Drawn:
+    """What ``prepare`` drew, in the shape the pattern drawing reads a stage in."""
+
+    name = "drawn"
+
+    def __init__(self, patterns: Sequence[FibsemPatternSettings]):
+        self._patterns = list(patterns)
+        self.pattern = self
+
+    def define_patterns(self) -> List[FibsemPatternSettings]:
+        return self._patterns
+
+
 def _settable(beam: Optional[Beam], name: str) -> bool:
     return beam is not None and name in beam.parameters and getattr(beam, name).settable
 
@@ -669,6 +830,19 @@ def report_progress(microscope: Any, progress: MillingProgress) -> None:
     milling = getattr(microscope, "milling", None)
     if milling is not None:
         milling.report(progress)
+
+
+@contextmanager
+def task_running(microscope: Any, stop_event: threading.Event) -> Iterator[None]:
+    """A milling task runs on *microscope*'s milling service in the block, so the
+    service's ``stop`` sets ``stop_event`` and the whole task ends (FIB-1398).
+    Without a milling service nothing mills, and there is nothing to register."""
+    milling = getattr(microscope, "milling", None)
+    if milling is None:
+        yield
+        return
+    with milling.task_running(stop_event):
+        yield
 
 
 def progress_update(

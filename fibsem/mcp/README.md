@@ -18,7 +18,7 @@ pip install -e ".[server,mcp]"
 
 ## 1. Start the App Server
 
-In AutoLamella, turn the App Server on in Preferences → App Server (the guide,
+In AutoLamella, turn the App Server on in Tools → App Server (the guide,
 [docs/app-server.md](../../docs/app-server.md), walks through it). *Serve the
 microscope* there adds the microscope tools; the Agent chip sets what
 the agent may do with them.
@@ -42,7 +42,7 @@ nothing more: the sidecar autodiscovers the running
 server. For a server on another machine (or a non-default setup):
 
 ```bash
-claude mcp add -s user fibsem -- fibsem-mcp --url http://hydra-support:8001 --token <token>
+claude mcp add -s user fibsem -- fibsem-mcp --url http://microscope-pc:8001 --token <token>
 ```
 
 (`FIBSEM_SERVER_URL` / `FIBSEM_SERVER_TOKEN` environment variables also work.)
@@ -113,5 +113,5 @@ Loopback bind keeps everything off the network by default; the per-session
 bearer token keeps other users on the same machine out; the agent level the
 operator sets from the Agent chip decides what the agent may do, and nothing
 moves or images below Drive; one hardware command runs at a time (a second gets
-`409 microscope_busy`); `stop_milling` works at Assist and Drive and never
-waits.
+`409 microscope_busy`); the agent stops its own mill at Assist or Drive and anything
+else at Drive, always with a reason, and a stop never waits.

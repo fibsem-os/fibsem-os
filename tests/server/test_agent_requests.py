@@ -2,6 +2,7 @@
 in the app, and the approved actions run through the App Server's own routes."""
 
 import gc
+import json
 import os
 
 import pytest
@@ -12,6 +13,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient  # noqa: E402
 from psygnal.containers import EventedDict  # noqa: E402
 
+import fibsem.applications.autolamella  # noqa: E402
 from fibsem import utils  # noqa: E402
 from fibsem.acting import current_actor  # noqa: E402
 from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
@@ -32,8 +34,13 @@ SUPERVISE = {
     "tool": "set_task_supervision",
     "arguments": {"task_name": "MILL_ROUGH", "supervise": True},
 }
-STOP_MILL = {"tool": "stop_milling", "arguments": {}}
+STOP_MILL = {"tool": "stop_milling", "arguments": {"reason": "the mill is off target"}}
 MOVE_RELATIVE = "/microscope/services/stage_movement/commands/move_relative"
+_PROTOCOL = os.path.join(
+    os.path.dirname(fibsem.applications.autolamella.__file__),
+    "protocol",
+    "task-protocol.yaml",
+)
 
 
 class Host:
@@ -264,23 +271,50 @@ def test_a_request_made_at_assist_is_not_run_after_the_level_drops(client, app, 
     assert store.get(filed["request_id"]).status == "cancelled"
 
 
-def test_assist_stops_without_asking_and_asks_for_the_rest(client):
-    assert client.post("/app/workflow/stop", headers=AGENT).status_code == 200
-    assert (
-        client.post(
-            "/microscope/services/milling/commands/stop", headers=AGENT
-        ).status_code
-        == 200
-    )
-    for path in (MOVE_RELATIVE, "/app/workflow/prompt/answer"):
-        refused = client.post(path, headers=AGENT, json={})
+def test_assist_asks_to_stop_as_it_asks_for_the_rest(
+    client, app, microscope, monkeypatch
+):
+    """A stop that is not the agent's own needs Drive (Patrick, 2026-10-14): at
+    Assist it is a request like any action, and runs once approved."""
+    why = {"reason": "the mill is off target"}
+    for path, body in (
+        ("/app/workflow/stop", why),
+        ("/microscope/services/milling/commands/stop", why),
+        (MOVE_RELATIVE, {}),
+        ("/app/workflow/prompt/answer", {}),
+    ):
+        refused = client.post(path, headers=AGENT, json=body)
         assert refused.status_code == 403, path
         assert _detail(refused)["error_type"] == "ask_first"
         assert "request_actions" in _detail(refused)["message"]
-    # A stop is never a request: it is called directly.
-    refused = _file(client, STOP_MILL)
-    assert refused.status_code == 422
-    assert "needs no approval" in _detail(refused)["message"]
+    filed = _file(client, STOP_MILL)
+    assert filed.status_code == 202, filed.text
+    # Something to stop (FIB-1398).
+    monkeypatch.setattr(microscope.milling, "_running", True)
+    store = app.state.requests
+    store.approve(filed.json()["request_id"])
+    done = store.wait(filed.json()["request_id"], timeout=10)
+    assert done.status == "applied", done.results
+
+
+def test_a_request_whose_mill_was_stopped_says_so(
+    client, app, context, microscope, monkeypatch
+):
+    """A mill stopped part way answers ``cancelled``, not a failure: the request
+    is applied, and its result and end say the run was cut short (FIB-1398)."""
+    monkeypatch.setattr(microscope.milling, "run", lambda stop_event=None: "cancelled")
+    run = {
+        "tool": "call_service_command",
+        "arguments": {"service": "milling", "command": "run"},
+    }
+    filed = _file(client, run).json()
+    store = app.state.requests
+    store.approve(filed["request_id"])
+    done = store.wait(filed["request_id"], timeout=10)
+    assert done.status == "applied", done.results
+    assert done.results[0]["cancelled"] is True
+    finished = [p for kind, p, _ in context.recorded if kind == "request_finished"]
+    assert finished[-1]["cancelled"] == 1
 
 
 @pytest.mark.parametrize("stop_agent", [False, True])
@@ -367,6 +401,7 @@ _SAMPLE_ARGUMENTS = {
     "move_stage_absolute": _AXES,
     "safe_move_stage_absolute": _AXES,
     "move_to_milling_angle": {"milling_angle_deg": 18.0},
+    "align_to_reference": {"reference_path": "experiment/reference.tif"},
     "call_command": {"device": "stage", "command": "home"},
     "call_service_command": {"service": "milling", "command": "run"},
 }
@@ -403,6 +438,135 @@ def test_each_action_is_described_by_the_server_with_old_and_new(client, context
     ]
 
 
+def test_a_config_edit_reads_as_its_form_names_it_in_display_units(client, context):
+    """FIB-1403: the setting under its milling stage, old -> new in the form's
+    units, and the same as a table; never the dotted path."""
+    item = context._host.experiment.positions[0]
+    protocol = AutoLamellaTaskProtocol.load(_PROTOCOL)
+    rough = next(
+        c for c in protocol.task_config.values() if c.task_type == "MILL_ROUGH"
+    )
+    item.task_config["Rough Milling"] = rough
+    stage = "milling.mill_rough.stages.0"
+    edit = {
+        "tool": "update_item_task_config",
+        "arguments": {
+            "item_name": item.name,
+            "task_name": "Rough Milling",
+            "patch": {
+                f"{stage}.pattern.depth": 2.5e-6,
+                f"{stage}.milling.milling_current": 6e-11,
+            },
+            "version": "v",
+        },
+    }
+    action = _file(client, edit).json()["actions"][0]
+    assert action["what"] == f"{item.name} · Rough Milling"
+    assert action["change"] == (
+        "Rough Mill 01 · trench depth 2 µm → 2.5 µm\n"
+        "Rough Mill 01 · milling current 740 pA → 60 pA"
+    )
+    assert action["details"] == {
+        "columns": ["Setting", "Now", "New"],
+        "rows": [
+            ["Rough Mill 01 · trench depth", "2 µm", "2.5 µm"],
+            ["Rough Mill 01 · milling current", "740 pA", "60 pA"],
+        ],
+    }
+
+
+def test_a_mill_reads_as_its_patterns_and_its_run_as_how_long():
+    from fibsem.server.request_text import describe_actions
+    from fibsem.structures import FibsemMillingSettings, FibsemRectangleSettings
+
+    def rectangle(x):
+        pattern = FibsemRectangleSettings(
+            width=2e-6, height=1e-6, depth=0.2e-6, centre_x=x, centre_y=4e-6
+        )
+        return {**pattern.to_dict(), "type": "Rectangle"}
+
+    settings = FibsemMillingSettings(milling_current=2e-11).to_dict()
+    prepare, run = describe_actions(
+        [
+            (
+                "call_service_command",
+                {
+                    "service": "milling",
+                    "command": "prepare",
+                    "kwargs": {
+                        "settings": settings,
+                        "patterns": [rectangle(-3e-6), rectangle(0.0)],
+                        "name": "agent test mill",
+                    },
+                },
+                "/x",
+            ),
+            ("call_service_command", {"service": "milling", "command": "run"}, "/x"),
+        ]
+    )
+    assert prepare["what"] == "Milling"
+    assert prepare["change"] == (
+        "Prepare 'agent test mill': 2 rectangles, 2 × 1 µm, 0.2 µm deep, 20 pA at 30 kV"
+    )
+    assert prepare["details"]["rows"] == [
+        ["Rectangle 1", "2 × 1 µm", "0.2 µm", "(-3.0, +4.0) µm"],
+        ["Rectangle 2", "2 × 1 µm", "0.2 µm", "(+0.0, +4.0) µm"],
+    ]
+    assert run["what"] == "Milling"
+    assert run["change"].startswith("Run, about ")
+
+
+@pytest.mark.parametrize(
+    "tool, arguments, line",
+    [
+        (
+            "stable_move",
+            {"dx": 33e-6, "dy": -27e-6, "beam_type": "ION"},
+            ("Stage", "Stable move in the ion beam: 33 µm right, 27 µm down"),
+        ),
+        (
+            "stop_milling",
+            {"reason": "off target"},
+            ("Milling", "Stop the mill now running"),
+        ),
+        (
+            "move_to_orientation",
+            {"orientation": "fib"},
+            ("Stage", "Move to the FIB orientation"),
+        ),
+        (
+            "call_service_command",
+            {"service": "milling", "command": "run"},
+            ("Milling", "Run"),
+        ),
+        (
+            "call_command",
+            {"device": "ion_beam", "command": "autofocus"},
+            ("Ion beam", "Autofocus"),
+        ),
+    ],
+)
+def test_an_action_reads_as_one_plain_line(tool, arguments, line):
+    from fibsem.server.request_text import describe_action
+
+    described = describe_action(tool, arguments, "/x")
+    assert (described["what"], described["change"]) == line
+
+
+def test_a_long_argument_is_cut_in_the_line_and_whole_in_the_details():
+    from fibsem.server.request_text import describe_action
+
+    path = "/data/" + "a" * 80 + ".tif"
+    described = describe_action(
+        "call_service_command",
+        {"service": "imaging", "command": "focus_sweep", "kwargs": {"path": path}},
+        "/x",
+    )
+    assert path not in described["change"]
+    assert described["change"].startswith("Focus sweep: path /data/")
+    assert described["details"]["rows"] == [["path", path]]
+
+
 def test_an_unknown_tool_in_the_describer_falls_back_to_its_name():
     from fibsem.server.request_text import describe_action
 
@@ -410,3 +574,80 @@ def test_an_unknown_tool_in_the_describer_falls_back_to_its_name():
         "what": "new_tool",
         "change": "Run",
     }
+
+
+@pytest.mark.parametrize(
+    "action",
+    [
+        {"tool": "call_command", "arguments": {"device": "stage", "command": "home"}},
+        {
+            "tool": "set_parameter",
+            "arguments": {"device": "electron", "parameter": "on", "value": False},
+        },
+    ],
+)
+def test_what_the_agent_may_never_touch_is_refused_at_filing(client, app, action):
+    """The operator is never asked about an action that cannot run: a blocked
+    command or write is refused when it is filed, as it is when called."""
+    refused = _file(client, NUDGE, action)
+    assert refused.status_code == 403
+    assert _detail(refused)["error_type"] == "not_allowed"
+    assert _detail(refused)["message"].startswith("Action 2: ")
+    assert app.state.requests.pending() is None
+
+
+def test_the_agent_withdraws_its_waiting_request_with_a_reason(client, app, context):
+    filed = _file(client, NUDGE).json()
+    url = f"/app/agent/requests/{filed['request_id']}/withdraw"
+    no_reason = client.post(url, headers=AGENT, json={"reason": " "})
+    assert no_reason.status_code == 422
+    withdrawn = client.post(
+        url, headers=AGENT, json={"reason": "the operator moved it"}
+    )
+    assert withdrawn.status_code == 200, withdrawn.text
+    why = "withdrawn by the agent: the operator moved it"
+    assert withdrawn.json()["status"] == "cancelled"
+    assert withdrawn.json()["cancel_reason"] == why
+    cancelled = [p for kind, p, _ in context.recorded if kind == "request_cancelled"]
+    assert cancelled == [{"request_id": filed["request_id"], "why": why}]
+    # A new one can be filed; a decided one can't be withdrawn.
+    again = _file(client, NUDGE).json()
+    app.state.requests.reject(again["request_id"])
+    late = client.post(
+        f"/app/agent/requests/{again['request_id']}/withdraw",
+        headers=AGENT,
+        json={"reason": "too late"},
+    )
+    assert late.status_code == 409
+    assert _detail(late)["error_type"] == "not_pending"
+    missing = client.post(
+        "/app/agent/requests/nope/withdraw", headers=AGENT, json={"reason": "x"}
+    )
+    assert missing.status_code == 404
+
+
+def test_the_sidecar_shows_an_approved_image_as_an_image(client, app):
+    """get_request answers an applied image action's preview as an image the
+    agent can look at, not ~200k characters of base64 in the JSON."""
+    pytest.importorskip("mcp")
+    import asyncio
+
+    from fibsem.mcp.sidecar import build_sidecar
+
+    image = {"tool": "acquire_image_preview", "arguments": {"beam_type": "ION"}}
+    request_id = _file(client, image).json()["request_id"]
+    store = app.state.requests
+    store.approve(request_id)
+    assert store.wait(request_id, timeout=10).status == "applied"
+
+    client.headers.update(AGENT)
+    sidecar = build_sidecar(client, client.get("/capabilities").json())
+    result = asyncio.run(sidecar.call_tool("get_request", {"request_id": request_id}))
+    if isinstance(result, tuple):
+        result = result[0]
+    contents = list(getattr(result, "content", result))
+    assert [getattr(c, "type", None) for c in contents] == ["text", "image"]
+    assert "image_b64_jpeg" not in contents[0].text
+    answer = json.loads(contents[0].text)
+    preview = answer["results"][0]["result"]["result"]["preview"]
+    assert preview["image_index"] == 0

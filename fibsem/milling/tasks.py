@@ -7,7 +7,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 from fibsem import acquire
 from fibsem import config as fcfg
@@ -16,20 +16,24 @@ from fibsem.cancellation import (
     COMPLETED,
     FAILED,
     SKIPPED,
+    AnyStopEvent,
     OperationCancelledError,
     ended_by,
     raise_if_cancelled,
 )
+from fibsem.display import Display
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.base import FibsemMillingStage, MillingStrategyResult
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.services.milling import report_progress
+from fibsem.services.milling import task_running as _task_running
 from fibsem.structures import (
     BeamType,
     FibsemImage,
     ImageSettings,
     MillingAlignment,
     Point,
+    field_meta,
 )
 from fibsem.util.timestamps import now_iso
 from fibsem.utils import current_timestamp_v3
@@ -41,26 +45,26 @@ class MillingTaskAcquisitionSettings:
 
     acquire_sem: bool = field(
         default=False,
-        metadata={
-            "label": "Acquire SEM Image",
-            "tooltip": "Whether to acquire SEM images between the milling task stages.",
-        },
+        metadata=field_meta(
+            doc="Whether to acquire SEM images between the milling task stages.",
+            display=Display("Acquire SEM Image"),
+        ),
     )
     acquire_fib: bool = field(
         default=False,
-        metadata={
-            "label": "Acquire FIB Image",
-            "tooltip": "Whether to acquire FIB images between the milling task stages.",
-        },
+        metadata=field_meta(
+            doc="Whether to acquire FIB images between the milling task stages.",
+            display=Display("Acquire FIB Image"),
+        ),
     )
     acquire_final_image: bool = field(
         default=True,
-        metadata={
-            "label": "Acquire Final Image",
-            "tooltip": "Refresh the FIB view with a single image once the task finishes. "
+        metadata=field_meta(
+            doc="Refresh the FIB view with a single image once the task finishes. "
             "Disable for low-kV polishing, where imaging the lamella with a "
             "higher-voltage beam undoes the polish.",
-        },
+            display=Display("Acquire Final Image"),
+        ),
     )
     imaging: ImageSettings = field(default_factory=ImageSettings)
 
@@ -238,19 +242,25 @@ class FibsemMillingTask:
         )
         self.output_dir: Optional[str] = None
         self.initial_beam_shift: Optional[Point] = None
-        # Imaging current/voltage captured before milling starts, so cleanup restores the
-        # exact pre-milling state (not a config default) even if the task is cancelled.
-        self.initial_imaging_current: Optional[float] = None
-        self.initial_imaging_voltage: Optional[float] = None
         # Set to cancel: checked between stages, and passed to the strategy, whose
         # run_milling stops the beam when it is set.
         self._stop_event: Optional[threading.Event] = stop_event
+        # Set by the milling service's ``stop`` while this task runs, so a stop of
+        # the service ends the task, not only the stage milling then (FIB-1398).
+        self._stopped = threading.Event()
         # How the last run() ended, for callers that never see the progress signal.
         # None until run() has finished.
         self.outcome: Optional[MillingProgressStatus] = None
         self.error: Optional[BaseException] = None
         # How each stage the last run() reached ended, for its recorded event.
         self._stage_records: List[Dict[str, Any]] = []
+
+    @property
+    def _stop_token(self) -> Union[threading.Event, AnyStopEvent]:
+        """What stops the task: the caller's stop event, or the service's stop."""
+        if self._stop_event is None:
+            return self._stopped
+        return AnyStopEvent(self._stopped, self._stop_event)
 
     @property
     def name(self) -> str:
@@ -274,23 +284,6 @@ class FibsemMillingTask:
                 milling_task_name=self.name,
                 **fields,
             ),
-        )
-
-    def _imaging_conditions(self) -> Tuple[float, float]:
-        """The (current, voltage) the user was imaging at before milling started.
-
-        Falls back to the system defaults only if the task failed before it could
-        capture them. Every restore path must go through here: reading
-        ``system.ion.beam.*`` directly picks up the *config* default, which bounces
-        the column back to 30 kV whenever a stage mills at some other voltage.
-        """
-        current = self.initial_imaging_current
-        voltage = self.initial_imaging_voltage
-        return (
-            current
-            if current is not None
-            else self.microscope.system.ion.beam.beam_current,
-            voltage if voltage is not None else self.microscope.system.ion.beam.voltage,
         )
 
     def _configure_path(self) -> None:
@@ -343,14 +336,6 @@ class FibsemMillingTask:
             self.initial_beam_shift = self.microscope.get_beam_shift(
                 beam_type=self.config.channel
             )
-            # Capture the live imaging current/voltage BEFORE setup_milling switches to the
-            # milling current, so cleanup restores exactly what the user was imaging at.
-            self.initial_imaging_current = self.microscope.get_beam_current(
-                self.config.channel
-            )
-            self.initial_imaging_voltage = self.microscope.get_beam_voltage(
-                self.config.channel
-            )
 
             # configure acquisition filepaths
             self._configure_path()
@@ -363,8 +348,11 @@ class FibsemMillingTask:
             if self.config.acquisition.enabled:
                 self._acquire_milling_task_images(stage_name=self.name, tag="pre-task")
 
-            for idx, stage in enumerate(self.stages):
-                self._mill_stage(stage, idx)
+            # A stop of the milling service stops the whole task, not only the
+            # pattern milling now.
+            with _task_running(self.microscope, self._stopped):
+                for idx, stage in enumerate(self.stages):
+                    self._mill_stage(stage, idx)
 
             outcome = MillingProgressStatus.TASK_FINISHED
         except OperationCancelledError as e:
@@ -386,12 +374,8 @@ class FibsemMillingTask:
             # Before the cleanup, which can raise: the record of how the run ended
             # must not depend on restoring the beam afterwards.
             self._record_run(started_at)
-            # restore the captured pre-milling imaging current/voltage
-            imaging_current, imaging_voltage = self._imaging_conditions()
-            self.microscope.finish_milling(
-                imaging_current=imaging_current,
-                imaging_voltage=imaging_voltage,
-            )
+            # put the beam back as the first setup_milling found it, even when cancelled
+            self.microscope.finish_milling()
             # restore initial beam shift
             if self.initial_beam_shift is not None:
                 self.microscope.set_beam_shift(
@@ -432,7 +416,7 @@ class FibsemMillingTask:
         """
 
         start_time = time.time()
-        raise_if_cancelled(self._stop_event)
+        raise_if_cancelled(self._stop_token)
         # Reached: from here the stage ends completed, failed or cancelled, never
         # skipped (FIB-1257).
         record: Dict[str, Any] = {
@@ -494,8 +478,11 @@ class FibsemMillingTask:
         result = stage.strategy.run(
             microscope=self.microscope,
             stage=stage,
-            stop_event=self._stop_event,
+            stop_event=self._stop_token,
         )
+        # A stop of the service while the stage milled: the run answered
+        # cancelled, which a strategy need not pass on, so the stage was cut short.
+        raise_if_cancelled(self._stopped, "Milling stopped.")
         # TODO: pass task as parent into strategy.run()?, allow logging from strategy?
         # performance logging
         msgd = {
@@ -522,24 +509,32 @@ class FibsemMillingTask:
         raises: a run that cannot be described still milled.
         """
         try:
-            if self.error is not None:
-                ended = ended_by(self.error)
-            else:
-                ended = {"status": _RUN_STATUS.get(self.outcome, FAILED)}
-            if ended["status"] == COMPLETED and not self.stages:
-                ended = {"status": SKIPPED, "reason": _TURNED_OFF}
             payload = {
                 "milling_run_id": self.task_id,
                 "milling_task_name": self.name,
                 "started_at": started_at,
-                "path": self.output_dir,
-                "stages": self._stages_as_ended(ended["status"]),
-                **ended,
+                **self.ended(),
             }
         except Exception:  # noqa: BLE001 - recording must not matter
             logging.debug(f"could not record the {self.name} run", exc_info=True)
             return
         self.microscope.record_event("milling", payload)
+
+    def ended(self) -> Dict[str, Any]:
+        """How the run ended, as its ``milling`` event says: its status (and
+        the error's type and message when it failed), the folder it saved
+        into, and how each stage ended."""
+        if self.error is not None:
+            ended = ended_by(self.error)
+        else:
+            ended = {"status": _RUN_STATUS.get(self.outcome, FAILED)}
+        if ended["status"] == COMPLETED and not self.stages:
+            ended = {"status": SKIPPED, "reason": _TURNED_OFF}
+        return {
+            **ended,
+            "path": self.output_dir,
+            "stages": self._stages_as_ended(ended["status"]),
+        }
 
     def _stages_as_ended(self, status: str) -> List[Dict[str, Any]]:
         """Every stage in the protocol, as the run left it. ``index`` is the
@@ -632,10 +627,7 @@ class FibsemMillingTask:
             stage_name (str): Name of the milling stage
             tag (str): Tag to append to the filename
         """
-        imaging_current, imaging_voltage = self._imaging_conditions()
-        self.microscope.finish_milling(
-            imaging_current=imaging_current, imaging_voltage=imaging_voltage
-        )
+        self.microscope.finish_milling()
 
         acq_date = current_timestamp_v3(timeonly=True)
         self.config.acquisition.imaging.filename = (

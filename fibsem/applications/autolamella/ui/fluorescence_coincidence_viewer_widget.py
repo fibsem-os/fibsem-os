@@ -1317,6 +1317,10 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self.microscope.fib_acquisition_signal.connect(
             lambda image: self._fib_image_ready.emit(image)
         )
+        # Live FIB view → FIB canvas, from the ion beam itself
+        ion = getattr(self.microscope, "beams", {}).get(BeamType.ION)
+        if ion is not None:
+            ion.live_frame.connect(lambda image: self._fib_image_ready.emit(image))
 
         # Milling progress
         self.microscope.milling_progress_signal.connect(self._on_milling_progress)
@@ -2448,7 +2452,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         if state is not DeviceImagingState.READY:
             logging.info(
                 "Cannot move the stage via the FM image. "
-                + self.microscope.describe_device_imaging_state("FM", state)
+                + self.microscope.explain_imaging_state("FM", state)
             )
             return
         image_shape = self.fm_canvas._img_shape

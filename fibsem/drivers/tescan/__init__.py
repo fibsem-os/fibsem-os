@@ -13,7 +13,7 @@ from fibsem.drivers.registry import DeviceBuilder, DriverEntry
 DRIVER = DriverEntry(
     manufacturer="Tescan",
     microscope_class="fibsem.drivers.tescan.microscope:TescanMicroscope",
-    config={"port": 8300, "ion-column-tilt": 55, "electron-column-tilt": 0},
+    port=8300,
     setup="fibsem.drivers.tescan.setup:SETUP",
     devices={
         device_type: DeviceBuilder(

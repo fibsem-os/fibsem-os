@@ -5,6 +5,7 @@ against the in-process ASGI app — full stack minus the socket."""
 
 import asyncio
 import json
+import math
 import os
 
 import pytest
@@ -76,7 +77,7 @@ def test_each_description_names_the_level_it_needs(armed_sidecar):
     listed = asyncio.run(armed_sidecar.list_tools())
     described = {t.name: t.description for t in getattr(listed, "tools", listed)}
     assert described["get_stage_position"].endswith("Works at Watch, Assist and Drive.")
-    assert "Assist and Drive without asking" in described["stop_milling"]
+    assert "started itself it can stop at Assist or Drive" in described["stop_milling"]
     assert "Needs the agent at Drive" in described["move_stage_relative"]
     assert "request_actions" in described["move_stage_relative"]
     assert "(409)" in described["move_stage_relative"]
@@ -104,6 +105,56 @@ def test_set_parameter_takes_a_number_sent_as_text(armed_sidecar):
     )
     text = "".join(getattr(c, "text", "") for c in _contents(result))
     assert json.loads(text)["value"] == pytest.approx(120e-6)
+
+
+def test_set_service_parameter_sets_the_milling_angle(armed_sidecar):
+    def milling_angle():
+        result = asyncio.run(
+            armed_sidecar.call_tool(
+                "get_service_parameter",
+                {"service": "stage_movement", "parameter": "milling_angle"},
+            )
+        )
+        return json.loads("".join(getattr(c, "text", "") for c in _contents(result)))
+
+    before = milling_angle()["value"]
+    try:
+        result = asyncio.run(
+            armed_sidecar.call_tool(
+                "set_service_parameter",
+                {
+                    "service": "stage_movement",
+                    "parameter": "milling_angle",
+                    "value": 21,
+                },
+            )
+        )
+        text = "".join(getattr(c, "text", "") for c in _contents(result))
+        assert json.loads(text)["value"] == pytest.approx(21.0)
+        assert milling_angle()["value"] == pytest.approx(21.0)
+    finally:
+        asyncio.run(
+            armed_sidecar.call_tool(
+                "set_service_parameter",
+                {
+                    "service": "stage_movement",
+                    "parameter": "milling_angle",
+                    "value": before,
+                },
+            )
+        )
+
+
+def test_vertical_move_works_from_either_view(armed_sidecar):
+    """Coincidence from either beam: with the feature centred in the FIB, the
+    offset is measured in the SEM view (beam_type ELECTRON)."""
+    for arguments in (
+        {"dy": 2e-6},
+        {"dy": 2e-6, "beam_type": "ELECTRON", "relaxation": 0.8},
+    ):
+        before = _call_json(armed_sidecar, "get_stage_position", {})["position"]
+        after = _call_json(armed_sidecar, "vertical_move", arguments)["position"]
+        assert after["z"] != pytest.approx(before["z"]), arguments
 
 
 def test_stable_move_tool_round_trip(armed_sidecar):
@@ -169,8 +220,8 @@ def _call_json(sidecar, tool, arguments):
 
 
 def test_the_milling_angle_tools_speak_degrees(armed_sidecar):
-    """The tools speak degrees; the stage movement command they call takes
-    radians (FIB-853). Moving to 15 deg must read back as ~15 deg, not ~859."""
+    """The tools and the stage movement command all speak degrees (FIB-853).
+    Moving to 15 deg must read back as ~15 deg, not ~859."""
     moved = _call_json(
         armed_sidecar, "move_to_milling_angle", {"milling_angle_deg": 15.0}
     )
@@ -181,9 +232,58 @@ def test_the_milling_angle_tools_speak_degrees(armed_sidecar):
     assert orientation == {"orientation": "MILLING"}
 
 
+def test_the_geometry_is_one_read(armed_sidecar):
+    geometry = _call_json(armed_sidecar, "get_geometry", {})["geometry"]
+    assert set(geometry["views"]) == {"ELECTRON", "ION"}
+    assert geometry["milling_angle"]["stored_deg"] is not None
+    assert "FIB" in geometry["orientations"]
+
+
+def test_the_milling_angle_move_takes_a_rotation_in_degrees(armed_sidecar):
+    moved = _call_json(
+        armed_sidecar,
+        "move_to_milling_angle",
+        {"milling_angle_deg": 15.0, "rotation_deg": 10.0},
+    )
+    assert moved == {"success": True}
+    position = _call_json(armed_sidecar, "get_stage_position", {})["position"]
+    assert math.degrees(position["r"]) == pytest.approx(10.0, abs=0.1)
+
+
 def _contents(result):
     # FastMCP.call_tool returns a content sequence; newer versions may return
     # (contents, structured). Normalize.
     if isinstance(result, tuple):
         result = result[0]
     return list(getattr(result, "content", result))
+
+
+@pytest.mark.parametrize("device", ["electron", "chamber_camera"])
+def test_a_command_that_images_answers_the_agent_an_image(armed_sidecar, device):
+    """A beam's image or a camera frame from call_command comes back as a
+    summary and an image the agent can look at, not bytes it can't read."""
+    result = asyncio.run(
+        armed_sidecar.call_tool(
+            "call_command", {"device": device, "command": "acquire"}
+        )
+    )
+    contents = _contents(result)
+    assert any(getattr(c, "type", None) == "image" for c in contents)
+    text = "".join(getattr(c, "text", "") for c in contents)
+    answer = json.loads(text)
+    assert answer["result"]["summary"]["shape"]
+    assert answer["result"]["preview"]["image_index"] == 0
+
+
+def test_the_milling_state_is_answered_by_name(armed_sidecar):
+    """The tool says IDLE, RUNNING, ...; the wire carries the enum's number."""
+    from fibsem.mcp.sidecar import _MILLING_STATES
+    from fibsem.structures import MillingState
+
+    assert _MILLING_STATES == tuple(state.name for state in MillingState)
+    assert [MillingState[name].value for name in _MILLING_STATES] == list(
+        range(len(_MILLING_STATES))
+    )
+    result = asyncio.run(armed_sidecar.call_tool("get_milling_state", {}))
+    text = "".join(getattr(c, "text", "") for c in _contents(result))
+    assert json.loads(text) == {"state": "IDLE"}

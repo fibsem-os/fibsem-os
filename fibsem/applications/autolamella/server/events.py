@@ -18,7 +18,7 @@ Rules the taps live by:
   the images themselves are fetched through the preview endpoints on demand.
   The acquisition signals fire only from the streaming live-view worker. A
   one-shot acquisition reaches the stream as ``image_acquired`` (on
-  ``record_signal``) when it goes through ``acquire.new_image``, as workflow
+  ``session.record_signal``) when it goes through ``acquire.acquire_image``, as workflow
   reference images do; a direct ``microscope.acquire_image`` call still does not.
 
 Sequence numbers make polling honest: a client asks for everything after seq
@@ -41,7 +41,7 @@ from collections import deque
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 
-from fibsem.structures import InsertableDeviceState
+from fibsem.structures import BeamType, InsertableDeviceState
 from fibsem.util.timestamps import iso_from_posix
 
 __all__ = [
@@ -233,8 +233,8 @@ def attach_microscope_taps(buffer: EventBuffer, microscope) -> List[Callable[[],
     def on_record(kind: str, payload: Any) -> None:
         append(kind, to_plain, payload)
 
-    microscope.record_signal.connect(on_record)
-    disposers.append(lambda: microscope.record_signal.disconnect(on_record))
+    microscope.session.record_signal.connect(on_record)
+    disposers.append(lambda: microscope.session.record_signal.disconnect(on_record))
 
     tap(microscope.milling_progress_signal, "milling_progress", to_plain)
     tap(microscope.spot_burn_progress_signal, "spot_burn_progress", to_plain)
@@ -246,6 +246,12 @@ def attach_microscope_taps(buffer: EventBuffer, microscope) -> List[Callable[[],
     )
     tap(microscope.sem_acquisition_signal, "sem_acquisition", _image_metadata)
     tap(microscope.fib_acquisition_signal, "fib_acquisition", _image_metadata)
+    # Live frames come from the beams themselves, under the same kinds.
+    for beam_type, beam in getattr(microscope, "beams", {}).items():
+        kind = (
+            "sem_acquisition" if beam_type is BeamType.ELECTRON else "fib_acquisition"
+        )
+        tap(beam.live_frame, kind, _image_metadata)
 
     fm = getattr(microscope, "fm", None)
     if fm is not None:

@@ -15,9 +15,9 @@ from PyQt5.QtWidgets import (
 from fibsem import constants
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.tasks import FibsemMillingTaskConfig
-from fibsem.structures import BeamType, FibsemMillingSettings, get_fields_with_metadata
+from fibsem.structures import BeamType, FibsemMillingSettings, field_specs
 from fibsem.ui import stylesheets
-from fibsem.ui.utils import beam_field_metadata
+from fibsem.ui.utils import beam_spec
 from fibsem.ui.widgets.custom_widgets import (
     IconToolButton,
     TitledPanel,
@@ -34,7 +34,7 @@ from fibsem.ui.widgets.milling_task_acquisition_settings_widget import (
 )
 
 # The task's field of view is its stages' milling field of view.
-_MILLING_HFW = get_fields_with_metadata(FibsemMillingSettings)["hfw"]
+_MILLING_HFW = field_specs(FibsemMillingSettings)["hfw"]
 
 _WIDGET_CONFIG = {
     "name": {"default": "Milling Task", "placeholder": "Enter task name..."},
@@ -114,7 +114,7 @@ class MillingTaskConfigWidget2(QWidget):
         self.field_of_view_spinbox = ValueSpinBox()
         configure_spinbox(
             self.field_of_view_spinbox,
-            beam_field_metadata(_MILLING_HFW, self.microscope, BeamType.ION),
+            beam_spec(_MILLING_HFW, self.microscope, BeamType.ION),
         )
         self.field_of_view_spinbox.setValue(fov["default"])
 
@@ -278,7 +278,7 @@ class MillingTaskConfigWidget2(QWidget):
     def get_settings(self) -> FibsemMillingTaskConfig:
         self._settings.name = self.name_edit.text()
         self._settings.field_of_view = (
-            self.field_of_view_spinbox.value() * constants.MICRO_TO_SI
+            self.field_of_view_spinbox.value() / constants.SI_TO_MICRO
         )
         self._settings.alignment = self.alignment_widget.get_settings()
         self._settings.acquisition = self.acquisition_widget.get_settings()

@@ -184,10 +184,12 @@ class EditAlignmentArea(Request["FibsemRectangle"]):
 
 @dataclass(frozen=True)
 class PickPOI(Request[Optional["Point"]]):
-    """Ask for a point of interest on ``image``, in microscope image coordinates.
+    """Ask for a point of interest, in microscope image coordinates.
 
-    The image travels in the request — in-process that is a reference, not a copy —
-    so the responder is never answering about whatever happens to be on screen.
+    ``image`` is the FIB frame the task took for it. The marker sits on the FIB
+    view, so once the view has moved on (an agent's approved moves and their
+    images), the responder places, reads and serves it on the view's frame
+    instead, with ``image`` the fallback (FIB-1399).
     """
 
     lends_control = True

@@ -4,6 +4,7 @@ import threading
 from dataclasses import dataclass, field
 from typing import Optional
 
+from fibsem.display import Display
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.base import (
     FibsemMillingStage,
@@ -15,7 +16,7 @@ from fibsem_test_plugin import STRATEGY_NAME
 
 @dataclass
 class FixtureMillingStrategyConfig(MillingStrategyConfig):
-    passes: int = field(default=1, metadata={"label": "Passes"})
+    passes: int = field(default=1, metadata={"display": Display("Passes")})
 
 
 class FixtureMillingStrategy(MillingStrategy[FixtureMillingStrategyConfig]):

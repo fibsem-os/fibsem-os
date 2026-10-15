@@ -2,6 +2,7 @@
 mounted into the server, reached over HTTP and through MCP tools."""
 
 import asyncio
+import json
 import os
 
 import pytest
@@ -625,6 +626,106 @@ def test_grid_overview_serves_jpeg_and_refuses_unlisted_names(
     assert no_grid.json()["detail"]["grid_names"] == ["grid-aspen"]
 
 
+def test_sidecar_returns_a_grid_overview_as_image_content(client, grid_with_overview):
+    pytest.importorskip("mcp")
+    from fibsem.mcp.sidecar import build_sidecar
+
+    client.headers["Authorization"] = f"Bearer {TOKEN}"
+    sidecar = build_sidecar(client, client.get("/capabilities").json())
+
+    def call(filename):
+        result = asyncio.run(
+            sidecar.call_tool(
+                "get_grid_output_image",
+                {"grid_name": "grid-aspen", "filename": filename},
+            )
+        )
+        if isinstance(result, tuple):
+            result = result[0]
+        return list(getattr(result, "content", result))
+
+    contents = call("overview.tif")
+    image = next(c for c in contents if getattr(c, "type", None) == "image")
+    assert image.mime_type == "image/jpeg"
+    # The image's metadata block rides along, so its scale needs no second call.
+    meta = json.loads(
+        next(c.text for c in contents if getattr(c, "type", None) == "text")
+    )
+    assert meta["metadata"]["beam_type"] == "ELECTRON"
+    assert meta["metadata"]["pixel_size"] == pytest.approx(200e-6 / 128)
+    refused = "".join(getattr(c, "text", "") for c in call("nope.tif"))
+    assert "refused (404)" in refused
+    assert "overview.tif" in refused
+
+
+def test_a_saved_beam_image_carries_its_metadata_block(client, grid_with_overview):
+    from fibsem.server.app_routes import IMAGE_METADATA_HEADER
+
+    served = client.get(
+        "/app/experiment/grids/grid-aspen/outputs/overview.tif", headers=AUTH
+    )
+    block = json.loads(served.headers[IMAGE_METADATA_HEADER])
+    assert block["beam_type"] == "ELECTRON"
+    assert block["hfw"] == pytest.approx(200e-6)
+    assert block["pixel_size"] == pytest.approx(200e-6 / 128)
+    # 128 px wide renders 1:1, so a preview pixel is a source pixel.
+    assert block["preview_pixelsize"] == pytest.approx(block["pixel_size"])
+    assert set(block["stage_position"]) >= {"x", "y", "z", "r_deg", "t_deg"}
+    assert block["beam"]["voltage"] is not None
+    assert block["path"].endswith("overview.tif")
+
+
+def test_a_plain_tiff_has_no_metadata_header(client, host):
+    import numpy as np
+    import tifffile
+
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+    from fibsem.server.app_routes import IMAGE_METADATA_HEADER
+
+    lamella = host.experiment.positions[0]
+    os.makedirs(lamella.path, exist_ok=True)
+    tifffile.imwrite(
+        os.path.join(lamella.path, "plain.tif"), np.zeros((8, 8), np.uint8)
+    )
+    lamella.task_history.append(
+        AutoLamellaTaskState(name="Rough Milling", outputs={"final_fib": ["plain.tif"]})
+    )
+    served = client.get(
+        f"/app/experiment/items/{lamella.name}/outputs/plain.tif", headers=AUTH
+    )
+    assert served.status_code == 200
+    assert IMAGE_METADATA_HEADER not in served.headers
+
+
+def test_image_metadata_reads_files_inside_the_experiment_only(
+    client, host, grid_with_overview, tmp_path
+):
+    import numpy as np
+    import tifffile
+
+    path = str(
+        host.experiment.grid_path(grid_with_overview) / "overview_sem" / "overview.tif"
+    )
+    url = "/app/experiment/images/metadata"
+    full = client.get(url, params={"path": path}, headers=AUTH)
+    assert full.status_code == 200
+    body = full.json()
+    assert body["path"] == path
+    assert body["metadata"]["image"]["beam_type"] == "ELECTRON"
+    assert "microscope_state" in body["metadata"]
+
+    outside = tmp_path / "elsewhere.tif"
+    tifffile.imwrite(str(outside), np.zeros((8, 8), np.uint8))
+    refused = client.get(url, params={"path": str(outside)}, headers=AUTH)
+    assert refused.status_code == 403
+    assert refused.json()["detail"]["error_type"] == "not_allowed"
+    escape = os.path.join(str(host.experiment.path), "..", "elsewhere.tif")
+    assert client.get(url, params={"path": escape}, headers=AUTH).status_code == 403
+
+    missing = os.path.join(str(host.experiment.path), "nope.tif")
+    assert client.get(url, params={"path": missing}, headers=AUTH).status_code == 404
+
+
 def test_grid_markers_place_items_in_source_pixels(client, host, grid_with_overview):
     body = client.get(
         "/app/experiment/grids/grid-aspen/outputs/overview.tif/markers", headers=AUTH
@@ -833,6 +934,13 @@ def test_fm_overview_previews_in_colour_and_places_markers(
     )
     assert at_centre["inside"] is True
     assert by_name[experiment.positions[1].name]["inside"] is False
+    # The inverse: the mosaic's centre pixel is the stage position it was taken at.
+    converted = client.get(
+        "/app/experiment/grids/grid-aspen/outputs/overview.ome.tiff/stage_position",
+        params={"x": 32, "y": 32},
+        headers=AUTH,
+    ).json()["stage_position"]
+    assert (converted["x"], converted["y"]) == pytest.approx((centre.x, centre.y))
 
     listed = client.get("/app/experiment/grids", headers=AUTH).json()["items"][0][
         "overviews"
@@ -866,3 +974,153 @@ def test_unlinked_items_fall_back_only_on_a_single_grid_experiment(
     assert body["linked"] is False
     assert body["markers"] == [] and body["unplaced"] == []
     assert "several grids" in body["reason"]
+
+
+# -- lamella positions: the Lamella tab's buttons, for an agent at Drive ----------
+
+
+@pytest.fixture
+def driver(microscope, host, event_buffer):
+    app = build_server(
+        microscope,
+        app_context=AutoLamellaAppContext(host, event_buffer=event_buffer),
+        auth=AuthConfig.generate(level="drive", token=TOKEN),
+    )
+    with TestClient(app, raise_server_exceptions=False) as client:
+        client.headers["Authorization"] = f"Bearer {TOKEN}"
+        yield client
+
+
+def test_an_item_is_added_where_the_stage_is(driver, host, microscope):
+    from fibsem.structures import FibsemStagePosition
+
+    microscope.move_stage_absolute(FibsemStagePosition(x=1e-4, y=-2e-4))
+    before = len(host.experiment.positions)
+    resp = driver.post("/app/experiment/items", json={"name": "site-a"})
+    assert resp.status_code == 200, resp.text
+    item = resp.json()["item"]
+    assert item["item_name"] == "site-a"
+    assert len(host.experiment.positions) == before + 1
+    lamella = host.experiment.get_lamella_by_name("site-a")
+    assert lamella.milling_pose.stage_position.x == pytest.approx(1e-4)
+    assert lamella.milling_angle is not None
+    # Saved, as a click saves.
+    from fibsem.applications.autolamella.structures import Experiment
+
+    saved = Experiment.load(os.path.join(host.experiment.path, "experiment.yaml"))
+    assert "site-a" in [p.name for p in saved.positions]
+
+    taken = driver.post("/app/experiment/items", json={"name": "site-a"})
+    assert taken.status_code == 422
+
+
+def test_an_item_is_added_under_an_overview_point(driver, host, grid_with_overview):
+    # The marker for the new item lands back on the pixel it was added at: the
+    # conversion is the markers' inverse.
+    point = [40.0, 90.0]
+    converted = driver.get(
+        "/app/experiment/grids/grid-aspen/outputs/overview.tif/stage_position",
+        params={"x": point[0], "y": point[1]},
+    )
+    assert converted.status_code == 200, converted.text
+    assert converted.json()["grid_id"] == grid_with_overview.id
+    by_fraction = driver.get(
+        "/app/experiment/grids/grid-aspen/outputs/overview.tif/stage_position",
+        params={"fx": point[0] / 128, "fy": point[1] / 128},
+    ).json()
+    assert by_fraction["stage_position"] == pytest.approx(
+        converted.json()["stage_position"]
+    )
+
+    resp = driver.post(
+        "/app/experiment/items",
+        json={
+            "name": "picked",
+            "overview": {
+                "grid_name": "grid-aspen",
+                "filename": "overview.tif",
+                "px": point,
+            },
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    assert host.experiment.get_lamella_by_name("picked").grid_id == (
+        grid_with_overview.id
+    )
+    markers = driver.get(
+        "/app/experiment/grids/grid-aspen/outputs/overview.tif/markers"
+    ).json()
+    marker = next(m for m in markers["markers"] if m["item_name"] == "picked")
+    assert (marker["x"], marker["y"]) == pytest.approx(point, abs=0.5)
+
+    outside = driver.get(
+        "/app/experiment/grids/grid-aspen/outputs/overview.tif/stage_position",
+        params={"x": 500, "y": 10},
+    )
+    assert outside.status_code == 422
+    unknown = driver.get(
+        "/app/experiment/grids/grid-aspen/outputs/nope.tif/stage_position",
+        params={"x": 1, "y": 1},
+    )
+    assert unknown.status_code == 404
+    assert unknown.json()["detail"]["filenames"] == ["overview.tif"]
+
+
+def test_a_pose_is_set_from_the_stage_and_moved_back_to(driver, host, microscope):
+    from fibsem.structures import FibsemStagePosition
+
+    name = host.experiment.positions[0].name
+    microscope.move_stage_absolute(FibsemStagePosition(x=3e-4, y=1e-4))
+    resp = driver.post(f"/app/experiment/items/{name}/poses/MILLING")
+    assert resp.status_code == 200, resp.text
+    lamella = host.experiment.get_lamella_by_name(name)
+    assert lamella.milling_pose.stage_position.x == pytest.approx(3e-4)
+    assert lamella.milling_angle is not None
+
+    microscope.move_stage_absolute(FibsemStagePosition(x=0.0, y=0.0))
+    moved = driver.post(
+        f"/app/experiment/items/{name}/move_to", json={"pose": "MILLING"}
+    )
+    assert moved.status_code == 200, moved.text
+    assert microscope.get_stage_position().x == pytest.approx(3e-4)
+    assert moved.json()["stage_position"]["x"] == pytest.approx(3e-4)
+
+    no_pose = driver.post(
+        f"/app/experiment/items/{name}/move_to", json={"pose": "NOPE"}
+    )
+    assert no_pose.status_code == 404
+    assert "MILLING" in no_pose.json()["detail"]["pose_names"]
+    unknown = driver.post("/app/experiment/items/nope/poses/MILLING")
+    assert unknown.status_code == 404
+    assert name in unknown.json()["detail"]["item_names"]
+
+
+def test_an_item_is_removed_but_not_while_a_run_is_on(driver, host):
+    host.experiment.add_new_lamella(MicroscopeState(), EventedDict(), name="spare")
+    host.is_workflow_running = True
+    try:
+        refused = driver.delete("/app/experiment/items/spare")
+        assert refused.status_code == 409
+    finally:
+        host.is_workflow_running = False
+    removed = driver.delete("/app/experiment/items/spare")
+    assert removed.status_code == 200
+    assert host.experiment.get_lamella_by_name("spare") is None
+
+
+def test_position_edits_need_drive(client, host):
+    name = host.experiment.positions[0].name
+    assert (
+        client.post("/app/experiment/items", headers=AUTH, json={}).status_code == 403
+    )
+    assert (
+        client.delete(f"/app/experiment/items/{name}", headers=AUTH).status_code == 403
+    )
+    assert (
+        client.post(
+            f"/app/experiment/items/{name}/move_to",
+            headers=AUTH,
+            json={"pose": "MILLING"},
+        ).status_code
+        == 403
+    )

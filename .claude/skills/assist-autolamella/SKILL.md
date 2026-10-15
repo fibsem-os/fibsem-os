@@ -14,9 +14,9 @@ AutoLamella's status bar, then approves or rejects it. Approved actions run
 exactly as if you had called them at Drive. They are checked, refused when
 the microscope is busy, and put on the record as yours.
 
-Two things need no approval. **Reads** are always allowed. **Stopping** is
-too: `stop_workflow` and `stop_milling`, when you believe something is going
-wrong.
+**Reads** need no approval. Neither does stopping a mill **you** started.
+Stopping anything else (the workflow, the operator's mill) is a request like
+any other action: the operator approves it, or presses Stop themselves.
 
 The operator is looking at the same screen. Ask for little, ask clearly, and
 never make them work out what you meant.
@@ -29,8 +29,8 @@ otherwise use plain HTTP with the token from `~/.fibsem/app-server.json`.
 Read `get_capabilities` first:
 
 - `level: "assist"` is the level this skill is for. Tell the operator in a
-  sentence what that means: you read and suggest, you ask before acting,
-  and you stop without asking only if something is going wrong. A direct
+  sentence what that means: you read and suggest, and you ask before
+  acting, stopping included. A direct
   call that needs Drive is refused with `ask_first`; that is what you can
   call directly, not what you can ask for.
 - `level: "watch"`: you can read and add notes, and suggest nothing. Work
@@ -46,18 +46,21 @@ The tools this skill uses, with their routes for plain HTTP:
 |---|---|
 | `request_actions` | `POST /app/agent/requests` |
 | `get_request` | `GET /app/agent/requests/{request_id}` |
+| `withdraw_request` | `POST /app/agent/requests/{request_id}/withdraw` with `{"reason": ...}` |
 | `suggest_answer` | `POST /app/workflow/prompt/suggest` |
 | `add_note` | `POST /app/agent/notes` |
-| `stop_workflow`, `stop_milling` | `POST /app/workflow/stop`, `POST /microscope/services/milling/commands/stop` |
+| `stop_workflow`, `stop_milling` | `POST /app/workflow/stop`, `POST /microscope/services/milling/commands/stop`, each with `{"reason": ...}` |
 
 In a request, `tool` is the tool's name without the `mcp__fibsem__`
 prefix (`set_task_supervision`, `move_stage_relative`, `requeue_task`), and
 `arguments` are what that tool takes. Any tool that acts can go in a
-request; the server says so when it can't (`not_an_action`).
+request; the server says so when it can't (`not_an_action`), or when the
+agent may never use it (`403 not_allowed`: `agent: false` in `list_devices`).
 
 ## Watch the session
 
-Run the watcher as a background monitor, as the supervise skill says,
+Run the watcher as a background monitor, as the supervise skill says (in
+Claude Code, a Monitor on its output, re-armed every 30 minutes),
 and start it before you file anything. The operator often decides within
 seconds.
 
@@ -108,8 +111,9 @@ edit, the path with old → new) from the arguments themselves. Your words
 appear only in **reason**.
 
 **One request at a time.** While one is waiting, another is refused
-(`409 request_pending`, naming it). Put things that belong together in one
-request. A config change and the re-run it is for are one request, not two.
+(`409 request_pending`, naming it). When the plan changes before the
+operator decides, withdraw it (`withdraw_request`, with a reason) and file
+the new one. Put things that belong together in one request. A config change and the re-run it is for are one request, not two.
 Things that don't belong together wait their turn.
 
 **Write the reason for someone deciding in a few seconds.** Say what you
@@ -123,7 +127,9 @@ the operator approves, nothing is checked against the live state. A stale
 version is refused when the request runs (`409 stale_config`), which is
 correct. Read again and ask again. A stage move has no version: a relative
 move runs from wherever the stage is when the operator approves it, so
-say in the reason where you read it from.
+say in the reason where you read it from. Before asking for a
+`requeue_task`, read the queue (`get_app_queue`): a pair already waiting is
+refused (`409 already_queued`).
 
 **Ask for what was asked.** When the operator asks for one thing, the
 request is that thing. Don't add an image, a second move or a tidy-up they
@@ -165,9 +171,10 @@ the question, check image freshness, and separate reading from acting. Then
 The prompt shows "Agent suggests: <the button>" with your reason under it.
 The operator's click answers, as theirs, and the watcher's `ANSWERED` line
 shows `suggested_by=agent`. If they answer some other way, your suggestion
-is dropped. That's their call, not an error. For `EditAlignmentArea` and
-`PickPOI` a suggestion may carry a `value`, as `answer_prompt` would. It is
-placed on screen only if the operator takes the suggestion.
+is dropped. That's their call, not an error. For `EditAlignmentArea`,
+`PickPOI`, `ConfirmDetection` and `RunSpotBurn` a suggestion may carry a
+`value`, as `answer_prompt` would. It is placed on screen only if the
+operator takes the suggestion.
 
 A **recorded question** (`QUESTION item=… task=…`, or a prompt saying
 `answer_via: "decide"`) is decided, not answered, so a suggestion is
@@ -190,11 +197,17 @@ see and that it's theirs, and put that on the record with `add_note`
 
 ## Stopping
 
-`stop_workflow` and `stop_milling` work at Assist without a request.
-Use them only when you believe the run is doing damage: milling the wrong
-place, a stage move that makes no sense, a task repeating. Stop first, then
-tell the operator what you saw and why you stopped. Never use a stop to
-"pause and think". Ask in chat instead.
+A wrong stop isn't free: a mill stopped partway can spoil a lamella, and a
+stopped run loses hours. So at Assist the run and the operator's mill are
+the operator's to stop. When you believe the run is doing damage (milling
+the wrong place, a stage move that makes no sense, a task repeating), file
+`stop_workflow` or `stop_milling` as a request at once, with what you saw as
+the reason, and say it in chat: the operator approves it or presses Stop.
+
+A mill you started yourself you may stop directly, at Assist or Drive (never at
+Watch). Every stop
+takes a `reason`, which the operator reads. Never use a stop to "pause and
+think". Ask in chat instead.
 
 ## Using the microscope
 
@@ -203,10 +216,16 @@ commands) go in requests like any other action. They need the devices
 setting (`routers.microscope` true). Without it they are refused when you
 file them (`not_available`). Follow the supervise skill's *Using the
 microscope* rules: read the stage before each move, take a fresh image
-before judging, and treat `409 microscope_busy` as someone else working.
-An image costs dose on a real sample. If you need one to check a move,
-say so in chat first, and when the operator agrees put the move and the
-image in one request.
+before judging, and treat `409 microscope_busy` as someone else working. If
+an approved move fails while moving, stop there: file no retry and no other
+route to the same place; read the stage, add a note and tell the operator.
+An image costs dose on a real sample, so a fresh one is an action at
+Assist: a direct call is refused (`403 ask_first`). To look without asking,
+read what is already there: the app's views (`get_display_images`, blank
+until someone has acquired) and the images a task saved
+(`get_item_output_image`). If you need a new one to check a move, say so in
+chat first, and when the operator agrees put the move and the image in one
+request.
 
 ## Notes
 

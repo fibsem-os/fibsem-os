@@ -27,13 +27,13 @@ class MillTrenchTaskConfig(AutoLamellaTaskConfig):
     retired_parameters: ClassVar[frozenset] = frozenset({"align_reference"})
     charge_neutralisation: bool = field(
         default=True,  # whether to perform charge neutralisation
-        metadata=field_meta(tooltip="Whether to perform charge neutralisation"),
+        metadata=field_meta(doc="Whether to perform charge neutralisation"),
     )
     orientation: Optional[Literal["SEM", "FIB", "MILLING"]] = field(
         default=None,
         metadata=field_meta(
-            tooltip="The orientation to perform trench milling in",
-            items=("SEM", "FIB", "MILLING", None),
+            choices=("SEM", "FIB", "MILLING", None),
+            doc="The orientation to perform trench milling in",
         ),
     )
     task_type: ClassVar[str] = "MILL_TRENCH"

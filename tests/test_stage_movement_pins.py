@@ -112,7 +112,7 @@ class _Recorder:
         if objective is not None:
             self._wrap(objective, "_insert", lambda: ["objective.insert"])
             self._wrap(objective, "_retract", lambda: ["objective.retract"])
-        microscope.record_signal.connect(self._event)
+        microscope.session.record_signal.connect(self._event)
 
     def _wrap(self, owner, name: str, describe: Callable) -> None:
         original = getattr(owner, name)
@@ -274,9 +274,7 @@ def _demo_cases(mount: str) -> Dict[str, Dict[str, Any]]:
                 case(
                     f"move_to_milling_angle {angle} rotation={rotation}",
                     start,
-                    lambda: microscope.move_to_milling_angle(
-                        np.radians(angle), rotation=rotation
-                    ),
+                    lambda: microscope.move_to_milling_angle(angle, rotation=rotation),
                 )
 
         for name, target in (
@@ -345,7 +343,7 @@ def _tescan_cases() -> Dict[str, Dict[str, Any]]:
     with pytest.MonkeyPatch.context() as monkeypatch:
         microscope, fake = connect(monkeypatch, system)
         events: List[str] = []
-        microscope.record_signal.connect(
+        microscope.session.record_signal.connect(
             lambda kind, payload: (
                 events.append(payload["move"]) if kind == "stage_moved" else None
             )
@@ -417,7 +415,7 @@ def _tescan_cases() -> Dict[str, Dict[str, Any]]:
             case(
                 "move_to_milling_angle 15",
                 start,
-                lambda: microscope.move_to_milling_angle(np.radians(15.0)),
+                lambda: microscope.move_to_milling_angle(15.0),
             )
             case(
                 "safe_absolute_stage_movement full",

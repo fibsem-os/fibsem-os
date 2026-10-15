@@ -19,7 +19,7 @@ from fibsem.drivers.demo.sim_scene import fm_channel_weights
 from fibsem.fm.microscope import (
     FluorescenceMicroscope,
 )
-from fibsem.projection import FMStageProjection
+from fibsem.geometry.projection import FMStageProjection
 from fibsem.structures import (
     BeamSettings,
     BeamType,
@@ -269,6 +269,28 @@ DETECTOR_KEYS = (
 )
 
 
+# How the Demo detector's controls act on the scene. Contrast is gain about mid-grey,
+# e^3 either side of 0.5; brightness an offset, 1.5 of the range either side. Not the
+# guess `fibsem.autofunctions.brightness_contrast` starts from, so it has to learn them.
+_DETECTOR_GAIN = 6.0
+_DETECTOR_OFFSET = 1.5
+
+
+def detector_response(
+    data: np.ndarray, brightness: Optional[float], contrast: Optional[float]
+) -> np.ndarray:
+    """The scene as the Demo detector images it at ``brightness`` and ``contrast``,
+    clipped to the image's range as a real detector's signal is. Unchanged at 0.5
+    and 0.5, where the Demo's own autocontrast leaves them."""
+    if brightness is None or contrast is None or (brightness, contrast) == (0.5, 0.5):
+        return data
+    top = float(np.iinfo(data.dtype).max)
+    signal = data / top - 0.5
+    signal = signal * np.exp(_DETECTOR_GAIN * (contrast - 0.5))
+    signal += 0.5 + _DETECTOR_OFFSET * (brightness - 0.5)
+    return np.clip(np.rint(signal * top), 0, top).astype(data.dtype)
+
+
 def render_fm_scene(
     fm: FluorescenceMicroscope,
     exposure_time: float,
@@ -451,7 +473,7 @@ class DemoSimulator:
 
         # shared-scene projection takes precedence when enabled (FIB-874)
         if self.sample_scene is not None:
-            from fibsem.projection import BeamStageProjection
+            from fibsem.geometry.projection import BeamStageProjection
 
             projection = BeamStageProjection.from_microscope(
                 self.microscope, beam_type=effective_beam_type
@@ -493,6 +515,12 @@ class DemoSimulator:
             num_image = self.image_cache[cache_key]
             # use the image as an inverse mask for the noise
             image.data = np.where(num_image > 0, num_image, image.data)
+
+        image.data = detector_response(
+            image.data,
+            brightness=self.microscope.get_detector_brightness(effective_beam_type),
+            contrast=self.microscope.get_detector_contrast(effective_beam_type),
+        )
 
         # add additional metadata
         image.metadata.image_settings = copy.deepcopy(effective_image_settings)
@@ -700,14 +728,14 @@ class DemoSimulator:
             self.set_channel(beam_type)
             if reduced_area is not None:
                 self.microscope.set_reduced_area_scanning_mode(reduced_area, beam_type)
-            # TODO: implement auto-contrast
             logging.debug(f"Autocontrasting {beam_type.name} beam.")
             sim_sleep(
                 random.uniform(0.5, 1.0)
             )  # simulate time taken to calculate auto-contrast
             self._warn_if_channel_moved(beam_type, "autocontrast")
-            self.microscope.set_detector_brightness(random.uniform(0.4, 0.6), beam_type)
-            self.microscope.set_detector_contrast(random.uniform(0.4, 0.6), beam_type)
+            # Where the Demo detector leaves the scene as rendered.
+            self.microscope.set_detector_brightness(0.5, beam_type)
+            self.microscope.set_detector_contrast(0.5, beam_type)
 
         if reduced_area:
             self.microscope.set_full_frame_scanning_mode(beam_type)
@@ -823,7 +851,7 @@ class DemoSimulator:
         scene = self.sample_scene
         if scene is None or not self.milling_system.patterns:
             return
-        from fibsem.projection import BeamStageProjection
+        from fibsem.geometry.projection import BeamStageProjection
 
         beam = self.microscope.milling_channel
         projection = BeamStageProjection.from_microscope(
@@ -853,7 +881,7 @@ class DemoSimulator:
         point, beam = self.microscope._spot_and_beam(beam_type)
         if point is None:
             return
-        from fibsem.projection import BeamStageProjection
+        from fibsem.geometry.projection import BeamStageProjection
 
         projection = BeamStageProjection.from_microscope(
             self.microscope, beam_type=beam_type

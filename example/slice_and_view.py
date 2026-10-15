@@ -72,7 +72,7 @@ def main():
         # view
         logging.info("------------------------ VIEW ------------------------")
         settings.image.filename = f"slice_{slice_idx:04d}"
-        eb_image = acquire.new_image(microscope, settings.image)
+        eb_image = acquire.acquire_image(microscope, settings.image)
 
         # align to the previous slice (stage movement)
         if ref_eb is not None:

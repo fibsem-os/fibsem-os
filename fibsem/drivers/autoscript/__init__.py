@@ -14,7 +14,7 @@ DRIVER = DriverEntry(
     manufacturer="ThermoFisher",
     aliases=("thermo", "thermo fisher", "thermo fisher scientific"),
     microscope_class="fibsem.drivers.autoscript.microscope:ThermoMicroscope",
-    config={"port": 7520, "ion-column-tilt": 52, "electron-column-tilt": 0},
+    port=7520,
     setup="fibsem.drivers.autoscript.setup:SETUP",
     devices={
         device_type: DeviceBuilder(

@@ -21,7 +21,7 @@ from fibsem.alignment.coincidence import (
     ensure_coincident,
 )
 from fibsem.drivers.demo.sim_scene import SampleScene
-from fibsem.projection import BeamStageProjection
+from fibsem.geometry.projection import BeamStageProjection
 from fibsem.structures import BeamType, ImageSettings
 
 TFS_SHUTTLE_CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
@@ -131,6 +131,7 @@ def test_beam_shift_moves_the_content_the_way_the_alignment_expects(microscope):
     assert np.hypot(shift.x, shift.y) > 1e-6  # it really was the beam that moved
 
 
+@pytest.mark.slow
 def test_a_small_beam_offset_is_measured_as_dx_and_tolerated(microscope):
     _scene(
         microscope,
@@ -147,6 +148,7 @@ def test_a_small_beam_offset_is_measured_as_dx_and_tolerated(microscope):
     assert abs(result.measurements[0].dz) == pytest.approx(8e-6, abs=1e-6)
 
 
+@pytest.mark.slow
 def test_a_large_beam_offset_is_refused_as_lateral(microscope):
     _scene(
         microscope,
@@ -282,7 +284,7 @@ def test_the_fm_dyes_the_nucleus_and_the_cytoplasm_differently(microscope):
     cytoplasmic dye (450) lights the whole body - so the DAPI image is a
     subset of the GFP image, brightest where GFP is bright too."""
     from fibsem.drivers.demo.sim_scene import fm_channel_weights
-    from fibsem.projection import FMStageProjection
+    from fibsem.geometry.projection import FMStageProjection
 
     scene = _scene(
         microscope,
@@ -328,6 +330,7 @@ def test_the_film_is_continuous_by_default():
     assert SampleScene().film == "continuous"
 
 
+@pytest.mark.slow
 @pytest.mark.xfail(
     reason="the fine-pass correlator aliases on the 4 um hole lattice: at the "
     "fiducial the two bands disagree by a hole pitch, and an 80 um error "
@@ -719,7 +722,7 @@ def test_spot_burns_leave_marks_in_every_view(microscope):
     assert (sizes * sem.metadata.pixel_size.x**2 > 0.3 * area).sum() >= 2
 
     # and the FM reflection channel: dark discs, bright rims, on a flat film
-    from fibsem.projection import FMStageProjection
+    from fibsem.geometry.projection import FMStageProjection
 
     fm_projection = FMStageProjection.from_microscope(microscope)
     if fm_projection is not None:

@@ -10,6 +10,7 @@ import numpy as np
 from fibsem import acquire, alignment
 from fibsem import config as fcfg
 from fibsem.cancellation import raise_if_cancelled
+from fibsem.display import Display
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling import setup_milling
 from fibsem.milling.base import (
@@ -18,13 +19,11 @@ from fibsem.milling.base import (
     MillingStrategyConfig,
 )
 from fibsem.milling.patterning.patterns import TrenchPattern
-from fibsem.milling.properties import (
-    DEFAULT_ANGLE_METADATA,
-    DEFAULT_IMAGE_RESOLUTION_METADATA,
-)
+from fibsem.milling.properties import angle_metadata, image_resolution_metadata
 from fibsem.structures import (
     FibsemStagePosition,
     ImageSettings,
+    RangeLimit,
     field_meta,
 )
 
@@ -33,40 +32,32 @@ from fibsem.structures import (
 class OvertiltTrenchMillingConfig(MillingStrategyConfig):
     overtilt: float = field(
         default=1.0,
-        metadata=field_meta(
-            DEFAULT_ANGLE_METADATA,
-            label="Overtilt",
-            minimum=0.1,
-            maximum=10.0,
+        metadata=angle_metadata(
+            "Overtilt",
+            "The overtilt angle for the milling strategy.",
+            limits=RangeLimit(0.1, 10.0),
             step=0.5,
-            tooltip="The overtilt angle for the milling strategy.",
         ),
     )
     image_resolution: tuple[int, int] = field(
         default_factory=lambda: (1536, 1024),
-        metadata=field_meta(
-            DEFAULT_IMAGE_RESOLUTION_METADATA,
-            tooltip="The imaging resolution for the milling strategy.",
+        metadata=image_resolution_metadata(
+            "The imaging resolution for the milling strategy."
         ),
     )
     secret_parameter: bool = field(
         default=False,
         metadata=field_meta(
-            label="Secret Parameter",
-            type=bool,
-            advanced=True,
-            tooltip="A secret parameter for internal use (testing).",
+            doc="A secret parameter for internal use (testing).",
+            display=Display("Secret Parameter", advanced=True),
         ),
     )
     area_parameter: float = field(
         default=1e-6,
         metadata=field_meta(
-            label="Area Parameter",
-            type=float,
             unit="m²",
-            dimensions=2,
-            scale=1e6,
-            tooltip="An area parameter for internal use (testing).",
+            doc="An area parameter for internal use (testing).",
+            display=Display("Area Parameter", scale=1e12, unit="µm²"),
         ),
     )
 
@@ -138,10 +129,7 @@ class OvertiltTrenchMillingStrategy(MillingStrategy[OvertiltTrenchMillingConfig]
             # through the loop used to exit with the stage still overtilted, patterns
             # loaded and the beam at milling current.
             try:
-                microscope.finish_milling(
-                    imaging_current=microscope.system.ion.beam.beam_current,
-                    imaging_voltage=microscope.system.ion.beam.voltage,
-                )
+                microscope.finish_milling()
             except Exception as e:
                 logging.error(
                     f"Failed to restore imaging conditions after {self.fullname}: {e}",
@@ -196,11 +184,8 @@ class OvertiltTrenchMillingStrategy(MillingStrategy[OvertiltTrenchMillingConfig]
             # run milling
             microscope.run_milling(stop_event=stop_event)
 
-            # finish milling (clear patterns, restore imaging current)
-            microscope.finish_milling(
-                imaging_current=microscope.system.ion.beam.beam_current,
-                imaging_voltage=microscope.system.ion.beam.voltage,
-            )
+            # finish milling (clear patterns, put the beam back)
+            microscope.finish_milling()
 
             # return to initial position
             microscope.move_stage_absolute(initial_position)

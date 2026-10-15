@@ -34,16 +34,20 @@ from fibsem.devices.core import (
     BoundParameter,
     CommandInfo,
     Device,
+    DeviceFault,
     Parameter,
     ParameterMetadata,
     ParameterReadOnly,
     ParameterUnavailable,
     Resources,
+    Role,
     command,
+    query,
 )
 from fibsem.devices.gis import GIS_RESOURCE, GasInjector
 from fibsem.devices.manipulator import MANIPULATOR_RESOURCE, Manipulator
 from fibsem.devices.sputter_coater import SPUTTER_COATER_RESOURCE, SputterCoater
+from fibsem.devices.scanner import Scanner
 from fibsem.devices.stage import (
     AXIS_UNITS,
     STAGE_RESOURCE,
@@ -51,6 +55,7 @@ from fibsem.devices.stage import (
     Stage,
     StageLimitError,
 )
+from fibsem.display import Display
 
 __all__ = [
     "AXIS_UNITS",
@@ -69,6 +74,8 @@ __all__ = [
     "Beam",
     "BoundParameter",
     "Device",
+    "DeviceFault",
+    "Display",
     "ParameterMetadata",
     "Parameter",
     "ParameterReadOnly",
@@ -76,8 +83,11 @@ __all__ = [
     "Resources",
     "SPUTTER_COATER_RESOURCE",
     "SputterCoater",
+    "Role",
+    "Scanner",
     "Stage",
     "StageLimitError",
     "UNLIMITED",
     "command",
+    "query",
 ]

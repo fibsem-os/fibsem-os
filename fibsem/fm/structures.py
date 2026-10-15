@@ -76,9 +76,10 @@ from fibsem.structures import (  # noqa: F401
     FibsemRectangle,
     FibsemStagePosition,
     InsertableDeviceState,
+    RangeLimit,
     TileOrderStrategy,
     _parse_image_transform,
-    field_meta,
+    distance_metadata,
 )
 from fibsem.util.timestamps import (
     acquisition_datetime_of,
@@ -396,40 +397,29 @@ class ChannelSettings:
         return self.pretty_name
 
 
-Z_DISTANCE_METADATA = field_meta(type=float, unit="m", scale=1e6, step=0.1, decimals=2)
-
-
 @dataclass
 class ZParameters:
-    # Relative to the objective's position when the stack starts. Bounds in µm.
+    # Relative to the objective's position when the stack starts.
     zmin: float = field(
         default=-10e-6,
-        metadata=field_meta(
-            Z_DISTANCE_METADATA,
-            label="Z Min",
-            minimum=-100.0,
-            maximum=-0.25,
-            tooltip="Minimum Z position relative to current position",
+        metadata=distance_metadata(
+            "Z Min",
+            "Minimum Z position relative to current position",
+            limits=RangeLimit(-100e-6, -0.25e-6),
         ),
     )
     zmax: float = field(
         default=10e-6,
-        metadata=field_meta(
-            Z_DISTANCE_METADATA,
-            label="Z Max",
-            minimum=0.25,
-            maximum=100.0,
-            tooltip="Maximum Z position relative to current position",
+        metadata=distance_metadata(
+            "Z Max",
+            "Maximum Z position relative to current position",
+            limits=RangeLimit(0.25e-6, 100e-6),
         ),
     )
     zstep: float = field(
         default=1e-6,
-        metadata=field_meta(
-            Z_DISTANCE_METADATA,
-            label="Z Step",
-            minimum=0.1,
-            maximum=10.0,
-            tooltip="Step size between Z positions",
+        metadata=distance_metadata(
+            "Z Step", "Step size between Z positions", limits=RangeLimit(0.1e-6, 10e-6)
         ),
     )
     order: ZStackOrder = ZStackOrder.CHANNEL
@@ -1826,6 +1816,10 @@ class OverviewParameters:
             every tile. Disabled tiles are skipped but keep their place: the mosaic is
             still the full grid size and acquired tiles land at the same canvas
             coordinates they would have in a dense overview.
+        register_tiles: Experimental. Place each tile where its picture says it is,
+            measured against its neighbours, rather than where the grid planned it.
+            Only when the tiles match the stage steps and at least three pairs match;
+            otherwise the planned mosaic is kept. As `OverviewAcquisitionSettings`.
     """
 
     rows: int = 3
@@ -1836,6 +1830,7 @@ class OverviewParameters:
     tile_order: TileOrderStrategy = TileOrderStrategy.TYPEWRITER
     tile_mask: Optional[List[List[bool]]] = None
     objective_start: ObjectiveStartPosition = ObjectiveStartPosition.CURRENT
+    register_tiles: bool = False
 
     def to_dict(self) -> dict:
         """Convert to dictionary representation."""
@@ -1851,6 +1846,7 @@ class OverviewParameters:
             "tile_mask": None
             if self.tile_mask is None
             else [[bool(v) for v in row] for row in self.tile_mask],
+            "register_tiles": self.register_tiles,
         }
 
     @classmethod
@@ -1876,6 +1872,7 @@ class OverviewParameters:
             objective_start=ObjectiveStartPosition(
                 ddict.get("objective_start", ObjectiveStartPosition.CURRENT.value)
             ),
+            register_tiles=bool(ddict.get("register_tiles", False)),
         )
 
     @property

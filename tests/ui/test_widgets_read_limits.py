@@ -20,11 +20,12 @@ from fibsem.devices.beam import (  # noqa: E402
 from fibsem.devices.core import ParameterMetadata  # noqa: E402
 from fibsem.structures import (  # noqa: E402
     BeamType,
+    FieldSpec,
     ImageSettings,
     RangeLimit,
-    get_fields_with_metadata,  # noqa: E402
+    field_specs,
 )
-from fibsem.ui.utils import beam_field_metadata  # noqa: E402
+from fibsem.ui.utils import beam_spec  # noqa: E402
 from fibsem.ui.widgets.beam_settings_widget import (
     FibsemBeamSettingsWidget,  # noqa: E402
 )
@@ -59,30 +60,28 @@ def _range(spinbox):
     return spinbox.minimum(), spinbox.maximum()
 
 
-IMAGE = get_fields_with_metadata(ImageSettings)
+IMAGE = field_specs(ImageSettings)
 
 
 def test_a_bound_field_takes_the_beams_limits():
     microscope = _demo()
     _report(microscope, E, "hfw", limits=RangeLimit(2e-6, 900e-6))
-    hfw = beam_field_metadata(IMAGE["hfw"], microscope, E)
-    assert (hfw["minimum"], hfw["maximum"]) == pytest.approx((2, 900))
-    assert hfw["label"] == "Field of View"
+    hfw = beam_spec(IMAGE["hfw"], microscope, E)
+    assert hfw.shown_range == pytest.approx((2, 900))
+    assert hfw.label == "Field of View"
     # a beam that reports nothing, no such beam, or no microscope: what every beam
     # declares
     _report(microscope, E, "dwell_time")
     for args in ((microscope, E), (None, None)):
-        dwell = beam_field_metadata(IMAGE["dwell_time"], *args)
+        dwell = beam_spec(IMAGE["dwell_time"], *args)
         lo, hi = DEFAULT_DWELL_TIME_LIMITS.min, DEFAULT_DWELL_TIME_LIMITS.max
-        assert (dwell["minimum"], dwell["maximum"]) == pytest.approx(
-            (lo * 1e6, hi * 1e6)
-        )
+        assert dwell.shown_range == pytest.approx((lo * 1e6, hi * 1e6))
     microscope.beams = {E: microscope.beams[E]}
-    hfw = beam_field_metadata(IMAGE["hfw"], microscope, I)
-    assert hfw["maximum"] == pytest.approx(DEFAULT_HFW_LIMITS.max * 1e6)
+    hfw = beam_spec(IMAGE["hfw"], microscope, I)
+    assert hfw.shown_range[1] == pytest.approx(DEFAULT_HFW_LIMITS.max * 1e6)
     # a field bound to nothing the beam declares comes back as it is
-    unbound = {"label": "Thing", "microscope_parameter": "not_a_parameter"}
-    assert beam_field_metadata(unbound, microscope, E) is unbound
+    unbound = FieldSpec(name="thing", microscope_parameter="not_a_parameter")
+    assert beam_spec(unbound, microscope, E) is unbound
 
 
 def test_beam_settings_follow_the_beam():

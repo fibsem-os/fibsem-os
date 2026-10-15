@@ -338,7 +338,7 @@ class Harness:
         """
         import numpy as np
 
-        from fibsem.projection import BeamStageProjection
+        from fibsem.geometry.projection import BeamStageProjection
         from fibsem.structures import BeamType
 
         microscope = self.connection.microscope

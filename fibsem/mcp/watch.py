@@ -154,6 +154,13 @@ def _print_events(events, since, out):
             out(f"PROMPT WITHDRAWN question={data.get('question_id')}")
         elif kind in ("request_decided", "request_finished", "request_cancelled"):
             out(_request_line(kind, data))
+        elif kind == "command_ended":
+            # A long command the agent started (a mill, a spot burn) ended.
+            line = (
+                f"COMMAND ENDED {data.get('service')}.{data.get('command')} "
+                f"run={data.get('run_id')} state={data.get('state')}"
+            )
+            out(f"{line} ({data['error']})" if data.get("error") else line)
         elif kind in TERMINAL:
             detail = data.get("error") or _counts(data.get("task_counts"))
             out(f"RUN ENDED ({kind}: {detail})" if detail else f"RUN ENDED ({kind})")
@@ -173,10 +180,11 @@ def _request_line(kind, data):
     if kind == "request_cancelled":
         return f"{head} cancelled: {data.get('why')}"
     if kind == "request_finished":
-        return (
-            f"{head} {data.get('status')} "
-            f"({data.get('applied')} of {data.get('of')} applied)"
-        )
+        counts = f"{data.get('applied')} of {data.get('of')}"
+        # An applied action stopped part way, a mill say (FIB-1398).
+        if data.get("cancelled"):
+            return f"{head} {data.get('status')} ({counts}; run cancelled)"
+        return f"{head} {data.get('status')} ({counts} applied)"
     if data.get("outcome") == "rejected":
         reason = data.get("reason")
         return f"{head} rejected" + (f": {reason}" if reason else "")

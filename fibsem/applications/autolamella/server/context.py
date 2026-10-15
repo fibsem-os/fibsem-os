@@ -143,12 +143,14 @@ def _rendered_preview(path: str, filename: str, max_width: int) -> Dict[str, Any
         from fibsem.fm.preview import is_fluorescence_image, load_projection
         from fibsem.server.images import preview_jpeg_bytes
 
+        metadata = None
         if is_fluorescence_image(path):
             data, _ = load_projection(path)
         elif filename.lower().endswith((".tif", ".tiff")):
             import tifffile
 
             data = np.squeeze(np.asarray(tifffile.imread(path)))
+            metadata = _beam_image_metadata(path)
         else:
             from PIL import Image
 
@@ -161,6 +163,11 @@ def _rendered_preview(path: str, filename: str, max_width: int) -> Dict[str, Any
         if data.ndim == 3 and data.shape[-1] == 4:
             data = data[..., :3]
         jpeg, width, height = preview_jpeg_bytes(data, max_width=max_width)
+        if metadata is not None and metadata["pixel_size"] and width:
+            # metres per PREVIEW pixel, as image answers carry it.
+            metadata["preview_pixelsize"] = (
+                metadata["pixel_size"] * data.shape[1] / width
+            )
     except Exception as exc:  # noqa: BLE001 - a broken file is a data fact
         return {
             "available": True,
@@ -173,7 +180,74 @@ def _rendered_preview(path: str, filename: str, max_width: int) -> Dict[str, Any
         "width": width,
         "height": height,
         "filename": filename,
+        "metadata": metadata,
     }
+
+
+def find_item(experiment, item_name: str):
+    """The item named *item_name*, and None; or None and why not, in the words
+    every route refuses an unknown item with, and the names there are. Each
+    route puts the refusal in its own answer's shape."""
+    lamella = (
+        experiment.get_lamella_by_name(item_name) if experiment is not None else None
+    )
+    if lamella is not None:
+        return lamella, None
+    return None, {
+        "error": f"No item named {item_name!r} in this experiment.",
+        "item_names": [p.name for p in experiment.positions]
+        if experiment is not None
+        else [],
+    }
+
+
+def _overview_point_to_stage(path: str, px=None, fraction=None):
+    """The stage position under a point of a recorded overview, as the stored
+    overview canvas resolves a click (`fibsem.geometry.projection.image_point_to_stage`)."""
+    from fibsem.fm.preview import is_fluorescence_image
+    from fibsem.geometry.projection import image_point_to_stage
+
+    if (px is None) == (fraction is None):
+        raise ValueError("Give exactly one of px ([x, y] source pixels) or fraction.")
+    point = px if px is not None else fraction
+    if not (isinstance(point, (list, tuple)) and len(point) == 2):
+        raise ValueError("The point is [x, y].")
+    x, y = float(point[0]), float(point[1])
+
+    if is_fluorescence_image(path):
+        from fibsem.fm.structures import FluorescenceImage
+
+        image = FluorescenceImage.load(path)
+    else:
+        from fibsem.structures import FibsemImage
+
+        image = FibsemImage.load(path)
+    height, width = image.data.shape[-2:]
+    if fraction is not None:
+        x, y = x * width, y * height
+    if not (0 <= x <= width and 0 <= y <= height):
+        raise ValueError(f"The point is outside the {width} x {height} image.")
+    try:
+        return image_point_to_stage(image, x, y)
+    except ValueError:
+        raise ValueError(
+            "The overview has no stage geometry to convert from."
+        ) from None
+
+
+def _beam_image_metadata(path: str) -> Optional[Dict[str, Any]]:
+    """A saved beam image's metadata block (images.image_metadata), or None for a
+    TIFF that is not one: a plain array, a stack, a file that will not load."""
+    from fibsem.server.images import image_metadata
+    from fibsem.structures import FibsemImage
+
+    try:
+        image = FibsemImage.load(path)
+    except Exception:  # noqa: BLE001 - no metadata is an answer, not a failure
+        return None
+    if image.metadata is None:
+        return None
+    return image_metadata(image, path)
 
 
 def _overview_projector(path: str):
@@ -257,6 +331,85 @@ def _attendance_line(task_protocol: Any, task_name: str) -> str:
     return att.line if att is not None else ""
 
 
+# The questions an answer may carry a value for (see ``answer_prompt``).
+_VALUE_TYPES = ("PickPOI", "EditAlignmentArea", "ConfirmDetection", "RunSpotBurn")
+
+
+def _parse_detection_value(request, value: Dict[str, Any], refuse):
+    """A ConfirmDetection value as ``{name: Point}`` in source-image pixels.
+
+    Only features the detection has may move, each inside the image. Returns
+    ``(parsed, None)`` or ``(None, refusal)``.
+    """
+    from fibsem.structures import Point
+
+    detection = getattr(request, "detection", None)
+    names = [f.name for f in getattr(detection, "features", [])]
+    features = value.get("features")
+    if not isinstance(features, list) or not features:
+        return None, refuse(
+            'a ConfirmDetection value needs "features": [{"name", "px": {"x", "y"}}], '
+            "source-image pixels, origin top-left, +y down."
+        )
+    image = getattr(detection, "image", None)
+    shape = getattr(getattr(image, "data", image), "shape", None)
+    moved: Dict[str, Point] = {}
+    for entry in features:
+        name = entry.get("name") if isinstance(entry, dict) else None
+        if name not in names:
+            return None, refuse(
+                f"no detected feature named {name!r}; the features are {names}."
+            )
+        if name in moved:
+            return None, refuse(f"feature {name!r} is given twice.")
+        try:
+            px = Point.from_dict(entry["px"])
+        except Exception:
+            return None, refuse(
+                f"feature {name!r} needs px: {{x, y}}, numbers in source-image pixels."
+            )
+        if shape is not None and len(shape) >= 2:
+            height, width = shape[0], shape[1]
+            if not (0 <= px.x < width and 0 <= px.y < height):
+                return None, refuse(
+                    f"feature {name!r} at ({px.x:.1f}, {px.y:.1f}) px is outside "
+                    f"the {width} x {height} px image."
+                )
+        moved[name] = px
+    return moved, None
+
+
+def _parse_spot_burn_value(value: Dict[str, Any], refuse):
+    """A RunSpotBurn value as a list of Points, 0-1 fractions of the frame.
+
+    Returns ``(parsed, None)`` or ``(None, refusal)``.
+    """
+    from fibsem.services.spot_burn import in_frame
+    from fibsem.structures import Point
+
+    points = value.get("points")
+    if not isinstance(points, list):
+        return None, refuse(
+            'a RunSpotBurn value needs "points": [{"x", "y"}], fractions of '
+            "the frame, origin top-left, +y down."
+        )
+    parsed: List[Point] = []
+    for entry in points:
+        try:
+            pt = Point.from_dict(entry)
+        except Exception:
+            return None, refuse(
+                "each spot burn point needs numeric x, y: fractions of the frame."
+            )
+        if not in_frame(pt):
+            return None, refuse(
+                f"point ({pt.x:.3f}, {pt.y:.3f}) is outside the frame: x and y "
+                "are fractions, 0 to 1."
+            )
+        parsed.append(pt)
+    return parsed, None
+
+
 class AutoLamellaAppContext:
     """Read-only facade over a running (or resting) AutoLamella session."""
 
@@ -269,6 +422,40 @@ class AutoLamellaAppContext:
     @property
     def _experiment(self):
         return getattr(self._host, "experiment", None)
+
+    @property
+    def experiment_path(self) -> Optional[str]:
+        """The open experiment's folder, or None: where an agent may save."""
+        experiment = self._experiment
+        return str(experiment.path) if experiment is not None else None
+
+    def image_metadata(self, path: str) -> Dict[str, Any]:
+        """A saved beam image's full metadata, as its file records it, for a
+        path inside the open experiment only (the agent's drill-down behind
+        the short block every image answer carries)."""
+        import os
+
+        from fibsem.structures import FibsemImage
+
+        root = self.experiment_path
+        if root is None:
+            return {"error_type": "not_found", "message": "No experiment is open."}
+        root = os.path.realpath(root)
+        target = os.path.realpath(path)
+        if os.path.commonpath([root, target]) != root:
+            return {
+                "error_type": "not_allowed",
+                "message": f"Only images inside the open experiment ({root}).",
+            }
+        if not os.path.isfile(target):
+            return {"error_type": "not_found", "message": f"No file at {path}."}
+        image = FibsemImage.load(target)
+        if image.metadata is None:
+            return {
+                "error_type": "not_found",
+                "message": f"{path} carries no beam image metadata.",
+            }
+        return {"path": path, "metadata": image.metadata.to_dict()}
 
     @property
     def _manager(self):
@@ -505,13 +692,9 @@ class AutoLamellaAppContext:
         experiment = self._experiment
         if experiment is None:
             return {"available": False, "item_name": item_name}
-        lamella = experiment.get_lamella_by_name(item_name)
-        if lamella is None:
-            return {
-                "available": False,
-                "item_name": item_name,
-                "error": f"No item named {item_name!r} in this experiment.",
-            }
+        lamella, refusal = find_item(experiment, item_name)
+        if refusal:
+            return {"available": False, "item_name": item_name, **refusal}
         history = list(lamella.task_history)
         tasks = []
         for state in history:
@@ -581,13 +764,9 @@ class AutoLamellaAppContext:
         experiment = self._experiment
         if experiment is None:
             return {"available": False, "jpeg": None}
-        lamella = experiment.get_lamella_by_name(item_name)
-        if lamella is None:
-            return {
-                "available": False,
-                "jpeg": None,
-                "error": f"No item named {item_name!r} in this experiment.",
-            }
+        lamella, refusal = find_item(experiment, item_name)
+        if refusal:
+            return {"available": False, "jpeg": None, **refusal}
         paths = self._recorded_item_paths(lamella)
         match = next((p for p in paths if os.path.basename(p) == filename), None)
         if match is None:
@@ -841,6 +1020,387 @@ class AutoLamellaAppContext:
             None,
         )
 
+    # --- experiments and protocols: the File menu, for an agent at Drive ---------
+    #
+    # Kept to known places (Patrick's call, 2026-10-14): a new experiment goes in
+    # the default experiments folder, a load is one of the recent experiments, and
+    # a protocol is one of the files in the protocol folder, by name.
+
+    def protocols(self) -> Dict[str, Any]:
+        """The protocol files an agent may load or create an experiment with."""
+        from fibsem.applications.autolamella import experiment_setup
+
+        return {
+            "folder": experiment_setup.protocol_directory(),
+            "protocols": experiment_setup.list_protocols(),
+        }
+
+    def _not_while_running(self, what: str) -> Optional[Dict[str, Any]]:
+        """The refusal while a workflow runs (*what* to do when it has
+        stopped), or None."""
+        if getattr(self._host, "is_workflow_running", False):
+            return {
+                "error_type": "task_running",
+                "error": f"A workflow is running; {what} when it has stopped.",
+            }
+        return None
+
+    def _no_microscope(self) -> Optional[Dict[str, Any]]:
+        if self._microscope is None:
+            return {"error_type": "not_found", "error": "No microscope is connected."}
+        return None
+
+    def _session_refusal(self) -> Optional[Dict[str, Any]]:
+        """Why the open experiment cannot be replaced now, or None."""
+        return self._not_while_running("change experiments") or self._no_microscope()
+
+    def _protocol_or_refusal(self, name: Optional[str]):
+        from fibsem.applications.autolamella import experiment_setup
+        from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
+
+        path = (
+            experiment_setup.default_protocol_path()
+            if name is None
+            else experiment_setup.protocol_by_name(name)
+        )
+        if path is None:
+            return None, {
+                "error_type": "not_found",
+                "error": f"No protocol named {name!r} in the protocol folder.",
+                "protocol_names": [
+                    p["name"] for p in experiment_setup.list_protocols()
+                ],
+            }
+        try:
+            return AutoLamellaTaskProtocol.load(path), None
+        except Exception as exc:  # noqa: BLE001 - a broken file is a data fact
+            return None, {
+                "error_type": "invalid",
+                "error": f"Could not load the protocol {path}: {exc}",
+            }
+
+    def _adopt(self, experiment) -> None:
+        """Make *experiment* the open one, as the dialogs' OK does."""
+
+        def adopt():
+            adopt_experiment = getattr(self._host, "_adopt_experiment", None)
+            if adopt_experiment is not None:
+                adopt_experiment(experiment)
+            else:  # a host with no window: just open it
+                self._host.experiment = experiment
+
+        self._agent_call(adopt)
+
+    def create_experiment(
+        self,
+        name: str,
+        protocol: Optional[str] = None,
+        description: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Create an experiment in the default experiments folder and open it,
+        with *protocol* from the protocol folder (the default protocol when
+        omitted). An existing experiment of that name is refused, never
+        overwritten."""
+        import os
+
+        from fibsem.applications.autolamella import experiment_setup
+
+        refusal = self._session_refusal()
+        if refusal:
+            return refusal
+        if not name or os.path.basename(name) != name or name in (".", ".."):
+            return {"error_type": "invalid", "error": "name is a plain folder name."}
+        directory = experiment_setup.default_experiment_directory()
+        if os.path.exists(os.path.join(directory, name)):
+            return {
+                "error_type": "invalid",
+                "error": f"An experiment named {name!r} exists in {directory}.",
+            }
+        task_protocol, refusal = self._protocol_or_refusal(protocol)
+        if refusal:
+            return refusal
+        metadata = {"description": description} if description else None
+        experiment = experiment_setup.create_experiment(
+            directory, name, task_protocol, metadata=metadata
+        )
+        self._adopt(experiment)
+        return {"applied": True, "experiment": self.experiment_summary()}
+
+    def load_experiment(self, path: str) -> Dict[str, Any]:
+        """Open one of the recent experiments (``path`` as the recent list gives
+        it), as the Load dialog does. One with no protocol is refused."""
+        from fibsem.applications.autolamella import experiment_setup
+
+        refusal = self._session_refusal()
+        if refusal:
+            return refusal
+        recent = [entry["path"] for entry in self.recent_experiments()]
+        if path not in recent:
+            return {
+                "error_type": "not_found",
+                "error": "Only a recent experiment can be loaded; the operator "
+                "opens any other from the Load dialog.",
+                "recent_paths": recent,
+            }
+        experiment, why = experiment_setup.load_for_adoption(path)
+        if experiment is None:
+            return {"error_type": "invalid", "error": f"Not loaded: {why}."}
+        self._adopt(experiment)
+        experiment_setup.record_recent(experiment)
+        return {"applied": True, "experiment": self.experiment_summary()}
+
+    def load_protocol(self, protocol: str) -> Dict[str, Any]:
+        """Load a protocol from the protocol folder into the open experiment, as
+        the Load Protocol dialog does: it replaces the experiment's protocol and
+        is saved beside it. Items keep the task configs they have (use
+        apply_protocol_to_item to bring one up to date)."""
+        refusal = self._session_refusal()
+        if refusal:
+            return refusal
+        experiment = self._experiment
+        if experiment is None:
+            return {"error_type": "not_found", "error": "No experiment is loaded."}
+        task_protocol, refusal = self._protocol_or_refusal(protocol)
+        if refusal:
+            return refusal
+
+        def attach():
+            adopt_protocol = getattr(self._host, "_adopt_protocol", None)
+            if adopt_protocol is not None:
+                adopt_protocol(task_protocol)
+            else:  # a host with no window: just set and save it
+                experiment.task_protocol = task_protocol
+                experiment.save_protocol()
+
+        self._agent_call(attach)
+        return {"applied": True, "protocol": self.protocol()}
+
+    # --- lamella positions: the Lamella tab's buttons, for an agent at Drive ------
+
+    def _agent_call(self, call, select_latest: bool = False, timeout: float = 30.0):
+        """``call()`` on the GUI thread through the host, or inline where the host
+        has no GUI thread to offer (a test host, a headless session)."""
+        request = getattr(self._host, "request_agent_call", None)
+        if request is None:
+            return call()
+        return request(call, select_latest=select_latest).result(timeout=timeout)
+
+    def _editable(self):
+        """The experiment and microscope an edit needs, or a refusal."""
+        experiment = self._experiment
+        if experiment is None or experiment.task_protocol is None:
+            return (
+                None,
+                None,
+                {"error_type": "not_found", "error": "No experiment is loaded."},
+            )
+        refusal = self._no_microscope()
+        if refusal:
+            return None, None, refusal
+        return experiment, self._microscope, None
+
+    def overview_stage_position(
+        self, grid_name: str, filename: str, px=None, fraction=None
+    ) -> Dict[str, Any]:
+        """The stage position under a point of a recorded grid overview.
+
+        The inverse of :meth:`grid_markers`, through the same projection the
+        overview canvases use, built from the image's own metadata: a saved
+        overview converts as it was taken, wherever the stage is now. ``px`` is
+        [x, y] in source-image pixels (origin top-left, +y down, as the markers
+        give them); ``fraction`` is [x, y] from 0 to 1 across the image, for a
+        point read off a preview.
+        """
+        experiment = self._experiment
+        if experiment is None:
+            return {"error_type": "not_found", "error": "No experiment is loaded."}
+        grid = experiment.get_grid_by_name(grid_name)
+        if grid is None:
+            refusal = self._no_such_grid(experiment, grid_name)
+            return {"error_type": "not_found", **refusal}
+        path = self._recorded_grid_file(experiment, grid, filename)
+        if path is None:
+            return {
+                "error_type": "not_found",
+                "error": f"No output named {filename!r} for grid {grid_name!r}.",
+                "filenames": self._recorded_grid_basenames(experiment, grid),
+            }
+        try:
+            position = _overview_point_to_stage(path, px=px, fraction=fraction)
+        except ValueError as exc:
+            return {"error_type": "invalid", "error": str(exc)}
+        return {
+            "grid_name": grid_name,
+            "grid_id": grid.id,
+            "filename": filename,
+            "stage_position": position.to_dict(),
+        }
+
+    def add_item(
+        self,
+        name: Optional[str] = None,
+        stage_position: Optional[Dict[str, Any]] = None,
+        overview: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Add a lamella as the Lamella tab's Add does: at the stage position now,
+        at a given stage position, or under a point of a grid overview (which
+        also puts it on that grid). Its poses, milling angle and grid are worked
+        out as for a click; it is saved."""
+        from fibsem.applications.autolamella.poses import add_lamella
+        from fibsem.structures import FibsemStagePosition
+
+        experiment, microscope, refusal = self._editable()
+        if refusal:
+            return refusal
+        if name is not None and experiment.get_lamella_by_name(name) is not None:
+            return {"error_type": "invalid", "error": f"An item named {name!r} exists."}
+        position, grid_id = None, None
+        if overview is not None:
+            converted = self.overview_stage_position(
+                overview.get("grid_name", ""),
+                overview.get("filename", ""),
+                px=overview.get("px"),
+                fraction=overview.get("fraction"),
+            )
+            if "error_type" in converted:
+                return converted
+            position = FibsemStagePosition.from_dict(converted["stage_position"])
+            grid_id = converted["grid_id"]
+        elif stage_position is not None:
+            position = FibsemStagePosition.from_dict(stage_position)
+
+        def add():
+            lamella = add_lamella(
+                experiment,
+                microscope,
+                stage_position=position,
+                name=name,
+                grid_id=grid_id,
+            )
+            return lamella.name
+
+        try:
+            added = self._agent_call(add, select_latest=True)
+        except ValueError as exc:
+            return {"error_type": "invalid", "error": str(exc)}
+        return {"applied": True, "item": self.item_detail(added)}
+
+    def remove_item(self, item_name: str) -> Dict[str, Any]:
+        """Remove a lamella from the experiment, as its row's Remove does. Its
+        files stay on disk. Refused while a workflow runs."""
+        experiment, _, refusal = self._editable()
+        if refusal:
+            return refusal
+        lamella, refusal = find_item(experiment, item_name)
+        if refusal:
+            return {"error_type": "not_found", **refusal}
+        refusal = self._not_while_running("remove items")
+        if refusal:
+            return refusal
+
+        from fibsem.applications.autolamella.poses import remove_lamella
+
+        self._agent_call(lambda: remove_lamella(experiment, lamella))
+        return {"applied": True, "item_name": item_name}
+
+    def move_to_item_pose(self, item_name: str, pose_name: str) -> Dict[str, Any]:
+        """Move the stage to one of a lamella's poses, as the tab's Move to does,
+        through the safe absolute move (flat before a large rotation). Runs on
+        the caller's thread, which holds control of the microscope."""
+        experiment, microscope, refusal = self._editable()
+        if refusal:
+            return refusal
+        lamella, refusal = find_item(experiment, item_name)
+        if refusal:
+            return {"error_type": "not_found", **refusal}
+        pose = dict(lamella.poses).get(pose_name)
+        if pose is None or pose.stage_position is None:
+            return {
+                "error_type": "not_found",
+                "error": f"{item_name} has no {pose_name!r} pose with a position.",
+                "pose_names": [
+                    name
+                    for name, p in dict(lamella.poses).items()
+                    if p is not None and p.stage_position is not None
+                ],
+            }
+        microscope.safe_absolute_stage_movement(pose.stage_position)
+        return {
+            "applied": True,
+            "item_name": item_name,
+            "pose": pose_name,
+            "stage_position": microscope.get_stage_position().to_dict(),
+        }
+
+    def set_item_pose(self, item_name: str, pose_name: str) -> Dict[str, Any]:
+        """Set the stage position now as one of a lamella's poses, as the tab's
+        Set pose does. Setting MILLING moves the lamella: its milling angle and
+        fluorescence pose follow. Saved."""
+        from fibsem.applications.autolamella.poses import set_lamella_pose
+
+        experiment, microscope, refusal = self._editable()
+        if refusal:
+            return refusal
+        lamella, refusal = find_item(experiment, item_name)
+        if refusal:
+            return {"error_type": "not_found", **refusal}
+        known = list(dict(lamella.poses))
+        if pose_name not in known:
+            return {
+                "error_type": "not_found",
+                "error": f"{item_name} has no pose named {pose_name!r}.",
+                "pose_names": known,
+            }
+        state = microscope.get_microscope_state()
+
+        def set_pose():
+            moved = set_lamella_pose(microscope, lamella, pose_name, state)
+            experiment.save()
+            return moved
+
+        followed = self._agent_call(set_pose)
+        return {
+            "applied": True,
+            "item_name": item_name,
+            "pose": pose_name,
+            "fluorescence_pose_followed": bool(followed),
+            "item": self.item_detail(item_name),
+        }
+
+    def set_item_objective_position(self, item_name: str) -> Dict[str, Any]:
+        """Store the FM objective's position now on a lamella's fluorescence pose,
+        as the tab's Use current does: where it is if inserted, else its focus
+        position. Saved."""
+        experiment, microscope, refusal = self._editable()
+        if refusal:
+            return refusal
+        lamella, refusal = find_item(experiment, item_name)
+        if refusal:
+            return {"error_type": "not_found", **refusal}
+        fm = getattr(microscope, "fm", None)
+        if fm is None:
+            return {"error_type": "not_found", "error": "This microscope has no FM."}
+        if lamella.fluorescence_pose is None:
+            return {
+                "error_type": "not_found",
+                "error": f"{item_name} has no fluorescence pose.",
+            }
+        from fibsem.applications.autolamella.poses import current_objective_position
+
+        value = current_objective_position(fm)
+        if value is None:
+            return {
+                "error_type": "not_found",
+                "error": "The objective position is unavailable.",
+            }
+
+        def store():
+            lamella.fluorescence_pose.objective_position = value
+            experiment.save()
+
+        self._agent_call(store)
+        return {"applied": True, "item_name": item_name, "objective_position": value}
+
     def item_detail(self, item_name: str) -> Dict[str, Any]:
         """The durable facts about one item, as a curated snapshot.
 
@@ -854,13 +1414,9 @@ class AutoLamellaAppContext:
         experiment = self._experiment
         if experiment is None:
             return {"available": False, "item_name": item_name}
-        lamella = experiment.get_lamella_by_name(item_name)
-        if lamella is None:
-            return {
-                "available": False,
-                "item_name": item_name,
-                "error": f"No item named {item_name!r} in this experiment.",
-            }
+        lamella, refusal = find_item(experiment, item_name)
+        if refusal:
+            return {"available": False, "item_name": item_name, **refusal}
         from fibsem.applications.autolamella.server.events import to_plain
 
         poses = {}
@@ -916,13 +1472,13 @@ class AutoLamellaAppContext:
                 "item_name": item_name,
                 "task_name": task_name,
             }
-        lamella = experiment.get_lamella_by_name(item_name)
-        if lamella is None:
+        lamella, refusal = find_item(experiment, item_name)
+        if refusal:
             return {
                 "available": False,
                 "item_name": item_name,
                 "task_name": task_name,
-                "error": f"No item named {item_name!r} in this experiment.",
+                **refusal,
             }
         config = dict(lamella.task_config).get(task_name)
         if config is None:
@@ -936,6 +1492,31 @@ class AutoLamellaAppContext:
         document = self._config_document(task_name, config, level="item")
         document["item_name"] = item_name
         return document
+
+    def describe_action(
+        self, tool: str, arguments: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """A config edit in an agent's request, as the config's form names it
+        (FIB-1403): each setting in display units, old -> new. None for any
+        other action, or a config this experiment doesn't have."""
+        from fibsem.server.request_text import describe_patch
+
+        experiment = self._experiment
+        if experiment is None:
+            return None
+        task_name = arguments.get("task_name")
+        if tool == "update_item_task_config":
+            lamella = experiment.get_lamella_by_name(arguments.get("item_name"))
+            configs = getattr(lamella, "task_config", None) if lamella else None
+        elif tool == "update_protocol_task_config":
+            protocol = getattr(experiment, "task_protocol", None)
+            configs = getattr(protocol, "task_config", None) if protocol else None
+        else:
+            return None
+        config = dict(configs).get(task_name) if configs is not None else None
+        if config is None:
+            return None
+        return describe_patch(config, arguments.get("patch"))
 
     def apply_item_patch(
         self,
@@ -961,15 +1542,6 @@ class AutoLamellaAppContext:
         outcome = host.request_apply_item_patch(item_name, dict(patch), str(version))
         result = outcome.result(timeout=timeout)
         result["available"] = True
-        if result.get("applied") and self._event_buffer is not None:
-            self._event_buffer.append(
-                "config_edited",
-                {
-                    "level": "item_fields",
-                    "item_name": item_name,
-                    "changes": result.get("changes", []),
-                },
-            )
         return result
 
     # --- propose and review (FIB-950) -----------------------------------------
@@ -1115,20 +1687,9 @@ class AutoLamellaAppContext:
             return {"available": True, "recorded": False, "error": "empty note"}
         item_id = None
         if item_name is not None:
-            experiment = self._experiment
-            item = (
-                experiment.get_lamella_by_name(item_name)
-                if experiment is not None
-                else None
-            )
-            if item is None:
-                names = [p.name for p in experiment.positions] if experiment else []
-                return {
-                    "available": True,
-                    "recorded": False,
-                    "error": f"No item named {item_name!r} in this experiment.",
-                    "item_names": names,
-                }
+            item, refusal = find_item(self._experiment, item_name)
+            if refusal:
+                return {"available": True, "recorded": False, **refusal}
             item_id = item.id
         logging.info(
             "agent note%s: %s",
@@ -1192,16 +1753,6 @@ class AutoLamellaAppContext:
         )
         result = outcome.result(timeout=timeout)
         result["available"] = True
-        if result.get("applied") and self._event_buffer is not None:
-            self._event_buffer.append(
-                "config_edited",
-                {
-                    "level": level,
-                    "item_name": item_name or None,
-                    "task_name": task_name,
-                    "reorder": {"milling_key": milling_key, "order": list(order)},
-                },
-            )
         return result
 
     def apply_protocol_to_item(
@@ -1249,15 +1800,6 @@ class AutoLamellaAppContext:
         outcome = host.request_apply_protocol_to_item(item_name, task_names)
         result = outcome.result(timeout=timeout)
         result["available"] = True
-        if result.get("applied") and self._event_buffer is not None:
-            self._event_buffer.append(
-                "config_edited",
-                {
-                    "level": "protocol_applied",
-                    "item_name": item_name,
-                    "task_names": result.get("task_names", []),
-                },
-            )
         return result
 
     def apply_protocol_task_config_patch(
@@ -1282,15 +1824,6 @@ class AutoLamellaAppContext:
         )
         result = outcome.result(timeout=timeout)
         result["available"] = True
-        if result.get("applied") and self._event_buffer is not None:
-            self._event_buffer.append(
-                "config_edited",
-                {
-                    "level": "protocol",
-                    "task_name": task_name,
-                    "changes": result.get("changes", []),
-                },
-            )
         return result
 
     @staticmethod
@@ -1355,16 +1888,6 @@ class AutoLamellaAppContext:
         )
         result = outcome.result(timeout=timeout)
         result["available"] = True
-        if result.get("applied") and self._event_buffer is not None:
-            self._event_buffer.append(
-                "config_edited",
-                {
-                    "level": "item",
-                    "item_name": item_name,
-                    "task_name": task_name,
-                    "changes": result.get("changes", []),
-                },
-            )
         return result
 
     # --- instrument-adjacent (cached only, never a hardware call) --------------
@@ -1723,7 +2246,8 @@ class AutoLamellaAppContext:
         The queue exists only while a workflow runs, so a re-run is queued into
         the live run: "run 03 again" while the batch continues. Adding a
         duplicate of a completed pair is the queue's own re-run mechanism; the
-        item lands at the back (or the front with ``front=True``).
+        item lands at the back (or the front with ``front=True``). A pair
+        already waiting is refused (``already_queued``): it runs once.
         """
         manager = self._manager
         if manager is None:
@@ -1733,11 +2257,13 @@ class AutoLamellaAppContext:
                 "reason": "no workflow is running — the queue exists only during a run",
             }
         experiment = self._experiment
-        if experiment is None or experiment.get_lamella_by_name(item_name) is None:
+        lamella, refusal = find_item(experiment, item_name)
+        if refusal:
             return {
                 "available": True,
                 "queued": False,
-                "reason": f"No item named {item_name!r} in this experiment.",
+                "reason": refusal["error"],
+                "item_names": refusal["item_names"],
             }
         protocol = getattr(experiment, "task_protocol", None)
         config = getattr(protocol, "workflow_config", None) if protocol else None
@@ -1753,9 +2279,18 @@ class AutoLamellaAppContext:
         # stage: a lamella whose grid is not on the stage is refused by name.
         refusal = getattr(self._host, "lamella_run_refusal", None)
         if refusal is not None:
-            refused = refusal([experiment.get_lamella_by_name(item_name)])
+            refused = refusal([lamella])
             if refused:
                 return {"available": True, "queued": False, "reason": refused}
+        if manager.queue.has_pending_pair(item_name, task_name):
+            # A re-ask after a partial failure would queue it twice (FIB-1405).
+            return {
+                "available": True,
+                "queued": False,
+                "error_type": "already_queued",
+                "reason": f"{item_name} / {task_name} is already waiting in the "
+                "queue; it runs once.",
+            }
         item = manager.queue.add(item_name, task_name, front=bool(front))
         if item is None:
             return {"available": True, "queued": False, "reason": "add refused"}
@@ -1805,12 +2340,22 @@ class AutoLamellaAppContext:
         current = self._peek_current(responder, payload["type"], question_id)
         if current is not None:
             payload["current"] = current
-        if payload["type"] == "EditAlignmentArea" and payload.get("image") is None:
+        if (
+            payload["type"] in ("EditAlignmentArea", "RunSpotBurn")
+            and payload.get("image") is None
+        ):
             # The frame the area sits on is display state, not workflow state:
             # attach it here, where the display cache already lives, rather
             # than having the workflow reach into the widget to build the
             # request. Same whole-reference grab as display_images.
             payload["image"] = self._display_frame("ib_image")
+        if payload["type"] == "PickPOI":
+            # The marker sits on the frame the FIB view shows, which is newer
+            # than the request's when anything moved since the task took it (an
+            # agent's approved moves, FIB-1399): serve that one.
+            shown = self._display_frame("ib_image")
+            if shown is not None:
+                payload["image"] = shown
         return {"available": True, "pending": payload}
 
     def _display_frame(self, attr: str) -> Optional[Dict[str, Any]]:
@@ -1832,15 +2377,16 @@ class AutoLamellaAppContext:
         """The live half of the question — where the marker IS, not where it
         started.
 
-        PickPOI and EditAlignmentArea are answered from widget state the
-        operator may still be adjusting; the frozen request only shows the
-        starting value. The peek marshals to the GUI thread, so it is skipped
+        PickPOI, EditAlignmentArea, ConfirmDetection and RunSpotBurn are
+        answered from widget state the operator may still be adjusting; the
+        frozen request only shows the starting value. The peek marshals to the GUI thread, so it is skipped
         entirely for question types with no live half, and degrades to absent
         (never an error — the question itself must still be visible) if the GUI
         is too busy to answer within 2 s or the prompt changed mid-peek.
         """
-        if request_type not in ("PickPOI", "EditAlignmentArea"):
+        if request_type not in _VALUE_TYPES:
             return None
+        from fibsem.applications.autolamella.proposals import features_to_dict
         from fibsem.applications.autolamella.server.events import to_plain
 
         try:
@@ -1850,6 +2396,12 @@ class AutoLamellaAppContext:
         if peeked_question_id != question_id or value is None:
             return None
         try:
+            if request_type == "ConfirmDetection":
+                # The same shape an answer's value takes.
+                features = [{"name": n, "px": px} for n, px in value.items()]
+                return {"features": to_plain(features_to_dict(features))}
+            if request_type == "RunSpotBurn":
+                return {"points": [to_plain(pt.to_dict()) for pt in value]}
             return to_plain(value.to_dict())
         except Exception:
             return None
@@ -1870,11 +2422,16 @@ class AutoLamellaAppContext:
         posting is gone — answered, withdrawn, or replaced — the result is
         ``stale`` and nothing was clicked.
 
-        ``value`` optionally carries adjusted geometry for the two questions
-        answered from live widget state: an alignment area
+        ``value`` optionally carries the edit the operator could make in the
+        widget the question is asked on: an alignment area
         (``{"left", "top", "width", "height"}``, fractions of the frame) for
-        ``EditAlignmentArea``, or a point (``{"x", "y"}``, metres in microscope
-        image coordinates, origin centre, +y up) for ``PickPOI``. The value is
+        ``EditAlignmentArea``; a point (``{"x", "y"}``, metres in microscope
+        image coordinates, origin centre, +y up) for ``PickPOI``; moved
+        features (``{"features": [{"name", "px": {"x", "y"}}]}``, source-image
+        pixels, only the named ones move) for ``ConfirmDetection``; the points
+        to burn (``{"points": [{"x", "y"}]}``, fractions of the frame, origin
+        top-left; current and exposure stay the protocol's) for
+        ``RunSpotBurn``. The value is
         validated here — in bounds, non-degenerate, the right shape for the
         pending question — and refused as ``invalid_value`` without clicking
         anything when it is not. A valid value is placed into the widget as if
@@ -2040,9 +2597,15 @@ class AutoLamellaAppContext:
                 )
             return point, None
 
+        if type_name == "ConfirmDetection":
+            return _parse_detection_value(request, value, _refuse)
+
+        if type_name == "RunSpotBurn":
+            return _parse_spot_burn_value(value, _refuse)
+
         return None, _refuse(
-            f"{type_name} answers cannot carry a value; "
-            "only EditAlignmentArea and PickPOI can."
+            f"{type_name} answers cannot carry a value; only EditAlignmentArea, "
+            "PickPOI, ConfirmDetection and RunSpotBurn can."
         )
 
     # --- events -----------------------------------------------------------------

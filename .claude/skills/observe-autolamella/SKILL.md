@@ -62,7 +62,7 @@ operator in a sentence what that means for this session:
 - `routers.app` false: no application is hosted. There's no session to
   observe.
 - No discovery file: no App Server is running. Tell the operator it is
-  switched on in Preferences → App Server and starts when a microscope
+  switched on in Tools → App Server and starts when a microscope
   connects. Offer to read a folder instead.
 
 A 403 on a read is not an error to work around. If one comes back, re-read

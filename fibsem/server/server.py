@@ -5,22 +5,25 @@
 that additionally mounts the app-level router.
 
 Every route requires a bearer token, and an agent level (``auth``): reads at
-Watch, stops at Assist, acting at Drive. A hardware command also takes control
+Watch, acting at Drive. The agent stops its own action at Assist or Drive,
+anything else only at Drive, and never at Watch; every stop carries a reason. A hardware command also takes control
 of the microscope (FIB-1270) for as long as it runs; when a run, a script or
 another command is in control it is refused with a structured ``409
 microscope_busy`` naming who, rather than interleaved or queued.
 """
 
 import logging
-from typing import Optional
+from typing import Any, Callable, Mapping, Optional
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import JSONResponse, Response
 from fastapi.routing import APIRoute
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from fibsem.acting import AGENT, acting
-from fibsem.devices.chamber import Chamber
 from fibsem.microscope import FibsemMicroscope
+from fibsem.server import allowlist
 from fibsem.server.app_routes import (
     build_app_config_router,
     build_app_control_router,
@@ -32,6 +35,8 @@ from fibsem.server.auth import (
     AgentLevel,
     AuthConfig,
     action_name,
+    adopt_control,
+    drive_is_lent,
     require_level,
     require_monitoring,
     take_control,
@@ -39,6 +44,7 @@ from fibsem.server.auth import (
 from fibsem.server.devices import ERROR_STATUS, build_device_router, refusal
 from fibsem.server.models import MicroscopeStateRequest
 from fibsem.server.requests import RequestStore, build_request_router
+from fibsem.server.runs import Runs
 from fibsem.structures import BeamType, MicroscopeState
 
 API_VERSION = "0.3.0"
@@ -76,9 +82,9 @@ class _RefusingRoute(APIRoute):
         return refusing
 
 
-# Device and service commands that stop something: at Assist and Drive, and no
-# control taken, so never refused by the running move or mill.
-STOP_COMMANDS = frozenset(("stop", "stop_live"))
+# Device and service commands that stop something (an FM z-stack's `cancel`
+# too). No control taken, so never refused by the running move or mill.
+STOP_COMMANDS = frozenset(("stop", "stop_live", "cancel"))
 
 # The instrument half of the API; /app is the application's.
 MICROSCOPE = "/microscope"
@@ -88,25 +94,147 @@ _assist = require_level(AgentLevel.ASSIST)
 _drive = require_level(AgentLevel.DRIVE)
 
 
-def _served_devices(microscope: FibsemMicroscope) -> dict:
-    """The devices the server serves: all but the chamber. Pumping and venting
-    are the operator's, at the microscope, so the chamber is not served at all."""
-    return {
-        name: device
-        for name, device in microscope.devices.items()
-        if not isinstance(device, Chamber)
-    }
+def _refuse(app_context) -> Callable[[Any, str, str, Mapping[str, Any]], Optional[str]]:
+    """The App Server's allowlist (`fibsem.server.allowlist`): what the agent may
+    never touch, and a path it may only give inside the open experiment, to a
+    command or a query."""
+
+    def experiment_path() -> Optional[str]:
+        return getattr(app_context, "experiment_path", None)
+
+    def refuse(device, kind: str, name: str, kwargs: Mapping[str, Any]):
+        return allowlist.blocked(device, kind, name) or (
+            allowlist.path_outside(kwargs, experiment_path)
+            if kind in ("command", "query")
+            else None
+        )
+
+    return refuse
+
+
+def _not_allowed(microscope: FibsemMicroscope) -> Callable[[str, str], Optional[str]]:
+    """Why a route call is on the allowlist's block list (a device or service
+    write or command), or None: for a request, before it is filed. Its
+    arguments are checked when it runs, as for any call."""
+
+    def why(method: str, path: str) -> Optional[str]:
+        parts = path.strip("/").split("/")
+        if len(parts) < 4 or "/" + parts[0] != MICROSCOPE:
+            return None
+        if method == "PUT" and len(parts) == 4:
+            kind, name = "write", parts[3]
+        elif method == "POST" and len(parts) == 5 and parts[3] == "commands":
+            kind, name = "command", parts[4]
+        else:
+            return None
+        if parts[1] == "devices":
+            devices = microscope.devices
+        elif parts[1] == "services":
+            devices = microscope.services
+        else:
+            return None
+        device = devices.get(parts[2])
+        return None if device is None else allowlist.blocked(device, kind, name)
+
+    return why
 
 
 def _device_command_gate(request: Request, command: str):
-    """A device command's gate: a stop needs Assist, anything else Drive and
-    control of the microscope."""
+    """A device command's gate: a stop by the stop rule (:func:`_stop_gate`),
+    anything else Drive and control of the microscope."""
     if command in STOP_COMMANDS:
-        _assist(request)
+        _stop_gate(request)
         yield
         return
     _drive(request)
     yield from take_control(request)
+
+
+def _agents_own_action(request: Request) -> bool:
+    """Whether what is running now is the agent's own: its command holds control
+    of the microscope (FIB-1270). Control is one at a time, so while the agent
+    holds it, nothing anyone else started is running through it."""
+    in_control = request.app.state.microscope.control.current
+    return in_control is not None and in_control.by == AGENT
+
+
+def _stop_gate(request: Request) -> None:
+    """The stop rule (Patrick, 2026-10-14): the agent stops its own action at the
+    levels it acts at, Assist and Drive, and anything else (a workflow, the
+    operator's mill) only at Drive, or in a request the operator approved. Watch
+    never stops. A wrong stop isn't free: a mill stopped partway can spoil a
+    lamella, and a stopped run loses hours."""
+    if _agents_own_action(request):
+        _assist(request)
+    else:
+        _drive(request)
+
+
+async def _stop_reason(request: Request):
+    """Every agent stop carries a reason: refused without one, and recorded as
+    ``agent_stop`` (what was stopped, why, whether it was the agent's own) once
+    it has stopped, for the operator to read."""
+    command = request.path_params.get("command")
+    if command is not None and command not in STOP_COMMANDS:
+        yield
+        return
+    try:
+        body = await request.json()
+    except ValueError:
+        body = None
+    reason = body.get("reason") if isinstance(body, dict) else None
+    if not isinstance(reason, str) or not reason.strip():
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error_type": "missing_reason",
+                "message": "Pass a reason with a stop: the operator reads why "
+                "the agent stopped it.",
+            },
+        )
+    own = _agents_own_action(request)
+    yield
+    action = action_name(request) if command is not None else "workflow"
+    request.app.state.microscope.record_event(
+        "agent_stop", {"action": action, "reason": reason.strip(), "own": own}
+    )
+
+
+# The refusals of the agent's permissions: its level, Assist's ask-first, Off,
+# a stop, and the allowlist. The 409s and 422s are the call's own trouble, and
+# the routes log those (``devices.refusal``).
+AGENT_REFUSALS = ("level", "ask_first", "agent_off", "agent_stopped", "not_allowed")
+
+
+def _record_refusal(request: Request, exc: StarletteHTTPException) -> None:
+    """An agent's action refused for its permissions, as ``agent_refused`` on the
+    record and one log line (FIB-1402): an agent trying to act without asking is
+    what the operator should be able to see. Reads stay out of the record, as do
+    the calls an approved request makes. Never raises."""
+    try:
+        detail = exc.detail if isinstance(exc.detail, dict) else {}
+        error_type = detail.get("error_type")
+        if (
+            exc.status_code != 403
+            or error_type not in AGENT_REFUSALS
+            or request.method == "GET"
+            or drive_is_lent()
+        ):
+            return
+        auth: AuthConfig = request.app.state.auth
+        payload = {
+            "action": action_name(request),
+            "route": f"{request.method} {request.url.path}",
+            "error_type": error_type,
+            "level": auth.level.value,
+        }
+        logging.info(
+            f"agent refused: {payload['action']} ({payload['route']}): "
+            f"403 {error_type} at {payload['level']}"
+        )
+        request.app.state.microscope.record_event("agent_refused", payload)
+    except Exception:  # noqa: BLE001 - recording must not change the answer
+        logging.debug("could not record an agent refusal", exc_info=True)
 
 
 class _AgentActs:
@@ -154,6 +282,11 @@ def build_server(
     app.add_middleware(_AgentActs)
     app.state.auth = auth
     app.state.microscope = microscope
+
+    @app.exception_handler(StarletteHTTPException)
+    async def _refused(request: Request, exc: StarletteHTTPException) -> Response:
+        _record_refusal(request, exc)
+        return await http_exception_handler(request, exc)
 
     @app.exception_handler(Exception)
     def _unhandled(request: Request, exc: Exception) -> JSONResponse:
@@ -242,16 +375,19 @@ def build_server(
     app.include_router(base)
     if serve_microscope:
         app.include_router(whole)
-        # Every device's parameters and commands but the chamber's, as the
-        # device server serves them: reads at Watch, writes and commands at
-        # Drive with control of the microscope.
+        refuse = _refuse(app_context)
+        # Every device's parameters and commands, as the device server serves
+        # them: reads at Watch, writes and commands at Drive with control of the
+        # microscope. The chamber's state and pressure are read here; pumping
+        # and venting are the operator's, so the allowlist refuses them.
         app.include_router(
             build_device_router(
-                lambda: _served_devices(microscope),
+                lambda: microscope.devices,
                 read=[Depends(_watch)],
                 write=[Depends(_drive), Depends(take_control)],
-                command=[Depends(_device_command_gate)],
+                command=[Depends(_device_command_gate), Depends(_stop_reason)],
                 prefix=MICROSCOPE + "/devices",
+                refuse=refuse,
                 on_image=lambda image: _show_in_app(microscope, image),
             )
         )
@@ -263,10 +399,13 @@ def build_server(
                 lambda: microscope.services,
                 read=[Depends(_watch)],
                 write=[Depends(_drive), Depends(take_control)],
-                command=[Depends(_device_command_gate)],
+                command=[Depends(_device_command_gate), Depends(_stop_reason)],
                 prefix=MICROSCOPE + "/services",
+                refuse=refuse,
                 noun="service",
                 on_image=lambda image: _show_in_app(microscope, image),
+                runs=Runs(record=microscope.record_event),
+                adopt_control=adopt_control,
             )
         )
     else:
@@ -289,9 +428,11 @@ def build_server(
         app.include_router(
             build_app_config_router(app_context), dependencies=[Depends(_drive)]
         )
-        # Stopping the workflow: Assist and Drive. Never waits for approval.
+        # Stopping the workflow: never the agent's own, so Drive, or a request
+        # the operator approved at Assist; with a reason.
         app.include_router(
-            build_app_stop_router(app_context), dependencies=[Depends(_assist)]
+            build_app_stop_router(app_context),
+            dependencies=[Depends(_drive), Depends(_stop_reason)],
         )
         # Suggesting an answer to the run's question: Assist and Drive, with no
         # request, since the operator's click is what answers.
@@ -307,6 +448,8 @@ def build_server(
             auth,
             frozenset(mounted),
             emit=getattr(app_context, "record_event", None),
+            describe=getattr(app_context, "describe_action", None),
+            not_allowed=_not_allowed(microscope) if serve_microscope else None,
         )
         app.include_router(build_request_router(app.state.requests))
     return app

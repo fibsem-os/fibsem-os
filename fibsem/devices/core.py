@@ -25,6 +25,7 @@ import math
 import threading
 import time
 from contextlib import contextmanager
+from copy import deepcopy
 from dataclasses import dataclass, replace
 from enum import Enum
 from typing import (
@@ -44,7 +45,7 @@ from typing import (
 
 from psygnal import Signal
 
-from fibsem.devices.display import DisplayHint
+from fibsem.display import DisplayHint, display_to_dict
 from fibsem.structures import RangeLimit
 
 IMAGING_CHANNEL = "imaging_channel"
@@ -59,6 +60,21 @@ class ParameterUnavailable(AttributeError):
 
 class ParameterReadOnly(Exception):
     """The parameter is bound but cannot be set."""
+
+
+class DeviceFault(RuntimeError):
+    """The hardware, or the controller in front of it, refused or failed.
+
+    A driver raises it, or a subclass of it for its own SDK's errors, when the
+    instrument said no: not for a bad argument (``ValueError``) or a missing
+    parameter. The device server answers it as 502, and a remote copy raises it
+    again, so a refusal from the hardware is told apart from a fault in fibsem.
+    ``device`` names the device, when the driver knows it.
+    """
+
+    def __init__(self, message: str = "", device: Optional[str] = None):
+        super().__init__(message)
+        self.device = device
 
 
 class RoleUnfilled(AttributeError):
@@ -97,7 +113,7 @@ class Parameter:
     A backend implements a parameter in its device subclass with plain methods named
     after it, and the device binds them at ``connect()``::
 
-        class AutoscriptBeam(Beam):
+        class VendorBeam(Beam):
             def read_current(self):
                 return self._beam.beam_current.value
 
@@ -120,7 +136,7 @@ class Parameter:
     the parameter is read back, so its cache and its ``changed`` signal carry what the
     hardware applied rather than what was asked for.
 
-    ``display`` says how to show it (a ``fibsem.devices.display.Display``, or one per field for
+    ``display`` says how to show it (a ``fibsem.display.Display``, or one per field for
     a composite value). Like the type and unit it means the same on every backend: a
     subclass that redeclares the parameter keeps it, and can't give another.
     """
@@ -449,19 +465,28 @@ class CommandInfo:
     signature: str
     available: bool
     doc: str
+    long: bool = False
 
 
 def command(
-    fn: Optional[Callable] = None, *, available: Optional[Callable[[Any], bool]] = None
+    fn: Optional[Callable] = None,
+    *,
+    available: Optional[Callable[[Any], bool]] = None,
+    long: bool = False,
 ) -> Any:
     """Mark a device method as a command. It stays a plain method.
 
     The mark records only what a UI, the agent API or a remote proxy needs to list it:
     its name, its arguments and whether it is available on this device right now.
+    ``long`` marks a command that runs for minutes (a mill, a spot burn): the App
+    Server answers an agent's call to it at once with a run id and lets it run on
+    (`fibsem.server.runs`). Called directly it is an ordinary method.
     """
 
     def mark(method: Callable) -> Callable:
         method.__device_command__ = available  # type: ignore[attr-defined]
+        if long:
+            method.__device_long__ = True  # type: ignore[attr-defined]
         return method
 
     return mark(fn) if fn is not None else mark
@@ -526,38 +551,57 @@ def resources_of(owner: Any) -> Resources:
 
 
 class Session:
-    """What a device or service reports to the experiment it runs in: events for the
-    experiment's record, and the stamp on each image (who, which run, which instrument).
+    """The experiment a device or service runs in: who is running it, which run it is,
+    and the record of what happened.
+
+    Devices and services report here, never to their microscope: `record` puts an
+    event on ``record_signal`` (the App Server writes it to the run's events.jsonl),
+    and `stamp` writes the user and experiment onto each image, then hands it to
+    ``instrument`` for the instrument's own part (its identity and geometry).
 
     The microscope builds one (`FibsemMicroscope.session`) and every device and service
     it builds reports through it, as they claim its `Resources`. A device with no
     microscope (standalone, in a test, or a device server's own) gets an empty one,
-    which records and stamps nothing.
+    which has no listeners and stamps nothing.
     """
+
+    #: (kind, payload): a fact for the experiment's record -- an image acquired, a
+    #: stage move, a task step. Progress for a UI belongs on typed signals, not here.
+    record_signal = Signal(str, object)
 
     def __init__(
         self,
-        record: Optional[Callable[[str, Dict[str, Any]], None]] = None,
-        stamp: Optional[Callable[[Any], None]] = None,
+        instrument: Optional[Callable[[Any], None]] = None,
+        user: Any = None,
+        experiment: Any = None,
     ):
-        self._record = record
-        self._stamp = stamp
+        self._instrument = instrument
+        #: Who is running the experiment (`FibsemUser`); set by `utils.setup_session`.
+        self.user = user
+        #: Which run this is (`FibsemExperimentRef`); set by `utils.setup_session`.
+        self.experiment = experiment
         self._open = threading.local()
 
     def record(self, kind: str, payload: Dict[str, Any]) -> None:
-        """Put one event on the record. Never raises: a failure to record must cost
-        the record, never the work."""
-        if self._record is None:
-            return
+        """Put one event on the record. Never raises: psygnal hands a listener's
+        exception back to whoever emitted, and a failure to record must cost the
+        record, never the work."""
         try:
-            self._record(kind, payload)
+            self.record_signal.emit(kind, payload)
         except Exception:  # noqa: BLE001 - recording must not matter
             logging.debug(f"could not record a {kind} event", exc_info=True)
 
     def stamp(self, image: Any) -> None:
-        """Stamp the experiment's metadata onto an image."""
-        if self._stamp is not None:
-            self._stamp(image)
+        """Stamp who and which run onto an image, then the instrument's part."""
+        if self.user is not None:
+            image.metadata.user = self.user
+        if self.experiment is not None:
+            # Copied, not referenced. It carries the item and task as well as the
+            # experiment (FIB-466), and those change as the run progresses -- sharing
+            # one object would rewrite the item on every image already acquired.
+            image.metadata.experiment = deepcopy(self.experiment)
+        if self._instrument is not None:
+            self._instrument(image)
 
     @contextmanager
     def recording(self, kind: str, **payload: Any) -> Iterator[Dict[str, Any]]:
@@ -829,6 +873,7 @@ class _Controllable:
                 signature=str(signature.replace(parameters=arguments)),
                 available=True if available is None else bool(available(self)),
                 doc=inspect.getdoc(attr) or "",
+                long=bool(getattr(attr, "__device_long__", False)),
             )
         return found
 
@@ -883,6 +928,12 @@ class _Controllable:
 class Device(_Controllable):
     """One piece of hardware: named, with parameters and commands, and a parent."""
 
+    driver: Optional[str] = None
+    """The registry name of the driver that built it (``Demo``, ``remote``, a
+    plugin's), set when it is built from its configuration entry
+    (``fibsem.devices.entries.build_device_entries``). ``None`` for a device built
+    by hand."""
+
     def facts(self) -> Dict[str, Any]:
         """What the device says about itself that is neither a parameter nor a
         command, as JSON-ready data: what a remote copy of it needs to answer the
@@ -890,6 +941,16 @@ class Device(_Controllable):
         server sends it with the device's description. Nothing by default.
         """
         return {}
+
+    def disconnect(self) -> None:
+        """Close what this device alone holds open: its own controller connection.
+        The microscope calls it when it disconnects, in reverse build order.
+        Nothing by default.
+
+        A connection several devices share (one controller per address) is not one
+        device's to close: its builder registers that with
+        `BuildContext.on_disconnect` instead.
+        """
 
 
 class Axis:
@@ -1020,6 +1081,11 @@ def _describe(p: BoundParameter) -> Dict[str, Any]:
         "choices": list(p.choices) if p.choices is not None else None,
         "settable": p.settable,
     }
+    # How to show it, when the class says: a client with no copy of the class (an
+    # agent) shows it the same way.
+    display = display_to_dict(p.display)
+    if display is not None:
+        described["display"] = display
     # Only a fraction of a hardware maximum has these, so only it carries them.
     if p.metadata.native_max is not None:
         described["native_max"] = p.metadata.native_max

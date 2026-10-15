@@ -18,7 +18,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Mapping, Optional
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from fibsem import config as cfg
 
@@ -134,6 +134,8 @@ class Manufacturer:
     api_module: Optional[str] = None
     api_label: str = ""
     simulated: bool = False
+    # The driver's device entries merged into the written file (``DriverSetup.devices``).
+    devices: Tuple[Mapping[str, Any], ...] = ()
 
     @property
     def config_value(self) -> str:
@@ -217,6 +219,7 @@ def manufacturers() -> List[Manufacturer]:
             api_module=setup.api_module,
             api_label=setup.api_label,
             simulated=setup.simulated,
+            devices=setup.devices,
         )
         for name, setup in _setups()
     ]
@@ -509,18 +512,15 @@ def build_configuration(choices: SetupChoices) -> dict:
     # configuration and would otherwise claim to be a Demo.
     info["manufacturer"] = manufacturer.config_value
 
-    # Column tilt is geometry -- every projection between the two beams runs through it
-    # -- and a wrong one mis-places patterns without ever looking like a configuration
-    # problem. So it follows the manufacturer rather than the file that happened to be
-    # the starting point. This is a no-op for every shipped file, all of which already
-    # agree with their manufacturer's defaults; it exists for the generic base.
-    defaults = cfg.DEFAULT_CONFIGURATION_VALUES.get(manufacturer.config_value)
-    if defaults:
-        device = utils.configuration_device
-        device(config, "ion", create=True)["column_tilt"] = defaults["ion-column-tilt"]
-        device(config, "electron", create=True)["column_tilt"] = defaults[
-            "electron-column-tilt"
-        ]
+    # The driver's device values (the column tilts) follow the manufacturer rather
+    # than the file that happened to be the starting point. Column tilt is geometry --
+    # every projection between the two beams runs through it -- and a wrong one
+    # mis-places patterns without ever looking like a configuration problem. This is a
+    # no-op for every shipped file, all of which already agree with their driver; it
+    # exists for the generic base.
+    for entry in manufacturer.devices:
+        values = {k: v for k, v in entry.items() if k != "name"}
+        utils.configuration_device(config, entry["name"], create=True).update(values)
 
     # What the driver writes for this model beyond the shipped file (a simulator's
     # ``sim`` block). Only the model's own driver reads it, so nothing is written for

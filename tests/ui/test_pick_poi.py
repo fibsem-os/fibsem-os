@@ -116,6 +116,74 @@ def test_the_click_answers_with_the_marker_position(window, ui, qapp):
     assert poi.y == pytest.approx(initial.y, abs=image.metadata.pixel_size.x)
 
 
+def test_the_marker_sits_on_the_frame_the_view_shows(window, ui, qapp):
+    """The request carries the frame the task last took; the view may have
+    moved on since (an agent's approved moves and their images, FIB-1399). The
+    marker is placed and read on the view's frame, not the request's."""
+    from fibsem import conversions
+    from fibsem.structures import FibsemImage
+
+    old = FibsemImage.generate_blank_image(resolution=(1536, 1024), hfw=150e-6)
+    shown = ui.image_widget.ib_image
+    new = FibsemImage.generate_blank_image(resolution=(1536, 1024), hfw=80e-6)
+    new.metadata.image_settings.beam_type = BeamType.ION
+    ui.image_widget.ib_image = new
+    try:
+        initial = Point(x=5e-6, y=-3e-6)
+        thread, outcome = _pick_on_worker_thread(ui, qapp, old, initial=initial)
+        (col, row), *_ = window.view_controller.overlay_points(BeamType.ION, "poi")
+        expected = conversions.microscope_image_to_image_coordinates(
+            initial, new.data.shape, new.metadata.pixel_size.x
+        )
+        assert (col, row) == pytest.approx((expected.x, expected.y))
+
+        ui.pushButton_yes.click()
+        _finish(thread, qapp)
+    finally:
+        ui.image_widget.ib_image = shown
+
+    poi = outcome.get("poi")
+    assert poi.x == pytest.approx(initial.x, abs=new.metadata.pixel_size.x)
+    assert poi.y == pytest.approx(initial.y, abs=new.metadata.pixel_size.x)
+
+
+def test_the_prompt_serves_the_frame_the_view_shows(window, ui, qapp):
+    """The agent reads the POI question on the frame the marker sits on, with
+    when it was taken, not the frame the task took before an agent's approved
+    moves (FIB-1399)."""
+    from datetime import datetime
+
+    from fibsem.applications.autolamella.server import AutoLamellaAppContext
+    from fibsem.structures import FibsemImage
+
+    old = FibsemImage.generate_blank_image(resolution=(1536, 1024), hfw=150e-6)
+    shown = ui.image_widget.ib_image
+    new = FibsemImage.generate_blank_image(resolution=(1536, 1024), hfw=80e-6)
+    new.metadata.image_settings.beam_type = BeamType.ION
+    new.metadata.acquisition_datetime = datetime.now().astimezone()
+    ui.image_widget.ib_image = new
+    try:
+        thread, _ = _pick_on_worker_thread(ui, qapp, old)
+        fetched = {}
+        getter = threading.Thread(
+            target=lambda: fetched.update(AutoLamellaAppContext(ui).pending_prompt()),
+            daemon=True,
+        )
+        getter.start()
+        deadline = time.monotonic() + 10
+        while "pending" not in fetched and time.monotonic() < deadline:
+            qapp.processEvents()
+            time.sleep(0.01)
+        ui.pushButton_yes.click()
+        _finish(thread, qapp)
+    finally:
+        ui.image_widget.ib_image = shown
+
+    image = fetched["pending"]["image"]
+    assert image["hfw"] == pytest.approx(80e-6)
+    assert image["acquired_at"] == new.metadata.acquisition_datetime.isoformat()
+
+
 def test_the_overlay_comes_down_with_the_answer(window, ui, qapp):
     image = _fib_image(ui)
     thread, _ = _pick_on_worker_thread(ui, qapp, image)

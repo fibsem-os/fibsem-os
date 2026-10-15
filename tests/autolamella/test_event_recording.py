@@ -568,9 +568,9 @@ def test_an_acquisition_records_the_file_it_was_saved_to(tmp_path, microscope):
     )
     recorder = EventRecorder(microscope, experiment_path=tmp_path)
     try:
-        saved = acquire.new_image(microscope, settings)
+        saved = acquire.acquire_image(microscope, settings)
         settings.save = False
-        acquire.new_image(microscope, settings)
+        acquire.acquire_image(microscope, settings)
     finally:
         recorder.close()
     first, second = _of_kind(_written(tmp_path / EVENTS_FILENAME), "image_acquired")
@@ -593,16 +593,16 @@ def test_a_failing_subscriber_costs_the_record_not_the_acquisition(
     def broken(kind, payload):
         raise RuntimeError("a broken subscriber")
 
-    microscope.record_signal.connect(broken)
+    microscope.session.record_signal.connect(broken)
     try:
-        image = acquire.new_image(
+        image = acquire.acquire_image(
             microscope,
             ImageSettings(
                 beam_type=BeamType.ELECTRON, filename="x", path=str(tmp_path), save=True
             ),
         )
     finally:
-        microscope.record_signal.disconnect(broken)
+        microscope.session.record_signal.disconnect(broken)
     assert os.path.exists(image.filepath)
 
 
@@ -772,7 +772,7 @@ def test_a_stage_that_cannot_be_described_still_mills(
     assert not _of_kind(_written(tmp_path / EVENTS_FILENAME), "milling_stage_started")
 
 
-# ── acquisitions outside new_image ───────────────────────────────────────────
+# ── acquisitions outside acquire_image ───────────────────────────────────────
 
 
 def test_an_image_taken_as_the_beam_is_set_records_the_exact_file(tmp_path, microscope):

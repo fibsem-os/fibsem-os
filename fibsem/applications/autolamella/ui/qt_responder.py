@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple, Type
 
 from PyQt5.QtCore import QObject, pyqtSignal
 
-from fibsem.acting import TASK, acting
+from fibsem.acting import AGENT, TASK, acting
 from fibsem.applications.autolamella.proposals import AuthorKind, DecisionOutcome
 from fibsem.applications.autolamella.workflows.interaction import (
     ClearMillingConfig,
@@ -66,6 +66,7 @@ if TYPE_CHECKING:
     from concurrent.futures import Future
 
     from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
+    from fibsem.structures import FibsemImage
 
 __all__ = ["QtResponder"]
 
@@ -86,7 +87,39 @@ def _same_geometry(request: "Request", live: object, value: object) -> bool:
             abs(getattr(live, f) - getattr(value, f)) <= 1e-6
             for f in ("left", "top", "width", "height")
         )
+    if isinstance(request, ConfirmDetection):
+        # Features are in image pixels: half a pixel, as for a point.
+        return all(
+            live.get(name) is not None
+            and abs(live[name].x - px.x) <= 0.5
+            and abs(live[name].y - px.y) <= 0.5
+            for name, px in value.items()
+        )
+    if isinstance(request, RunSpotBurn):
+        # Points are 0-1 fractions of the frame.
+        return len(live) == len(value) and all(
+            abs(a.x - b.x) <= 1e-6 and abs(a.y - b.y) <= 1e-6
+            for a, b in zip(live, value)
+        )
     return False
+
+
+def _poi_frame(responder: object, request: PickPOI) -> "FibsemImage":
+    """The FIB frame the POI marker sits on: the one the FIB view shows.
+
+    The request carries the frame the task last took, and anything since (an
+    agent's approved moves and their images) shows in the view instead
+    (FIB-1399). The marker is placed and read in the view's pixels, so it is
+    converted against the view's frame; the request's is the fallback.
+    """
+    ui = getattr(responder, "_ui", None)
+    shown = getattr(getattr(ui, "image_widget", None), "ib_image", None)
+    return shown if shown is not None else request.image
+
+
+# The questions an answer may carry a value for: the same edit the operator
+# could make in the widget the question is asked on.
+_VALUE_QUESTIONS = (EditAlignmentArea, PickPOI, ConfirmDetection, RunSpotBurn)
 
 
 class QtResponder(QObject):
@@ -173,14 +206,15 @@ class QtResponder(QObject):
 
         return dispose
 
-    def _emit_question_event(self, kind: str, payload: Dict) -> None:
+    def _emit_question_event(self, kind: str, payload: Dict, actor: str = TASK) -> None:
         """Tell every observer, each on its own; failures are logged, never raised.
 
         On the GUI thread, but every question is a task's: it is raised and
         withdrawn on the task's behalf, so it is marked as the task's for the
-        experiment's record (FIB-1062). An answer says who answered.
+        experiment's record (FIB-1062). An answer says who answered. A
+        suggestion is the agent's own, so it is marked as the agent's.
         """
-        with acting(TASK):
+        with acting(actor):
             for observer in list(self._question_observers):
                 try:
                     observer(kind, payload)
@@ -251,7 +285,9 @@ class QtResponder(QObject):
         ``value`` optionally carries an adjusted answer for the questions read
         from live widget state — a :class:`FibsemRectangle` for
         ``EditAlignmentArea``, a :class:`Point` (microscope image coordinates)
-        for ``PickPOI``. It is applied to the widget first, exactly as if the
+        for ``PickPOI``, ``{name: Point}`` in image pixels for
+        ``ConfirmDetection``, a list of :class:`Point` (0-1 fractions of the
+        frame) for ``RunSpotBurn``. It is applied to the widget first, exactly as if the
         operator had dragged it there, and then the ordinary click path reads
         it back — so the proposed geometry lands on screen, and attribution,
         the question id, and first-writer-wins all hold unchanged. A value on any
@@ -381,9 +417,7 @@ class QtResponder(QObject):
                 ),
             )
             return
-        if value is not None and not isinstance(
-            pending[0], (PickPOI, EditAlignmentArea)
-        ):
+        if value is not None and not isinstance(pending[0], _VALUE_QUESTIONS):
             self._fail(outcome, ValueError("this question takes no value"))
             return
         self._suggestion = (question_id, bool(response), value, str(reason))
@@ -395,7 +429,7 @@ class QtResponder(QObject):
         }
         if value is not None:
             payload["has_value"] = True
-        self._emit_question_event("prompt_suggested", payload)
+        self._emit_question_event("prompt_suggested", payload, actor=AGENT)
         self._show_suggestion()
         self._deliver(outcome, True)
 
@@ -432,10 +466,29 @@ class QtResponder(QObject):
         if suggestion is None:
             show(None, "")
             return
-        _question_id, response, _value, reason = suggestion
+        _question_id, response, value, reason = suggestion
         pending = self._pending_question
         label = self._button_label(pending[0], response) if pending else None
-        show(label or ("Yes" if response else "No"), reason)
+        point = None
+        if pending is not None and isinstance(pending[0], PickPOI):
+            point = self._suggested_pixel(pending[0], value)
+        show(label or ("Yes" if response else "No"), reason, point)
+
+    @staticmethod
+    def _suggested_pixel(request: "PickPOI", value: object):
+        """The suggested point of interest in the question's image, in pixels,
+        for the FIB view to draw; None for none."""
+        from fibsem import conversions
+        from fibsem.structures import Point
+
+        image = request.image
+        metadata = getattr(image, "metadata", None)
+        if not isinstance(value, Point) or metadata is None:
+            return None
+        pixel = conversions.microscope_image_to_image_coordinates(
+            value, image.data.shape, metadata.pixel_size.x
+        )
+        return (pixel.x, pixel.y)
 
     @staticmethod
     def _button_label(request: "Request", response: bool) -> Optional[str]:
@@ -468,15 +521,35 @@ class QtResponder(QObject):
                 raise RuntimeError("No canvas to place the point of interest on.")
             from fibsem import conversions
 
-            image = request.image
+            image = _poi_frame(self, request)
             px = conversions.microscope_image_to_image_coordinates(
                 value, image.data.shape, image.metadata.pixel_size.x
             )
             controller.set_points(BeamType.ION, "poi", [(px.x, px.y)])
             return
+        if isinstance(request, ConfirmDetection):
+            if not isinstance(value, dict) or not all(
+                isinstance(px, Point) for px in value.values()
+            ):
+                raise ValueError("a ConfirmDetection value must be {name: Point}")
+            det_widget = self._ui.det_widget
+            if det_widget is None:
+                raise RuntimeError("No detection widget to move the features on.")
+            det_widget.move_features(value)
+            return
+        if isinstance(request, RunSpotBurn):
+            if not isinstance(value, list) or not all(
+                isinstance(pt, Point) for pt in value
+            ):
+                raise ValueError("a RunSpotBurn value must be a list of Points")
+            widget = self._ui.spot_burn_widget
+            if widget is None:
+                raise RuntimeError("No spot burn widget to place the points on.")
+            widget.set_coordinates(value)
+            return
         raise ValueError(
-            f"{type(request).__name__} answers cannot carry a value; "
-            "only EditAlignmentArea and PickPOI can."
+            f"{type(request).__name__} answers cannot carry a value; only "
+            "EditAlignmentArea, PickPOI, ConfirmDetection and RunSpotBurn can."
         )
 
     def peek_live_answer(self) -> "Future":
@@ -534,6 +607,16 @@ class QtResponder(QObject):
             if image_widget is None:
                 return question_id, None
             return question_id, deepcopy(image_widget.get_alignment_area())
+        if isinstance(request, ConfirmDetection):
+            det = getattr(self._ui.det_widget, "det", None)
+            if det is None:
+                return question_id, None
+            return question_id, {f.name: deepcopy(f.px) for f in det.features}
+        if isinstance(request, RunSpotBurn):
+            widget = self._ui.spot_burn_widget
+            if widget is None:
+                return question_id, None
+            return question_id, deepcopy(widget.get_coordinates())
         return question_id, None
 
     def _dispatch(self, request: "Request", future: "Future") -> None:
@@ -759,7 +842,7 @@ class QtResponder(QObject):
         from fibsem import conversions
         from fibsem.ui.widgets.canvas.canvas_state import PointsSpec
 
-        image = request.image
+        image = _poi_frame(self, request)
         if request.initial is not None:
             px = conversions.microscope_image_to_image_coordinates(
                 request.initial, image.data.shape, image.metadata.pixel_size.x
@@ -1268,9 +1351,9 @@ class QtResponder(QObject):
             image_widget.clear_alignment_area()
             return area
         if isinstance(request, PickPOI):
-            # Read the marker, convert against the image the request carried (the
-            # one the marker was placed on), and take the overlay down — the old
-            # flow's second handshake plus its SELECTED_POI read-back, all in the
+            # Read the marker, convert against the frame it sits on (the one
+            # the FIB view shows), and take the overlay down — the old flow's
+            # second handshake plus its SELECTED_POI read-back, all in the
             # click's slot.
             from fibsem import conversions
             from fibsem.structures import Point
@@ -1281,7 +1364,7 @@ class QtResponder(QObject):
                 pts = controller.overlay_points(BeamType.ION, "poi")
                 if pts:
                     col, row = pts[0]
-                    image = request.image
+                    image = _poi_frame(self, request)
                     poi = conversions.image_to_microscope_image_coordinates(
                         Point(x=col, y=row), image.data, image.metadata.pixel_size.x
                     )

@@ -63,6 +63,7 @@ from superqt import ensure_main_thread
 from fibsem import constants
 from fibsem.config import DEFAULT_STANDARD_RESOLUTION_LIST
 from fibsem.fm.composite import auto_clim
+from fibsem.geometry.projection import BeamStageProjection
 from fibsem.imaging import tiled
 from fibsem.imaging.reduce import downsample, downsample_mask
 from fibsem.imaging.tiling import unreachable_tiles
@@ -72,7 +73,6 @@ from fibsem.imaging.tiling.progress import (
     TiledStatus,
 )
 from fibsem.microscope import FibsemMicroscope
-from fibsem.projection import BeamStageProjection
 from fibsem.structures import (
     BeamType,
     FibsemImage,
@@ -1648,7 +1648,7 @@ class FibsemOverviewWidget(QWidget):
 
     def _place_imported(self, dialog) -> Optional[str]:
         from fibsem.fm.reader import assumed_geometry, assumed_pose
-        from fibsem.projection import FMStageProjection
+        from fibsem.geometry.projection import FMStageProjection
 
         source = dialog.source
         try:
@@ -1719,7 +1719,7 @@ class FibsemOverviewWidget(QWidget):
 
     @staticmethod
     def _can_place(image) -> bool:
-        from fibsem.projection import FMStageProjection
+        from fibsem.geometry.projection import FMStageProjection
 
         metadata = image.metadata
         return (
@@ -4235,6 +4235,11 @@ class FibsemOverviewWidget(QWidget):
             # the tiles into its own record, so a fluorescence run reaching here would be
             # drawn as one of this tab's overviews (FIB-725).
             return
+
+        if event.status is TiledStatus.FINISHED and event.warning:
+            # Kept in the notification history: it is about the instrument's
+            # calibration, not this one image, and outlives the toast.
+            notification_service.show(event.warning, "warning")
 
         if event.completed is not None and event.total:
             self._tiles_acquired = event.completed

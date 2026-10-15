@@ -92,21 +92,22 @@ class FibsemPatternSettingsWidget(QWidget):
         while self._fields_form.rowCount():
             self._fields_form.removeRow(0)
 
-        for field_name, m in pattern.field_metadata.items():
-            if m.get("hidden", False):
+        for field_name, spec in pattern.field_specs.items():
+            if spec.hidden:
                 continue
 
             control = build_control(
-                m,
+                spec,
                 getattr(pattern, field_name),
-                dynamic_items=self._dynamic_items,
+                resolve_choices=self._instrument_choices,
+                read_only_fallback=False,
             )
             if control is None:
                 logging.warning("Control for '%s' is unsupported", field_name)
                 continue
 
-            label = QLabel(m.get("label") or field_name.replace("_", " ").title())
-            tooltip = m.get("tooltip", "")
+            label = QLabel(spec.label or field_name.replace("_", " ").title())
+            tooltip = spec.doc
             if tooltip:
                 label.setToolTip(tooltip)
                 control.widget.setToolTip(tooltip)
@@ -118,17 +119,17 @@ class FibsemPatternSettingsWidget(QWidget):
                     label=label,
                     control=control,
                     field=field_name,
-                    advanced=m.get("advanced", False),
+                    advanced=spec.advanced,
                 )
             )
 
         align_form(self._fields_form)
         self._update_visibility()
 
-    def _dynamic_items(self, parameter: str):
-        """Resolve an `items: "dynamic"` field: the milling service's choices for the
-        pattern field (named as its microscope parameter), else none: the pattern
-        fields are not beam parameters."""
+    def _instrument_choices(self, parameter: str):
+        """The choices of a field the instrument decides: the milling service's for
+        the pattern field (named as its microscope parameter), else none: the
+        pattern fields are not beam parameters."""
         milling = getattr(self.microscope, "milling", None)
         if milling is not None:
             supported = milling.supported_pattern_settings().get(parameter)

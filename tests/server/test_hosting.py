@@ -123,12 +123,24 @@ def test_microscope_taps_are_live_and_detach_on_stop(host, microscope):
 
 def test_start_failure_is_contained_not_raised(microscope, tmp_path):
     ui = Host()
-    # Port 1 is unbindable without privileges — start must fail closed.
-    server_host = AppServerHost(
-        ui, port=1, discovery_path=tmp_path / "agent-server.json"
-    )
-    assert server_host.start(microscope) is False
-    assert not server_host.running
+    # A port another socket already holds — start must fail closed. (Not port 1:
+    # root can bind it, and a server left there broke the remote FM tests.)
+    with socket.socket() as taken:
+        # On Windows the server's SO_REUSEADDR would otherwise share the port.
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            taken.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        taken.bind(("127.0.0.1", 0))
+        taken.listen()
+        server_host = AppServerHost(
+            ui,
+            port=taken.getsockname()[1],
+            discovery_path=tmp_path / "agent-server.json",
+        )
+        try:
+            assert server_host.start(microscope) is False
+            assert not server_host.running
+        finally:
+            server_host.stop()
 
 
 def test_env_override_starts_at_drive(microscope, tmp_path, monkeypatch):

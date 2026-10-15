@@ -30,11 +30,11 @@ from typing import TYPE_CHECKING, List, Tuple
 import numpy as np
 
 from fibsem.fm.structures import FibsemHardwareGeometry
-from fibsem.structures import FibsemStagePosition, Point
-from fibsem.transformations import (
+from fibsem.geometry.movement import (
     inverse_view_corrected_dy,
     view_corrected_stage_movement,
 )
+from fibsem.structures import FibsemStagePosition, Point
 
 if TYPE_CHECKING:  # pragma: no cover - annotation only
     from fibsem.fm.structures import FluorescenceImage

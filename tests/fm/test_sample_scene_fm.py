@@ -13,7 +13,7 @@ from scipy import ndimage as ndi
 from fibsem import utils
 from fibsem.drivers.demo.sim_scene import SampleScene, fm_channel_weights
 from fibsem.fm.structures import ChannelSettings
-from fibsem.projection import FMStageProjection
+from fibsem.geometry.projection import FMStageProjection
 from fibsem.structures import FibsemStagePosition
 
 REFLECTION = ChannelSettings(

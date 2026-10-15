@@ -39,29 +39,29 @@ from fibsem.structures import (
     BeamType,
     ImageSettings,
     Resolution,
-    get_fields_with_metadata,
+    field_specs,
 )
 from fibsem.ui import notification_service
 from fibsem.ui.icon import ICON_READ_FROM_ACQUIRE_TAB, ICON_READ_FROM_MICROSCOPE
-from fibsem.ui.utils import beam_choices, beam_field_metadata
+from fibsem.ui.utils import beam_choices, beam_spec
 from fibsem.ui.widgets.custom_widgets import (
     IconToolButton,
     TitledPanel,
     ValueComboBox,
     ValueSpinBox,
 )
-from fibsem.ui.widgets.form_builder import configure_spinbox, parameter_field_metadata
+from fibsem.ui.widgets.form_builder import configure_spinbox, parameter_spec
 
 # How the field of view and dwell time are shown: as the Image tab shows them, from
 # ImageSettings' field metadata, which takes the beam's display hint and limits.
-_IMAGE = get_fields_with_metadata(ImageSettings)
+_IMAGE = field_specs(ImageSettings)
 
 
 def _beam_box(name: str) -> ValueSpinBox:
     """A box for an imaging value, in the range every beam declares until a beam's
     own is applied (``_apply_beam_limits``)."""
     spinbox = ValueSpinBox()
-    configure_spinbox(spinbox, beam_field_metadata(_IMAGE[name]))
+    configure_spinbox(spinbox, beam_spec(_IMAGE[name]))
     return spinbox
 
 
@@ -73,7 +73,7 @@ def _apply_beam_limits(
 ) -> None:
     """Bound the field of view and dwell time to what ``beam`` reports."""
     for name, spinbox in (("hfw", hfw), ("dwell_time", dwell_time)):
-        configure_spinbox(spinbox, beam_field_metadata(_IMAGE[name], microscope, beam))
+        configure_spinbox(spinbox, beam_spec(_IMAGE[name], microscope, beam))
 
 
 def _micro(value: float) -> float:
@@ -130,9 +130,7 @@ class BeamDefaultsForm(QWidget):
         # A standing choice some sites make -- a FIB run at 180 degrees -- and Apply
         # sets it like the rest, so it is a default rather than alignment state.
         self.scan_rotation = ValueSpinBox()
-        configure_spinbox(
-            self.scan_rotation, parameter_field_metadata(Beam.scan_rotation)
-        )
+        configure_spinbox(self.scan_rotation, parameter_spec(Beam.scan_rotation))
 
         self._rows = [
             ("Preset", self.preset),

@@ -9,7 +9,7 @@ built as connect builds them (the old methods' are in ``autoscript_old_calls.jso
 recorded over this fake before they were deleted); and ``facts``, what the new API
 makes of the commands.
 
-``get_microscope_state`` and ``_set_additional_metadata`` are recorded rather than
+``get_microscope_state`` and ``_stamp_instrument`` are recorded rather than
 run: both sides call the same ones, and what they read is the microscope's, not the
 imaging method's.
 """
@@ -104,7 +104,7 @@ def make():
         LOG.append(["metadata", list(image.data.shape)])
 
     microscope.get_microscope_state = get_microscope_state
-    microscope._set_additional_metadata = set_additional_metadata
+    microscope._stamp_instrument = set_additional_metadata
     microscope._build_beams()
     for beam in microscope.beams.values():  # where the last image was saved
         beam._last_image_settings = ImageSettings(path="/data", filename="last")
@@ -203,12 +203,7 @@ def _live(microscope, beam_type, frames=4):
             stop.set()
             done.set()
 
-    signal = (
-        microscope.sem_acquisition_signal
-        if beam_type is BeamType.ELECTRON
-        else microscope.fib_acquisition_signal
-    )
-    signal.connect(on_frame)
+    microscope.beams[beam_type].live_frame.connect(on_frame)
 
     def call():
         microscope.start_acquisition(beam_type)

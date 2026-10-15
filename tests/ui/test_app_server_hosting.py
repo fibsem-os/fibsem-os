@@ -163,7 +163,8 @@ def test_the_microscope_is_off_by_default_and_restarts_when_changed(
     ui.set_app_server_microscope(True)
     assert ui._app_server_host is second and second.running
 
-    # The preference is only the start-up default: saving it changes nothing now.
+    # Syncing only starts or stops the server; the microscope is applied by
+    # set_app_server_microscope, which Tools → App Server calls after saving it.
     preferences.app_server.microscope = False
     ui.sync_app_server_with_preference()
     assert ui._app_server_host is second and second.serve_microscope
@@ -228,3 +229,31 @@ def test_the_app_server_reads_the_session_stream(ui, app_server_enabled):
     # Shared, so not registered here: the run registers it, once (FIB-1044).
     hooks = ui.setup_hooks()._hooks
     assert sum(hook is recorder.lifecycle_hook for hook in hooks) == 0
+
+
+def test_tools_app_server_saves_both_switches(monkeypatch):
+    """The switches in Tools → App Server are saved, so the next launch starts the
+    same way, and act on the session now."""
+    from types import SimpleNamespace
+
+    from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
+        AutoLamellaSingleWindowUI,
+    )
+
+    saved = fibsem_cfg.UserPreferences()
+    monkeypatch.setattr(fibsem_cfg, "load_user_preferences", lambda: saved)
+    monkeypatch.setattr(fibsem_cfg, "save_user_preferences", lambda p: None)
+    calls = []
+    window = SimpleNamespace(
+        autolamella_ui=SimpleNamespace(
+            sync_app_server_with_preference=lambda: calls.append("sync"),
+            set_app_server_microscope=lambda on: calls.append(("microscope", on)),
+        )
+    )
+
+    AutoLamellaSingleWindowUI._set_app_server_microscope(window, True)
+    AutoLamellaSingleWindowUI._set_app_server_enabled(window, True)
+
+    assert saved.app_server.microscope and saved.app_server.enabled
+    assert window._preferences is saved
+    assert calls == [("microscope", True), "sync"]

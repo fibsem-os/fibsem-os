@@ -45,7 +45,7 @@ Check the capabilities response before doing anything else:
   sentence, what that level means you can and can't do this session.
 
 No discovery file → no server. Tell the operator to enable it
-(Preferences → App Server) and connect a microscope. Do not go looking for
+(Tools → App Server) and connect a microscope. Do not go looking for
 other ways in.
 
 ## Your level
@@ -80,6 +80,9 @@ A refusal names its reason in `detail.error_type`:
   watch.
 - `ask_first` — you are at Assist: the operator wants to approve each
   action. Switch to the assist-autolamella skill and ask through a request.
+- `not_allowed` — you may never use that write or command, at any level
+  (the listings mark it `agent: false`), and no request makes it allowed.
+  Say what you wanted and that it is the operator's to do.
 
 If `level` drops from Drive to Watch mid-session for any reason, the rule is
 the same as `agent_stopped`: report and stop acting. Never treat a 403 as an
@@ -99,7 +102,27 @@ fibsem-mcp watch
 
 It comes with fibsem and finds the app the way the MCP tools do. If
 `fibsem-mcp` is not on your PATH, run `python -m fibsem.mcp.sidecar watch`
-with the Python fibsem is installed in.
+with the Python fibsem is installed in, from a folder that holds no other
+fibsem checkout (the current folder is searched first). Check it is the
+fibsem the app runs: a watcher from before Assist prints no `REQUEST` lines
+and has no `--since`.
+
+A process that only runs in the background is not a wake-up call: its
+lines go to a file, and you read them on your next turn, which may be
+long after the question. In Claude Code, run the watcher in the
+background writing to a file, then stream that file with the Monitor
+tool, so each new line wakes you:
+
+```
+fibsem-mcp watch > watch.log 2>&1        # Bash, run_in_background
+tail -n +1 -f watch.log                  # Monitor
+```
+
+A monitor expires after 30 minutes. Re-arm it each time it ends, starting
+after the last line you read (`tail -n +43 -f watch.log` when you have read
+42 lines), so a line written in between still reaches you. The watcher
+itself keeps running. Other harnesses need the same thing: a line from the
+watcher has to start your turn.
 
 Wake and act on its lines: `PROMPT` (a question is standing, with its
 `question_id`), `QUESTION` (the run is stopped on a recorded question — rule 5),
@@ -216,7 +239,19 @@ collaborative mode. With the review preference on this is a recorded
 question (rule 5): a `detection` review whose `values.features` are the
 model's points in image pixels, each with a name. Confirm with the features
 as they are to say the model was right; move one only for a correction you
-can state.
+can state. Where it is a prompt rather than a review, the payload's
+`current` is the live features, and an answer may move some:
+`"value": {"features": [{"name", "px": {"x", "y"}}]}` (source-image pixels,
+origin top-left; features you leave out stay). The model's points are kept
+beside your correction, as they are when the operator drags one.
+
+**`RunSpotBurn`** — points to burn on the FIB image. Yes burns the points
+as shown and the question comes back after the burn; no continues. The
+payload's `current` is the live points and `image` the frame they sit on.
+Placing points is a placement: held for the operator unless delegated. When
+it is, an answer may carry them: `"value": {"points": [{"x", "y"}]}`
+(fractions of the frame, origin top-left). Current and exposure stay the
+protocol's.
 
 **A `state` review** — the task's position, "press Continue when ready" on
 the record (rule 5). Confirming carries no values: the task reads the
@@ -277,8 +312,8 @@ The argument selects a variation on the same loop:
   behind it. A rerun spends beam time and dose on a possibly marginal
   lamella — whenever the delegation is unclear, propose.
 - **grid review**: after a screening run, `GET /app/experiment/grids` lists each grid
-  with its latest overview per role; `GET /app/experiment/grids/{grid}/outputs/{file}`
-  is the preview and `.../markers` places the experiment's items on it in
+  with its latest overview per role; `get_grid_output_image` (`GET
+  /app/experiment/grids/{grid}/outputs/{file}`) is the preview and `.../markers` places the experiment's items on it in
   source pixels with their status — use it for "which items sit near the
   edge / off the grid" judgments, never re-derive stage geometry yourself.
   `quality` is the operator's verdict, not yours: say what you see, propose,
@@ -294,9 +329,11 @@ The argument selects a variation on the same loop:
 
 - `POST /app/workflow/start {"task_names": [...], "item_names": [...]}` —
   items omitted = all. Say what you are starting before you start it.
-- `POST /app/workflow/stop` — if you believe the run is doing damage, stop
-  first and explain second. At Watch you cannot stop it: tell the operator
-  at once, plainly, what you see and that they should press Stop.
+- `POST /app/workflow/stop {"reason": "..."}` — at Drive, if you believe the
+  run is doing damage, stop first; the reason is what the operator reads. At
+  Assist, file it as a request (the assist skill). At Watch you cannot stop
+  it: tell the operator at once, plainly, what you see and that they should
+  press Stop.
 - `POST /app/agent/supervision {"task_name", "supervise"}` — takes effect at the
   next decision point. A supervised task's questions go to the operator and
   to you alike; the first answer wins, and the operator can always answer
@@ -315,6 +352,29 @@ for something on the microscope, and say what you are about to do first.
 operator changes it (the Agent chip for the level; Tools → App Server,
 *Serve the microscope*, for the microscope). Don't look for another
 way in. A hardware tool missing from your tool list means the same thing.
+
+**Get your bearings once, before the first move.** On an instrument you
+have not used this session:
+- `list_devices` shows what it has: the beams, detectors, stage and an FM.
+- Read `get_parameter` `on` for the electron and ion beams. If one is off,
+  stop and tell the operator: switching a beam on is theirs. Note it if a
+  beam reads `blanked`. Some instruments have no `blanked`.
+- `get_geometry` gives the stage's poses, column tilts, pre-tilt, device
+  origins and the milling angle. It also gives, for each beam at the pose and
+  scan rotation now, the stage move a +1 µm `stable_move` along each image
+  axis makes, and which way raw +z goes. If a view says
+  `scan_rotation_handled: false`, its image axes are not the stage's: don't
+  `stable_move` from it.
+- `get_microscope_state` gives each beam's voltage, current, working
+  distance and scan rotation, the detectors' type and mode, and the stage
+  position. Say what you read, and anything that looks wrong for the task
+  (a milling current on the imaging beam, a detector the operator
+  doesn't use).
+- Take an initial image with each beam (`acquire_image_preview`) and look
+  at it before moving: is the sample in view and in focus?
+- Then confirm the geometry with one small `stable_move` and a fresh image,
+  and check that the feature went where it says. If it did not, stop and
+  tell the operator what you saw, rather than correcting by hand.
 
 **Read the microscope before each step, not once.** The operator, a run or
 a script may have moved it since you last looked. Before a move, read
@@ -336,17 +396,73 @@ feature goes out of focus and drifts out of the other beam, and you have no
 way to tell from the numbers where it will land. Use it only when the
 operator gives you stage coordinates.
 
+`stable_move` uses the stage and scan rotation as they are now. An offset
+measured on an older image is only right if neither has changed since; after
+a rotation or a scan-rotation change, take a new image and measure again.
+Before a large stable move, `call_service_query` `project_stable_move` with
+the same offset answers where the stage would go without moving it.
+
+Measure on a preview with its own scale: `hfw / width` per preview pixel.
+The `pixelsize` in an image answer is per pixel of the full image, which is
+larger than the preview.
+
 The rest of the moves, by when to use them:
-- `vertical_move`: the feature is centred in the electron image but off in
-  the ion image. Pass its offset in the ion image; it moves the stage along
-  the chamber vertical, which the electron beam doesn't see.
+- `vertical_move`: the feature is centred in one beam's image but off in
+  the other. Pass its offset in the image where it is off, and that beam as
+  `beam_type` (ION, the default, or ELECTRON); it moves the stage along the
+  chamber vertical, which the beam where the feature is centred doesn't see.
 - `move_to_orientation` (SEM, FIB, MILLING) and `move_to_milling_angle`:
   change the stage's rotation and tilt.
 - `safe_move_stage_absolute`: go back to a saved position. It tilts flat
   before a large rotation; `move_stage_absolute` moves every axis at once.
 
-After every move, take a fresh image and check where the feature landed
-before the next one.
+After every move, read the position back and compare it with what you
+asked for, then take a fresh image and check where the feature landed before
+the next one. A move under about 1 µm may not happen at all; the position
+read back says so. Move z in small steps and tilt in steps, with an image
+after each.
+
+**Coincidence: do it yourself.** To bring the beams onto the same feature,
+centre it in one beam with `stable_move`, find it in the other beam's image,
+and `vertical_move` by its offset there (`beam_type` = the beam you measured
+in). Cap each step to a few µm, take both images again, and repeat until it
+is centred in both. Work from whichever beam has it centred already. Don't
+use the coincidence commands: this loop worked better on a real instrument.
+The horizontal offset between the beams changes with tilt; note it.
+
+**A refused move and a failed move are different.** A move refused before it
+starts (outside the stage limits, `microscope_busy`, a bad argument, the
+level or the allowlist) changed nothing: fix the request and go again. A move
+that fails while moving (a hardware error, the touch alarm, stopped partway)
+may have hit something. Then stop moving: don't retry it, and don't reach the
+same place another way. Read the stage position, add a note saying what you
+asked for and what happened, and hand back to the operator.
+
+**Milling.** Mill a protocol's stage with milling `run_stage` (a
+`FibsemMillingStage` dict, e.g. one from `get_item_task_config`) and a
+multi-stage job with `run_task` (a `FibsemMillingTaskConfig` dict). They mill
+as the app does: each stage's strategy, alignment between stages, the beam put
+back. Leave `path` out or give one inside the experiment. Before milling,
+`get_pattern_preview` with a saved ion image and the stages shows where they
+will mill; look at it. Both are long commands: `wait_for_run` milling, and the
+result says the status, the folder and how each stage ended.
+Only where neither fits, `prepare` the settings and patterns, mill with `run` (not
+`start`, which reports no progress and records nothing), then `clear` and
+`restore`, and check the ion beam current is back where it was. `run`
+answers at once with its `run_id` (`state: running`) and mills on, in control
+of the microscope: call `wait_for_run` milling with that id, again while it
+says running, before you `clear`. It ends `done` (`result: completed`),
+`cancelled` or `failed` with its error. `get_service_parameter` milling
+`progress` shows how far it has got. A spot burn `run` works the same way.
+
+**Aligning to a reference.** To bring the view back onto a saved image (a
+task's reference from `get_task_outputs`, or one you saved), `measure_shift`
+the reference against a fresh saved image to see how far off you are, then
+`align_to_reference`: beam shift for a small offset, `stage` when it is beyond
+the beam shift's range. It is a long command; `wait_for_run` alignment gives
+each step's shift and whether the methods agree on what is left. If they don't
+agree, or the score stays low, the view has changed (milled, drifted out of
+frame): stop and tell the operator rather than aligning again.
 
 **`409 microscope_busy` is someone else working.** Its
 `detail.in_control` names who (`workflow`, `script`, or another command)

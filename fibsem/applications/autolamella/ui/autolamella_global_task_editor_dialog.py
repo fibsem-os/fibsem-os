@@ -25,15 +25,15 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskStatus,
     Experiment,
 )
-from fibsem.constants import MICRO_TO_SI, SI_TO_MICRO
+from fibsem.constants import SI_TO_MICRO
 from fibsem.structures import (
     BeamType,
     FibsemMillingSettings,
     ReferenceImageParameters,
-    get_fields_with_metadata,
+    field_specs,
 )
 from fibsem.ui.stylesheets import PRIMARY_BUTTON_STYLESHEET
-from fibsem.ui.utils import beam_field_metadata
+from fibsem.ui.utils import beam_spec
 from fibsem.ui.widgets.custom_widgets import (
     TitledPanel,
     ValueSpinBox,
@@ -79,7 +79,7 @@ class AutoLamellaGlobalTaskEditDialog(QDialog):
         self.spinbox_milling_fov = ValueSpinBox()
         configure_spinbox(
             self.spinbox_milling_fov,
-            beam_field_metadata(get_fields_with_metadata(FibsemMillingSettings)["hfw"]),
+            beam_spec(field_specs(FibsemMillingSettings)["hfw"]),
         )
         self.spinbox_milling_fov.setValue(150.0)
         self.spinbox_milling_fov.setToolTip(
@@ -342,7 +342,7 @@ class AutoLamellaGlobalTaskEditDialog(QDialog):
         # Get the new values
         new_ref_imaging = self.ref_image_params_widget.get_settings()
         new_milling_fov = (
-            self.spinbox_milling_fov.value() * MICRO_TO_SI
+            self.spinbox_milling_fov.value() / SI_TO_MICRO
         )  # Convert to SI units
 
         # Apply to selected task configs

@@ -7,7 +7,7 @@ import os
 import sys
 import time
 from dataclasses import replace
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 try:
     sys.modules.pop("PySide6.QtCore")
@@ -53,8 +53,9 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.applications.autolamella.ui.agent_activity import AgentActivity
 from fibsem.applications.autolamella.ui.agent_level_chip import (
     AgentLevelChip,
-    request_failure_text,
+    request_outcome,
 )
+from fibsem.applications.autolamella.ui.agent_previews import AgentPreviews
 from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor import (
     AutoLamellaProtocolEditorWidget,
 )
@@ -129,6 +130,7 @@ from fibsem.ui import notification_service
 from fibsem.ui.icon import autolamella_icon, fibsem_icon
 from fibsem.ui.qt.gc import install_main_thread_gc
 from fibsem.ui.stylesheets import (
+    ACCENT_CHIP_BUTTON_STYLESHEET,
     GRAY_ICON_COLOR,
     MENU_BUTTON_STYLESHEET,
     MUTED_GHOST_BUTTON_STYLESHEET,
@@ -139,6 +141,7 @@ from fibsem.ui.stylesheets import (
     border_stylesheet,
 )
 from fibsem.ui.tokens import (
+    ACCENT_COLOR,
     ERROR_COLOR,
     SURFACE_COLOR,
     TEXT_MUTED_COLOR,
@@ -705,10 +708,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             parent=self,
         )
 
-        # The embedded App Server's dialog: status, services, the dashboard. The
-        # agent's level and connecting one are the agent chip's (FIB-1035); the
-        # durable settings are in Preferences -> App Server. Visible only with the
-        # App Server enabled, next to Scripts (FIB-863).
+        # The embedded App Server's dialog: whether it runs, its services, the
+        # dashboard. The agent's level and connecting one are the agent chip's
+        # (FIB-1035). Always visible: it is where the server is turned on. Next
+        # to Scripts (FIB-863).
         self.action_app_server = QAction("App Server...", self)
         self.action_app_server.setMenuRole(QAction.NoRole)
         self.action_app_server.setToolTip(
@@ -987,9 +990,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def _apply_preferences(self):
         """Apply current preferences to UI state."""
-        # The embedded App Server follows its flag immediately: ticking the
-        # box mid-session starts it against the connected microscope (or stops
-        # it), instead of waiting for the next connect.
+        # The embedded App Server follows its saved switch (set in Tools → App
+        # Server) against the connected microscope.
         if getattr(self, "autolamella_ui", None) is not None:
             self.autolamella_ui.sync_app_server_with_preference()
         d = self._preferences.display
@@ -1011,8 +1013,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_open_coincidence_viewer.setVisible(coincidence_enabled)
         self._action_coincidence_separator.setVisible(coincidence_enabled)
         self._apply_review_visibility()
-        # Same rule as the rest of the agent chrome: invisible unless enabled.
-        self.action_app_server.setVisible(self._preferences.app_server.enabled)
         # getattr because this also runs from the preferences dialog, and the tab it
         # reaches into is built by AutoLamellaUI rather than here.
         system_widget = getattr(self.autolamella_ui, "system_widget", None)
@@ -1586,12 +1586,18 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.agent_chip.hide()
         self.agent_chip.level_chosen.connect(self._on_agent_level_chosen)
         self.agent_chip.connect_clicked.connect(self._on_connect_agent_dialog)
+        self.agent_chip.event_log_clicked.connect(self._on_open_event_log)
         self.agent_chip.stop_clicked.connect(self._on_stop_agent)
         self.agent_chip.approve_clicked.connect(self._on_approve_agent_request)
         self.agent_chip.reject_clicked.connect(self._on_reject_agent_request)
+        self.agent_chip.accept_clicked.connect(self._on_accept_agent_suggestion)
+        # The suggestion the operator dropped by answering otherwise, until the
+        # answer that dropped it is heard (the responder takes the suggestion
+        # down before it says the question was answered).
+        self._dropped_agent_suggestion: Optional[dict] = None
         self.status_bar.add_action(self.agent_chip)
         # The agent's requests (FIB-1283): the store being watched, and the
-        # requests whose outcome the status bar has already said.
+        # requests whose outcome a toast has already said (FIB-1404).
         self._agent_requests = None
         self._agent_requests_unsubscribe = None
         self._agent_requests_reported: set = set()
@@ -1601,6 +1607,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.status_bar,
             view_controller=lambda: getattr(self, "view_controller", None),
             parent=self,
+        )
+        # What the agent's waiting request or suggestion would do, on the views.
+        self.agent_previews = AgentPreviews(
+            lambda: getattr(self, "view_controller", None)
         )
         self._agent_chip_timer = QTimer(self)
         self._agent_chip_timer.setInterval(1000)
@@ -1630,6 +1640,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             QMessageBox.No,
         )
         if reply == QMessageBox.Yes and self.autolamella_ui is not None:
+            self._record_operator_stop("workflow", "Stop")
             self.autolamella_ui.stop_task_workflow()
             self._set_border_state("stopping")
 
@@ -2280,6 +2291,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Question lifecycle refreshes the waiting chrome. GUI thread: the
         # responder emits these where the lifecycle already runs.
         self.autolamella_ui.ui_responder.add_question_observer(self._on_question_event)
+        self.autolamella_ui.suggestion_changed.connect(self._on_agent_suggestion)
         notification_service._get_service().toast.connect(self._on_notification_service)
         notification_service._get_service().toast_action.connect(
             self._on_notification_service_action
@@ -2607,11 +2619,27 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         experiment_menu.addAction(self.action_open_experiment_directory)
         self.btn_experiment_menu.setMenu(experiment_menu)
 
+        # A newer release, once the startup check has found one -- see
+        # _update_version_chip. Hidden until then, and for good when the check is off,
+        # offline or finds nothing: none of those is anything to act on.
+        self.btn_update_available = QPushButton()
+        set_button_icon(
+            self.btn_update_available, "mdi:arrow-up-circle-outline", color=ACCENT_COLOR
+        )
+        self.btn_update_available.setStyleSheet(ACCENT_CHIP_BUTTON_STYLESHEET)
+        self.btn_update_available.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        self.btn_update_available.setVisible(False)
+        # The About dialog already says what is installed, what is out and how to
+        # update; the chip only points there.
+        self.btn_update_available.clicked.connect(self._show_about_dialog)
+
         # Notification bell
         self.notification_bell = NotificationBell(self)
         self.toast_manager.set_notification_bell(self.notification_bell)
 
-        # Add widgets to layout
+        # Add widgets to layout. The update chip leads, so it never sits between the
+        # instrument and the experiment it is working on.
+        button_layout.addWidget(self.btn_update_available)
         if self._connection_chip_enabled:
             button_layout.addWidget(self.btn_connection)
         button_layout.addWidget(self.btn_experiment_menu)
@@ -2625,6 +2653,22 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # The chip has a state before anything connects, and only the connect
         # handler would otherwise ever set one.
         self._update_connection_chip()
+
+    def _update_version_chip(self) -> None:
+        """Show the newer release the update check found, or nothing.
+
+        Reads the cached answer, so a check that failed or never ran lands in the same
+        place as "up to date": the chip hidden.
+        """
+        from fibsem import update_check
+
+        latest = update_check.get_available_update()
+        self.btn_update_available.setVisible(latest is not None)
+        if latest is not None:
+            self.btn_update_available.setText(f"{latest} available")
+            self.btn_update_available.setToolTip(
+                f"fibsemOS {latest} is available. Click for details."
+            )
 
     def add_protocol_editor_tab(self):
         """Add the protocol editor as a separate tab with its own viewer."""
@@ -3498,6 +3542,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             # Two halves, as Stop Workflow has: tell the queue this task is being
             # abandoned, and bring the hardware to a halt. Without the second, the
             # task stops waiting for the mill but the mill keeps going.
+            self._record_operator_stop("task", "Stop Task", task=label)
             manager.stop_task()
             self.autolamella_ui.stop_current_operations()
             # No queue mutation here: the task unwinds on the worker thread and the
@@ -3717,20 +3762,51 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         )
         dialog.exec_()
 
+    def _on_open_event_log(self) -> None:
+        """From the agent chip's menu: the App Server's event log in the browser."""
+        from fibsem.applications.autolamella.ui.app_server_dialog import (
+            AppServerDialog,
+            open_in_browser,
+        )
+
+        host = self._running_app_server()
+        if host is None:
+            return
+        open_in_browser(AppServerDialog.event_log_url(host))
+
     def _on_app_server_dialog(self) -> None:
         """Open Tools → App Server: status, services, clients, the dashboard."""
         from fibsem.applications.autolamella.ui.app_server_dialog import (
             AppServerDialog,
         )
 
+        preference = fibsem_cfg.load_user_preferences().app_server
         dialog = AppServerDialog(
             host_provider=lambda: getattr(
                 self.autolamella_ui, "_app_server_host", None
             ),
             parent=self,
-            set_microscope=self.autolamella_ui.set_app_server_microscope,
+            set_enabled=self._set_app_server_enabled,
+            set_microscope=self._set_app_server_microscope,
+            enabled=preference.enabled,
+            serve_microscope=preference.microscope,
         )
         dialog.exec_()
+
+    def _set_app_server_enabled(self, enabled: bool) -> None:
+        """Tools → App Server: save whether the server runs, and act on it now."""
+        self._preferences = fibsem_cfg.update_user_preferences(
+            lambda p: setattr(p.app_server, "enabled", bool(enabled))
+        )
+        self.autolamella_ui.sync_app_server_with_preference()
+
+    def _set_app_server_microscope(self, serve: bool) -> None:
+        """Tools → App Server: save whether the microscope is served, and act on it
+        now (a running server restarts)."""
+        self._preferences = fibsem_cfg.update_user_preferences(
+            lambda p: setattr(p.app_server, "microscope", bool(serve))
+        )
+        self.autolamella_ui.set_app_server_microscope(serve)
 
     def _running_app_server(self):
         """The App Server's host while it runs, else None."""
@@ -3746,6 +3822,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         host = self._running_app_server()
         if host is None:
             self._watch_agent_requests(None)
+            self.agent_previews.show_request(None)
             self.agent_chip.hide()
             return
         level = host.auth.level or AgentLevel.WATCH
@@ -3768,6 +3845,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if store is None:
             self.agent_chip.set_request(None)
             return
+        # What ended before the window was watching is not news.
+        self._agent_requests_reported.update(
+            request.id
+            for request in store.recent()
+            if request.status not in ("pending", "applying")
+        )
 
         def changed(_request, signal=self.agent_request_changed):
             try:
@@ -3778,24 +3861,32 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._agent_requests_unsubscribe = store.subscribe(changed)
 
     def _show_agent_request(self, store) -> None:
-        """The chip shows a request waiting or being applied; a refused one leaves
-        its failure on the status bar, once."""
+        """The chip shows a request waiting or being applied; how one ended is
+        said once, as a toast, so the status bar keeps what is running now."""
         current = None
         for request in store.recent() if store is not None else []:
             if request.status in ("pending", "applying"):
-                current = request
-                break
-            if (
-                request.status == "failed"
-                and request.id not in self._agent_requests_reported
-            ):
-                self._agent_requests_reported.add(request.id)
-                self.status_bar.show_failure(
-                    "Agent's request", request_failure_text(request.to_dict())
+                current = current or request
+                continue
+            if request.id in self._agent_requests_reported:
+                continue
+            self._agent_requests_reported.add(request.id)
+            outcome = request_outcome(request.to_dict())
+            if outcome is not None:
+                message, kind = outcome
+                # Kept in the bell's history: the toast goes, the outcome stays.
+                notification_service.show(
+                    message,
+                    kind,
+                    action=("Show in event log", self._on_open_event_log)
+                    if kind == "error"
+                    else None,
                 )
         shown = current.to_dict() if current is not None else None
         if shown != self.agent_chip.request:
             self.agent_chip.set_request(shown)
+        self.agent_previews.show_request(shown)
+        self.agent_chip.set_now(self.agent_activity.action)
 
     def _on_approve_agent_request(self, request_id: str) -> None:
         """GUI thread, from the chip: run the request. Its actions run on their
@@ -3821,7 +3912,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             else:
                 store.reject(request_id, reason=reason)
         except RequestRefused as refused:
-            self.status_bar.show_failure("Agent's request", str(refused))
+            notification_service.show_toast(f"Agent's request: {refused}", "error")
         logging.info(
             "Agent's request %s %s by the operator",
             request_id,
@@ -3861,6 +3952,18 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             )
         self._refresh_agent_chip()
 
+    def _record_operator_stop(self, stopped: str, by: str, **extra) -> None:
+        """Put the operator's stop on the session's record (events.jsonl) and in
+        the log, before the stop runs: what was stopped (the workflow or one
+        task) and from where. Without it a stop leaves only the run's
+        ``task_cancelled``, which does not say who stopped it (FIB-1397). The
+        agent's stop records itself (``agent_stop``)."""
+        logging.info("%s stopped by the operator (%s)", stopped.capitalize(), by)
+        recorder = getattr(self.autolamella_ui, "_event_recorder", None)
+        if recorder is None:
+            return
+        recorder.buffer.append("workflow_stop", {"stopped": stopped, "by": by, **extra})
+
     def _record_agent_event(self, kind: str, previous, level, **extra) -> None:
         """Put a level change on the session's record (events.jsonl). Emitted
         here, on the GUI thread, so the recorder names the operator."""
@@ -3899,7 +4002,39 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     def _on_question_event(self, kind: str, payload: dict) -> None:
         """GUI thread, from the responder: a question was raised, answered or
         cancelled, so the waiting chrome follows."""
+        dropped, self._dropped_agent_suggestion = self._dropped_agent_suggestion, None
+        if (
+            dropped is not None
+            and kind == "prompt_answered"
+            and payload.get("answered_by") == "operator"
+            and not payload.get("suggested_by")
+        ):
+            notification_service.show(
+                "Agent's suggestion dropped: you answered the question yourself",
+                "info",
+            )
         self._refresh_workflow_indicators()
+
+    def _on_agent_suggestion(self, suggestion: Optional[dict]) -> None:
+        """GUI thread: the agent's suggested answer went up or came down. It
+        shows on the agent's card, not on the prompt (FIB-1407)."""
+        shown = self.agent_chip.suggestion
+        self._dropped_agent_suggestion = shown if suggestion is None else None
+        self.agent_chip.set_suggestion(suggestion)
+        self.agent_previews.show_suggested_point(
+            suggestion.get("point") if suggestion is not None else None
+        )
+
+    def _on_accept_agent_suggestion(self) -> None:
+        """Accept on the agent's card: the operator answers with the agent's
+        suggestion, as theirs."""
+        self._dropped_agent_suggestion = None
+        if not self.autolamella_ui.take_suggestion():
+            notification_service.show(
+                "The agent's suggestion had gone: the question was answered or "
+                "taken down",
+                "info",
+            )
 
     def _refresh_workflow_indicators(self) -> None:
         """Re-read the waiting/supervised/running state into the window chrome."""
@@ -4335,6 +4470,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         box.setDefaultButton(QMessageBox.No)
         if box.exec_() != QMessageBox.Yes:
             return False
+        self._record_operator_stop("workflow", "closing the window")
         ui.stop_task_workflow()
         return True
 
@@ -4394,13 +4530,17 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             app.quit()
 
 
-def _start_update_check() -> None:
+def _start_update_check(on_done: Optional[Callable[[], None]] = None) -> None:
     """Ask PyPI about newer releases on a worker thread, once, at startup.
 
     Startup rather than on dialog open: the about dialog reads the cached result,
     so it stays instant and offline-safe by construction, and the latency lands
     where nothing is waiting on it. A no-op for source installs and when the user
     has opted out, so the common developer case makes no network call at all.
+
+    ``on_done`` runs on the GUI thread once the check is over, however it ended --
+    offline, refused or answered -- so the caller reads the cache rather than
+    reasoning about which.
     """
     from fibsem import update_check
     from fibsem.ui.qt.threading import thread_worker
@@ -4412,7 +4552,12 @@ def _start_update_check() -> None:
     def _check() -> None:
         update_check.refresh()
 
-    _check().start()
+    worker = _check()
+    if on_done is not None:
+        # Connected before start(): a check that fails at once (no route, no DNS)
+        # could otherwise finish before anything is listening.
+        worker.finished.connect(on_done)
+    worker.start()
 
 
 def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
@@ -4476,7 +4621,7 @@ def run_ui(argv: Optional[List[str]] = None, splash: Optional[Splash] = None):
     window.show()
     if splash is not None:
         splash.finish(window)
-    _start_update_check()
+    _start_update_check(on_done=window._update_version_chip)
     if args.quickstart or args.quickload:
         # Once the event loop is running, not inline here: connecting blocks for
         # seconds against real hardware, and doing it before exec_() would hold up

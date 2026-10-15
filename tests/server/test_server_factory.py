@@ -273,10 +273,15 @@ def test_hardware_command_borrows_control_a_run_has_lent(armed_client, microscop
     assert resp.status_code == 200
 
 
-def test_stop_milling_is_allowed_whoever_is_in_control(armed_client, microscope):
+def test_stop_milling_is_allowed_whoever_is_in_control(
+    armed_client, microscope, monkeypatch
+):
     # The stop must interrupt an in-flight command, so it never takes control.
+    monkeypatch.setattr(microscope.milling, "_running", True)  # something to stop
     with microscope.control.take("workflow", "a lamellae run"):
-        resp = armed_client.post(STOP_MILLING, headers=AUTH)
+        resp = armed_client.post(
+            STOP_MILLING, headers=AUTH, json={"reason": "the run is milling past"}
+        )
     assert resp.status_code == 200
 
 

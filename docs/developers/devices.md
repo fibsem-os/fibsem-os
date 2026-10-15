@@ -375,7 +375,19 @@ role's interface, a name no entry has, or bindings that form a cycle. A bound de
 that is switched off (`enabled: false`) leaves the role empty, with a warning.
 
 `Scanner` is minimal until a real unit's SDK says more: `acquire(resolution,
-dwell_time)` returns one frame, and `stop()` ends a frame in flight.
+dwell_time)` returns one frame, and `stop()` ends a frame in flight. A driver whose
+unit has limits returns them from `_dwell_time_limits()` (a `RangeLimit`, in s) and
+`_resolution_limits()` (the smallest and largest `(width, height)`), and `acquire`
+refuses a frame outside them with a `ValueError`. While the scanner is bound, the
+beam's `dwell_time` limits are the overlap of the column's and the scanner's, and its
+`resolution` choices are the ones the scanner can scan, so the beam panel and an
+agent are offered only frames that work. The values themselves stay on the beam.
+
+An image a beam acquires records the device in each role it had filled, under
+`image.metadata.roles` (metadata v12): for `scanner`, the scanner's `name`, `class`,
+`driver`, its parameters' cached `values` (the input, the gain) and its `facts`.
+It is empty for an image from the vendor's own scan. `microscope_state` still
+carries the vendor's detector either way.
 
 ## Services
 
@@ -580,6 +592,12 @@ metadata. `needs_channel` names the parameters whose reads and writes claim the
 imaging channel. The vendor-neutral classes live in `fibsem/devices/` and never import
 a driver; each driver's classes live in `fibsem/drivers/<driver>/devices.py`.
 
+A plugin imports only from `fibsem.devices` (`Device`, `Parameter`,
+`ParameterMetadata`, `Display`, `Role`, `command`, `query`, `Resources`, and the
+interfaces such as `Scanner`) and `fibsem.drivers.registry`; the submodules may move.
+A parameter's `Display` crosses to clients in its description (`describe()`, and the
+device server's `GET /devices`), so an agent shows it as a form does.
+
 ## Adding a driver
 
 A driver is a `DriverEntry` in the registry (`fibsem/drivers/registry.py`). Its
@@ -618,9 +636,28 @@ then adds the device with an entry naming the driver:
 
 The builder is imported only when an entry needs it. A builder that raises fails the
 connect, since the file lists the device, unless the entry says `required: false`;
-then the device is left out.
+then the device is left out. An entry naming a driver nothing is registered as (its
+plugin is not installed in this environment, or a typo) fails the same way, and the
+message lists the drivers that are installed.
+
+When the instrument refuses (the controller is offline, a value is outside what the
+unit can do), a driver raises `fibsem.devices.DeviceFault`, or its own subclass of
+it, naming the device: `raise DeviceFault("controller offline", device=self.name)`.
+A bad argument is still a `ValueError`. The device server answers a fault as 502 and
+a remote copy raises it again, so a refusal from the hardware is told apart from a
+fault in fibsem.
 `BuildContext.shared` is scratch space the builders of one connect share, such as one
-connection per address.
+connection per address. Each device built from an entry records its driver's
+registry name in `device.driver`, which the device server's description carries.
+
+When the microscope disconnects, each device's `disconnect()` is called, in reverse
+build order. A device that holds its
+own controller connection overrides it to close that connection. A connection that
+several entries share belongs to no one device, so its builder registers the close
+with `context.on_disconnect(connection.close)`. These run after the devices, and the
+driver's own client is closed last. One that raises is logged, and the rest still
+run. A whole-microscope driver puts its client's close in `_disconnect`, not
+`disconnect`.
 
 A driver like this one, that only builds devices, has no `microscope_class`. It is
 never offered as a manufacturer, and connecting with it as `info.manufacturer` is
@@ -654,7 +691,9 @@ a remote stage asks the server for its poses (`pose_table`).
 to try it. `connect_remote_beams` in the same module connects to served beams from a
 script. `get_value()` raises `RemoteDeviceUnreachable` when the server cannot
 be reached, rather than return a stale value, and `cached` is kept current by the
-server's event stream. `fibsem/server/devices.py` documents the server's endpoints.
+server's event stream. A refusal keeps its type across the wire (`ValueError`,
+`ParameterReadOnly`, `DeviceFault`, ...); any other error on the server answers 500
+with the same `error_type` and `message`, its traceback in the server's log. `fibsem/server/devices.py` documents the server's endpoints.
 INSTALLATION.md covers setting up a METEOR.
 
 The server has no authentication yet. Keep it on the microscope's private network.

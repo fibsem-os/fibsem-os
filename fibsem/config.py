@@ -10,7 +10,6 @@ import yaml
 
 import fibsem
 import fibsem.util.numpy_yaml  # noqa: F401  numpy scalars dump as numbers
-from fibsem.drivers import registry
 from fibsem.util.timestamps import to_datetime
 
 # Documentation for a human reading a file, not a parsing switch -- from_dict does not
@@ -40,7 +39,11 @@ from fibsem.util.timestamps import to_datetime
 # is `microscope_state.timestamp`: a POSIX float, or AutoScript's naive
 # `%m/%d/%Y %H:%M:%S` string on a ThermoFisher image. Read either through
 # `fibsem.util.timestamps.acquisition_datetime_of`.
-METADATA_VERSION = "v11"
+# v12 added `roles` -- for each role the acquiring beam had filled (its `scanner`),
+# the device in it: name, class, driver, its parameters' last known values and its
+# facts. Absent in earlier files, and empty for a beam with no role filled: the
+# image came from the vendor's own scan.
+METADATA_VERSION = "v12"
 # What an unversioned file is. Absent means written before versioning existed, i.e.
 # older than v1 -- not "current", which is what defaulting to METADATA_VERSION claimed.
 UNVERSIONED_METADATA = "v0"
@@ -210,23 +213,6 @@ def set_default_configuration(configuration_name: str):
     USER_CONFIGURATIONS_YAML["default"] = configuration_name
     with open(USER_CONFIGURATIONS_PATH, "w") as f:
         yaml.dump(USER_CONFIGURATIONS_YAML, f)
-
-
-def __getattr__(name: str):
-    """``DEFAULT_CONFIGURATION_VALUES`` and ``AVAILABLE_MANUFACTURERS``, from the
-    driver registry (FIB-1123).
-
-    Read on each access rather than at import: reading a driver's record imports its
-    module, which imports this one, and a driver registered later is then included.
-    ``DEFAULT_CONFIGURATION_VALUES`` is each driver's config (column tilts, port);
-    ``AVAILABLE_MANUFACTURERS`` is the manufacturers that have one. Odemis has none,
-    so it is in neither.
-    """
-    if name == "DEFAULT_CONFIGURATION_VALUES":
-        return registry.default_configuration_values()
-    if name == "AVAILABLE_MANUFACTURERS":
-        return list(registry.default_configuration_values())
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 # machine learning

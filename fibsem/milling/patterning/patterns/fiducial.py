@@ -9,15 +9,17 @@ from typing import (
 import numpy as np
 
 from fibsem import constants
+from fibsem.display import Display
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.milling.properties import (
-    DEFAULT_ANGLE_METADATA,
-    DEFAULT_CROSS_SECTION_METADATA,
-    DEFAULT_DISTANCE_METADATA,
+    angle_metadata,
+    cross_section_metadata,
+    distance_metadata,
 )
 from fibsem.structures import (
     CrossSectionPattern,
     FibsemRectangleSettings,
+    field_meta,
 )
 
 
@@ -25,47 +27,29 @@ from fibsem.structures import (
 class FiducialPattern(BasePattern[FibsemRectangleSettings]):
     width: float = field(
         default=1.0e-6,
-        metadata={
-            "label": "Width",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Width of the fiducial mark.",
-        },
+        metadata=distance_metadata("Width", "Width of the fiducial mark."),
     )
     height: float = field(
         default=10.0e-6,
-        metadata={
-            "label": "Height",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Height of the fiducial mark.",
-        },
+        metadata=distance_metadata("Height", "Height of the fiducial mark."),
     )
     depth: float = field(
         default=1.0e-6,
-        metadata={
-            "label": "Depth",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Depth of the fiducial mark.",
-        },
+        metadata=distance_metadata("Depth", "Depth of the fiducial mark."),
     )
     rotation: float = field(
         default=45.0,
-        metadata={
-            "label": "Rotation",
-            **DEFAULT_ANGLE_METADATA,
-            "tooltip": "Rotation angle of the fiducial mark.",
-        },
+        metadata=angle_metadata("Rotation", "Rotation angle of the fiducial mark."),
     )
     cross_section: CrossSectionPattern = field(
-        default=CrossSectionPattern.Rectangle, metadata=DEFAULT_CROSS_SECTION_METADATA
+        default=CrossSectionPattern.Rectangle, metadata=cross_section_metadata()
     )
     asymmetric: bool = field(
         default=False,
-        metadata={
-            "label": "Asymmetric",
-            "type": bool,
-            "advanced": True,
-            "tooltip": "If true, make the fiducial mark y-shaped.",
-        },
+        metadata=field_meta(
+            doc="If true, make the fiducial mark y-shaped.",
+            display=Display("Asymmetric", advanced=True),
+        ),
     )
     name: ClassVar[str] = "Fiducial"
 

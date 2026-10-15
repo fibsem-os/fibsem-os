@@ -176,13 +176,27 @@ def test_a_device_without_a_builder_is_skipped_with_a_warning(builders, caplog):
     builders["chamber"] = lambda entry, context: "chamber"
     with caplog.at_level(logging.WARNING):
         built = build_device_entries(
-            [_item("laser", "laser"), _item("chamber", "chamber", driver="remote")],
+            [_item("laser", "laser"), _item("chamber", "chamber", driver="Acme")],
             None,
         )
 
     assert built == {}
     assert "'laser' was not built: driver 'Test' has no builder" in caplog.text
-    assert "'chamber' was not built: driver 'remote' has no builder" in caplog.text
+    assert "'chamber' was not built: no driver 'Acme' is installed" in caplog.text
+
+
+def test_a_driver_nothing_is_registered_as_says_so_and_lists_the_installed(builders):
+    # a plugin not installed in this environment, or a typo in `driver:`
+    with pytest.raises(DeviceBuildError) as raised:
+        build_device_entries(
+            [_item("scanner", "scan_generator", driver="FakeScanner", required=True)],
+            None,
+        )
+
+    message = str(raised.value)
+    assert "no driver 'FakeScanner' is installed" in message
+    assert "has no builder" not in message
+    assert "Demo" in message and "remote" in message
 
 
 def test_a_required_device_without_a_builder_fails_connect(builders):

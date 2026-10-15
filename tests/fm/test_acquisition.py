@@ -1,3 +1,4 @@
+import json
 import os
 import threading
 from unittest.mock import Mock, call, patch
@@ -472,6 +473,7 @@ def test_every_frame_lands_at_its_own_channel_and_plane(
             )
 
 
+@pytest.mark.slow
 def test_acquisition_order_does_not_change_the_assembled_stack(fm_microscope):
     """The two orders differ in when frames are taken, not in what comes back."""
     fm = fm_microscope.fm
@@ -673,6 +675,7 @@ def test_acquire_image_description_keeps_an_unrecognised_extension(
     assert os.path.exists(filename)
 
 
+@pytest.mark.slow
 def test_acquire_and_stitch_tileset(fm_microscope):
     """Test acquire_and_stitch_tileset auto-converts single channel to list."""
     microscope = fm_microscope
@@ -776,6 +779,7 @@ def test_acquire_and_stitch_tileset(fm_microscope):
     assert result.metadata.channels[1].name == "GFP"
 
 
+@pytest.mark.slow
 def test_acquire_multiple_overviews(fm_microscope):
     """Test acquire_multiple_overviews function with multiple FM positions."""
     microscope = fm_microscope
@@ -1373,6 +1377,7 @@ def test_each_row_autofocus_survives_a_row_wise_order(fm_microscope, monkeypatch
     assert runner._autofocus_mode is AutoFocusMode.EACH_ROW
 
 
+@pytest.mark.slow
 def test_stitching_leaves_skipped_tiles_as_zeros_at_full_canvas_size(fm_microscope):
     """The mosaic is the whole grid whatever the mask, with gaps left black."""
     mask = _plus_mask(3)
@@ -1412,6 +1417,7 @@ def test_a_tileset_of_nothing_but_gaps_is_rejected(fm_microscope):
 # centre it reports has to be where the mosaic actually is, whatever was acquired.
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize(
     ("name", "predicate"),
     [
@@ -1560,6 +1566,7 @@ def test_each_preview_frame_is_its_own_array(fm_microscope):
     assert (first > 0).sum() < (frames[-1].preview.data > 0).sum()
 
 
+@pytest.mark.slow
 def test_the_preview_is_decimated(fm_microscope):
     frames = _preview_frames(fm_microscope, 5, 5)
 
@@ -1641,6 +1648,7 @@ def _autofocus_payloads(microscope, monkeypatch, mode):
     return seen
 
 
+@pytest.mark.slow
 def test_focusing_once_runs_every_enabled_pass(fm_microscope, monkeypatch):
     """Coarse then fine, which is the whole reason to configure more than one pass.
 
@@ -1653,6 +1661,7 @@ def test_focusing_once_runs_every_enabled_pass(fm_microscope, monkeypatch):
     assert passes == [(1, 2, 5), (2, 2, 7)]
 
 
+@pytest.mark.slow
 def test_per_tile_focusing_runs_only_the_narrowest_pass(fm_microscope, monkeypatch):
     """It refines an already-good position; a wide sweep at every tile would dominate."""
     seen = _autofocus_payloads(fm_microscope, monkeypatch, AutoFocusMode.EACH_TILE)
@@ -1725,6 +1734,7 @@ def _offset_from(position, dx, dy):
     return moved
 
 
+@pytest.mark.slow
 def test_the_grid_is_laid_out_around_the_requested_centre(fm_microscope):
     start = fm_microscope.get_stage_position()
     centre = _offset_from(start, 400e-6, -250e-6)
@@ -2491,3 +2501,102 @@ def test_every_counted_payload_carries_an_estimate(fm_microscope):
     for payload in [p for p in emitted if p.completed]:
         assert payload.estimated_remaining_seconds >= 0
         assert payload.estimated_total_seconds > 0
+
+
+# ── tile layout check (FIB-1385) ────────────────────────────────────────
+
+
+def test_layout_plane_weights_channels_equally_and_ignores_flat_ones():
+    """A dim channel counts as much as a bright one, and a blank one adds nothing
+    rather than dividing the rest down to noise."""
+    rng = np.random.default_rng(0)
+    bright = rng.integers(0, 60000, (32, 48)).astype(np.uint16)
+    dim = (bright // 100).astype(np.uint16)
+    flat = np.full((32, 48), 500, dtype=np.uint16)
+
+    plane = acquisition._layout_plane(np.stack([bright, dim, flat]))
+
+    assert plane.shape == (32, 48)
+    # bright and dim are the same picture, so they stretch to the same 0-255 plane;
+    # the flat channel contributes zeros.
+    single = acquisition._layout_plane(np.stack([bright]))
+    np.testing.assert_allclose(plane, single * 2 / 3, atol=3.0)
+
+
+def test_a_run_writes_its_tile_layout_beside_the_tiles(fm_microscope, tmp_path):
+    runner = FMTiledAcquisitionRunner(
+        microscope=fm_microscope,
+        channel_settings=ChannelSettings(name="DAPI", exposure_time=0.001),
+        overview_parameters=OverviewParameters(rows=2, cols=2, overlap=0.1),
+        save_directory=str(tmp_path),
+    )
+    runner.run()
+
+    record = (tmp_path / "tile-layout.json").read_text()
+    assert '"pairs"' in record
+    # Four tiles in a 2x2 are four neighbour pairs, matched or not.
+    assert len(json.loads(record)["pairs"]) == 4
+    assert runner.layout_warning == json.loads(record)["warning"]
+
+
+# ── experimental tile alignment (FIB-1385) ──────────────────────────────
+
+
+def test_overview_parameters_align_tiles_is_off_by_default_and_round_trips():
+    assert OverviewParameters().register_tiles is False
+    assert OverviewParameters.from_dict({}).register_tiles is False
+    on = OverviewParameters(register_tiles=True)
+    assert OverviewParameters.from_dict(on.to_dict()).register_tiles is True
+
+
+def test_stitching_places_each_tile_at_a_given_position(fm_microscope):
+    """With `positions`, a tile lands where it is told, in every channel, and the
+    mosaic keeps the size and centre of the planned one."""
+    runner = FMTiledAcquisitionRunner(
+        microscope=fm_microscope,
+        channel_settings=[
+            ChannelSettings(name="DAPI", exposure_time=0.001),
+            ChannelSettings(name="GFP", exposure_time=0.001),
+        ],
+        overview_parameters=OverviewParameters(rows=2, cols=2, overlap=0.1),
+    )
+    tileset = runner.run()
+    centre = fm_microscope.get_stage_position()
+    planned = stitch_tileset(tileset, 0.1, centre_position=centre)
+    h, w = tileset[0][0].data.shape[-2:]
+    step_y, step_x = h - int(h * 0.1), w - int(w * 0.1)
+    positions = {
+        (r, c): (float(r * step_y), float(c * step_x)) for r in (0, 1) for c in (0, 1)
+    }
+    positions[(1, 1)] = (step_y + 9.0, step_x - 13.0)
+
+    moved = stitch_tileset(tileset, 0.1, centre_position=centre, positions=positions)
+
+    assert moved.data.shape == planned.data.shape
+    assert moved.metadata.stage_position.x == planned.metadata.stage_position.x
+    # The middle of tile (1, 1) is its own pixels, wherever it was put.
+    tile = np.max(tileset[1][1].data, axis=1)  # (C, Y, X)
+    y, x = step_y + 9 + h // 2, step_x - 13 + w // 2
+    np.testing.assert_array_equal(
+        moved.data[:, 0, y - 5 : y + 5, x - 5 : x + 5],
+        tile[:, h // 2 - 5 : h // 2 + 5, w // 2 - 5 : w // 2 + 5],
+    )
+
+
+def test_a_run_asked_to_align_records_what_it_did(fm_microscope, tmp_path):
+    runner = FMTiledAcquisitionRunner(
+        microscope=fm_microscope,
+        channel_settings=ChannelSettings(name="DAPI", exposure_time=0.001),
+        overview_parameters=OverviewParameters(
+            rows=2, cols=2, overlap=0.1, register_tiles=True
+        ),
+        save_directory=str(tmp_path),
+    )
+    mosaic = runner.run_and_stitch()
+
+    record = json.loads((tmp_path / "tile-layout.json").read_text())
+    registration = record["registration"]
+    assert set(registration) >= {"applied", "note"}
+    # Aligned or not, the mosaic is the planned one's size.
+    h, w = fm_microscope.fm.camera.resolution[1], fm_microscope.fm.camera.resolution[0]
+    assert mosaic.data.shape[-2:] == (h - int(h * 0.1) + h, w - int(w * 0.1) + w)

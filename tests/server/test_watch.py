@@ -204,6 +204,16 @@ def test_the_agent_s_request_is_followed_to_its_end(app):
             {"request_id": "ab12", "status": "failed", "applied": 1, "of": 2},
         )
         app.buffer.append(
+            "request_finished",
+            {
+                "request_id": "gh78",
+                "status": "applied",
+                "applied": 2,
+                "of": 2,
+                "cancelled": 1,
+            },
+        )
+        app.buffer.append(
             "request_decided",
             {"request_id": "cd34", "outcome": "rejected", "reason": "not now"},
         )
@@ -215,11 +225,39 @@ def test_the_agent_s_request_is_followed_to_its_end(app):
 
     code, lines = _watch({2: run})
 
-    assert lines[:4] == [
+    assert lines[:5] == [
         "REQUEST ab12 approved",
         "REQUEST ab12 failed (1 of 2 applied)",
+        # A mill in it was stopped part way (FIB-1398).
+        "REQUEST gh78 applied (2 of 2; run cancelled)",
         "REQUEST cd34 rejected: not now",
         "REQUEST ef56 cancelled: the operator stopped the agent",
+    ]
+
+
+def test_a_long_command_s_end_is_a_line(app):
+    def run():
+        app.buffer.append(
+            "command_ended",
+            {"run_id": "r1", "service": "milling", "command": "run", "state": "done"},
+        )
+        app.buffer.append(
+            "command_ended",
+            {
+                "run_id": "r2",
+                "service": "spot_burn",
+                "command": "run",
+                "state": "failed",
+                "error": "the beam would not blank",
+            },
+        )
+        app.buffer.append("workflow_completed", {})
+
+    code, lines = _watch({2: run})
+
+    assert lines[:2] == [
+        "COMMAND ENDED milling.run run=r1 state=done",
+        "COMMAND ENDED spot_burn.run run=r2 state=failed (the beam would not blank)",
     ]
 
 

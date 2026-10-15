@@ -12,6 +12,7 @@ import numpy as np
 from psygnal import Signal
 
 from fibsem import acquire, constants
+from fibsem.display import Display
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling import (
@@ -28,6 +29,7 @@ from fibsem.structures import (
     FibsemImage,
     FibsemRectangle,
     MillingState,
+    RangeLimit,
     field_meta,
 )
 from fibsem.utils import save_json
@@ -47,78 +49,73 @@ class CoincidenceMillingStrategyConfig(MillingStrategyConfig):
     timeout: int = field(
         default=1800,
         metadata=field_meta(
-            label="Timeout",
             unit="s",
-            minimum=30,
-            maximum=9000,
-            tooltip="Milling will timeout after this duration in seconds, without user intervention",
+            limits=RangeLimit(30, 9000),
+            doc="Milling will timeout after this duration in seconds, without user intervention",
+            display=Display("Timeout"),
         ),
     )  # seconds, default timeout for milling
     save_fm_images: bool = field(
         default=True,
         metadata=field_meta(
-            label="Save FM Images",
-            tooltip="Save FM images during milling",
+            doc="Save FM images during milling", display=Display("Save FM Images")
         ),
     )  # save FM images during milling
     save_rate_limit: int = field(
         default=2,
         metadata=field_meta(
-            label="Save Rate Limit",
-            tooltip="Save one image every n seconds",
+            doc="Save one image every n seconds", display=Display("Save Rate Limit")
         ),
     )  # save one image every n seconds
     # acquire_z_stack: bool = False  # acquire a z-stack after milling
     acquire_fib_image: bool = field(
         default=True,
         metadata=field_meta(
-            label="Acquire FIB Image",
-            tooltip="Acquire a FIB image after milling",
+            doc="Acquire a FIB image after milling",
+            display=Display("Acquire FIB Image"),
         ),
     )  # acquire a FIB image after milling
     intensity_drop_fraction: float = field(
         default=0.4,
         metadata=field_meta(
-            label="Drop Fraction",
-            minimum=0.05,
-            maximum=0.95,
-            tooltip="Trigger when the rolling mean drops by this fraction below its peak (e.g. 0.4 = 40% drop)",
+            limits=RangeLimit(0.05, 0.95),
+            doc="Trigger when the rolling mean drops by this fraction below its peak (e.g. 0.4 = 40% drop)",
+            display=Display("Drop Fraction"),
         ),
     )
     rolling_window: int = field(
         default=10,
         metadata=field_meta(
-            label="Rolling Window",
-            tooltip="Number of frames for rolling mean calculation",
+            doc="Number of frames for rolling mean calculation",
+            display=Display("Rolling Window"),
         ),
     )
     warmup_duration: float = field(
         default=30.0,
         metadata=field_meta(
-            label="Warmup Duration",
             unit="s",
-            tooltip="Seconds to ignore at start before tracking the peak",
+            doc="Seconds to ignore at start before tracking the peak",
+            display=Display("Warmup Duration"),
         ),
     )
     consecutive_triggers: int = field(
         default=10,
         metadata=field_meta(
-            label="Consecutive Triggers",
-            tooltip="Number of consecutive frames below threshold required to fire the signal",
+            doc="Number of consecutive frames below threshold required to fire the signal",
+            display=Display("Consecutive Triggers"),
         ),
     )
     supervised: bool = field(
         default=True,
         metadata=field_meta(
-            label="Supervised",
-            tooltip="Supervised: operator stops milling manually. Unsupervised (False): automatically stop when an intensity drop is detected.",
+            doc="Supervised: operator stops milling manually. Unsupervised (False): automatically stop when an intensity drop is detected.",
+            display=Display("Supervised"),
         ),
     )
     bbox: Optional[FibsemRectangle] = field(
         default=None,
-        metadata=field_meta(
-            hidden=True
-        ),  # set interactively via the FM ROI, not a form control
+        # set interactively via the FM ROI, not a form control
+        metadata=field_meta(display=Display(hidden=True)),
     )  # reduced area for intensity monitoring
     # oscillation parameters
 
@@ -367,13 +364,10 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
         # finalize
         self.microscope.fm.acquisition_signal.disconnect(self.on_fm_acquisition_signal)
         self.cropped_image_signal.disconnect(self._save_fm_image)
-        # ensure the FIB view is active so finish_milling (clears patterns, restores
-        # imaging current) operates on the correct channel
+        # ensure the FIB view is active so finish_milling (clears patterns, puts the
+        # beam back) operates on the correct channel
         self.microscope.set_channel(self.microscope.milling_channel)
-        self.microscope.finish_milling(
-            imaging_current=self.microscope.system.ion.beam.beam_current,
-            imaging_voltage=self.microscope.system.ion.beam.voltage,
-        )
+        self.microscope.finish_milling()
 
         # post image acquisition handled by parent task
         # acquire a z-stack post-milling

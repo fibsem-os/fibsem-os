@@ -50,7 +50,7 @@ def _make_detection() -> DetectedFeatures:
 
 
 class _RecordingDetWidget(QWidget):
-    """The three methods QtResponder drives, on a real widget in the tab bar."""
+    """The methods QtResponder drives, on a real widget in the tab bar."""
 
     def __init__(self):
         super().__init__()
@@ -67,6 +67,12 @@ class _RecordingDetWidget(QWidget):
 
     def confirm_button_clicked(self):
         self.confirmed += 1
+
+    def move_features(self, px_by_name):
+        self.moved = dict(px_by_name)
+        for feature in self.det.features:
+            if feature.name in px_by_name:
+                feature.px = px_by_name[feature.name]
 
 
 @pytest.fixture
@@ -338,3 +344,29 @@ def test_the_first_version_asks_exactly_what_it_always_did(ui, qapp, monkeypatch
 
     ui.pushButton_yes.click()
     _finish(thread, qapp)
+
+
+def test_an_answer_can_move_a_feature(ui, qapp):
+    # The agent's correction lands in the widget, as a drag would, and the
+    # answer is the features as the widget then holds them.
+    from fibsem.structures import Point
+
+    sent = _make_detection()
+    name = sent.features[0].name
+    thread, outcome = _ask_on_worker_thread(ui, qapp, sent)
+    _request, question_id = ui.ui_responder.pending_question_and_id()
+
+    peeked_id, live = ui.ui_responder.peek_live_answer().result(timeout=5)
+    assert peeked_id == question_id and set(live) == {name}
+
+    answered = ui.ui_responder.submit_answer(
+        True, question_id, value={name: Point(x=3.0, y=5.0)}
+    )
+    assert answered.result(timeout=5) is True
+    assert answered.adjusted is True
+    _finish(thread, qapp)
+
+    assert ui.det_widget.moved == {name: Point(x=3.0, y=5.0)}
+    px = outcome["answer"].features[0].px
+    assert (px.x, px.y) == (3.0, 5.0)
+    assert ui.det_widget.confirmed == 1

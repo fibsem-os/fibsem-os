@@ -22,8 +22,12 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
     SelectMillingPositionTaskConfig,
 )
 from fibsem.drivers.demo.sim_scene import SampleScene
-from fibsem.projection import BeamStageProjection
+from fibsem.geometry.projection import BeamStageProjection
 from fibsem.structures import BeamType
+
+# Tens of seconds each on the simulator, so pull requests run these on one CI leg
+# only; the nightly and release runs take them everywhere (python-package.yml).
+pytestmark = pytest.mark.slow
 
 TFS_SHUTTLE_CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
 MILLING_ANGLE = 15.0  # deg -> stage tilt 12 deg on the 35 deg shuttle

@@ -26,8 +26,8 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple
 import numpy as np
 
 from fibsem.devices.core import Device, Parameter, Role, command
-from fibsem.devices.display import Display
 from fibsem.devices.wire import Frame, to_wire
+from fibsem.display import Display
 from fibsem.fm.structures import EmissionFilter
 from fibsem.structures import CameraImageTransform, InsertableDeviceState, RangeLimit
 from fibsem.util.timestamps import now_iso, zone_known
@@ -159,6 +159,7 @@ class Objective(Device):
         display=Display("Position", scale=1e6, step=1.0, decimals=1),
     )
     state = Parameter(InsertableDeviceState)
+    # The objective's hardware description: read only on every backend.
     magnification = Parameter(float)
     numerical_aperture = Parameter(float)
     limit_position = Parameter(float, unit="m", doc="The furthest a move may go in.")

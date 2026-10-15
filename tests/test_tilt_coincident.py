@@ -20,6 +20,10 @@ from fibsem.alignment.coincidence import (
 )
 from fibsem.drivers.demo.sim_scene import SampleScene
 
+# Tens of seconds each on the simulator, so pull requests run these on one CI leg
+# only; the nightly and release runs take them everywhere (python-package.yml).
+pytestmark = pytest.mark.slow
+
 # The geometry under test is a pre-tilted TFS shuttle; pin it rather than
 # inherit whatever configuration an earlier test left as the default
 TFS_SHUTTLE_CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
@@ -149,7 +153,7 @@ def test_out_of_splits_reports_the_refusal_and_stays_at_the_target(microscope):
 def _anchor_in_sem_view(microscope) -> tuple:
     """Where the world anchor projects into the SEM view (m) - the sim's
     own projection, so exact and alias-free."""
-    from fibsem.projection import BeamStageProjection
+    from fibsem.geometry.projection import BeamStageProjection
     from fibsem.structures import BeamType
 
     projection = BeamStageProjection.from_microscope(microscope, BeamType.ELECTRON)
