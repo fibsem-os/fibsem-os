@@ -36,6 +36,7 @@ from fibsem.devices.chamber import Chamber
 from fibsem.devices.chamber_camera import ChamberCamera
 from fibsem.devices.core import Device, ParameterMetadata, Resources, resources_of
 from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
+from fibsem.devices.gis import GasInjector
 from fibsem.devices.manipulator import Manipulator
 from fibsem.devices.sample_loader import (
     GridExchangeError,
@@ -46,6 +47,7 @@ from fibsem.devices.sample_loader import (
     StageSample,
 )
 from fibsem.devices.scanner import Scanner
+from fibsem.devices.sputter_coater import SputterCoater
 from fibsem.devices.stage import (
     Stage,
     axis_limits_from_degrees,
@@ -779,6 +781,167 @@ DEMO_SAMPLE_LOADER_KEYS: Dict[str, Any] = {
 }
 
 
+# -- The gas injector and the sputter coater ----------------------------------------
+
+
+class DemoGasInjector(GasInjector):
+    """A simulated GIS port, or multichem.
+
+    It keeps its needle, heater and valve in ``sim_inserted``, ``sim_heated`` and
+    ``sim_opened``, retracted, off and closed to start. The heater reads
+    ``heated_temperature`` while on and ``room_temperature`` while off, and turning it
+    on takes ``heater_delay``; a purge's wait takes as long as it asks. Both go
+    through ``sim_sleep``, so they are skipped under ``FIBSEM_SIM_NO_DELAY=1``, as the
+    tests run. It takes any insert position, and a gas given to ``heater_on``
+    becomes its ``gas``.
+
+    ``sim_purges`` records each purge's seconds, so a test can see one ran.
+    """
+
+    def __init__(
+        self,
+        parent: Any = None,
+        resources: Optional[Resources] = None,
+        gas: str = "Pt",
+        heater_delay: float = 0.0,
+        room_temperature: float = 293.0,
+        heated_temperature: float = 310.0,
+    ):
+        super().__init__(parent=parent, resources=resources)
+        self.sim_gas = str(gas)
+        self.heater_delay = float(heater_delay)
+        self.room_temperature = float(room_temperature)
+        self.heated_temperature = float(heated_temperature)
+        self.sim_inserted = False
+        self.sim_heated = False
+        self.sim_opened = False
+        self.sim_position: Optional[str] = None
+        self.sim_purges: List[float] = []
+
+    def is_installed(self) -> Optional[bool]:
+        return True
+
+    def read_gas(self) -> str:
+        return self.sim_gas
+
+    def read_state(self) -> InsertableDeviceState:
+        return _insertable_state(self.sim_inserted)
+
+    def read_heated(self) -> bool:
+        return self.sim_heated
+
+    def read_opened(self) -> bool:
+        return self.sim_opened
+
+    def read_temperature(self) -> float:
+        return self.heated_temperature if self.sim_heated else self.room_temperature
+
+    def _insert(self, position: Optional[str]) -> None:
+        logging.info(f"Inserting {self.name}" + (f" to {position}" if position else ""))
+        self.sim_inserted = True
+        self.sim_position = position
+
+    def _retract(self) -> None:
+        logging.info(f"Retracting {self.name}")
+        self.sim_inserted = False
+        self.sim_position = None
+
+    def _heater_on(self, gas: Optional[str]) -> None:
+        if gas:
+            self.sim_gas = str(gas)
+        logging.info(f"Heating {self.name} ({self.sim_gas})...")
+        sim_sleep(self.heater_delay)
+        self.sim_heated = True
+
+    def _heater_off(self) -> None:
+        logging.info(f"Turning off the {self.name} heater")
+        self.sim_heated = False
+
+    def _open(self) -> None:
+        logging.info(f"Opening the {self.name} valve")
+        self.sim_opened = True
+
+    def _close(self) -> None:
+        logging.info(f"Closing the {self.name} valve")
+        self.sim_opened = False
+
+    def _purge(self, seconds: float) -> None:
+        self.sim_purges.append(seconds)
+        super()._purge(seconds)
+
+    def _wait(self, seconds: float) -> None:
+        sim_sleep(seconds)
+
+
+# The keys a Demo gas injector entry takes, and their defaults.
+DEMO_GIS_KEYS: Dict[str, Any] = {
+    "gas": "Pt",
+    "heater_delay": 0.0,
+    "room_temperature": 293.0,
+    "heated_temperature": 310.0,
+}
+
+
+class DemoSputterCoater(SputterCoater):
+    """A simulated sputter coater.
+
+    ``current`` starts at ``current`` and is limited to ``current_limits``, in
+    amperes; ``coats_grids`` says whether ``run`` takes the grids to coat, as a coater
+    that moves the stage to each grid itself does. A run takes as long as it asks
+    (``sim_sleep``, skipped under ``FIBSEM_SIM_NO_DELAY=1``), with the coater
+    inserted for it, and is recorded in ``sim_runs`` as (seconds, grids, current).
+    """
+
+    def __init__(
+        self,
+        parent: Any = None,
+        resources: Optional[Resources] = None,
+        current: float = 1.0e-9,
+        current_limits: Tuple[float, float] = (1.0e-9, 1.0e-6),
+        coats_grids: bool = False,
+    ):
+        super().__init__(parent=parent, resources=resources)
+        low, high = (float(v) for v in current_limits)
+        self.sim_limits = RangeLimit(min=low, max=high)
+        self.sim_current = float(current)
+        self.coats_grids = bool(coats_grids)
+        self.sim_inserted = False
+        self.sim_runs: List[Tuple[float, Optional[Tuple[int, ...]], float]] = []
+
+    def is_installed(self) -> Optional[bool]:
+        return True
+
+    def read_current(self) -> float:
+        return self.sim_current
+
+    def write_current(self, value: float) -> None:
+        self.sim_current = float(value)
+
+    def metadata_current(self) -> ParameterMetadata:
+        return ParameterMetadata(limits=self.sim_limits)
+
+    def read_inserted(self) -> bool:
+        return self.sim_inserted
+
+    def _run(self, seconds: float, grids: Optional[Tuple[int, ...]]) -> None:
+        on = f" on grids {list(grids)}" if grids else ""
+        logging.info(f"Sputtering for {seconds} s at {self.sim_current:.2e} A{on}...")
+        self.sim_inserted = True
+        try:
+            sim_sleep(seconds)
+            self.sim_runs.append((seconds, grids, self.sim_current))
+        finally:
+            self.sim_inserted = False
+
+
+# The keys a Demo sputter coater entry takes, and their defaults.
+DEMO_SPUTTER_COATER_KEYS: Dict[str, Any] = {
+    "current": 1.0e-9,
+    "current_limits": (1.0e-9, 1.0e-6),
+    "coats_grids": False,
+}
+
+
 # -- The scan generator ------------------------------------------------------------
 
 
@@ -902,6 +1065,44 @@ def build_demo_sample_loader(
             start_unscanned=bool(keys["start_unscanned"]),
             scan_delay=float(keys["scan_delay"]),
             grid_position=keys["grid_position"] or None,
+        ),
+        entry,
+    )
+
+
+def build_demo_gis(entry: "DeviceEntry", context: "BuildContext") -> DemoGasInjector:
+    """A simulated gas injector, from its entry's keys (``DEMO_GIS_KEYS``)."""
+    keys = {key: entry.options.get(key, d) for key, d in DEMO_GIS_KEYS.items()}
+    resources, _ = _demo_start(context)
+    return _named(
+        DemoGasInjector(
+            context.microscope,
+            resources,
+            gas=str(keys["gas"]),
+            heater_delay=float(keys["heater_delay"]),
+            room_temperature=float(keys["room_temperature"]),
+            heated_temperature=float(keys["heated_temperature"]),
+        ),
+        entry,
+    )
+
+
+def build_demo_sputter_coater(
+    entry: "DeviceEntry", context: "BuildContext"
+) -> DemoSputterCoater:
+    """A simulated sputter coater, from its entry's keys
+    (``DEMO_SPUTTER_COATER_KEYS``)."""
+    keys = {
+        key: entry.options.get(key, d) for key, d in DEMO_SPUTTER_COATER_KEYS.items()
+    }
+    resources, _ = _demo_start(context)
+    return _named(
+        DemoSputterCoater(
+            context.microscope,
+            resources,
+            current=float(keys["current"]),
+            current_limits=tuple(keys["current_limits"]),
+            coats_grids=bool(keys["coats_grids"]),
         ),
         entry,
     )

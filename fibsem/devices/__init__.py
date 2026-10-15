@@ -1,7 +1,7 @@
 """The microscope as a container of devices: the vendor-neutral device API.
 
 Every device a microscope builds is in ``microscope.devices``, by name (``electron``,
-``ion``, ``stage``, ``chamber``, ``manipulator``, and the FM's ``fm``, ``camera``,
+``ion``, ``stage``, ``chamber``, ``manipulator``, ``gis``, ``sputter_coater``, and the FM's ``fm``, ``camera``,
 ...). A device's parameters describe themselves (type, unit, limits, choices) and
 emit ``changed``; its commands are plain methods it lists in ``commands``:
 
@@ -45,8 +45,10 @@ from fibsem.devices.core import (
     command,
     query,
 )
+from fibsem.devices.gis import GIS_RESOURCE, GasInjector
 from fibsem.devices.manipulator import MANIPULATOR_RESOURCE, Manipulator
 from fibsem.devices.scanner import Scanner
+from fibsem.devices.sputter_coater import SPUTTER_COATER_RESOURCE, SputterCoater
 from fibsem.devices.stage import (
     AXIS_UNITS,
     STAGE_RESOURCE,
@@ -64,6 +66,8 @@ __all__ = [
     "Chamber",
     "ChamberCamera",
     "STAGE_RESOURCE",
+    "GIS_RESOURCE",
+    "GasInjector",
     "IMAGING_CHANNEL",
     "MANIPULATOR_RESOURCE",
     "Manipulator",
@@ -79,6 +83,8 @@ __all__ = [
     "ParameterUnavailable",
     "ResourceBusy",
     "Resources",
+    "SPUTTER_COATER_RESOURCE",
+    "SputterCoater",
     "Role",
     "Scanner",
     "Stage",

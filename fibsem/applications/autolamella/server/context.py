@@ -1245,13 +1245,19 @@ class AutoLamellaAppContext:
         """Add a lamella as the Lamella tab's Add does: at the stage position now,
         at a given stage position, or under a point of a grid overview (which
         also puts it on that grid). Its poses, milling angle and grid are worked
-        out as for a click; it is saved."""
+        out as for a click; it is saved. At the stage position now is refused
+        while a workflow runs: the stage is wherever the run has moved it."""
         from fibsem.applications.autolamella.poses import add_lamella
         from fibsem.structures import FibsemStagePosition
 
         experiment, microscope, refusal = self._editable()
         if refusal:
             return refusal
+        if stage_position is None and overview is None:
+            refusal = self._not_while_running("add an item where the stage is")
+            if refusal:
+                refusal["error"] += " Or give its stage_position."
+                return refusal
         if name is not None and experiment.get_lamella_by_name(name) is not None:
             return {"error_type": "invalid", "error": f"An item named {name!r} exists."}
         position, grid_id = None, None
@@ -1267,7 +1273,11 @@ class AutoLamellaAppContext:
             position = FibsemStagePosition.from_dict(converted["stage_position"])
             grid_id = converted["grid_id"]
         elif stage_position is not None:
-            position = FibsemStagePosition.from_dict(stage_position)
+            # {x, y, z, r, t} as the tool describes it, in the stage's raw frame,
+            # as the stage tools give positions; from_dict also wants the frame.
+            position = FibsemStagePosition.from_dict(
+                {"coordinate_system": "RAW", **stage_position}
+            )
 
         def add():
             lamella = add_lamella(

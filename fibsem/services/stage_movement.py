@@ -1468,7 +1468,10 @@ class StageMovement(Service):
 
     @command
     def move_to_milling_angle(
-        self, milling_angle: float, rotation: Optional[float] = None
+        self,
+        milling_angle: float,
+        rotation: Optional[float] = None,
+        keep_rotation: bool = False,
     ) -> bool:
         """Move the stage to a milling angle, in degrees like the service's other
         milling-angle reads, from the pretilt and the column tilt. Returns whether
@@ -1476,10 +1479,16 @@ class StageMovement(Service):
 
         Args:
             milling_angle: the milling angle, in degrees.
-            rotation: the stage rotation, in degrees; the rotation reference if None.
+            rotation: the stage rotation, in degrees. If None, the rotation
+                reference, or the stage's current rotation with ``keep_rotation``
+                (as the agent's tool asks: a tilt it asked for should not turn
+                the stage).
+            keep_rotation: with no ``rotation``, stay at the current rotation.
         """
         microscope = self.parent
-        if rotation is None:
+        if rotation is None and keep_rotation:
+            rotation = float(np.degrees(self._position().r))
+        elif rotation is None:
             rotation = microscope.system.stage.rotation_reference
         # The move event keeps radians, the stage's own unit, as it always has.
         with recording_move(

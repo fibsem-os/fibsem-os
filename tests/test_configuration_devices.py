@@ -177,8 +177,8 @@ def test_a_device_without_a_record_is_kept_and_written_back():
 
 
 def test_an_old_gis_entry_still_loads_and_is_written_back():
-    """The gas injection system is no longer supported. A file that still lists one
-    loads, and its entry is kept as it was, like any type nothing here builds."""
+    """A file that listed a GIS before it was removed and rebuilt (FIB-1384) loads,
+    and its entry is kept as it was."""
     entry = {"name": "gis", "type": "gis", "enabled": False}
     config = {"hardware": {"devices": [entry]}}
 
@@ -190,15 +190,17 @@ def test_an_old_gis_entry_still_loads_and_is_written_back():
 
 
 def test_an_entry_of_no_known_type_is_ignored_with_a_warning(caplog):
-    """An entry with no `type:` whose name is no device type, such as a GIS from
-    before it was removed, is left out rather than failing the load."""
-    config = {"hardware": {"devices": [{"name": "gis"}, {"name": "manipulator"}]}}
+    """An entry with no `type:` whose name is no device type, such as one for a
+    device this version no longer has, is left out rather than failing the load."""
+    config = {
+        "hardware": {"devices": [{"name": "cryo_shield"}, {"name": "manipulator"}]}
+    }
 
     with caplog.at_level(logging.WARNING):
         system = SystemSettings.from_dict(config)
 
     assert [e.name for e in system.other_devices] == ["manipulator"]
-    assert "'gis' states no type" in caplog.text
+    assert "'cryo_shield' states no type" in caplog.text
     assert "It is ignored." in caplog.text
 
 
