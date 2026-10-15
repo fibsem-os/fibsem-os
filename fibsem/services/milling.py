@@ -80,7 +80,7 @@ from fibsem.devices.beam import Beam
 from fibsem.devices.core import DeviceParameter, ParameterMetadata, Role, command, query
 from fibsem.milling.base import FibsemMillingStage, estimate_milling_time
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
-from fibsem.services.core import Service, forward_to, save_beam_conditions
+from fibsem.services.core import Service, save_beam_conditions
 from fibsem.structures import (
     ACTIVE_MILLING_STATES,
     BeamType,
@@ -835,9 +835,6 @@ def bind_milling(service: Type[_M], microscope: Any, **kwargs: Any) -> Optional[
     if BeamType.ELECTRON in beams:
         milling.fill_roles(electron=beams[BeamType.ELECTRON])
     milling.connect()
-    signal = getattr(microscope, "milling_progress_signal", None)
-    if signal is not None:
-        milling.progress.changed.connect(forward_to(signal))
     return milling
 
 

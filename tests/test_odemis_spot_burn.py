@@ -58,7 +58,7 @@ def _writes(calls):
 def _burn(odemis_cls, call):
     microscope = make(odemis_cls)
     reports = []
-    microscope.spot_burn_progress_signal.connect(reports.append)
+    microscope.spot_burn.progress.changed.connect(reports.append)
     ran = run(microscope, call)
     return ran, reports
 

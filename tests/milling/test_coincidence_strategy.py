@@ -164,14 +164,14 @@ def test_headless_run_stops_on_the_callers_stop_event(fm_microscope, tmp_path):
         if kind == "milling":
             milling.append(payload)
 
-    fm_microscope.milling_progress_signal.connect(_stop_on_first_tick)
+    fm_microscope.milling.progress.changed.connect(_stop_on_first_tick)
     fm_microscope.session.record_signal.connect(_milling)
     try:
         started = time.time()
         task = run_milling_task(fm_microscope, config, stop_event=stop_event)
         elapsed = time.time() - started
     finally:
-        fm_microscope.milling_progress_signal.disconnect(_stop_on_first_tick)
+        fm_microscope.milling.progress.changed.disconnect(_stop_on_first_tick)
         fm_microscope.session.record_signal.disconnect(_milling)
 
     # the task runs its own copy of the config; that copy's strategy is the one that ran

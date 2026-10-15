@@ -213,7 +213,7 @@ def test_a_stop_event_cancels_without_raising_and_puts_the_preset_back(tescan):
     microscope, fake = tescan(running_looks=10)
     stop_event = threading.Event()
     burns = []
-    microscope.spot_burn_progress_signal.connect(burns.append)
+    microscope.spot_burn.progress.changed.connect(burns.append)
     status = fake.DrawBeam.GetStatus
 
     def stop_on_the_second_look():
@@ -256,7 +256,7 @@ def test_no_points_touches_nothing(tescan):
 def test_a_failure_is_raised_and_the_preset_put_back(tescan):
     microscope, fake = tescan()
     burns = []
-    microscope.spot_burn_progress_signal.connect(burns.append)
+    microscope.spot_burn.progress.changed.connect(burns.append)
 
     def lost():
         raise RuntimeError("connection lost")

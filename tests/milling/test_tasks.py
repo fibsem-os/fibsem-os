@@ -354,7 +354,7 @@ def test_a_failed_stage_fails_the_task_and_skips_the_rest(tmp_path):
     microscope, task = _task(tmp_path, stages=stages, acquire_final_image=False)
     milled = _reject_milling(microscope)
     progress = []
-    microscope.milling_progress_signal.connect(progress.append)
+    microscope.milling.progress.changed.connect(progress.append)
     restored = _spy(microscope, "finish_milling")
 
     task.run()
@@ -458,7 +458,7 @@ def test_a_stop_between_stages_is_recorded_as_cancelled(tmp_path):
     stages = [FibsemMillingStage(name="rough"), FibsemMillingStage(name="polish")]
     microscope, task = _task(tmp_path, stages=stages, acquire_final_image=False)
     task._stop_event = threading.Event()
-    microscope.milling_progress_signal.connect(
+    microscope.milling.progress.changed.connect(
         lambda p: (
             task._stop_event.set()
             if p.status is MillingProgressStatus.STAGE_FINISHED

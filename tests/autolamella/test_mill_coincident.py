@@ -254,13 +254,13 @@ def test_abort_token_stops_the_mill(microscope, tmp_path):
         if progress.status is MillingProgressStatus.STAGE_UPDATE:
             manager.abort_token.set()
 
-    microscope.milling_progress_signal.connect(_stop_on_first_tick)
+    microscope.milling.progress.changed.connect(_stop_on_first_tick)
     try:
         task.run()
     except Exception:
         pass  # the base run re-raises a cancellation after recording it
     finally:
-        microscope.milling_progress_signal.disconnect(_stop_on_first_tick)
+        microscope.milling.progress.changed.disconnect(_stop_on_first_tick)
 
     milling = lamella.task_config["Coincidence Milling"].milling[MILL_COINCIDENT_KEY]
     strategy = milling.enabled_stages[0].strategy

@@ -132,7 +132,7 @@ def test_the_demo_mills_for_its_estimate_and_reports_as_it_goes(microscope):
     reports = []
     microscope.milling.progress.changed.connect(reports.append)
     updates = []
-    microscope.milling_progress_signal.connect(updates.append)
+    microscope.milling.progress.changed.connect(updates.append)
 
     microscope.run_milling()
 

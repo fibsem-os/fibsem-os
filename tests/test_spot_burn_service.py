@@ -36,7 +36,7 @@ def microscope():
 @pytest.fixture
 def reports(microscope):
     seen = []
-    microscope.spot_burn_progress_signal.connect(seen.append)
+    microscope.spot_burn.progress.changed.connect(seen.append)
     return seen
 
 
@@ -268,7 +268,7 @@ def test_a_burn_on_demo_burns_the_points_in_order_and_puts_the_beam_back(
     )
     microscope.set_beam_current(IMAGING_CURRENT, BeamType.ION)
     reports, burned = [], []
-    microscope.spot_burn_progress_signal.connect(reports.append)
+    microscope.spot_burn.progress.changed.connect(reports.append)
     scene_burn = microscope._connection.burn_into_sample_scene
     monkeypatch.setattr(
         microscope._connection,
@@ -294,14 +294,3 @@ def test_a_microscope_with_no_spot_burn_service_refuses_to_burn(microscope, repo
     with pytest.raises(ValueError, match="no spot burn"):
         microscope.run_spot_burn(_settings(Point(0.5, 0.5)))
     assert reports == []
-
-
-def test_building_the_service_reports_nothing(microscope, reports):
-    """psygnal calls a SignalInstance's ``emit`` once, with junk, when it is
-    connected; the service connects the signal itself, so nothing is sent."""
-    from fibsem.services.spot_burn import bind_spot_burn
-
-    spot_burn = bind_spot_burn(DemoSpotBurn, microscope)
-    assert reports == []
-    spot_burn.run(_settings(Point(0.5, 0.5), exposure_time=1.0))
-    assert reports[-1].status is SpotBurnStatus.FINISHED
