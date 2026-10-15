@@ -395,3 +395,46 @@ class BeamStageProjection:
         if np.isclose(self.scan_rotation, np.pi):
             return -x, -y
         return x, y
+
+
+def image_stage_geometry(
+    image,
+) -> Optional[Tuple[StageProjection, float, FibsemStagePosition]]:
+    """Where a saved image was taken and how it projects, from its own metadata:
+    its projection, metres per source pixel and stage position. A beam image
+    (``FibsemImage``) or a fluorescence one (``FluorescenceImage``). None when
+    the image does not say, rather than placing it at a guess.
+
+    What the stored overview canvas places an image by, and what a point on
+    that image resolves to a stage position through (:func:`image_point_to_stage`).
+    """
+    from fibsem.fm.structures import FluorescenceImage
+
+    metadata = getattr(image, "metadata", None)
+    position = getattr(metadata, "stage_position", None)
+    if metadata is None or position is None:
+        return None
+    if isinstance(image, FluorescenceImage):
+        projection = FMStageProjection.from_image(image)
+        pixel_size = getattr(metadata, "pixel_size_x", None)
+    else:
+        projection = BeamStageProjection.from_image(image)
+        pixel_size = getattr(getattr(metadata, "pixel_size", None), "x", None)
+    if projection is None or not pixel_size:
+        return None
+    return projection, float(pixel_size), position
+
+
+def image_point_to_stage(image, x: float, y: float) -> FibsemStagePosition:
+    """The stage position under source pixel (*x*, *y*) of a saved image (origin
+    top-left, +y down), as the stored overview canvas resolves a click. Raises
+    ValueError when the image has no stage geometry."""
+    geometry = image_stage_geometry(image)
+    if geometry is None:
+        raise ValueError("The image has no stage geometry to convert from.")
+    projection, pixel_size, position = geometry
+    height, width = np.asarray(image.data).shape[-2:]
+    # The plane is metres from the image centre, +y down: pixel rows' way.
+    return projection.from_plane(
+        (x - width / 2) * pixel_size, (y - height / 2) * pixel_size, position
+    )

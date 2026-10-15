@@ -34,6 +34,11 @@ objective's `limit_position`. `GET /microscope/devices` and `/microscope/service
 `agent: false`. A command's `path` argument must be inside the open experiment. A hardware
 command takes control of the microscope while it runs: when a run, a script or
 another command is in control it gets `409 microscope_busy`, naming who.
+A long service command (marked `long: true` in the listing: the milling and spot
+burn services' `run`) answers at once with its run (`run_id`, `state: running`)
+and runs on in control of the microscope; `GET /microscope/services/{service}/run`
+reads it, waiting up to `?wait=` seconds (at most 60) for the end, and the end is
+a `command_ended` event. `FibsemClient.run_milling` waits for it.
 A stop (`POST /microscope/services/milling/commands/stop`, a device's `stop`,
 `stop_live` or `cancel`, or `POST /app/workflow/stop`) never takes control. The
 agent stops its own action (its command holds control) at Assist or Drive; anything

@@ -261,8 +261,8 @@ def test_alignment_prompt_carries_the_fib_display_frame(ui, qapp):
 
 
 def test_a_value_on_a_valueless_question_is_refused(ui, qapp):
-    """Only EditAlignmentArea and PickPOI answers can carry a value; a value on
-    anything else — or a value that is not an object — is a 422 refusal that
+    """Only EditAlignmentArea, PickPOI, ConfirmDetection and RunSpotBurn answers
+    can carry a value; a value on anything else — or a value that is not an object — is a 422 refusal that
     clicks nothing, and the question stands."""
     with _client(ui, arm_control=True) as client:
         thread, outcome = _ask_on_worker(ui, qapp)
@@ -375,7 +375,9 @@ def test_stop_workflow_needs_the_control_scope(ui, qapp):
     with _client(ui, arm_control=False) as client:
         assert client.post("/app/workflow/stop", headers=AUTH).status_code == 403
     with _client(ui, arm_control=True) as client:
-        body = client.post("/app/workflow/stop", headers=AUTH)
+        body = client.post(
+            "/app/workflow/stop", headers=AUTH, json={"reason": "test stop"}
+        )
         assert body.status_code == 200
         assert body.json() == {
             "available": True,
