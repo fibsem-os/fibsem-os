@@ -76,9 +76,10 @@ from fibsem.structures import (  # noqa: F401
     FibsemRectangle,
     FibsemStagePosition,
     InsertableDeviceState,
+    RangeLimit,
     TileOrderStrategy,
     _parse_image_transform,
-    field_meta,
+    distance_metadata,
 )
 from fibsem.util.timestamps import (
     acquisition_datetime_of,
@@ -396,40 +397,29 @@ class ChannelSettings:
         return self.pretty_name
 
 
-Z_DISTANCE_METADATA = field_meta(type=float, unit="m", scale=1e6, step=0.1, decimals=2)
-
-
 @dataclass
 class ZParameters:
-    # Relative to the objective's position when the stack starts. Bounds in µm.
+    # Relative to the objective's position when the stack starts.
     zmin: float = field(
         default=-10e-6,
-        metadata=field_meta(
-            Z_DISTANCE_METADATA,
-            label="Z Min",
-            minimum=-100.0,
-            maximum=-0.25,
-            tooltip="Minimum Z position relative to current position",
+        metadata=distance_metadata(
+            "Z Min",
+            "Minimum Z position relative to current position",
+            limits=RangeLimit(-100e-6, -0.25e-6),
         ),
     )
     zmax: float = field(
         default=10e-6,
-        metadata=field_meta(
-            Z_DISTANCE_METADATA,
-            label="Z Max",
-            minimum=0.25,
-            maximum=100.0,
-            tooltip="Maximum Z position relative to current position",
+        metadata=distance_metadata(
+            "Z Max",
+            "Maximum Z position relative to current position",
+            limits=RangeLimit(0.25e-6, 100e-6),
         ),
     )
     zstep: float = field(
         default=1e-6,
-        metadata=field_meta(
-            Z_DISTANCE_METADATA,
-            label="Z Step",
-            minimum=0.1,
-            maximum=10.0,
-            tooltip="Step size between Z positions",
+        metadata=distance_metadata(
+            "Z Step", "Step size between Z positions", limits=RangeLimit(0.1e-6, 10e-6)
         ),
     )
     order: ZStackOrder = ZStackOrder.CHANNEL

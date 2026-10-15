@@ -16,10 +16,9 @@ refuses identically:
 - The new value must match the old one's type (bool for bool, number for
   number, string for string, an enum member's name for an enum). ``None``
   fields are refused: their type cannot be inferred.
-- Where the enclosing dataclass declares ``minimum``/``maximum`` field
-  metadata (the same vocabulary the GUI's forms clamp by), the value must be
-  in range — otherwise the server stores a number the form then displays
-  differently.
+- Where the enclosing dataclass declares ``limits`` for the field (in SI,
+  the limits the GUI's forms clamp by), the value must be within them —
+  otherwise the server stores a number the form then displays differently.
 - All-or-nothing: every entry is resolved and validated before anything is
   set, so a failing entry leaves the config untouched.
 
@@ -31,7 +30,7 @@ from dataclasses import is_dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
-from fibsem.structures import get_fields_with_metadata
+from fibsem.structures import field_specs
 
 __all__ = ["PatchError", "apply_patch"]
 
@@ -173,32 +172,21 @@ def _coerce(old: Any, value: Any, path: str) -> Any:
 def _check_bounds(obj: Any, leaf: str, value: Any, path: str) -> None:
     if not is_dataclass(obj) or not isinstance(value, (int, float)):
         return
-    for f in dataclass_fields(obj):
-        if f.name != leaf:
-            continue
-        # The merged view: a field bound to a beam parameter takes its scale from
-        # the beam's display hint rather than declaring its own.
-        metadata = get_fields_with_metadata(type(obj))[leaf]
-        minimum = metadata.get("minimum")
-        maximum = metadata.get("maximum")
-        # The form metadata states bounds in *display* units (a depth of
-        # 2e-6 m displays as 2.0 with scale 1e6, and min/max bound the 2.0).
-        # Compare in that frame, or every valid SI value would be refused.
-        scale = metadata.get("scale") or 1.0
-        display = value * scale
-        # No unit label: metadata's "unit" is the SI unit of the STORED value,
-        # while min/max bound the scaled display value — labelling either
-        # number with it would mislead (2e-3 m scales to 2000.0, not "2000 m").
-        if minimum is not None and display < minimum:
-            raise PatchError(
-                path,
-                f"{value!r} (display value {display!r}) is below the minimum "
-                f"{minimum!r} for {path!r}.",
-            )
-        if maximum is not None and display > maximum:
-            raise PatchError(
-                path,
-                f"{value!r} (display value {display!r}) is above the maximum "
-                f"{maximum!r} for {path!r}.",
-            )
+    if leaf not in {f.name for f in dataclass_fields(obj)}:
         return
+    spec = field_specs(type(obj))[leaf]
+    limits = spec.limits
+    if limits is None:
+        return
+    # SI, as the value is stored and as the field declares its limits
+    unit = f" {spec.unit}" if spec.unit else ""
+    if value < limits.min:
+        raise PatchError(
+            path,
+            f"{value!r}{unit} is below the minimum {limits.min!r}{unit} for {path!r}.",
+        )
+    if value > limits.max:
+        raise PatchError(
+            path,
+            f"{value!r}{unit} is above the maximum {limits.max!r}{unit} for {path!r}.",
+        )

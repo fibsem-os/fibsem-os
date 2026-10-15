@@ -16,8 +16,10 @@ import logging
 from typing import Any, Callable, Mapping, Optional
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import JSONResponse, Response
 from fastapi.routing import APIRoute
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from fibsem.acting import AGENT, acting
 from fibsem.microscope import FibsemMicroscope
@@ -34,6 +36,7 @@ from fibsem.server.auth import (
     AuthConfig,
     action_name,
     adopt_control,
+    drive_is_lent,
     require_level,
     require_monitoring,
     take_control,
@@ -109,6 +112,33 @@ def _refuse(app_context) -> Callable[[Any, str, str, Mapping[str, Any]], Optiona
     return refuse
 
 
+def _not_allowed(microscope: FibsemMicroscope) -> Callable[[str, str], Optional[str]]:
+    """Why a route call is on the allowlist's block list (a device or service
+    write or command), or None: for a request, before it is filed. Its
+    arguments are checked when it runs, as for any call."""
+
+    def why(method: str, path: str) -> Optional[str]:
+        parts = path.strip("/").split("/")
+        if len(parts) < 4 or "/" + parts[0] != MICROSCOPE:
+            return None
+        if method == "PUT" and len(parts) == 4:
+            kind, name = "write", parts[3]
+        elif method == "POST" and len(parts) == 5 and parts[3] == "commands":
+            kind, name = "command", parts[4]
+        else:
+            return None
+        if parts[1] == "devices":
+            devices = microscope.devices
+        elif parts[1] == "services":
+            devices = microscope.services
+        else:
+            return None
+        device = devices.get(parts[2])
+        return None if device is None else allowlist.blocked(device, kind, name)
+
+    return why
+
+
 def _device_command_gate(request: Request, command: str):
     """A device command's gate: a stop by the stop rule (:func:`_stop_gate`),
     anything else Drive and control of the microscope."""
@@ -170,6 +200,43 @@ async def _stop_reason(request: Request):
     )
 
 
+# The refusals of the agent's permissions: its level, Assist's ask-first, Off,
+# a stop, and the allowlist. The 409s and 422s are the call's own trouble, and
+# the routes log those (``devices.refusal``).
+AGENT_REFUSALS = ("level", "ask_first", "agent_off", "agent_stopped", "not_allowed")
+
+
+def _record_refusal(request: Request, exc: StarletteHTTPException) -> None:
+    """An agent's action refused for its permissions, as ``agent_refused`` on the
+    record and one log line (FIB-1402): an agent trying to act without asking is
+    what the operator should be able to see. Reads stay out of the record, as do
+    the calls an approved request makes. Never raises."""
+    try:
+        detail = exc.detail if isinstance(exc.detail, dict) else {}
+        error_type = detail.get("error_type")
+        if (
+            exc.status_code != 403
+            or error_type not in AGENT_REFUSALS
+            or request.method == "GET"
+            or drive_is_lent()
+        ):
+            return
+        auth: AuthConfig = request.app.state.auth
+        payload = {
+            "action": action_name(request),
+            "route": f"{request.method} {request.url.path}",
+            "error_type": error_type,
+            "level": auth.level.value,
+        }
+        logging.info(
+            f"agent refused: {payload['action']} ({payload['route']}): "
+            f"403 {error_type} at {payload['level']}"
+        )
+        request.app.state.microscope.record_event("agent_refused", payload)
+    except Exception:  # noqa: BLE001 - recording must not change the answer
+        logging.debug("could not record an agent refusal", exc_info=True)
+
+
 class _AgentActs:
     """Every request is the agent acting, for the experiment's record (FIB-1062).
 
@@ -215,6 +282,11 @@ def build_server(
     app.add_middleware(_AgentActs)
     app.state.auth = auth
     app.state.microscope = microscope
+
+    @app.exception_handler(StarletteHTTPException)
+    async def _refused(request: Request, exc: StarletteHTTPException) -> Response:
+        _record_refusal(request, exc)
+        return await http_exception_handler(request, exc)
 
     @app.exception_handler(Exception)
     def _unhandled(request: Request, exc: Exception) -> JSONResponse:
@@ -376,6 +448,7 @@ def build_server(
             auth,
             frozenset(mounted),
             emit=getattr(app_context, "record_event", None),
+            not_allowed=_not_allowed(microscope) if serve_microscope else None,
         )
         app.include_router(build_request_router(app.state.requests))
     return app

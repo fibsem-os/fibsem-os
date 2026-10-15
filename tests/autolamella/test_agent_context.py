@@ -412,13 +412,24 @@ def test_requeue_task_reruns_a_completed_pair(experiment, microscope):
         ["Rough Milling"], [p.name for p in experiment.positions]
     )
     host._task_manager = manager
-    before = len(manager.queue.items)
+    name = experiment.positions[0].name
 
-    queued = ctx.requeue_task(experiment.positions[0].name, "Rough Milling")
+    # A pair still waiting runs once: asking again is refused, not queued twice.
+    waiting = ctx.requeue_task(name, "Rough Milling")
+    assert waiting["queued"] is False
+    assert waiting["error_type"] == "already_queued"
+
+    first = next(i for i in manager.queue.items if i.item_name == name)
+    manager.queue.mark_done(first, AutoLamellaTaskStatus.Completed)
+    before = len(manager.queue.items)
+    queued = ctx.requeue_task(name, "Rough Milling")
     assert queued["queued"] is True
     assert queued["queue_version"] == manager.queue.version
     assert len(manager.queue.items) == before + 1
     _assert_json_safe(queued)
+    again = ctx.requeue_task(name, "Rough Milling")
+    assert again["error_type"] == "already_queued"
+    assert len(manager.queue.items) == before + 1
 
     # Refusals stay structured: unknown item, unknown task.
     assert ctx.requeue_task("no-such-item", "Rough Milling")["queued"] is False

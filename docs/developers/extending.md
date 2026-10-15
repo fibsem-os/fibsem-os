@@ -135,11 +135,14 @@ example's tests check them:
    `pip install -e .` again after editing them. Changes to Python files need
    no reinstall.
 
-Distances in configuration forms are stored in metres and scaled for
-display. A distance field without `scale` metadata renders as `0.000 m`.
-Spread `DEFAULT_DISTANCE_METADATA` from `fibsem.milling.properties` into
-distance fields, as the built-in patterns do; the example's tests check this
-as well.
+A field's metadata says what a device parameter says: its SI `unit`, its
+`limits` in SI, its `choices`, a `doc`, and a `Display` for how a form shows it
+(label, scale, step, decimals). Build it with `field_meta` from
+`fibsem.structures`, which refuses a misspelled key when the module is imported.
+Distances are stored in metres and shown in µm: a distance field without a
+display scale renders as `0.000 m`. Declare distance fields with
+`distance_metadata(label, doc)` from `fibsem.milling.properties`, as the built-in
+patterns do; the example's tests check this as well.
 
 ## Workflow tasks
 

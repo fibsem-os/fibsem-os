@@ -83,23 +83,39 @@ def test_the_beam_acquires_with_its_current_settings(microscope):
     assert image.metadata.image_settings.beam_type is BeamType.ION
 
 
-def test_live_view_runs_on_the_beam_and_reaches_the_old_signal(microscope):
+def test_live_view_runs_on_the_beam_and_its_frames_stay_there(microscope):
+    """Live frames come on the beam's ``live_frame`` (and ``image_acquired``), and
+    no longer on the microscope's SEM signal: the views take them from the beam."""
     sem = microscope.beams[BeamType.ELECTRON]
-    pushed, seen, done = [], [], threading.Event()
-    sem.live_frame.connect(lambda image: pushed.append(image))
+    pushed, acquired, relayed, done = [], [], [], threading.Event()
 
     def on_frame(image):
-        seen.append(image)
-        if len(seen) == 2:
+        pushed.append(image)
+        if len(pushed) == 2:
             done.set()
 
-    microscope.sem_acquisition_signal.connect(on_frame)
-    microscope.start_acquisition(BeamType.ELECTRON)
-    assert sem.is_live and microscope.is_acquiring
-    assert done.wait(10)
-    microscope.stop_acquisition()
+    sem.live_frame.connect(on_frame)
+    sem.image_acquired.connect(acquired.append)
+    microscope.sem_acquisition_signal.connect(relayed.append)
+    try:
+        microscope.start_acquisition(BeamType.ELECTRON)
+        assert sem.is_live and microscope.is_acquiring
+        assert done.wait(10)
+    finally:
+        microscope.stop_acquisition()
+        microscope.sem_acquisition_signal.disconnect(relayed.append)
     assert not sem.is_live and not microscope.is_acquiring
     assert len(pushed) >= 2 and all(isinstance(i, FibsemImage) for i in pushed)
+    assert acquired[: len(pushed)] == pushed[: len(acquired)]
+    assert relayed == []
+
+
+def test_every_acquire_is_an_image_acquired_once(microscope):
+    sem = microscope.beams[BeamType.ELECTRON]
+    acquired = []
+    sem.image_acquired.connect(acquired.append)
+    image = sem.acquire()
+    assert acquired == [image]
 
 
 def test_a_disabled_beam_does_not_image(microscope):
@@ -123,3 +139,26 @@ def test_a_disabled_beam_does_not_image(microscope):
     assert isinstance(
         electron_only.acquire_image(beam_type=BeamType.ELECTRON), FibsemImage
     )
+
+
+def test_a_live_view_that_acquires_each_frame_is_one_image_per_frame(microscope):
+    """Thermo's live view takes each frame through ``acquire`` and then pushes it on
+    ``live_frame``: that is one image, so ``image_acquired`` sees it once."""
+    sem = microscope.beams[BeamType.ELECTRON]
+    pushed, acquired, done = [], [], threading.Event()
+
+    def live(stop):
+        while not stop.is_set() and len(pushed) < 3:
+            image = sem.acquire()
+            pushed.append(image)
+            sem.live_frame.emit(image)
+        done.set()
+
+    sem._live = live
+    sem.image_acquired.connect(acquired.append)
+    try:
+        sem.start_live()
+        assert done.wait(10)
+    finally:
+        sem.stop_live()
+    assert acquired == pushed

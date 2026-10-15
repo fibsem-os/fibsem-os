@@ -265,7 +265,9 @@ def test_a_request_made_at_assist_is_not_run_after_the_level_drops(client, app, 
     assert store.get(filed["request_id"]).status == "cancelled"
 
 
-def test_assist_asks_to_stop_as_it_asks_for_the_rest(client, app):
+def test_assist_asks_to_stop_as_it_asks_for_the_rest(
+    client, app, microscope, monkeypatch
+):
     """A stop that is not the agent's own needs Drive (Patrick, 2026-10-14): at
     Assist it is a request like any action, and runs once approved."""
     why = {"reason": "the mill is off target"}
@@ -281,10 +283,32 @@ def test_assist_asks_to_stop_as_it_asks_for_the_rest(client, app):
         assert "request_actions" in _detail(refused)["message"]
     filed = _file(client, STOP_MILL)
     assert filed.status_code == 202, filed.text
+    # Something to stop (FIB-1398).
+    monkeypatch.setattr(microscope.milling, "_running", True)
     store = app.state.requests
     store.approve(filed.json()["request_id"])
     done = store.wait(filed.json()["request_id"], timeout=10)
     assert done.status == "applied", done.results
+
+
+def test_a_request_whose_mill_was_stopped_says_so(
+    client, app, context, microscope, monkeypatch
+):
+    """A mill stopped part way answers ``cancelled``, not a failure: the request
+    is applied, and its result and end say the run was cut short (FIB-1398)."""
+    monkeypatch.setattr(microscope.milling, "run", lambda stop_event=None: "cancelled")
+    run = {
+        "tool": "call_service_command",
+        "arguments": {"service": "milling", "command": "run"},
+    }
+    filed = _file(client, run).json()
+    store = app.state.requests
+    store.approve(filed["request_id"])
+    done = store.wait(filed["request_id"], timeout=10)
+    assert done.status == "applied", done.results
+    assert done.results[0]["cancelled"] is True
+    finished = [p for kind, p, _ in context.recorded if kind == "request_finished"]
+    assert finished[-1]["cancelled"] == 1
 
 
 @pytest.mark.parametrize("stop_agent", [False, True])
@@ -424,20 +448,54 @@ def test_an_unknown_tool_in_the_describer_falls_back_to_its_name():
     }
 
 
-def test_an_approved_request_is_refused_what_the_agent_may_never_touch(client, app):
-    """The operator's approval lends Drive, not the allowlist: a blocked command
-    is refused in a request as it is called directly."""
-    home = {
-        "tool": "call_command",
-        "arguments": {"device": "stage", "command": "home"},
-    }
-    filed = _file(client, home)
-    assert filed.status_code == 202, filed.text
-    store = app.state.requests
-    store.approve(filed.json()["request_id"])
-    done = store.wait(filed.json()["request_id"], timeout=10)
-    assert done.status == "failed"
-    assert done.results[0]["status_code"] == 403
+@pytest.mark.parametrize(
+    "action",
+    [
+        {"tool": "call_command", "arguments": {"device": "stage", "command": "home"}},
+        {
+            "tool": "set_parameter",
+            "arguments": {"device": "electron", "parameter": "on", "value": False},
+        },
+    ],
+)
+def test_what_the_agent_may_never_touch_is_refused_at_filing(client, app, action):
+    """The operator is never asked about an action that cannot run: a blocked
+    command or write is refused when it is filed, as it is when called."""
+    refused = _file(client, NUDGE, action)
+    assert refused.status_code == 403
+    assert _detail(refused)["error_type"] == "not_allowed"
+    assert _detail(refused)["message"].startswith("Action 2: ")
+    assert app.state.requests.pending() is None
+
+
+def test_the_agent_withdraws_its_waiting_request_with_a_reason(client, app, context):
+    filed = _file(client, NUDGE).json()
+    url = f"/app/agent/requests/{filed['request_id']}/withdraw"
+    no_reason = client.post(url, headers=AGENT, json={"reason": " "})
+    assert no_reason.status_code == 422
+    withdrawn = client.post(
+        url, headers=AGENT, json={"reason": "the operator moved it"}
+    )
+    assert withdrawn.status_code == 200, withdrawn.text
+    why = "withdrawn by the agent: the operator moved it"
+    assert withdrawn.json()["status"] == "cancelled"
+    assert withdrawn.json()["cancel_reason"] == why
+    cancelled = [p for kind, p, _ in context.recorded if kind == "request_cancelled"]
+    assert cancelled == [{"request_id": filed["request_id"], "why": why}]
+    # A new one can be filed; a decided one can't be withdrawn.
+    again = _file(client, NUDGE).json()
+    app.state.requests.reject(again["request_id"])
+    late = client.post(
+        f"/app/agent/requests/{again['request_id']}/withdraw",
+        headers=AGENT,
+        json={"reason": "too late"},
+    )
+    assert late.status_code == 409
+    assert _detail(late)["error_type"] == "not_pending"
+    missing = client.post(
+        "/app/agent/requests/nope/withdraw", headers=AGENT, json={"reason": "x"}
+    )
+    assert missing.status_code == 404
 
 
 def test_the_sidecar_shows_an_approved_image_as_an_image(client, app):

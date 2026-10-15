@@ -31,10 +31,10 @@ from fibsem.ui.utils import message_box_ui
 from fibsem.ui.widgets.custom_widgets import (
     ValueSpinBox,
 )
-from fibsem.ui.widgets.form_builder import configure_spinbox, parameter_field_metadata
+from fibsem.ui.widgets.form_builder import configure_spinbox, parameter_spec
 
 # How a position is shown (unit, step, decimals) is the objective's display hint.
-POSITION_FIELD = parameter_field_metadata(Objective.position)
+POSITION_FIELD = parameter_spec(Objective.position)
 
 # The step-size box is this widget's own state, not an objective parameter.
 STEP_SIZE_CONTROL = {

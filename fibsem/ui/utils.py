@@ -21,10 +21,8 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem import config as cfg
-from fibsem.devices.beam import Beam
-from fibsem.devices.core import Parameter
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import BeamType
+from fibsem.structures import BeamType, FieldSpec, declared_beam_parameter
 
 
 def beam_choices(microscope: FibsemMicroscope, name: str, beam_type: BeamType) -> list:
@@ -39,24 +37,24 @@ def beam_choices(microscope: FibsemMicroscope, name: str, beam_type: BeamType) -
     return list(parameter.choices)
 
 
-def beam_field_metadata(
-    metadata: dict,
+def beam_spec(
+    spec: FieldSpec,
     microscope: Optional[FibsemMicroscope] = None,
     beam_type: Optional[BeamType] = None,
-) -> dict:
-    """A field's metadata with what the beam allows laid over it, for a field bound to
-    a beam parameter (``microscope_parameter``): the limits and choices ``beam_type``
+) -> FieldSpec:
+    """A field with what the beam allows in place of its own limits and choices, for
+    a field bound to a beam parameter (``microscope_parameter``): what ``beam_type``
     reports, else what every beam declares (a form with no instrument still gets
     them). A field bound to nothing the beam declares comes back as it is."""
-    from fibsem.ui.widgets.form_builder import reported_metadata, runtime_overrides
+    from fibsem.ui.widgets.form_builder import reported_metadata
 
-    name = metadata.get("microscope_parameter")
-    declared = getattr(Beam, name, None) if name else None
-    if not isinstance(declared, Parameter):
-        return metadata
+    name = spec.microscope_parameter
+    declared = declared_beam_parameter(name)
+    if declared is None:
+        return spec
     beam = None if microscope is None else microscope.beams.get(beam_type)
     parameter = None if beam is None else beam.parameters.get(name)
-    return runtime_overrides(metadata, reported_metadata(parameter or declared))
+    return spec.with_reported(reported_metadata(parameter or declared))
 
 
 def find_data(combo: QtWidgets.QComboBox, value) -> int:
