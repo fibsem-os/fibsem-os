@@ -208,7 +208,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="stop_milling",
-        description="Stop an in-progress mill, with the reason the operator reads.",
+        description="Stop an in-progress mill, with the reason the operator reads: the whole milling task, so no later stage starts. Refused 409 NothingToStop when nothing is milling.",
         method="POST",
         path="/microscope/services/milling/commands/stop",
         level="drive",

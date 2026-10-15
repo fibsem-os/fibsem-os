@@ -7,7 +7,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 from fibsem import acquire
 from fibsem import config as fcfg
@@ -16,6 +16,7 @@ from fibsem.cancellation import (
     COMPLETED,
     FAILED,
     SKIPPED,
+    AnyStopEvent,
     OperationCancelledError,
     ended_by,
     raise_if_cancelled,
@@ -25,6 +26,7 @@ from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.base import FibsemMillingStage, MillingStrategyResult
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.services.milling import report_progress
+from fibsem.services.milling import task_running as _task_running
 from fibsem.structures import (
     BeamType,
     FibsemImage,
@@ -243,12 +245,22 @@ class FibsemMillingTask:
         # Set to cancel: checked between stages, and passed to the strategy, whose
         # run_milling stops the beam when it is set.
         self._stop_event: Optional[threading.Event] = stop_event
+        # Set by the milling service's ``stop`` while this task runs, so a stop of
+        # the service ends the task, not only the stage milling then (FIB-1398).
+        self._stopped = threading.Event()
         # How the last run() ended, for callers that never see the progress signal.
         # None until run() has finished.
         self.outcome: Optional[MillingProgressStatus] = None
         self.error: Optional[BaseException] = None
         # How each stage the last run() reached ended, for its recorded event.
         self._stage_records: List[Dict[str, Any]] = []
+
+    @property
+    def _stop_token(self) -> Union[threading.Event, AnyStopEvent]:
+        """What stops the task: the caller's stop event, or the service's stop."""
+        if self._stop_event is None:
+            return self._stopped
+        return AnyStopEvent(self._stopped, self._stop_event)
 
     @property
     def name(self) -> str:
@@ -336,8 +348,11 @@ class FibsemMillingTask:
             if self.config.acquisition.enabled:
                 self._acquire_milling_task_images(stage_name=self.name, tag="pre-task")
 
-            for idx, stage in enumerate(self.stages):
-                self._mill_stage(stage, idx)
+            # A stop of the milling service stops the whole task, not only the
+            # pattern milling now.
+            with _task_running(self.microscope, self._stopped):
+                for idx, stage in enumerate(self.stages):
+                    self._mill_stage(stage, idx)
 
             outcome = MillingProgressStatus.TASK_FINISHED
         except OperationCancelledError as e:
@@ -401,7 +416,7 @@ class FibsemMillingTask:
         """
 
         start_time = time.time()
-        raise_if_cancelled(self._stop_event)
+        raise_if_cancelled(self._stop_token)
         # Reached: from here the stage ends completed, failed or cancelled, never
         # skipped (FIB-1257).
         record: Dict[str, Any] = {
@@ -463,8 +478,11 @@ class FibsemMillingTask:
         result = stage.strategy.run(
             microscope=self.microscope,
             stage=stage,
-            stop_event=self._stop_event,
+            stop_event=self._stop_token,
         )
+        # A stop of the service while the stage milled: the run answered
+        # cancelled, which a strategy need not pass on, so the stage was cut short.
+        raise_if_cancelled(self._stopped, "Milling stopped.")
         # TODO: pass task as parent into strategy.run()?, allow logging from strategy?
         # performance logging
         msgd = {
