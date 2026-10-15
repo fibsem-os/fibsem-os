@@ -38,6 +38,7 @@ from fibsem.imaging.tiling.geometry import (
     order_tiles,
     raise_if_outside_stage_limits,
 )
+from fibsem.imaging.tiling.layout_check import LAYOUT_FILE, TileLayoutCheck
 from fibsem.imaging.tiling.progress import (
     MODALITY_FLUORESCENCE,
     TiledProgress,
@@ -370,6 +371,21 @@ def _to_channel_planes(data: np.ndarray, n_channels: int) -> np.ndarray:
     raise ValueError(f"Unsupported tile data dimensions: {data.ndim}")
 
 
+def _layout_plane(planes: np.ndarray) -> np.ndarray:
+    """One plane to match a tile on, from its (C, Y, X) channels.
+
+    Every channel, each stretched to 0-255 between its own 1st and 99.5th percentiles,
+    then averaged: channels differ in brightness by orders of magnitude, and a raw sum
+    would be the brightest channel alone. A channel with no spread adds nothing.
+    """
+    out = np.zeros(planes.shape[1:], dtype=np.float32)
+    for plane in planes:
+        lo, hi = np.percentile(plane, (1.0, 99.5))
+        if hi > lo:
+            out += np.clip((plane - lo) / (hi - lo), 0.0, 1.0) * 255.0
+    return out / len(planes)
+
+
 @dataclass(frozen=True)
 class OverviewDestination:
     """Where one overview run's files go.
@@ -501,6 +517,11 @@ class FMTiledAcquisitionRunner:
         # place instead of collapsing toward the origin.
         self.tileset: List[List[Optional[FluorescenceImage]]] = []
 
+        # What the tile layout check found, for whoever reports the run's end: None
+        # when the tiles line up with the stage steps, or could not be checked.
+        self.layout_warning: Optional[str] = None
+        self._layout_check: Optional[TileLayoutCheck] = None
+
     # ── public entry points ──────────────────────────────────────────────
 
     def run(self) -> List[List[Optional[FluorescenceImage]]]:
@@ -536,6 +557,7 @@ class FMTiledAcquisitionRunner:
         logging.info(
             f"Tileset acquisition complete: {self._rows}x{self._cols} tiles acquired"
         )
+        self.layout_warning = self._report_layout()
         return self.tileset
 
     def run_and_stitch(self) -> FluorescenceImage:
@@ -840,6 +862,12 @@ class FMTiledAcquisitionRunner:
             )
 
         self._init_preview_canvas()
+        # Measures how far apart neighbouring tiles really are, from the pictures, as
+        # they arrive. It only reports (`_report_layout`); the mosaic is stitched from
+        # the plan either way.
+        self._layout_check = TileLayoutCheck(
+            {(t.row, t.col): (t.canvas_y, t.canvas_x) for t in self._ordered}
+        )
 
         self._emit(TiledStatus.MOVING)
         # The run's opening report: nothing acquired, and how long it should take. A
@@ -904,6 +932,38 @@ class FMTiledAcquisitionRunner:
                 f"Could not paint tile ({tile.row}, {tile.col}) into preview: {e}"
             )
 
+    def _measure_layout(self, tile: TilePosition, image: FluorescenceImage) -> None:
+        """Feed one tile to the layout check. Best effort: a check that cannot run is
+        not a reason to fail an acquisition, so it switches itself off instead."""
+        if self._layout_check is None:
+            return
+        try:
+            planes = _to_channel_planes(image.data, len(self.channel_settings))
+            self._layout_check.add((tile.row, tile.col), _layout_plane(planes))
+        except Exception as e:
+            logging.warning(f"Tile layout check stopped: {e}")
+            self._layout_check = None
+
+    def _report_layout(self) -> Optional[str]:
+        """Log the layout check, write it beside the tiles, and return its warning."""
+        if self._layout_check is None:
+            return None
+        try:
+            summary = self._layout_check.summary()
+            logging.info(summary.describe())
+            if summary.warning:
+                logging.warning(summary.warning)
+            if self.save_directory is not None:
+                pixel_size_x, _ = self.microscope.fm.camera.pixel_size
+                self._layout_check.save(
+                    os.path.join(self.save_directory, LAYOUT_FILE),
+                    pixel_size=pixel_size_x,
+                )
+            return summary.warning
+        except Exception as e:
+            logging.warning(f"Could not report the tile layout check: {e}")
+            return None
+
     def _autofocus_if_mode(self, mode: AutoFocusMode) -> None:
         """Run autofocus when the configured mode matches.
 
@@ -960,6 +1020,7 @@ class FMTiledAcquisitionRunner:
             self.tileset[tile.row][tile.col] = image
             self._n_acquired += 1
             self._paint_preview(tile, image)
+            self._measure_layout(tile, image)
             self._emit_preview(tile)
 
             if tile is not self._ordered[-1]:

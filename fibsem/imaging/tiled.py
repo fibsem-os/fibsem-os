@@ -26,6 +26,7 @@ from fibsem.imaging.tiling.geometry import (  # noqa: E402,F401
     raise_if_outside_stage_limits,
     validate_tile_stage_positions,
 )
+from fibsem.imaging.tiling.layout_check import LAYOUT_FILE, TileLayoutCheck
 from fibsem.imaging.tiling.plotting import (  # noqa: E402,F401
     POSITION_COLOURS,
     plot_minimap,
@@ -132,7 +133,7 @@ class TiledAcquisitionRunner:
         #                   _focus_stack_settings, _af_mode
         # _compute_grid() → _tiles, _ordered, _centre_position, _start_state,
         #                   _tile_stage_positions, _canvas, _dx_step, _dy_step
-        # _run_tile_loop()→ _first_image, _n_tiles_acquired, tile_paths
+        # _run_tile_loop()→ _first_image, _n_tiles_acquired, tile_paths, _layout_check
 
     # ── public entry point ───────────────────────────────────────────────
 
@@ -477,6 +478,12 @@ class TiledAcquisitionRunner:
         # Each tile as saved, in the order acquired. The stitched image is what is
         # shown; the tiles are what a model trained on single frames reads.
         self.tile_paths: List[str] = []
+        # Measures how far apart neighbouring tiles really are, from the pictures, as
+        # they arrive. It only reports (`_report_layout`); the canvas is painted from
+        # the plan either way.
+        self._layout_check: Optional[TileLayoutCheck] = TileLayoutCheck(
+            {(t.row, t.col): (t.canvas_y, t.canvas_x) for t in self._ordered}
+        )
         prev_row = -1
 
         for tile, stage_pos in zip(self._ordered, self._tile_stage_positions):
@@ -519,6 +526,7 @@ class TiledAcquisitionRunner:
             ] = image.filtered_data
 
             self._paint_preview(tile, image)
+            self._measure_layout(tile, image)
             self._n_tiles_acquired += 1
             self.microscope.tiled_acquisition_signal.emit(
                 TiledProgress(
@@ -594,9 +602,41 @@ class TiledAcquisitionRunner:
                 modality=MODALITY_BEAM,
                 completed=total_tiles,
                 total=total_tiles,
+                warning=self._report_layout(tile_dir=filename),
             )
         )
         return image
+
+    def _measure_layout(self, tile: TilePosition, image: FibsemImage) -> None:
+        """Feed one tile to the layout check. Best effort: a check that cannot run is
+        not a reason to fail an acquisition, so it switches itself off instead."""
+        if self._layout_check is None:
+            return
+        try:
+            self._layout_check.add((tile.row, tile.col), image.filtered_data)
+        except Exception as e:
+            logging.warning(f"Tile layout check stopped: {e}")
+            self._layout_check = None
+
+    def _report_layout(self, tile_dir: str) -> Optional[str]:
+        """Log the layout check, write it into the run's tile folder, and return its
+        warning. The folder is the mosaic's path without the extension, and is named
+        for the run, so one run's record never lands on another's."""
+        if self._layout_check is None:
+            return None
+        try:
+            summary = self._layout_check.summary()
+            logging.info(summary.describe())
+            if summary.warning:
+                logging.warning(summary.warning)
+            self._layout_check.save(
+                os.path.join(tile_dir, LAYOUT_FILE),
+                pixel_size=self._mosaic_metadata.pixel_size.x,
+            )
+            return summary.warning
+        except Exception as e:
+            logging.warning(f"Could not report the tile layout check: {e}")
+            return None
 
     # ── helpers ──────────────────────────────────────────────────────────
 

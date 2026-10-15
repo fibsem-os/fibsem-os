@@ -1,3 +1,4 @@
+import json
 import os
 import threading
 from unittest.mock import Mock, call, patch
@@ -2491,3 +2492,39 @@ def test_every_counted_payload_carries_an_estimate(fm_microscope):
     for payload in [p for p in emitted if p.completed]:
         assert payload.estimated_remaining_seconds >= 0
         assert payload.estimated_total_seconds > 0
+
+
+# ── tile layout check (FIB-1385) ────────────────────────────────────────
+
+
+def test_layout_plane_weights_channels_equally_and_ignores_flat_ones():
+    """A dim channel counts as much as a bright one, and a blank one adds nothing
+    rather than dividing the rest down to noise."""
+    rng = np.random.default_rng(0)
+    bright = rng.integers(0, 60000, (32, 48)).astype(np.uint16)
+    dim = (bright // 100).astype(np.uint16)
+    flat = np.full((32, 48), 500, dtype=np.uint16)
+
+    plane = acquisition._layout_plane(np.stack([bright, dim, flat]))
+
+    assert plane.shape == (32, 48)
+    # bright and dim are the same picture, so they stretch to the same 0-255 plane;
+    # the flat channel contributes zeros.
+    single = acquisition._layout_plane(np.stack([bright]))
+    np.testing.assert_allclose(plane, single * 2 / 3, atol=3.0)
+
+
+def test_a_run_writes_its_tile_layout_beside_the_tiles(fm_microscope, tmp_path):
+    runner = FMTiledAcquisitionRunner(
+        microscope=fm_microscope,
+        channel_settings=ChannelSettings(name="DAPI", exposure_time=0.001),
+        overview_parameters=OverviewParameters(rows=2, cols=2, overlap=0.1),
+        save_directory=str(tmp_path),
+    )
+    runner.run()
+
+    record = (tmp_path / "tile-layout.json").read_text()
+    assert '"pairs"' in record
+    # Four tiles in a 2x2 are four neighbour pairs, matched or not.
+    assert len(json.loads(record)["pairs"]) == 4
+    assert runner.layout_warning == json.loads(record)["warning"]
