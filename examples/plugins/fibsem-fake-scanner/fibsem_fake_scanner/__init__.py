@@ -35,4 +35,6 @@ def driver() -> DriverEntry:
         remote_devices={
             "scan_generator": "fibsem_fake_scanner.remote:RemoteFakeScanner"
         },
+        # offered in the guided setup; its keys are the entry's schema
+        setup="fibsem_fake_scanner.setup:SCANNER",
     )

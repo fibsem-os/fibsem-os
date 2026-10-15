@@ -275,6 +275,47 @@ def api_is_installed(manufacturer: Manufacturer) -> Optional[bool]:
 
 
 # ---------------------------------------------------------------------------
+# Other devices
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class OfferedDevice:
+    """A device an installed device-only driver offers (a plugin's scan generator):
+    the wizard's "Other devices" step lists one checkbox for each."""
+
+    driver: str
+    setup: Any
+    """Its ``fibsem.drivers.setup.SetupDevice``: label, summary, keys, usual role."""
+
+    @property
+    def key(self) -> str:
+        return f"{self.driver}:{self.setup.type}"
+
+
+@dataclass
+class DeviceChoice:
+    """One offered device the person ticked: the values of its keys, and whether its
+    usual role is bound (``SetupDevice.role``)."""
+
+    values: Dict[str, Any] = field(default_factory=dict)
+    bind_role: bool = True
+
+
+def offered_devices() -> List[OfferedDevice]:
+    """Every device the installed device-only drivers offer, in registry order. Empty
+    where no plugin offers one, and then the step is not shown."""
+    from fibsem.drivers.registry import device_setups
+
+    return [OfferedDevice(driver, setup) for driver, setup in device_setups()]
+
+
+def get_offered_device(key: str) -> Optional[OfferedDevice]:
+    """The offered device with this key, or None for one no longer installed."""
+    return next((d for d in offered_devices() if d.key == key), None)
+
+
+# ---------------------------------------------------------------------------
 # Which instrument
 # ---------------------------------------------------------------------------
 
@@ -356,6 +397,9 @@ class SetupChoices:
     protocol_path: str = ""
     name: str = ""
     set_as_default: bool = True
+    # The other devices ticked, by `OfferedDevice.key`. Empty unless a plugin offers
+    # one and it was chosen.
+    devices: Dict[str, DeviceChoice] = field(default_factory=dict)
 
     @property
     def model(self) -> MicroscopeModel:
@@ -528,6 +572,8 @@ def build_configuration(choices: SetupChoices) -> dict:
     for section, values in model.config_overrides.items():
         config.setdefault(section, {}).update(values)
 
+    _add_devices(config, choices.devices)
+
     stage = utils.configuration_device(config, "stage", create=True)
     if choices.rotation_reference is not None:
         stage["rotation_reference"] = float(choices.rotation_reference)
@@ -545,6 +591,40 @@ def build_configuration(choices: SetupChoices) -> dict:
         )
 
     return config
+
+
+def _add_devices(config: dict, chosen: Mapping[str, DeviceChoice]) -> None:
+    """Each chosen device as its own ``hardware.devices`` entry, and its usual role
+    bound on the entry that has it where that was left ticked. A device no longer
+    installed is left out with a warning rather than failing the write."""
+    from fibsem import utils
+
+    for key, choice in chosen.items():
+        offered = get_offered_device(key)
+        if offered is None:
+            logger.warning(f"{key} is no longer offered, so it is not added.")
+            continue
+        entry = offered.setup.entry(offered.driver, choice.values)
+        utils.configuration_device(config, entry["name"], create=True).update(entry)
+        if choice.bind_role and offered.setup.role:
+            holder, role = offered.setup.role
+            listed = utils.configuration_device(config, holder, create=True)
+            listed["roles"] = {**(listed.get("roles") or {}), role: entry["name"]}
+
+
+def chosen_device_rows(choices: SetupChoices) -> List[Tuple[str, str]]:
+    """What the review step says about the other devices: (label, what is written)."""
+    rows = []
+    for key, choice in choices.devices.items():
+        offered = get_offered_device(key)
+        if offered is None:
+            continue
+        setup = offered.setup
+        detail = ", ".join(f"{k}: {v}" for k, v in setup.options(choice.values).items())
+        if choice.bind_role and setup.role:
+            detail += f"; {setup.role[0]}'s {setup.role[1]}"
+        rows.append((setup.label, detail or setup.name))
+    return rows
 
 
 @dataclass

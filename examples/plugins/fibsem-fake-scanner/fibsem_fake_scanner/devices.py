@@ -162,25 +162,15 @@ class FakeScanner(FakeScanUnit):
         return ParameterMetadata(choices=PATTERNS)
 
 
-# The keys a FakeScan entry takes, beside name/type/driver.
-ENTRY_KEYS = {"address": "127.0.0.1", "pattern": "gradient", "simulate_delay": False}
-
-
 def build_fake_scanner(entry: "DeviceEntry", context: "BuildContext") -> FakeScanner:
     """The scanner a ``type: scan_generator, driver: FakeScan`` entry names.
 
     Entries at one address share one controller connection, through the connect's
     shared scratch space, closed when the microscope disconnects. The unit has its
-    own resources: scanning with it doesn't hold the microscope's locks.
+    own resources: scanning with it doesn't hold the microscope's locks. The entry's
+    keys arrive checked against ``setup.SCANNER``, with its defaults filled in.
     """
-    options = {
-        key: entry.options.get(key, default) for key, default in ENTRY_KEYS.items()
-    }
-    unknown = set(entry.options) - set(ENTRY_KEYS)
-    if unknown:
-        raise ValueError(
-            f"unknown keys for a {MANUFACTURER} scanner: {sorted(unknown)}"
-        )
+    options = entry.options
     controllers = context.shared.setdefault(MANUFACTURER, {})
     address = str(options["address"])
     if address not in controllers:

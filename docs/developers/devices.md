@@ -659,6 +659,33 @@ A driver like this one, that only builds devices, has no `microscope_class`. It 
 never offered as a manufacturer, and connecting with it as `info.manufacturer` is
 refused. Its name matches a `driver:` in any case (`knifeco` finds `KnifeCo`).
 
+Such a driver declares the keys its entry takes, and offers the device in the guided
+setup, with a `SetupDevice` (`fibsem/drivers/setup.py`) named by `setup`:
+
+<!-- not run -->
+```python
+from fibsem.drivers.setup import SetupDevice, SetupKey
+
+KNIFE = SetupDevice(
+    type="knife",
+    label="KnifeCo knife",
+    summary="A knife on its own controller.",
+    name="knife",
+    keys=(SetupKey("address", "127.0.0.1", "Address"), SetupKey("speed", 1.0)),
+    role=None,  # or ("electron", "scanner") for a role it usually fills
+)
+
+# DriverEntry(..., setup="my_plugin.setup:KNIFE")
+```
+
+Building an entry checks its keys against these first: an unknown key, or a value of
+another type than the key's default, fails the build with the key named, and the
+builder gets `entry.options` with every default filled in. The guided setup shows an
+"Other devices" step when an installed driver offers one, with a checkbox per device
+and its keys, and writes each one ticked as a `hardware.devices` entry. A device with
+a `role` gets its own checkbox, ticked, to bind it on that entry. A driver offering
+several devices names a tuple of them.
+
 A driver for a whole microscope also names its `FibsemMicroscope` subclass in
 `microscope_class`. [Supporting a microscope](extending.md#supporting-a-microscope)
 covers that.

@@ -15,7 +15,7 @@ scratch space its driver's builders share for the connect.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -198,7 +198,12 @@ def build_device_entries(
                 _not_built(item, microscope, reason)
                 continue
             try:
-                device = builder.load()(item.entry, context)
+                entry = _checked_entry(item)
+            except Exception as e:
+                _not_built(item, microscope, f"its keys are wrong: {e}", e)
+                continue
+            try:
+                device = builder.load()(entry, context)
             except Exception as e:
                 _not_built(item, microscope, f"building it failed: {e}", e)
                 continue
@@ -247,6 +252,18 @@ def _builder(item: ResolvedEntry) -> Optional["DeviceBuilder"]:
     from fibsem.drivers.registry import device_builder
 
     return device_builder(item.driver, item.type)
+
+
+def _checked_entry(item: ResolvedEntry) -> DeviceEntry:
+    """*item*'s entry, its keys checked against the ``SetupDevice`` its driver
+    declares for its type and the defaults filled in; unchanged where it declares
+    none. Raises ``ValueError`` for an unknown key or one of the wrong type."""
+    from fibsem.drivers.registry import device_setup
+
+    schema = device_setup(item.driver, item.type)
+    if schema is None:
+        return item.entry
+    return replace(item.entry, options=schema.options(item.entry.options, item.driver))
 
 
 def _installed_drivers() -> List[str]:

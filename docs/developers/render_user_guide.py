@@ -659,11 +659,14 @@ def render_getting_started(h: Harness) -> None:
         dialog._name_edit.setText(config_name)
         dialog.show()
         h.pump(300)
-        for index, title in enumerate(STEP_TITLES):
+        # numbered as the rail numbers them: the other-devices step is shown
+        # only when a plugin offers a device
+        shown = [i for i in range(len(STEP_TITLES)) if not dialog._is_skipped(i)]
+        for number, index in enumerate(shown, start=1):
             dialog._show_step(index)
             h.pump(200)
-            slug = title.lower().replace(" ", "-")
-            h.shot(f"guided-setup-{prefix}-{index + 1}-{slug}", target=dialog)
+            slug = STEP_TITLES[index].lower().replace(" ", "-")
+            h.shot(f"guided-setup-{prefix}-{number}-{slug}", target=dialog)
         dialog.close()
         h.pump(200)
 

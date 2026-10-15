@@ -21,6 +21,7 @@ from fibsem import config as cfg
 from fibsem import guided_setup as wizard
 from fibsem.ui.widgets.guided_setup_dialog import (
     STEP_CONNECTION,
+    STEP_DEVICES,
     STEP_FOLDERS,
     STEP_MICROSCOPE,
     STEP_REVIEW,
@@ -67,6 +68,9 @@ def isolated_state(tmp_path, monkeypatch):
     monkeypatch.setattr(
         cfg, "USER_PREFERENCES_PATH", str(tmp_path / "user-preferences.yaml")
     )
+    # No plugin's devices, whatever is installed here: the other-devices step is
+    # tested on its own, with devices it is handed.
+    monkeypatch.setattr(wizard, "offered_devices", lambda: [])
     # Self-checking, because the failure mode above is silent: leaked state does not
     # error, it just makes every first-run test assert against a configured machine.
     assert wizard.is_first_run(), "the isolated state is not a fresh install"
@@ -955,3 +959,77 @@ def test_cancelling_the_wizard_changes_nothing_and_keeps_the_offer(
     assert connection_tab.run_guided_setup() is None
     assert connection_tab.comboBox_configuration.currentText() == before
     assert not connection_tab._frame_first_run.isHidden()
+
+
+# ---------------------------------------------------------------------------
+# Other devices
+# ---------------------------------------------------------------------------
+
+
+def _offer_a_scanner(monkeypatch):
+    from fibsem.drivers.setup import SetupDevice, SetupKey
+
+    offered = wizard.OfferedDevice(
+        "TestUnit",
+        SetupDevice(
+            type="scan_generator",
+            label="Test scan unit",
+            summary="A scan unit.",
+            name="test_scanner",
+            keys=(SetupKey("address", "127.0.0.1"), SetupKey("gain", 1.0)),
+            role=("electron", "scanner"),
+        ),
+    )
+    monkeypatch.setattr(wizard, "offered_devices", lambda: [offered])
+    return offered
+
+
+def test_the_other_devices_step_is_hidden_when_no_plugin_offers_one(dialog):
+    assert dialog._is_skipped(STEP_DEVICES)
+    assert dialog._rail_rows[STEP_DEVICES].isHidden()
+    assert dialog._rail_rows[STEP_FOLDERS]._marker.text() == "4"
+    dialog._show_step(STEP_STAGE)
+    dialog._on_next()
+    assert dialog._index == STEP_FOLDERS
+    dialog._on_back()
+    assert dialog._index == STEP_STAGE
+
+
+def test_a_ticked_device_is_written_with_its_keys_and_role(
+    qapp, isolated_state, monkeypatch
+):
+    offered = _offer_a_scanner(monkeypatch)
+    widget = GuidedSetupDialog()
+    try:
+        assert not widget._is_skipped(STEP_DEVICES)
+        assert widget._rail_rows[STEP_FOLDERS]._marker.text() == "5"
+        widget._show_step(STEP_STAGE)
+        widget._on_next()
+        assert widget._index == STEP_DEVICES
+
+        check, editors, role_check = widget._device_rows[offered.key]
+        check.setChecked(True)
+        editors["address"].setText("10.0.0.5")
+        editors["gain"].setValue(2.5)
+        widget._on_next()
+        assert widget._index == STEP_FOLDERS
+        choice = widget.choices.devices[offered.key]
+        assert choice.values == {"address": "10.0.0.5", "gain": 2.5}
+        assert choice.bind_role
+
+        config = wizard.build_configuration(widget.choices)
+        assert configuration_device(config, "test_scanner") == {
+            "name": "test_scanner",
+            "type": "scan_generator",
+            "driver": "TestUnit",
+            "address": "10.0.0.5",
+            "gain": 2.5,
+        }
+        assert configuration_device(config, "electron")["roles"] == {
+            "scanner": "test_scanner"
+        }
+        widget._show_step(STEP_REVIEW)
+        assert summary_rows(widget)["Test scan unit"].startswith("address: 10.0.0.5")
+    finally:
+        widget.reject()
+        widget.deleteLater()

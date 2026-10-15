@@ -3,9 +3,9 @@
 Each test is one step a plugin device goes through: discovered from its entry point,
 configured as a ``hardware.devices`` entry, built, bound to a beam's ``scanner`` role,
 driven through its parameters and commands, served by the App Server and the device
-server, shown in the application, and recorded. A step fibsemOS does not support yet
-is a strict ``xfail`` naming the gap, so fixing the gap turns the test red until the
-mark comes off.
+server, shown in the application, offered by the guided setup, and recorded. A step
+fibsemOS did not support was a strict ``xfail`` naming the gap, so fixing the gap
+turned the test red until the mark came off; none is left.
 
 Run from the repository root with the plugin installed::
 
@@ -110,16 +110,32 @@ def test_a_device_only_driver_is_not_offered_as_a_manufacturer():
     assert "FakeScan" not in registered_manufacturers()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="GAP: the guided setup offers only microscope drivers (driver_setups "
-    "filters on registered_manufacturers); a device-only driver can't offer itself "
-    "or add its entry to hardware.devices",
-)
 def test_the_guided_setup_offers_the_scanner():
-    from fibsem.drivers.registry import driver_setups
+    from fibsem_fake_scanner.setup import SCANNER
 
-    assert "FakeScan" in [name for name, _ in driver_setups()]
+    from fibsem.drivers.registry import device_setups
+
+    assert ("FakeScan", SCANNER) in device_setups()
+
+
+def test_the_wizard_writes_an_entry_that_builds_the_scanner(tmp_path):
+    """Ticked in the guided setup with its keys, then connected: the entry and its
+    role binding are what the wizard wrote."""
+    from fibsem import guided_setup as wizard
+
+    choices = wizard.SetupChoices(manufacturer_key="Demo")
+    choices.model_key = wizard.models_for("Demo")[0].key
+    choices.devices = {
+        "FakeScan:scan_generator": wizard.DeviceChoice({"pattern": "checker"})
+    }
+    config = wizard.build_configuration(choices)
+    microscope = _connect(tmp_path, config)
+    try:
+        scanner = microscope.devices["fake_scanner"]
+        assert microscope.beams[BeamType.ELECTRON].scanner is scanner
+        assert scanner.pattern.get_value() == "checker"
+    finally:
+        microscope.disconnect()
 
 
 # -- configuration and build --------------------------------------------------------
@@ -143,6 +159,11 @@ def test_the_entry_survives_a_save(microscope):
 def test_an_unknown_key_fails_the_build(tmp_path):
     with pytest.raises(DeviceBuildError, match="unknown keys"):
         _connect(tmp_path, _config({**ENTRY, "adress": "10.0.0.2"}))
+
+
+def test_a_key_of_the_wrong_type_fails_the_build(tmp_path):
+    with pytest.raises(DeviceBuildError, match="'simulate_delay' takes true or false"):
+        _connect(tmp_path, _config({**ENTRY, "simulate_delay": "yes"}))
 
 
 def test_a_missing_plugin_says_it_is_not_installed(tmp_path):
