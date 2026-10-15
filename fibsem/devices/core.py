@@ -464,19 +464,28 @@ class CommandInfo:
     signature: str
     available: bool
     doc: str
+    long: bool = False
 
 
 def command(
-    fn: Optional[Callable] = None, *, available: Optional[Callable[[Any], bool]] = None
+    fn: Optional[Callable] = None,
+    *,
+    available: Optional[Callable[[Any], bool]] = None,
+    long: bool = False,
 ) -> Any:
     """Mark a device method as a command. It stays a plain method.
 
     The mark records only what a UI, the agent API or a remote proxy needs to list it:
     its name, its arguments and whether it is available on this device right now.
+    ``long`` marks a command that runs for minutes (a mill, a spot burn): the App
+    Server answers an agent's call to it at once with a run id and lets it run on
+    (`fibsem.server.runs`). Called directly it is an ordinary method.
     """
 
     def mark(method: Callable) -> Callable:
         method.__device_command__ = available  # type: ignore[attr-defined]
+        if long:
+            method.__device_long__ = True  # type: ignore[attr-defined]
         return method
 
     return mark(fn) if fn is not None else mark
@@ -844,6 +853,7 @@ class _Controllable:
                 signature=str(signature.replace(parameters=arguments)),
                 available=True if available is None else bool(available(self)),
                 doc=inspect.getdoc(attr) or "",
+                long=bool(getattr(attr, "__device_long__", False)),
             )
         return found
 

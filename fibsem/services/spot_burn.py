@@ -106,7 +106,7 @@ class SpotBurn(Service):
 
     # -- commands ----------------------------------------------------------------
 
-    @command
+    @command(long=True)
     def run(
         self,
         settings: SpotBurnSettings,

@@ -453,6 +453,13 @@ def build_sidecar(client, capabilities):
             reason=reason,
         )
 
+    def wait_for_run(service: str, run_id: Optional[str] = None, wait: float = 60.0):
+        query = {"wait": wait, "run_id": run_id}
+        return _app_get(
+            f"/microscope/services/{quote(service, safe='')}/run?"
+            + urlencode({k: v for k, v in query.items() if v is not None})
+        )
+
     def call_service_query(service: str, query: str, kwargs: Optional[dict] = None):
         return _routed(
             "call_service_query", service=service, query=query, kwargs=kwargs
@@ -792,6 +799,7 @@ def build_sidecar(client, capabilities):
             set_service_parameter,
             call_service_command,
             call_service_query,
+            wait_for_run,
             autocontrast,
             auto_focus,
             get_app_status,

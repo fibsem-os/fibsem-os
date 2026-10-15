@@ -74,6 +74,7 @@ from fastapi import (
     Body,
     FastAPI,
     HTTPException,
+    Request,
     WebSocket,
     WebSocketDisconnect,
 )
@@ -106,6 +107,7 @@ from fibsem.server.images import (
     is_image_result,
     tiff_bytes,
 )
+from fibsem.server.runs import Runs
 from fibsem.structures import FibsemImage
 
 # Before uvicorn 0.54 its default websockets implementation imports websockets.legacy,
@@ -220,6 +222,8 @@ def describe_device(device: Device, refuse: Optional[Refuse] = None) -> Dict[str
                 "signature": info.signature,
                 "available": info.available,
                 **agent("command", name),
+                # Answered at once with a run id on the App Server.
+                **({"long": True} if info.long else {}),
             }
             for name, info in device.commands.items()
         },
@@ -316,6 +320,10 @@ class _EventHub:
             return
 
 
+# How long ``GET .../run`` may wait for a run to end: under the sidecar's 120 s
+# timeout, so a wait answers before the call gives up.
+RUN_WAIT_CAP_S = 60.0
+
 # A command or query with no arguments may be posted with no body.
 _NO_BODY = Body(default={})
 
@@ -329,6 +337,8 @@ def build_device_router(
     noun: str = "device",
     on_image: Optional[Callable[[FibsemImage], None]] = None,
     refuse: Optional[Refuse] = None,
+    runs: Optional[Runs] = None,
+    adopt_control: Optional[Callable[[Request], Optional[Callable[[], None]]]] = None,
 ) -> APIRouter:
     """The ``/devices`` routes over whatever *devices* returns, by name.
 
@@ -343,6 +353,12 @@ def build_device_router(
     App Server shows it in the app's views (FIB-1375). *refuse* says why a write
     or a command is never allowed here (403 ``not_allowed``), and the listings
     mark those (``agent: false``): the App Server's allowlist.
+
+    With *runs*, a command marked ``long`` answers at once with its run and runs
+    on (`fibsem.server.runs`), and ``GET {prefix}/{name}/run`` reads how it is
+    going; *adopt_control* keeps the control of the microscope the request took
+    until the run ends. Without, every command answers when it ends: the device
+    server, whose client (the remote driver) waits for it.
     """
     router = APIRouter()
 
@@ -395,6 +411,26 @@ def build_device_router(
     def get_device(device: str) -> Dict[str, Any]:
         return describe_device(lookup(device), refuse)
 
+    if runs is not None:
+        # Before /{parameter}, which would otherwise take "run" as a name.
+        @router.get(prefix + "/{device}/run", dependencies=list(read))
+        def read_run(
+            device: str, run_id: Optional[str] = None, wait: float = 0.0
+        ) -> Dict[str, Any]:
+            """The latest run of a long command, waiting up to *wait* seconds
+            (at most a minute) for it to end; with *run_id*, for that run."""
+            lookup(device)
+            found = runs.wait(device, run_id, min(max(wait, 0.0), RUN_WAIT_CAP_S))
+            if found is None:
+                raise HTTPException(
+                    404,
+                    detail={
+                        "error_type": "not_found",
+                        "message": f"{noun} {device} has run no long command",
+                    },
+                )
+            return {"run": found.to_dict()}
+
     # Before /{parameter}, which would otherwise take "values" as a name.
     @router.get(prefix + "/{device}/values", dependencies=list(read))
     def read_values(device: str) -> Dict[str, Any]:
@@ -443,7 +479,9 @@ def build_device_router(
         )
 
     @router.post(prefix + "/{device}/commands/{command}", dependencies=list(command))
-    def call(device: str, command: str, body: Dict[str, Any] = _NO_BODY) -> Any:
+    def call(
+        request: Request, device: str, command: str, body: Dict[str, Any] = _NO_BODY
+    ) -> Any:
         d = lookup(device)
         if command not in d.commands:
             raise HTTPException(404, f"'{device}' has no command '{command}'")
@@ -451,6 +489,8 @@ def build_device_router(
         what = f"{noun} {device}.{command}"
         kwargs = run(lambda: decode_kwargs(method, body.get("kwargs", {})), what)
         check(d, "command", command, kwargs)
+        if runs is not None and d.commands[command].long:
+            return {"result": start_run(request, device, command, method, kwargs)}
         result = run(lambda: method(**kwargs), what)
         headers = {}
         if on_image is not None:
@@ -484,6 +524,28 @@ def build_device_router(
             )
         # A structure with to_dict answers that (an autofocus result, its summary).
         return {"result": jsonable_encoder(to_wire(result))}
+
+    def start_run(request, device, command, method, kwargs) -> Dict[str, Any]:
+        what = f"{noun} {device}.{command}"
+
+        def answer(result: Any) -> Any:
+            if on_image is not None:
+                for image in _images_in(result):
+                    on_image(image)
+            if is_image_result(result) or is_image_list(result):
+                return image_answer(result)
+            return jsonable_encoder(to_wire(result))
+
+        def failure(error: BaseException) -> Dict[str, Any]:
+            if isinstance(error, tuple(ERROR_STATUS)):
+                return refusal(error, what).detail
+            return unexpected(error, what).detail
+
+        release = adopt_control(request) if adopt_control is not None else None
+        started = runs.start(
+            device, command, lambda: method(**kwargs), answer, failure, release
+        )
+        return started.to_dict()
 
     @router.post(prefix + "/{device}/queries/{query}", dependencies=list(read))
     def ask(device: str, query: str, body: Dict[str, Any] = _NO_BODY) -> Dict[str, Any]:
