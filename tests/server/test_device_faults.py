@@ -15,7 +15,13 @@ pytest.importorskip("httpx")  # TestClient transport
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from fibsem.devices import Device, DeviceFault, DeviceParameter, command  # noqa: E402
+from fibsem.devices import (  # noqa: E402
+    Device,
+    DeviceFault,
+    DeviceParameter,
+    ResourceBusy,
+    command,
+)
 from fibsem.server.devices import build_device_app  # noqa: E402
 
 
@@ -32,6 +38,10 @@ class Unit(Device):
     @command
     def scan(self) -> None:
         raise ControllerError("dwell under the unit's minimum", device=self.name)
+
+    @command
+    def busy(self) -> None:
+        raise ResourceBusy("scanner", "electron", "unit is live on electron")
 
     @command
     def crash(self) -> None:
@@ -87,3 +97,16 @@ def test_a_remote_copy_raises_the_fault_again():
     finally:
         client.close()
         server.stop()
+
+
+def test_a_resource_held_elsewhere_is_a_409_and_stays_busy_remotely(client):
+    from fibsem.drivers.remote.devices import error_from
+
+    r = client.post("/devices/unit/commands/busy", json={"kwargs": {}})
+    assert r.status_code == 409
+    detail = r.json()["detail"]
+    assert detail["holder"] == "electron"
+    error = error_from(detail, r.status_code)
+    assert isinstance(error, ResourceBusy)
+    assert (error.resource, error.holder) == ("scanner", "electron")
+    assert str(error) == "unit is live on electron"

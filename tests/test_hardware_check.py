@@ -137,7 +137,49 @@ def test_without_an_fm_it_says_so_and_passes(microscope, monkeypatch):
     report = run_hardware_check(microscope, Level.READ)
 
     assert report.passed
-    assert [(f.device, f.result) for f in report.findings] == [("fm", Result.NOTE)]
+    assert [(f.device, f.result) for f in report.findings if f.device == "fm"] == [
+        ("fm", Result.NOTE)
+    ]
+
+
+def test_every_other_device_has_its_readings_checked(microscope):
+    report = run_hardware_check(microscope, Level.READ)
+
+    assert report.passed, report.format()
+    for name, device in microscope.devices.items():
+        if name in microscope.fm.devices:
+            continue
+        for key in device.parameters:
+            assert (name, f"read {key}") in _steps(report)
+
+
+def test_a_device_adds_its_own_steps_through_its_hook(microscope, monkeypatch):
+    stage = microscope.devices["stage"]
+    levels = []
+
+    def hardware_check(report, level):
+        levels.append(level)
+        with report.step("stage", "its own step"):
+            pass
+
+    monkeypatch.setattr(stage, "hardware_check", hardware_check)
+    report = run_hardware_check(microscope, Level.SETTINGS)
+
+    assert levels == [Level.SETTINGS]
+    assert ("stage", "its own step") in _steps(report)
+    assert ("stage", "read position") not in _steps(report)  # it replaced the default
+
+
+def test_a_hook_that_raises_fails_and_the_run_goes_on(microscope, monkeypatch):
+    def broken(report, level):
+        raise RuntimeError("the driver's check is broken")
+
+    monkeypatch.setattr(microscope.devices["stage"], "hardware_check", broken)
+    report = run_hardware_check(microscope, Level.READ)
+
+    (failed,) = [f for f in report.findings if f.result is Result.FAIL]
+    assert (failed.device, failed.step) == ("stage", "check")
+    assert any(f.device == "chamber" for f in report.findings)  # still checked
 
 
 def test_the_report_records_when_it_ran_with_the_offset(microscope):

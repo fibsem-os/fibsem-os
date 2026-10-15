@@ -618,7 +618,7 @@ def test_a_tap_that_fails_never_reaches_the_emitting_thread(microscope):
 
     disposers = attach_microscope_taps(BrokenBuffer(), microscope)
     try:
-        microscope.milling_progress_signal.emit(
+        microscope.milling.report(
             MillingProgress(status=MillingProgressStatus.STAGE_UPDATE)
         )
         microscope.record_event("anything", {})

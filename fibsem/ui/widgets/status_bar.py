@@ -286,10 +286,17 @@ class FibsemStatusBar(QStatusBar):
 
     def _subscriptions(self, microscope: "FibsemMicroscope"):
         subscriptions = [
-            (microscope.milling_progress_signal, self._on_milling_progress),
             (microscope.tiled_acquisition_signal, self._on_tiled_progress),
-            (microscope.spot_burn_progress_signal, self._on_spot_burn_progress),
         ]
+        # On the services, which a system without an ion beam doesn't have.
+        milling = getattr(microscope, "milling", None)
+        if milling is not None:
+            subscriptions.append((milling.progress.changed, self._on_milling_progress))
+        spot_burn = getattr(microscope, "spot_burn", None)
+        if spot_burn is not None:
+            subscriptions.append(
+                (spot_burn.progress.changed, self._on_spot_burn_progress)
+            )
         # On the optional fluorescence device, not the microscope: a system without
         # one has no signal to connect.
         fm = getattr(microscope, "fm", None)

@@ -362,6 +362,12 @@ An image a beam acquires records the device in each role it had filled, under
 It is empty for an image from the vendor's own scan. `microscope_state` still
 carries the vendor's detector either way.
 
+One scanner can be bound to both beams, since a unit may switch columns, but it scans
+for one at a time. A beam's live view holds the scanner (`Resources.hold`) for its
+whole session; meanwhile the other beam's `acquire` and `start_live` are refused at
+once with `ResourceBusy` ("unit is live on electron"), a 409 over the device server,
+rather than interleaving its frames. The live beam's own `acquire` goes on.
+
 ## Services
 
 A service is something the instrument does with its devices over time, such as
@@ -639,9 +645,53 @@ driver's own client is closed last. One that raises is logged, and the rest stil
 run. A whole-microscope driver puts its client's close in `_disconnect`, not
 `disconnect`.
 
+The application shows a plugin's device with nothing written for it. The
+configuration window's Instrument tab lists every device the microscope built, with
+its driver, type and the roles it filled, and every configured device that failed to
+build, with why; a beam whose configured scanner failed says it fell back to the
+vendor scan. Its Devices tab draws any device from what it describes about itself
+(`fibsem.ui.widgets.device_panel`): each parameter as a control from its `Display`,
+limits and choices, written on edit and kept current through `changed`; each command
+that needs no arguments as a button, run after the user confirms; and its `facts`.
+
+`fibsem-cli check` (the hardware check) checks every device the microscope built, a plugin's too,
+through `Device.hardware_check(report, level)`. By default that is the `READ` step:
+every parameter read and checked against its own limits and choices. A driver adds
+steps for `SETTINGS` and `ACQUIRE` by overriding it, calling `super()` first, and
+putting each step in `report.step(...)`; `check_round_trip` changes a setting, reads
+it back and puts it back. No step may move anything, and each puts back what it
+changes. The fake scanner's checks its gain and scans one small frame.
+
 A driver like this one, that only builds devices, has no `microscope_class`. It is
 never offered as a manufacturer, and connecting with it as `info.manufacturer` is
 refused. Its name matches a `driver:` in any case (`knifeco` finds `KnifeCo`).
+
+Such a driver declares the keys its entry takes, and offers the device in the guided
+setup, with a `SetupDevice` (`fibsem/drivers/setup.py`) named by `setup`:
+
+<!-- not run -->
+```python
+from fibsem.drivers.setup import SetupDevice, SetupKey
+
+KNIFE = SetupDevice(
+    type="knife",
+    label="KnifeCo knife",
+    summary="A knife on its own controller.",
+    name="knife",
+    keys=(SetupKey("address", "127.0.0.1", "Address"), SetupKey("speed", 1.0)),
+    role=None,  # or ("electron", "scanner") for a role it usually fills
+)
+
+# DriverEntry(..., setup="my_plugin.setup:KNIFE")
+```
+
+Building an entry checks its keys against these first: an unknown key, or a value of
+another type than the key's default, fails the build with the key named, and the
+builder gets `entry.options` with every default filled in. The guided setup shows an
+"Other devices" step when an installed driver offers one, with a checkbox per device
+and its keys, and writes each one ticked as a `hardware.devices` entry. A device with
+a `role` gets its own checkbox, ticked, to bind it on that entry. A driver offering
+several devices names a tuple of them.
 
 A driver for a whole microscope also names its `FibsemMicroscope` subclass in
 `microscope_class`. [Supporting a microscope](extending.md#supporting-a-microscope)
@@ -675,5 +725,45 @@ server's event stream. A refusal keeps its type across the wire (`ValueError`,
 `ParameterReadOnly`, `DeviceFault`, ...); any other error on the server answers 500
 with the same `error_type` and `message`, its traceback in the server's log. `fibsem/server/devices.py` documents the server's endpoints.
 INSTALLATION.md covers setting up a METEOR.
+
+A scan generator can be remote too (`RemoteScanner`): a frame is scanned on the server
+and comes back as the array, and its limits travel in its facts, so a beam bound to it
+narrows to them as it would to a local one. A plugin driver's device carries more than
+its type's interface, so a served device names its `driver` and `type`, and the
+coordinator makes it with the class the driver's `DriverEntry.remote_devices` names
+for that type, when the plugin is installed there too:
+
+<!-- not run -->
+```python
+DriverEntry(
+    manufacturer="FakeScan",
+    devices={"scan_generator": DeviceBuilder("fibsem_fake_scanner.devices:build_fake_scanner")},
+    remote_devices={"scan_generator": "fibsem_fake_scanner.remote:RemoteFakeScanner"},
+)
+```
+
+The remote class mixes `RemoteDevice` (or the type's remote class) into a class that
+declares the device's parameters and commands, shared with the local device so the two
+can't drift: `class RemoteFakeScanner(RemoteScanner, FakeScanUnit)`. A command of the
+driver's own runs on the server through `call_command`. Without the plugin on the
+coordinator, the entry is the type's interface class, with a warning naming what is not
+available; a type fibsem has no interface for is then not built.
+`examples/plugins/fibsem-fake-scanner` does both.
+
+On the unit's computer, `python -m fibsem.server.devices --config devices.yaml` serves
+what the file's `hardware.devices` lists, in the same shape as a microscope
+configuration, so an entry copies across:
+
+```yaml
+hardware:
+  devices:
+    - name: fake_scanner
+      type: scan_generator
+      driver: FakeScan
+```
+
+Each entry is built by its own driver with no microscope (`BuildContext.microscope` is
+`None`), so a builder must not need one; what it registers with `on_disconnect` runs
+when the server stops. Roles are not bound on the server: the coordinator binds them.
 
 The server has no authentication yet. Keep it on the microscope's private network.

@@ -166,21 +166,20 @@ def test_stitched_overview_matches_single_wide_shot(microscope, beam_type, tmp_p
     two paths (stage stepping vs in-image mapping); they must agree."""
     from skimage.transform import resize
 
-    from fibsem.imaging.tiled import tiled_image_acquisition_and_stitch
+    from fibsem.imaging.tiled import acquire_tiled_overview
 
     _enable_projection(microscope)
     # anchor the scene's world at the centre position before tiling starts
     microscope.acquire_image(image_settings=_image_settings(beam_type))
 
     tile_settings = _image_settings(beam_type, hfw=150e-6, resolution=(512, 512))
-    tile_settings.save = True
-    tile_settings.path = str(tmp_path)
-    tile_settings.filename = "ov"
-    stitched = tiled_image_acquisition_and_stitch(
+    stitched = acquire_tiled_overview(
         microscope,
         OverviewAcquisitionSettings(
             image_settings=tile_settings, nrows=2, ncols=2, overlap=0.0
         ),
+        str(tmp_path),
+        "ov",
     )
     # the 2x2 grid of 150um tiles covers ~300um; one wide shot of the same area
     single = microscope.acquire_image(
@@ -227,6 +226,7 @@ def test_views_share_the_scene_but_not_the_contrast():
     assert 0.2 < corr < 0.95, corr
 
 
+@pytest.mark.slow
 def test_measures_configured_offset(microscope):
     """The measurement and the scene now share BeamStageProjection, so the
     configured boot offset is recovered exactly. Noise off: the oracle is
@@ -242,6 +242,7 @@ def test_measures_configured_offset(microscope):
     assert abs(m.dz) == pytest.approx(COINCIDENCE_OFFSET, abs=0.5e-6)
 
 
+@pytest.mark.slow
 def test_known_z_move_changes_measurement_by_that_amount(microscope):
     """The offline oracle: apply a known stage-z move, the measured dz must
     change by exactly that amount. Noise off - see

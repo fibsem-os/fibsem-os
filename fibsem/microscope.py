@@ -268,20 +268,9 @@ class FibsemMicroscope(ABC):
         controller must not keep the vendor client open. The driver's own client is closed last, by
         `_disconnect`, and an error there is raised.
         """
-        for name, device in reversed(list(self._devices.items())):
-            close = getattr(device, "disconnect", None)
-            if close is None:
-                continue
-            try:
-                close()
-            except Exception as e:
-                logging.warning(f"Device '{name}' did not disconnect cleanly: {e}")
-        cleanups, self._disconnect_cleanups = self._disconnect_cleanups, []
-        for cleanup in reversed(cleanups):
-            try:
-                cleanup()
-            except Exception as e:
-                logging.warning(f"A device connection did not close cleanly: {e}")
+        from fibsem.devices.entries import disconnect_devices
+
+        disconnect_devices(self._devices, self._disconnect_cleanups)
         self._disconnect()
 
     @abstractmethod
@@ -579,18 +568,27 @@ class FibsemMicroscope(ABC):
         if sources is not None:
             sources[name] = "device"
 
-    def _mark_device_not_built(self, name: str) -> None:
-        """Record that *name*'s device failed to build
-        (`fibsem.devices.entries.build_device_entries`). With no device it is not
-        available; this only says why, in `capability_sources`."""
-        if name not in self._FITTED_DEVICES:
-            return
+    def _mark_device_not_built(self, name: str, reason: str = "") -> None:
+        """Record that *name*'s device failed to build, and why
+        (`fibsem.devices.entries.build_device_entries`), for `devices_not_built`.
+        With no device it is not available; for a subsystem the application asks
+        about, this also says why, in `capability_sources`."""
         if not hasattr(self, "_devices_not_built"):
             self._devices_not_built = set()
+            self._not_built_reasons: Dict[str, str] = {}
         self._devices_not_built.add(name)
+        self._not_built_reasons[name] = reason
+        if name not in self._FITTED_DEVICES:
+            return
         sources = getattr(self, "capability_sources", None)
         if sources is not None:
             sources[name] = "not_built"
+
+    @property
+    def devices_not_built(self) -> Dict[str, str]:
+        """The configured devices that failed to build, by name, with why: what the
+        connect warned of, for the application to show."""
+        return dict(getattr(self, "_not_built_reasons", {}))
 
     def _bind_device_roles(self) -> None:
         """Fill the roles the configuration's ``hardware.devices`` entries bind
@@ -930,6 +928,13 @@ class FibsemMicroscope(ABC):
         if fm is None:
             return None
         self.fm_devices = MappingProxyType(dict(fm.devices or {}))
+        # The imaging service is built first, over the beams; the FM joins it
+        # here, so one imaging service (and its one stop) covers the FM too.
+        from fibsem.devices.fm import FM
+
+        group = self.fm_devices.get("fm")
+        if self.imaging is not None and isinstance(group, FM):
+            self.imaging.fill_roles(fm=group)
         logging.info(f"Fluorescence microscope connected: {type(fm).__name__}.")
         return fm
 

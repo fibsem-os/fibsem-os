@@ -1079,7 +1079,7 @@ class TestFmConsumersUseTheFmProjection:
         microscope.fm_stable_move = lambda **kw: beam_calls.append(kw)  # type: ignore[method-assign]
 
         with patch.object(acquisition, "acquire_image", return_value=Mock()):
-            acquisition.acquire_tileset(
+            acquisition.FMTiledAcquisitionRunner(
                 microscope=microscope,
                 channel_settings=ChannelSettings(
                     name="DAPI",
@@ -1095,7 +1095,7 @@ class TestFmConsumersUseTheFmProjection:
                     use_zstack=False,
                     autofocus_mode=AutoFocusMode.NONE,
                 ),
-            )
+            ).run()
 
         assert len(fm_calls) == 4, "one FM projection per tile"
         assert beam_calls == [], "nothing may position a tile via a beam projection"

@@ -14,6 +14,9 @@ kinds the configuration file is divided into:
 - **Defaults**: what the columns and the acquire tab start at -- read off the
   instrument, edited, and saved by the window's Save. Nothing here writes to the
   instrument: the saved defaults are set at connect, if the file asks.
+- **Devices**: every device the microscope built, a plugin's too, drawn from what
+  each says about itself (`fibsem.ui.widgets.device_panel`): its parameters, changed
+  here on the instrument, its commands, and its facts.
 - **Session**: what the application remembers for this configuration between
   sessions (`fibsem.session_state`) -- the file it is kept in and everything each
   section holds. Shown, not edited: each section is changed where it is used.
@@ -200,13 +203,20 @@ def devices_rows(microscope: FibsemMicroscope) -> List[Tuple[str, bool, str, str
             "Electron column",
             bool(microscope.is_available("electron_beam")),
             "Instrument",
-            "",
+            _scan_detail(microscope, "electron"),
         ),
         (
             "Ion column",
             bool(microscope.is_available("ion_beam")),
             "Instrument",
-            f"Plasma · {ion.plasma_gas}" if ion.plasma_gas else "",
+            "  ·  ".join(
+                part
+                for part in (
+                    f"Plasma · {ion.plasma_gas}" if ion.plasma_gas else "",
+                    _scan_detail(microscope, "ion"),
+                )
+                if part
+            ),
         ),
         (
             "Stage",
@@ -217,7 +227,61 @@ def devices_rows(microscope: FibsemMicroscope) -> List[Tuple[str, bool, str, str
         ("Manipulator", *probed("manipulator"), ""),
         ("Fluorescence", microscope.fm is not None, "Configuration", ""),
         ("Grid loader", loader is not None, "Instrument", ""),
+        *other_device_rows(microscope),
     ]
+
+
+# The devices the rows above already stand for, by name.
+_SUBSYSTEMS = ("electron", "ion", "stage", "manipulator", "fm")
+_LABELS = {"chamber": "Chamber", "chamber_camera": "Chamber camera"}
+
+
+def other_device_rows(microscope: FibsemMicroscope) -> List[Tuple[str, bool, str, str]]:
+    """A row for every other device the microscope built (a plugin's too), by its
+    driver, its type and the roles it has filled; then one for each configured
+    device that failed to build, with why."""
+    fm = getattr(microscope, "fm", None)
+    covered = set(_SUBSYSTEMS) | set(getattr(fm, "devices", None) or {})
+    rows = []
+    for name, device in (getattr(microscope, "devices", None) or {}).items():
+        if name in covered:
+            continue
+        rows.append(
+            (
+                _LABELS.get(name, name),
+                True,
+                getattr(device, "driver", None) or NOT_STATED,
+                _device_detail(device),
+            )
+        )
+    for name, reason in getattr(microscope, "devices_not_built", {}).items():
+        if name not in covered:
+            rows.append(
+                (_LABELS.get(name, name), False, SOURCE_LABELS["not_built"], reason)
+            )
+    return rows
+
+
+def _device_detail(device) -> str:
+    parts = [getattr(device, "entry_type", None) or ""]
+    parts += [f"{role}: {filled.name}" for role, filled in device.roles.items()]
+    return "  ·  ".join(p for p in parts if p)
+
+
+def _scan_detail(microscope: FibsemMicroscope, beam: str) -> str:
+    """How the beam scans: through the scanner bound to it, or the vendor's own, and
+    if a scanner the configuration binds failed to build, that it fell back."""
+    device = (getattr(microscope, "devices", None) or {}).get(beam)
+    scanner = getattr(device, "roles", {}).get("scanner") if device else None
+    if scanner is not None:
+        return f"Scans with {scanner.name}"
+    from fibsem.devices.entries import configured_device_entries
+
+    entry = configured_device_entries(microscope.system).get(beam)
+    wanted = (entry.roles or {}).get("scanner") if entry is not None else None
+    if wanted and wanted in getattr(microscope, "devices_not_built", {}):
+        return f"Vendor scan: its scanner {wanted} was not built"
+    return ""
 
 
 def instrument_tab(microscope: FibsemMicroscope) -> QWidget:
@@ -644,6 +708,15 @@ def session_tab(microscope: FibsemMicroscope) -> QWidget:
 DEFAULTS = "Defaults"
 
 
+def devices_tab(microscope: FibsemMicroscope) -> QWidget:
+    """Every device the microscope built, a plugin's too, drawn from what it says
+    about itself: its parameters (changed here, on the instrument), its commands
+    that need no arguments, and its facts."""
+    from fibsem.ui.widgets.device_panel import DevicesPanel
+
+    return DevicesPanel(getattr(microscope, "devices", None) or {})
+
+
 class MicroscopeConfigurationWindow(QDialog):
     """The connected microscope's configuration, by kind. Non-modal.
 
@@ -690,6 +763,7 @@ class MicroscopeConfigurationWindow(QDialog):
         self.tabs.addTab(self._calibration_tab(), "Calibration")
         self.tabs.addTab(self.defaults, DEFAULTS)
         self.tabs.addTab(session_tab(microscope), "Session")
+        self.tabs.addTab(devices_tab(microscope), "Devices")
         self._calibration_dialog = None
 
         path = getattr(microscope, "configuration_path", None)

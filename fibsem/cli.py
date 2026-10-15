@@ -607,11 +607,12 @@ def _add_check_parser(sub, conn) -> None:
     p = sub.add_parser(
         "check",
         parents=[conn],
-        help="Check that fibsemOS drives the hardware correctly (fluorescence only)",
-        description="Check each fluorescence device: read every parameter (read); "
-        "also change each setting, read it back and put it back (settings); also "
-        "take one frame, which turns the light on (acquire). No level moves the "
-        "objective or the stage.",
+        help="Check that fibsemOS drives the hardware correctly",
+        description="Check each device: read every parameter (read); for the "
+        "fluorescence microscope and devices whose driver adds steps, also change "
+        "each setting, read it back and put it back (settings), and take one frame, "
+        "which turns the light on (acquire). No level moves the objective or the "
+        "stage.",
     )
     p.add_argument(
         "--level",

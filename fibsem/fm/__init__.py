@@ -1,6 +1,6 @@
 from .acquisition import (
-    acquire_and_stitch_tileset,
     acquire_channels,
+    acquire_fm_tiled_overview,
     acquire_image,
     acquire_z_stack,
 )

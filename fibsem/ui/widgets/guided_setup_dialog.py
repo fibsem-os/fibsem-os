@@ -31,7 +31,7 @@ from __future__ import annotations
 import logging
 import math
 import os
-from typing import List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 from PyQt5 import QtCore, QtGui, QtWidgets
@@ -43,6 +43,7 @@ from fibsem.guided_setup import (
     COMPUTER_LOCATIONS,
     MANUFACTURER_ICON,
     MODEL_ICON,
+    DeviceChoice,
     SetupChoices,
     manufacturers,
     microscope_models,
@@ -90,13 +91,15 @@ WEDGE_COLOUR = "#dfe5ec"
 STEP_MICROSCOPE = 0
 STEP_CONNECTION = 1
 STEP_STAGE = 2
-STEP_FOLDERS = 3
-STEP_REVIEW = 4
+STEP_DEVICES = 3
+STEP_FOLDERS = 4
+STEP_REVIEW = 5
 
 STEP_TITLES = [
     "Microscope",
     "Computer and connection",
     "Stage configuration",
+    "Other devices",
     "Folders",
     "Review and save",
 ]
@@ -106,6 +109,8 @@ STEP_SUBTITLES = [
     "Where this runs, and how it reaches the instrument. The stage step reads from the "
     "microscope, so this comes first.",
     "The two values that describe how the sample sits on the stage.",
+    "Devices an installed plugin offers, beside the microscope's own. Each one ticked "
+    "is added to the configuration.",
     "Two different places: where this configuration is saved, and where experiments "
     "are created.",
     "These answers are written as a new microscope configuration.",
@@ -826,6 +831,11 @@ class _RailRow(QtWidgets.QWidget):
         column.addWidget(self._note)
         row.addLayout(column, 1)
 
+    def set_number(self, number: int) -> None:
+        """The number shown, which counts only the steps shown: a hidden step leaves
+        no gap."""
+        self._marker.setText(str(number))
+
     def set_navigable(self, navigable: bool) -> None:
         """Whether clicking this row goes to its step.
 
@@ -864,6 +874,34 @@ class _RailRow(QtWidgets.QWidget):
         )
         self._note.setText(note)
         self._note.setVisible(bool(note))
+
+
+def _key_editor(default: Any) -> QtWidgets.QWidget:
+    """An editor for a device entry key, by its default's type."""
+    if isinstance(default, bool):
+        editor = QtWidgets.QCheckBox()
+        editor.setChecked(default)
+        editor.setStyleSheet("background: transparent;")
+    elif isinstance(default, int):
+        editor = QtWidgets.QSpinBox()
+        editor.setRange(-(2**31), 2**31 - 1)
+        editor.setValue(default)
+    elif isinstance(default, float):
+        editor = QtWidgets.QDoubleSpinBox()
+        editor.setRange(-1e12, 1e12)
+        editor.setDecimals(6)
+        editor.setValue(default)
+    else:
+        editor = QtWidgets.QLineEdit("" if default is None else str(default))
+    return editor
+
+
+def _read_key(editor: QtWidgets.QWidget) -> Any:
+    if isinstance(editor, QtWidgets.QCheckBox):
+        return editor.isChecked()
+    if isinstance(editor, (QtWidgets.QSpinBox, QtWidgets.QDoubleSpinBox)):
+        return editor.value()
+    return editor.text().strip()
 
 
 # ---------------------------------------------------------------------------
@@ -934,6 +972,7 @@ class GuidedSetupDialog(QtWidgets.QDialog):
             self._build_microscope_step,
             self._build_connection_step,
             self._build_stage_step,
+            self._build_devices_step,
             self._build_folders_step,
             self._build_review_step,
         ):
@@ -1496,7 +1535,77 @@ class GuidedSetupDialog(QtWidgets.QDialog):
                 "hand, or go back and test the connection."
             )
 
-    # -- step 4: folders ----------------------------------------------------
+    # -- step 4: other devices ----------------------------------------------
+
+    def _build_devices_step(self) -> QtWidgets.QWidget:
+        """A checkbox per device an installed plugin offers, with its keys and its
+        usual role. Only shown when there is one (see ``_is_skipped``)."""
+        page = QtWidgets.QWidget()
+        column = QtWidgets.QVBoxLayout(page)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(12)
+        self._offered_devices = wizard.offered_devices()
+        # by OfferedDevice.key: (its checkbox, its key editors, its role checkbox)
+        self._device_rows: Dict[
+            str,
+            Tuple[QtWidgets.QCheckBox, Dict[str, QtWidgets.QWidget], Any],
+        ] = {}
+        for offered in self._offered_devices:
+            setup = offered.setup
+            panel = _panel()
+            inner = QtWidgets.QVBoxLayout(panel)
+            inner.setContentsMargins(14, 12, 14, 12)
+            inner.setSpacing(6)
+            check = QtWidgets.QCheckBox(f"{setup.label}  ({offered.driver})")
+            check.setStyleSheet(
+                f"background: transparent; color: {TEXT_STRONG_COLOR}; font-size: 12px;"
+            )
+            inner.addWidget(check)
+            inner.addWidget(_label(setup.summary, 10, TEXT_MUTED_COLOR, wrap=True))
+
+            body = QtWidgets.QWidget()
+            # by name, so the key editors keep their own backgrounds
+            body.setObjectName("deviceKeys")
+            body.setStyleSheet("QWidget#deviceKeys { background: transparent; }")
+            form = QtWidgets.QFormLayout(body)
+            form.setContentsMargins(22, 4, 0, 0)
+            editors: Dict[str, QtWidgets.QWidget] = {}
+            for key in setup.keys:
+                editor = _key_editor(key.default)
+                editor.setToolTip(key.doc)
+                if not isinstance(editor, QtWidgets.QCheckBox):
+                    editor.setFixedWidth(200)
+                form.addRow(_label(key.label or key.name, 11, TEXT_COLOR), editor)
+                editors[key.name] = editor
+            role_check = None
+            if setup.role:
+                holder, role = setup.role
+                role_check = QtWidgets.QCheckBox(f"Use it as the {role} of {holder}")
+                role_check.setChecked(True)
+                role_check.setStyleSheet(
+                    f"background: transparent; color: {TEXT_COLOR}; font-size: 11px;"
+                )
+                form.addRow(role_check)
+            body.setVisible(False)
+            check.toggled.connect(body.setVisible)
+            inner.addWidget(body)
+            column.addWidget(panel)
+            self._device_rows[offered.key] = (check, editors, role_check)
+        column.addStretch()
+        return page
+
+    def _read_devices_step(self) -> None:
+        chosen: Dict[str, DeviceChoice] = {}
+        for key, (check, editors, role_check) in self._device_rows.items():
+            if not check.isChecked():
+                continue
+            chosen[key] = DeviceChoice(
+                values={name: _read_key(editor) for name, editor in editors.items()},
+                bind_role=role_check is None or role_check.isChecked(),
+            )
+        self.choices.devices = chosen
+
+    # -- step 5: folders ----------------------------------------------------
 
     def _build_folders_step(self) -> QtWidgets.QWidget:
         page = QtWidgets.QWidget()
@@ -1568,7 +1677,7 @@ class GuidedSetupDialog(QtWidgets.QDialog):
         outer.addWidget(hint_label)
         return outer
 
-    # -- step 5: review -----------------------------------------------------
+    # -- step 6: review -----------------------------------------------------
 
     def _build_review_step(self) -> QtWidgets.QWidget:
         page = QtWidgets.QWidget()
@@ -1718,6 +1827,7 @@ class GuidedSetupDialog(QtWidgets.QDialog):
             )
         if self.choices.protocol_path:
             rows.append(("Default protocol", self.choices.protocol_path))
+        rows += wizard.chosen_device_rows(self.choices)
 
         for caption, value in rows:
             row = QtWidgets.QHBoxLayout()
@@ -1734,16 +1844,19 @@ class GuidedSetupDialog(QtWidgets.QDialog):
     # -- navigation ---------------------------------------------------------
 
     def _is_skipped(self, index: int) -> bool:
-        """Nothing is skipped any more.
+        """Only the other-devices step, when no installed plugin offers a device: a
+        step with nothing on it.
 
-        The compustage's stage step is shown read-only instead, so the diagram can say
-        why there is nothing to enter. Kept as a single predicate rather than deleted,
-        because it is the one place a future skip would belong.
+        Every other step is shown, answered or not: the compustage's stage step is
+        shown read-only instead, so the diagram can say why there is nothing to enter.
         """
-        return False
+        return index == STEP_DEVICES and not getattr(self, "_offered_devices", ())
 
     def _update_rail(self) -> None:
+        shown = [i for i in range(len(self._rail_rows)) if not self._is_skipped(i)]
         for index, row in enumerate(self._rail_rows):
+            if index in shown:
+                row.set_number(shown.index(index) + 1)
             # The note travels with the step whatever state it is in, because it says
             # something about the step rather than about where you are in the wizard.
             note = ""
@@ -1754,6 +1867,7 @@ class GuidedSetupDialog(QtWidgets.QDialog):
             # Only what is behind you can be clicked. A step you have not reached has
             # nothing to go back to.
             row.set_navigable(index < self._index)
+            row.setVisible(not self._is_skipped(index))
             if self._is_skipped(index):
                 row.set_state("skipped", note)
             elif index == self._index:
@@ -1834,6 +1948,8 @@ class GuidedSetupDialog(QtWidgets.QDialog):
             # have -- the shipped pair is 0 *and* 0.
             self.choices.rotation_reference = self._rotation_spin.value()
             self.choices.shuttle_pre_tilt = self._pre_tilt_spin.value()
+        elif self._index == STEP_DEVICES:
+            self._read_devices_step()
         elif self._index == STEP_FOLDERS:
             self.choices.configuration_directory = (
                 self._configuration_dir.text().strip()

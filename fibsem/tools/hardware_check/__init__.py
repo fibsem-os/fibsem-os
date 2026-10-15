@@ -16,8 +16,10 @@ Levels, each including the one before:
 
 No level moves the objective or the stage.
 
-The FM's steps are in :mod:`fibsem.tools.hardware_check.fm`. Only the FM is checked so
-far.
+The FM's steps are in :mod:`fibsem.tools.hardware_check.fm`. Every other device the
+microscope built (``microscope.devices``), a plugin's too, runs its own
+``Device.hardware_check(report, level)``: by default the ``READ`` step, and whatever a
+driver adds for the higher levels.
 """
 
 from __future__ import annotations
@@ -167,6 +169,15 @@ def run_hardware_check(
         )
     else:
         check_fm(fm, report, report.level, on_frame=on_frame)
+    checked = {f.device for f in report.findings}
+    for name, device in (getattr(microscope, "devices", None) or {}).items():
+        hook = getattr(device, "hardware_check", None)
+        if name in checked or hook is None:
+            continue  # the FM's parts, already checked; or not a fibsem Device
+        try:
+            hook(report, report.level)
+        except Exception as e:  # a driver's own steps must not end the run
+            report.add(Finding(name, "check", Result.FAIL, detail=f"{e}"))
     report.finished_at = now()
     return report
 

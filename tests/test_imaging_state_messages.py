@@ -142,7 +142,7 @@ def test_a_compustage_at_a_beam_pose_is_not_refused():
 
 
 def test_the_tiled_runner_raises_the_route():
-    from fibsem.fm.acquisition import acquire_tileset
+    from fibsem.fm.acquisition import FMTiledAcquisitionRunner
     from fibsem.fm.structures import (
         AutoFocusMode,
         ChannelSettings,
@@ -153,7 +153,7 @@ def test_the_tiled_runner_raises_the_route():
     microscope.move_to_orientation("SEM")
 
     with pytest.raises(ValueError, match="Re-pose at the beams and travel out"):
-        acquire_tileset(
+        FMTiledAcquisitionRunner(
             microscope=microscope,
             channel_settings=ChannelSettings(
                 name="DAPI",
@@ -165,4 +165,4 @@ def test_the_tiled_runner_raises_the_route():
             overview_parameters=OverviewParameters(
                 rows=1, cols=1, overlap=0.1, autofocus_mode=AutoFocusMode.NONE
             ),
-        )
+        ).run()

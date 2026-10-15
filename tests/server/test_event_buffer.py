@@ -134,13 +134,13 @@ def test_disposers_detach_the_taps(microscope):
     assert buffer.events_since(0)["events"] == []
 
 
-def test_typed_milling_progress_serializes_through_the_real_signal(microscope):
+def test_typed_milling_progress_serializes_through_the_real_service(microscope):
     from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 
     buffer = EventBuffer()
     disposers = attach_microscope_taps(buffer, microscope)
     try:
-        microscope.milling_progress_signal.emit(
+        microscope.milling.report(
             MillingProgress(
                 status=MillingProgressStatus.STAGE_UPDATE,
                 stage_name="Rough Mill 01",

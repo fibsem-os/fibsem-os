@@ -182,8 +182,8 @@ def test_it_burns_at_the_spot_burn_preset_and_puts_the_preset_back(tescan):
 def test_a_burn_reports_spot_burn_progress_not_milling(tescan):
     microscope, _ = tescan()
     burns, mills = [], []
-    microscope.spot_burn_progress_signal.connect(burns.append)
-    microscope.milling_progress_signal.connect(mills.append)
+    microscope.spot_burn.progress.changed.connect(burns.append)
+    microscope.milling.progress.changed.connect(mills.append)
 
     microscope.run_spot_burn(_settings(*TWO))
 
@@ -204,7 +204,7 @@ def test_milling_reports_again_after_a_burn(tescan):
     microscope, _ = tescan()
     microscope.run_spot_burn(_settings(*TWO))
     mills = []
-    microscope.milling_progress_signal.connect(mills.append)
+    microscope.milling.progress.changed.connect(mills.append)
     microscope.milling.progress.report(progress_update(MillingState.RUNNING))
     assert len(mills) == 1
 
