@@ -4,8 +4,9 @@
 While a request waits for the operator, what it would do is drawn in the agent's
 purple, dashed, so the operator sees it before they approve:
 
-* the patterns a milling ``prepare`` would draw, and the stages a ``run_stage``
-  or ``run_task`` would mill, on the FIB view; any reaching past the edge of
+* the patterns a milling ``prepare`` would draw, the stages a ``run_stage``
+  or ``run_task`` would mill, and an item's milling as a task config edit
+  would leave it (as it is now, behind), on the FIB view; any reaching past the edge of
   the field again in red;
 * where a stable or vertical move would bring to the centre, a cross on that
   beam's view.
@@ -102,10 +103,52 @@ def request_stages(request: Dict[str, Any]) -> List:
     return stages
 
 
-def request_outside_field(request: Dict[str, Any], aspect: float = 2 / 3) -> List:
+def config_edit_stages(
+    request: Dict[str, Any], task_config: Callable[[str, str], object]
+) -> Tuple[List, List]:
+    """``(before, after)``: the milling stages the request's task config edits
+    change, as the item's config has them and as the edit would leave them.
+    *task_config* gives an item's config for a task (None when there is none);
+    the edit is applied to a copy, by the same rules as the route."""
+    from copy import deepcopy
+
+    from fibsem.server.config_patch import apply_patch
+
+    before, after = [], []
+    for action in request.get("actions", []):
+        arguments = action.get("arguments") or {}
+        patch = arguments.get("patch") or {}
+        if action.get("tool") != "item_update_task_config":
+            continue
+        tasks = {
+            path.split(".")[1]
+            for path in patch
+            if path.startswith("milling.") and path.count(".") > 1
+        }
+        if not tasks:
+            continue
+        config = task_config(arguments.get("item_name"), arguments.get("task_name"))
+        if config is None:
+            continue
+        edited = deepcopy(config)
+        try:
+            apply_patch(edited, patch)
+        except Exception:  # noqa: BLE001 - the route refuses it; nothing to draw
+            continue
+        for name in sorted(tasks):
+            for stages, source in ((before, config), (after, edited)):
+                milling = dict(getattr(source, "milling", None) or {}).get(name)
+                stages.extend(s for s in getattr(milling, "stages", []) if s.enabled)
+    return before, after
+
+
+def request_outside_field(
+    request: Dict[str, Any], aspect: float = 2 / 3, stages: Optional[List] = None
+) -> List:
     """The patterns the request would mill past the edge of the field: its
     milling hfw wide and *aspect* of that high (an image's height over width).
-    The Demo mills them; a real instrument refuses (FIB-1411)."""
+    The Demo mills them; a real instrument refuses (FIB-1411). *stages* in
+    place of the request's own run_stage and run_task stages."""
     from fibsem.milling.base import FibsemMillingStage
     from fibsem.milling.patterning.utils import outside_field
     from fibsem.structures import FibsemMillingSettings
@@ -119,7 +162,7 @@ def request_outside_field(request: Dict[str, Any], aspect: float = 2 / 3) -> Lis
         except Exception:  # noqa: BLE001 - no field to check against
             continue
         fields.append((hfw, parse_patterns(kwargs.get("patterns"))))
-    for stage in request_stages(request):
+    for stage in request_stages(request) if stages is None else stages:
         if isinstance(stage, FibsemMillingStage):
             try:
                 fields.append((stage.milling.hfw, stage.define_patterns()))
@@ -275,12 +318,16 @@ class AgentPreviews:
         self,
         view_controller: Callable[[], object],
         reference_image: Optional[Callable[[Dict[str, Any]], object]] = None,
+        task_config: Optional[Callable[[str, str], object]] = None,
     ) -> None:
         # Asked when there is something to draw: the views are built after this.
         self._view_controller = view_controller
         # The image a review_decide action's values sit on (its arguments), or
         # None: the window reads it from the experiment.
         self._reference_image = reference_image or (lambda arguments: None)
+        # An item's task config (item name, task name), for a config edit's
+        # patterns; None when there is none.
+        self._task_config = task_config or (lambda item, task: None)
         self._request_id: Optional[str] = None
         self._drawn: List[Tuple[BeamType, str]] = []
         # What the waiting request places on the sample, by overlay id.
@@ -309,7 +356,9 @@ class AgentPreviews:
         from fibsem.ui.widgets.canvas.canvas_state import MillingSpec
 
         patterns = request_patterns(request)
-        stages = request_stages(request)
+        before, after = config_edit_stages(request, self._task_config)
+        stages = request_stages(request) + after
+        milled = list(stages)
         if patterns:
             stages.insert(0, DrawnStage(patterns, name="Agent · waiting for you"))
         if stages:
@@ -318,6 +367,8 @@ class AgentPreviews:
                 MillingSpec(
                     id=PATTERNS_OVERLAY,
                     stages=stages,
+                    # What a config edit changes, as it is now.
+                    background_stages=before,
                     colour=PURPLE_COLOR,
                     dashed=True,
                     legend_loc=AGENT_LEGEND,
@@ -328,7 +379,7 @@ class AgentPreviews:
         aspect = (
             frame.data.shape[0] / frame.data.shape[1] if frame is not None else 2 / 3
         )
-        outside = request_outside_field(request, aspect)
+        outside = request_outside_field(request, aspect, milled)
         if outside:
             controller.set_overlay(
                 BeamType.ION,

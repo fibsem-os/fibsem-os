@@ -1612,6 +1612,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.agent_previews = AgentPreviews(
             lambda: getattr(self, "view_controller", None),
             reference_image=self._agent_review_image,
+            task_config=self._agent_task_config,
         )
         self._agent_chip_timer = QTimer(self)
         self._agent_chip_timer.setInterval(1000)
@@ -4015,6 +4016,19 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 "info",
             )
         self._refresh_workflow_indicators()
+
+    def _agent_task_config(self, item_name: str, task_name: str):
+        """An item's config for a task, for a waiting config edit's preview;
+        None when there is no such item or task."""
+        from fibsem.applications.autolamella.server.context import find_item
+
+        experiment = self.autolamella_ui.experiment
+        if experiment is None:
+            return None
+        lamella, refusal = find_item(experiment, item_name)
+        if refusal:
+            return None
+        return dict(lamella.task_config).get(task_name)
 
     def _agent_review_image(self, arguments: dict):
         """The image a waiting ``review_decide``'s values sit on: its proposal's

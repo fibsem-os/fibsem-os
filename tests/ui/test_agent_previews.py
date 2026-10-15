@@ -398,3 +398,43 @@ def test_an_item_edit_s_point_and_alignment_area_are_drawn_on_the_fib_view():
     assert area.dashed and area.colour == PURPLE_COLOR
     previews.show_request(None)
     assert controller.overlays == {}
+
+
+def test_a_task_config_edit_draws_the_milling_as_it_would_be_and_as_it_is():
+    # FIB-1411: pattern edits through item_update_task_config showed nothing.
+    from fibsem.applications.autolamella.workflows.tasks.basic_milling import (
+        BasicMillingTaskConfig,
+    )
+
+    config = BasicMillingTaskConfig()
+    width = config.milling["milling"].stages[0].pattern.width
+    asked = []
+
+    def task_config(item, task):
+        asked.append((item, task))
+        return config
+
+    controller = _Controller()
+    previews = AgentPreviews(lambda: controller, task_config=task_config)
+    request = {
+        "request_id": "mn34",
+        "status": "pending",
+        "actions": [
+            {
+                "tool": "item_update_task_config",
+                "arguments": {
+                    "item_name": "01-full-magpie",
+                    "task_name": "Basic Milling",
+                    "patch": {"milling.milling.stages.0.pattern.width": width * 2},
+                    "version": "v",
+                },
+            }
+        ],
+    }
+    previews.show_request(request)
+    assert asked == [("01-full-magpie", "Basic Milling")]
+    spec = controller.overlays[(BeamType.ION, PATTERNS_OVERLAY)]
+    assert spec.stages[0].pattern.width == pytest.approx(width * 2)
+    assert spec.background_stages[0].pattern.width == pytest.approx(width)
+    # The item's own config is untouched: the edit was drawn on a copy.
+    assert config.milling["milling"].stages[0].pattern.width == pytest.approx(width)
