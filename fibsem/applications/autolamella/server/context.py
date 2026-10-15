@@ -2010,6 +2010,13 @@ class AutoLamellaAppContext:
         outcome = host.request_start_workflow(list(task_names), item_names)
         result = outcome.result(timeout=timeout)
         result["available"] = True
+        if result.get("started"):
+            # Who started it: the run's own workflow_started fires on its
+            # worker thread, which carries no one's mark (FIB-1414).
+            self.record_event(
+                "workflow_start",
+                {"task_names": list(task_names), "item_names": item_names},
+            )
         return result
 
     def grid_workflow_plan(
@@ -2113,6 +2120,11 @@ class AutoLamellaAppContext:
         )
         result = outcome.result(timeout=timeout)
         result["available"] = True
+        if result.get("started"):
+            self.record_event(
+                "workflow_start",
+                {"task_names": list(task_names), "grid_names": grid_names},
+            )
         return result
 
     def set_supervision(self, task_name: str, supervise: bool) -> Dict[str, Any]:

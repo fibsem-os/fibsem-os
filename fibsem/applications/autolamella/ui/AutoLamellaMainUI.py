@@ -169,6 +169,9 @@ CONNECTION_CHIP_MAX_WIDTH = 220
 # Icons sat on a button, rather than in a menu, are drawn at this size.
 BUTTON_ICON_SIZE = 16
 
+# How often a waiting request the operator is looking at is read again.
+AGENT_REQUEST_REFRESH_S = 15.0
+
 
 def experiment_tooltip(experiment: Experiment) -> str:
     """The hover card for the tab-corner experiment button.
@@ -1612,9 +1615,17 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             view_controller=lambda: getattr(self, "view_controller", None),
             parent=self,
         )
-        # What the agent's waiting request or suggestion would do, on the views.
+        self.agent_activity.now_changed.connect(self.agent_chip.set_now)
+        self.agent_activity.recent_changed.connect(self.agent_chip.set_recent)
+        # A waiting request's lines, read again while the operator looks at it.
+        self._agent_request_described: Tuple[Optional[str], float] = (None, 0.0)
+        # What the agent's waiting request or suggestion would do: on the card,
+        # on the image its values were measured on; on the views.
         self.agent_previews = AgentPreviews(
-            lambda: getattr(self, "view_controller", None)
+            lambda: getattr(self, "view_controller", None),
+            reference_image=self._agent_review_image,
+            task_config=self._agent_task_config,
+            show_picture=self.agent_chip.card.set_image,
         )
         self._agent_chip_timer = QTimer(self)
         self._agent_chip_timer.setInterval(1000)
@@ -3819,6 +3830,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def _refresh_agent_chip(self) -> None:
         """Show the chip while the App Server runs, at the level its auth holds."""
+        recorder = getattr(self.autolamella_ui, "_event_recorder", None)
+        self.agent_activity.follow_events(getattr(recorder, "buffer", None))
         host = self._running_app_server()
         if host is None:
             self._watch_agent_requests(None)
@@ -3882,11 +3895,30 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                     if kind == "error"
                     else None,
                 )
+        if current is not None and current.status == "pending":
+            self._describe_agent_request_again(store, current.id)
         shown = current.to_dict() if current is not None else None
         if shown != self.agent_chip.request:
             self.agent_chip.set_request(shown)
         self.agent_previews.show_request(shown)
-        self.agent_chip.set_now(self.agent_activity.action)
+        self.agent_chip.set_now(self.agent_activity.now)
+
+    def _describe_agent_request_again(self, store, request_id: str) -> None:
+        """While the card shows a waiting request, its values now are read
+        again (FIB-1412): on opening the card, and every
+        `AGENT_REQUEST_REFRESH_S` while it stays open. Off the GUI thread: it
+        reads the routes the request describes."""
+        if not (self.agent_chip.popup.isVisible() or self.agent_chip.floating):
+            self._agent_request_described = (None, 0.0)
+            return
+        last_id, last_at = self._agent_request_described
+        now = time.monotonic()
+        if last_id == request_id and now - last_at < AGENT_REQUEST_REFRESH_S:
+            return
+        self._agent_request_described = (request_id, now)
+        from fibsem.ui.qt.threading import FunctionWorker
+
+        FunctionWorker(store.refresh, request_id).start()
 
     def _on_approve_agent_request(self, request_id: str) -> None:
         """GUI thread, from the chip: run the request. Its actions run on their
@@ -4015,6 +4047,39 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             )
         self._refresh_workflow_indicators()
 
+    def _agent_task_config(self, item_name: str, task_name: str):
+        """An item's config for a task, for a waiting config edit's preview;
+        None when there is no such item or task."""
+        from fibsem.applications.autolamella.server.context import find_item
+
+        experiment = self.autolamella_ui.experiment
+        if experiment is None:
+            return None
+        lamella, refusal = find_item(experiment, item_name)
+        if refusal:
+            return None
+        return dict(lamella.task_config).get(task_name)
+
+    def _agent_review_image(self, arguments: dict):
+        """The image a waiting ``review_decide``'s values sit on: its proposal's
+        reference image, found as the Review tab finds it. None when the
+        proposal is not pending or has none."""
+        from fibsem.applications.autolamella.ui.review_tab_widget import (
+            _load_reference_image,
+        )
+
+        experiment = self.autolamella_ui.experiment
+        if experiment is None:
+            return None
+        for item, task_name, proposal in experiment.pending_proposals():
+            if proposal.id == arguments.get("proposal_id") or (
+                not arguments.get("proposal_id")
+                and arguments.get("item_id") == item.id
+                and arguments.get("task_name") == task_name
+            ):
+                return _load_reference_image(experiment, item, proposal)
+        return None
+
     def _on_agent_suggestion(self, suggestion: Optional[dict]) -> None:
         """GUI thread: the agent's suggested answer went up or came down. It
         shows on the agent's card, not on the prompt (FIB-1407)."""
@@ -4023,6 +4088,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.agent_chip.set_suggestion(suggestion)
         self.agent_previews.show_suggested_point(
             suggestion.get("point") if suggestion is not None else None
+        )
+        responder = self.autolamella_ui.ui_responder
+        standing = responder.suggestion if suggestion is not None else None
+        self.agent_previews.show_suggestion(
+            responder.pending_question(), standing[2] if standing else None
         )
 
     def _on_accept_agent_suggestion(self) -> None:

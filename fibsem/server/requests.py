@@ -285,14 +285,7 @@ class RequestStore:
             )
         if on_expiry not in ("approve", "reject"):
             raise ValueError("on_expiry is 'approve' or 'reject'")
-        lines = describe_actions(
-            [(a.tool, a.arguments, a.path) for a in resolved],
-            read=self._read,
-            describe=self._describe,
-        )
-        for action, line in zip(resolved, lines):
-            action.what, action.change = line["what"], line["change"]
-            action.details = line.get("details")
+        self._describe_actions(resolved)
         with self._lock:
             waiting = self._pending_locked()
             if waiting is not None:
@@ -554,7 +547,31 @@ class RequestStore:
             )
         self._changed(request)
 
+    def refresh(self, request_id: str) -> bool:
+        """Describe a waiting request's actions again: the values now, read when
+        the operator looks, not when it was filed (FIB-1412). Reads the routes
+        it describes, so never on the GUI thread. False when it no longer
+        waits."""
+        request = self.get(request_id)
+        if request is None or request.status != PENDING:
+            return False
+        before = [(a.what, a.change, a.details) for a in request.actions]
+        self._describe_actions(request.actions)
+        if [(a.what, a.change, a.details) for a in request.actions] != before:
+            self._changed(request)
+        return True
+
     # --- helpers ---
+
+    def _describe_actions(self, actions: List[Action]) -> None:
+        lines = describe_actions(
+            [(a.tool, a.arguments, a.path) for a in actions],
+            read=self._read,
+            describe=self._describe,
+        )
+        for action, line in zip(actions, lines):
+            action.what, action.change = line["what"], line["change"]
+            action.details = line.get("details")
 
     def _read(self, path: str) -> Optional[Dict[str, Any]]:
         """GET a route in this process: the document a config edit patches."""

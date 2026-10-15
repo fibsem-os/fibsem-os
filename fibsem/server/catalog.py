@@ -875,7 +875,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         router="app",
         params={
             "actions": "list of {tool, arguments}, at most 20",
-            "reason": "why: what you saw and what the actions will do, for the operator",
+            "reason": "why, for the operator, in two or three short sentences: the evidence first (what you saw, in which image, when), then why these actions follow. The card already says what each action does: don't restate it",
         },
         note="Works at Assist only: at Drive make the calls yourself; refused (403 level) at Drive and Watch.",
     ),
