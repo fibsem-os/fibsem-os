@@ -50,14 +50,16 @@ jobs:
         # but eight jobs is more wall-clock than the coverage is worth, and the
         # oldest and newest catch what the middle would.
         #
-        # A pull request runs a subset: Linux 3.10 and 3.13, Windows 3.10. The account
-        # gets about 20 concurrent hosted jobs and a full run takes 9 of them, so with
-        # many open pull requests pushing, jobs queued for 15 to 75 minutes before
-        # starting (2026-10-06). The subset keeps the 3.10 floor on both platforms and
-        # the newest version; the middle versions and Windows 3.13 run nightly on main
-        # and on every push to a release branch.
+        # A pull request runs a subset: Linux 3.10 and Windows 3.10. The account gets
+        # about 20 concurrent hosted jobs and a full run takes 9 of them, so with many
+        # open pull requests pushing, jobs queued for 15 to 75 minutes before starting
+        # (2026-10-06). The subset keeps the 3.10 floor on both platforms; 3.11 to 3.13
+        # run nightly on main and on every push to a release branch. Linux 3.13 left
+        # the subset on 2026-10-15: a push still cost about 83 runner-minutes, so 20
+        # jobs cleared about 14 pushes an hour against 15 to 40 arriving, and agents
+        # already run the suite locally on 3.13 before pushing.
         os: [ubuntu-latest]
-        python-version: ${{ fromJSON(github.event_name == 'pull_request' && '["3.10", "3.13"]' || '["3.10", "3.11", "3.12", "3.13"]') }}
+        python-version: ${{ fromJSON(github.event_name == 'pull_request' && '["3.10"]' || '["3.10", "3.11", "3.12", "3.13"]') }}
         include: ${{ fromJSON(github.event_name == 'pull_request' && '[{"os":"windows-latest","python-version":"3.10"}]' || '[{"os":"windows-latest","python-version":"3.10"}, {"os":"windows-latest","python-version":"3.13"}]') }}
 
     steps:
@@ -90,7 +92,12 @@ jobs:
         # the install step above would silently skip the entry point tests and
         # leave the build green -- the exact silent breakage they exist to catch.
         FIBSEM_REQUIRE_PLUGIN_FIXTURE: "1"
-      run: pytest tests/ -n auto --dist worksteal --timeout=300
+      # Tests marked `slow` (simulated alignment and FM acquisition, 15 to 120 s each;
+      # about 60 of them were half the suite's time on 2026-10-15) run on one leg of a
+      # pull request, Linux, and on every leg of the nightly and release runs. They
+      # exercise the simulator rather than anything platform-specific, so the leg
+      # that skips them is Windows, the slowest.
+      run: pytest tests/ -n auto --dist worksteal --timeout=300 ${{ (github.event_name == 'pull_request' && runner.os == 'Windows') && '-m "not slow"' || '' }}
 
   ui-tests:
     # The one job that installs the [ui] extra, and the only place the Qt tests
@@ -108,10 +115,12 @@ jobs:
     # tests/correlation/ and tests/fm/ are here for the same reason. 21 of their
     # files guard on PyQt5 too, and until this job listed them nothing ran them:
     # a test there stayed broken for two weeks after #812 while CI stayed green.
-    # The whole directories are listed, not the 21 files, so a Qt test added there
-    # later is not missed the same way. The price is that their non-Qt tests,
-    # which the matrix already runs, run here too: about nine more minutes, which
-    # leaves this job level with the slowest matrix leg (16 minutes each).
+    # Only the files there that name PyQt5 run here, found at run time rather than
+    # listed, so a Qt test added there later is still picked up. Their other tests
+    # run in the matrix; running whole directories here repeated them serially, nine
+    # minutes on a job that was the slowest in the workflow (26 minutes, 2026-10-15).
+    # Every Qt test file in those directories names PyQt5 (checked 2026-10-15: no
+    # other file imports fibsem.ui, qtpy, superqt or qtawesome).
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v7
@@ -156,7 +165,12 @@ jobs:
       # deterministic failure into a flake; `--dist loadfile` does not help either,
       # since it only holds order *within* a file. The extra minutes are a fair
       # price for a result that means the same thing twice in a row.
-      run: pytest tests/ui/ tests/correlation/ tests/fm/ -q --timeout=300
+      run: |
+        set -euo pipefail
+        qt_files=$(grep -rlE --include='test_*.py' 'PyQt5' tests/correlation tests/fm | sort)
+        # Echoed so an empty or shrunken list is visible rather than silently green.
+        echo "Qt test files in tests/correlation and tests/fm: $(echo "$qt_files" | grep -c .)"
+        pytest tests/ui/ $qt_files -q --timeout=300
 
   server-tests:
     # The one job that installs the [server] and [mcp] extras, and the only
