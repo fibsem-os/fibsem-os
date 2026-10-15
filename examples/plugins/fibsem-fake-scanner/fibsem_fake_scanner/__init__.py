@@ -31,4 +31,8 @@ def driver() -> DriverEntry:
                 "fibsem_fake_scanner.devices:build_fake_scanner"
             ),
         },
+        # a FakeScan scanner reached on another PC, through its device server
+        remote_devices={
+            "scan_generator": "fibsem_fake_scanner.remote:RemoteFakeScanner"
+        },
     )

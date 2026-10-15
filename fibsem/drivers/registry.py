@@ -85,6 +85,18 @@ class DriverEntry:
     ``stage``, ``chamber``, ...): what a ``hardware.devices`` entry naming this driver
     is built with. See :func:`device_builder`."""
 
+    remote_devices: Mapping[str, str] = field(default_factory=dict)
+    """The class a remote copy of this driver's device is, by entry ``type``, as
+    ``"module:Class"``, imported when a ``driver: remote`` entry reaches such a
+    device on a device server. The class mixes ``RemoteDevice`` into what the
+    device declares, so its own parameters and commands cross the wire too::
+
+        remote_devices={"scan_generator": "my_plugin.remote:RemoteMyScanner"}
+
+    A type with none, or a driver not installed on the coordinator, gets the type's
+    interface class from the remote driver (``RemoteScanner``), which has only the
+    interface's parameters. See ``fibsem.drivers.remote.devices.remote_class``."""
+
     aliases: Tuple[str, ...] = ()
     """Other spellings of the name ("thermo", "thermo fisher scientific"), as
     configuration files, image headers and the command line carry them.

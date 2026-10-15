@@ -669,4 +669,27 @@ server's event stream. A refusal keeps its type across the wire (`ValueError`,
 with the same `error_type` and `message`, its traceback in the server's log. `fibsem/server/devices.py` documents the server's endpoints.
 INSTALLATION.md covers setting up a METEOR.
 
+A scan generator can be remote too (`RemoteScanner`): a frame is scanned on the server
+and comes back as the array, and its limits travel in its facts, so a beam bound to it
+narrows to them as it would to a local one. A plugin driver's device carries more than
+its type's interface, so a served device names its `driver` and `type`, and the
+coordinator makes it with the class the driver's `DriverEntry.remote_devices` names
+for that type, when the plugin is installed there too:
+
+```python
+DriverEntry(
+    manufacturer="FakeScan",
+    devices={"scan_generator": DeviceBuilder("fibsem_fake_scanner.devices:build_fake_scanner")},
+    remote_devices={"scan_generator": "fibsem_fake_scanner.remote:RemoteFakeScanner"},
+)
+```
+
+The remote class mixes `RemoteDevice` (or the type's remote class) into a class that
+declares the device's parameters and commands, shared with the local device so the two
+can't drift: `class RemoteFakeScanner(RemoteScanner, FakeScanUnit)`. A command of the
+driver's own runs on the server through `call_command`. Without the plugin on the
+coordinator, the entry is the type's interface class, with a warning naming what is not
+available; a type fibsem has no interface for is then not built.
+`examples/plugins/fibsem-fake-scanner` does both.
+
 The server has no authentication yet. Keep it on the microscope's private network.

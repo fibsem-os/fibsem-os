@@ -45,19 +45,36 @@ the needle's axes and named positions) comes from the device's ``facts`` in its
 description, and a stage's poses from its ``pose_table`` query. A move
 is checked against the stage limits here and again on the server.
 
+``RemoteScanner`` scans a frame on the server, in one call, and knows its limits from
+its facts. A plugin driver's device is made with the class its ``DriverEntry`` names
+for the type (``remote_devices``) when that driver is installed here too, so its own
+parameters cross the wire; otherwise with the type's class above (`remote_class`).
+
 Not yet: the one-commander lease, and a beam's ``acquire`` (a
 ``FibsemImage`` with its metadata).
 """
 
 from __future__ import annotations
 
+import importlib
 import io
 import json
 import logging
 import math
 import threading
 from copy import deepcopy
-from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Optional, Tuple
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    Iterator,
+    List,
+    Mapping,
+    Optional,
+    Tuple,
+)
 
 import numpy as np
 import requests
@@ -78,6 +95,7 @@ from fibsem.devices.core import (
 from fibsem.devices.entries import REMOTE_DRIVER
 from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
 from fibsem.devices.manipulator import Manipulator, ManipulatorLimitError
+from fibsem.devices.scanner import Scanner
 from fibsem.devices.stage import Stage, StageLimitError
 from fibsem.devices.wire import (
     FRAME_METADATA_HEADER,
@@ -88,7 +106,7 @@ from fibsem.devices.wire import (
     from_wire,
     to_wire,
 )
-from fibsem.drivers.registry import DeviceBuilder
+from fibsem.drivers.registry import DeviceBuilder, get_driver
 from fibsem.structures import (
     BeamType,
     FibsemManipulatorPosition,
@@ -784,6 +802,40 @@ class RemoteManipulator(RemoteDevice, Manipulator):
         self.call_command("stop")
 
 
+class RemoteScanner(RemoteDevice, Scanner):
+    """A scan generator on another computer. A frame is scanned there, in one call,
+    and comes back as the array. Its limits come from its facts, so a frame outside
+    them is refused here before the request, and a beam it is bound to narrows to
+    them as it would to a local one. ``facts()`` is what the server's device says."""
+
+    _served_facts: Dict[str, Any] = {}
+
+    def _apply_facts(self, facts: Dict[str, Any]) -> None:
+        self._served_facts = deepcopy(facts)
+
+    def facts(self) -> Dict[str, Any]:
+        return deepcopy(self._served_facts)
+
+    def _dwell_time_limits(self) -> Optional[RangeLimit]:
+        limits = self._served_facts.get("dwell_time_limits")
+        return None if limits is None else RangeLimit(*limits)
+
+    def _resolution_limits(self) -> Optional[Tuple[Tuple[int, int], Tuple[int, int]]]:
+        limits = self._served_facts.get("resolution_limits")
+        if limits is None:
+            return None
+        low, high = limits
+        return (int(low[0]), int(low[1])), (int(high[0]), int(high[1]))
+
+    def _acquire(self, resolution: Tuple[int, int], dwell_time: float) -> np.ndarray:
+        return self.call_command(
+            "acquire", timeout=UNTIL_DONE, resolution=resolution, dwell_time=dwell_time
+        )
+
+    def _stop(self) -> None:
+        self.call_command("stop")
+
+
 REMOTE_FM_PARTS = {
     "fm": RemoteFM,
     "camera": RemoteCamera,
@@ -847,24 +899,64 @@ REMOTE_DEVICE_TYPES: Dict[str, type] = {
     "chamber": RemoteChamber,
     "chamber_camera": RemoteChamberCamera,
     "manipulator": RemoteManipulator,
+    "scan_generator": RemoteScanner,
 }
 
 # The types whose device has one name, its type's, on every backend.
 _NAMED_AS_TYPE = ("stage", "chamber", "chamber_camera", "manipulator")
 
 
+def remote_class(entry_type: str, description: Mapping[str, Any]) -> Optional[type]:
+    """The class a remote copy of the served device *description* is made with, for an
+    entry of *entry_type*; None if there is none.
+
+    The class the server's driver names for the type (``DriverEntry.remote_devices``)
+    when that driver is installed here, else the type's own (`REMOTE_DEVICE_TYPES`).
+    Falling back loses whatever the driver's device has beyond its type's interface,
+    and says so. A served device built as another type is an error.
+    """
+    name = description.get("name")
+    served_type = description.get("type")
+    if served_type is not None and served_type != entry_type:
+        raise ValueError(
+            f"'{name}' is a {served_type} on the device server, not a {entry_type}"
+        )
+    interface = REMOTE_DEVICE_TYPES.get(entry_type)
+    driver = description.get("driver")
+    if not driver or driver == REMOTE_DRIVER:
+        return interface
+    try:
+        target = get_driver(driver).remote_devices.get(entry_type)
+    except NotImplementedError:
+        why = f"its driver '{driver}' is not installed here"
+    else:
+        if target is not None:
+            module, _, attribute = target.partition(":")
+            return getattr(importlib.import_module(module), attribute)
+        why = f"its driver '{driver}' names no remote class for a {entry_type}"
+    if interface is None:
+        raise ValueError(f"there is no remote '{entry_type}' device: {why}")
+    lost = sorted(
+        set(description.get("parameters", {})) - set(interface.declared_parameters())
+    )
+    if lost:
+        logging.warning(
+            f"'{name}' is reached as a plain {entry_type} ({interface.__name__}), as "
+            f"{why}. Not available here: {', '.join(lost)}. Install the driver's "
+            "plugin on this computer too to use them."
+        )
+    return interface
+
+
 def build_remote_device(entry: "DeviceEntry", context: "BuildContext") -> Device:
     """The device a ``driver: remote`` entry names, on the device server at its
-    ``address`` and ``port``.
+    ``address`` and ``port``, made with `remote_class`.
 
     The entry's name is the device's name on the server. Entries at one address share
     one ``DeviceClient``, and the server is asked what it has once. A server that does
     not answer, or has no device of that name, fails the build: the device is left out
     with a warning, or connect fails when the entry is ``required``.
     """
-    device_class = REMOTE_DEVICE_TYPES.get(entry.type)
-    if device_class is None:
-        raise ValueError(f"the remote driver has no '{entry.type}' device")
     address, port = entry.options.get("address"), entry.options.get("port")
     if address is None or port is None:
         raise ValueError("a remote device needs an `address` and a `port`")
@@ -875,7 +967,10 @@ def build_remote_device(entry: "DeviceEntry", context: "BuildContext") -> Device
             f"the device server at {address}:{port} has no device '{entry.name}' "
             f"(it has {', '.join(descriptions) or 'none'})"
         )
-    if device_class is RemoteBeam:
+    device_class = remote_class(entry.type, description)
+    if device_class is None:
+        raise ValueError(f"the remote driver has no '{entry.type}' device")
+    if issubclass(device_class, RemoteBeam):
         beam_type = BeamType.__members__.get(entry.name.upper())
         if beam_type is None:
             raise ValueError("a beam is named 'electron' or 'ion'")
@@ -955,12 +1050,24 @@ def _server(
     return server
 
 
-DEVICE_BUILDERS = {
-    **{
-        device_type: DeviceBuilder("fibsem.drivers.remote.devices:build_remote_device")
-        for device_type in REMOTE_DEVICE_TYPES
-    },
-    "fm": DeviceBuilder("fibsem.drivers.remote.devices:build_remote_fm"),
-}
+class _RemoteBuilders(Mapping[str, DeviceBuilder]):
+    """A builder for every type: one with no remote class here may have one in the
+    server's driver, which is known only once the server answers (`remote_class`).
+    Lists the types the remote driver has a class for."""
+
+    _device = DeviceBuilder("fibsem.drivers.remote.devices:build_remote_device")
+    _fm = DeviceBuilder("fibsem.drivers.remote.devices:build_remote_fm")
+
+    def __getitem__(self, device_type: str) -> DeviceBuilder:
+        return self._fm if device_type == "fm" else self._device
+
+    def __iter__(self) -> Iterator[str]:
+        return iter([*REMOTE_DEVICE_TYPES, "fm"])
+
+    def __len__(self) -> int:
+        return len(REMOTE_DEVICE_TYPES) + 1
+
+
+DEVICE_BUILDERS: Mapping[str, DeviceBuilder] = _RemoteBuilders()
 """How the remote driver builds each type, as the registry gives a driver's builders
 (``fibsem.drivers.registry.device_builder``)."""

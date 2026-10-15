@@ -934,6 +934,12 @@ class Device(_Controllable):
     (``fibsem.devices.entries.build_device_entries``). ``None`` for a device built
     by hand."""
 
+    entry_type: Optional[str] = None
+    """The ``type`` of the configuration entry it was built from (``beam``,
+    ``scan_generator``, a plugin's own), set with `driver`. A device server sends
+    both, so a remote copy can be made with the driver's own remote class
+    (``DriverEntry.remote_devices``). ``None`` for a device built by hand."""
+
     def facts(self) -> Dict[str, Any]:
         """What the device says about itself that is neither a parameter nor a
         command, as JSON-ready data: what a remote copy of it needs to answer the

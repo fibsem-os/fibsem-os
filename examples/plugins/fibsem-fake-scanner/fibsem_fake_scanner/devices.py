@@ -1,9 +1,10 @@
 """The fake scan generator as a fibsem device, and its builder.
 
 ``FakeScanner`` is a :class:`fibsem.devices.scanner.Scanner`, so a beam's ``scanner``
-role can be bound to it. It adds what this unit has beyond the interface: the input
-it digitises, that input's gain and offset, and the test pattern it scans (the
-stand-in for a sample), plus a ``self_test`` command.
+role can be bound to it. ``FakeScanUnit`` declares what this unit has beyond the
+interface: the input it digitises, that input's gain and offset, and the test pattern
+it scans (the stand-in for a sample), plus a ``self_test`` command. The remote copy
+(``remote.py``) declares the same through it.
 """
 
 from __future__ import annotations
@@ -35,8 +36,11 @@ if TYPE_CHECKING:
     from fibsem.structures import DeviceEntry
 
 
-class FakeScanner(Scanner):
-    """A simulated external scan generator on its own controller."""
+class FakeScanUnit(Scanner):
+    """What a FakeScan unit has beyond a Scanner, wherever it is driven from: declared
+    once, so the local device (`FakeScanner`) and the remote copy of it
+    (``fibsem_fake_scanner.remote.RemoteFakeScanner``) have the same parameters and
+    commands."""
 
     input = Parameter(
         str, choices=INPUTS, doc="The input (ADC) the frame is read from."
@@ -54,6 +58,19 @@ class FakeScanner(Scanner):
     )
     pattern = Parameter(str, choices=PATTERNS, doc="The test pattern the unit scans.")
 
+    @command
+    def self_test(self) -> Dict[str, Any]:
+        """Run the unit's self test and return its report, which goes on the
+        experiment's record too."""
+        return self._self_test()
+
+    def _self_test(self) -> Dict[str, Any]:
+        raise NotImplementedError(f"{type(self).__name__} can't self test")
+
+
+class FakeScanner(FakeScanUnit):
+    """A simulated external scan generator on its own controller."""
+
     def __init__(
         self, name: str, controller: FakeScanController, parent: Any = None, **kw: Any
     ):
@@ -63,6 +80,7 @@ class FakeScanner(Scanner):
     def facts(self) -> Dict[str, Any]:
         c = self._controller
         return {
+            **super().facts(),  # the limits, which a remote copy checks against
             "serial": c.serial,
             "firmware": c.firmware,
             "address": c.address,
@@ -91,10 +109,7 @@ class FakeScanner(Scanner):
     def _resolution_limits(self) -> Tuple[Tuple[int, int], Tuple[int, int]]:
         return (1, 1), self._controller.max_resolution
 
-    @command
-    def self_test(self) -> Dict[str, Any]:
-        """Run the unit's self test and return its report, which goes on the
-        experiment's record too."""
+    def _self_test(self) -> Dict[str, Any]:
         report = self._controller.self_test()
         self.session.record("scanner_self_test", {"device": self.name, **report})
         return report

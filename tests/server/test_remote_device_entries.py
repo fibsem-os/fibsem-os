@@ -74,7 +74,8 @@ def test_the_remote_driver_builds_beams_motion_and_the_fm_parts():
         "objective",
     ):
         assert device_builder("remote", device_type) is not None
-    assert device_builder("Remote", "sample_loader") is None
+    # any other type too: the server's driver may name a remote class for it
+    assert device_builder("Remote", "sample_loader") is not None
 
 
 def test_remote_entries_build_the_devices_their_server_has(server):

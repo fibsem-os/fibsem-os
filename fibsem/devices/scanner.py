@@ -22,12 +22,13 @@ resource for the frame; ``stop`` does not, since it must reach a frame in flight
 
 A driver whose unit has limits says so with ``_dwell_time_limits`` and
 ``_resolution_limits``: ``acquire`` refuses a frame outside them, and a beam the
-scanner is bound to offers only the dwell times and resolutions both can do.
+scanner is bound to offers only the dwell times and resolutions both can do. The
+limits are also its ``facts``, which is how a remote copy (``RemoteScanner``) knows them.
 """
 
 from __future__ import annotations
 
-from typing import Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 
@@ -88,6 +89,15 @@ class Scanner(Device):
         """The smallest and largest (width, height) frames the unit can scan, or None
         for no limit of its own."""
         return self._resolution_limits()
+
+    def facts(self) -> Dict[str, Any]:
+        """Its limits, so a remote copy refuses and narrows a beam the same way. A
+        driver adding facts of its own keeps these: ``{**super().facts(), ...}``."""
+        dwell, frames = self.dwell_time_limits, self.resolution_limits
+        return {
+            "dwell_time_limits": None if dwell is None else [dwell.min, dwell.max],
+            "resolution_limits": None if frames is None else [list(f) for f in frames],
+        }
 
     def _dwell_time_limits(self) -> Optional[RangeLimit]:
         return None

@@ -28,7 +28,11 @@ from fibsem_fake_scanner.devices import FakeScanner, build_fake_scanner  # noqa:
 
 import fibsem.config as cfg  # noqa: E402
 from fibsem import utils  # noqa: E402
-from fibsem.devices.entries import DeviceBuildError  # noqa: E402
+from fibsem.devices.entries import (  # noqa: E402
+    DeviceBuildError,
+    ResolvedEntry,
+    build_device_entries,
+)
 from fibsem.drivers.registry import (  # noqa: E402
     BuildContext,
     get_driver,
@@ -83,9 +87,10 @@ def microscope(tmp_path):
 
 
 def _standalone(name="fake_scanner"):
-    """The scanner built on its own, as a device server on the unit's PC would."""
+    """The scanner built on its own from its entry, as a device server on the unit's
+    PC would: with no microscope, and knowing its driver and type."""
     entry = DeviceEntry.from_dict({**ENTRY, "name": name})
-    return build_fake_scanner(entry, BuildContext(microscope=None))
+    return build_device_entries([ResolvedEntry(entry, "FakeScan")], None)[name]
 
 
 # -- discovery ----------------------------------------------------------------------
@@ -336,27 +341,65 @@ def test_a_hardware_fault_is_a_clean_refusal():
         server.stop()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="GAP: driver: remote builds only the types in REMOTE_DEVICE_TYPES "
-    "(fibsem/drivers/remote/devices.py); a plugin type can't be remote, and "
-    "`python -m fibsem.server.devices --serve` can't serve a plugin device",
-)
+def _remote(server):
+    return {
+        "name": "fake_scanner",
+        "type": "scan_generator",
+        "driver": "remote",
+        "address": "127.0.0.1",
+        "port": _wait(server),
+    }
+
+
 def test_a_remote_entry_reaches_a_served_scanner(tmp_path):
     pytest.importorskip("websockets")
+    from fibsem_fake_scanner.remote import RemoteFakeScanner
+
     from fibsem.server.devices import DeviceServer
 
-    server = DeviceServer([_standalone()]).start()
+    served = _standalone()
+    server = DeviceServer([served]).start()
     try:
-        remote = {
-            "name": "fake_scanner",
-            "type": "scan_generator",
-            "driver": "remote",
-            "address": "127.0.0.1",
-            "port": _wait(server),
-        }
-        microscope = _connect(tmp_path, _config(remote))
-        assert "scanner" in microscope.beams[BeamType.ELECTRON].roles
+        microscope = _connect(tmp_path, _config(_remote(server)))
+        sem = microscope.beams[BeamType.ELECTRON]
+        scanner = sem.roles["scanner"]
+        # the plugin is installed here too, so its remote class: its own parameters
+        assert isinstance(scanner, RemoteFakeScanner)
+        assert scanner.input.get_value() == "adc0"
+        scanner.gain.set_value(0.25)
+        assert served.gain.get_value() == 0.25
+        assert scanner.self_test()["serial"] == "FS-0001"
+        # its limits came with it, and the beam narrows to them
+        assert sem.dwell_time.limits.min == served.dwell_time_limits.min
+        image = microscope.acquire_image(image_settings=ImageSettings(**SETTINGS))
+        assert image.data.shape == (48, 64)
+        assert image.metadata.roles["scanner"]["facts"]["serial"] == "FS-0001"
+        microscope.disconnect()
+    finally:
+        server.stop()
+
+
+def test_without_the_plugin_here_it_is_a_plain_remote_scanner(tmp_path, caplog):
+    pytest.importorskip("websockets")
+    import logging
+
+    from fibsem.drivers.remote.devices import RemoteScanner
+    from fibsem.server.devices import DeviceServer
+
+    served = _standalone()
+    served.driver = "NotInstalledHere"  # as if the coordinator lacked the plugin
+    server = DeviceServer([served]).start()
+    logging.getLogger().addHandler(caplog.handler)
+    try:
+        microscope = _connect(tmp_path, _config(_remote(server)))
+        scanner = microscope.beams[BeamType.ELECTRON].roles["scanner"]
+        assert type(scanner) is RemoteScanner
+        assert "input" not in scanner.parameters
+        assert "Not available here: gain, input, offset, pattern." in caplog.text
+        # scanning still works through the interface
+        image = microscope.acquire_image(image_settings=ImageSettings(**SETTINGS))
+        assert image.data.shape == (48, 64)
+        microscope.disconnect()
     finally:
         server.stop()
 

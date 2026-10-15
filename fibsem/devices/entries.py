@@ -201,10 +201,11 @@ def build_device_entries(
                 _not_built(item, microscope, f"building it failed: {e}", e)
                 continue
             if device is not None:
-                if getattr(device, "driver", None) is None and isinstance(
-                    device, Device
-                ):
-                    device.driver = item.driver
+                if isinstance(device, Device):
+                    if device.driver is None:
+                        device.driver = item.driver
+                    if device.entry_type is None:
+                        device.entry_type = item.type
                 built[item.name] = device
     finally:
         # registered even when a required device fails, so what was opened closes
