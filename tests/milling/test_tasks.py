@@ -400,7 +400,7 @@ def test_run_milling_task_raises_a_failure_when_asked(tmp_path):
 
 def _milling_events(microscope):
     events = []
-    microscope.record_signal.connect(
+    microscope.session.record_signal.connect(
         lambda kind, payload: events.append(payload) if kind == "milling" else None
     )
     return events

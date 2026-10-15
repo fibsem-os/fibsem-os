@@ -573,7 +573,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="get_item_output_image",
-        description="One saved image of an item, as an image you can look at: a 768 px JPEG preview of a file get_task_outputs lists (stacks and channels max-projected). A preview, not the data. An unlisted name is refused with the valid ones.",
+        description="One saved image of an item, as an image you can look at: a 768 px JPEG preview of a file get_task_outputs lists (stacks and channels max-projected). A preview, not the data. A beam image comes with its metadata block (pixel size, preview_pixelsize, stage position, beam, detector). An unlisted name is refused with the valid ones.",
         method="GET",
         path="/app/experiment/items/{item_name}/outputs/{filename}",
         level="watch",
@@ -581,6 +581,17 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "item_name": "the item (lamella) name",
             "filename": "a basename from get_task_outputs",
+        },
+    ),
+    ToolSpec(
+        name="get_image_metadata",
+        description="The full saved metadata of one image file in the experiment folder: the image settings, pixel size, microscope state (stage, both beams, detectors) and the item and task it was taken for. The image tools already carry a short block of this; use this for the rest. Paths outside the experiment are refused.",
+        method="GET",
+        path="/app/experiment/images/metadata",
+        level="watch",
+        router="app",
+        params={
+            "path": "an image file path inside the experiment folder, e.g. the path an image answer gives"
         },
     ),
     ToolSpec(
@@ -602,7 +613,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="get_grid_output_image",
-        description="One saved overview (mosaic) of a grid, as an image you can look at: a 768 px JPEG preview of a file get_grids / get_grid_detail lists. A preview, not the data; get_grid_markers places the items on it. An unlisted name is refused with the valid ones.",
+        description="One saved overview (mosaic) of a grid, as an image you can look at: a 768 px JPEG preview of a file get_grids / get_grid_detail lists. A preview, not the data; get_grid_markers places the items on it. A beam image comes with its metadata block (pixel size, preview_pixelsize, stage position, beam, detector). An unlisted name is refused with the valid ones.",
         method="GET",
         path="/app/experiment/grids/{grid_name}/outputs/{filename}",
         level="watch",

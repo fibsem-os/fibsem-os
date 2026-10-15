@@ -165,13 +165,13 @@ def test_a_missing_reference_is_recorded_as_a_skipped_alignment(microscope, expe
     lamella = experiment.positions[0]
     task = MillRoughTask(microscope, lamella.task_config[ROUGH], lamella)
     recorded = []
-    microscope.record_signal.connect(
+    microscope.session.record_signal.connect(
         lambda kind, payload: recorded.append(payload) if kind == "alignment" else None
     )
     try:
         assert task._align_reference_image("no-such-reference") is None
     finally:
-        microscope.record_signal.disconnect()
+        microscope.session.record_signal.disconnect()
 
     (skipped,) = recorded
     assert skipped["status"] == "skipped"

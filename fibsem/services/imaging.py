@@ -118,7 +118,7 @@ class Imaging(Service):
                     image_settings.path, f"{image_settings.filename}_{suffix}"
                 )
             )
-        self.parent.record_event("image_acquired", acquisition_record(image, path))
+        self.session.record("image_acquired", acquisition_record(image, path))
         return image
 
     @command
