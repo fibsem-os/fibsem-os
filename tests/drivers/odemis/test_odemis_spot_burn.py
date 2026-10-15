@@ -1,7 +1,7 @@
 """Odemis spot burns through the spot burn service, with the writes it always made.
 
 Each case burns on an ``OdemisThermoMicroscope`` built as it is when created, over the
-recording fake client of tests/test_odemis_devices.py, through ``run_spot_burn`` and
+recording fake client of tests/drivers/odemis/test_odemis_devices.py, through ``run_spot_burn`` and
 ``microscope.spot_burn``. The odemis writes and the log lines are pinned to what the
 microscope's own burn made before the service replaced it (it was checked against the
 service write for write until it was removed).
@@ -14,7 +14,7 @@ import pytest
 from fibsem.imaging.spot import SpotBurnSettings
 from fibsem.services.spot_burn import SpotBurn
 from fibsem.structures import BeamType, Point
-from tests.test_odemis_devices import make, odemis_cls, run  # noqa: F401
+from tests.drivers.odemis.test_odemis_devices import make, odemis_cls, run  # noqa: F401
 
 
 @pytest.fixture(autouse=True)

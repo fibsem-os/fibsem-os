@@ -15,7 +15,7 @@ and an unknown preset. Nothing here has run on an instrument.
 
 Not cases any more: the keys whose old branches only logged, which were deleted, the
 ion column's working distance write and ``detector_mode``. The Tescan API has neither,
-and ``TescanMicroscope``'s wrappers answer for them (``tests/test_tescan_no_control.py``).
+and ``TescanMicroscope``'s wrappers answer for them (``tests/drivers/tescan/test_tescan_no_control.py``).
 """
 
 import json
@@ -33,7 +33,7 @@ from tests.fixtures.tescan_sdk import connect
 
 E, I = BeamType.ELECTRON, BeamType.ION
 
-RECORDED = os.path.join(os.path.dirname(__file__), "fixtures", "tescan_beam_calls.json")
+RECORDED = os.path.join(os.path.dirname(__file__), "..", "..", "fixtures", "tescan_beam_calls.json")
 
 
 def _system(electron=True, ion=True):

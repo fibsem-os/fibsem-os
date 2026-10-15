@@ -30,9 +30,9 @@ import pytest
 from tests.fixtures.autoscript_recording import load
 from tests.fixtures.demoted_messages import as_logged_now
 
-SCRIPT = Path(__file__).parent / "fixtures" / "autoscript_beam_parity.py"
-PINS = Path(__file__).parent / "fixtures" / "available_values_pins.json"
-RECORDED = Path(__file__).parent / "fixtures" / "autoscript_old_calls.json"
+SCRIPT = Path(__file__).parents[2] / "fixtures" / "autoscript_beam_parity.py"
+PINS = Path(__file__).parents[2] / "fixtures" / "available_values_pins.json"
+RECORDED = Path(__file__).parents[2] / "fixtures" / "autoscript_old_calls.json"
 
 MOVED = [
     "blanked",

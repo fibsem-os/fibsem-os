@@ -110,7 +110,7 @@ def _tescan():
 
 
 def _odemis():
-    import tests.test_odemis_devices as od
+    import tests.drivers.odemis.test_odemis_devices as od
 
     stubs = od.stubs
     saved = {}
