@@ -20,7 +20,10 @@ import math
 from dataclasses import fields as dataclass_fields
 from dataclasses import is_dataclass
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence, Tuple
+
+if TYPE_CHECKING:
+    from fibsem.structures import FieldSpec
 
 # GET a route's JSON (the document an edit patches), or None.
 Reader = Callable[[str], Optional[Dict[str, Any]]]
@@ -99,8 +102,8 @@ def _kwargs_table(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 # --- a typed config's fields, as its form shows them ----------------------------------
 
 
-def _display(value: Any, metadata: Dict[str, Any]) -> str:
-    """``value`` in the field's display units: 2e-06 with scale 1e6 and unit m
+def _display(value: Any, spec: Optional["FieldSpec"]) -> str:
+    """``value`` as the field's form shows it: 2e-06 with scale 1e6 and unit m
     reads "2 µm"."""
     if isinstance(value, Enum):
         return value.name
@@ -108,23 +111,16 @@ def _display(value: Any, metadata: Dict[str, Any]) -> str:
         return "on" if value else "off"
     if not isinstance(value, (int, float)):
         return _short(value)
-    from fibsem.utils import _get_display_unit
-
-    scale = metadata.get("scale")
-    dimensions = metadata.get("dimensions")
-    shown = value * ((scale**dimensions) if (scale and dimensions) else (scale or 1))
-    if metadata.get("display_unit"):
-        unit = metadata["display_unit"]
-    elif metadata.get("unit") and not scale:
+    if spec is None:
+        shown, unit = value, ""
+    elif spec.unit and not spec.scale and not spec.display.unit:
         # no scale declared: the prefix the value's size calls for (60 pA)
-        from fibsem.utils import _get_scale_from_value
+        from fibsem.utils import _get_display_unit, _get_scale_from_value
 
         scale = _get_scale_from_value(value)
-        shown, unit = value * scale, _get_display_unit(scale, metadata["unit"])
-    elif metadata.get("unit"):
-        unit = _get_display_unit(scale, metadata["unit"])
+        shown, unit = value * scale, _get_display_unit(scale, spec.unit)
     else:
-        unit = ""
+        shown, unit = value * (spec.scale or 1), spec.suffix
     number = _number(shown) if isinstance(shown, float) else str(shown)
     if unit in ("°", "%"):
         return f"{number}{unit}"
@@ -153,13 +149,13 @@ def _shape_name(node: Any) -> Optional[str]:
     return type(node).__name__.replace("Pattern", "") or None
 
 
-def describe_field(root: Any, path: str) -> Tuple[str, Dict[str, Any], Any]:
-    """``(setting, metadata, value)`` for a dotted ``path`` into the typed config
+def describe_field(root: Any, path: str) -> Tuple[str, Optional["FieldSpec"], Any]:
+    """``(setting, spec, value)`` for a dotted ``path`` into the typed config
     ``root``: the setting as its form names it, under the milling stage it is in
-    ("Rough Mill 01 · trench depth"), the field's form metadata, and the value now.
-    A path that doesn't resolve reads as itself."""
+    ("Rough Mill 01 · trench depth"), the field as its form reads it (None for
+    none), and the value now. A path that doesn't resolve reads as itself."""
     from fibsem.milling.base import FibsemMillingStage
-    from fibsem.structures import get_fields_with_metadata
+    from fibsem.structures import field_specs
 
     node, parent, stage = root, None, None
     parts = str(path).split(".")
@@ -168,18 +164,18 @@ def describe_field(root: Any, path: str) -> Tuple[str, Dict[str, Any], Any]:
             stage = node.name
         parent, node = node, _child(node, part)
         if node is _MISSING:
-            return str(path), {}, _MISSING
+            return str(path), None, _MISSING
     leaf = parts[-1]
-    metadata: Dict[str, Any] = {}
+    spec = None
     if is_dataclass(parent) and leaf in {f.name for f in dataclass_fields(parent)}:
-        metadata = get_fields_with_metadata(type(parent)).get(leaf, {})
-    name = str(metadata.get("label") or _words(leaf)).lower()
+        spec = field_specs(type(parent)).get(leaf)
+    name = str((spec.label if spec is not None else None) or _words(leaf)).lower()
     shape = _shape_name(parent)
     if shape:
         name = f"{shape.lower()} {name}"
     return (
         (f"{stage} · {name}" if stage else name[:1].upper() + name[1:]),
-        metadata,
+        spec,
         node,
     )
 
@@ -192,13 +188,13 @@ def describe_patch(root: Any, patch: Any) -> Dict[str, Any]:
     lines: List[str] = []
     rows: List[Tuple[str, str, str]] = []
     for path, new in patch.items():
-        setting, metadata, old = describe_field(root, str(path))
-        after = _display(new, metadata)
+        setting, spec, old = describe_field(root, str(path))
+        after = _display(new, spec)
         if old is _MISSING:
             lines.append(f"{setting}: {after}")
             rows.append((setting, "", after))
             continue
-        before = _display(old, metadata)
+        before = _display(old, spec)
         lines.append(f"{setting} {before} → {after}")
         rows.append((setting, before, after))
     return {
