@@ -491,24 +491,32 @@ class FibsemMillingTask:
         raises: a run that cannot be described still milled.
         """
         try:
-            if self.error is not None:
-                ended = ended_by(self.error)
-            else:
-                ended = {"status": _RUN_STATUS.get(self.outcome, FAILED)}
-            if ended["status"] == COMPLETED and not self.stages:
-                ended = {"status": SKIPPED, "reason": _TURNED_OFF}
             payload = {
                 "milling_run_id": self.task_id,
                 "milling_task_name": self.name,
                 "started_at": started_at,
-                "path": self.output_dir,
-                "stages": self._stages_as_ended(ended["status"]),
-                **ended,
+                **self.ended(),
             }
         except Exception:  # noqa: BLE001 - recording must not matter
             logging.debug(f"could not record the {self.name} run", exc_info=True)
             return
         self.microscope.record_event("milling", payload)
+
+    def ended(self) -> Dict[str, Any]:
+        """How the run ended, as its ``milling`` event says: its status (and
+        the error's type and message when it failed), the folder it saved
+        into, and how each stage ended."""
+        if self.error is not None:
+            ended = ended_by(self.error)
+        else:
+            ended = {"status": _RUN_STATUS.get(self.outcome, FAILED)}
+        if ended["status"] == COMPLETED and not self.stages:
+            ended = {"status": SKIPPED, "reason": _TURNED_OFF}
+        return {
+            **ended,
+            "path": self.output_dir,
+            "stages": self._stages_as_ended(ended["status"]),
+        }
 
     def _stages_as_ended(self, status: str) -> List[Dict[str, Any]]:
         """Every stage in the protocol, as the run left it. ``index`` is the

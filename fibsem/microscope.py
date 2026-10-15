@@ -73,6 +73,7 @@ from fibsem.structures import (
 if TYPE_CHECKING:
     from fibsem.cancellation import AnyStopEvent
     from fibsem.imaging.spot import SpotBurnSettings
+    from fibsem.services.alignment import Alignment
     from fibsem.services.imaging import Imaging
     from fibsem.services.milling import Milling
     from fibsem.services.sample_handling import SampleHandling
@@ -186,6 +187,10 @@ class FibsemMicroscope(ABC):
     #: `auto_focus`, and the focus sweep. None when no beam was built: `auto_focus`
     #: raises then.
     imaging: Optional[Imaging] = None
+    #: The alignment service (`fibsem.services.alignment.Alignment`): aligning
+    #: to a saved reference image, and the shift between two. None without
+    #: imaging.
+    alignment: Optional[Alignment] = None
     #: Whether this driver's sample loader reads its magazine when the sample
     #: handling service is built: only where that read is free (the simulator).
     _read_magazine_at_connect: bool = False
@@ -205,11 +210,11 @@ class FibsemMicroscope(ABC):
     # known: stage moves and image reprojection assume the stage origin (FIB-1081).
     rotation_centre: Optional[Tuple[float, float]] = None
 
-    # live acquisition
+    # Images sent to the app's SEM and FIB views by whoever wants one shown (a
+    # milling task's result, a route's image). Live frames are not sent here: the
+    # views take them from each beam's ``live_frame``.
     sem_acquisition_signal = Signal(FibsemImage)
     fib_acquisition_signal = Signal(FibsemImage)
-    # The beams whose live_frame already forwards to the signals above.
-    _live_forwarded = _PerInstance(lambda _: set())
     # One acquisition at a time on this microscope's imaging view. Devices claim the
     # same lock as the `imaging_channel` resource (`resources` below).
     _threading_lock = _PerInstance(lambda _: threading.RLock())
@@ -341,23 +346,12 @@ class FibsemMicroscope(ABC):
             logging.warning("Acquisition thread is already running.")
             return
 
-        # The beam's live view: its frames reach the old signals, so a viewer
-        # listening there sees no difference. A beam with no live view (Odemis), or
-        # no such beam, has nothing to start.
+        # The beam's live view; its frames come on the beam's ``live_frame``. A beam
+        # with no live view (Odemis), or no such beam, has nothing to start.
         beam = self.beams.get(beam_type)
         if beam is None or beam not in self._live_beams():
             logging.warning(f"The {beam_type.name} beam has no live view here.")
             return
-        if beam_type not in self._live_forwarded:
-            signal = (
-                self.sem_acquisition_signal
-                if beam_type is BeamType.ELECTRON
-                else self.fib_acquisition_signal
-            )
-            # A function, not signal.emit: psygnal calls a connected emit once
-            # as it connects it.
-            beam.live_frame.connect(lambda image, signal=signal: signal.emit(image))
-            self._live_forwarded.add(beam_type)
         self._imaging_service().start_live(beam_type)
 
     def stop_acquisition(self) -> None:
@@ -398,9 +392,12 @@ class FibsemMicroscope(ABC):
     def _build_imaging(self) -> None:
         """Build the imaging service over the beams; `auto_focus` then goes to it.
         Without a beam there is none."""
+        from fibsem.services.alignment import Alignment, bind_alignment
         from fibsem.services.imaging import Imaging, bind_imaging
 
         self.imaging = bind_imaging(Imaging, self)
+        # Alignment acquires through the imaging, so it comes and goes with it.
+        self.alignment = bind_alignment(Alignment, self)
 
     def reset_beam_shifts(self) -> None:
         """Set the beam shift to zero for the electron and ion beams."""
@@ -1180,6 +1177,7 @@ class FibsemMicroscope(ABC):
         "spot_burn",
         "sample_handling",
         "imaging",
+        "alignment",
     )
 
     @property

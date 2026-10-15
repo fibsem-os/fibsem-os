@@ -154,6 +154,13 @@ def _print_events(events, since, out):
             out(f"PROMPT WITHDRAWN question={data.get('question_id')}")
         elif kind in ("request_decided", "request_finished", "request_cancelled"):
             out(_request_line(kind, data))
+        elif kind == "command_ended":
+            # A long command the agent started (a mill, a spot burn) ended.
+            line = (
+                f"COMMAND ENDED {data.get('service')}.{data.get('command')} "
+                f"run={data.get('run_id')} state={data.get('state')}"
+            )
+            out(f"{line} ({data['error']})" if data.get("error") else line)
         elif kind in TERMINAL:
             detail = data.get("error") or _counts(data.get("task_counts"))
             out(f"RUN ENDED ({kind}: {detail})" if detail else f"RUN ENDED ({kind})")
