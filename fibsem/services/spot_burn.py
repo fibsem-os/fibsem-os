@@ -42,7 +42,7 @@ from fibsem.cancellation import AnyStopEvent
 from fibsem.devices.beam import Beam
 from fibsem.devices.core import Parameter, ParameterMetadata, Role, command, query
 from fibsem.imaging.spot import SpotBurnProgress, SpotBurnSettings, SpotBurnStatus
-from fibsem.services.core import Service, forward_to, save_beam_conditions
+from fibsem.services.core import Service, save_beam_conditions
 from fibsem.structures import BeamType, Point
 
 _S = TypeVar("_S", bound="SpotBurn")
@@ -335,7 +335,4 @@ def bind_spot_burn(service: Type[_S], microscope: Any) -> Optional[_S]:
     spot_burn = service(parent=microscope)
     spot_burn.fill_roles(ion=ion)
     spot_burn.connect()
-    signal = getattr(microscope, "spot_burn_progress_signal", None)
-    if signal is not None:
-        spot_burn.progress.changed.connect(forward_to(signal))
     return spot_burn

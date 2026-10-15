@@ -44,7 +44,7 @@ class WorkflowStatusUpdate:
     task_duration: Optional[float] = None
     skip_reason: Optional[str] = None
     # Position in the *live* queue, and ALREADY 1-based: the producer writes
-    # `position + 1`. Deliberately unlike `milling_progress_signal`'s 0-based
+    # `position + 1`. Deliberately unlike milling progress's 0-based
     # `current_stage`, which seven consumers each increment. There is nothing to
     # correct here, so do not port a `display_*` property over -- it would
     # double-count.

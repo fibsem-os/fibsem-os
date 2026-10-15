@@ -1,4 +1,4 @@
-"""What the backends and strategies put on ``milling_progress_signal`` (FIB-797).
+"""What the backends and strategies report on ``microscope.milling.progress`` (FIB-797).
 
 Every producer reports a ``MillingProgress``: the backends' run loop, both built-in
 strategies, and the task layer. All of them report on the milling service's
@@ -33,9 +33,9 @@ def microscope():
 
 
 def _collect(scope):
-    """Subscribe to the signal and return the list the reports land in."""
+    """Listen on milling progress and return the list the reports land in."""
     emitted = []
-    scope.milling_progress_signal.connect(emitted.append)
+    scope.milling.progress.changed.connect(emitted.append)
     return emitted
 
 
@@ -147,54 +147,18 @@ class TestTheCoincidenceStrategy:
 # The guard: one source
 # --------------------------------------------------------------------------------------
 
-# The microscope's progress signals send on what the services' `progress` parameters
-# report (`bind_milling`, `bind_spot_burn`). A producer that emits on a signal itself
-# is a second source: the parameter, which the device API and the agent server read,
-# would not see its report.
-_SIGNALS = ("milling_progress_signal", "spot_burn_progress_signal")
+# Milling and spot burn progress has one source: the services' `progress`
+# parameters, which the device API and the agent server read too. The microscope
+# has no progress signal of its own to emit on beside them.
 
 
-def _direct_emits(path: Path):
-    """Every line in *path* that emits on a progress signal itself."""
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    return [
-        node.lineno
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "emit"
-        and isinstance(node.func.value, ast.Attribute)
-        and node.func.value.attr in _SIGNALS
-    ]
-
-
-def test_nothing_emits_on_the_progress_signals_itself():
-    root = Path(fibsem.__file__).parent
-    hits = {
-        str(path.relative_to(root)): lines
-        for path in sorted(root.rglob("*.py"))
-        if (lines := _direct_emits(path))
-    }
-    assert hits == {}, f"report through the service's progress instead: {hits}"
-
-
-def test_the_scan_sees_a_direct_emit(tmp_path):
-    probe = tmp_path / "probe.py"
-    probe.write_text(
-        "class X:\n"
-        "    def direct(self):\n"
-        "        self.microscope.milling_progress_signal.emit(None)\n"
-        "    def burn(self):\n"
-        "        self.microscope.spot_burn_progress_signal.emit(None)\n"
-        "    def other(self):\n"
-        "        self.microscope.tiled_acquisition_signal.emit(None)\n",
-        encoding="utf-8",
-    )
-    assert _direct_emits(probe) == [3, 5]
+def test_the_microscope_has_no_progress_signals_of_its_own(microscope):
+    assert not hasattr(microscope, "milling_progress_signal")
+    assert not hasattr(microscope, "spot_burn_progress_signal")
 
 
 def test_a_strategy_report_is_the_service_progress(microscope):
-    """What the signal sends is what `microscope.milling.progress` reads."""
+    """What a strategy reports is what `microscope.milling.progress` reads."""
     emitted = _collect(microscope)
     StandardMillingStrategy().run(microscope, FibsemMillingStage(name="Rough Mill"))
     assert emitted[0].message == "Running Rough Mill..."

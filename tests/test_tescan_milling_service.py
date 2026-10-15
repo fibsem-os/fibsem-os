@@ -273,7 +273,7 @@ def test_run_milling_loads_runs_and_unloads_the_layer(connect):
     _drawn(microscope)
     _finishing(fake)
     updates = []
-    microscope.milling_progress_signal.connect(updates.append)
+    microscope.milling.progress.changed.connect(updates.append)
     fake.log.clear()
 
     microscope.run_milling()

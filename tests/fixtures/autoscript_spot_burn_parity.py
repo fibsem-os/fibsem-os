@@ -67,7 +67,7 @@ CASES = (
 def _burn(call):
     microscope = make()
     reports = []
-    microscope.spot_burn_progress_signal.connect(
+    microscope.spot_burn.progress.changed.connect(
         lambda p: reports.append({**vars(p), "status": p.status.value})
     )
     result, calls, messages = B.run(lambda: call(microscope))

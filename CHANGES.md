@@ -41,6 +41,11 @@ lists where each key went.
   settings' choices are `microscope.milling.supported_settings()`.
 - **`microscope.home()` is removed.** Call `microscope.stage.home()`, which returns
   whether the stage is homed afterwards.
+- **`microscope.milling_progress_signal` and `microscope.spot_burn_progress_signal`
+  are removed.** Listen on the services instead:
+  `microscope.milling.progress.changed.connect(slot)` and
+  `microscope.spot_burn.progress.changed.connect(slot)`. They carry the same
+  `MillingProgress` and `SpotBurnProgress` reports, on the same thread.
 - **`microscope.move_to_microscope(target)` is removed.** Call
   `microscope.move_to_device(target)`; pass `orientation="SEM"` to land at SEM when
   returning to the beams, as the old method did on a compustage.

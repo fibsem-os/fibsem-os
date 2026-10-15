@@ -71,7 +71,7 @@ class SpotBurnStatus(str, Enum):
 
 @dataclass(frozen=True)
 class SpotBurnProgress:
-    """One report on ``spot_burn_progress_signal``.
+    """One report on the spot burn service's ``progress``.
 
     Replaces the bare dict the signal carried, whose three shapes were told apart by
     the presence of a `finished` key and then a nested `error` flag -- two booleans
@@ -90,7 +90,7 @@ class SpotBurnProgress:
     status: SpotBurnStatus
     # 1-based, because `run_spot_burn` counts with `enumerate(coordinates, 1)`. The
     # initial report carries 0, meaning "not started". Deliberately unlike
-    # `milling_progress_signal`'s 0-based `current_stage`: there is nothing to correct
+    # milling progress's 0-based `current_stage`: there is nothing to correct
     # here, so do not port a `display_*` property over -- it would double-count.
     current_point: Optional[int] = None
     total_points: Optional[int] = None
@@ -115,7 +115,7 @@ def run_spot_burn(
     (ThermoFisher, simulator), while TESCAN overrides it with a DrawBeam layer of
     timed dots — its FIB scan API has no blanker or beam parking.
 
-    Progress is reported via ``microscope.spot_burn_progress_signal`` (a dict), which the
+    Progress is reported on ``microscope.spot_burn.progress``, which the
     status bar and the spot burn widget subscribe to.
     Args:
         microscope: The microscope object.

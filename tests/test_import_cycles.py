@@ -148,10 +148,10 @@ def test_milling_does_not_pull_in_the_microscope():
 
     `fibsem/milling/__init__.py` imports `base` and `core`, so one runtime
     `fibsem.microscope` import in either makes *every* `fibsem.milling.*` import drag
-    the microscope in. That is a cycle rather than merely slow, because
-    `fibsem.microscope` imports `fibsem.milling.progress` to type
-    `milling_progress_signal`: the microscope module is only half-built when the milling
-    package runs, and `FibsemMicroscope` is not bound yet.
+    the microscope in. That was a cycle rather than merely slow while
+    `fibsem.microscope` imported `fibsem.milling.progress` (to type a milling progress
+    signal it no longer has): the microscope module was only half-built when the milling
+    package ran, and `FibsemMicroscope` was not bound yet.
     """
     result = _run(
         "import sys, warnings; warnings.filterwarnings('ignore')\n"

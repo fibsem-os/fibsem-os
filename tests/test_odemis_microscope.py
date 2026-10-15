@@ -418,7 +418,7 @@ def test_a_task_with_an_unsupported_pattern_fails_and_cleans_up(microscope):
     task's cleanup still restores the beam (FIB-1112).
     """
     progress = []
-    microscope.milling_progress_signal.connect(progress.append)
+    microscope.milling.progress.changed.connect(progress.append)
     stage = FibsemMillingStage(
         name="polygon",
         pattern=PolygonPattern(

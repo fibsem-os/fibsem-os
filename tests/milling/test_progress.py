@@ -1,4 +1,4 @@
-"""The typed contract carried by ``milling_progress_signal`` (FIB-797).
+"""The typed contract of milling progress, `MillingProgress` (FIB-797).
 
 What is pinned here is the shape, and specifically the decisions that are cheap to
 quietly undo later: that a stage outcome and a task outcome are different things, that

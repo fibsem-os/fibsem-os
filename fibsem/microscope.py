@@ -33,9 +33,7 @@ from fibsem.geometry.movement import beam_view_tilt
 from fibsem.geometry.orientations import (
     compucentric_rotation,
 )
-from fibsem.imaging.spot import SpotBurnProgress
 from fibsem.imaging.tiling.progress import TiledProgress
-from fibsem.milling.progress import MillingProgress
 from fibsem.structures import (
     DEFAULT_STAGE_DEVICES,
     DEVICE_AXES,
@@ -154,12 +152,9 @@ class FibsemMicroscope(ABC):
     # @superqt.ensure_main_thread; a bare .connect() of a GUI handler is a
     # crash-on-hardware bug that won't reproduce on a dev machine.
     #
-    # The two progress signals send on what the milling and spot burn services'
-    # ``progress`` parameters report (`bind_milling`, `bind_spot_burn`): report there
-    # (`fibsem.services.milling.report_progress`), never emit on them directly.
-    milling_progress_signal = Signal(MillingProgress)
+    # Milling and spot burn progress is on their services: ``milling.progress`` and
+    # ``spot_burn.progress``.
     tiled_acquisition_signal = Signal(TiledProgress)
-    spot_burn_progress_signal = Signal(SpotBurnProgress)
     system: SystemSettings
     #: The registry name of this class's driver, as its package's
     #: ``DRIVER.manufacturer`` spells it (``"Tescan"``). Each driver's class sets it;
@@ -1081,7 +1076,7 @@ class FibsemMicroscope(ABC):
         self, stop_event: Optional[Union[threading.Event, AnyStopEvent]] = None
     ) -> None:
         """Mill what is drawn, with the beam conditions `setup_milling` applied, and
-        return when the mill ends. Progress is reported on ``milling_progress_signal``.
+        return when the mill ends. Progress is reported on ``milling.progress``.
         A set ``stop_event`` stops the beam and raises `OperationCancelledError`. To
         start a mill and return at once, use `start_milling`."""
         logging.debug("running milling now...")
@@ -1827,8 +1822,8 @@ class FibsemMicroscope(ABC):
         """Burn each coordinate in *settings* with the beam for the configured exposure time.
 
         Goes to the microscope's spot burn service, ``spot_burn``. Progress is reported
-        via ``spot_burn_progress_signal``, which the status bar and the spot burn
-        widget subscribe to.
+        on ``spot_burn.progress``, which the status bar and the spot burn widget
+        subscribe to.
 
         Args:
             settings: What to burn — coordinates (0-1 image coordinates), exposure time

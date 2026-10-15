@@ -252,7 +252,7 @@ class MillingProgress:
 
     @classmethod
     def from_payload(cls, payload: object) -> "MillingProgress":
-        """Decode whatever actually arrived on `milling_progress_signal`.
+        """Decode whatever actually arrived as milling progress.
 
         Every in-tree producer emits a `MillingProgress`, so this is a no-op for all of
         them, and on that basis it could be deleted. It is kept because the producer set

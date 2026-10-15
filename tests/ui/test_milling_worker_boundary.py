@@ -227,7 +227,7 @@ def test_a_failed_mill_is_kept_for_the_finished_signals_listeners(qapp):
 
     Its own microscope, not the shared session's: this is the one test here whose
     task emits progress, and the viewers the other tests deleted are still
-    connected to the shared microscope's psygnal ``milling_progress_signal``.
+    connected to the shared microscope's ``milling.progress``.
     """
     microscope, _ = utils.setup_session(manufacturer="Demo")
     viewer = MillingTaskViewerWidget(
