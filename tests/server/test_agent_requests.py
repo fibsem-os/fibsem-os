@@ -265,7 +265,9 @@ def test_a_request_made_at_assist_is_not_run_after_the_level_drops(client, app, 
     assert store.get(filed["request_id"]).status == "cancelled"
 
 
-def test_assist_asks_to_stop_as_it_asks_for_the_rest(client, app):
+def test_assist_asks_to_stop_as_it_asks_for_the_rest(
+    client, app, microscope, monkeypatch
+):
     """A stop that is not the agent's own needs Drive (Patrick, 2026-10-14): at
     Assist it is a request like any action, and runs once approved."""
     why = {"reason": "the mill is off target"}
@@ -281,10 +283,32 @@ def test_assist_asks_to_stop_as_it_asks_for_the_rest(client, app):
         assert "request_actions" in _detail(refused)["message"]
     filed = _file(client, STOP_MILL)
     assert filed.status_code == 202, filed.text
+    # Something to stop (FIB-1398).
+    monkeypatch.setattr(microscope.milling, "_running", True)
     store = app.state.requests
     store.approve(filed.json()["request_id"])
     done = store.wait(filed.json()["request_id"], timeout=10)
     assert done.status == "applied", done.results
+
+
+def test_a_request_whose_mill_was_stopped_says_so(
+    client, app, context, microscope, monkeypatch
+):
+    """A mill stopped part way answers ``cancelled``, not a failure: the request
+    is applied, and its result and end say the run was cut short (FIB-1398)."""
+    monkeypatch.setattr(microscope.milling, "run", lambda stop_event=None: "cancelled")
+    run = {
+        "tool": "call_service_command",
+        "arguments": {"service": "milling", "command": "run"},
+    }
+    filed = _file(client, run).json()
+    store = app.state.requests
+    store.approve(filed["request_id"])
+    done = store.wait(filed["request_id"], timeout=10)
+    assert done.status == "applied", done.results
+    assert done.results[0]["cancelled"] is True
+    finished = [p for kind, p, _ in context.recorded if kind == "request_finished"]
+    assert finished[-1]["cancelled"] == 1
 
 
 @pytest.mark.parametrize("stop_agent", [False, True])

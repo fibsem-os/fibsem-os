@@ -71,6 +71,7 @@ from fibsem.cancellation import (
     CANCELLED,
     COMPLETED,
     AnyStopEvent,
+    NothingToStop,
     ended_by,
     raise_if_cancelled,
 )
@@ -181,6 +182,11 @@ class Milling(Service):
         self._drawn: List[FibsemPatternSettings] = []
         # Set by ``stop`` while a run is on, so the run can say it was stopped.
         self._stop_requested = threading.Event()
+        # The stop of the milling task running on this service, if one is: ``stop``
+        # sets it, so the task starts no later stage (FIB-1398).
+        self._task_stop: Optional[threading.Event] = None
+        # A run is in progress, for ``stop`` to know there is something to stop.
+        self._running = False
         # The name the last setup was given, for a run outside a task to go by.
         self._name: Optional[str] = None
         # Inside ``part_of``: a run there is part of something with its own record.
@@ -383,9 +389,44 @@ class Milling(Service):
 
     @command
     def stop(self) -> None:
-        """Stop milling. A ``run`` in progress ends and answers ``cancelled``."""
+        """Stop milling: the pattern now, and the milling task it is part of, which
+        starts no later stage. A ``run`` in progress ends and answers ``cancelled``.
+
+        Refused with `NothingToStop` when nothing is milling and no task is running.
+        """
+        task_stop = self._task_stop
+        if task_stop is None and not self._is_milling():
+            raise NothingToStop("Nothing is milling.")
+        if task_stop is not None:
+            task_stop.set()
+        self.stop_pattern()
+
+    def stop_pattern(self) -> None:
+        """Stop the pattern milling now, and nothing more: a milling task goes on
+        to its next stage. For a strategy that ends a mill on purpose (coincidence
+        milling); ``stop`` is the way to stop a mill."""
         self._stop_requested.set()
         self._stop()
+
+    @contextmanager
+    def task_running(self, stop_event: threading.Event) -> Iterator[None]:
+        """A milling task runs on this service in the block: ``stop`` sets
+        ``stop_event`` as well as stopping the pattern, so the whole task ends."""
+        previous, self._task_stop = self._task_stop, stop_event
+        try:
+            yield
+        finally:
+            self._task_stop = previous
+
+    def _is_milling(self) -> bool:
+        """Whether a run is in progress, or the instrument says it is milling (a
+        ``start`` returns at once)."""
+        if self._running:
+            return True
+        try:
+            return self._poll().milling_state in ACTIVE_MILLING_STATES
+        except Exception:  # noqa: BLE001 - unsure counts as milling: stop it
+            return True
 
     @command
     def pause(self) -> None:
@@ -458,6 +499,7 @@ class Milling(Service):
 
     def _run(self, stop_event: Optional[Union[threading.Event, AnyStopEvent]]) -> str:
         self._before_run()
+        self._running = True
         try:
             total = float(self._estimate() or 0.0)
             self._start()
@@ -466,6 +508,7 @@ class Milling(Service):
             self._abort()
             raise
         finally:
+            self._running = False
             try:
                 self._after_run()
             finally:
@@ -676,6 +719,19 @@ def report_progress(microscope: Any, progress: MillingProgress) -> None:
     milling = getattr(microscope, "milling", None)
     if milling is not None:
         milling.report(progress)
+
+
+@contextmanager
+def task_running(microscope: Any, stop_event: threading.Event) -> Iterator[None]:
+    """A milling task runs on *microscope*'s milling service in the block, so the
+    service's ``stop`` sets ``stop_event`` and the whole task ends (FIB-1398).
+    Without a milling service nothing mills, and there is nothing to register."""
+    milling = getattr(microscope, "milling", None)
+    if milling is None:
+        yield
+        return
+    with milling.task_running(stop_event):
+        yield
 
 
 def progress_update(

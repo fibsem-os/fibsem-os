@@ -247,8 +247,12 @@ def test_unknown_query_or_a_command_asked_as_one_is_404(read_client):
     assert resp.status_code == 404
 
 
-def test_a_stop_needs_drive_and_is_never_refused_for_control(read_client, microscope):
+def test_a_stop_needs_drive_and_is_never_refused_for_control(
+    read_client, microscope, monkeypatch
+):
     stop = "/microscope/services/milling/commands/stop"
+    # Something to stop (FIB-1398).
+    monkeypatch.setattr(microscope.milling, "_running", True)
     why = {"reason": "the mill is off target"}
     assert read_client.post(stop, json=why).status_code == 403
     app = build_server(microscope, auth=AuthConfig.generate(level="drive", token=TOKEN))

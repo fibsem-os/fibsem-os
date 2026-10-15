@@ -170,6 +170,18 @@ async def _asgi_call(app, method: str, path: str, body, token: str):
         return status, None
 
 
+def _cut_short(answer: Any) -> bool:
+    """Whether an action ran but was stopped part way: a mill answers
+    ``cancelled`` rather than failing (FIB-1377). Applied, but the operator and
+    the agent are told it was cut short (FIB-1398)."""
+    if not isinstance(answer, dict):
+        return False
+    result = answer.get("result")
+    if isinstance(result, dict):
+        result = result.get("status")
+    return isinstance(result, str) and result.lower() == CANCELLED
+
+
 class RequestStore:
     """The agent's requests, and the worker that runs approved ones.
 
@@ -465,6 +477,8 @@ class RequestStore:
                 }
                 if ok:
                     result["result"] = answer
+                    if _cut_short(answer):
+                        result["cancelled"] = True
                 else:
                     result["error"] = (answer or {}).get("detail", answer)
                 request.results.append(result)
@@ -482,6 +496,7 @@ class RequestStore:
                     "status": status,
                     "applied": sum(1 for r in request.results if r["ok"]),
                     "of": len(request.actions),
+                    "cancelled": sum(1 for r in request.results if r.get("cancelled")),
                 },
             )
         self._changed(request)

@@ -1099,9 +1099,12 @@ class FibsemMicroscope(ABC):
         self._milling_service().clear()
 
     def stop_milling(self) -> None:
+        """Stop the pattern milling now. A milling task goes on to its next stage:
+        its own stop event ends it, and the milling service's ``stop`` sets that
+        (FIB-1398). Safe when nothing is milling."""
         if self.milling is None:
             return  # nothing is milling
-        self.milling.stop()
+        self.milling.stop_pattern()
 
     def start_milling(self) -> None:
         self._milling_service().start()

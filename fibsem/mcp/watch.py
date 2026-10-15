@@ -173,10 +173,11 @@ def _request_line(kind, data):
     if kind == "request_cancelled":
         return f"{head} cancelled: {data.get('why')}"
     if kind == "request_finished":
-        return (
-            f"{head} {data.get('status')} "
-            f"({data.get('applied')} of {data.get('of')} applied)"
-        )
+        counts = f"{data.get('applied')} of {data.get('of')}"
+        # An applied action stopped part way, a mill say (FIB-1398).
+        if data.get("cancelled"):
+            return f"{head} {data.get('status')} ({counts}; run cancelled)"
+        return f"{head} {data.get('status')} ({counts} applied)"
     if data.get("outcome") == "rejected":
         reason = data.get("reason")
         return f"{head} rejected" + (f": {reason}" if reason else "")

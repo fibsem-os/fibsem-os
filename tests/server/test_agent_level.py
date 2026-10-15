@@ -81,6 +81,12 @@ def client(tmp_path, microscope, auth):
         yield client
 
 
+@pytest.fixture
+def milling_now(monkeypatch, microscope):
+    """A mill in progress, so a stop has something to stop (FIB-1398)."""
+    monkeypatch.setattr(microscope.milling, "_running", True)
+
+
 def _error(response) -> str:
     return response.json()["detail"]["error_type"]
 
@@ -99,7 +105,7 @@ def test_watch_reads_and_notes_but_acts_on_nothing(client):
         assert response.json()["detail"]["level"] == "watch"
 
 
-def test_drive_acts_on_the_session_and_the_hardware(client, auth):
+def test_drive_acts_on_the_session_and_the_hardware(client, auth, milling_now):
     auth.set_level(AgentLevel.DRIVE)
     capabilities = client.get("/capabilities", headers=AGENT).json()
     assert capabilities["level"] == "drive"
@@ -131,7 +137,9 @@ def test_watch_refuses_a_hardware_command_naming_the_level(client, auth):
     assert moved.json()["detail"]["level"] == "watch"
 
 
-def test_at_drive_a_run_in_control_refuses_a_hardware_command(client, auth, microscope):
+def test_at_drive_a_run_in_control_refuses_a_hardware_command(
+    client, auth, microscope, milling_now
+):
     auth.set_level(AgentLevel.DRIVE)
     with microscope.control.take(WORKFLOW, "a lamella run"):
         moved = client.post(MOVE_RELATIVE, headers=AGENT, json=_NUDGE)
@@ -210,7 +218,9 @@ def test_assist_asks_first_to_stop_what_is_not_its_own(client, auth):
     assert _error(moved) == "ask_first"
 
 
-def test_the_agent_stops_its_own_action_at_assist_and_drive(client, auth, microscope):
+def test_the_agent_stops_its_own_action_at_assist_and_drive(
+    client, auth, microscope, milling_now
+):
     """While the agent's own command holds control (its mill, say), it can stop
     it at the levels it acts at; Watch never stops (Patrick, 2026-10-14). The
     workflow is never its own."""
@@ -230,7 +240,7 @@ def test_the_agent_stops_its_own_action_at_assist_and_drive(client, auth, micros
     assert _error(refused) == "level"
 
 
-def test_a_stop_needs_a_reason_and_records_it(client, auth, microscope):
+def test_a_stop_needs_a_reason_and_records_it(client, auth, microscope, milling_now):
     auth.set_level(AgentLevel.DRIVE)
     for path in (STOP_MILLING, "/app/workflow/stop"):
         for body in (None, {}, {"reason": "  "}):
@@ -248,6 +258,22 @@ def test_a_stop_needs_a_reason_and_records_it(client, auth, microscope):
         {"action": "milling stop", "reason": WHY["reason"], "own": False},
         {"action": "workflow", "reason": WHY["reason"], "own": False},
     ]
+
+
+def test_a_stop_with_nothing_milling_is_refused_and_not_recorded(
+    client, auth, microscope
+):
+    """A stop that stops nothing says so, rather than answering ok and putting a
+    stop on the record (FIB-1398)."""
+    auth.set_level(AgentLevel.DRIVE)
+    recorded = []
+    microscope.session.record_signal.connect(
+        lambda kind, payload: recorded.append((kind, payload))
+    )
+    refused = client.post(STOP_MILLING, headers=AGENT, json=WHY)
+    assert refused.status_code == 409
+    assert _error(refused) == "NothingToStop"
+    assert [kind for kind, _ in recorded if kind == "agent_stop"] == []
 
 
 def test_stop_agent_drops_to_watch_and_says_so(client, auth):
