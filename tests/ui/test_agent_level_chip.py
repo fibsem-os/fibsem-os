@@ -9,25 +9,33 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
+from fibsem.applications.autolamella.ui.agent_card import AgentCard  # noqa: E402
 from fibsem.applications.autolamella.ui.agent_level_chip import (  # noqa: E402
     AgentLevelChip,
     last_heard_text,
-    request_failure_text,
+    request_outcome,
 )
 from fibsem.server.levels import AgentLevel  # noqa: E402
+from fibsem.structures import BeamType  # noqa: E402
 
 
-def _menu_names(chip):
-    return [a.text() for a in chip.menu_.actions() if a.isCheckable()]
+def _labels(widget):
+    from PyQt5.QtWidgets import QLabel
+
+    return [
+        label.text()
+        for label in widget.findChildren(QLabel)
+        if label.isVisibleTo(widget)
+    ]
 
 
-def test_the_chip_starts_watching_and_offers_every_level(qapp):
+def test_the_chip_starts_watching_and_its_card_offers_every_level(qapp):
     chip = AgentLevelChip()
     assert chip.level is AgentLevel.WATCH
     assert chip.text() == "Agent: Watching"
-    assert _menu_names(chip) == ["Off", "Watch", "Assist", "Drive"]
-    checked = [a.text() for a in chip.menu_.actions() if a.isChecked()]
-    assert checked == ["Watch"]
+    buttons = chip.card.level_switch.buttons
+    assert [b.text() for b in buttons.values()] == ["Off", "Watch", "Assist", "Drive"]
+    assert [b.text() for b in buttons.values() if b.isChecked()] == ["Watch"]
     chip.deleteLater()
 
 
@@ -61,38 +69,33 @@ def test_the_chip_keeps_one_width_at_every_level(qapp):
     chip.deleteLater()
 
 
+def test_a_click_opens_the_card_on_its_own_and_another_closes_it(qapp):
+    chip = AgentLevelChip()
+    chip.show()
+    chip.click()
+    assert chip.popup.isVisible()
+    assert chip.card.isVisibleTo(chip.popup)
+    chip.click()
+    assert not chip.popup.isVisible()
+    chip.deleteLater()
+
+
 def test_choosing_a_level_says_so_and_choosing_the_current_one_does_not(qapp):
     chip = AgentLevelChip()
     chosen = []
     chip.level_chosen.connect(chosen.append)
-    by_name = {a.text(): a for a in chip.menu_.actions()}
-    by_name["Drive"].trigger()
+    buttons = chip.card.level_switch.buttons
+    buttons[AgentLevel.DRIVE].click()
     assert chosen == [AgentLevel.DRIVE]
-    # The chip shows what the window tells it, not what was clicked.
+    # The chip and its switch show what the window tells them, not the click.
     assert chip.level is AgentLevel.WATCH
-    by_name["Watch"].trigger()
+    assert buttons[AgentLevel.WATCH].isChecked()
+    buttons[AgentLevel.WATCH].click()
     assert chosen == [AgentLevel.DRIVE]
     chip.deleteLater()
 
 
-def test_each_level_row_has_its_line_and_a_click_chooses_it(qapp):
-    from PyQt5.QtCore import Qt
-    from PyQt5.QtTest import QTest
-    from PyQt5.QtWidgets import QLabel
-
-    chip = AgentLevelChip()
-    chosen = []
-    chip.level_chosen.connect(chosen.append)
-    by_name = {a.text(): a for a in chip.menu_.actions()}
-    row = by_name["Drive"].defaultWidget()
-    labels = [label.text() for label in row.findChildren(QLabel)]
-    assert "Drive" in labels and "Full control" in labels
-    QTest.mouseClick(row, Qt.LeftButton)
-    assert chosen == [AgentLevel.DRIVE]
-    chip.deleteLater()
-
-
-def test_stop_agent_is_first_whenever_the_agent_can_act(qapp):
+def test_stop_agent_shows_whenever_the_agent_can_act(qapp):
     chip = AgentLevelChip()
     stopped = []
     chip.stop_clicked.connect(lambda: stopped.append(True))
@@ -103,49 +106,48 @@ def test_stop_agent_is_first_whenever_the_agent_can_act(qapp):
         (AgentLevel.DRIVE, True),
     ):
         chip.set_level(level)
-        assert chip.stop_action.isVisible() is visible, level
-        visible_actions = [a for a in chip.menu_.actions() if a.isVisible()]
-        assert (visible_actions[0] is chip.stop_action) is visible
-    chip.stop_action.trigger()
+        assert chip.card.stop_button.isVisibleTo(chip.card) is visible, level
+    chip.card.stop_button.click()
     assert stopped == [True]
     chip.deleteLater()
 
 
-def test_the_menu_offers_to_connect_an_agent(qapp):
-    chip = AgentLevelChip()
-    clicked = []
-    chip.connect_clicked.connect(lambda: clicked.append(True))
-    assert chip.menu_.actions()[-1].text() == "Connect an agent…"
-    chip.connect_action.trigger()
-    assert clicked == [True]
-    chip.deleteLater()
-
-
-def test_the_menu_opens_the_event_log(qapp):
-    chip = AgentLevelChip()
-    clicked = []
-    chip.event_log_clicked.connect(lambda: clicked.append(True))
-    assert chip.menu_.actions()[-2] is chip.event_log_action
-    assert chip.event_log_action.text() == "Open event log"
-    chip.event_log_action.trigger()
-    assert clicked == [True]
-    chip.deleteLater()
-
-
-def test_the_menu_says_when_the_agent_was_last_heard_from(qapp):
+def test_the_card_opens_the_event_log_and_offers_to_connect_an_agent(qapp):
     seconds = [None]
     chip = AgentLevelChip(last_heard=lambda: seconds[0])
+    logs, connects = [], []
+    chip.event_log_clicked.connect(lambda: logs.append(True))
+    chip.connect_clicked.connect(lambda: connects.append(True))
     chip.refresh_last_heard()
-    assert chip.last_heard_action.text() == "Agent · not heard from yet"
+    card = chip.card
+    assert card.connect_link.isVisibleTo(card)
+    card.connect_link.click()
+    card.event_log_link.click()
+    assert connects == [True] and logs == [True]
+    # Once heard from, the card says who and when instead of offering to connect.
     seconds[0] = 4.6
-    chip.menu_.aboutToShow.emit()
-    assert chip.last_heard_action.text() == "Agent · last heard 4 s ago"
-    assert last_heard_text(200) == "Agent · last heard 3 min ago"
-    assert last_heard_text(5, "claude-code/2.1.3") == "claude-code · last heard 5 s ago"
+    chip.refresh_last_heard()
+    assert not card.connect_link.isVisibleTo(card)
+    assert card.heard_label.text() == "Agent · last heard 4 s ago"
     chip.deleteLater()
 
 
-# --- the agent's request (FIB-1283) -------------------------------------------
+def test_the_last_heard_line():
+    assert last_heard_text(None) == "Agent · not heard from yet"
+    assert last_heard_text(200) == "Agent · last heard 3 min ago"
+    assert last_heard_text(5, "claude-code/2.1.3") == "claude-code · last heard 5 s ago"
+
+
+def test_with_nothing_waiting_the_card_says_what_the_agent_is_doing(qapp):
+    card = AgentCard()
+    card.set_now("stable move")
+    shown = _labels(card)
+    assert "stable move" in shown
+    assert "WAITING FOR YOU" in shown and "Nothing." in shown
+    card.deleteLater()
+
+
+# --- the agent's request (FIB-1283, FIB-1404) -----------------------------------
 
 
 def _request(status="pending", results=(), request_id="ab12"):
@@ -157,7 +159,11 @@ def _request(status="pending", results=(), request_id="ab12"):
             {
                 "tool": "update_item_task_config",
                 "what": "01 · Rough Milling",
-                "change": "depth: 6e-07 → 8e-07",
+                "change": "Rough Mill 01 · trench depth 0.6 µm → 0.8 µm",
+                "details": {
+                    "columns": ["Setting", "Now", "New"],
+                    "rows": [["Rough Mill 01 · trench depth", "0.6 µm", "0.8 µm"]],
+                },
             },
             {
                 "tool": "requeue_task",
@@ -174,57 +180,31 @@ def _request(status="pending", results=(), request_id="ab12"):
     }
 
 
-def _labels(widget):
-    from PyQt5.QtWidgets import QLabel
-
-    return [
-        label.text()
-        for label in widget.findChildren(QLabel)
-        if label.isVisibleTo(widget)
-    ]
-
-
-def test_a_waiting_request_turns_the_chip_and_tops_the_menu(qapp):
+def test_a_waiting_request_turns_the_chip_and_fills_the_card(qapp):
     chip = AgentLevelChip()
     chip.set_level(AgentLevel.ASSIST)
-    assert not chip.request_action.isVisible()
     chip.set_request(_request())
-    assert chip.text() == "Agent asks · 3"
-    assert chip.request_action.isVisible()
-    assert chip.menu_.actions()[0] is chip.request_action
-    shown = _labels(chip.request_block)
-    assert "01 · Rough Milling" in shown and "depth: 6e-07 → 8e-07" in shown
-    assert "Why: the trench floor is high on 01" in shown
+    # One request waits at a time: no count.
+    assert chip.text() == "Agent asks"
+    shown = _labels(chip.card)
+    assert "01 · Rough Milling" in shown
+    assert "Rough Mill 01 · trench depth 0.6 µm → 0.8 µm" in shown
+    assert "the trench floor is high on 01" in shown
     chip.set_request(None)
     assert chip.text() == "Agent: Assisting"
-    assert not chip.request_action.isVisible()
+    assert "Rough Mill 01 · trench depth 0.6 µm → 0.8 µm" not in _labels(chip.card)
     chip.deleteLater()
 
 
-@pytest.mark.parametrize("open_when_it_ends", [False, True])
-def test_an_ended_request_s_card_leaves_the_menu(qapp, open_when_it_ends):
-    # FIB-1400: QMenu never hides a hidden action's widget, so the card stayed
-    # drawn over the level rows after its request ended.
-    chip = AgentLevelChip()
-    chip.set_level(AgentLevel.ASSIST)
-    chip.show()
-    chip.set_request(_request("applying", results=[{"index": 0, "ok": True}]))
-    chip.menu_.popup(chip.mapToGlobal(chip.rect().bottomLeft()))
-    qapp.processEvents()
-    assert chip.request_block.isVisible()
-    if not open_when_it_ends:
-        chip.menu_.close()
-    chip.set_request(None)
-    chip.menu_.popup(chip.mapToGlobal(chip.rect().bottomLeft()))
-    qapp.processEvents()
-    assert not chip.request_block.isVisible()
-
-    # The next request shows its card again.
-    chip.set_request(_request())
-    qapp.processEvents()
-    assert chip.request_block.isVisible()
-    chip.menu_.close()
-    chip.deleteLater()
+def test_show_details_opens_every_value(qapp):
+    card = AgentCard()
+    card.set_request(_request())
+    assert "0.6 µm" not in _labels(card)
+    card.details_link.click()
+    assert {"Setting", "0.6 µm", "0.8 µm"} <= set(_labels(card))
+    card.details_link.click()
+    assert "0.6 µm" not in _labels(card)
+    card.deleteLater()
 
 
 def test_approve_and_reject_say_which_request_and_why(qapp):
@@ -234,20 +214,20 @@ def test_approve_and_reject_say_which_request_and_why(qapp):
     approved, rejected = [], []
     chip.approve_clicked.connect(approved.append)
     chip.reject_clicked.connect(lambda rid, why: rejected.append((rid, why)))
-    block = chip.request_block
+    card = chip.card
 
-    block._approve.click()
+    card.approve_button.click()
     assert approved == ["ab12"]
 
-    block._reject.click()
-    assert block._reason.isVisibleTo(block) and not block._approve.isVisibleTo(block)
+    card.reject_button.click()
+    assert card.reason_edit is not None and card.approve_button is None
     # Re-rendered, the actions are shown once.
-    assert _labels(block).count("Move by x 1 µm") == 1
-    block._back.click()
-    assert block._approve.isVisibleTo(block)
-    block._reject.click()
-    block._reason.setText("leave 01, I'll check it")
-    block._confirm_reject.click()
+    assert _labels(card).count("Move by x 1 µm") == 1
+    card.back_button.click()
+    assert card.approve_button is not None
+    card.reject_button.click()
+    card.reason_edit.setText("leave 01, I'll check it")
+    card.confirm_reject_button.click()
     assert rejected == [("ab12", "leave 01, I'll check it")]
     chip.deleteLater()
 
@@ -257,15 +237,82 @@ def test_an_approved_request_shows_its_progress(qapp):
     chip.set_level(AgentLevel.ASSIST)
     chip.set_request(_request("applying", results=[{"index": 0, "ok": True}]))
     assert chip.text() == "Agent: applying 2/3"
-    block = chip.request_block
-    shown = _labels(block)
+    card = chip.card
+    shown = _labels(card)
     assert "✓" in shown and "…" in shown and "○" in shown
-    assert "Approved by you. Applying 2 of 3…" in shown
-    assert not block._approve.isVisibleTo(block)
+    assert "Approved by you. Running 2 of 3…" in shown
+    assert card.approve_button is None
     chip.deleteLater()
 
 
-def test_a_refused_request_is_said_in_one_line():
+def test_an_ended_request_leaves_the_card(qapp):
+    """FIB-1400: nothing of an ended request stays behind."""
+    chip = AgentLevelChip()
+    chip.set_level(AgentLevel.ASSIST)
+    chip.set_request(_request("applying", results=[{"index": 0, "ok": True}] * 2))
+    chip.set_request(None)
+    shown = _labels(chip.card)
+    assert not any("Approved by you" in text for text in shown)
+    assert "Nothing." in shown
+    chip.deleteLater()
+
+
+_SUGGESTION = {
+    "question": "Is the lamella position good?",
+    "answer": "Continue",
+    "reason": "the trench is centred on 01",
+}
+
+
+def test_a_suggestion_turns_the_chip_and_the_card_offers_accept(qapp):
+    chip = AgentLevelChip()
+    chip.set_level(AgentLevel.ASSIST)
+    chip.set_suggestion(_SUGGESTION)
+    assert chip.text() == "Agent suggests"
+    card = chip.card
+    assert card.accept_button is not None and card.approve_button is None
+    assert {
+        "Agent suggests an answer",
+        "Is the lamella position good?",
+        "Answer: Continue",
+        "the trench is centred on 01",
+    } <= set(_labels(card))
+
+    accepted = []
+    chip.accept_clicked.connect(lambda: accepted.append(True))
+    chip.toggle_card()
+    card.accept_button.click()
+    assert accepted == [True]
+    assert not chip.popup.isVisible()
+
+    chip.set_suggestion(None)
+    assert chip.text() == "Agent: Assisting"
+    assert card.accept_button is None
+
+
+def test_a_request_shows_before_a_suggestion(qapp):
+    chip = AgentLevelChip()
+    chip.set_suggestion(_SUGGESTION)
+    chip.set_request(_request())
+    assert chip.text() == "Agent asks"
+    assert chip.card.approve_button is not None
+    assert chip.card.accept_button is None
+    chip.set_request(None)
+    assert chip.text() == "Agent suggests"
+
+
+def test_the_card_stacks_when_narrow(qapp):
+    card = AgentCard()
+    card.set_request(_request())
+    card.show()  # a hidden widget's resize event waits until it is shown
+    card.resize(820, card.sizeHint().height())
+    assert card.wide
+    card.resize(380, card.sizeHint().height())
+    assert not card.wide
+    card.deleteLater()
+
+
+def test_how_a_request_ended_is_said_in_one_line():
     failed = _request(
         "failed",
         results=[
@@ -278,9 +325,19 @@ def test_a_refused_request_is_said_in_one_line():
             },
         ],
     )
-    assert request_failure_text(failed) == (
-        "1 of 3 applied; refused at 2: Rough Milling is running on 01"
+    assert request_outcome(failed) == (
+        "Agent's request failed at 2 of 3: rough Milling is running on 01. "
+        "Nothing else ran.",
+        "error",
     )
+    assert request_outcome(_request("applied")) == (
+        "Agent's request applied: Rough Mill 01 · trench depth 0.6 µm → 0.8 µm, "
+        "and 2 more",
+        "success",
+    )
+    assert request_outcome(_request("cancelled"))[1] == "info"
+    assert request_outcome(_request("rejected")) is None
+    assert request_outcome(_request("pending")) is None
 
 
 # --- in the window ----------------------------------------------------------
@@ -424,7 +481,7 @@ def test_the_window_shows_the_request_and_passes_on_the_decision(main_ui, host):
     host.requests.requests = [_request()]
     main_ui._refresh_agent_chip()
     chip = main_ui.agent_chip
-    assert chip.text() == "Agent asks · 3"
+    assert chip.text() == "Agent asks"
     # A change from the store's worker thread reaches the chip without a poll.
     assert len(host.requests.listeners) == 1
 
@@ -439,7 +496,19 @@ def test_the_window_shows_the_request_and_passes_on_the_decision(main_ui, host):
     assert chip.text() == "Agent: Assisting"
 
 
-def test_a_refused_request_stays_on_the_status_bar_once(main_ui, host):
+def test_how_a_request_ended_is_a_toast_once_not_the_status_bar(
+    main_ui, host, monkeypatch
+):
+    from fibsem.ui import notification_service
+
+    shown = []
+    monkeypatch.setattr(
+        notification_service,
+        "show",
+        lambda message, kind="info", temporary=False, action=None: shown.append(
+            (message, kind, action is not None)
+        ),
+    )
     failed = _request(
         "failed",
         results=[
@@ -453,11 +522,87 @@ def test_a_refused_request_stays_on_the_status_bar_once(main_ui, host):
         request_id="ef56",
     )
     host.auth.set_level(AgentLevel.ASSIST)
+    main_ui._refresh_agent_chip()
     host.requests.requests = [failed]
     main_ui._refresh_agent_chip()
-    assert main_ui.status_bar.failure == (
-        "0 of 3 applied; refused at 1: the workflow is in control"
-    )
-    main_ui.status_bar.dismiss_failure()
     main_ui._refresh_agent_chip()
+    assert shown == [
+        (
+            "Agent's request failed at 1 of 3: the workflow is in control. "
+            "Nothing else ran.",
+            "error",
+            True,
+        )
+    ]
     assert main_ui.status_bar.failure is None
+
+
+def test_the_window_shows_a_suggestion_on_the_card_and_says_when_it_is_dropped(
+    main_ui, host, monkeypatch
+):
+    from fibsem.ui import notification_service
+
+    shown = []
+    monkeypatch.setattr(
+        notification_service,
+        "show",
+        lambda message, kind="info", temporary=False, action=None: shown.append(
+            (message, kind)
+        ),
+    )
+    host.auth.set_level(AgentLevel.ASSIST)
+    main_ui._refresh_agent_chip()
+    prompt = main_ui.autolamella_ui
+    prompt.suggestion_changed.emit(_SUGGESTION)
+    assert main_ui.agent_chip.text() == "Agent suggests"
+    assert main_ui.agent_chip.suggestion == _SUGGESTION
+
+    # Taken down by an answer that took it: no toast.
+    prompt.suggestion_changed.emit(None)
+    main_ui._on_question_event(
+        "prompt_answered", {"answered_by": "operator", "suggested_by": "agent"}
+    )
+    assert shown == []
+
+    # Dropped by the operator answering otherwise: a toast says so.
+    prompt.suggestion_changed.emit(_SUGGESTION)
+    prompt.suggestion_changed.emit(None)
+    main_ui._on_question_event("prompt_answered", {"answered_by": "operator"})
+    assert shown == [
+        ("Agent's suggestion dropped: you answered the question yourself", "info")
+    ]
+    assert main_ui.agent_chip.suggestion is None
+
+
+def test_the_window_draws_a_waiting_request_s_mill_and_takes_it_down(main_ui, host):
+    from fibsem.applications.autolamella.ui.agent_previews import PATTERNS_OVERLAY
+
+    rectangle = {
+        "type": "Rectangle",
+        "width": 2e-6,
+        "height": 1e-6,
+        "depth": 2e-7,
+        "centre_x": 0.0,
+        "centre_y": 0.0,
+    }
+    waiting = _request(request_id="mill1")
+    waiting["actions"] = [
+        {
+            "tool": "call_service_command",
+            "arguments": {
+                "service": "milling",
+                "command": "prepare",
+                "kwargs": {"patterns": [rectangle]},
+            },
+            "what": "Milling",
+            "change": "Prepare: 1 rectangle",
+        }
+    ]
+    host.auth.set_level(AgentLevel.ASSIST)
+    host.requests.requests = [waiting]
+    main_ui._refresh_agent_chip()
+    assert (BeamType.ION, PATTERNS_OVERLAY) in main_ui.agent_previews.drawn
+
+    host.requests.requests = [dict(waiting, status="rejected")]
+    main_ui._refresh_agent_chip()
+    assert main_ui.agent_previews.drawn == []

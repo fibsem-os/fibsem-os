@@ -697,6 +697,11 @@ class MicroscopeViewController(QObject):
         """Return the canvas for a charged-particle beam (ELECTRON / ION)."""
         return self._canvases.get(beam)
 
+    def image(self, beam: BeamType) -> Optional[FibsemImage]:
+        """The image shown on the canvas for *beam*, or None."""
+        canvas = self._canvases.get(beam)
+        return self._states[canvas].image if canvas is not None else None
+
     def set_image(self, beam: BeamType, image: FibsemImage) -> None:
         """Display *image* on the canvas for *beam* and stash it on the canvas state
         (no-op for unknown beams).
@@ -1329,6 +1334,9 @@ class MicroscopeViewController(QObject):
                 image,
                 background_stages=spec.background_stages,
                 selected_index=spec.selected_index,
+                colour=spec.colour,
+                dashed=spec.dashed,
+                legend_loc=spec.legend_loc,
             )
         elif isinstance(spec, AlignmentSpec):
             if spec.rect is not None:
