@@ -5,7 +5,6 @@ import html
 import logging
 import os
 import sys
-import threading
 import time
 from dataclasses import replace
 from typing import Callable, List, Optional, Tuple
@@ -3917,12 +3916,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if last_id == request_id and now - last_at < AGENT_REQUEST_REFRESH_S:
             return
         self._agent_request_described = (request_id, now)
-        threading.Thread(
-            target=store.refresh,
-            args=(request_id,),
-            name=f"agent-request-{request_id}-describe",
-            daemon=True,
-        ).start()
+        from fibsem.ui.qt.threading import FunctionWorker
+
+        FunctionWorker(store.refresh, request_id).start()
 
     def _on_approve_agent_request(self, request_id: str) -> None:
         """GUI thread, from the chip: run the request. Its actions run on their
