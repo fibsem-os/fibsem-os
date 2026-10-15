@@ -1,4 +1,4 @@
-"""Display hints: declared once per device parameter, in field_meta's vocabulary."""
+"""Display hints: declared once per device parameter, as a dataclass field declares them."""
 
 from math import pi
 
@@ -11,21 +11,6 @@ from fibsem.devices.fm import Camera
 from fibsem.devices.stage import Stage
 from fibsem.display import Display
 from fibsem.structures import BeamType
-
-
-def test_a_hint_is_field_metadata():
-    hint = Display("Field of View", scale=1e6, step=50.0, decimals=1)
-    assert hint.as_field_metadata("m") == {
-        "label": "Field of View",
-        "scale": 1e6,
-        "unit": "m",
-        "step": 50.0,
-        "decimals": 1,
-    }
-    assert Display(unit="%", advanced=True).as_field_metadata() == {
-        "display_unit": "%",
-        "advanced": True,
-    }
 
 
 def test_the_beam_declares_its_hints_and_a_bound_parameter_has_them():
@@ -57,8 +42,7 @@ def test_a_backend_cannot_show_a_parameter_differently():
 
 def test_an_explicit_display_unit_wins_over_the_scale_prefix():
     pytest.importorskip("PyQt5")
-    from fibsem.ui.widgets.form_builder import display_suffix
+    from fibsem.ui.widgets.form_builder import parameter_spec
 
-    rotation = Beam.scan_rotation.display.as_field_metadata("rad")
-    assert display_suffix(rotation) == "°"  # the prefix rule would give "mrad"
-    assert display_suffix(Beam.hfw.display.as_field_metadata("m")) == "µm"
+    assert parameter_spec(Beam.scan_rotation).suffix == "°"  # not "mrad"
+    assert parameter_spec(Beam.hfw).suffix == "µm"

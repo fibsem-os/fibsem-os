@@ -57,7 +57,6 @@ from fibsem.autofunctions.autofocus import (  # noqa: E402,F401
     FocusMethod,
     FocusSweepPass,
 )
-from fibsem.display import Display
 
 # AutoFocusMode is canonical in fibsem.structures -- there was a second, identical
 # enum of the same name here, so the two tilers held different objects for the same
@@ -80,7 +79,7 @@ from fibsem.structures import (  # noqa: F401
     RangeLimit,
     TileOrderStrategy,
     _parse_image_transform,
-    field_meta,
+    distance_metadata,
 )
 from fibsem.util.timestamps import (
     acquisition_datetime_of,
@@ -398,39 +397,29 @@ class ChannelSettings:
         return self.pretty_name
 
 
-def _z_distance(label: str, doc: str, limits: RangeLimit) -> Dict[str, Any]:
-    """A z offset in metres, shown in µm."""
-    return field_meta(
-        unit="m",
-        limits=limits,
-        doc=doc,
-        display=Display(label, scale=1e6, step=0.1, decimals=2),
-    )
-
-
 @dataclass
 class ZParameters:
     # Relative to the objective's position when the stack starts.
     zmin: float = field(
         default=-10e-6,
-        metadata=_z_distance(
+        metadata=distance_metadata(
             "Z Min",
             "Minimum Z position relative to current position",
-            RangeLimit(-100e-6, -0.25e-6),
+            limits=RangeLimit(-100e-6, -0.25e-6),
         ),
     )
     zmax: float = field(
         default=10e-6,
-        metadata=_z_distance(
+        metadata=distance_metadata(
             "Z Max",
             "Maximum Z position relative to current position",
-            RangeLimit(0.25e-6, 100e-6),
+            limits=RangeLimit(0.25e-6, 100e-6),
         ),
     )
     zstep: float = field(
         default=1e-6,
-        metadata=_z_distance(
-            "Z Step", "Step size between Z positions", RangeLimit(0.1e-6, 10e-6)
+        metadata=distance_metadata(
+            "Z Step", "Step size between Z positions", limits=RangeLimit(0.1e-6, 10e-6)
         ),
     )
     order: ZStackOrder = ZStackOrder.CHANNEL

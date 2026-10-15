@@ -20,13 +20,13 @@ from fibsem.ui.widgets.custom_widgets import (
     ValueComboBox,
     ValueSpinBox,
 )
-from fibsem.ui.widgets.form_builder import configure_spinbox, parameter_field_metadata
+from fibsem.ui.widgets.form_builder import configure_spinbox, parameter_spec
 
 if TYPE_CHECKING:
     from fibsem.fm.microscope import FluorescenceMicroscope
 
 # How the gain is shown (label, %, step, decimals) is the camera's display hint.
-GAIN_FIELD = parameter_field_metadata(Camera.gain)
+GAIN_FIELD = parameter_spec(Camera.gain)
 
 # Mapping for transform display names.
 # Rotations are not offered: a fixed rotation between sensor and stage is a property
@@ -54,7 +54,7 @@ class CameraWidget(QWidget):
         """Initialize the UI components for the camera widget."""
 
         # Gain
-        self.label_gain = QLabel(GAIN_FIELD["label"], self)
+        self.label_gain = QLabel(GAIN_FIELD.label, self)
         self.spinBox_gain = ValueSpinBox(parent=self)
         configure_spinbox(self.spinBox_gain, GAIN_FIELD)
         self.spinBox_gain.setToolTip("Camera gain in percentage (0 to 100)")

@@ -31,9 +31,11 @@ from fibsem.structures import (
     FibsemImage,
     FibsemMillingSettings,
     FibsemPatternSettings,
+    FieldSpec,
     ImageSettings,
     MillingAlignment,
-    get_fields_with_metadata,
+    field_specs,
+    flagged_fields,
 )
 
 if TYPE_CHECKING:
@@ -75,21 +77,17 @@ class MillingStrategyConfig(ABC):
     @cached_property
     def advanced_attributes(self) -> Tuple[str, ...]:
         """Return attributes that are marked as advanced in the metadata."""
-        return tuple(
-            name for name, meta in self.field_metadata.items() if meta["advanced"]
-        )
+        return flagged_fields(self.__class__, "advanced")
 
     @cached_property
     def _hidden_attributes(self) -> Tuple[str, ...]:
         """Return attributes that are hidden from the UI."""
-        return tuple(
-            name for name, meta in self.field_metadata.items() if meta["hidden"]
-        )
+        return flagged_fields(self.__class__, "hidden")
 
     @property
-    def field_metadata(self) -> Dict[str, Dict[str, Any]]:
-        """Return dataclass fields with metadata, filling any missing keys with defaults."""
-        return get_fields_with_metadata(self.__class__)
+    def field_specs(self) -> Dict[str, FieldSpec]:
+        """Each field as a form reads it."""
+        return field_specs(self.__class__)
 
 
 @dataclass
@@ -158,9 +156,9 @@ class MillingStrategy(ABC, Generic[TMillingStrategyConfig]):
             ):
                 continue
             val = getattr(self.config, attr)
-            meta = self.config.field_metadata.get(attr, {})
-            unit = meta.get("unit", None)
-            label = meta.get("label", attr.replace("_", " ").title())
+            spec = self.config.field_specs.get(attr)
+            unit = spec.unit if spec else None
+            label = (spec and spec.label) or attr.replace("_", " ").title()
             if isinstance(val, float) and unit:
                 val_str = format_value(val, unit=unit, precision=1)
             else:

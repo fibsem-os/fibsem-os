@@ -14,11 +14,11 @@ from PyQt5.QtWidgets import (
 
 from fibsem.milling.base import MillingStrategy, get_strategy
 from fibsem.milling.strategy import get_strategy_names
-from fibsem.structures import BeamType
+from fibsem.structures import BeamType, FieldSpec
 from fibsem.ui.tokens import (
     TEXT_MUTED_COLOR,
 )
-from fibsem.ui.utils import beam_field_metadata
+from fibsem.ui.utils import beam_spec
 from fibsem.ui.widgets.custom_widgets import FormGrid, ValueComboBox, align_form
 from fibsem.ui.widgets.form_builder import Control, build_control
 
@@ -116,13 +116,11 @@ class FibsemStrategySettingsWidget(QWidget):
     # Control building
     # ------------------------------------------------------------------
 
-    def _dynamic_items(self, parameter: str) -> List[Any]:
-        """Resolve an `items: "dynamic"` field: the milling beam's choices for its
+    def _instrument_choices(self, parameter: str) -> List[Any]:
+        """The choices of a field the instrument decides: the milling beam's for its
         parameter, else what every beam declares (with no microscope)."""
-        metadata = beam_field_metadata(
-            {"microscope_parameter": parameter}, self.microscope, BeamType.ION
-        )
-        return list(metadata.get("items") or [])
+        bound = FieldSpec(name=parameter, microscope_parameter=parameter)
+        return list(beam_spec(bound, self.microscope, BeamType.ION).choices or [])
 
     def _build_controls(self, strategy: MillingStrategy[Any]) -> None:
         """Clear and rebuild the config form for the given strategy."""
@@ -132,21 +130,22 @@ class FibsemStrategySettingsWidget(QWidget):
         while self._config_form.rowCount():
             self._config_form.removeRow(0)
 
-        for field_name, m in strategy.config.field_metadata.items():
-            if m.get("hidden", False):
+        for field_name, spec in strategy.config.field_specs.items():
+            if spec.hidden:
                 continue
 
             control = build_control(
-                m,
+                spec,
                 getattr(strategy.config, field_name),
-                dynamic_items=self._dynamic_items,
+                resolve_choices=self._instrument_choices,
+                read_only_fallback=False,
             )
             if control is None:
                 logging.warning("Control for '%s' is unsupported", field_name)
                 continue
 
-            label = QLabel(m.get("label") or field_name.replace("_", " ").title())
-            tooltip = m.get("tooltip", "")
+            label = QLabel(spec.label or field_name.replace("_", " ").title())
+            tooltip = spec.doc
             if tooltip:
                 label.setToolTip(tooltip)
                 control.widget.setToolTip(tooltip)
@@ -158,7 +157,7 @@ class FibsemStrategySettingsWidget(QWidget):
                     label=label,
                     control=control,
                     field=field_name,
-                    advanced=m.get("advanced", False),
+                    advanced=spec.advanced,
                 )
             )
 
