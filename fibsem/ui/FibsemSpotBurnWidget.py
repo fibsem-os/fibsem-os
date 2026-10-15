@@ -74,7 +74,7 @@ class FibsemSpotBurnWidget(QWidget):
     / progress machinery. Everything is one :class:`SpotBurnSettings`: the editor writes
     ``coordinates``, the form writes current/exposure, and the burn runs the settings.
 
-    Progress is driven by ``microscope.spot_burn_progress_signal`` (shared with the
+    Progress is driven by ``microscope.spot_burn.progress`` (shared with the
     status bar). The burn runs from the widget's button — in a supervised workflow
     QtResponder drives ``run_spot_burn_worker`` directly on the GUI thread.
     """
@@ -171,10 +171,12 @@ class FibsemSpotBurnWidget(QWidget):
         # coordinate signal
         self.coord_editor.settings_changed.connect(self._refresh_info)
 
-        # progress is driven by the microscope's spot_burn_progress_signal (shared with the
+        # progress is driven by the spot burn service's progress (shared with the
         # status bar). It fires on the worker thread, so _update_progress_bar is marshalled
         # to the GUI thread via @ensure_main_thread.
-        self.microscope.spot_burn_progress_signal.connect(self._update_progress_bar)
+        spot_burn = getattr(self.microscope, "spot_burn", None)
+        if spot_burn is not None:
+            spot_burn.progress.changed.connect(self._update_progress_bar)
 
         # re-feed the FIB image shape to the editor on each acquisition
         iw = self._image_widget()
@@ -247,12 +249,12 @@ class FibsemSpotBurnWidget(QWidget):
         Idempotent. The microscope outlives this widget, so a leaked progress connection
         would fire ``_update_progress_bar`` on a deleted object.
         """
-        try:
-            self.microscope.spot_burn_progress_signal.disconnect(
-                self._update_progress_bar
-            )
-        except Exception:
-            pass
+        spot_burn = getattr(self.microscope, "spot_burn", None)
+        if spot_burn is not None:
+            try:
+                spot_burn.progress.changed.disconnect(self._update_progress_bar)
+            except Exception:
+                pass
 
         iw = self._image_widget()
         if iw is not None:
@@ -376,7 +378,7 @@ class FibsemSpotBurnWidget(QWidget):
 
     def _run_spot_burn(self, settings: SpotBurnSettings) -> None:
         """Worker body (off the GUI thread). Progress flows through
-        ``microscope.spot_burn_progress_signal``; completion is delivered on the GUI
+        ``microscope.spot_burn.progress``; completion is delivered on the GUI
         thread via the FunctionWorker's returned / errored signals, so a failure anywhere
         here — including the post-burn acquire — resets the UI via spot_burn_errored."""
         run_spot_burn(
