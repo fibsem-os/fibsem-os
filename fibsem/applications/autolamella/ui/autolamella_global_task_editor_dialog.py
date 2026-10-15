@@ -25,7 +25,7 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskStatus,
     Experiment,
 )
-from fibsem.constants import MICRO_TO_SI, SI_TO_MICRO
+from fibsem.constants import SI_TO_MICRO
 from fibsem.structures import (
     BeamType,
     FibsemMillingSettings,
@@ -342,7 +342,7 @@ class AutoLamellaGlobalTaskEditDialog(QDialog):
         # Get the new values
         new_ref_imaging = self.ref_image_params_widget.get_settings()
         new_milling_fov = (
-            self.spinbox_milling_fov.value() * MICRO_TO_SI
+            self.spinbox_milling_fov.value() / SI_TO_MICRO
         )  # Convert to SI units
 
         # Apply to selected task configs
