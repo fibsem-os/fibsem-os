@@ -66,6 +66,7 @@ if TYPE_CHECKING:
     from concurrent.futures import Future
 
     from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
+    from fibsem.structures import FibsemImage
 
 __all__ = ["QtResponder"]
 
@@ -87,6 +88,19 @@ def _same_geometry(request: "Request", live: object, value: object) -> bool:
             for f in ("left", "top", "width", "height")
         )
     return False
+
+
+def _poi_frame(responder: object, request: PickPOI) -> "FibsemImage":
+    """The FIB frame the POI marker sits on: the one the FIB view shows.
+
+    The request carries the frame the task last took, and anything since (an
+    agent's approved moves and their images) shows in the view instead
+    (FIB-1399). The marker is placed and read in the view's pixels, so it is
+    converted against the view's frame; the request's is the fallback.
+    """
+    ui = getattr(responder, "_ui", None)
+    shown = getattr(getattr(ui, "image_widget", None), "ib_image", None)
+    return shown if shown is not None else request.image
 
 
 class QtResponder(QObject):
@@ -468,7 +482,7 @@ class QtResponder(QObject):
                 raise RuntimeError("No canvas to place the point of interest on.")
             from fibsem import conversions
 
-            image = request.image
+            image = _poi_frame(self, request)
             px = conversions.microscope_image_to_image_coordinates(
                 value, image.data.shape, image.metadata.pixel_size.x
             )
@@ -759,7 +773,7 @@ class QtResponder(QObject):
         from fibsem import conversions
         from fibsem.ui.widgets.canvas.canvas_state import PointsSpec
 
-        image = request.image
+        image = _poi_frame(self, request)
         if request.initial is not None:
             px = conversions.microscope_image_to_image_coordinates(
                 request.initial, image.data.shape, image.metadata.pixel_size.x
@@ -1268,9 +1282,9 @@ class QtResponder(QObject):
             image_widget.clear_alignment_area()
             return area
         if isinstance(request, PickPOI):
-            # Read the marker, convert against the image the request carried (the
-            # one the marker was placed on), and take the overlay down — the old
-            # flow's second handshake plus its SELECTED_POI read-back, all in the
+            # Read the marker, convert against the frame it sits on (the one
+            # the FIB view shows), and take the overlay down — the old flow's
+            # second handshake plus its SELECTED_POI read-back, all in the
             # click's slot.
             from fibsem import conversions
             from fibsem.structures import Point
@@ -1281,7 +1295,7 @@ class QtResponder(QObject):
                 pts = controller.overlay_points(BeamType.ION, "poi")
                 if pts:
                     col, row = pts[0]
-                    image = request.image
+                    image = _poi_frame(self, request)
                     poi = conversions.image_to_microscope_image_coordinates(
                         Point(x=col, y=row), image.data, image.metadata.pixel_size.x
                     )

@@ -37,6 +37,13 @@ def _preview_b64(data) -> Optional[Dict[str, Any]]:
         return None
 
 
+def _acquired_at(image) -> Optional[str]:
+    try:
+        return image.metadata.acquisition_date.isoformat()
+    except Exception:
+        return None
+
+
 def _preview_payload(image) -> Optional[Dict[str, Any]]:
     """A preview plus the scale facts needed to map coordinates onto it.
 
@@ -55,9 +62,12 @@ def _preview_payload(image) -> Optional[Dict[str, Any]]:
         try:
             from fibsem.server.images import preview_payload
 
-            return preview_payload(image)
+            payload = preview_payload(image)
         except Exception:
             return None
+        # When it was taken, so an agent can tell a stale frame (FIB-1399).
+        payload["acquired_at"] = _acquired_at(image)
+        return payload
     entry = _preview_b64(image)
     if entry is None:
         return None
