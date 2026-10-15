@@ -36,7 +36,7 @@ command takes control of the microscope while it runs: when a run, a script or
 another command is in control it gets `409 microscope_busy`, naming who.
 A stop (`POST /microscope/services/milling/commands/stop`, a device's `stop`,
 `stop_live` or `cancel`, or `POST /app/workflow/stop`) never takes control. The
-agent stops its own action (its command holds control) at any level; anything
+agent stops its own action (its command holds control) at Assist or Drive; anything
 else needs Drive, or a request approved at Assist. Every stop needs a `reason`
 in its body (`422 missing_reason` without one), recorded as an `agent_stop`
 event. `GET /capabilities` reports the

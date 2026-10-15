@@ -3916,7 +3916,7 @@ class FibsemExperimentRef:
     -- *what produced this image* -- and a reader wants "experiment X, lamella Y, task
     Z" in one place rather than assembled from two.
 
-    That only works because every image gets its **own copy**: `_set_additional_metadata`
+    That only works because every image gets its **own copy**: `Session.stamp`
     deepcopies this. It used to be shared by reference, which was harmless while
     nothing mutated it, and would have silently rewritten the item on every
     already-acquired image the moment one did.

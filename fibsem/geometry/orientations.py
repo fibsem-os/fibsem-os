@@ -12,13 +12,16 @@ one. Reading the table and the stage off an instrument is the caller's job, toda
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Mapping, Optional, Tuple
+from typing import TYPE_CHECKING, Mapping, Optional, Tuple
 
 import numpy as np
 
 from fibsem.movement import angle_difference, rotation_angle_is_smaller
 from fibsem.structures import FibsemStagePosition
 from fibsem.transformations import convert_stage_tilt_to_milling_angle
+
+if TYPE_CHECKING:
+    from fibsem.geometry.frames import StageModel
 
 #: How far from a pose a position may sit and still be in it.
 ROTATION_TOLERANCE = np.deg2rad(5)
@@ -96,6 +99,42 @@ def milling_angle_from_tilt(
         column_tilt=np.radians(column_tilt),
     )
     return float(np.degrees(milling_angle))
+
+
+def milling_angle_at(
+    r: float,
+    t: float,
+    model: "StageModel",
+    column_tilt: float,
+    turned_over: bool,
+) -> float:
+    """The milling angle, in degrees, at any stage rotation and tilt (radians).
+
+    The angle between the ion beam and the sample surface: 90 when the beam is normal
+    to it. The surface normal comes from the stage model (`StageModel.surface_normal`),
+    so the shuttle's pre-tilt turns with ``r`` and either side of the stage is right;
+    ``column_tilt`` is the ion column's, in degrees. Turned over (the stage device
+    says), the beam sees the back of the sample, so the back face is the one milled.
+
+    The sign follows `milling_angle_from_tilt`: past 90 when the surface tilts beyond
+    normal to the beam, about the tilt axis. At the SEM rotation the two agree
+    exactly; away from it the normal leaves the tilt plane and only this one holds
+    (FIB-1392).
+    """
+    from fibsem.geometry.frames import view_axis
+
+    normal = model.surface_normal(r, t)
+    if turned_over:
+        normal = -normal
+    beam = view_axis(np.radians(column_tilt))
+    # arctan2 rather than arccos: arccos loses half its digits next to 0 and 180,
+    # which is where the milling poses sit, and the last digits differ by platform.
+    cross = np.cross(beam, normal)
+    angle = np.degrees(np.arctan2(np.linalg.norm(cross), float(normal @ beam)))
+    # Which way about the tilt axis (chamber x) the surface leans from the beam.
+    side = cross[0]
+    # Rounded to a nanodegree so the same pose reads the same on every platform.
+    return round(float(90.0 + angle if side >= 0 else 90.0 - angle), 9) + 0.0
 
 
 def compucentric_rotation(

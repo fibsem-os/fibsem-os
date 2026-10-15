@@ -124,9 +124,16 @@ CATALOG: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="get_milling_angle",
-        description="Current milling angle in degrees, from the stage tilt.",
+        description="Current milling angle in degrees: the angle between the ion beam and the sample surface at the stage's rotation and tilt (90 at the FIB pose).",
         method="POST",
         path="/microscope/services/stage_movement/queries/current_milling_angle",
+        level="watch",
+    ),
+    ToolSpec(
+        name="get_geometry",
+        description="The instrument's geometry in one read: column tilts, pre-tilt, rotation reference and centre, the orientation table, device origins, and what they mean at the stage's pose now: which way raw +z goes in the chamber, the milling angle here and the pose for the stored one, and per beam the stage move a +1 µm stable move along each image axis makes at the current scan rotation. Read it first on a new instrument, then confirm once with one small move. Angles in degrees.",
+        method="POST",
+        path="/microscope/services/stage_movement/queries/geometry",
         level="watch",
     ),
     ToolSpec(
@@ -150,7 +157,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
         path="/microscope/services/milling/commands/stop",
         level="drive",
         params={"reason": "why you are stopping it, for the operator (required)"},
-        note="A mill the agent started itself it can stop at any level; anyone else's (the workflow's, the operator's) needs Drive, and at Assist goes in request_actions for the operator to approve. Never refused for someone else being in control of the microscope.",
+        note="A mill the agent started itself it can stop at Assist or Drive, never at Watch; anyone else's (the workflow's, the operator's) needs Drive, and at Assist goes in request_actions for the operator to approve. Never refused for someone else being in control of the microscope.",
     ),
     # --- hardware ---
     ToolSpec(
@@ -184,8 +191,10 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "its own surface and stays at the same height: the feature stays in "
             "focus and, at the coincidence point, stays in the other beam's view "
             "too. Prefer it to move_stage_relative whenever the move comes from an "
-            "image. Take a fresh image afterwards to check where the feature "
-            "landed."
+            "image. It uses the stage and scan rotation as they are now, so an "
+            "offset measured on an older image is only right if neither has "
+            "changed since. Take a fresh image afterwards to check where the "
+            "feature landed."
         ),
         method="POST",
         path="/microscope/services/stage_movement/commands/stable_move",
@@ -200,20 +209,24 @@ CATALOG: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="vertical_move",
         description=(
-            "Restore coincidence: with a feature centred in the electron image, "
-            "move the stage along the chamber vertical so the same feature comes "
-            "to the centre of the ion image. dy (and dx) are the feature's offset "
-            "from the centre of the ION image, in metres, x right and y up. The "
-            "electron beam sees no change. Use it after a stable_move in the "
-            "electron image when the ion image is off; never a plain z move."
+            "Restore coincidence: with a feature centred in one beam's image, move "
+            "the stage along the chamber vertical so the same feature comes to the "
+            "centre of the other beam's image; the first beam sees no change. "
+            "beam_type names the view the offset was measured in: ION (the "
+            "default) when the feature is centred in the electron image, ELECTRON "
+            "when it is centred in the ion image. dy (and dx) are the feature's "
+            "offset from that image's centre, in metres, x right and y up. "
+            "Use it after a stable_move in the other beam; never a plain z move."
         ),
         method="POST",
         path="/microscope/services/stage_movement/commands/vertical_move",
         level="drive",
         hardware=True,
         params={
-            "dy": "the feature's offset from the ion image centre along y, metres, up positive",
+            "dy": "the feature's offset from the image centre along y, metres, up positive",
             "dx": "the offset along x, metres, right positive (usually 0)",
+            "beam_type": "the view the offset was measured in: ION (default) or ELECTRON",
+            "relaxation": "fraction of the exact move to make, 0-1 (default 1); below 1 undershoots, to keep a repeated look-and-correct loop from overshooting",
         },
     ),
     ToolSpec(
@@ -380,8 +393,8 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "Run a service command listed by list_services, e.g. service=stage_movement "
             "command=move_to_orientation kwargs={'orientation': 'SEM'}. A long command "
             "(milling run, spot burn run) answers when it ends; command=stop from "
-            "another call stops it: the agent's own run at any level, anyone "
-            "else's at Drive, always with a reason."
+            "another call stops it: the agent's own run at Assist or Drive, "
+            "anyone else's at Drive, never at Watch, always with a reason."
         ),
         method="POST",
         path="/microscope/services/{service}/commands/{command}",
@@ -521,7 +534,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="get_item_output_image",
-        description="One saved image of an item, as an image you can look at: a 768 px JPEG preview of a file get_task_outputs lists (stacks and channels max-projected). A preview, not the data. An unlisted name is refused with the valid ones.",
+        description="One saved image of an item, as an image you can look at: a 768 px JPEG preview of a file get_task_outputs lists (stacks and channels max-projected). A preview, not the data. A beam image comes with its metadata block (pixel size, preview_pixelsize, stage position, beam, detector). An unlisted name is refused with the valid ones.",
         method="GET",
         path="/app/experiment/items/{item_name}/outputs/{filename}",
         level="watch",
@@ -529,6 +542,17 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "item_name": "the item (lamella) name",
             "filename": "a basename from get_task_outputs",
+        },
+    ),
+    ToolSpec(
+        name="get_image_metadata",
+        description="The full saved metadata of one image file in the experiment folder: the image settings, pixel size, microscope state (stage, both beams, detectors) and the item and task it was taken for. The image tools already carry a short block of this; use this for the rest. Paths outside the experiment are refused.",
+        method="GET",
+        path="/app/experiment/images/metadata",
+        level="watch",
+        router="app",
+        params={
+            "path": "an image file path inside the experiment folder, e.g. the path an image answer gives"
         },
     ),
     ToolSpec(
@@ -550,7 +574,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="get_grid_output_image",
-        description="One saved overview (mosaic) of a grid, as an image you can look at: a 768 px JPEG preview of a file get_grids / get_grid_detail lists. A preview, not the data; get_grid_markers places the items on it. An unlisted name is refused with the valid ones.",
+        description="One saved overview (mosaic) of a grid, as an image you can look at: a 768 px JPEG preview of a file get_grids / get_grid_detail lists. A preview, not the data; get_grid_markers places the items on it. A beam image comes with its metadata block (pixel size, preview_pixelsize, stage position, beam, detector). An unlisted name is refused with the valid ones.",
         method="GET",
         path="/app/experiment/grids/{grid_name}/outputs/{filename}",
         level="watch",
@@ -987,10 +1011,14 @@ NOT_TOOLS: Dict[str, str] = {
 def tools_for_capabilities(capabilities: Dict) -> Tuple[ToolSpec, ...]:
     """Catalog entries to offer given a full /capabilities payload.
 
-    Every tool whose router is mounted, whatever the agent's level: the level
-    changes mid-session and the server's 403 is the gate (FIB-1035).
+    Every tool whatever the agent's level: the level changes mid-session and
+    the server's 403 is the gate (FIB-1035). The microscope's tools too while
+    its routes are off: the operator can turn them on mid-session, and until
+    then each answers 404 ``microscope_off`` saying so, where tools fixed at
+    start would need the agent to reconnect. Only the app's tools depend on
+    the routers: a server hosts an application or not for its whole life.
     """
-    routers = dict(capabilities.get("routers", {}), base=True)
+    routers = dict(capabilities.get("routers", {}), base=True, microscope=True)
     return tuple(t for t in CATALOG if routers.get(t.router, False))
 
 
@@ -1064,6 +1092,7 @@ _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict
     "estimate_milling_time": lambda a: ({}, _kwargs()),
     "get_stage_orientation": lambda a: ({}, _kwargs()),
     "get_milling_angle": lambda a: ({}, _kwargs()),
+    "get_geometry": lambda a: ({}, _kwargs()),
     "stable_move": lambda a: (
         {},
         _kwargs(
@@ -1074,7 +1103,12 @@ _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict
     ),
     "vertical_move": lambda a: (
         {},
-        _kwargs(dy=float(a["dy"]), dx=float(a.get("dx", 0.0))),
+        _kwargs(
+            dy=float(a["dy"]),
+            dx=float(a.get("dx", 0.0)),
+            beam_type=str(a.get("beam_type") or "ION"),
+            relaxation=float(a.get("relaxation") or 1.0),
+        ),
     ),
     "move_to_orientation": lambda a: ({}, _kwargs(orientation=str(a["orientation"]))),
     "safe_move_stage_absolute": lambda a: ({}, _kwargs(stage_position=_absolute(a))),

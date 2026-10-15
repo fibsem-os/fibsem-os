@@ -12,7 +12,8 @@ clearly if absent.
 
 import base64
 import io
-from typing import Optional, Tuple
+import math
+from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 
@@ -80,7 +81,91 @@ def preview_payload(image, max_width: int = 768) -> dict:
             "x": _maybe_float(pixel_size.x),
             "y": _maybe_float(pixel_size.y),
         }
+        if pixel_size.x is not None and width:
+            # metres per PREVIEW pixel: what a measurement on the preview uses.
+            payload["preview_pixelsize"] = (
+                float(pixel_size.x) * payload["full_width"] / width
+            )
     return payload
+
+
+def _degrees(radians) -> Optional[float]:
+    return round(math.degrees(float(radians)), 4) if radians is not None else None
+
+
+def image_metadata(image, path: Optional[str] = None) -> Dict[str, Any]:
+    """What an agent needs to know about a beam image, in about 500 bytes: the
+    same block on every image answer, saved outputs included.
+
+    Where and how it was taken (stage position, scan rotation, beam, detector)
+    so the agent can tell an image is stale after a move, and its scale.
+    ``pixel_size`` is measured, so it is the one to trust; ``hfw`` is what was
+    asked for (FIB-482). Angles are in degrees, named so in the keys; lengths
+    in metres. The rest of the file's metadata is ``get_image_metadata``'s.
+    """
+    data = image.data
+    block: Dict[str, Any] = {
+        "beam_type": None,
+        "acquired_at": None,
+        "shape": list(data.shape),
+        "dtype": str(data.dtype),
+        "hfw": None,
+        "pixel_size": None,
+        "stage_position": None,
+        "scan_rotation_deg": None,
+        "reduced_area": None,
+        "beam": None,
+        "detector": None,
+        "item": None,
+        "task": None,
+        "path": path if path is not None else getattr(image, "filepath", None),
+    }
+    md = image.metadata
+    if md is None:
+        return block
+    settings = md.image_settings
+    beam_type = getattr(settings, "beam_type", None)
+    if beam_type is not None:
+        block["beam_type"] = beam_type.name
+    if settings is not None:
+        block["hfw"] = _maybe_float(settings.hfw)
+        if settings.reduced_area is not None:
+            block["reduced_area"] = settings.reduced_area.to_dict()
+    if md.acquisition_datetime is not None:
+        block["acquired_at"] = md.acquisition_datetime.isoformat()
+    if md.pixel_size is not None:
+        block["pixel_size"] = _maybe_float(md.pixel_size.x)
+    state = md.microscope_state
+    if state is not None:
+        position = state.stage_position
+        if position is not None:
+            block["stage_position"] = {
+                "x": _maybe_float(position.x),
+                "y": _maybe_float(position.y),
+                "z": _maybe_float(position.z),
+                "r_deg": _degrees(position.r),
+                "t_deg": _degrees(position.t),
+                "coordinate_system": position.coordinate_system,
+            }
+        # The state records the imaging beam and its detector; the other is empty.
+        ion = beam_type is not None and beam_type.name == "ION"
+        beam = state.ion_beam if ion else state.electron_beam
+        detector = state.ion_detector if ion else state.electron_detector
+        if beam is not None:
+            block["scan_rotation_deg"] = _degrees(beam.scan_rotation)
+            block["beam"] = {
+                "voltage": _maybe_float(beam.voltage),
+                "current": _maybe_float(beam.beam_current),
+                "working_distance": _maybe_float(beam.working_distance),
+                "dwell_time": _maybe_float(beam.dwell_time),
+            }
+        if detector is not None:
+            block["detector"] = {"type": detector.type, "mode": detector.mode}
+    experiment = md.experiment
+    if experiment is not None:
+        block["item"] = experiment.item_name
+        block["task"] = experiment.task_name
+    return block
 
 
 def _maybe_float(value) -> Optional[float]:
@@ -137,18 +222,7 @@ def image_answer(result) -> dict:
         return [None if item is None else image_answer(item) for item in result]
     if isinstance(result, FibsemImage):
         preview = preview_payload(result)
-        summary = {
-            "kind": "image",
-            "shape": list(result.data.shape),
-            "dtype": str(result.data.dtype),
-            "beam_type": preview["beam_type"],
-            "hfw": preview["hfw"],
-            "pixelsize": preview["pixelsize"],
-        }
-        md = result.metadata
-        acquired = getattr(md, "acquisition_datetime", None)
-        if acquired:
-            summary["acquired_at"] = str(acquired)
+        summary = {"kind": "image", **image_metadata(result)}
         return {"summary": summary, "path": result.filepath, "preview": preview}
     if (
         isinstance(result, list)

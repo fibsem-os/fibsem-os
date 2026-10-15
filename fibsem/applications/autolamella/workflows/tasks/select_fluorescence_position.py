@@ -68,9 +68,7 @@ class SelectFluorescencePositionTask(AutoLamellaTask):
             raise ValueError(
                 f"Cannot acquire at the saved position for {self.lamella.name} "
                 f"({stage_position.pretty}). "
-                + self.microscope.describe_device_imaging_state(
-                    "FM", state, stage_position
-                )
+                + self.microscope.explain_imaging_state("FM", state, stage_position)
             )
 
         # Check for cancellation before each position

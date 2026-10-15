@@ -391,7 +391,7 @@ class TiledAcquisitionRunner:
             system_info=deepcopy(self.microscope.system.info),
             hardware_geometry=deepcopy(self.microscope.hardware_geometry()),
         )
-        # Who and which run, as `_set_additional_metadata` stamps on every single
+        # Who and which run, as `Session.stamp` stamps on every single
         # image. The mosaic is built here rather than acquired through that path,
         # and without these a saved overview could not say which grid it is of.
         user = getattr(self.microscope, "user", None)

@@ -12,6 +12,7 @@ The level each router needs is applied where it is included, so auth stays in
 one place (build_server).
 """
 
+import json
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -89,6 +90,8 @@ class AppContext(Protocol):
     def grid_output_image(self, grid_name: str, filename: str) -> Dict[str, Any]: ...
 
     def grid_markers(self, grid_name: str, filename: str) -> Dict[str, Any]: ...
+
+    def image_metadata(self, path: str) -> Dict[str, Any]: ...
 
     def protocol_task_config(self, task_name: str) -> Dict[str, Any]: ...
 
@@ -219,6 +222,11 @@ def _grid_run_body(body: Dict[str, Any]):
     return task_names, grid_names, screen_all
 
 
+# The image's acquisition metadata (JSON) rides on the JPEG answer, so one
+# request gives the agent both the picture and what it was taken with.
+IMAGE_METADATA_HEADER = "X-Image-Metadata"
+
+
 def _jpeg_or_404(result: Dict[str, Any]) -> Response:
     """An image context answer as a real image/jpeg response (so a browser
     ``<img>`` can consume it), or a structured 404 carrying the valid names."""
@@ -232,7 +240,12 @@ def _jpeg_or_404(result: Dict[str, Any]) -> Response:
             if key in result:
                 detail[key] = result[key]
         raise HTTPException(status_code=404, detail=detail)
-    return Response(content=jpeg, media_type="image/jpeg")
+    headers = {}
+    if result.get("metadata") is not None:
+        # The image's scale and state (images.image_metadata), for the agent's
+        # image tools; a browser <img> ignores it.
+        headers[IMAGE_METADATA_HEADER] = json.dumps(result["metadata"])
+    return Response(content=jpeg, media_type="image/jpeg", headers=headers)
 
 
 _REFUSAL_STATUS = {"not_found": 404, "invalid": 422, "task_running": 409}
@@ -368,6 +381,15 @@ def build_app_router(context: AppContext) -> APIRouter:
     @router.get("/experiment/images")
     def display_images():
         return context.display_images()
+
+    @router.get("/experiment/images/metadata")
+    def image_metadata(path: str):
+        answer = context.image_metadata(path)
+        error = answer.get("error_type")
+        if error is not None:
+            status = 403 if error == "not_allowed" else 404
+            raise HTTPException(status_code=status, detail=answer)
+        return answer
 
     @router.get("/workflow/prompt")
     def pending_prompt():
