@@ -63,11 +63,17 @@ def blocked(device: Device, kind: str, name: str) -> Optional[str]:
 def path_outside(
     kwargs: Mapping[str, Any], experiment_path: Callable[[], Optional[str]]
 ) -> Optional[str]:
-    """Why a command's save path is refused, or None: the agent saves inside the
-    open experiment only, never anywhere the app can write. The path is a
-    ``path`` argument (the focus sweep's), or the ``path`` of settings that save
-    (an image's ``image_settings``)."""
-    paths = [kwargs.get("path")] + [
+    """Why a command's or query's path is refused, or None: the agent saves
+    and reads inside the open experiment only, never anywhere the app can
+    write. The path is a ``path`` argument (the focus sweep's, a milling
+    task's folder), any ``*_path`` argument (the image a pattern preview draws
+    on, an alignment's reference), or the ``path`` of settings that save (an
+    image's ``image_settings``)."""
+    paths = [
+        value
+        for name, value in kwargs.items()
+        if name == "path" or name.endswith("_path")
+    ] + [
         getattr(value, "path", None)
         for value in kwargs.values()
         if getattr(value, "save", False)
@@ -77,10 +83,10 @@ def path_outside(
         return None
     root = experiment_path()
     if root is None:
-        return "no experiment is open to save into; leave the path out"
+        return "no experiment is open; give paths inside one, or leave a save path out"
     root = os.path.realpath(root)
     for path in paths:
         target = os.path.realpath(path)
         if os.path.commonpath([root, target]) != root:
-            return f"save inside the open experiment ({root}), not {path}"
+            return f"give a path inside the open experiment ({root}), not {path}"
     return None

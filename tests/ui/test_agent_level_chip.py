@@ -201,6 +201,32 @@ def test_a_waiting_request_turns_the_chip_and_tops_the_menu(qapp):
     chip.deleteLater()
 
 
+@pytest.mark.parametrize("open_when_it_ends", [False, True])
+def test_an_ended_request_s_card_leaves_the_menu(qapp, open_when_it_ends):
+    # FIB-1400: QMenu never hides a hidden action's widget, so the card stayed
+    # drawn over the level rows after its request ended.
+    chip = AgentLevelChip()
+    chip.set_level(AgentLevel.ASSIST)
+    chip.show()
+    chip.set_request(_request("applying", results=[{"index": 0, "ok": True}]))
+    chip.menu_.popup(chip.mapToGlobal(chip.rect().bottomLeft()))
+    qapp.processEvents()
+    assert chip.request_block.isVisible()
+    if not open_when_it_ends:
+        chip.menu_.close()
+    chip.set_request(None)
+    chip.menu_.popup(chip.mapToGlobal(chip.rect().bottomLeft()))
+    qapp.processEvents()
+    assert not chip.request_block.isVisible()
+
+    # The next request shows its card again.
+    chip.set_request(_request())
+    qapp.processEvents()
+    assert chip.request_block.isVisible()
+    chip.menu_.close()
+    chip.deleteLater()
+
+
 def test_approve_and_reject_say_which_request_and_why(qapp):
     chip = AgentLevelChip()
     chip.set_level(AgentLevel.ASSIST)

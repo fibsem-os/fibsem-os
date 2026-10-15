@@ -78,9 +78,14 @@ from superqt import ensure_main_thread
 # from fibsem.applications.autolamella.tools.artifacts import write_completion_summary
 import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella import config as cfg
+from fibsem.applications.autolamella.experiment_setup import load_for_adoption
 from fibsem.applications.autolamella.hook_defaults import build_hook_manager
 from fibsem.applications.autolamella.poses import (
-    build_lamella_poses,
+    add_lamella,
+    current_objective_position,
+    grid_id_at,
+    remove_lamella,
+    set_lamella_pose,
     sync_fluorescence_pose,
 )
 from fibsem.applications.autolamella.structures import (
@@ -646,19 +651,9 @@ class AutoLamellaUI(QMainWindow):
             notification_service.show_toast(msg, "warning")
             return
 
-        try:
-            experiment = Experiment.load(Path(experiment_path))
-        except Exception as e:
-            logging.warning(f"Quickload: unable to load {experiment_path}: {e}")
-            notification_service.show_toast(
-                f"Quickload: could not load experiment: {e}", "error"
-            )
-            return
-
-        # The same bar the load dialog sets. An experiment with no protocol has
-        # nothing to run, and adopting one here would only look loaded.
-        if experiment.task_protocol is None:
-            msg = f"Quickload: {experiment.name} has no protocol; not loaded."
+        experiment, why = load_for_adoption(experiment_path)
+        if experiment is None:
+            msg = f"Quickload: {why}; not loaded."
             logging.warning(msg)
             notification_service.show_toast(msg, "warning")
             return
@@ -795,13 +790,10 @@ class AutoLamellaUI(QMainWindow):
     def sync_app_server_with_preference(self) -> None:
         """Start or stop the embedded server to match the saved preference.
 
-        Called after preferences are saved, so ticking the box acts now rather
+        Called when Tools → App Server saves the switch, so it acts now rather
         than at the next connect. Starting needs a connected microscope (the
         server wraps it); without one this is a no-op and the connect path
         picks the preference up as before.
-
-        The microscope preference is only the start-up default: this session's
-        choice is made in Tools → App Server (``set_app_server_microscope``).
         """
         host = self._app_server_host
         preference = fibsem_cfg.load_user_preferences().app_server
@@ -812,8 +804,8 @@ class AutoLamellaUI(QMainWindow):
             host.stop()
 
     def set_app_server_microscope(self, serve: bool) -> None:
-        """Serve the microscope this session, or stop serving it (FIB-1359),
-        from Tools → App Server.
+        """Serve the microscope, or stop serving it (FIB-1359), from Tools →
+        App Server, which also saves the choice for the next launch.
 
         The services are fixed when the server starts, so a change restarts a
         running server. The agent's token and level are the session's and
@@ -1332,6 +1324,42 @@ class AutoLamellaUI(QMainWindow):
         """GUI thread. Run a call :meth:`_marshal` sent."""
         call()
 
+    def request_agent_call(self, call, select_latest: bool = False) -> "Future":
+        """Run ``call()`` on the GUI thread for an agent; any thread.
+
+        For the App Server's edits to the experiment (adding a lamella, setting a
+        pose): the experiment's listeners redraw widgets, so it is changed where
+        they live. Resolves to ``call``'s result, or its exception; the views are
+        refreshed afterwards, as after the Lamella tab's own buttons, selecting the
+        newest lamella when ``select_latest``.
+        """
+        from concurrent.futures import Future as _Future
+
+        outcome: "_Future" = _Future()
+        self._marshal(self._apply_agent_call, call, select_latest, outcome)
+        return outcome
+
+    def _apply_agent_call(self, call, select_latest: bool, outcome: "Future") -> None:
+        """GUI thread. Complete ``outcome`` with ``call()`` and redraw."""
+        try:
+            result = call()
+        except Exception as exc:  # noqa: BLE001 - the requester owns the failure
+            outcome.set_exception(exc)
+            return
+        try:
+            self.update_lamella_combobox(latest=select_latest)
+            self.update_ui()
+            lamella = self.get_selected_lamella()
+            if lamella is not None:
+                self.selected_lamella_widget.set_lamella(lamella)
+            if self.experiment is not None:
+                # The FM overview draws positions itself; it hears of a moved pose
+                # only by being told.
+                self.experiment.positions.events.changed.emit()
+        except Exception:
+            logging.exception("redraw after an agent's experiment edit failed")
+        outcome.set_result(result)
+
     def request_start_workflow(
         self, task_names: List[str], item_names: Optional[List[str]] = None
     ) -> "Future":
@@ -1755,13 +1783,11 @@ class AutoLamellaUI(QMainWindow):
                     "task_names": list(config_map.keys()),
                 }
         else:
-            lamella = experiment.get_lamella_by_name(item_name)
-            if lamella is None:
-                return {
-                    "applied": False,
-                    "error": f"No item named {item_name!r} in this experiment.",
-                    "item_names": [p.name for p in experiment.positions],
-                }
+            from fibsem.applications.autolamella.server.context import find_item
+
+            lamella, refusal = find_item(experiment, item_name)
+            if refusal:
+                return {"applied": False, **refusal}
             config = dict(lamella.task_config).get(task_name)
             if config is None:
                 return {
@@ -1826,18 +1852,15 @@ class AutoLamellaUI(QMainWindow):
         """
         from fibsem.applications.autolamella.server.context import (
             ITEM_PATCH_FIELDS,
+            find_item,
             item_fields_version,
         )
         from fibsem.applications.autolamella.server.events import to_plain
         from fibsem.server.config_patch import PatchError, apply_patch
 
-        lamella = experiment.get_lamella_by_name(item_name)
-        if lamella is None:
-            return {
-                "applied": False,
-                "error": f"No item named {item_name!r} in this experiment.",
-                "item_names": [p.name for p in experiment.positions],
-            }
+        lamella, refusal = find_item(experiment, item_name)
+        if refusal:
+            return {"applied": False, **refusal}
         for path in patch:
             if path.split(".", 1)[0] not in ITEM_PATCH_FIELDS:
                 return {
@@ -1932,13 +1955,11 @@ class AutoLamellaUI(QMainWindow):
                 return {"applied": False, "error": "no protocol is loaded"}
             config = dict(config_map).get(task_name)
         else:
-            lamella = experiment.get_lamella_by_name(item_name)
-            if lamella is None:
-                return {
-                    "applied": False,
-                    "error": f"No item named {item_name!r} in this experiment.",
-                    "item_names": [p.name for p in experiment.positions],
-                }
+            from fibsem.applications.autolamella.server.context import find_item
+
+            lamella, refusal = find_item(experiment, item_name)
+            if refusal:
+                return {"applied": False, **refusal}
             config = dict(lamella.task_config).get(task_name)
         if config is None:
             return {
@@ -2006,13 +2027,11 @@ class AutoLamellaUI(QMainWindow):
         """
         from copy import deepcopy as _deepcopy
 
-        lamella = experiment.get_lamella_by_name(item_name)
-        if lamella is None:
-            return {
-                "applied": False,
-                "error": f"No item named {item_name!r} in this experiment.",
-                "item_names": [p.name for p in experiment.positions],
-            }
+        from fibsem.applications.autolamella.server.context import find_item
+
+        lamella, refusal = find_item(experiment, item_name)
+        if refusal:
+            return {"applied": False, **refusal}
         protocol = getattr(experiment, "task_protocol", None)
         config_map = getattr(protocol, "task_config", None)
         if config_map is None:
@@ -2386,32 +2405,9 @@ class AutoLamellaUI(QMainWindow):
     def _grid_id_for_new_lamella(
         self, position: Optional[FibsemStagePosition]
     ) -> Optional[str]:
-        """The record id of the grid a lamella at *position* is on, or None.
-
-        Resolved the way the rest of the system finds a grid, by name: with a
-        loader the one grid on the stage, on a fixed holder the calibrated slot
-        the position falls in. Then the experiment's record of that name. None
-        whenever any step has no answer: nothing loaded, an uncalibrated slot, a
-        grid on the hardware with no record. Never a guess, and never a record
-        created as a side effect of marking a lamella.
-        """
-        experiment = self.experiment
-        stage = getattr(self.microscope, "sample_handling", None)
-        if experiment is None or stage is None:
-            return None
-        try:
-            if stage.magazine is not None:
-                loaded = stage.loaded_grids
-                grid = loaded[0] if len(loaded) == 1 else None
-            else:
-                grid = stage.grid_at_position(position)
-        except Exception as e:  # noqa: BLE001 - a lamella is never refused for this
-            logging.debug(f"Could not resolve the grid for a new lamella: {e}")
-            return None
-        if grid is None:
-            return None
-        record = experiment.get_grid_by_name(grid.name)
-        return record.id if record is not None else None
+        """The record id of the grid a lamella at *position* is on, or None
+        (`fibsem.applications.autolamella.poses.grid_id_at`)."""
+        return grid_id_at(self.experiment, self.microscope, position)
 
     def add_new_lamella(
         self,
@@ -2448,34 +2444,15 @@ class AutoLamellaUI(QMainWindow):
                 "No microscope connected. Please connect a microscope first."
             )
 
-        poses = build_lamella_poses(
-            microscope=self.microscope,
-            position=stage_position,
+        lamella = add_lamella(
+            self.experiment,
+            self.microscope,
+            stage_position=stage_position,
+            name=name,
             objective_position=objective_position,
             marked_at=marked_at,
+            grid_id=grid_id,
         )
-
-        # create the lamella, with both poses already on it -- see
-        # `Experiment.add_new_lamella`. Assigning the fluorescence pose after the append
-        # left every listener that redraws on `inserted` deciding the new lamella had
-        # none, which is how each newly marked lamella went missing from the FM overview.
-        self.experiment.add_new_lamella(
-            microscope_state=poses.milling,
-            task_config=self.experiment.task_protocol.task_config,
-            name=name,
-            fluorescence_pose=poses.fluorescence,
-            grid_id=(
-                grid_id
-                if grid_id is not None
-                else self._grid_id_for_new_lamella(poses.milling.stage_position)
-            ),
-        )
-        lamella = self.experiment.positions[-1]
-
-        # derive the milling angle from the milling-pose stage tilt
-        lamella.update_milling_angle(self.microscope)
-
-        self.experiment.save()
         self.update_lamella_combobox(latest=True)
         self.update_ui()
 
@@ -2498,11 +2475,8 @@ class AutoLamellaUI(QMainWindow):
         """
         if self.experiment is None:
             return
-        try:
-            self.experiment.positions.remove(lamella)
-        except ValueError:
+        if not remove_lamella(self.experiment, lamella):
             return
-        self.experiment.save()
         logging.debug("Lamella removed from experiment")
         self.update_lamella_combobox(latest=True)
         self.update_ui()
@@ -2619,25 +2593,10 @@ class AutoLamellaUI(QMainWindow):
         if ret != QMessageBox.Yes:
             return
 
-        # preserve the configured objective (focus) position of the existing pose:
-        # get_microscope_state() does not capture the objective position, so replacing
-        # the pose outright would wipe the fluorescence pose's focus setting.
-        existing_pose = lamella.poses.get(pose_name)
-        if existing_pose is not None and existing_pose.objective_position is not None:
-            state.objective_position = existing_pose.objective_position
-
-        lamella.poses[pose_name] = state
-
-        # Replacing the milling pose moves the lamella, so what is derived from it has to
-        # follow: the milling angle, and the fluorescence pose, which describes the same
-        # piece of sample from the other side. Left behind, that pose would go on naming
-        # where this lamella used to be -- and nothing about a stale pose looks wrong.
-        if pose_name == "MILLING":
-            lamella.update_milling_angle(self.microscope)
-            if sync_fluorescence_pose(self.microscope, lamella):
-                self.selected_lamella_widget.refresh_pose(
-                    "FLUORESCENCE", lamella.fluorescence_pose
-                )
+        if set_lamella_pose(self.microscope, lamella, pose_name, state):
+            self.selected_lamella_widget.refresh_pose(
+                "FLUORESCENCE", lamella.fluorescence_pose
+            )
 
         self.experiment.save()
         self.selected_lamella_widget.refresh_pose(pose_name, state)
@@ -2705,11 +2664,7 @@ class AutoLamellaUI(QMainWindow):
         if lamella is None or lamella.fluorescence_pose is None:
             notification_service.show_toast("No lamella selected.", "warning")
             return
-        obj = self.microscope.fm.objective
-        if obj.state is InsertableDeviceState.INSERTED:
-            value_m = obj.position
-        else:
-            value_m = obj.focus_position
+        value_m = current_objective_position(self.microscope.fm)
         if value_m is None:
             notification_service.show_toast(
                 "Objective position unavailable.", "warning"
@@ -2849,16 +2804,18 @@ class AutoLamellaUI(QMainWindow):
             notification_service.show_toast("Protocol loading cancelled.", "info")
             return
 
-        # assign protocol to experiment
-        self.experiment.task_protocol = protocol
-        self.experiment.save_protocol()
-
+        self._adopt_protocol(protocol)
         notification_service.show_toast(
             f"Protocol '{protocol.name}' loaded successfully with {len(protocol.task_config)} tasks.",
             "info",
         )
 
-        # Update UI
+    def _adopt_protocol(self, protocol) -> None:
+        """Make *protocol* the open experiment's, save it beside the experiment
+        and redraw: the Load Protocol dialog's OK, and an agent's load. GUI
+        thread."""
+        self.experiment.task_protocol = protocol
+        self.experiment.save_protocol()
         self.update_ui()
         self.experiment_update_signal.emit()
 

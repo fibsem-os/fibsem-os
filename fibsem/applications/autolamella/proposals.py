@@ -58,6 +58,7 @@ __all__ = [
     "Proposal",
     "ProposalKind",
     "compute_delta",
+    "features_to_dict",
     "has_value_writer",
     "human_author",
     "known_value_names",
@@ -308,7 +309,7 @@ def _positions_from_dict(value: Any) -> Any:
     return out
 
 
-def _features_to_dict(value: Any) -> Any:
+def features_to_dict(value: Any) -> Any:
     """A detected feature set as ``[{name, px}]``.
 
     Only the name and the pixel it sits on: the mask, the rgb and the image
@@ -345,7 +346,7 @@ def _point_from_dict(d: Any) -> Any:
 _VALUE_CODECS: Dict[str, Tuple[Callable[[Any], Any], Callable[[Any], Any]]] = {
     "poi": (_point_to_dict, _point_from_dict),
     "positions": (_positions_to_dict, _positions_from_dict),
-    "features": (_features_to_dict, _features_from_dict),
+    "features": (features_to_dict, _features_from_dict),
     "stage_position": (
         lambda p: p.to_dict() if isinstance(p, FibsemStagePosition) else p,
         lambda d: FibsemStagePosition.from_dict(d) if isinstance(d, dict) else d,

@@ -43,7 +43,9 @@ def test_stopping_drops_the_extra_time(microscope):
 def test_a_synchronous_mill_is_timed_by_patterns_alone(microscope):
     # a stale asynchronous flag must not stretch a later timed mill
     microscope.start_milling()
-    microscope.run_milling()
-    assert microscope.milling.progress.cached.estimated_time < (
-        simulator.SIM_ASYNC_MILLING_EXTRA_TIME
+    ticks = []
+    microscope.milling.progress.changed.connect(
+        lambda p: ticks.append(p) if not p.status.is_terminal else None
     )
+    microscope.run_milling()
+    assert ticks[-1].estimated_time < simulator.SIM_ASYNC_MILLING_EXTRA_TIME
