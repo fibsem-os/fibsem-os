@@ -154,7 +154,7 @@ def test_a_detector_that_stays_white_raises_rather_than_end_on_it(
     microscope, monkeypatch
 ):
     events = []
-    microscope.record_signal.connect(lambda event: events.append(event))
+    microscope.session.record_signal.connect(lambda event: events.append(event))
     monkeypatch.setattr(
         simulator,
         "detector_response",
