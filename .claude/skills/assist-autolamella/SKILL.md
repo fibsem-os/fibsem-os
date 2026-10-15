@@ -26,7 +26,7 @@ never make them work out what you meant.
 Connect as the supervise skill says (`.claude/skills/supervise-autolamella`,
 *Connect*). Use the `mcp__fibsem__*` tools if this session has them;
 otherwise use plain HTTP with the token from `~/.fibsem/app-server.json`.
-Read `get_capabilities` first:
+Read `server_get_capabilities` first:
 
 - `level: "assist"` is the level this skill is for. Tell the operator in a
   sentence what that means: you read and suggest, and you ask before
@@ -44,18 +44,18 @@ The tools this skill uses, with their routes for plain HTTP:
 
 | Tool | Route |
 |---|---|
-| `request_actions` | `POST /app/agent/requests` |
-| `get_request` | `GET /app/agent/requests/{request_id}` |
-| `withdraw_request` | `POST /app/agent/requests/{request_id}/withdraw` with `{"reason": ...}` |
-| `suggest_answer` | `POST /app/workflow/prompt/suggest` |
-| `add_note` | `POST /app/agent/notes` |
-| `stop_workflow`, `stop_milling` | `POST /app/workflow/stop`, `POST /microscope/services/milling/commands/stop`, each with `{"reason": ...}` |
+| `request_create` | `POST /app/agent/requests` |
+| `request_get` | `GET /app/agent/requests/{request_id}` |
+| `request_withdraw` | `POST /app/agent/requests/{request_id}/withdraw` with `{"reason": ...}` |
+| `prompt_suggest_answer` | `POST /app/workflow/prompt/suggest` |
+| `experiment_add_note` | `POST /app/agent/notes` |
+| `workflow_stop`, `milling_stop` | `POST /app/workflow/stop`, `POST /microscope/services/milling/commands/stop`, each with `{"reason": ...}` |
 
 In a request, `tool` is the tool's name without the `mcp__fibsem__`
-prefix (`set_task_supervision`, `move_stage_relative`, `requeue_task`), and
+prefix (`protocol_set_supervision`, `stage_move_relative`, `workflow_requeue`), and
 `arguments` are what that tool takes. Any tool that acts can go in a
 request; the server says so when it can't (`not_an_action`), or when the
-agent may never use it (`403 not_allowed`: `agent: false` in `list_devices`).
+agent may never use it (`403 not_allowed`: `agent: false` in `device_list`).
 
 ## Watch the session
 
@@ -75,7 +75,7 @@ last event you saw, so nothing that happened in between is lost:
 fibsem-mcp watch --since 42
 ```
 
-The seq is in `get_events` (`latest_seq`). Read it just before you file.
+The seq is in `app_get_events` (`latest_seq`). Read it just before you file.
 
 Besides the run's lines (`PROMPT`, `QUESTION`, `ANSWERED`, `EVENT`,
 `RUN ENDED`), it prints a `REQUEST` line each time your request moves:
@@ -85,22 +85,22 @@ Besides the run's lines (`PROMPT`, `QUESTION`, `ANSWERED`, `EVENT`,
 - `REQUEST ab12 rejected: <the operator's words>`
 - `REQUEST ab12 cancelled: <why>`
 
-Don't poll `get_request` on a timer. Wait for the line, then read the
+Don't poll `request_get` on a timer. Wait for the line, then read the
 request once.
 
 Keep watching until the run ends or the operator tells you to stop. A
 question nobody has answered is not a reason to leave; run questions have
 no timeout.
 
-## Asking: `request_actions`
+## Asking: `request_create`
 
 ```json
 {"actions": [
-   {"tool": "update_item_task_config",
+   {"tool": "item_update_task_config",
     "arguments": {"item_name": "01-alive-dory", "task_name": "Rough Milling",
                   "patch": {"milling.mill_rough.stages.0.pattern.depth": 8e-07},
-                  "version": "<from get_item_task_config>"}},
-   {"tool": "requeue_task",
+                  "version": "<from item_get_task_config>"}},
+   {"tool": "workflow_requeue",
     "arguments": {"item_name": "01-alive-dory", "task_name": "Rough Milling"}}],
  "reason": "Rough Milling stopped short on 01: in ref_rough_milling_final_ib.tif the trench floor is about 0.2 µm above the lamella's base. One pass deeper, then re-run."}
 ```
@@ -112,7 +112,7 @@ appear only in **reason**.
 
 **One request at a time.** While one is waiting, another is refused
 (`409 request_pending`, naming it). When the plan changes before the
-operator decides, withdraw it (`withdraw_request`, with a reason) and file
+operator decides, withdraw it (`request_withdraw`, with a reason) and file
 the new one. Put things that belong together in one request. A config change and the re-run it is for are one request, not two.
 Things that don't belong together wait their turn.
 
@@ -121,14 +121,14 @@ saw, where you saw it (an image, a value, an event), and what the actions
 will do. Two sentences is usually right. The reason is kept on the record
 with the request, so you don't need a separate note for it.
 
-**Read just before you ask.** Read the config (`get_item_task_config`) or
+**Read just before you ask.** Read the config (`item_get_task_config`) or
 the stage position before filing, and pass the `version` you read. Until
 the operator approves, nothing is checked against the live state. A stale
 version is refused when the request runs (`409 stale_config`), which is
 correct. Read again and ask again. A stage move has no version: a relative
 move runs from wherever the stage is when the operator approves it, so
 say in the reason where you read it from. Before asking for a
-`requeue_task`, read the queue (`get_app_queue`): a pair already waiting is
+`workflow_requeue`, read the queue (`workflow_get_queue`): a pair already waiting is
 refused (`409 already_queued`).
 
 **Ask for what was asked.** When the operator asks for one thing, the
@@ -139,7 +139,7 @@ What happens next:
 
 - **Approved:** the actions run in order. Each runs through its own route,
   with its own checks. The first refusal stops the rest. Read the request
-  (`get_request`) when the `REQUEST … applied/failed` line arrives, and tell
+  (`request_get`) when the `REQUEST … applied/failed` line arrives, and tell
   the operator what was done. If it failed, say which action failed and the
   route's error (`results[i].error`). A `409 microscope_busy` names who has
   the microscope. Wait for them, or ask.
@@ -148,7 +148,7 @@ What happens next:
   about that. If there's no reason, ask in chat what they'd prefer before
   you file anything similar.
 - **Cancelled:** the level changed, or the operator pressed **Stop agent**.
-  Re-read `get_capabilities`. After Stop agent you are at Watch
+  Re-read `server_get_capabilities`. After Stop agent you are at Watch
   (`agent_stopped`). Stop asking, say where you left things, and keep
   watching.
 
@@ -158,7 +158,7 @@ it as an error to work around, and never retry it through another tool.
 
 ## The run's questions: suggest, don't answer
 
-When the watcher prints `PROMPT`, read `get_pending_prompt` and judge it as
+When the watcher prints `PROMPT`, read `prompt_get` and judge it as
 the supervise skill's *Answer* and *The prompt playbook* sections say: name
 the question, check image freshness, and separate reading from acting. Then
 **suggest** the answer:
@@ -173,19 +173,19 @@ The operator's click answers, as theirs, and the watcher's `ANSWERED` line
 shows `suggested_by=agent`. If they answer some other way, your suggestion
 is dropped. That's their call, not an error. For `EditAlignmentArea`,
 `PickPOI`, `ConfirmDetection` and `RunSpotBurn` a suggestion may carry a
-`value`, as `answer_prompt` would. It is placed on screen only if the
+`value`, as `prompt_answer` would. It is placed on screen only if the
 operator takes the suggestion.
 
 A **recorded question** (`QUESTION item=… task=…`, or a prompt saying
 `answer_via: "decide"`) is decided, not answered, so a suggestion is
-refused (`409 not_suggestible`). At Assist, file the `decide_review` call
+refused (`409 not_suggestible`). At Assist, file the `review_decide` call
 as a request, with your reason.
 
 A suggestion leaves the click to the operator, so the supervise skill's
 first-of-a-kind escalation is already met. Suggest when you can judge it.
 
 When you can't judge a question, don't suggest. Tell the operator what you
-see and that it's theirs, and put that on the record with `add_note`
+see and that it's theirs, and put that on the record with `experiment_add_note`
 (nobody else will). Typical cases:
 
 - an image you can't read, or one with no `acquired_at` (treat it as
@@ -201,7 +201,7 @@ A wrong stop isn't free: a mill stopped partway can spoil a lamella, and a
 stopped run loses hours. So at Assist the run and the operator's mill are
 the operator's to stop. When you believe the run is doing damage (milling
 the wrong place, a stage move that makes no sense, a task repeating), file
-`stop_workflow` or `stop_milling` as a request at once, with what you saw as
+`workflow_stop` or `milling_stop` as a request at once, with what you saw as
 the reason, and say it in chat: the operator approves it or presses Stop.
 
 A mill you started yourself you may stop directly, at Assist or Drive (never at
@@ -211,7 +211,7 @@ think". Ask in chat instead.
 
 ## Using the microscope
 
-Hardware actions (stage moves, images, autocontrast, device parameters and
+Hardware actions (stage moves, images, beam_auto_contrast, device parameters and
 commands) go in requests like any other action. They need the devices
 setting (`routers.microscope` true). Without it they are refused when you
 file them (`not_available`). Follow the supervise skill's *Using the
@@ -221,15 +221,15 @@ an approved move fails while moving, stop there: file no retry and no other
 route to the same place; read the stage, add a note and tell the operator.
 An image costs dose on a real sample, so a fresh one is an action at
 Assist: a direct call is refused (`403 ask_first`). To look without asking,
-read what is already there: the app's views (`get_display_images`, blank
+read what is already there: the app's views (`app_get_display_images`, blank
 until someone has acquired) and the images a task saved
-(`get_item_output_image`). If you need a new one to check a move, say so in
+(`item_get_output_image`). If you need a new one to check a move, say so in
 chat first, and when the operator agrees put the move and the image in one
 request.
 
 ## Notes
 
-`add_note` works at Assist as at Watch. Use it for a judgement worth
+`experiment_add_note` works at Assist as at Watch. Use it for a judgement worth
 keeping that you're not acting on ("02: fiducial out of frame in the start
 image; left for the operator"). A request's reason and a suggestion's
 reason are already on the record. Don't repeat them in a note.

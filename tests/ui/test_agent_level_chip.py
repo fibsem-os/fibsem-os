@@ -157,7 +157,7 @@ def _request(status="pending", results=(), request_id="ab12"):
         "reason": "the trench floor is high on 01",
         "actions": [
             {
-                "tool": "update_item_task_config",
+                "tool": "item_update_task_config",
                 "what": "01 · Rough Milling",
                 "change": "Rough Mill 01 · trench depth 0.6 µm → 0.8 µm",
                 "details": {
@@ -166,12 +166,12 @@ def _request(status="pending", results=(), request_id="ab12"):
                 },
             },
             {
-                "tool": "requeue_task",
+                "tool": "workflow_requeue",
                 "what": "01",
                 "change": "Queue Rough Milling to run again",
             },
             {
-                "tool": "move_stage_relative",
+                "tool": "stage_move_relative",
                 "what": "Stage",
                 "change": "Move by x 1 µm",
             },
@@ -588,7 +588,7 @@ def test_the_window_draws_a_waiting_request_s_mill_and_takes_it_down(main_ui, ho
     waiting = _request(request_id="mill1")
     waiting["actions"] = [
         {
-            "tool": "call_service_command",
+            "tool": "service_call_command",
             "arguments": {
                 "service": "milling",
                 "command": "prepare",

@@ -101,7 +101,7 @@ def image_metadata(image, path: Optional[str] = None) -> Dict[str, Any]:
     so the agent can tell an image is stale after a move, and its scale.
     ``pixel_size`` is measured, so it is the one to trust; ``hfw`` is what was
     asked for (FIB-482). Angles are in degrees, named so in the keys; lengths
-    in metres. The rest of the file's metadata is ``get_image_metadata``'s.
+    in metres. The rest of the file's metadata is ``experiment_get_image_metadata``'s.
     """
     data = image.data
     block: Dict[str, Any] = {

@@ -29,12 +29,12 @@ from fibsem.server.requests import RequestRefused, route_call  # noqa: E402
 from fibsem.structures import MicroscopeState  # noqa: E402
 
 AGENT = {"Authorization": "Bearer agent"}
-NUDGE = {"tool": "move_stage_relative", "arguments": {"dx": 1e-6}}
+NUDGE = {"tool": "stage_move_relative", "arguments": {"dx": 1e-6}}
 SUPERVISE = {
-    "tool": "set_task_supervision",
+    "tool": "protocol_set_supervision",
     "arguments": {"task_name": "MILL_ROUGH", "supervise": True},
 }
-STOP_MILL = {"tool": "stop_milling", "arguments": {"reason": "the mill is off target"}}
+STOP_MILL = {"tool": "milling_stop", "arguments": {"reason": "the mill is off target"}}
 MOVE_RELATIVE = "/microscope/services/stage_movement/commands/move_relative"
 _PROTOCOL = os.path.join(
     os.path.dirname(fibsem.applications.autolamella.__file__),
@@ -151,9 +151,9 @@ def test_one_request_waits_at_a_time(client):
     "action, reason, error_type",
     [
         ({"tool": "no_such_tool"}, "why", "unknown_tool"),
-        ({"tool": "get_stage_position"}, "why", "not_an_action"),
+        ({"tool": "stage_get_position"}, "why", "not_an_action"),
         (
-            {"tool": "update_item_task_config", "arguments": {"patch": {}}},
+            {"tool": "item_update_task_config", "arguments": {"patch": {}}},
             "why",
             "invalid_arguments",
         ),
@@ -218,7 +218,7 @@ def test_every_step_is_on_the_record_with_who_acted(client, app, context):
 
 def test_a_refused_action_stops_the_batch_with_the_routes_error(client, app):
     bad = {
-        "tool": "call_service_command",
+        "tool": "service_call_command",
         "arguments": {"service": "no_such_service", "command": "run"},
     }
     filed = _file(client, NUDGE, bad, NUDGE).json()
@@ -286,7 +286,7 @@ def test_assist_asks_to_stop_as_it_asks_for_the_rest(
         refused = client.post(path, headers=AGENT, json=body)
         assert refused.status_code == 403, path
         assert _detail(refused)["error_type"] == "ask_first"
-        assert "request_actions" in _detail(refused)["message"]
+        assert "request_create" in _detail(refused)["message"]
     filed = _file(client, STOP_MILL)
     assert filed.status_code == 202, filed.text
     # Something to stop (FIB-1398).
@@ -304,7 +304,7 @@ def test_a_request_whose_mill_was_stopped_says_so(
     is applied, and its result and end say the run was cut short (FIB-1398)."""
     monkeypatch.setattr(microscope.milling, "run", lambda stop_event=None: "cancelled")
     run = {
-        "tool": "call_service_command",
+        "tool": "service_call_command",
         "arguments": {"service": "milling", "command": "run"},
     }
     filed = _file(client, run).json()
@@ -395,22 +395,24 @@ def test_an_expiring_request_lapses_as_it_says(app):
 # The arguments a named tool cannot be called without.
 _AXES = {axis: 0.0 for axis in "xyzrt"}
 _SAMPLE_ARGUMENTS = {
-    "stable_move": {"dx": 1e-6, "dy": 0.0},
-    "vertical_move": {"dy": 1e-6},
-    "move_to_orientation": {"orientation": "SEM"},
-    "move_stage_absolute": _AXES,
-    "safe_move_stage_absolute": _AXES,
-    "move_to_milling_angle": {"milling_angle_deg": 18.0},
-    "align_to_reference": {"reference_path": "experiment/reference.tif"},
-    "acquire_overview": {"settings": {"nrows": 2, "ncols": 2}, "path": "experiment"},
-    "acquire_focus_stack": {"image_settings": {"hfw": 1e-4}, "path": "experiment"},
-    "acquire_fm_overview": {
+    "stage_stable_move": {"dx": 1e-6, "dy": 0.0},
+    "stage_vertical_move": {"dy": 1e-6},
+    "stage_move_to_orientation": {"orientation": "SEM"},
+    "stage_move_absolute": _AXES,
+    "stage_move_to_milling_angle": {"milling_angle_deg": 18.0},
+    "alignment_align_to_reference": {"reference_path": "experiment/reference.tif"},
+    "beam_acquire_overview": {
+        "settings": {"nrows": 2, "ncols": 2},
+        "path": "experiment",
+    },
+    "beam_acquire_focus_stack": {"image_settings": {"hfw": 1e-4}, "path": "experiment"},
+    "fm_acquire_overview": {
         "channels": [{"name": "GFP"}],
         "parameters": {"rows": 1, "cols": 2},
         "path": "experiment",
     },
-    "call_command": {"device": "stage", "command": "home"},
-    "call_service_command": {"service": "milling", "command": "run"},
+    "device_call_command": {"device": "stage", "command": "home"},
+    "service_call_command": {"service": "milling", "command": "run"},
 }
 
 
@@ -429,7 +431,7 @@ def test_each_action_is_described_by_the_server_with_old_and_new(client, context
     item = context._host.experiment.positions[0]
     item.description = "first pass"
     edit = {
-        "tool": "update_item_detail",
+        "tool": "item_update",
         "arguments": {
             "item_name": item.name,
             "patch": {"description": "trench floor high"},
@@ -456,7 +458,7 @@ def test_a_config_edit_reads_as_its_form_names_it_in_display_units(client, conte
     item.task_config["Rough Milling"] = rough
     stage = "milling.mill_rough.stages.0"
     edit = {
-        "tool": "update_item_task_config",
+        "tool": "item_update_task_config",
         "arguments": {
             "item_name": item.name,
             "task_name": "Rough Milling",
@@ -496,7 +498,7 @@ def test_a_mill_reads_as_its_patterns_and_its_run_as_how_long():
     prepare, run = describe_actions(
         [
             (
-                "call_service_command",
+                "service_call_command",
                 {
                     "service": "milling",
                     "command": "prepare",
@@ -508,7 +510,7 @@ def test_a_mill_reads_as_its_patterns_and_its_run_as_how_long():
                 },
                 "/x",
             ),
-            ("call_service_command", {"service": "milling", "command": "run"}, "/x"),
+            ("service_call_command", {"service": "milling", "command": "run"}, "/x"),
         ]
     )
     assert prepare["what"] == "Milling"
@@ -527,27 +529,27 @@ def test_a_mill_reads_as_its_patterns_and_its_run_as_how_long():
     "tool, arguments, line",
     [
         (
-            "stable_move",
+            "stage_stable_move",
             {"dx": 33e-6, "dy": -27e-6, "beam_type": "ION"},
             ("Stage", "Stable move in the ion beam: 33 µm right, 27 µm down"),
         ),
         (
-            "stop_milling",
+            "milling_stop",
             {"reason": "off target"},
             ("Milling", "Stop the mill now running"),
         ),
         (
-            "move_to_orientation",
+            "stage_move_to_orientation",
             {"orientation": "fib"},
             ("Stage", "Move to the FIB orientation"),
         ),
         (
-            "call_service_command",
+            "service_call_command",
             {"service": "milling", "command": "run"},
             ("Milling", "Run"),
         ),
         (
-            "call_command",
+            "device_call_command",
             {"device": "ion_beam", "command": "autofocus"},
             ("Ion beam", "Autofocus"),
         ),
@@ -565,7 +567,7 @@ def test_a_long_argument_is_cut_in_the_line_and_whole_in_the_details():
 
     path = "/data/" + "a" * 80 + ".tif"
     described = describe_action(
-        "call_service_command",
+        "service_call_command",
         {"service": "imaging", "command": "focus_sweep", "kwargs": {"path": path}},
         "/x",
     )
@@ -586,9 +588,12 @@ def test_an_unknown_tool_in_the_describer_falls_back_to_its_name():
 @pytest.mark.parametrize(
     "action",
     [
-        {"tool": "call_command", "arguments": {"device": "stage", "command": "home"}},
         {
-            "tool": "set_parameter",
+            "tool": "device_call_command",
+            "arguments": {"device": "stage", "command": "home"},
+        },
+        {
+            "tool": "device_set_parameter",
             "arguments": {"device": "electron", "parameter": "on", "value": False},
         },
     ],
@@ -641,7 +646,7 @@ def test_the_sidecar_shows_an_approved_image_as_an_image(client, app):
 
     from fibsem.mcp.sidecar import build_sidecar
 
-    image = {"tool": "acquire_image_preview", "arguments": {"beam_type": "ION"}}
+    image = {"tool": "beam_acquire_image", "arguments": {"beam_type": "ION"}}
     request_id = _file(client, image).json()["request_id"]
     store = app.state.requests
     store.approve(request_id)
@@ -649,7 +654,7 @@ def test_the_sidecar_shows_an_approved_image_as_an_image(client, app):
 
     client.headers.update(AGENT)
     sidecar = build_sidecar(client, client.get("/capabilities").json())
-    result = asyncio.run(sidecar.call_tool("get_request", {"request_id": request_id}))
+    result = asyncio.run(sidecar.call_tool("request_get", {"request_id": request_id}))
     if isinstance(result, tuple):
         result = result[0]
     contents = list(getattr(result, "content", result))

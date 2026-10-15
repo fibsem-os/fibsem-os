@@ -231,7 +231,7 @@ def test_sidecar_returns_a_saved_output_as_image_content(client, host):
     def call(filename):
         result = asyncio.run(
             sidecar.call_tool(
-                "get_item_output_image",
+                "item_get_output_image",
                 {"item_name": lamella.name, "filename": filename},
             )
         )
@@ -307,10 +307,10 @@ def test_sidecar_grows_the_app_tools_from_capabilities(client):
     assert "Needs the agent at Drive" in next(
         t.description
         for t in getattr(listed, "tools", listed)
-        if t.name == "answer_prompt"
+        if t.name == "prompt_answer"
     )
 
-    result = asyncio.run(sidecar.call_tool("get_app_status", {}))
+    result = asyncio.run(sidecar.call_tool("app_get_status", {}))
     if isinstance(result, tuple):
         result = result[0]
     contents = list(getattr(result, "content", result))
@@ -636,7 +636,7 @@ def test_sidecar_returns_a_grid_overview_as_image_content(client, grid_with_over
     def call(filename):
         result = asyncio.run(
             sidecar.call_tool(
-                "get_grid_output_image",
+                "grid_get_output_image",
                 {"grid_name": "grid-aspen", "filename": filename},
             )
         )

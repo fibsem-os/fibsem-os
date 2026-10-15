@@ -116,7 +116,7 @@ def test_the_preview_tool_images_through_the_imaging_service(armed_client):
     image settings when it gives them."""
     from fibsem.server.catalog import CATALOG, route_call
 
-    spec = next(t for t in CATALOG if t.name == "acquire_image_preview")
+    spec = next(t for t in CATALOG if t.name == "beam_acquire_image")
     method, path, body = route_call(
         spec,
         {

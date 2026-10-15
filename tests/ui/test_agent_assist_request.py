@@ -33,7 +33,7 @@ from fibsem.structures import MicroscopeState  # noqa: E402
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
-START = {"tool": "start_workflow", "arguments": {"task_names": ["Mill Fiducial"]}}
+START = {"tool": "workflow_start", "arguments": {"task_names": ["Mill Fiducial"]}}
 
 
 @pytest.fixture

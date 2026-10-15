@@ -16,13 +16,13 @@ ever lost by waiting.
 
 **Prefer the native MCP tools.** If `mcp__fibsem__*` tools are available in
 your session, use them for everything below *except the Watch step* —
-`get_capabilities`, `get_pending_prompt`, `answer_prompt`, `start_workflow`,
+`server_get_capabilities`, `prompt_get`, `prompt_answer`, `workflow_start`,
 and the rest map one-to-one onto the HTTP surface, and they avoid
 shell-permission friction entirely. (The tools come from the `fibsem-mcp`
 sidecar; if they are missing, the sidecar is not registered in this session's
 MCP config — e.g. `claude mcp add -s user fibsem -- fibsem-mcp` — and the HTTP fallback
 below works regardless.) Watching is the exception either way: looping the
-`get_events` tool in the foreground blocks you from acting, so
+`app_get_events` tool in the foreground blocks you from acting, so
 `fibsem-mcp watch` stays the watch mechanism even when MCP is connected.
 
 Fallback is plain HTTP; the running app advertises itself in a discovery
@@ -131,7 +131,7 @@ question is stale), task lifecycle `EVENT` lines, `GAP` (events were lost:
 re-read `/app/workflow/prompt` and `/app/workflow/status`), and `RUN ENDED` (report and stop
 watching). A run that ended badly says how: `workflow_stalled` (decisions
 are pending), `workflow_failed: <error>`, or `stopped without an end event`
-(it died without saying so). For the last two, read `get_log` with the
+(it died without saying so). For the last two, read `app_get_log` with the
 run's `task_id` and `level=WARNING` before you report. It exits 1 when the app cannot be watched; say so rather than
 going idle.
 
@@ -141,7 +141,7 @@ line will ever wake you), do not go idle expecting one. Hold the watch in
 the foreground of a single bounded command instead: run the watcher with
 your tool timeout as the cap, act on whatever lines it printed when the
 command returns, and run it again with `--since <the last seq you saw>`
-(`latest_seq` from `get_events`) so the gap between runs is not lost. A stalled watch looks exactly like a
+(`latest_seq` from `app_get_events`) so the gap between runs is not lost. A stalled watch looks exactly like a
 quiet run — when in doubt, read `/app/workflow/prompt` directly.
 
 ## Answer — the rules that are never optional
@@ -164,23 +164,23 @@ quiet run — when in doubt, read `/app/workflow/prompt` directly.
 5. **A recorded question is decided, not answered.** With the review
    preference on, a task asks a detection or a position confirmation on the
    item's record and stops on it. No prompt is raised: the watcher prints a
-   `QUESTION item=… task=…` line, and `get_pending_reviews` lists it with
+   `QUESTION item=… task=…` line, and `review_list` lists it with
    `holding_the_run: true` (its `proposal_id`, `values` and image are
-   there). Decide it with `decide_review`: `item_id`, `task_name`,
+   there). Decide it with `review_decide`: `item_id`, `task_name`,
    `proposal_id`, the outcome, and — on Confirmed — every value the kind
    carries, as proposed or adjusted. Rejected needs a reason and fails the
    task that asked, so when unsure hold and escalate rather than reject.
    Take a `holding_the_run` review before anything else in the inbox:
    nothing runs until it is decided. (An older path still exists: a prompt
    whose payload says `answer_via: "decide"` carries a `decide` block with
-   the same three fields; `answer_prompt` on it is refused with nothing
-   clicked, and `decide_review` is the answer there too.)
+   the same three fields; `prompt_answer` on it is refused with nothing
+   clicked, and `review_decide` is the answer there too.)
 
 ## Write down why
 
 Chat is not kept; the experiment folder is. Every time you act (answer,
 decide, start, stop, re-queue, edit) or suggest an action at Watch, call
-`add_note` with the item's name, before the action. The note lands in the
+`experiment_add_note` with the item's name, before the action. The note lands in the
 experiment's `events.jsonl` and `logfile.log`, beside what you did.
 
 A note says what you looked at and what you saw in it, then what you did:
@@ -302,7 +302,7 @@ The argument selects a variation on the same loop:
 - **batch-review**: supervision is off or minimal; let the run complete, then
   present the outputs (`/app/workflow/run_summary`, `/app/experiment/items/{item}/outputs`,
   `/app/experiment/items/{item}`, final images) and act on the verdicts —
-  `requeue_task` for items in a running workflow, `start_workflow` for a
+  `workflow_requeue` for items in a running workflow, `workflow_start` for a
   fresh round. Whose verdicts is a **policy question you settle up front**,
   never a judgment you assume: at the start of the session, ask the operator
   (or take it from your instructions) whether you **propose** reruns for
@@ -312,7 +312,7 @@ The argument selects a variation on the same loop:
   behind it. A rerun spends beam time and dose on a possibly marginal
   lamella — whenever the delegation is unclear, propose.
 - **grid review**: after a screening run, `GET /app/experiment/grids` lists each grid
-  with its latest overview per role; `get_grid_output_image` (`GET
+  with its latest overview per role; `grid_get_output_image` (`GET
   /app/experiment/grids/{grid}/outputs/{file}`) is the preview and `.../markers` places the experiment's items on it in
   source pixels with their status — use it for "which items sit near the
   edge / off the grid" judgments, never re-derive stage geometry yourself.
@@ -343,7 +343,7 @@ The argument selects a variation on the same loop:
 
 ## Using the microscope (Drive)
 
-Moving the stage, acquiring images, autocontrast, and device parameters and
+Moving the stage, acquiring images, beam_auto_contrast, and device parameters and
 commands. Supervising never needs these: use them only when the operator asks
 for something on the microscope, and say what you are about to do first.
 
@@ -355,51 +355,51 @@ way in. A hardware tool missing from your tool list means the same thing.
 
 **Get your bearings once, before the first move.** On an instrument you
 have not used this session:
-- `list_devices` shows what it has: the beams, detectors, stage and an FM.
-- Read `get_parameter` `on` for the electron and ion beams. If one is off,
+- `device_list` shows what it has: the beams, detectors, stage and an FM.
+- Read `device_get_parameter` `on` for the electron and ion beams. If one is off,
   stop and tell the operator: switching a beam on is theirs. Note it if a
   beam reads `blanked`. Some instruments have no `blanked`.
-- `get_geometry` gives the stage's poses, column tilts, pre-tilt, device
+- `stage_get_geometry` gives the stage's poses, column tilts, pre-tilt, device
   origins and the milling angle. It also gives, for each beam at the pose and
-  scan rotation now, the stage move a +1 µm `stable_move` along each image
+  scan rotation now, the stage move a +1 µm `stage_stable_move` along each image
   axis makes, and which way raw +z goes. If a view says
   `scan_rotation_handled: false`, its image axes are not the stage's: don't
-  `stable_move` from it.
-- `get_microscope_state` gives each beam's voltage, current, working
+  `stage_stable_move` from it.
+- `microscope_get_state` gives each beam's voltage, current, working
   distance and scan rotation, the detectors' type and mode, and the stage
   position. Say what you read, and anything that looks wrong for the task
   (a milling current on the imaging beam, a detector the operator
   doesn't use).
-- Take an initial image with each beam (`acquire_image_preview`) and look
+- Take an initial image with each beam (`beam_acquire_image`) and look
   at it before moving: is the sample in view and in focus?
-- Then confirm the geometry with one small `stable_move` and a fresh image,
+- Then confirm the geometry with one small `stage_stable_move` and a fresh image,
   and check that the feature went where it says. If it did not, stop and
   tell the operator what you saw, rather than correcting by hand.
 
 **Read the microscope before each step, not once.** The operator, a run or
 a script may have moved it since you last looked. Before a move, read
-`get_stage_position`; before judging what is under the beam, take a fresh
-image (`acquire_image_preview`) rather than trusting the last one. Say what
+`stage_get_position`; before judging what is under the beam, take a fresh
+image (`beam_acquire_image`) rather than trusting the last one. Say what
 you read when you act on it.
 
-**Move with `stable_move`.** To bring something you see to the centre of
-an image, call `stable_move` with its offset from the image centre in
+**Move with `stage_stable_move`.** To bring something you see to the centre of
+an image, call `stage_stable_move` with its offset from the image centre in
 metres, x to the right and y up, and the beam the image came from. From a
 preview: `dx = (px - width/2) * hfw / width`, `dy = (height/2 - py) * hfw /
 width` (pixel rows count down, so y flips). The server turns that into the
 stage x, y and z for that beam's viewing angle and the stage tilt, rotation
 and scan rotation, so the sample slides along its own surface at the same
 height. The feature stays in focus, and at the coincidence point it stays in
-view of the other beam too. `move_stage_relative` moves the raw stage axes:
+view of the other beam too. `stage_move_relative` moves the raw stage axes:
 on a tilted stage a y move there also changes the sample's height, so the
 feature goes out of focus and drifts out of the other beam, and you have no
 way to tell from the numbers where it will land. Use it only when the
 operator gives you stage coordinates.
 
-`stable_move` uses the stage and scan rotation as they are now. An offset
+`stage_stable_move` uses the stage and scan rotation as they are now. An offset
 measured on an older image is only right if neither has changed since; after
 a rotation or a scan-rotation change, take a new image and measure again.
-Before a large stable move, `call_service_query` `project_stable_move` with
+Before a large stable move, `service_call_query` `project_stable_move` with
 the same offset answers where the stage would go without moving it.
 
 Measure on a preview with its own scale: `hfw / width` per preview pixel.
@@ -407,14 +407,14 @@ The `pixelsize` in an image answer is per pixel of the full image, which is
 larger than the preview.
 
 The rest of the moves, by when to use them:
-- `vertical_move`: the feature is centred in one beam's image but off in
+- `stage_vertical_move`: the feature is centred in one beam's image but off in
   the other. Pass its offset in the image where it is off, and that beam as
   `beam_type` (ION, the default, or ELECTRON); it moves the stage along the
   chamber vertical, which the beam where the feature is centred doesn't see.
-- `move_to_orientation` (SEM, FIB, MILLING) and `move_to_milling_angle`:
+- `stage_move_to_orientation` (SEM, FIB, MILLING) and `stage_move_to_milling_angle`:
   change the stage's rotation and tilt.
-- `safe_move_stage_absolute`: go back to a saved position. It tilts flat
-  before a large rotation; `move_stage_absolute` moves every axis at once.
+- `stage_move_absolute`: go back to a saved position. It tilts flat
+  before a large rotation.
 
 After every move, read the position back and compare it with what you
 asked for, then take a fresh image and check where the feature landed before
@@ -423,8 +423,8 @@ read back says so. Move z in small steps and tilt in steps, with an image
 after each.
 
 **Coincidence: do it yourself.** To bring the beams onto the same feature,
-centre it in one beam with `stable_move`, find it in the other beam's image,
-and `vertical_move` by its offset there (`beam_type` = the beam you measured
+centre it in one beam with `stage_stable_move`, find it in the other beam's image,
+and `stage_vertical_move` by its offset there (`beam_type` = the beam you measured
 in). Cap each step to a few µm, take both images again, and repeat until it
 is centred in both. Work from whichever beam has it centred already. Don't
 use the coincidence commands: this loop worked better on a real instrument.
@@ -439,41 +439,41 @@ same place another way. Read the stage position, add a note saying what you
 asked for and what happened, and hand back to the operator.
 
 **Milling.** Mill a protocol's stage with milling `run_stage` (a
-`FibsemMillingStage` dict, e.g. one from `get_item_task_config`) and a
+`FibsemMillingStage` dict, e.g. one from `item_get_task_config`) and a
 multi-stage job with `run_task` (a `FibsemMillingTaskConfig` dict). They mill
 as the app does: each stage's strategy, alignment between stages, the beam put
 back. Leave `path` out or give one inside the experiment. Before milling,
-`get_pattern_preview` with a saved ion image and the stages shows where they
-will mill; look at it. Both are long commands: `wait_for_run` milling, and the
+`milling_preview_patterns` with a saved ion image and the stages shows where they
+will mill; look at it. Both are long commands: `service_wait_for_run` milling, and the
 result says the status, the folder and how each stage ended.
 Only where neither fits, `prepare` the settings and patterns, mill with `run` (not
 `start`, which reports no progress and records nothing), then `clear` and
 `restore`, and check the ion beam current is back where it was. `run`
 answers at once with its `run_id` (`state: running`) and mills on, in control
-of the microscope: call `wait_for_run` milling with that id, again while it
+of the microscope: call `service_wait_for_run` milling with that id, again while it
 says running, before you `clear`. It ends `done` (`result: completed`),
-`cancelled` or `failed` with its error. `get_service_parameter` milling
+`cancelled` or `failed` with its error. `service_get_parameter` milling
 `progress` shows how far it has got. A spot burn `run` works the same way.
 
 **Aligning to a reference.** To bring the view back onto a saved image (a
-task's reference from `get_task_outputs`, or one you saved), `measure_shift`
+task's reference from `item_list_outputs`, or one you saved), `alignment_measure_shift`
 the reference against a fresh saved image to see how far off you are, then
-`align_to_reference`: beam shift for a small offset, `stage` when it is beyond
-the beam shift's range. It is a long command; `wait_for_run` alignment gives
+`alignment_align_to_reference`: beam shift for a small offset, `stage` when it is beyond
+the beam shift's range. It is a long command; `service_wait_for_run` alignment gives
 each step's shift and whether the methods agree on what is left. If they don't
 agree, or the score stays low, the view has changed (milled, drifted out of
 frame): stop and tell the operator rather than aligning again.
 
-**Overviews and focus stacks.** `acquire_overview` images a grid of tiles
+**Overviews and focus stacks.** `beam_acquire_overview` images a grid of tiles
 around where the stage is and stitches them; the stage moves to each tile and
-comes back. Ask `estimate_overview` first: it gives the tile count and the scan
+comes back. Ask `beam_estimate_overview` first: it gives the tile count and the scan
 time, but not the stage moves, which often take longer than the scanning, so a
-3 x 3 that scans for seconds still takes minutes. `acquire_focus_stack` focuses
+3 x 3 that scans for seconds still takes minutes. `beam_acquire_focus_stack` focuses
 and images a frame in strips, for a tilted view one focus can't hold. Both save
 into a folder you name inside the experiment and are long commands:
-`wait_for_run` imaging gives the image and its path, and `call_service_command`
-imaging `stop`, with a reason, ends either one. `acquire_fm_overview` is the
-fluorescence one, from the FM pose with the objective in; `estimate_fm_overview`
+`service_wait_for_run` imaging gives the image and its path, and `service_call_command`
+imaging `stop`, with a reason, ends either one. `fm_acquire_overview` is the
+fluorescence one, from the FM pose with the objective in; `fm_estimate_overview`
 gives its whole run time, stage moves included, and the same `stop` ends it.
 
 **`409 microscope_busy` is someone else working.** Its
@@ -497,13 +497,13 @@ show them acting (a `stage_position_changed` or acquisition event with
 ## Editing configuration (Drive)
 
 At Drive you can change task parameters. At Watch you can still read them
-(`get_protocol_task_config`, `get_item_task_config`).
+(`protocol_get_task_config`, `item_get_task_config`).
 
 Two levels, one dance:
 
-- **Per-item** (`update_item_task_config`): the config this item's next run
+- **Per-item** (`item_update_task_config`): the config this item's next run
   of that task will execute.
-- **Protocol** (`update_protocol_task_config`): the defaults new items
+- **Protocol** (`protocol_update_task_config`): the defaults new items
   copy. Never affects existing items — they hold their own copies.
 
 The dance: **read, patch against that read's `version`, report**. A
@@ -514,14 +514,14 @@ config for the run in progress — patch after it finishes. Values are SI
 (metres, amps); bounds are validated for you and refusals name the
 failing path.
 
-Scheduling is Drive too: `set_task_schedule` sets or clears
+Scheduling is Drive too: `protocol_set_schedule` sets or clears
 when a task may start (ISO-8601, instrument-local when naive; null
 clears). The workflow reads it at each task start, so it never interrupts
 anything running.
 
 So is the run summary: by default the summary dialog opens at the end of
 every run. Before you start runs yourself, turn it off with
-`set_workflow_options(show_run_summary=false)` so no dialog is left over
+`workflow_set_options(show_run_summary=false)` so no dialog is left over
 the operator's window, and tell them you did. Each run's end still shows a
 toast with a Show summary link, and it stays in the notification bell.
 Read `/app/workflow/run_summary` for the outcome yourself. If the operator turns it

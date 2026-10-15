@@ -519,7 +519,7 @@ def test_capabilities_reflect_the_level(ui, qapp):
                 client.get("/capabilities", headers=AUTH).json()
             )
         }
-        assert "answer_prompt" in names
+        assert "prompt_answer" in names
     with _client(ui, arm_control=False) as client:
         from fibsem.server.catalog import tools_for_capabilities
 
@@ -529,6 +529,6 @@ def test_capabilities_reflect_the_level(ui, qapp):
                 client.get("/capabilities", headers=AUTH).json()
             )
         }
-        assert "get_pending_prompt" in names
+        assert "prompt_get" in names
         # Offered at Watch too: the server refuses it (FIB-1035).
-        assert "answer_prompt" in names
+        assert "prompt_answer" in names

@@ -245,7 +245,7 @@ def _level_detail(auth: AuthConfig, needed: AgentLevel) -> dict:
             "error_type": "ask_first",
             "level": AgentLevel.ASSIST.value,
             "message": "At Assist the agent asks before it acts: put this call "
-            "in a request (request_actions, POST /app/agent/requests) with your "
+            "in a request (request_create, POST /app/agent/requests) with your "
             "reason, and the operator approves or rejects it in AutoLamella.",
         }
     return {

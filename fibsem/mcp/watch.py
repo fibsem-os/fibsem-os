@@ -1,7 +1,7 @@
 """``fibsem-mcp watch``: long-poll a running app's events, one line per wake-up.
 
 MCP is request-response: the App Server cannot wake an idle agent, and a
-looping ``get_events`` tool blocks the agent's turn while it waits. So an
+looping ``app_get_events`` tool blocks the agent's turn while it waits. So an
 agent runs this as a background process its harness monitors, and each line
 it prints wakes the agent. It must never be the actor: run in the foreground,
 it would block the agent from acting on what it prints.
@@ -132,7 +132,7 @@ def _print_events(events, since, out):
             out(
                 f"QUESTION item={data.get('item_name')} task={data.get('task_name')} "
                 "-- the run is stopped on a recorded question: find it in "
-                "get_pending_reviews (holding_the_run) and decide it"
+                "review_list (holding_the_run) and decide it"
             )
         elif kind == "question_released":
             out(
