@@ -15,7 +15,8 @@ fibsem/                     the instrument library (no application logic)
   microscope.py             FibsemMicroscope, the abstract class every backend
                             implements
   devices/                  the devices: beam, stage, chamber, chamber camera,
-                            manipulator, sample loader, scanner, fm;
+                            manipulator, sample loader, scanner, gis,
+                            sputter coater, fm;
                             vendor-neutral, never imports a driver
   services/                 the services: imaging, stage movement, milling,
                             spot burn, sample handling, alignment;

@@ -89,13 +89,15 @@ same map:
 | `microscope.devices["chamber_camera"]` | `ChamberCamera` | `chamber_camera` |
 | `microscope.manipulator_device` | `Manipulator` | `manipulator` |
 | `microscope.devices["sample_loader"]` | `SampleLoader` | `sample_loader` |
+| `microscope.devices["gis"]`, `microscope.devices["sputter_coater"]` | `GasInjector`, `SputterCoater` | the entry's name (see [below](#the-gas-injector-and-the-sputter-coater)) |
 | `microscope.fm_devices` | `FM` and its parts | `fm`, `camera`, `light_source`, `filter_set`, `objective` |
 
 `microscope.stage_device` is an older name for `microscope.stage` and is kept as an
 alias. The vendor's own stage object is private to each backend.
 
 The device classes are in `fibsem.devices` (`Beam`, `Stage`, `Chamber`,
-`ChamberCamera`, `Manipulator`, `Scanner`), `fibsem.devices.sample_loader`
+`ChamberCamera`, `Manipulator`, `Scanner`, `GasInjector`, `SputterCoater`),
+`fibsem.devices.sample_loader`
 (`SampleLoader`) and `fibsem.devices.fm` (`FM`, `Camera`, `LightSource`, `FilterSet`,
 `Objective`). Each backend subclasses them in `fibsem/drivers/<driver>/devices.py`.
 
