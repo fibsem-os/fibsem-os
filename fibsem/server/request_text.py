@@ -837,6 +837,112 @@ def _review_item(reviews: Any, item_id: Any) -> Optional[str]:
     return None
 
 
+# --- grids on the hardware: what an exchange will do ---------------------------------
+
+_SAMPLE_HANDLING = "/microscope/services/sample_handling/queries/"
+
+
+def _result(answer: Any) -> Any:
+    return answer.get("result") if isinstance(answer, dict) else None
+
+
+def _loaded(inventory: List[Dict[str, Any]]) -> Optional[str]:
+    """The grid on the stage now, by name."""
+    return next((e.get("name") for e in inventory if e.get("state") == "loaded"), None)
+
+
+def _grid_load(name: str, inventory: Any) -> str:
+    """``Load grid 'G2' from Slot-02 (unloads 'G1' first)``: the exchange the
+    loader will make, from the inventory as it reads now."""
+    change = f"Load grid '{name}'"
+    if not isinstance(inventory, list) or not inventory:
+        return change
+    entry = next((e for e in inventory if e.get("name") == name), None)
+    if entry is None:
+        return change + ": it is not in the inventory"
+    if entry.get("source") != "magazine":
+        return change + f": it is in {entry.get('slot_name')} already, nothing moves"
+    if entry.get("state") == "loaded":
+        return change + ": it is on the stage already, nothing moves"
+    change += f" from {entry.get('slot_name')}"
+    current = _loaded(inventory)
+    return change + (f" (unloads '{current}' first)" if current else "")
+
+
+def _grid_unload(inventory: Any) -> str:
+    if not isinstance(inventory, list) or not inventory:
+        return "Return the grid on the stage to the magazine"
+    if inventory[0].get("source") != "magazine":
+        return "Unload: nothing to do on a fixed holder"
+    current = _loaded(inventory)
+    if current is None:
+        return "Unload: no grid is on the stage"
+    return f"Return grid '{current}' to the magazine"
+
+
+def _slot_move(change: str, slot: Optional[Dict[str, Any]], now: Any) -> str:
+    """A move to a holder slot, with where that is and where the stage is now."""
+    target = slot.get("position") if slot else None
+    if target:
+        change += f": {_position(target)}"
+    elif slot is not None:
+        change += ": the slot is not calibrated, so it will be refused"
+    if target and now:
+        change += f"\nfrom {_position(now)}"
+    return change
+
+
+# The sample handling commands that have a tool of their own: called either way,
+# a request reads the same.
+_GRID_COMMANDS = {
+    "ensure_loaded": "grid_load",
+    "unload": "grid_unload",
+    "run_inventory": "grid_run_inventory",
+    "move_to_grid": "grid_move_to",
+    "move_to_slot": "grid_move_to_slot",
+}
+
+
+def _grid_line(
+    tool: str,
+    a: Dict[str, Any],
+    get: Callable[[str], Any],
+    stage_now: Callable[[], Optional[Dict[str, Any]]],
+) -> Dict[str, Any]:
+    if tool == "grid_load":
+        inventory = _result(get(_SAMPLE_HANDLING + "get_inventory"))
+        return {
+            "what": "Grids",
+            "change": _grid_load(str(a.get("grid_name")), inventory),
+        }
+    if tool == "grid_unload":
+        inventory = _result(get(_SAMPLE_HANDLING + "get_inventory"))
+        return {"what": "Grids", "change": _grid_unload(inventory)}
+    if tool == "grid_run_inventory":
+        return {
+            "what": "Grids",
+            "change": "Scan the magazine slot by slot, to read which grids it holds",
+        }
+    slots = _result(get(_SAMPLE_HANDLING + "holder_slots"))
+    slots = slots if isinstance(slots, list) else []
+    if tool == "grid_move_to":
+        name = str(a.get("grid_name"))
+        change = f"Move to grid '{name}'"
+        slot = next(
+            (s for s in slots if (s.get("loaded_grid") or {}).get("name") == name),
+            None,
+        )
+        if slot is not None:
+            change += f", in {slot.get('name')}"
+        elif slots:
+            change += ": it is not on the stage, so it will be refused"
+    else:
+        name = str(a.get("slot_name"))
+        change = f"Move to slot '{name}'"
+        slot = next((s for s in slots if s.get("name") == name), None)
+    return {"what": "Stage", "change": _slot_move(change, slot, stage_now())}
+
+
 def describe_actions(
     actions: Sequence[Tuple[str, Dict[str, Any], str]],
     read: Optional[Reader] = None,
@@ -956,6 +1062,8 @@ def _line(
             "what": "Stage",
             "change": f"Move to the {str(a.get('orientation', '')).upper()} orientation",
         }
+    if tool in _GRID_COMMANDS.values():
+        return _grid_line(tool, a, get, stage_now)
     if tool == "milling_stop":
         return {"what": "Milling", "change": _MILLING["stop"]}
     if tool == "stage_move_to_milling_angle":
@@ -1016,6 +1124,10 @@ def _line(
             line = _milling_command(str(a.get("command")), kwargs, estimate)
             if line is not None:
                 return line
+        if tool == "service_call_command" and owner == "sample_handling":
+            grid_tool = _GRID_COMMANDS.get(str(a.get("command")))
+            if grid_tool is not None:
+                return _grid_line(grid_tool, kwargs, get, stage_now)
         extra = ", ".join(f"{_words(k)} {_clip(_short(v))}" for k, v in kwargs.items())
         if len(extra) > 2 * _LINE_VALUE:
             extra = _plural(len(kwargs), "argument")

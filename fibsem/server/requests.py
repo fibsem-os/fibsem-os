@@ -603,9 +603,14 @@ class RequestStore:
             action.details = line.get("details")
 
     def _read(self, path: str) -> Optional[Dict[str, Any]]:
-        """GET a route in this process: the document a config edit patches."""
+        """Read a route in this process: the document a config edit patches, or
+        a service query's answer (a query moves nothing), such as which grid an
+        exchange unloads."""
+        method, body = (
+            ("POST", {"kwargs": {}}) if "/queries/" in path else ("GET", None)
+        )
         code, answer = asyncio.run(
-            _asgi_call(self._app, "GET", path, None, self._auth.token)
+            _asgi_call(self._app, method, path, body, self._auth.token)
         )
         return answer if code < 400 and isinstance(answer, dict) else None
 

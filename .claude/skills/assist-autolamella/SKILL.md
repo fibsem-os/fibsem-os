@@ -242,6 +242,12 @@ until someone has acquired) and the images a task saved
 chat first, and when the operator agrees put the move and the image in one
 request.
 
+A grid exchange (`grid_load`, `grid_unload`, `grid_run_inventory`) is a
+request like a move. The operator's line says which grid comes out and which
+goes in, so give the reason for the exchange, not a description of it. Put
+`grid_load` and `grid_move_to` in one request when you want to look at the
+grid.
+
 ## Notes
 
 `experiment_add_note` works at Assist as at Watch. Use it for a judgement worth

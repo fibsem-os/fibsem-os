@@ -368,6 +368,15 @@ The argument selects a variation on the same loop:
   the same body; `screen_all: true` inventories and runs every present grid.
   One run at a time: it is refused while a lamella run is live, and a
   lamella start is refused while a grid run is.
+- **one grid by hand** (Drive): `grid_list` is the experiment's records;
+  `grid_get_inventory` is the hardware now, and says which grid is loaded.
+  `grid_load` brings a grid onto the stage by name. With an autoloader that is
+  an exchange: the loaded grid goes back to the magazine first, so say which
+  grid comes out before you load. It does not move the stage; follow it with
+  `grid_move_to`. `grid_unload` returns the grid; `grid_run_inventory` scans
+  the magazine again (minutes). All three are long: wait with
+  `service_wait_for_run sample_handling`. A grid run loads its own grids, so
+  never load ahead of one.
 
 ## Acting beyond answers (Drive)
 
