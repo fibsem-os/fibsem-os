@@ -143,7 +143,8 @@ def test_with_nothing_waiting_the_card_says_what_the_agent_is_doing(qapp):
     card.set_now("stable move")
     shown = _labels(card)
     assert "stable move" in shown
-    assert "WAITING FOR YOU" in shown and "Nothing." in shown
+    # Nothing waits, so no "Waiting for you".
+    assert "WAITING FOR YOU" not in shown
     card.deleteLater()
 
 
@@ -606,6 +607,39 @@ def test_the_window_draws_a_waiting_request_s_mill_and_takes_it_down(main_ui, ho
     host.requests.requests = [dict(waiting, status="rejected")]
     main_ui._refresh_agent_chip()
     assert main_ui.agent_previews.drawn == []
+
+
+def test_the_card_is_narrow_until_something_waits(qapp):
+    from PyQt5.QtWidgets import QMainWindow
+
+    from fibsem.applications.autolamella.ui.agent_card import STACK_BELOW
+    from fibsem.applications.autolamella.ui.agent_level_chip import (
+        NARROW_WIDTH,
+        WIDE_WIDTH,
+    )
+
+    window = QMainWindow()
+    chip = AgentLevelChip()
+    window.statusBar().addPermanentWidget(chip)
+    window.show()
+    chip.set_level(AgentLevel.WATCH)
+    chip.toggle_card()
+    qapp.processEvents()
+    assert NARROW_WIDTH <= chip.popup.width() < STACK_BELOW and not chip.card.wide
+
+    chip.set_request(_request())
+    qapp.processEvents()
+    assert chip.popup.width() == WIDE_WIDTH and chip.card.wide
+
+    chip.set_request(None)
+    chip.set_suggestion({"question": "Pick the point", "answer": "Here"})
+    qapp.processEvents()
+    assert chip.popup.width() == WIDE_WIDTH
+
+    chip.set_suggestion(None)
+    qapp.processEvents()
+    assert NARROW_WIDTH <= chip.popup.width() < STACK_BELOW and not chip.card.wide
+    window.close()
 
 
 def test_the_card_floats_in_its_own_window_and_goes_back_on_the_chip(qapp):

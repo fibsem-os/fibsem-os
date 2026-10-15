@@ -6,8 +6,8 @@ The chip in the status bar opens it. It holds, top to bottom:
   line each as the server wrote them (FIB-1403), "Show details" for every value,
   the agent's reason, and Reject… and Approve; while an approved request runs,
   each action's progress. Or the agent's suggested answer to the run's
-  question, with Accept (FIB-1407). With nothing waiting, what the agent is
-  doing now;
+  question, with Accept (FIB-1407). With nothing waiting, only what the agent
+  is doing now;
 * the controls: the level (Off, Watch, Assist, Drive), Stop agent, who the agent
   is and when it was last heard from, and the event log.
 
@@ -500,8 +500,7 @@ class AgentCard(QFrame):
                 self._now or "Nothing.", TEXT_COLOR if self._now else TEXT_MUTED_COLOR
             )
         )
-        column.addWidget(_section("Waiting for you"))
-        column.addWidget(_label("Nothing.", TEXT_MUTED_COLOR))
+        # "Waiting for you" shows only when something waits.
         return column
 
     def _request_columns(self, request: Dict[str, Any], applying: bool):
