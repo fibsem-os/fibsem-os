@@ -259,6 +259,30 @@ instrument after the answer, so a move the operator made first is the
 delta. Sanity-check its `message` against the run before confirming; the
 ladder applies as for any `Confirm`.
 
+**Before a position or a POI: check coincidence.** Setup's position
+question ("Double click the image to move to the milling position… Press
+Continue", a `Confirm` or a `state` review) fixes where the lamella is
+milled, and the `PickPOI` after it fixes the point the mills follow. Both
+beams have to be looking at the same target. Before you answer, suggest or
+place either:
+
+1. Choose a target you can name: a cell, or the feature the operator asked
+   for. The image centre is not a target; a grid-square edge with no cell
+   on it is not one either.
+2. At the position question, take fresh SEM and FIB images
+   (`beam_acquire_image`) and check the target is at the centre of both. If
+   it is not, run the coincidence loop under *Using the microscope*: centre
+   it in one beam with `stage_stable_move`, bring the other beam onto it
+   with `stage_vertical_move`, and image both again.
+3. Only then answer, and show the operator both images, saying which is
+   which.
+
+Checking only the beam you moved in is not enough. A FIB stable move onto a
+cell once left the SEM centred on a different one, 30 µm away. Moving the
+stage while `PickPOI` stands invalidates its image, so do the check at the
+position question; at `PickPOI`, put the point on the target in the
+payload's image.
+
 Unknown type → escalate. Do not guess an answer shape.
 
 ## The trust ladder
@@ -274,6 +298,26 @@ Unknown type → escalate. Do not guess an answer shape.
 - **Anything novel or wrong-smelling breaks the ladder**: an unexpected
   value, a failed task, an image you cannot interpret, a question you did
   not predict from the task's anatomy — hold and escalate.
+
+## When to propose auto
+
+Supervision decides who has to be at the microscope, so it is the
+operator's setting. Never switch a task to auto on your own initiative.
+
+- **Supervise every task until one lamella passes clean.** That is one
+  lamella whose mills (Mill Fiducial, Rough Milling, Polishing) were each
+  accepted after a single pass, judged on fresh images. A lamella that
+  needed a second pass or a fix resets the count. On a clean sample the
+  first lamella can be enough; on a hard one it may never happen.
+- **Then propose** switching those milling tasks to auto, with the lamella
+  and the images behind it. Switch (`protocol_set_supervision`) only after
+  the operator says yes, and add a note.
+- **Setup stays supervised** for every lamella: each position and POI is
+  its own choice (see *Before a position or a POI*).
+- **Supervision comes back** on any failure or Rework, a config edit, a new
+  sample or grid, or a post-mill image that looks wrong. Turn it back on for
+  the milling tasks yourself and say so; then supervise the next lamella
+  through again before proposing auto.
 
 ## Modes
 
@@ -344,8 +388,10 @@ The argument selects a variation on the same loop:
 ## Using the microscope (Drive)
 
 Moving the stage, acquiring images, beam_auto_contrast, and device parameters and
-commands. Supervising never needs these: use them only when the operator asks
-for something on the microscope, and say what you are about to do first.
+commands. Supervising needs these only for the coincidence check before a
+position (*Before a position or a POI*); otherwise use them only when the
+operator asks for something on the microscope. Say what you are about to do
+first.
 
 **Check before you start.** In `/capabilities`, `level` must be `drive` and
 `routers.microscope` true. If either is not, say plainly which, and that the
@@ -428,6 +474,8 @@ and `stage_vertical_move` by its offset there (`beam_type` = the beam you measur
 in). Cap each step to a few µm, take both images again, and repeat until it
 is centred in both. Work from whichever beam has it centred already. Don't
 use the coincidence commands: this loop worked better on a real instrument.
+A coincidence error shows only as a vertical offset in the image, never
+side to side.
 The horizontal offset between the beams changes with tilt; note it.
 
 **A refused move and a failed move are different.** A move refused before it
