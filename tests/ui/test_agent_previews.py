@@ -89,8 +89,9 @@ def test_a_waiting_request_is_drawn_on_the_card_only_and_comes_down_when_decided
     frame, layer = _layer(previews.request_picture)
     assert frame is controller.image(BeamType.ION)
     assert len(layer.patterns) == 2
-    # 0.5 µm a pixel, centre (100, 50).
-    assert layer.crosses == [pytest.approx((120.0, 60.0)), pytest.approx((100.0, 46.0))]
+    # 0.5 µm a pixel, centre (100, 50). A move target is a crosshair.
+    assert layer.targets == [pytest.approx((120.0, 60.0)), pytest.approx((100.0, 46.0))]
+    assert layer.crosses == [] and ("target", "move target") in layer.keys
     assert controller.overlays == {}
     assert card.shown[False] is not None
 
@@ -145,7 +146,7 @@ class _Card:
     def __init__(self):
         self.shown = {}
 
-    def __call__(self, image, caption, suggestion=False):
+    def __call__(self, image, caption, suggestion=False, legend=()):
         self.shown[suggestion] = (image, caption) if image is not None else None
 
 
@@ -473,7 +474,9 @@ def test_a_suggested_area_and_spot_burn_points_are_drawn_on_the_card():
     previews.show_suggestion(RunSpotBurn(settings=None), points)
     _, layer = _layer(previews.suggestion_picture)
     assert layer.areas == []
-    assert layer.crosses == [pytest.approx((100.0, 50.0)), pytest.approx((150.0, 25.0))]
+    # Spot burn points are dots.
+    assert layer.dots == [pytest.approx((100.0, 50.0)), pytest.approx((150.0, 25.0))]
+    assert layer.keys == [("dot", "spot burn points")]
     assert controller.overlays == {}
     previews.show_suggestion(None, None)
     assert previews.suggestion_picture is None and card.shown[True] is None
@@ -509,3 +512,25 @@ def test_a_suggested_point_is_on_the_card_until_the_suggestion_goes():
     assert card.shown[True] is not None
     previews.show_suggested_point(None)
     assert card.shown[True] is None
+
+
+def test_the_legend_is_drawn_on_the_picture_at_its_own_size(qapp):
+    # Patrick, 2026-10-15: the key goes on the image, the same size however
+    # wide the image shows.
+    from PyQt5.QtGui import QColor, QImage, QPainter
+
+    from fibsem.applications.autolamella.ui.agent_previews import draw_legend
+
+    sizes = []
+    for width in (300, 900):
+        image = QImage(width, 200, QImage.Format_RGB32)
+        image.fill(QColor("#ffffff"))
+        painter = QPainter(image)
+        draw_legend(painter, [(PURPLE_COLOR, False, "dot", "spot burn points")], 12)
+        painter.end()
+        # The box's darkened corner, and how far right it reaches.
+        assert image.pixelColor(10, 10).lightness() < 128
+        sizes.append(
+            max(x for x in range(width) if image.pixelColor(x, 10).lightness() < 128)
+        )
+    assert sizes[0] == sizes[1]

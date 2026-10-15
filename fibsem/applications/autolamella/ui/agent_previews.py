@@ -236,16 +236,30 @@ def _fraction_pixel(frame, fraction: Tuple[float, float]) -> Tuple[float, float]
     return (fraction[0] * width, fraction[1] * height)
 
 
-class _Mark:
-    """Places on the sample one overlay draws: crosses, or the two corners of an
-    area. Each place is kept with the frame it was measured on, or with how to
-    measure it on the first frame the view shows (``(None, on_frame)``)."""
+# How a mark draws its places: a point of interest or a feature "+", a move
+# target a crosshair, a spot burn point a dot.
+CROSS, TARGET, DOT = "cross", "target", "dot"
 
-    def __init__(self, beam: BeamType, legend: str, places, area: bool = False):
+
+class _Mark:
+    """Places on the sample one overlay draws: points (*shape*), or the two
+    corners of an area. Each place is kept with the frame it was measured on, or
+    with how to measure it on the first frame the view shows
+    (``(None, on_frame)``)."""
+
+    def __init__(
+        self,
+        beam: BeamType,
+        legend: str,
+        places,
+        area: bool = False,
+        shape: str = CROSS,
+    ):
         self.beam = beam
         self.legend = legend
         self.places: List[Tuple[Optional[object], Any]] = list(places)
         self.area = area
+        self.shape = shape
 
     def pixels(self, frame) -> List[Tuple[float, float]]:
         """The places as *frame*'s pixels."""
@@ -267,17 +281,20 @@ _BEFORE = "#ffffff"
 
 
 class _Layer:
-    """What one colour draws on the card's picture: crosses and areas (pixels
-    of the picture's frame), and patterns (metres from the field's centre)."""
+    """What one colour draws on the card's picture: crosses, crosshairs, dots
+    and areas (pixels of the picture's frame), and patterns (metres from the
+    field's centre)."""
 
     def __init__(self, colour: str, dashed: bool = True) -> None:
         self.colour = colour
         self.dashed = dashed
         self.crosses: List[Tuple[float, float]] = []
+        self.targets: List[Tuple[float, float]] = []
+        self.dots: List[Tuple[float, float]] = []
         self.areas: List[List[Tuple[float, float]]] = []
         self.patterns: List = []
         # What it draws, for the picture's legend: (shape, words), shape
-        # "box" or "cross".
+        # "box" or a mark's.
         self.keys: List[Tuple[str, str]] = []
 
     def key(self, shape: str, text: str, drawn=True) -> None:
@@ -286,7 +303,12 @@ class _Layer:
             self.keys.append((shape, text))
 
     def __bool__(self) -> bool:
-        return bool(self.crosses or self.areas or self.patterns)
+        return bool(
+            self.crosses or self.targets or self.dots or self.areas or self.patterns
+        )
+
+    def points(self, shape: str) -> List[Tuple[float, float]]:
+        return {CROSS: self.crosses, TARGET: self.targets, DOT: self.dots}[shape]
 
 
 def picture_caption(frame, beam: BeamType) -> str:
@@ -353,32 +375,57 @@ def draw_picture(frame, layers: List[_Layer]):
         pen.setStyle(Qt.SolidLine)  # type: ignore
         pen.setWidthF(line * 1.5)
         painter.setPen(pen)
-        arm = 6 * line
-        for pixel in layer.crosses:
-            centre = at(pixel)
-            painter.drawLine(
-                QLineF(centre.x() - arm, centre.y(), centre.x() + arm, centre.y())
-            )
-            painter.drawLine(
-                QLineF(centre.x(), centre.y() - arm, centre.x(), centre.y() + arm)
-            )
-    _draw_legend(painter, image.width(), line, layers)
+        for shape in (CROSS, TARGET, DOT):
+            for pixel in layer.points(shape):
+                _draw_mark(painter, shape, at(pixel), 6 * line)
     painter.end()
     return image
 
 
-def _draw_legend(painter, width: int, line: float, layers: List[_Layer]) -> None:
-    """What each colour draws, in a box at the picture's top left: a sample of
-    the mark, then its words, as the canvas legend does."""
-    from PyQt5.QtCore import QLineF, QPointF, QRectF, Qt
+def _draw_mark(painter, shape: str, centre, arm: float) -> None:
+    """One point, *arm* its reach, in the painter's pen: "+", a crosshair (a
+    ring, its lines stopping short of the centre), or a dot."""
+    from PyQt5.QtCore import QLineF, QPointF, Qt
+
+    x, y = centre.x(), centre.y()
+    if shape == DOT:
+        painter.setBrush(painter.pen().color())
+        painter.drawEllipse(centre, arm * 0.35, arm * 0.35)
+        painter.setBrush(Qt.NoBrush)  # type: ignore
+        return
+    if shape == TARGET:
+        painter.drawEllipse(QPointF(x, y), arm * 0.6, arm * 0.6)
+        gap = arm * 0.25
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            painter.drawLine(
+                QLineF(x + dx * gap, y + dy * gap, x + dx * arm, y + dy * arm)
+            )
+        return
+    painter.drawLine(QLineF(x - arm, y, x + arm, y))
+    painter.drawLine(QLineF(x, y - arm, x, y + arm))
+
+
+def legend_entries(layers: List[_Layer]) -> List[Tuple[str, bool, str, str]]:
+    """What each layer draws, for the picture's legend: ``(colour, dashed,
+    shape, words)``."""
+    return [
+        (layer.colour, layer.dashed, shape, text)
+        for layer in layers
+        for shape, text in layer.keys
+    ]
+
+
+def draw_legend(painter, entries, font_px: int) -> None:
+    """*entries* (`legend_entries`) in a box at the top left of what *painter*
+    draws on: a sample of each mark, then its words, as the canvas legend does.
+    *font_px* the words' height, in the painter's pixels."""
+    from PyQt5.QtCore import QPointF, QRectF, Qt
     from PyQt5.QtGui import QColor, QFont, QFontMetricsF, QPen
 
-    entries = [(layer, shape, text) for layer in layers for shape, text in layer.keys]
     if not entries:
         return
     font = QFont()
-    # Read at the Why column's width, a third of the picture's or less.
-    font.setPixelSize(max(11, int(width / 30)))
+    font.setPixelSize(font_px)
     painter.setFont(font)
     metrics = QFontMetricsF(font)
     row = metrics.height() * 1.3
@@ -387,28 +434,27 @@ def _draw_legend(painter, width: int, line: float, layers: List[_Layer]) -> None
     box = QRectF(
         pad,
         pad,
-        pad * 3 + sample + max(metrics.horizontalAdvance(t) for _, _, t in entries),
+        pad * 3 + sample + max(metrics.horizontalAdvance(e[3]) for e in entries),
         pad * 2 + row * len(entries),
     )
     painter.setPen(Qt.NoPen)  # type: ignore
     painter.setBrush(QColor(0, 0, 0, 170))
     painter.drawRoundedRect(box, pad / 2, pad / 2)
     painter.setBrush(Qt.NoBrush)  # type: ignore
-    for index, (layer, shape, text) in enumerate(entries):
+    for index, (colour, dashed, shape, text) in enumerate(entries):
         top = box.top() + pad + row * index
         middle = top + row / 2
         left = box.left() + pad
-        pen = QPen(QColor(layer.colour), max(1.5, line * 0.75))
-        if shape == "box" and layer.dashed:
+        pen = QPen(QColor(colour), 1.5)
+        if shape == "box" and dashed:
             pen.setStyle(Qt.DashLine)  # type: ignore
         painter.setPen(pen)
         if shape == "box":
             painter.drawRect(QRectF(left, middle - sample * 0.3, sample, sample * 0.6))
         else:
-            centre = QPointF(left + sample / 2, middle)
-            arm = sample * 0.4
-            painter.drawLine(QLineF(centre.x() - arm, middle, centre.x() + arm, middle))
-            painter.drawLine(QLineF(centre.x(), middle - arm, centre.x(), middle + arm))
+            _draw_mark(
+                painter, shape, QPointF(left + sample / 2, middle), sample * 0.45
+            )
         painter.setPen(QColor("#ffffff"))
         painter.drawText(
             QRectF(left + sample + pad, top, box.width(), row),
@@ -446,7 +492,8 @@ class AgentPreviews:
         # An item's task config (item name, task name), for a config edit's
         # patterns; None when there is none.
         self._task_config = task_config or (lambda item, task: None)
-        # The card's picture: (QImage or None, caption, suggestion=bool).
+        # The card's picture: (QImage or None, caption, suggestion=bool,
+        # legend=legend_entries).
         self._show_picture = show_picture or (lambda *args, **kwargs: None)
         self._request_id: Optional[str] = None
         # The card's pictures, as drawn: (frame, layers), for tests and reading.
@@ -522,8 +569,8 @@ class AgentPreviews:
         item edit's point of interest, an item edit's alignment area."""
         marks: Dict[str, _Mark] = {}
 
-        def add(overlay_id, beam, legend, places, area=False):
-            mark = marks.setdefault(overlay_id, _Mark(beam, legend, [], area))
+        def add(overlay_id, beam, legend, places, area=False, shape=CROSS):
+            mark = marks.setdefault(overlay_id, _Mark(beam, legend, [], area, shape))
             mark.places.extend(places)
 
         for beam, offset in request_targets(request):
@@ -532,6 +579,7 @@ class AgentPreviews:
                 beam,
                 "move target",
                 [(None, lambda frame, o=offset: _offset_pixel(frame, o))],
+                shape=TARGET,
             )
         for action in request.get("actions", []):
             tool = action.get("tool")
@@ -613,6 +661,7 @@ class AgentPreviews:
                     (None, lambda frame, p=p: _fraction_pixel(frame, (p.x, p.y)))
                     for p in value
                 ],
+                shape=DOT,
             )
         elif isinstance(request, ConfirmDetection):
             image = getattr(request.detection, "fibsem_image", None)
@@ -645,7 +694,7 @@ class AgentPreviews:
         if frame is not None:
             layer = _Layer(PURPLE_COLOR)
             layer.crosses.append(tuple(pixel))
-            layer.key("cross", "point of interest")
+            layer.key(CROSS, "point of interest")
             self._picture(frame, BeamType.ION, [layer], suggestion=True, point=True)
 
     # --- drawing ----------------------------------------------------------------
@@ -659,8 +708,8 @@ class AgentPreviews:
                 layer.areas.append(pixels[:2])
                 layer.key("box", mark.legend)
             else:
-                layer.crosses.extend(pixels)
-                layer.key("cross", mark.legend)
+                layer.points(mark.shape).extend(pixels)
+                layer.key(mark.shape, mark.legend)
 
     def _picture(
         self,
@@ -684,6 +733,7 @@ class AgentPreviews:
             draw_picture(frame, layers),
             picture_caption(frame, beam),
             suggestion=suggestion,
+            legend=legend_entries(layers),
         )
 
 
