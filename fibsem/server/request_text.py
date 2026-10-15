@@ -1070,6 +1070,16 @@ def _line(
             "change": f"Queue {task} to run again"
             + (", first" if a.get("front") else ""),
         }
+    if tool == "workflow_edit_queue":
+        return {
+            "what": str(item),
+            "change": {
+                "remove": f"Take {task} out of the queue",
+                "move_up": f"Move {task} up the queue",
+                "move_down": f"Move {task} down the queue",
+                "run_next": f"Run {task} next",
+            }.get(str(a.get("action")), f"{a.get('action')} {task} in the queue"),
+        }
     if tool == "review_decide":
         outcome = str(a.get("outcome", "")).lower()
         if outcome.startswith("reject"):

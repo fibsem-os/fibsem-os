@@ -35,6 +35,7 @@ disk; the App Server reads the same buffer when it runs.
 
 import dataclasses
 import logging
+import secrets
 import threading
 import time
 from collections import deque
@@ -105,6 +106,9 @@ class EventBuffer:
     def __init__(self, maxlen: int = 1000, stamp: Optional[Stamp] = None):
         self._events: "deque[Dict[str, Any]]" = deque(maxlen=maxlen)
         self._seq = 0
+        # Names this buffer, so a reader can tell a restarted app's stream,
+        # whose seqs start again, from this one (FIB-1421).
+        self.stream = secrets.token_hex(4)
         self._cond = threading.Condition()
         self._stamp = stamp
         self._subscribers: List[Callable[[Dict[str, Any]], None]] = []
@@ -165,6 +169,7 @@ class EventBuffer:
             "available": True,
             "events": events,
             "latest_seq": self._seq,
+            "stream": self.stream,
             # A client that asked for `since < oldest_available - 1` missed
             # evicted events: re-snapshot state rather than assume continuity.
             "oldest_available": oldest,
@@ -339,6 +344,7 @@ def buffer_or_unavailable(
             "available": False,
             "events": [],
             "latest_seq": None,
+            "stream": None,
             "oldest_available": None,
         }
     return buffer.wait_for(since=since, timeout=timeout)

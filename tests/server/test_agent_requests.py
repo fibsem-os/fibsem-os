@@ -769,26 +769,47 @@ def test_a_new_experiment_says_what_it_replaces():
 
 
 @pytest.mark.parametrize(
-    "action",
+    "action, call",
     [
-        {
-            "tool": "device_call_command",
-            "arguments": {"device": "stage", "command": "home"},
-        },
-        {
-            "tool": "device_set_parameter",
-            "arguments": {"device": "electron", "parameter": "on", "value": False},
-        },
+        (
+            {
+                "tool": "device_call_command",
+                "arguments": {"device": "stage", "command": "home"},
+            },
+            "device_call_command stage.home",
+        ),
+        (
+            {
+                "tool": "device_set_parameter",
+                "arguments": {"device": "electron", "parameter": "on", "value": False},
+            },
+            "device_set_parameter electron.on",
+        ),
     ],
 )
-def test_what_the_agent_may_never_touch_is_refused_at_filing(client, app, action):
+def test_what_the_agent_may_never_touch_is_refused_at_filing(
+    client, app, microscope, action, call
+):
     """The operator is never asked about an action that cannot run: a blocked
-    command or write is refused when it is filed, as it is when called."""
-    refused = _file(client, NUDGE, action)
+    command or write is refused when it is filed, as it is when called. The
+    record names the refused call, not the request route (FIB-1421)."""
+    recorded = []
+
+    def record(kind, payload):
+        recorded.append((kind, payload))
+
+    microscope.session.record_signal.connect(record)
+    try:
+        refused = _file(client, NUDGE, action)
+    finally:
+        microscope.session.record_signal.disconnect(record)
     assert refused.status_code == 403
     assert _detail(refused)["error_type"] == "not_allowed"
     assert _detail(refused)["message"].startswith("Action 2: ")
     assert app.state.requests.pending() is None
+    refusals = [payload for kind, payload in recorded if kind == "agent_refused"]
+    assert [p["action"] for p in refusals] == [call]
+    assert refusals[0]["route"] == "POST /app/agent/requests"
 
 
 def test_the_agent_withdraws_its_waiting_request_with_a_reason(client, app, context):

@@ -106,7 +106,11 @@ from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     grid_has_run,
     plan_grid_run,
 )
-from fibsem.applications.autolamella.workflows.tasks.queue import QueueOp, QueueResult
+from fibsem.applications.autolamella.workflows.tasks.queue import (
+    QUEUE_ACTIONS,
+    QueueOp,
+    QueueResult,
+)
 from fibsem.applications.autolamella.workflows.tasks.status import (
     Hold,
     HoldKind,
@@ -3571,16 +3575,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 else f"Could not queue {label}."
             )
         else:
-            call = {
-                "move_up": lambda: queue.nudge(item_id, -1),
-                "move_down": lambda: queue.nudge(item_id, +1),
-                "run_next": lambda: queue.move_to_front(item_id),
-                "remove": lambda: queue.remove(item_id),
-            }.get(action)
-            if call is None:
+            if action not in QUEUE_ACTIONS:
                 logging.warning(f"Unknown queue action from the timeline: {action}")
                 return
-            message = self._queue_action_message(action, label, call())
+            message = self._queue_action_message(
+                action, label, queue.apply(item_id, action)
+            )
 
         manager.notify_queue_changed()
         self._show_queue_message(message)

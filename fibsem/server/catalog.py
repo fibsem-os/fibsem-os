@@ -1019,7 +1019,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="item_update",
-        description="Patch an item's own document with dotted-path edits: poi.x/poi.y (metres, milling frame), alignment_area.left/top/width/height (frame fractions), description, defect.verdict (UNASSESSED/GOOD/REWORK/FAILED) and defect.reason. milling_angle is read-only: it is an outcome of the Setup task, not an input. Echo the version from item_get — a mismatch is refused (409 stale_config). Tasks re-record geometry at their own moments, so an edit here is what the NEXT run starts from, not a permanent override.",
+        description="Patch an item's own document with dotted-path edits: poi.x/poi.y (metres, milling frame), alignment_area.left/top/width/height (frame fractions), description, defect.verdict (UNASSESSED/GOOD/REWORK/FAILED) and defect.reason. milling_angle is read-only: it is an outcome of the Setup task, not an input. Echo the version from item_get — a mismatch is refused (409 stale_config); the version also changes when a pose moves, since a POI is in the milling frame. Tasks re-record geometry at their own moments, so an edit here is what the NEXT run starts from, not a permanent override.",
         method="POST",
         path="/app/experiment/items/{item_name}",
         level="drive",
@@ -1143,6 +1143,19 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         },
     ),
     ToolSpec(
+        name="workflow_edit_queue",
+        description="Remove or move a task still waiting in the RUNNING workflow's queue, as the queue's own menu does — 'just do it for 03' without stopping the run. action: remove (it will not run; kept in the run record as Removed), move_up, move_down, or run_next. Only a waiting pair can be edited: the running one is refused (409 not_pending; stop it with workflow_stop), as is one that already ran. Read the queue (workflow_get_queue) first. changed=false means it was already first or last.",
+        method="POST",
+        path="/app/workflow/queue/edit",
+        level="drive",
+        router="app",
+        params={
+            "item_name": "the item (lamella) the queued task is for",
+            "task_name": "the queued task",
+            "action": "remove, move_up, move_down or run_next",
+        },
+    ),
+    ToolSpec(
         name="app_get_display_images",
         description="The SEM and FIB images the app's GUI is displaying right now, as previews — the display cache, not a new acquisition. Post-mill images appear here as soon as the GUI shows them, before they reach disk.",
         method="GET",
@@ -1186,7 +1199,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="prompt_answer",
-        description='Answer the pending supervision question, exactly as clicking the matching button would. Not for a question whose prompt says answer_via: "decide" -- that one is refused here, with nothing clicked, and decided with review_decide. True = the positive option. Echo the question_id from prompt_get; if that question is no longer pending the answer is refused (409 stale_prompt) — re-read and answer the current one. For EditAlignmentArea, PickPOI, ConfirmDetection and RunSpotBurn the answer may carry a value: the edit the operator could make in that widget, placed into it (the operator sees it land) and then answered through the same click path. For RunSpotBurn, yes burns the points as shown and asks again, no continues. An out-of-bounds or wrong-shape value is refused (422 invalid_value) without clicking anything.',
+        description='Answer the pending supervision question, exactly as clicking the matching button would. Not for a question whose prompt says answer_via: "decide" -- that one is refused here, with nothing clicked, and decided with review_decide. True = the positive option. Echo the question_id from prompt_get; if that question is no longer pending the answer is refused (409 stale_prompt) — re-read and answer the current one. For EditAlignmentArea, PickPOI, ConfirmDetection and RunSpotBurn the answer may carry a value: the edit the operator could make in that widget, placed into it (the operator sees it land) and then answered through the same click path. For RunSpotBurn, yes burns the points as shown and asks again, no continues. When your value moved the widget, moved_from in the answer is what it showed before, in the same shape as value; absent when it already showed your value. The value is what is stored. An out-of-bounds or wrong-shape value is refused (422 invalid_value) without clicking anything.',
         method="POST",
         path="/app/workflow/prompt/answer",
         level="drive",

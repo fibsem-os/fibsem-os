@@ -233,6 +233,8 @@ class AutoLamellaUI(QMainWindow):
 
         self.experiment: Optional[Experiment] = None
         self.microscope: Optional[FibsemMicroscope] = None
+        # the microscope whose moves the stage readout follows
+        self._stage_followed: Optional[FibsemMicroscope] = None
         self.settings: Optional[MicroscopeSettings] = None
 
         # Read here rather than taken from parent_ui: this widget is constructed
@@ -503,6 +505,25 @@ class AutoLamellaUI(QMainWindow):
             # with the worker thread driving the move (see TescanMicroscope socket lock)
             self.movement_widget.update_ui(stage_position=stage_position)
 
+    def _follow_stage(self, microscope: Optional[FibsemMicroscope]) -> None:
+        """Keep the stage readout on ``microscope``'s moves, and off any other's.
+
+        The readout follows the microscope, not the experiment: a move with no
+        experiment open still moves the stage (FIB-1421)."""
+        followed = self._stage_followed
+        if followed is microscope:
+            return
+        if followed is not None:
+            try:
+                followed.stage_position_changed.disconnect(
+                    self._on_stage_position_updated
+                )
+            except Exception as e:
+                logging.debug(f"Could not disconnect microscope stage events: {e}")
+        if microscope is not None:
+            microscope.stage_position_changed.connect(self._on_stage_position_updated)
+        self._stage_followed = microscope
+
     def _disconnect_experiment_events(self) -> None:
         """Disconnect existing experiment and microscope event subscribers.
 
@@ -515,18 +536,6 @@ class AutoLamellaUI(QMainWindow):
                 logging.info("Disconnected previous experiment event subscribers.")
             except Exception as e:
                 logging.debug(f"Could not disconnect experiment events: {e}")
-
-        # Disconnect microscope stage position events
-        if self.microscope is not None:
-            try:
-                self.microscope.stage_position_changed.disconnect(
-                    self._on_stage_position_updated
-                )
-                logging.info(
-                    "Disconnected previous microscope stage position event subscribers."
-                )
-            except Exception as e:
-                logging.debug(f"Could not disconnect microscope stage events: {e}")
 
     def _setup_experiment_connections(self) -> None:
         """Setup connections and metadata for the loaded/created experiment.
@@ -547,10 +556,6 @@ class AutoLamellaUI(QMainWindow):
 
         # Connect position updates
         self.experiment.events.connect(self._on_experiment_updated)  # type: ignore
-        if self.microscope is not None:
-            self.microscope.stage_position_changed.connect(
-                self._on_stage_position_updated
-            )
 
         # Register metadata
         if self.microscope is not None:
@@ -690,6 +695,7 @@ class AutoLamellaUI(QMainWindow):
     def connect_to_microscope(self):
         self.microscope = self.system_widget.microscope
         self.settings = self.system_widget.settings
+        self._follow_stage(self.microscope)
         if self.experiment is not None:
             self.settings.image.path = self.experiment.path
         self.update_microscope_ui()
@@ -823,6 +829,7 @@ class AutoLamellaUI(QMainWindow):
         if self._app_server_host is not None:
             self._app_server_host.stop()
         self._stop_event_recorder()
+        self._follow_stage(None)
         self.microscope = None
         self.settings = None
         self.update_microscope_ui()
