@@ -110,6 +110,12 @@ _RUN_CONTEXT = (
     "total_stages",
 )
 
+# How a run outside a task ended, as the terminal report that ends its progress.
+_ENDED_AS = {
+    COMPLETED: MillingProgressStatus.TASK_FINISHED,
+    CANCELLED: MillingProgressStatus.TASK_CANCELLED,
+}
+
 _M = TypeVar("_M", bound="Milling")
 
 # The hook that draws each pattern type. A driver draws the types whose hook it
@@ -454,6 +460,18 @@ class Milling(Service):
             self._run_context = {}
             payload["ended_at"] = now_iso()
             self.session.record("milling", payload)
+            # No task ends it, so the run does: the progress bars clear on a
+            # terminal report, and otherwise stay at the last tick (FIB-1401).
+            self._report(
+                MillingProgress(
+                    status=_ENDED_AS.get(
+                        payload.get("status"), MillingProgressStatus.TASK_FAILED
+                    ),
+                    milling_run_id=payload["milling_run_id"],
+                    milling_task_name=payload["milling_task_name"],
+                    error=payload.get("error"),
+                )
+            )
         return status
 
     def _run(self, stop_event: Optional[Union[threading.Event, AnyStopEvent]]) -> str:

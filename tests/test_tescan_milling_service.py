@@ -287,10 +287,13 @@ def test_run_milling_loads_runs_and_unloads_the_layer(connect):
     assert ["connection.Progress.SetPercents", [20.0], {}] in fake.log
     assert paths[-2:] == ["connection.Progress.Hide", "DrawBeam.UnloadLayer"]
     # and so does the progress: DrawBeam's total and elapsed, not the estimate
-    progress = microscope.milling.progress.cached
+    *ticks, ended = updates
+    progress = ticks[-1]
     assert progress.milling_state is MillingState.IDLE
     assert (progress.estimated_time, progress.remaining_time) == (10.0, 4.0)
-    assert [u.remaining_time for u in updates] == [8.0, 6.0, 4.0]
+    assert [u.remaining_time for u in ticks] == [8.0, 6.0, 4.0]
+    # a run outside a task ends its own progress (FIB-1401)
+    assert ended.status.is_terminal
 
 
 def test_a_failure_while_milling_stops_and_unloads_then_raises(connect):

@@ -531,6 +531,10 @@ class AgentLevelChip(QPushButton):
         if showing:
             self.request_block.show_request(self._request)
         self.request_action.setVisible(showing)
+        # QMenu lays out only visible actions and never hides a hidden action's
+        # widget, so an ended request's card would stay where it was, over the
+        # level rows (FIB-1400).
+        self.request_block.setVisible(showing)
         self._request_separator.setVisible(showing)
         self._paint()
         if self.menu_.isVisible():
