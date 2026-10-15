@@ -1,29 +1,27 @@
-"""What the agent's waiting request or suggestion would do, drawn on the image
-(FIB-1404).
+"""What the agent's waiting request or suggestion would do, drawn where the
+operator decides (FIB-1404, FIB-1411).
 
-While a request waits for the operator, what it would do is drawn in the agent's
-purple, dashed, so the operator sees it before they approve:
+On the card, under Why: the image the values were measured on, every value drawn
+on it in the agent's purple. A review's or an item's point of interest on that
+item's image; an item edit's alignment area; the patterns a mill would draw, a
+config edit's as it would leave them (as they are now in grey) and any reaching
+past the edge of the field in red, on the FIB image; where a move would go; a
+suggested alignment area, spot-burn points, detected features or point of
+interest, on the image the question shows.
 
-* the patterns a milling ``prepare`` would draw, the stages a ``run_stage``
-  or ``run_task`` would mill, and an item's milling as a task config edit
-  would leave it (as it is now, behind), on the FIB view; any reaching past the edge of
-  the field again in red;
-* where a stable or vertical move would bring to the centre, a cross on that
-  beam's view.
-
-A suggested point of interest is drawn on the FIB view as a cross too, beside the
-operator's own marker, until the suggestion goes; so are a suggested alignment
-area, spot-burn points, and detected features (on the beam they were found in).
+On the views, only what is about to happen there: the patterns to mill (and the
+red ones past the field) on the FIB view, and where a stable or vertical move
+would bring to the centre, a cross on that beam's view; and a suggested point of
+interest beside the operator's own marker, where they would move it.
 
 They come down when the request is decided (an approved one draws its real
 patterns as it runs) or the suggestion is taken or dropped. Display only: none
 of them takes a click.
 
-A move target is a place on the sample, measured on the frame the view showed
-when the request came: it is kept with that frame and re-projected through the
-stage onto every new frame the view takes (FIB-1411), and drawn once a frame
-arrives if none showed yet. Patterns are places in the beam's field, not on the
-sample: the view draws them against whatever frame it shows.
+A value on the sample is kept with the frame it was measured on and re-projected
+through the stage onto the frame it is drawn on (FIB-1411); a move target on a
+view, onto every new frame the view takes. Patterns are places in the beam's
+field, not on the sample: drawn against whatever frame shows.
 """
 
 from __future__ import annotations
@@ -35,20 +33,15 @@ from fibsem.server.request_text import parse_patterns
 from fibsem.structures import BeamType, Point
 from fibsem.ui.tokens import PURPLE_COLOR, RED_COLOR
 
-# The overlays' ids: one for the request's patterns, one per beam for its move
-# targets, and one for the suggested point.
+# The views' overlays: the request's patterns (and those past the field), its
+# move targets, and the suggested point of interest.
 PATTERNS_OVERLAY = "agent_request_patterns"
 OUTSIDE_OVERLAY = "agent_request_outside"
 TARGET_OVERLAY = "agent_request_target"
-POI_OVERLAY = "agent_request_poi"
-AREA_OVERLAY = "agent_request_area"
-# What a request places on the sample, re-projected as the views move.
-SAMPLE_OVERLAYS = (TARGET_OVERLAY, POI_OVERLAY, AREA_OVERLAY)
-# The agent's suggested answer's values, where the operator would edit them.
-SUGGESTED_AREA_OVERLAY = "agent_suggested_area"
-SUGGESTED_POINTS_OVERLAY = "agent_suggested_points"
-SUGGESTED_OVERLAYS = (SUGGESTED_AREA_OVERLAY, SUGGESTED_POINTS_OVERLAY)
 SUGGESTION_OVERLAY = "agent_suggestion"
+# What else a request places on the sample: drawn on the card only.
+POI_MARK = "poi"
+AREA_MARK = "area"
 
 # The beam a move tool works in when the agent does not say: as the tools do.
 _MOVE_BEAMS = {
@@ -298,32 +291,124 @@ class _Mark:
         return [reproject_pixel(on, frame, *value) for on, value in measured]
 
 
-def _area_stage(frame, corners, name: str) -> DrawnStage:
-    """An area given by two corner pixels of *frame*, as a rectangle the
-    milling overlay draws (metres from the frame's centre, y up)."""
-    from fibsem.structures import FibsemRectangleSettings
+# The picture on the card: its width at most, and how its marks are drawn.
+PICTURE_WIDTH = 1024
+_GREY = "#9a9a9a"
 
-    (x0, y0), (x1, y1) = corners
-    height, width = frame.data.shape[-2:]
-    size = frame.metadata.pixel_size.x
-    rectangle = FibsemRectangleSettings(
-        width=abs(x1 - x0) * size,
-        height=abs(y1 - y0) * size,
-        depth=0.0,
-        centre_x=((x0 + x1) / 2 - width / 2) * size,
-        centre_y=-((y0 + y1) / 2 - height / 2) * size,
+
+class _Layer:
+    """What one colour draws on the card's picture: crosses and areas (pixels
+    of the picture's frame), and patterns (metres from the field's centre)."""
+
+    def __init__(self, colour: str, dashed: bool = True) -> None:
+        self.colour = colour
+        self.dashed = dashed
+        self.crosses: List[Tuple[float, float]] = []
+        self.areas: List[List[Tuple[float, float]]] = []
+        self.patterns: List = []
+
+    def __bool__(self) -> bool:
+        return bool(self.crosses or self.areas or self.patterns)
+
+
+def picture_caption(frame, beam: BeamType) -> str:
+    """What the picture is: its beam, and when it was taken ("FIB · 07:41")."""
+    from datetime import datetime
+
+    word = "SEM" if beam is BeamType.ELECTRON else "FIB"
+    state = getattr(frame.metadata, "microscope_state", None)
+    stamp = getattr(state, "timestamp", None)
+    try:
+        when = datetime.fromtimestamp(float(stamp)).strftime("%H:%M")
+    except (TypeError, ValueError, OSError, OverflowError):
+        return word
+    return f"{word} · {when}"
+
+
+def draw_picture(frame, layers: List[_Layer]):
+    """*frame* with *layers* drawn on it, as the card shows it: a QImage at most
+    `PICTURE_WIDTH` wide (FIB-1411). Patterns are drawn as the milling view
+    draws them, against this frame's field."""
+    from PyQt5.QtCore import QLineF, QPointF, Qt
+    from PyQt5.QtGui import QColor, QPainter, QPen, QPolygonF
+
+    from fibsem.applications.autolamella.ui.lamella_card_widget import (
+        _arr_to_qimage,
     )
-    return DrawnStage([rectangle], name=name)
+    from fibsem.imaging.export import _to_uint8
+    from fibsem.milling.patterning.utils import pattern_outline
+
+    height, width = frame.data.shape[:2]
+    image = _arr_to_qimage(_to_uint8(frame.data))
+    scale = min(1.0, PICTURE_WIDTH / width)
+    if scale < 1.0:
+        image = image.scaledToWidth(
+            int(width * scale),
+            Qt.SmoothTransformation,  # type: ignore
+        )
+    image = image.convertToFormat(image.Format_RGB32)
+    painter = QPainter(image)
+    painter.setRenderHint(QPainter.Antialiasing)
+    # Seen at the Why column's width, a third of this or less.
+    line = max(2.0, image.width() / 150)
+
+    def at(pixel) -> QPointF:
+        return QPointF(pixel[0] * scale, pixel[1] * scale)
+
+    for layer in layers:
+        pen = QPen(QColor(layer.colour), line)
+        if layer.dashed:
+            pen.setStyle(Qt.DashLine)  # type: ignore
+        painter.setPen(pen)
+        painter.setBrush(Qt.NoBrush)  # type: ignore
+        for pattern in layer.patterns:
+            for ring in pattern_outline(pattern):
+                points = [at(_offset_pixel(frame, Point(x=x, y=y))) for x, y in ring]
+                if len(points) == 2:
+                    painter.drawLine(QLineF(points[0], points[1]))
+                else:
+                    painter.drawPolygon(QPolygonF(points))
+        for (x0, y0), (x1, y1) in layer.areas:
+            painter.drawPolygon(
+                QPolygonF([at((x0, y0)), at((x1, y0)), at((x1, y1)), at((x0, y1))])
+            )
+        pen.setStyle(Qt.SolidLine)  # type: ignore
+        pen.setWidthF(line * 1.5)
+        painter.setPen(pen)
+        arm = 6 * line
+        for pixel in layer.crosses:
+            centre = at(pixel)
+            painter.drawLine(
+                QLineF(centre.x() - arm, centre.y(), centre.x() + arm, centre.y())
+            )
+            painter.drawLine(
+                QLineF(centre.x(), centre.y() - arm, centre.x(), centre.y() + arm)
+            )
+    painter.end()
+    return image
+
+
+def _stage_patterns(stages) -> List:
+    patterns = []
+    for stage in stages:
+        try:
+            patterns.extend(stage.define_patterns())
+        except Exception:  # noqa: BLE001 - a stage that cannot define them
+            continue
+    return patterns
 
 
 class AgentPreviews:
-    """Draws the agent's waiting request and suggested point on the views."""
+    """Draws the agent's waiting request and suggestion: on the card, on the
+    image their values were measured on; on the views, what is about to happen
+    there (the patterns to mill, where a move goes)."""
 
     def __init__(
         self,
         view_controller: Callable[[], object],
         reference_image: Optional[Callable[[Dict[str, Any]], object]] = None,
         task_config: Optional[Callable[[str, str], object]] = None,
+        show_picture: Optional[Callable[..., None]] = None,
     ) -> None:
         # Asked when there is something to draw: the views are built after this.
         self._view_controller = view_controller
@@ -333,16 +418,23 @@ class AgentPreviews:
         # An item's task config (item name, task name), for a config edit's
         # patterns; None when there is none.
         self._task_config = task_config or (lambda item, task: None)
+        # The card's picture: (QImage or None, caption, suggestion=bool).
+        self._show_picture = show_picture or (lambda *args, **kwargs: None)
         self._request_id: Optional[str] = None
         self._drawn: List[Tuple[BeamType, str]] = []
-        # What the waiting request places on the sample, by overlay id.
+        # Where the waiting request's moves go, re-projected as the views move.
         self._marks: Dict[str, _Mark] = {}
         self._following = None  # the controller whose frame changes are heard
+        # The card's pictures, as drawn: (frame, layers), for tests and reading.
+        self.request_picture: Optional[Tuple[object, List[_Layer]]] = None
+        self.suggestion_picture: Optional[Tuple[object, List[_Layer]]] = None
 
     @property
     def drawn(self) -> List[Tuple[BeamType, str]]:
-        """The overlays drawn now, as (beam, overlay id)."""
+        """The overlays drawn on the views now, as (beam, overlay id)."""
         return list(self._drawn)
+
+    # --- requests ---------------------------------------------------------------
 
     def show_request(self, request: Optional[Dict[str, Any]]) -> None:
         """Draw what *request* would do while it waits; anything else (None, or a
@@ -351,8 +443,9 @@ class AgentPreviews:
         request_id = request.get("request_id") if waiting else None
         if request_id == self._request_id:
             return
-        self._remove(PATTERNS_OVERLAY, OUTSIDE_OVERLAY, *SAMPLE_OVERLAYS)
+        self._remove(PATTERNS_OVERLAY, OUTSIDE_OVERLAY, TARGET_OVERLAY)
         self._request_id = request_id
+        self._picture(None, None, [], suggestion=False)
         if not waiting:
             return
         controller = self._view_controller()
@@ -362,8 +455,8 @@ class AgentPreviews:
 
         patterns = request_patterns(request)
         before, after = config_edit_stages(request, self._task_config)
-        stages = request_stages(request) + after
-        milled = list(stages)
+        milled = request_stages(request) + after
+        stages = list(milled)
         if patterns:
             stages.insert(0, DrawnStage(patterns, name="Agent · waiting for you"))
         if stages:
@@ -380,10 +473,8 @@ class AgentPreviews:
                 ),
             )
             self._drawn.append((BeamType.ION, PATTERNS_OVERLAY))
-        frame = _frame(controller, BeamType.ION)
-        aspect = (
-            frame.data.shape[0] / frame.data.shape[1] if frame is not None else 2 / 3
-        )
+        live = _frame(controller, BeamType.ION)
+        aspect = live.data.shape[0] / live.data.shape[1] if live is not None else 2 / 3
         outside = request_outside_field(request, aspect, milled)
         if outside:
             controller.set_overlay(
@@ -398,10 +489,41 @@ class AgentPreviews:
             )
             self._drawn.append((BeamType.ION, OUTSIDE_OVERLAY))
         marks = self._request_marks(request)
-        self._marks.update(marks)
-        self._follow(controller)
-        for overlay_id in marks:
-            self._draw_mark(controller, overlay_id)
+        # Before a target is first drawn, which measures it on the view's frame.
+        frame, beam = self._measured_on(controller, marks, bool(stages or outside))
+        if TARGET_OVERLAY in marks:
+            self._marks[TARGET_OVERLAY] = marks[TARGET_OVERLAY]
+            self._follow(controller)
+            self._draw_mark(controller, TARGET_OVERLAY)
+
+        # The card: the image the values were measured on, every value on it.
+        if frame is None:
+            return
+        layers = [_Layer(_GREY), _Layer(PURPLE_COLOR), _Layer(RED_COLOR)]
+        grey, purple, red = layers
+        if beam is BeamType.ION:
+            grey.patterns = _stage_patterns(before)
+            # Past the field, red over purple.
+            purple.patterns = patterns + _stage_patterns(milled)
+            red.patterns = outside
+        self._add_marks(frame, marks.values(), purple)
+        self._picture(frame, beam, layers, suggestion=False)
+
+    def _measured_on(self, controller, marks: Dict[str, "_Mark"], milling: bool):
+        """The frame the request's values were measured on: a review's or an
+        item's own image; else the FIB view's, where a mill draws; else the
+        view of the beam a move is in. With its beam; None, None for none."""
+        for mark in marks.values():
+            for measured_on, _value in mark.places:
+                if measured_on is not None:
+                    return measured_on, mark.beam
+        beams = [BeamType.ION] if milling else []
+        beams += sorted({m.beam for m in marks.values()}, key=lambda b: b.value)
+        if BeamType.ION in beams:
+            return _frame(controller, BeamType.ION), BeamType.ION
+        if beams:
+            return _frame(controller, beams[0]), beams[0]
+        return None, None
 
     def _request_marks(self, request: Dict[str, Any]) -> Dict[str, _Mark]:
         """What *request* places on the sample: move targets, a review's or an
@@ -427,7 +549,7 @@ class AgentPreviews:
                 image = self._reference_image(arguments) if poi is not None else None
                 if poi is not None and _has_pixel_size(image):
                     add(
-                        POI_OVERLAY,
+                        POI_MARK,
                         BeamType.ION,
                         "Agent · point of interest",
                         [(image, _offset_pixel(image, poi))],
@@ -441,7 +563,7 @@ class AgentPreviews:
                 )
                 if poi is not None:
                     add(
-                        POI_OVERLAY,
+                        POI_MARK,
                         BeamType.ION,
                         "Agent · point of interest",
                         [(None, lambda frame, p=poi: _offset_pixel(frame, p))],
@@ -449,7 +571,7 @@ class AgentPreviews:
                 area = _area(patch)
                 if area is not None:
                     add(
-                        AREA_OVERLAY,
+                        AREA_MARK,
                         BeamType.ION,
                         "Agent · alignment area",
                         [
@@ -460,11 +582,13 @@ class AgentPreviews:
                     )
         return marks
 
+    # --- suggestions ------------------------------------------------------------
+
     def show_suggestion(self, request: object, value: object) -> None:
         """Draw the agent's suggested value for the pending *request* (a
-        question) where the operator would edit it: an alignment area, detected
-        features, spot-burn points. None, or a question without such a value,
-        takes them down. A suggested point of interest is
+        question) on the card, on the image the question shows: an alignment
+        area, detected features, spot-burn points. None, or a question without
+        such a value, takes it down. A suggested point of interest is
         :meth:`show_suggested_point`'s."""
         from fibsem.applications.autolamella.workflows.interaction import (
             ConfirmDetection,
@@ -472,24 +596,25 @@ class AgentPreviews:
             RunSpotBurn,
         )
 
-        self._remove(*SUGGESTED_OVERLAYS)
         controller = self._view_controller()
         if controller is None or value is None:
+            if not isinstance(self.suggestion_picture, _PointPicture):
+                self._picture(None, None, [], suggestion=True)
             return
-        marks: Dict[str, _Mark] = {}
+        mark: Optional[_Mark] = None
         if isinstance(request, EditAlignmentArea):
             corners = [
                 (value.left, value.top),
                 (value.left + value.width, value.top + value.height),
             ]
-            marks[SUGGESTED_AREA_OVERLAY] = _Mark(
+            mark = _Mark(
                 BeamType.ION,
                 "Agent's suggested area",
                 [(None, lambda frame, c=c: _fraction_pixel(frame, c)) for c in corners],
                 area=True,
             )
         elif isinstance(request, RunSpotBurn):
-            marks[SUGGESTED_POINTS_OVERLAY] = _Mark(
+            mark = _Mark(
                 BeamType.ION,
                 "Agent's suggested points",
                 [
@@ -500,22 +625,30 @@ class AgentPreviews:
         elif isinstance(request, ConfirmDetection):
             image = getattr(request.detection, "fibsem_image", None)
             if _has_pixel_size(image):
-                beam = image.metadata.image_settings.beam_type or BeamType.ION
-                marks[SUGGESTED_POINTS_OVERLAY] = _Mark(
-                    beam,
+                mark = _Mark(
+                    image.metadata.image_settings.beam_type or BeamType.ION,
                     "Agent's suggested features",
                     [(image, (px.x, px.y)) for px in value.values()],
                 )
-        self._marks.update(marks)
-        self._follow(controller)
-        for overlay_id in marks:
-            self._draw_mark(controller, overlay_id)
+        if mark is None:
+            return
+        frame = mark.places[0][0] if mark.places else None
+        if frame is None:
+            frame = _frame(controller, mark.beam)
+        if frame is None:
+            return
+        layer = _Layer(PURPLE_COLOR)
+        self._add_marks(frame, [mark], layer)
+        self._picture(frame, mark.beam, [layer], suggestion=True)
 
     def show_suggested_point(self, pixel: Optional[Tuple[float, float]]) -> None:
-        """Draw the agent's suggested point of interest on the FIB view, in
-        pixels; None takes it down."""
+        """Draw the agent's suggested point of interest, in the FIB view's
+        pixels: on the view, beside the operator's own marker, where they would
+        move it; and on the card. None takes it down."""
         self._remove(SUGGESTION_OVERLAY)
         if pixel is None:
+            if isinstance(self.suggestion_picture, _PointPicture):
+                self._picture(None, None, [], suggestion=True)
             return
         controller = self._view_controller()
         if controller is None:
@@ -525,6 +658,47 @@ class AgentPreviews:
             _cross(SUGGESTION_OVERLAY, [pixel], "Agent's suggestion"),
         )
         self._drawn.append((BeamType.ION, SUGGESTION_OVERLAY))
+        frame = _frame(controller, BeamType.ION)
+        if frame is not None:
+            layer = _Layer(PURPLE_COLOR)
+            layer.crosses.append(tuple(pixel))
+            self._picture(frame, BeamType.ION, [layer], suggestion=True, point=True)
+
+    # --- drawing ----------------------------------------------------------------
+
+    @staticmethod
+    def _add_marks(frame, marks, layer: _Layer) -> None:
+        """*marks* re-projected onto *frame*, into *layer*."""
+        for mark in marks:
+            pixels = mark.pixels(frame)
+            if mark.area:
+                layer.areas.append(pixels[:2])
+            else:
+                layer.crosses.extend(pixels)
+
+    def _picture(
+        self,
+        frame,
+        beam: Optional[BeamType],
+        layers: List[_Layer],
+        suggestion: bool,
+        point: bool = False,
+    ) -> None:
+        drawn = None
+        if frame is not None and any(layers):
+            drawn = (_PointPicture if point else tuple)((frame, layers))
+        if suggestion:
+            self.suggestion_picture = drawn
+        else:
+            self.request_picture = drawn
+        if drawn is None:
+            self._show_picture(None, "", suggestion=suggestion)
+            return
+        self._show_picture(
+            draw_picture(frame, layers),
+            picture_caption(frame, beam),
+            suggestion=suggestion,
+        )
 
     def _follow(self, controller) -> None:
         """Hear *controller*'s new frames, once."""
@@ -535,8 +709,8 @@ class AgentPreviews:
         self._following = controller
 
     def on_frame_changed(self, beam: BeamType) -> None:
-        """The view for *beam* took another frame: what sits on the sample moves
-        with it."""
+        """The view for *beam* took another frame: where a move goes moves with
+        it."""
         controller = self._view_controller()
         if controller is None:
             return
@@ -547,24 +721,13 @@ class AgentPreviews:
     def _draw_mark(self, controller, overlay_id: str) -> None:
         """*overlay_id*'s places on its beam's view, from the frames they were
         measured on onto the one shown."""
-        from fibsem.ui.widgets.canvas.canvas_state import MillingSpec
-
         mark = self._marks[overlay_id]
         frame = _frame(controller, mark.beam)
         if frame is None:
             return
-        pixels = mark.pixels(frame)
-        if mark.area:
-            spec = MillingSpec(
-                id=overlay_id,
-                stages=[_area_stage(frame, pixels, mark.legend)],
-                colour=PURPLE_COLOR,
-                dashed=True,
-                legend_loc=AGENT_LEGEND,
-            )
-        else:
-            spec = _cross(overlay_id, pixels, mark.legend)
-        controller.set_overlay(mark.beam, spec)
+        controller.set_overlay(
+            mark.beam, _cross(overlay_id, mark.pixels(frame), mark.legend)
+        )
         if (mark.beam, overlay_id) not in self._drawn:
             self._drawn.append((mark.beam, overlay_id))
 
@@ -581,3 +744,8 @@ class AgentPreviews:
             return
         for beam, overlay_id in gone:
             controller.remove_overlay(beam, overlay_id)
+
+
+class _PointPicture(tuple):
+    """The card's picture of a suggested point of interest: its own, so the
+    other suggestions' pictures do not take it down."""

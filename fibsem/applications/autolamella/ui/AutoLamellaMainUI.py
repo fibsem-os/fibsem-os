@@ -1616,11 +1616,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.agent_activity.recent_changed.connect(self.agent_chip.set_recent)
         # A waiting request's lines, read again while the operator looks at it.
         self._agent_request_described: Tuple[Optional[str], float] = (None, 0.0)
-        # What the agent's waiting request or suggestion would do, on the views.
+        # What the agent's waiting request or suggestion would do: on the card,
+        # on the image its values were measured on; on the views.
         self.agent_previews = AgentPreviews(
             lambda: getattr(self, "view_controller", None),
             reference_image=self._agent_review_image,
             task_config=self._agent_task_config,
+            show_picture=self.agent_chip.card.set_image,
         )
         self._agent_chip_timer = QTimer(self)
         self._agent_chip_timer.setInterval(1000)

@@ -328,6 +328,63 @@ def pattern_extent(pattern) -> Optional[Tuple[float, float, float, float]]:
     return None
 
 
+def pattern_outline(pattern) -> List[List[Tuple[float, float]]]:
+    """The lines a pattern's settings trace, in metres from the field's centre
+    (y up): a closed ring of points for an area, two points for a line. For a
+    kind this does not know, the box `pattern_extent` gives; none at all, [].
+    For drawing it on an image without the milling view (FIB-1411)."""
+    from fibsem.structures import (
+        FibsemBitmapSettings,
+        FibsemCircleSettings,
+        FibsemLineSettings,
+        FibsemPolygonSettings,
+        FibsemRectangleSettings,
+    )
+
+    if isinstance(pattern, (FibsemRectangleSettings, FibsemBitmapSettings)):
+        cos, sin = np.cos(pattern.rotation or 0.0), np.sin(pattern.rotation or 0.0)
+        half_w, half_h = pattern.width / 2, pattern.height / 2
+        return [
+            [
+                (
+                    pattern.centre_x + x * cos - y * sin,
+                    pattern.centre_y + x * sin + y * cos,
+                )
+                for x, y in (
+                    (-half_w, -half_h),
+                    (half_w, -half_h),
+                    (half_w, half_h),
+                    (-half_w, half_h),
+                )
+            ]
+        ]
+    if isinstance(pattern, FibsemCircleSettings):
+        rings = [pattern.radius]
+        if pattern.thickness and pattern.thickness < pattern.radius:
+            rings.append(pattern.radius - pattern.thickness)
+        angles = np.linspace(0, 2 * np.pi, 48, endpoint=False)
+        return [
+            [
+                (
+                    pattern.centre_x + r * float(np.cos(a)),
+                    pattern.centre_y + r * float(np.sin(a)),
+                )
+                for a in angles
+            ]
+            for r in rings
+        ]
+    if isinstance(pattern, FibsemLineSettings):
+        return [[(pattern.start_x, pattern.start_y), (pattern.end_x, pattern.end_y)]]
+    if isinstance(pattern, FibsemPolygonSettings):
+        vertices = np.asarray(pattern.vertices, dtype=float).reshape(-1, 2)
+        return [[(float(x), float(y)) for x, y in vertices]] if len(vertices) else []
+    extent = pattern_extent(pattern)
+    if extent is None:
+        return []
+    x_min, x_max, y_min, y_max = extent
+    return [[(x_min, y_min), (x_max, y_min), (x_max, y_max), (x_min, y_max)]]
+
+
 def outside_field(pattern, width: float, height: float) -> bool:
     """Whether *pattern* reaches past a *width* × *height* field (metres),
     centred on the beam, which a real instrument refuses to mill (FIB-1411)."""

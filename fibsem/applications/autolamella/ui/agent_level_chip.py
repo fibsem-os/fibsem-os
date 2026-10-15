@@ -35,11 +35,12 @@ from fibsem.applications.autolamella.ui.agent_card import (
     AgentCard,
     last_heard_text,
 )
-
-# The card's width on the chip: wide while something waits for the operator (the
-# actions beside the reason and the decision), narrow otherwise.
-WIDE_WIDTH = 820
-NARROW_WIDTH = 440
+from fibsem.applications.autolamella.ui.agent_style import (
+    LEVEL_STYLES,
+    LEVEL_TIPS,
+    LEVEL_WORDS,
+    REQUEST_CHIP,
+)
 from fibsem.server.levels import AgentLevel
 from fibsem.ui.tokens import (
     BORDER_COLOR,
@@ -58,71 +59,15 @@ __all__ = [
     "request_outcome",
 ]
 
-_CHIP = """
-    QPushButton {{
-        color: {color};
-        background-color: {background};
-        border: {border};
-        padding: 4px 10px;
-        border-radius: 3px;
-        font-weight: bold;
-    }}
-"""
+# The card's width on the chip: wide while something waits for the operator (the
+# actions beside the reason and the decision), narrow otherwise.
+WIDE_WIDTH = 780
+NARROW_WIDTH = 440
 
-# Assisting's fill: the purple at a third strength, between Watching's outline and
-# Driving's solid fill.
-_PURPLE_TINT = "rgba({}, {}, {}, 0.35)".format(
-    *(int(PURPLE_COLOR[i : i + 2], 16) for i in (1, 3, 5))
-)
-
-# Something waiting for the operator, or being applied: amber, as the Review
-# tab's waiting decisions.
-_REQUEST_CHIP = _CHIP.format(
-    color=TEXT_STRONG_COLOR,
-    background="rgba({}, {}, {}, 0.30)".format(
-        *(int(REVIEW_COLOR[i : i + 2], 16) for i in (1, 3, 5))
-    ),
-    border=f"1px solid {REVIEW_COLOR}",
-)
-
-# Each level: the chip's word, its look, and its tooltip.
 _LEVELS = {
-    AgentLevel.OFF: (
-        "Agent: Off",
-        _CHIP.format(color=TEXT_MUTED_COLOR, background="transparent", border="none"),
-        "No access",
-    ),
-    AgentLevel.WATCH: (
-        "Agent: Watching",
-        _CHIP.format(
-            color=TEXT_STRONG_COLOR,
-            background="transparent",
-            border=f"1px solid {PURPLE_COLOR}",
-        ),
-        "Read only",
-    ),
-    AgentLevel.ASSIST: (
-        "Agent: Assisting",
-        _CHIP.format(
-            color=TEXT_STRONG_COLOR,
-            background=_PURPLE_TINT,
-            border=f"1px solid {PURPLE_COLOR}",
-        ),
-        "Asks first",
-    ),
-    AgentLevel.DRIVE: (
-        "Agent: Driving",
-        _CHIP.format(
-            color=TEXT_STRONG_COLOR,
-            background=PURPLE_COLOR,
-            border=f"1px solid {PURPLE_COLOR}",
-        ),
-        "Full control",
-    ),
+    level: (LEVEL_WORDS[level], LEVEL_STYLES[level], LEVEL_TIPS[level])
+    for level in LEVEL_WORDS
 }
-
-# The chip's word for each level, for anywhere else that names it.
-LEVEL_WORDS = {level: text for level, (text, _, _) in _LEVELS.items()}
 
 # The levels the card offers, in order.
 OFFERED_LEVELS = (AgentLevel.OFF, AgentLevel.WATCH, AgentLevel.ASSIST, AgentLevel.DRIVE)
@@ -342,10 +287,10 @@ class AgentLevelChip(QPushButton):
             return
         text, style, tooltip = _LEVELS[self._level]
         if self._request is not None:
-            text, style = chip_request_text(self._request), _REQUEST_CHIP
+            text, style = chip_request_text(self._request), REQUEST_CHIP
             tooltip = "The agent is asking: click to see what, and decide"
         elif self._suggestion is not None:
-            text, style = "Agent suggests", _REQUEST_CHIP
+            text, style = "Agent suggests", REQUEST_CHIP
             tooltip = (
                 "The agent suggests an answer to the run's question: click to see it"
             )

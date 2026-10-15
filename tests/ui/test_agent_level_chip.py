@@ -33,9 +33,9 @@ def test_the_chip_starts_watching_and_its_card_offers_every_level(qapp):
     chip = AgentLevelChip()
     assert chip.level is AgentLevel.WATCH
     assert chip.text() == "Agent: Watching"
-    buttons = chip.card.level_menu.buttons
-    assert [b.text() for b in buttons.values()] == ["Off", "Watch", "Assist", "Drive"]
-    assert [b.text() for b in buttons.values() if b.isChecked()] == ["Watch"]
+    actions = chip.card.level_menu.actions_
+    assert [a.text() for a in actions.values()] == ["Off", "Watch", "Assist", "Drive"]
+    assert [a.text() for a in actions.values() if a.isChecked()] == ["Watch"]
     chip.deleteLater()
 
 
@@ -84,13 +84,13 @@ def test_choosing_a_level_says_so_and_choosing_the_current_one_does_not(qapp):
     chip = AgentLevelChip()
     chosen = []
     chip.level_chosen.connect(chosen.append)
-    buttons = chip.card.level_menu.buttons
-    buttons[AgentLevel.DRIVE].click()
+    menu = chip.card.level_menu
+    menu.choose(AgentLevel.DRIVE)
     assert chosen == [AgentLevel.DRIVE]
-    # The chip and its switch show what the window tells them, not the click.
+    # The chip and its menu show what the window tells them, not the click.
     assert chip.level is AgentLevel.WATCH
-    assert buttons[AgentLevel.WATCH].isChecked()
-    buttons[AgentLevel.WATCH].click()
+    assert menu.actions_[AgentLevel.WATCH].isChecked()
+    menu.choose(AgentLevel.WATCH)
     assert chosen == [AgentLevel.DRIVE]
     chip.deleteLater()
 
@@ -145,6 +145,45 @@ def test_with_nothing_waiting_the_card_says_what_the_agent_is_doing(qapp):
     assert "stable move" in shown
     # Nothing waits, so no "Waiting for you".
     assert "WAITING FOR YOU" not in shown
+    card.deleteLater()
+
+
+def test_now_shows_under_the_title_while_a_request_waits_too(qapp):
+    # FIB-1414: at Assist the card showed the request and nothing of the mill
+    # still running.
+    card = AgentCard()
+    card.set_request(_request())
+    assert not card.now_row.isVisibleTo(card)  # nothing runs, a request waits
+    card.set_now("Milling 'trench' · stage 2 of 6")
+    assert card.now_row.isVisibleTo(card)
+    assert card.now_label.text() == "Milling 'trench' · stage 2 of 6"
+    card.set_request(None)
+    card.set_now(None)
+    assert card.now_row.isVisibleTo(card) and card.now_label.text() == "Nothing."
+    card.deleteLater()
+
+
+def test_the_image_the_values_were_measured_on_shows_under_why(qapp):
+    from PyQt5.QtGui import QImage
+
+    from fibsem.applications.autolamella.ui.agent_card import WHY_WIDTH
+
+    card = AgentCard()
+    card.resize(780, 400)
+    card.set_request(_request())
+    assert card.image_label is None
+    image = QImage(400, 300, QImage.Format_RGB32)
+    card.set_image(image, "FIB · 07:41")
+    assert card.image_label.pixmap().width() == WHY_WIDTH
+    assert "FIB · 07:41 · click to enlarge" in _labels(card)
+    card.image_label.enlarge()
+    assert card.image_label.window_.isVisible()
+    card.image_label.window_.close()
+    # A suggestion's image is its own: the request's stays with the request.
+    card.set_image(None, suggestion=True)
+    assert card.image_label is not None
+    card.set_image(None)
+    assert card.image_label is None
     card.deleteLater()
 
 
@@ -760,23 +799,38 @@ def test_a_tall_details_table_scrolls_inside_the_card(qapp):
 # --- the level as a menu, keep on top (FIB-1418) ---------------------------------
 
 
-def test_the_level_is_one_line_that_opens_the_four_with_their_meanings(qapp):
+def test_the_level_is_drawn_as_the_chip_and_opens_a_menu_of_the_four(qapp):
+    from PyQt5.QtWidgets import QLabel
+
+    from fibsem.applications.autolamella.ui.agent_style import LEVEL_STYLES
+
     card = AgentCard()
     card.set_level(AgentLevel.ASSIST)
     menu = card.level_menu
-    assert menu.toggle.text() == "Level: Assist ▾"
-    assert not menu.list.isVisibleTo(card)
+    assert menu.text() == "Assisting  ▾"
+    assert menu.styleSheet() == LEVEL_STYLES[AgentLevel.ASSIST]
+    # A popover, not a drawer: the card keeps its height.
+    assert menu.menu() is menu.menu_
+    rows = [action.defaultWidget() for action in menu.actions_.values()]
+    shown = [label.text() for row in rows for label in row.findChildren(QLabel)]
+    assert {"No access", "Read only", "Asks first", "Full control"} <= set(shown)
     chosen = []
     card.level_chosen.connect(chosen.append)
-    menu.toggle.click()
-    assert menu.list.isVisibleTo(card)
-    shown = _labels(card)
-    assert {"No access", "Read only", "Asks first", "Full control"} <= set(shown)
-    menu.buttons[AgentLevel.DRIVE].click()
-    # Picked, it closes; the level stays as the window says until it answers.
+    menu.choose(AgentLevel.DRIVE)
+    # The level stays as the window says until it answers.
     assert chosen == [AgentLevel.DRIVE]
-    assert not menu.list.isVisibleTo(card)
-    assert menu.toggle.text() == "Level: Assist ▾"
+    assert menu.text() == "Assisting  ▾"
+    assert menu.actions_[AgentLevel.ASSIST].isChecked()
+    card.deleteLater()
+
+
+def test_the_level_and_stop_agent_keep_their_width_at_every_level(qapp):
+    card = AgentCard()
+    widths = set()
+    for level in AgentLevel:
+        card.set_level(level)
+        widths.add(card.level_menu.width())
+    assert len(widths) == 1
     card.deleteLater()
 
 
@@ -822,11 +876,13 @@ def test_recent_shows_at_drive_and_is_hidden_below_it_until_asked_for(qapp):
     card.set_recent([_row("Moved the stage: move relative")])
     card.set_level(AgentLevel.ASSIST)
     assert not card.recent_buttons
-    assert card.recent_link.text() == "Show recent"
+    # Folded: its newest line beside the link.
+    assert card.recent_link.text() == "Recent ▸"
+    assert card.recent_last.text() == "last: Moved the stage: move relative, done"
     card.set_level(AgentLevel.DRIVE)
-    assert [b.text() for b in card.recent_buttons] == [
-        "16:08   Moved the stage: move relative"
-    ]
+    assert card.recent_link.text() == "Recent ▾"
+    assert [b.text() for b in card.recent_buttons] == ["Moved the stage: move relative"]
+    assert "16:08" in _labels(card)
     assert "done" in _labels(card)
     card.recent_buttons[0].click()
     assert logs == [True]
@@ -887,7 +943,7 @@ def test_at_drive_what_the_agent_does_shows_in_the_card_now_then_recent(qapp):
         "prompt_answered", {"question_id": "q", "response": True, "answered_by": AGENT}
     )
     qapp.processEvents()
-    texts = [b.text().split("   ", 1)[1] for b in chip.card.recent_buttons]
+    texts = [b.text() for b in chip.card.recent_buttons]
     assert texts == [
         "Answered 'the run's question': yes",
         "Milled 'agent test mill'",

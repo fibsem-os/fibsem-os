@@ -2,17 +2,19 @@
 
 The chip in the status bar opens it. It holds, top to bottom:
 
+* what the agent is doing on the microscope now, at every level (FIB-1414);
 * what is waiting for the operator: the agent's request, its actions one plain
   line each as the server wrote them (FIB-1403), "Show details" for every value,
-  the agent's reason, and Reject… and Approve; while an approved request runs,
-  each action's progress. Or the agent's suggested answer to the run's
-  question, with Accept (FIB-1407). With nothing waiting, only what the agent
-  is doing now;
-* what the agent did lately, Recent: on at first at Drive, where it acts
-  without asking, off below it (FIB-1414);
-* the controls: the level, as a menu that opens the four with what each allows
-  (FIB-1418), Stop agent, who the agent is and when it was last heard from, and
-  the event log.
+  the agent's reason, under it the image the reason's values were measured on
+  with them drawn on it (FIB-1411), and Reject… and Approve; while an approved
+  request runs, each action's progress. Or the agent's suggested answer to the
+  run's question, with Accept (FIB-1407);
+* what the agent did lately, Recent: open at first at Drive, where it acts
+  without asking, folded to its last line below it (FIB-1414); the event log
+  at its right;
+* the controls: the level, drawn as the chip draws it, a menu of the four with
+  what each allows (FIB-1418); Stop agent, drawn the same way; who the agent is
+  and when it was last heard from.
 
 It is wide: the actions on the left, the reason and the decision on the right.
 Narrower than `STACK_BELOW` px it stacks them, so the same card floats as a
@@ -25,24 +27,38 @@ click does is the window's.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from PyQt5.QtCore import QSize, Qt, pyqtSignal
+from PyQt5.QtGui import QImage, QMouseEvent, QPixmap
 from PyQt5.QtWidgets import (
+    QAction,
+    QActionGroup,
     QBoxLayout,
+    QDialog,
     QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
     QLayout,
     QLineEdit,
+    QMenu,
     QPushButton,
     QScrollArea,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
+    QWidgetAction,
 )
 
+from fibsem.applications.autolamella.ui.agent_style import (
+    LEVEL_MENU,
+    LEVEL_NAMES,
+    LEVEL_STYLES,
+    LEVEL_TIPS,
+    LEVEL_WORDS,
+    STOP_CHIP,
+)
 from fibsem.server.levels import AgentLevel
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.stylesheets import (
@@ -65,6 +81,11 @@ from fibsem.ui.tokens import (
 
 # The agent's reason, before "more".
 WHY_LINES = 3
+# The Why column when wide: the reason, and under it the image the agent's
+# values were measured on, drawn on it (FIB-1411).
+WHY_WIDTH = 340
+# The image, clicked: at most this wide.
+ENLARGED_WIDTH = 1024
 
 # How a Recent row ended (agent_recent's tones), as a colour.
 _TONES = {
@@ -78,20 +99,6 @@ _TONES = {
 STACK_BELOW = 600
 # The narrowest the stacked card goes.
 NARROWEST = 360
-
-# The level switch, in order, as the operator reads it.
-LEVEL_NAMES = {
-    AgentLevel.OFF: "Off",
-    AgentLevel.WATCH: "Watch",
-    AgentLevel.ASSIST: "Assist",
-    AgentLevel.DRIVE: "Drive",
-}
-LEVEL_TIPS = {
-    AgentLevel.OFF: "No access",
-    AgentLevel.WATCH: "Read only",
-    AgentLevel.ASSIST: "Asks first",
-    AgentLevel.DRIVE: "Full control",
-}
 
 _CARD = f"""
     #agentCard {{ background: {SURFACE_COLOR}; }}
@@ -112,19 +119,10 @@ _CARD = f"""
     #agentLink:hover {{ color: #7bc0ff; }}
     #agentRecent {{
         background: transparent; color: {TEXT_COLOR}; border: none;
-        padding: 1px 0px; text-align: left;
+        padding: 1px 0px; text-align: left; font-weight: normal;
     }}
     #agentRecent:hover {{ color: {TEXT_STRONG_COLOR}; }}
-"""
-
-# The level menu's rows: the level in force is marked with a filled dot.
-_LEVEL_ROW = f"""
-    QPushButton {{
-        color: {TEXT_COLOR}; background: transparent; border: none;
-        padding: 3px 6px; text-align: left;
-    }}
-    QPushButton:hover {{ background: {BORDER_COLOR}; }}
-    QPushButton:checked {{ color: {TEXT_STRONG_COLOR}; font-weight: bold; }}
+    #agentRecentRows {{ background: {PANEL_COLOR}; border-radius: 3px; }}
 """
 
 
@@ -189,80 +187,100 @@ def last_heard_text(seconds: Optional[float], client: Optional[str] = None) -> s
     return f"{who} · last heard {int(seconds // 60)} min ago"
 
 
-class LevelMenu(QWidget):
-    """The level in force, "Level: Assist ▾"; opened, the four levels with what
-    each allows, inline in the card (FIB-1418). The level changes rarely and
-    each change matters, so it is one click further than a switch would be.
-    Says what was picked; shows what it is told."""
+class _LevelRow(QWidget):
+    """One level in the menu: a dot, the level's name, and what it allows under
+    it. Shows its action's checked state, and triggers it on click."""
+
+    def __init__(self, action: QAction, menu: QMenu, line: str) -> None:
+        super().__init__()
+        self._action = action
+        self._menu = menu
+        self.setObjectName("levelRow")
+        self.setAttribute(Qt.WA_Hover)  # type: ignore
+        self.setAttribute(Qt.WA_StyledBackground)  # type: ignore
+        self.setCursor(Qt.PointingHandCursor)  # type: ignore
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(9, 6, 20, 6)
+        layout.setSpacing(10)
+        self._dot = QLabel()
+        self._dot.setAlignment(Qt.AlignTop)  # type: ignore
+        layout.addWidget(self._dot)
+        text = QVBoxLayout()
+        text.setSpacing(1)
+        text.addWidget(_label(action.text(), TEXT_STRONG_COLOR))
+        text.addWidget(_label(line, TEXT_MUTED_COLOR, small=True))
+        layout.addLayout(text, 1)
+        action.toggled.connect(self._paint)
+        self._paint(action.isChecked())
+
+    def _paint(self, checked: bool) -> None:
+        self._dot.setText("●" if checked else "○")
+        colour = PURPLE_COLOR if checked else TEXT_MUTED_COLOR
+        self._dot.setStyleSheet(f"color: {colour};")
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        if event.button() == Qt.LeftButton:  # type: ignore
+            self._menu.close()
+            self._action.trigger()
+
+
+class LevelMenu(QPushButton):
+    """The level in force, drawn as the status bar chip draws it ("Assisting");
+    clicked, a menu of the four levels with what each allows (FIB-1418). The
+    level changes rarely and each change matters, so it is one click further
+    than a switch would be. Says what was picked; shows what it is told."""
 
     level_chosen = pyqtSignal(object)  # AgentLevel
 
     def __init__(self) -> None:
         super().__init__()
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        self.toggle = QPushButton()
-        self.toggle.setObjectName("agentLink")
-        self.toggle.setCursor(Qt.PointingHandCursor)  # type: ignore
-        self.toggle.setToolTip("Change what the agent may do")
-        self.toggle.clicked.connect(lambda: self.set_open(not self.is_open))
-        layout.addWidget(self.toggle)
-        # The levels, which the card puts under its controls row.
-        self.list = QWidget()
-        rows = QGridLayout(self.list)
-        rows.setContentsMargins(0, 2, 0, 2)
-        rows.setHorizontalSpacing(8)
-        rows.setVerticalSpacing(0)
-        self.buttons: Dict[AgentLevel, QPushButton] = {}
-        self._dots: Dict[AgentLevel, QLabel] = {}
-        for row, level in enumerate(LEVEL_NAMES):
-            dot = _label("○", TEXT_MUTED_COLOR)
-            button = QPushButton(LEVEL_NAMES[level])
-            button.setCheckable(True)
-            button.setCursor(Qt.PointingHandCursor)  # type: ignore
-            button.setStyleSheet(_LEVEL_ROW)
-            button.clicked.connect(
-                lambda _checked=False, chosen=level: self._on_clicked(chosen)
+        self.setCursor(Qt.PointingHandCursor)  # type: ignore
+        self.setToolTip("Change what the agent may do")
+        self.menu_ = QMenu(self)
+        self.menu_.setStyleSheet(LEVEL_MENU)
+        group = QActionGroup(self)
+        group.setExclusive(True)
+        self.actions_: Dict[AgentLevel, QWidgetAction] = {}
+        for level, name in LEVEL_NAMES.items():
+            action = QWidgetAction(self)
+            action.setText(name)
+            action.setCheckable(True)
+            action.setDefaultWidget(_LevelRow(action, self.menu_, LEVEL_TIPS[level]))
+            action.triggered.connect(
+                lambda _checked=False, chosen=level: self._on_chosen(chosen)
             )
-            rows.addWidget(dot, row, 0)
-            rows.addWidget(button, row, 1)
-            rows.addWidget(
-                _label(LEVEL_TIPS[level], TEXT_MUTED_COLOR, small=True), row, 2
-            )
-            self.buttons[level] = button
-            self._dots[level] = dot
-        rows.setColumnStretch(2, 1)
+            group.addAction(action)
+            self.menu_.addAction(action)
+            self.actions_[level] = action
+        self.setMenu(self.menu_)
         self._level: Optional[AgentLevel] = None
-        self.set_open(False)
+        # One width for every level, so the controls beside it do not shift.
+        widths = []
+        for level in LEVEL_NAMES:
+            self.set_level(level)
+            self.ensurePolished()
+            widths.append(self.sizeHint().width())
+        self.setFixedWidth(max(widths))
 
     @property
-    def is_open(self) -> bool:
-        return not self.list.isHidden()
-
-    def set_open(self, open_: bool) -> None:
-        self.list.setVisible(open_)
-        self._paint()
+    def level(self) -> Optional[AgentLevel]:
+        return self._level
 
     def set_level(self, level: AgentLevel) -> None:
         self._level = AgentLevel(level)
-        self._paint()
+        self.setText(f"{LEVEL_WORDS[self._level].split(': ', 1)[1]}  ▾")
+        self.setStyleSheet(LEVEL_STYLES[self._level])
+        self.actions_[self._level].setChecked(True)
 
-    def _paint(self) -> None:
-        level = self._level
-        name = LEVEL_NAMES.get(level, "") if level is not None else ""
-        self.toggle.setText(f"Level: {name} {'▴' if self.is_open else '▾'}")
-        for each, button in self.buttons.items():
-            button.setChecked(each is level)
-            self._dots[each].setText("●" if each is level else "○")
-            self._dots[each].setStyleSheet(
-                f"color: {PURPLE_COLOR if each is level else TEXT_MUTED_COLOR};"
-            )
+    def choose(self, level: AgentLevel) -> None:
+        """As a click on *level*'s row."""
+        self.actions_[level].trigger()
 
-    def _on_clicked(self, level: AgentLevel) -> None:
+    def _on_chosen(self, level: AgentLevel) -> None:
         # The menu shows what the window says, not the click: put it back
         # until the window answers.
-        self._paint()
-        self.set_open(False)
+        if self._level is not None:
+            self.actions_[self._level].setChecked(True)
         if level is not self._level:
             self.level_chosen.emit(level)
 
@@ -310,6 +328,41 @@ class _Details(QScrollArea):
         self.setFixedHeight(height + self.horizontalScrollBar().sizeHint().height())
 
 
+class _Picture(QLabel):
+    """An image scaled to the Why column; a click shows it at full size."""
+
+    def __init__(self, image: QImage, width: int, caption: str) -> None:
+        super().__init__()
+        self.setObjectName("agentImage")
+        self._image = image
+        self._caption = caption
+        self.setPixmap(
+            QPixmap.fromImage(image).scaledToWidth(width, Qt.SmoothTransformation)  # type: ignore
+        )
+        self.setCursor(Qt.PointingHandCursor)  # type: ignore
+        self.setToolTip("Show it at full size")
+        self.window_: Optional[QDialog] = None
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        if event.button() == Qt.LeftButton:  # type: ignore
+            self.enlarge()
+
+    def enlarge(self) -> None:
+        dialog = QDialog(self.window())
+        dialog.setWindowTitle(self._caption or "Agent")
+        dialog.setAttribute(Qt.WA_DeleteOnClose)  # type: ignore
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(0, 0, 0, 0)
+        full = QLabel()
+        pixmap = QPixmap.fromImage(self._image)
+        if pixmap.width() > ENLARGED_WIDTH:
+            pixmap = pixmap.scaledToWidth(ENLARGED_WIDTH, Qt.SmoothTransformation)  # type: ignore
+        full.setPixmap(pixmap)
+        layout.addWidget(full)
+        dialog.show()
+        self.window_ = dialog
+
+
 class AgentCard(QFrame):
     """What the agent asks, and its controls."""
 
@@ -332,6 +385,10 @@ class AgentCard(QFrame):
         self._suggestion: Optional[Dict[str, str]] = None
         self.accept_button: Optional[QPushButton] = None
         self._now: Optional[str] = None
+        # The images under Why, with their captions: the request's, the
+        # suggestion's.
+        self._images: Dict[str, Tuple[QImage, str]] = {}
+        self.image_label: Optional[QLabel] = None
         self._details_open = False
         self._rejecting = False
         self._why_open = False
@@ -369,12 +426,40 @@ class AgentCard(QFrame):
         self.head = head
         layout.addLayout(head)
 
+        # What the agent is doing on the microscope, at every level (FIB-1414):
+        # under the title, beside whatever waits.
+        self.now_row = QWidget()
+        now = QHBoxLayout(self.now_row)
+        now.setContentsMargins(0, 0, 0, 0)
+        now.setSpacing(8)
+        now.addWidget(_label("Now", TEXT_MUTED_COLOR, small=True))
+        self.now_label = _label("", TEXT_COLOR, wrap=True)
+        now.addWidget(self.now_label, 1)
+        layout.addWidget(self.now_row)
+
         # What is waiting: rebuilt whole on each change, a handful of rows.
         self._body = QBoxLayout(QBoxLayout.LeftToRight)
         self._body.setSpacing(16)
         layout.addLayout(self._body)
 
-        # What the agent did lately (FIB-1414): shown or not, per level.
+        # What the agent did lately (FIB-1414), folded to its last line or open,
+        # per level; the event log, the whole record, at its right.
+        recent = QHBoxLayout()
+        recent.setSpacing(8)
+        self.recent_link = _link("")
+        self.recent_link.setToolTip("The agent's last few actions and how each ended")
+        self.recent_link.clicked.connect(self._toggle_recent)
+        recent.addWidget(self.recent_link)
+        self.recent_last = _label("", TEXT_MUTED_COLOR, small=True)
+        self.recent_last.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        recent.addWidget(self.recent_last, 1)
+        self.event_log_link = _link("Event log")
+        self.event_log_link.setToolTip(
+            "What the agent, the operator and the run did, in your browser."
+        )
+        self.event_log_link.clicked.connect(self.event_log_clicked)
+        recent.addWidget(self.event_log_link)
+        layout.addLayout(recent)
         self._recent_rows = QVBoxLayout()
         self._recent_rows.setSpacing(2)
         layout.addLayout(self._recent_rows)
@@ -394,7 +479,7 @@ class AgentCard(QFrame):
         self.stop_button.setIcon(
             fibsem_icon("mdi:stop-circle-outline", color=RED_COLOR)
         )
-        self.stop_button.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
+        self.stop_button.setStyleSheet(STOP_CHIP)
         self.stop_button.setToolTip(
             "Stop the agent acting: down to Watch at once. A running workflow "
             "keeps running; its own Stop is beside the chip."
@@ -404,21 +489,12 @@ class AgentCard(QFrame):
         controls.addStretch(1)
         self._controls = controls
         layout.addLayout(controls)
-        layout.addWidget(self.level_menu.list)
 
         # Who the agent is, and the way to the record: under the controls when
         # narrow, at their end when wide.
         self.heard_label = _label(last_heard_text(None), TEXT_MUTED_COLOR, small=True)
         self.connect_link = _link("Connect an agent…")
         self.connect_link.clicked.connect(self.connect_clicked)
-        self.event_log_link = _link("Event log")
-        self.event_log_link.setToolTip(
-            "What the agent, the operator and the run did, in your browser."
-        )
-        self.event_log_link.clicked.connect(self.event_log_clicked)
-        self.recent_link = _link("")
-        self.recent_link.setToolTip("The agent's last few actions and how each ended")
-        self.recent_link.clicked.connect(self._toggle_recent)
         self._about = QHBoxLayout()
         self._about.setSpacing(10)
         layout.addLayout(self._about)
@@ -502,13 +578,26 @@ class AgentCard(QFrame):
         self._suggestion = suggestion
         self._render()
 
+    def set_image(
+        self, image: Optional[QImage], caption: str = "", suggestion: bool = False
+    ) -> None:
+        """The image the waiting request's (or, *suggestion*, the suggested
+        answer's) values were measured on, drawn on it, with what it is
+        ("FIB · 07:41"); None for none."""
+        key = "suggestion" if suggestion else "request"
+        if image is None or image.isNull():
+            if self._images.pop(key, None) is None:
+                return
+        else:
+            self._images[key] = (image, caption)
+        self._render()
+
     def set_now(self, action: Optional[str]) -> None:
         """What the agent is doing on the microscope, or None."""
         if action == self._now:
             return
         self._now = action
-        if self._request is None and self._suggestion is None:
-            self._render()
+        self._paint_now()
 
     def set_floating(self, floating: bool) -> None:
         """Whether the card is in its own window: its button then puts it back,
@@ -563,12 +652,7 @@ class AgentCard(QFrame):
             self._render()
 
     def _place_about(self) -> None:
-        about = (
-            self.heard_label,
-            self.connect_link,
-            self.recent_link,
-            self.event_log_link,
-        )
+        about = (self.heard_label, self.connect_link)
         for widget in about:
             self._controls.removeWidget(widget)
             self._about.removeWidget(widget)
@@ -581,8 +665,6 @@ class AgentCard(QFrame):
             self._about.addWidget(self.heard_label)
             self._about.addWidget(self.connect_link)
             self._about.addStretch(1)
-            self._about.addWidget(self.recent_link)
-            self._about.addWidget(self.event_log_link)
 
     # --- what is shown --------------------------------------------------------
 
@@ -599,10 +681,11 @@ class AgentCard(QFrame):
         if request is None and self._suggestion is None:
             self._dot.setStyleSheet(f"color: {PURPLE_COLOR};")
             self._title.setText("Agent")
-            self._body.addLayout(self._nothing(), 1)
+            self._paint_now()
             self.updateGeometry()
             return
         self._dot.setStyleSheet(f"color: {REVIEW_COLOR};")
+        self._paint_now()
         if request is None:
             self._title.setText("Agent suggests an answer")
             left, right = self._suggestion_columns(self._suggestion)
@@ -616,21 +699,18 @@ class AgentCard(QFrame):
         holder = QWidget()
         holder.setLayout(right)
         if self._wide:
-            holder.setFixedWidth(260)
+            holder.setFixedWidth(WHY_WIDTH)
         self._body.addWidget(holder)
         self.updateGeometry()
 
-    def _nothing(self) -> QVBoxLayout:
-        column = QVBoxLayout()
-        column.setSpacing(6)
-        column.addWidget(_section("Now"))
-        column.addWidget(
-            _label(
-                self._now or "Nothing.", TEXT_COLOR if self._now else TEXT_MUTED_COLOR
-            )
+    def _paint_now(self) -> None:
+        """The Now line: what runs; with nothing waiting either, "Nothing."."""
+        waiting = self._request is not None or self._suggestion is not None
+        self.now_label.setText(self._now or "Nothing.")
+        self.now_label.setStyleSheet(
+            f"color: {TEXT_COLOR if self._now else TEXT_MUTED_COLOR};"
         )
-        # "Waiting for you" shows only when something waits.
-        return column
+        self.now_row.setVisible(bool(self._now) or not waiting)
 
     def _request_columns(self, request: Dict[str, Any], applying: bool):
         actions: List[Dict[str, Any]] = request.get("actions", [])
@@ -692,7 +772,7 @@ class AgentCard(QFrame):
         right = QVBoxLayout()
         right.setContentsMargins(0, 0, 0, 0)
         right.setSpacing(8)
-        self._add_why(right, request.get("reason", ""))
+        self._add_why(right, request.get("reason", ""), "request")
         right.addStretch(1)
         self.approve_button = self.reject_button = None
         self.confirm_reject_button = self.back_button = None
@@ -769,7 +849,7 @@ class AgentCard(QFrame):
         right = QVBoxLayout()
         right.setContentsMargins(0, 0, 0, 0)
         right.setSpacing(8)
-        self._add_why(right, suggestion.get("reason", ""))
+        self._add_why(right, suggestion.get("reason", ""), "suggestion")
         right.addStretch(1)
         buttons = QHBoxLayout()
         buttons.addStretch(1)
@@ -791,16 +871,36 @@ class AgentCard(QFrame):
         )
         return left, right
 
-    def _add_why(self, column: QVBoxLayout, reason: str) -> None:
+    def _why_width(self) -> int:
+        if self._wide:
+            return WHY_WIDTH
+        margins = self.layout().contentsMargins()
+        return max(self.width() - margins.left() - margins.right(), 200)
+
+    def _add_why(self, column: QVBoxLayout, reason: str, image: str) -> None:
         """The agent's reason: always shown, as it is what makes an approval
-        mean something, but clamped to `WHY_LINES` lines with "more" (FIB-1412)."""
+        mean something, but clamped to `WHY_LINES` lines with "more" (FIB-1412).
+        Under it, the *image* its values were measured on (FIB-1411)."""
+        self._add_reason(column, reason)
+        self.image_label = None
+        if image not in self._images:
+            return
+        picture, caption = self._images[image]
+        label = _Picture(picture, self._why_width(), caption)
+        self.image_label = label
+        column.addWidget(label)
+        column.addWidget(
+            _label(f"{caption} · click to enlarge", TEXT_MUTED_COLOR, small=True)
+        )
+
+    def _add_reason(self, column: QVBoxLayout, reason: str) -> None:
         column.addWidget(_label("Why", TEXT_MUTED_COLOR, small=True))
         why = _label(reason, TEXT_COLOR, wrap=True)
         why.setTextInteractionFlags(Qt.TextSelectableByMouse)  # type: ignore
         column.addWidget(why)
         self.why_label, self.why_link = why, None
         metrics = why.fontMetrics()
-        width = 260 if self._wide else max(self.width() - 60, 200)
+        width = self._why_width()
         lines = metrics.boundingRect(
             0,
             0,
@@ -826,24 +926,34 @@ class AgentCard(QFrame):
         self._render_recent()
 
     def _render_recent(self) -> None:
-        """Recent, under what waits: one line per action, how it ended at the
-        right, a click away from the event log."""
+        """Recent, under what waits: folded, its newest line beside the link;
+        open, one line per action, how it ended at the right, a click away from
+        the event log."""
         _clear(self._recent_rows)
         shown = self.recent_shown
-        self.recent_link.setText("Hide recent" if shown else "Show recent")
+        self.recent_link.setText("Recent ▾" if shown else "Recent ▸")
+        newest = self._recent[0] if self._recent else None
+        self.recent_last.setText(
+            f"last: {newest.text}, {newest.outcome}"
+            if newest is not None and not shown
+            else ""
+        )
         self.recent_buttons = []
         if not shown:
             self.updateGeometry()
             return
-        self._recent_rows.addWidget(_section("Recent"))
+        box = QFrame()
+        box.setObjectName("agentRecentRows")
+        rows = QVBoxLayout(box)
+        rows.setContentsMargins(10, 6, 10, 6)
+        rows.setSpacing(2)
         if not self._recent:
-            self._recent_rows.addWidget(
-                _label("Nothing yet.", TEXT_MUTED_COLOR, small=True)
-            )
+            rows.addWidget(_label("Nothing yet.", TEXT_MUTED_COLOR, small=True))
         for row in self._recent:
             line = QHBoxLayout()
-            line.setSpacing(8)
-            button = QPushButton(f"{row.when}   {row.text}")
+            line.setSpacing(12)
+            line.addWidget(_label(row.when, TEXT_MUTED_COLOR, small=True))
+            button = QPushButton(row.text)
             button.setObjectName("agentRecent")
             button.setCursor(Qt.PointingHandCursor)  # type: ignore
             button.setToolTip(f"{row.text}\n\nOpen the event log")
@@ -854,8 +964,9 @@ class AgentCard(QFrame):
             line.addWidget(
                 _label(row.outcome, _TONES.get(row.tone, TEXT_MUTED_COLOR), small=True)
             )
-            self._recent_rows.addLayout(line)
+            rows.addLayout(line)
             self.recent_buttons.append(button)
+        self._recent_rows.addWidget(box)
         self.updateGeometry()
 
     def _toggle_details(self) -> None:
