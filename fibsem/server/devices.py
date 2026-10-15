@@ -35,6 +35,7 @@ Try it on one computer:
     python -m fibsem.server.devices --port 8765        # terminal 1: Demo beams
     python -m fibsem.server.devices --serve stage chamber manipulator  # or the rest
     python -m fibsem.server.devices --serve fm         # or a simulated FM's parts
+    python -m fibsem.server.devices --config devices.yaml  # or what a file lists
 
 On a METEOR's Linux PC, serving its real FM to the PC that drives the beams (see
 INSTALLATION.md, "Delmic METEOR"):
@@ -65,6 +66,7 @@ from typing import (
     Optional,
     Sequence,
     Set,
+    Tuple,
 )
 
 import numpy as np
@@ -88,6 +90,7 @@ from fibsem.devices.core import (
     ParameterMetadata,
     ParameterReadOnly,
     ParameterUnavailable,
+    ResourceBusy,
     _limits_to_dict,
 )
 from fibsem.devices.wire import (
@@ -123,6 +126,7 @@ ERROR_STATUS = {
     ParameterUnavailable: 404,
     ParameterReadOnly: 409,
     OperationCancelledError: 409,  # stopped: a sweep, a mill (FIB-1355)
+    ResourceBusy: 409,  # held by someone else: a scanner live on the other beam
     NothingToStop: 409,  # a stop with nothing running (FIB-1398)
     TypeError: 422,
     ValueError: 422,  # an argument that does not decode names its parameter
@@ -146,6 +150,8 @@ def refusal(error: Exception, what: str) -> HTTPException:
     device = getattr(error, "device", None) if isinstance(error, DeviceFault) else None
     if device is not None:
         detail["device"] = device
+    if isinstance(error, ResourceBusy):
+        detail.update(resource=error.resource, holder=error.holder)
     logging.info(f"{what}: {status} {detail['error_type']}: {error}")
     return HTTPException(status, detail)
 
@@ -216,6 +222,7 @@ def describe_device(device: Device, refuse: Optional[Refuse] = None) -> Dict[str
         "name": device.name,
         "class": type(device).__name__,
         "driver": getattr(device, "driver", None),
+        "type": getattr(device, "entry_type", None),
         "parameters": {
             name: {
                 **info,
@@ -707,6 +714,34 @@ def odemis_fm_devices(config: Optional[Mapping[str, Any]] = None) -> List[Device
         ) from e
 
 
+def configured_devices(
+    path: str,
+) -> Tuple[Dict[str, Device], List[Callable[[], None]]]:
+    """The devices a configuration file's ``hardware.devices`` lists, each built by
+    its own driver with no microscope (``BuildContext.microscope`` is None), as a
+    unit's PC serves them; and what their builders registered to close
+    (`fibsem.devices.entries.disconnect_devices` closes both).
+
+    The file has the shape of a microscope configuration, so entries copy across. An
+    entry names its ``driver``, unless ``info.manufacturer`` names one for all of
+    them. An entry that can't be built is left out with a warning, unless it is
+    ``required: true``. Roles are not bound: each device is served on its own.
+    """
+    import yaml
+
+    from fibsem.devices.entries import build_device_entries, resolve_device_entries
+    from fibsem.structures import read_device_entries
+
+    with open(path) as f:
+        settings = yaml.safe_load(f) or {}
+    configured = read_device_entries(settings)
+    manufacturer = (settings.get("info") or {}).get("manufacturer")
+    resolved = resolve_device_entries([], configured, manufacturer)
+    cleanups: List[Callable[[], None]] = []
+    built = build_device_entries(resolved, None, cleanups=cleanups)
+    return built, cleanups
+
+
 def main(argv: Optional[List[str]] = None) -> None:
     parser = argparse.ArgumentParser(description="Serve devices over HTTP.")
     parser.add_argument("--host", default="127.0.0.1")
@@ -715,10 +750,15 @@ def main(argv: Optional[List[str]] = None) -> None:
         "--serve",
         nargs="+",
         choices=(*DEMO_PARTS, "fm", "odemis-fm"),
-        default=["beams"],
+        default=None,
         help="beams, stage, chamber, manipulator: the Demo microscope's; fm: a "
         "simulated FM's parts; odemis-fm: the FM of the METEOR this computer runs "
-        "odemis for",
+        "odemis for. Default beams, unless --config is given",
+    )
+    parser.add_argument(
+        "--config",
+        help="a configuration file whose hardware.devices entries to build and "
+        "serve, each with its own driver: a plugin's device too",
     )
     parser.add_argument(
         "--mount-transform",
@@ -728,7 +768,18 @@ def main(argv: Optional[List[str]] = None) -> None:
         "stage's axes, from how it is mounted",
     )
     args = parser.parse_args(argv)
+    if args.serve is None:
+        args.serve = [] if args.config else ["beams"]
     served: List[Device] = []
+    built: Dict[str, Device] = {}
+    cleanups: List[Callable[[], None]] = []
+    if args.config:
+        try:
+            built, cleanups = configured_devices(args.config)
+        except Exception as e:
+            logging.error(f"{args.config}: {e}")
+            raise SystemExit(1) from e
+        served += built.values()
     demo_parts = [part for part in DEMO_PARTS if part in args.serve]
     if demo_parts:
         served += demo_devices(demo_parts)
@@ -745,12 +796,17 @@ def main(argv: Optional[List[str]] = None) -> None:
             raise SystemExit(1) from e
     devices: Mapping[str, Device] = {d.name: d for d in served}
     logging.info(f"serving {sorted(devices)} on http://{args.host}:{args.port}")
-    uvicorn.run(
-        build_device_app(devices.values()),
-        host=args.host,
-        port=args.port,
-        ws=WS_PROTOCOL,
-    )
+    try:
+        uvicorn.run(
+            build_device_app(devices.values()),
+            host=args.host,
+            port=args.port,
+            ws=WS_PROTOCOL,
+        )
+    finally:
+        from fibsem.devices.entries import disconnect_devices
+
+        disconnect_devices(built, cleanups)
 
 
 if __name__ == "__main__":

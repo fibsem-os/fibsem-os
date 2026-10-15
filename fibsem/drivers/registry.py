@@ -34,6 +34,7 @@ patterns, strategies and tasks: built-in, then registered at runtime, then plugi
 from __future__ import annotations
 
 import importlib
+import logging
 from dataclasses import dataclass, field, replace
 from typing import (
     TYPE_CHECKING,
@@ -52,7 +53,7 @@ from fibsem.plugins.loader import PluginRegistry, PluginRejected
 
 if TYPE_CHECKING:
     from fibsem.devices.core import Device
-    from fibsem.drivers.setup import DriverSetup
+    from fibsem.drivers.setup import DriverSetup, SetupDevice
     from fibsem.microscope import FibsemMicroscope
     from fibsem.plugins.loader import PluginRecord
     from fibsem.structures import DeviceEntry, SystemSettings
@@ -85,6 +86,18 @@ class DriverEntry:
     ``stage``, ``chamber``, ...): what a ``hardware.devices`` entry naming this driver
     is built with. See :func:`device_builder`."""
 
+    remote_devices: Mapping[str, str] = field(default_factory=dict)
+    """The class a remote copy of this driver's device is, by entry ``type``, as
+    ``"module:Class"``, imported when a ``driver: remote`` entry reaches such a
+    device on a device server. The class mixes ``RemoteDevice`` into what the
+    device declares, so its own parameters and commands cross the wire too::
+
+        remote_devices={"scan_generator": "my_plugin.remote:RemoteMyScanner"}
+
+    A type with none, or a driver not installed on the coordinator, gets the type's
+    interface class from the remote driver (``RemoteScanner``), which has only the
+    interface's parameters. See ``fibsem.drivers.remote.devices.remote_class``."""
+
     aliases: Tuple[str, ...] = ()
     """Other spellings of the name ("thermo", "thermo fisher scientific"), as
     configuration files, image headers and the command line carry them.
@@ -95,7 +108,11 @@ class DriverEntry:
     """What the first-run guided setup offers for this driver, as
     ``"module:attribute"`` naming a ``fibsem.drivers.setup.DriverSetup``, imported
     when the wizard lists the drivers (:func:`driver_setups`). ``None`` for a driver
-    the wizard does not offer."""
+    the wizard does not offer.
+
+    A driver that only builds devices names a ``SetupDevice``, or a tuple of them,
+    instead: the devices the wizard offers (:func:`device_setups`), whose keys are
+    also what building such an entry checks (:func:`device_setup`)."""
 
     @property
     def builds_microscope(self) -> bool:
@@ -342,6 +359,49 @@ def driver_setups() -> List[Tuple[str, "DriverSetup"]]:
         for entry in entries
         if entry.setup is not None
     ]
+
+
+def device_setups() -> List[Tuple[str, "SetupDevice"]]:
+    """Each device a device-only driver offers in the guided setup, as (driver, its
+    ``SetupDevice``), in registry order. Imports each such driver's setup module; one
+    that fails to import is logged and left out, so a broken plugin can't take the
+    wizard down."""
+    found = []
+    for name, entry in _all_drivers():
+        if entry.builds_microscope or entry.setup is None:
+            continue
+        try:
+            found += [(name, device) for device in _setup_devices(entry)]
+        except Exception as e:
+            logging.warning(f"Driver {name}'s setup could not be loaded: {e}")
+    return found
+
+
+def device_setup(driver: Optional[str], type: str) -> Optional["SetupDevice"]:
+    """The ``SetupDevice`` *driver* declares for entries of *type*, or ``None``.
+    Never raises for a driver that is not installed."""
+    try:
+        entry = get_driver(driver)
+    except NotImplementedError:
+        return None
+    if entry.builds_microscope or entry.setup is None:
+        return None
+    return next((d for d in _setup_devices(entry) if d.type == type), None)
+
+
+def _setup_devices(entry: DriverEntry) -> Tuple["SetupDevice", ...]:
+    offered = _import(entry.setup)
+    return tuple(offered) if isinstance(offered, (tuple, list)) else (offered,)
+
+
+def _all_drivers() -> List[Tuple[str, DriverEntry]]:
+    """Every registered driver, as (name, record): those registered at runtime, then
+    the plugins'. The built-ins all build microscopes, so none is imported."""
+    seen: Dict[str, DriverEntry] = {}
+    for drivers in (DRIVER_PLUGINS.registered, DRIVER_PLUGINS.plugins()):
+        for name, entry in drivers.items():
+            seen.setdefault(name, entry)
+    return list(seen.items())
 
 
 def get_driver_plugin_records() -> Tuple["PluginRecord", ...]:

@@ -24,10 +24,11 @@ from fibsem.devices.core import (
     MetadataSource,
     Parameter,
     ParameterMetadata,
+    ResourceBusy,
     Role,
     command,
 )
-from fibsem.devices.scanner import Scanner, resolution_within
+from fibsem.devices.scanner import SCANNER_RESOURCE, Scanner, resolution_within
 from fibsem.devices.wire import to_wire
 from fibsem.display import Display
 from fibsem.structures import (
@@ -516,6 +517,7 @@ class Beam(Device):
     def _acquire_with_scanner(
         self, image_settings: Optional[ImageSettings]
     ) -> FibsemImage:
+        self._check_scanner_free()
         if image_settings is None:
             settings = ImageSettings(
                 resolution=tuple(self.resolution.get_value()),
@@ -540,6 +542,29 @@ class Beam(Device):
                 microscope_state=state,
                 pixel_size=Point(settings.hfw / width, settings.hfw / width),
             ),
+        )
+
+    # One scanner can be bound to both beams (a unit that switches columns), but it
+    # scans for one at a time: a live view holds it for its whole session, and the
+    # other beam is refused meanwhile rather than interleaving its frames.
+
+    def _check_scanner_free(self) -> None:
+        holder = self.scanner.resources.holder(SCANNER_RESOURCE)
+        if holder is not None and holder != self.name:
+            raise ResourceBusy(SCANNER_RESOURCE, holder, self._busy(holder))
+
+    def _hold_scanner(self) -> None:
+        try:
+            self.scanner.resources.hold(SCANNER_RESOURCE, self.name)
+        except ResourceBusy as busy:
+            raise ResourceBusy(
+                SCANNER_RESOURCE, busy.holder, self._busy(busy.holder)
+            ) from None
+
+    def _busy(self, holder: str) -> str:
+        return (
+            f"{self.scanner.name} is live on {holder}: stop live view there before "
+            f"imaging with {self.name}"
         )
 
     def _autocontrast(self, reduced_area: Optional[FibsemRectangle]) -> None:
@@ -568,6 +593,9 @@ class Beam(Device):
             if self.is_live:
                 logging.warning(f"{self.name} live view is already running.")
                 return
+            scanned = "scanner" in self.roles
+            if scanned:
+                self._hold_scanner()  # refused here if the other beam is live on it
             self._live_stop.clear()
             self._live_thread = threading.Thread(
                 target=self._run_live, name=f"{self.name}-live", daemon=True
@@ -597,11 +625,15 @@ class Beam(Device):
         return self.is_live
 
     def _run_live(self) -> None:
-        live = self._live_with_scanner if "scanner" in self.roles else self._live
+        scanned = "scanner" in self.roles
+        live = self._live_with_scanner if scanned else self._live
         try:
             live(self._live_stop)
         except Exception as e:
             logging.error(f"{self.name} live view stopped: {e}")
+        finally:
+            if scanned:
+                self.scanner.resources.release(SCANNER_RESOURCE, self.name)
 
     def _live(self, stop: threading.Event) -> None:
         raise NotImplementedError

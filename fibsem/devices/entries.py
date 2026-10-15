@@ -15,10 +15,11 @@ scratch space its driver's builders share for the connect.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import (
     TYPE_CHECKING,
     Any,
+    Callable,
     Collection,
     Dict,
     List,
@@ -153,8 +154,9 @@ class DeviceBuildError(RuntimeError):
 
 def build_device_entries(
     resolved: Sequence[ResolvedEntry],
-    microscope: "FibsemMicroscope",
+    microscope: Optional["FibsemMicroscope"],
     shared: Optional[Dict[str, Any]] = None,
+    cleanups: Optional[List[Callable[[], None]]] = None,
 ) -> Dict[str, Any]:
     """Build each device with its driver's builder for its type, in order.
 
@@ -196,22 +198,52 @@ def build_device_entries(
                 _not_built(item, microscope, reason)
                 continue
             try:
-                device = builder.load()(item.entry, context)
+                entry = _checked_entry(item)
+            except Exception as e:
+                _not_built(item, microscope, f"its keys are wrong: {e}", e)
+                continue
+            try:
+                device = builder.load()(entry, context)
             except Exception as e:
                 _not_built(item, microscope, f"building it failed: {e}", e)
                 continue
             if device is not None:
-                if getattr(device, "driver", None) is None and isinstance(
-                    device, Device
-                ):
-                    device.driver = item.driver
+                if isinstance(device, Device):
+                    if device.driver is None:
+                        device.driver = item.driver
+                    if device.entry_type is None:
+                        device.entry_type = item.type
                 built[item.name] = device
     finally:
         # registered even when a required device fails, so what was opened closes
-        cleanups = getattr(microscope, "_disconnect_cleanups", None)
+        if cleanups is None:
+            cleanups = getattr(microscope, "_disconnect_cleanups", None)
         if context.cleanups and cleanups is not None:
             cleanups.extend(context.cleanups)
     return built
+
+
+def disconnect_devices(
+    devices: Mapping[str, Any], cleanups: List[Callable[[], None]]
+) -> None:
+    """Disconnect *devices* in reverse build order, then run *cleanups* (what their
+    builders registered with ``BuildContext.on_disconnect``) last first, and empty
+    the list so none runs twice. One that raises is logged and the rest still run."""
+    for name, device in reversed(list(devices.items())):
+        close = getattr(device, "disconnect", None)
+        if close is None:
+            continue
+        try:
+            close()
+        except Exception as e:
+            logging.warning(f"Device '{name}' did not disconnect cleanly: {e}")
+    pending = list(cleanups)
+    cleanups.clear()
+    for cleanup in reversed(pending):
+        try:
+            cleanup()
+        except Exception as e:
+            logging.warning(f"A device connection did not close cleanly: {e}")
 
 
 def _builder(item: ResolvedEntry) -> Optional["DeviceBuilder"]:
@@ -220,6 +252,18 @@ def _builder(item: ResolvedEntry) -> Optional["DeviceBuilder"]:
     from fibsem.drivers.registry import device_builder
 
     return device_builder(item.driver, item.type)
+
+
+def _checked_entry(item: ResolvedEntry) -> DeviceEntry:
+    """*item*'s entry, its keys checked against the ``SetupDevice`` its driver
+    declares for its type and the defaults filled in; unchanged where it declares
+    none. Raises ``ValueError`` for an unknown key or one of the wrong type."""
+    from fibsem.drivers.registry import device_setup
+
+    schema = device_setup(item.driver, item.type)
+    if schema is None:
+        return item.entry
+    return replace(item.entry, options=schema.options(item.entry.options, item.driver))
 
 
 def _installed_drivers() -> List[str]:
@@ -243,7 +287,7 @@ def _not_built(
     logging.warning(message)
     mark = getattr(microscope, "_mark_device_not_built", None)
     if mark is not None:
-        mark(item.name)
+        mark(item.name, reason)
 
 
 class RoleBindingError(ValueError):

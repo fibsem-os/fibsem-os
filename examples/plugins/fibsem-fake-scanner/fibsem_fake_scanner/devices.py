@@ -1,9 +1,10 @@
 """The fake scan generator as a fibsem device, and its builder.
 
 ``FakeScanner`` is a :class:`fibsem.devices.scanner.Scanner`, so a beam's ``scanner``
-role can be bound to it. It adds what this unit has beyond the interface: the input
-it digitises, that input's gain and offset, and the test pattern it scans (the
-stand-in for a sample), plus a ``self_test`` command.
+role can be bound to it. ``FakeScanUnit`` declares what this unit has beyond the
+interface: the input it digitises, that input's gain and offset, and the test pattern
+it scans (the stand-in for a sample), plus a ``self_test`` command. The remote copy
+(``remote.py``) declares the same through it.
 """
 
 from __future__ import annotations
@@ -35,8 +36,11 @@ if TYPE_CHECKING:
     from fibsem.structures import DeviceEntry
 
 
-class FakeScanner(Scanner):
-    """A simulated external scan generator on its own controller."""
+class FakeScanUnit(Scanner):
+    """What a FakeScan unit has beyond a Scanner, wherever it is driven from: declared
+    once, so the local device (`FakeScanner`) and the remote copy of it
+    (``fibsem_fake_scanner.remote.RemoteFakeScanner``) have the same parameters and
+    commands."""
 
     input = Parameter(
         str, choices=INPUTS, doc="The input (ADC) the frame is read from."
@@ -54,6 +58,19 @@ class FakeScanner(Scanner):
     )
     pattern = Parameter(str, choices=PATTERNS, doc="The test pattern the unit scans.")
 
+    @command
+    def self_test(self) -> Dict[str, Any]:
+        """Run the unit's self test and return its report, which goes on the
+        experiment's record too."""
+        return self._self_test()
+
+    def _self_test(self) -> Dict[str, Any]:
+        raise NotImplementedError(f"{type(self).__name__} can't self test")
+
+
+class FakeScanner(FakeScanUnit):
+    """A simulated external scan generator on its own controller."""
+
     def __init__(
         self, name: str, controller: FakeScanController, parent: Any = None, **kw: Any
     ):
@@ -63,6 +80,7 @@ class FakeScanner(Scanner):
     def facts(self) -> Dict[str, Any]:
         c = self._controller
         return {
+            **super().facts(),  # the limits, which a remote copy checks against
             "serial": c.serial,
             "firmware": c.firmware,
             "address": c.address,
@@ -91,10 +109,20 @@ class FakeScanner(Scanner):
     def _resolution_limits(self) -> Tuple[Tuple[int, int], Tuple[int, int]]:
         return (1, 1), self._controller.max_resolution
 
-    @command
-    def self_test(self) -> Dict[str, Any]:
-        """Run the unit's self test and return its report, which goes on the
-        experiment's record too."""
+    def hardware_check(self, report: Any, level: Any) -> None:
+        """The READ step every device has, then: at SETTINGS, the gain changed, read
+        back and put back; at ACQUIRE, one small frame scanned."""
+        from fibsem.tools.hardware_check import Level, check_round_trip
+
+        super().hardware_check(report, level)
+        if level.includes(Level.SETTINGS):
+            gain = self.gain.get_value()
+            check_round_trip(self, "gain", 0.25 if gain != 0.25 else 0.75, report)
+        if level.includes(Level.ACQUIRE):
+            with report.step(self.name, "scan a frame", (64, 48)) as finding:
+                finding.read = self.acquire((64, 48), self.dwell_time_limits.min).shape
+
+    def _self_test(self) -> Dict[str, Any]:
         report = self._controller.self_test()
         self.session.record("scanner_self_test", {"device": self.name, **report})
         return report
@@ -134,25 +162,15 @@ class FakeScanner(Scanner):
         return ParameterMetadata(choices=PATTERNS)
 
 
-# The keys a FakeScan entry takes, beside name/type/driver.
-ENTRY_KEYS = {"address": "127.0.0.1", "pattern": "gradient", "simulate_delay": False}
-
-
 def build_fake_scanner(entry: "DeviceEntry", context: "BuildContext") -> FakeScanner:
     """The scanner a ``type: scan_generator, driver: FakeScan`` entry names.
 
     Entries at one address share one controller connection, through the connect's
     shared scratch space, closed when the microscope disconnects. The unit has its
-    own resources: scanning with it doesn't hold the microscope's locks.
+    own resources: scanning with it doesn't hold the microscope's locks. The entry's
+    keys arrive checked against ``setup.SCANNER``, with its defaults filled in.
     """
-    options = {
-        key: entry.options.get(key, default) for key, default in ENTRY_KEYS.items()
-    }
-    unknown = set(entry.options) - set(ENTRY_KEYS)
-    if unknown:
-        raise ValueError(
-            f"unknown keys for a {MANUFACTURER} scanner: {sorted(unknown)}"
-        )
+    options = entry.options
     controllers = context.shared.setdefault(MANUFACTURER, {})
     address = str(options["address"])
     if address not in controllers:

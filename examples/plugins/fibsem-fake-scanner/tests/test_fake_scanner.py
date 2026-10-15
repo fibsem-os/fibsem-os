@@ -3,9 +3,9 @@
 Each test is one step a plugin device goes through: discovered from its entry point,
 configured as a ``hardware.devices`` entry, built, bound to a beam's ``scanner`` role,
 driven through its parameters and commands, served by the App Server and the device
-server, shown in the application, and recorded. A step fibsemOS does not support yet
-is a strict ``xfail`` naming the gap, so fixing the gap turns the test red until the
-mark comes off.
+server, shown in the application, offered by the guided setup, and recorded. A step
+fibsemOS did not support was a strict ``xfail`` naming the gap, so fixing the gap
+turned the test red until the mark came off; none is left.
 
 Run from the repository root with the plugin installed::
 
@@ -28,7 +28,12 @@ from fibsem_fake_scanner.devices import FakeScanner, build_fake_scanner  # noqa:
 
 import fibsem.config as cfg  # noqa: E402
 from fibsem import utils  # noqa: E402
-from fibsem.devices.entries import DeviceBuildError  # noqa: E402
+from fibsem.devices import DeviceFault, ResourceBusy  # noqa: E402
+from fibsem.devices.entries import (  # noqa: E402
+    DeviceBuildError,
+    ResolvedEntry,
+    build_device_entries,
+)
 from fibsem.drivers.registry import (  # noqa: E402
     BuildContext,
     get_driver,
@@ -83,9 +88,10 @@ def microscope(tmp_path):
 
 
 def _standalone(name="fake_scanner"):
-    """The scanner built on its own, as a device server on the unit's PC would."""
+    """The scanner built on its own from its entry, as a device server on the unit's
+    PC would: with no microscope, and knowing its driver and type."""
     entry = DeviceEntry.from_dict({**ENTRY, "name": name})
-    return build_fake_scanner(entry, BuildContext(microscope=None))
+    return build_device_entries([ResolvedEntry(entry, "FakeScan")], None)[name]
 
 
 # -- discovery ----------------------------------------------------------------------
@@ -104,16 +110,32 @@ def test_a_device_only_driver_is_not_offered_as_a_manufacturer():
     assert "FakeScan" not in registered_manufacturers()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="GAP: the guided setup offers only microscope drivers (driver_setups "
-    "filters on registered_manufacturers); a device-only driver can't offer itself "
-    "or add its entry to hardware.devices",
-)
 def test_the_guided_setup_offers_the_scanner():
-    from fibsem.drivers.registry import driver_setups
+    from fibsem_fake_scanner.setup import SCANNER
 
-    assert "FakeScan" in [name for name, _ in driver_setups()]
+    from fibsem.drivers.registry import device_setups
+
+    assert ("FakeScan", SCANNER) in device_setups()
+
+
+def test_the_wizard_writes_an_entry_that_builds_the_scanner(tmp_path):
+    """Ticked in the guided setup with its keys, then connected: the entry and its
+    role binding are what the wizard wrote."""
+    from fibsem import guided_setup as wizard
+
+    choices = wizard.SetupChoices(manufacturer_key="Demo")
+    choices.model_key = wizard.models_for("Demo")[0].key
+    choices.devices = {
+        "FakeScan:scan_generator": wizard.DeviceChoice({"pattern": "checker"})
+    }
+    config = wizard.build_configuration(choices)
+    microscope = _connect(tmp_path, config)
+    try:
+        scanner = microscope.devices["fake_scanner"]
+        assert microscope.beams[BeamType.ELECTRON].scanner is scanner
+        assert scanner.pattern.get_value() == "checker"
+    finally:
+        microscope.disconnect()
 
 
 # -- configuration and build --------------------------------------------------------
@@ -137,6 +159,11 @@ def test_the_entry_survives_a_save(microscope):
 def test_an_unknown_key_fails_the_build(tmp_path):
     with pytest.raises(DeviceBuildError, match="unknown keys"):
         _connect(tmp_path, _config({**ENTRY, "adress": "10.0.0.2"}))
+
+
+def test_a_key_of_the_wrong_type_fails_the_build(tmp_path):
+    with pytest.raises(DeviceBuildError, match="'simulate_delay' takes true or false"):
+        _connect(tmp_path, _config({**ENTRY, "simulate_delay": "yes"}))
 
 
 def test_a_missing_plugin_says_it_is_not_installed(tmp_path):
@@ -193,18 +220,42 @@ def test_the_beam_offers_only_what_the_scanner_can_scan(microscope):
         )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="GAP: one scanner can be bound to both beams and both can run live on it "
-    "at once; nothing says a scan generator drives one column at a time",
-)
-def test_one_scanner_cannot_serve_two_beams(tmp_path):
+def test_one_scanner_serves_one_beam_at_a_time(tmp_path):
     roles = {
         "electron": {"scanner": "fake_scanner"},
         "ion": {"scanner": "fake_scanner"},
     }
-    with pytest.raises(Exception):
-        _connect(tmp_path, _config(roles=roles))
+    microscope = _connect(tmp_path, _config(roles=roles))  # bound to both: allowed
+    sem = microscope.beams[BeamType.ELECTRON]
+    fib = microscope.beams[BeamType.ION]
+    try:
+        sem.start_live()
+        deadline = time.monotonic() + 5
+        while sem.scanner.resources.holder("scanner") is None:
+            assert time.monotonic() < deadline
+            time.sleep(0.01)
+        with pytest.raises(ResourceBusy, match="fake_scanner is live on electron"):
+            fib.acquire(ImageSettings(beam_type=BeamType.ION, **SETTINGS))
+        sem.stop_live()
+        image = fib.acquire(ImageSettings(beam_type=BeamType.ION, **SETTINGS))
+        assert image.metadata.roles["scanner"]["name"] == "fake_scanner"
+    finally:
+        sem.stop_live()
+        microscope.disconnect()
+
+
+# -- the hardware check ------------------------------------------------------------
+
+
+def test_the_hardware_check_runs_the_scanners_own_steps(microscope):
+    from fibsem.tools.hardware_check import Level, run_hardware_check
+
+    gain = microscope.devices["fake_scanner"].gain.get_value()
+    report = run_hardware_check(microscope, Level.ACQUIRE)
+    steps = {f.step: f for f in report.findings if f.device == "fake_scanner"}
+    assert {"read input", "set gain", "restore gain", "scan a frame"} <= set(steps)
+    assert all(f.result.value == "pass" for f in steps.values()), report.format()
+    assert microscope.devices["fake_scanner"].gain.get_value() == gain
 
 
 # -- recording ---------------------------------------------------------------------
@@ -238,16 +289,52 @@ def test_disconnect_closes_the_scanners_connection(tmp_path):
 # -- the application ---------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="GAP: the configuration window's Devices table is a fixed list "
-    "(microscope_configuration_window.devices_rows); a plugin device is not in it",
-)
 def test_the_configuration_window_lists_the_scanner(microscope):
     pytest.importorskip("PyQt5")
     from fibsem.ui.widgets.microscope_configuration_window import devices_rows
 
-    assert any("scanner" in row[0].lower() for row in devices_rows(microscope))
+    rows = {row[0]: row for row in devices_rows(microscope)}
+    assert rows["fake_scanner"][1:] == (True, "FakeScan", "scan_generator")
+    assert rows["Electron column"][3] == "Scans with fake_scanner"
+
+
+def test_a_scanner_that_failed_shows_the_beam_on_the_vendor_scan(tmp_path):
+    pytest.importorskip("PyQt5")
+    from fibsem.ui.widgets.microscope_configuration_window import devices_rows
+
+    broken = {**ENTRY, "required": False, "address": ""}  # the SDK refuses no address
+    microscope = _connect(tmp_path, _config(broken))
+    try:
+        rows = {row[0]: row for row in devices_rows(microscope)}
+        assert rows["fake_scanner"][1] is False
+        assert "no address" in rows["fake_scanner"][3]
+        assert rows["Electron column"][3] == (
+            "Vendor scan: its scanner fake_scanner was not built"
+        )
+    finally:
+        microscope.disconnect()
+
+
+def test_the_devices_tab_drives_the_scanner(microscope):
+    pytest.importorskip("PyQt5")
+    from PyQt5.QtWidgets import QApplication
+
+    from fibsem.ui.widgets.device_panel import DevicesPanel
+
+    _app = QApplication.instance() or QApplication([])
+    devices = DevicesPanel(microscope.devices)
+    panel = devices.show_device("fake_scanner")
+    scanner = microscope.devices["fake_scanner"]
+    assert set(panel.controls) == set(scanner.parameters)
+    assert "self_test" in panel.buttons
+    assert "FS-0001" in panel.facts.toPlainText()
+    # an edit in the panel is written to the device
+    panel.controls["pattern"].write("noise")  # as the user's edit
+    assert scanner.pattern.get_value() == "noise"
+    # and a change made elsewhere shows in the panel
+    scanner.input.set_value("adc1")
+    _app.processEvents()
+    assert panel.controls["input"].read() == "adc1"
 
 
 def test_the_plugins_dialog_lists_the_driver():
@@ -262,19 +349,19 @@ def test_the_plugins_dialog_lists_the_driver():
 
 
 def test_the_form_builder_can_draw_every_parameter(microscope):
-    """No panel in the application shows a plugin device's parameters (see gaps),
-    but the shared form builder can draw each of them from its metadata."""
+    """The shared form builder, which the Devices tab uses, can draw each of its
+    parameters from its metadata."""
     pytest.importorskip("PyQt5")
+    from dataclasses import replace
+
     from PyQt5.QtWidgets import QApplication
 
-    from fibsem.ui.widgets.form_builder import build_control, parameter_field_metadata
+    from fibsem.ui.widgets.form_builder import build_control, parameter_spec
 
     _app = QApplication.instance() or QApplication([])
     for name, parameter in microscope.devices["fake_scanner"].parameters.items():
-        metadata = {"items": None, "type": None, **parameter_field_metadata(parameter)}
-        control = build_control(
-            metadata, parameter.get_value(), annotation=parameter.type
-        )
+        spec = replace(parameter_spec(parameter), type=parameter.type)
+        control = build_control(spec, parameter.get_value())
         assert control is not None and control.editable, name
 
 
@@ -336,27 +423,90 @@ def test_a_hardware_fault_is_a_clean_refusal():
         server.stop()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="GAP: driver: remote builds only the types in REMOTE_DEVICE_TYPES "
-    "(fibsem/drivers/remote/devices.py); a plugin type can't be remote, and "
-    "`python -m fibsem.server.devices --serve` can't serve a plugin device",
-)
+def _remote(server):
+    return {
+        "name": "fake_scanner",
+        "type": "scan_generator",
+        "driver": "remote",
+        "address": "127.0.0.1",
+        "port": _wait(server),
+    }
+
+
+def _served_from_a_file(tmp_path):
+    """What ``python -m fibsem.server.devices --config`` serves on the unit's PC."""
+    from fibsem.server.devices import configured_devices
+
+    path = tmp_path / "devices.yaml"
+    path.write_text(yaml.safe_dump({"hardware": {"devices": [ENTRY]}}))
+    return configured_devices(str(path))
+
+
+def test_the_device_server_builds_the_scanner_from_a_config_file(tmp_path):
+    from fibsem.devices.entries import disconnect_devices
+
+    built, cleanups = _served_from_a_file(tmp_path)
+    scanner = built["fake_scanner"]
+    assert isinstance(scanner, FakeScanner)
+    assert (scanner.driver, scanner.entry_type) == ("FakeScan", "scan_generator")
+    assert scanner.pattern.get_value() == "checker"
+    disconnect_devices(built, cleanups)
+    with pytest.raises(DeviceFault):  # its shared controller connection was closed
+        scanner.acquire((16, 8), 1e-7)
+
+
 def test_a_remote_entry_reaches_a_served_scanner(tmp_path):
     pytest.importorskip("websockets")
+    from fibsem_fake_scanner.remote import RemoteFakeScanner
+
+    from fibsem.devices.entries import disconnect_devices
     from fibsem.server.devices import DeviceServer
 
-    server = DeviceServer([_standalone()]).start()
+    built, cleanups = _served_from_a_file(tmp_path)
+    served = built["fake_scanner"]
+    server = DeviceServer([served]).start()
     try:
-        remote = {
-            "name": "fake_scanner",
-            "type": "scan_generator",
-            "driver": "remote",
-            "address": "127.0.0.1",
-            "port": _wait(server),
-        }
-        microscope = _connect(tmp_path, _config(remote))
-        assert "scanner" in microscope.beams[BeamType.ELECTRON].roles
+        microscope = _connect(tmp_path, _config(_remote(server)))
+        sem = microscope.beams[BeamType.ELECTRON]
+        scanner = sem.roles["scanner"]
+        # the plugin is installed here too, so its remote class: its own parameters
+        assert isinstance(scanner, RemoteFakeScanner)
+        assert scanner.input.get_value() == "adc0"
+        scanner.gain.set_value(0.25)
+        assert served.gain.get_value() == 0.25
+        assert scanner.self_test()["serial"] == "FS-0001"
+        # its limits came with it, and the beam narrows to them
+        assert sem.dwell_time.limits.min == served.dwell_time_limits.min
+        image = microscope.acquire_image(image_settings=ImageSettings(**SETTINGS))
+        assert image.data.shape == (48, 64)
+        assert image.metadata.roles["scanner"]["facts"]["serial"] == "FS-0001"
+        microscope.disconnect()
+    finally:
+        server.stop()
+        disconnect_devices(built, cleanups)
+
+
+def test_without_the_plugin_here_it_is_a_plain_remote_scanner(tmp_path, caplog):
+    pytest.importorskip("websockets")
+    import logging
+
+    from fibsem.drivers.remote.devices import RemoteScanner
+    from fibsem.server.devices import DeviceServer
+
+    served = _standalone()
+    served.driver = "NotInstalledHere"  # as if the coordinator lacked the plugin
+    server = DeviceServer([served]).start()
+    logging.getLogger().addHandler(caplog.handler)
+    try:
+        microscope = _connect(tmp_path, _config(_remote(server)))
+        scanner = microscope.beams[BeamType.ELECTRON].roles["scanner"]
+        assert type(scanner) is RemoteScanner
+        assert "input" not in scanner.parameters
+        assert "Not available here: gain, input, offset, pattern." in caplog.text
+        # scanning still works through the interface
+        image = microscope.acquire_image(image_settings=ImageSettings(**SETTINGS))
+        assert image.data.shape == (48, 64)
+        microscope.disconnect()
     finally:
         server.stop()
 
