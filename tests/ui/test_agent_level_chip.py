@@ -218,6 +218,10 @@ def test_the_image_shows_beside_the_steps_and_follows_the_card_s_width(qapp):
     assert card.image_label is not None
     card.set_image(None)
     assert card.image_label is None
+    # No image to draw on: why, in its place (FIB-1424).
+    card.set_image(None, "No FIB image of 05-pale-lark yet to draw on")
+    qapp.processEvents()
+    assert "No FIB image of 05-pale-lark yet to draw on" in _labels(card)
     card.deleteLater()
 
 

@@ -310,6 +310,7 @@ class _Mark:
         area: bool = False,
         shape: str = CROSS,
         before: bool = False,
+        title: str = "",
     ):
         self.beam = beam
         self.legend = legend
@@ -318,6 +319,9 @@ class _Mark:
         self.shape = shape
         # Where something is now, drawn as a config edit's patterns as they are.
         self.before = before
+        # Whose image the places were measured on ("05-pale-lark"), for the
+        # picture's caption.
+        self.title = title
 
     def pixels(self, frame) -> List[Tuple[float, float]]:
         """The places as *frame*'s pixels; one the frame cannot place (None) is
@@ -556,6 +560,7 @@ class AgentPreviews:
         task_config: Optional[Callable[[str, str], object]] = None,
         show_picture: Optional[Callable[..., None]] = None,
         item_pose: Optional[Callable[[str, str], object]] = None,
+        item_image: Optional[Callable[[str], object]] = None,
         overview_image: Optional[Callable[[str, str], object]] = None,
         load_image: Optional[Callable[[str], object]] = None,
     ) -> None:
@@ -570,6 +575,9 @@ class AgentPreviews:
         # Where an item's pose puts the stage (item name, pose name): a
         # FibsemStagePosition, or None.
         self._item_pose = item_pose or (lambda item, pose: None)
+        # An item's last FIB image, which its point of interest and alignment
+        # area are in (item name): a FibsemImage, or None.
+        self._item_image = item_image or (lambda item: None)
         # A grid's recorded overview (grid name, file name), for an item added
         # on it; None when there is none.
         self._overview_image = overview_image or (lambda grid, filename: None)
@@ -605,7 +613,8 @@ class AgentPreviews:
         live = _frame(controller, BeamType.ION)
         aspect = live.data.shape[0] / live.data.shape[1] if live is not None else 2 / 3
         outside = request_outside_field(request, aspect, milled)
-        marks = self._request_marks(request)
+        missing: List[str] = []
+        marks = self._request_marks(request, missing)
         # The agent's own image when it gave one; else the one the values were
         # measured on.
         evidence = _agent_image(self._load_image, request.get("image"))
@@ -618,6 +627,9 @@ class AgentPreviews:
             )
         # The card: the image the values were measured on, every value on it.
         if frame is None:
+            if missing:
+                # Not the live view: an item's values are in its own frame.
+                self._show_picture(None, f"No FIB image of {missing[0]} yet to draw on")
             return
         layers = [
             _Layer(_BEFORE),
@@ -637,8 +649,14 @@ class AgentPreviews:
             red.key(OUTLINE, "past the field", red.patterns)
         self._add_marks(frame, [m for m in marks.values() if not m.before], purple)
         self._add_marks(frame, [m for m in marks.values() if m.before], grey)
+        title = next((m.title for m in marks.values() if m.title and m.places), "")
         self._picture(
-            frame, beam, layers, suggestion=False, agent_image=evidence is not None
+            frame,
+            beam,
+            layers,
+            suggestion=False,
+            agent_image=evidence is not None,
+            title="" if evidence is not None else title,
         )
 
     def _measured_on(self, controller, marks: Dict[str, "_Mark"], milling: bool):
@@ -657,9 +675,12 @@ class AgentPreviews:
             return _frame(controller, beams[0]), beams[0]
         return None, None
 
-    def _request_marks(self, request: Dict[str, Any]) -> Dict[str, _Mark]:
+    def _request_marks(
+        self, request: Dict[str, Any], missing: List[str]
+    ) -> Dict[str, _Mark]:
         """What *request* places on the sample: move targets, a review's or an
-        item edit's point of interest, an item edit's alignment area."""
+        item edit's point of interest, an item edit's alignment area. An item
+        edit whose item has no FIB image to draw on goes in *missing*."""
         marks: Dict[str, _Mark] = {}
 
         def add(overlay_id, beam, legend, places, area=False, shape=CROSS, **kw):
@@ -689,32 +710,40 @@ class AgentPreviews:
                         BeamType.ION,
                         "point of interest",
                         [(image, _offset_pixel(image, poi))],
+                        title=str(action.get("what") or ""),
                     )
             elif tool == "item_update":
-                # Metres in the milling frame, and fractions of it: measured on
-                # the frame the FIB view shows as the request comes (FIB-1411).
+                # Metres in the item's milling frame, and fractions of it: on
+                # the item's own last FIB image, never the live view, which may
+                # be somewhere else on the grid (FIB-1424).
                 patch = arguments.get("patch") or {}
                 poi = _point(patch.get("poi")) or _point(
                     {"x": patch.get("poi.x"), "y": patch.get("poi.y")}
                 )
+                area = _area(patch)
+                if poi is None and area is None:
+                    continue
+                item = str(arguments.get("item_name") or "")
+                image = self._item_image(item)
+                if not _has_pixel_size(image) or getattr(image.data, "ndim", 0) != 2:
+                    missing.append(item or "the lamella")
+                    continue
                 if poi is not None:
                     add(
                         POI_MARK,
                         BeamType.ION,
                         "point of interest",
-                        [(None, lambda frame, p=poi: _offset_pixel(frame, p))],
+                        [(image, _offset_pixel(image, poi))],
+                        title=item,
                     )
-                area = _area(patch)
                 if area is not None:
                     add(
                         AREA_MARK,
                         BeamType.ION,
                         "alignment area",
-                        [
-                            (None, lambda frame, c=corner: _fraction_pixel(frame, c))
-                            for corner in area
-                        ],
+                        [(image, _fraction_pixel(image, corner)) for corner in area],
                         area=True,
+                        title=item,
                     )
         return marks
 
@@ -876,6 +905,7 @@ class AgentPreviews:
         suggestion: bool,
         point: bool = False,
         agent_image: bool = False,
+        title: str = "",
     ) -> None:
         drawn = None
         # The agent's own image shows with nothing drawn on it, too.
@@ -889,6 +919,8 @@ class AgentPreviews:
             self._show_picture(None, "", suggestion=suggestion)
             return
         caption = picture_caption(frame, beam)
+        if title:
+            caption = f"{title} · {caption}"
         self._show_picture(
             draw_picture(frame, layers),
             f"The agent's image · {caption}" if agent_image else caption,

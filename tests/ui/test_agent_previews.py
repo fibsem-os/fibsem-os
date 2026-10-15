@@ -145,9 +145,11 @@ class _Card:
 
     def __init__(self):
         self.shown = {}
+        self.notes = {}
 
     def __call__(self, image, caption, suggestion=False, legend=()):
         self.shown[suggestion] = (image, caption) if image is not None else None
+        self.notes[suggestion] = caption if image is None else ""
 
 
 def _layer(picture, colour=PURPLE_COLOR):
@@ -328,6 +330,7 @@ def test_a_review_decision_s_point_is_drawn_on_the_card_on_its_own_image():
         "actions": [
             {
                 "tool": "review_decide",
+                "what": "01-full-magpie · Setup Lamella",
                 "arguments": {
                     "item_id": "01",
                     "task_name": "Setup Lamella",
@@ -346,22 +349,22 @@ def test_a_review_decision_s_point_is_drawn_on_the_card_on_its_own_image():
     assert layer.crosses == [pytest.approx((110.0, 45.0))]
     assert controller.overlays == {}
     image, caption = card.shown[False]
-    assert image.width() == 200 and caption.startswith("FIB")
+    assert image.width() == 200
+    assert caption.startswith("01-full-magpie · Setup Lamella · FIB")
     # The legend on it names what the cross is.
     assert layer.keys == [("cross", "point of interest")]
     previews.show_request(None)
     assert previews.request_picture is None and card.shown[False] is None
 
 
-def test_an_item_edit_s_point_and_alignment_area_are_drawn_on_the_card():
-    controller = _Controller()
-    previews = AgentPreviews(lambda: controller)
-    request = {
-        "request_id": "kl12",
+def _item_edit(request_id="kl12"):
+    return {
+        "request_id": request_id,
         "status": "pending",
         "actions": [
             {
                 "tool": "item_update",
+                "what": "01-full-magpie",
                 "arguments": {
                     "item_name": "01-full-magpie",
                     "patch": {
@@ -377,13 +380,41 @@ def test_an_item_edit_s_point_and_alignment_area_are_drawn_on_the_card():
             }
         ],
     }
-    previews.show_request(request)
+
+
+def test_an_item_edit_s_point_and_alignment_area_are_drawn_on_the_item_s_image():
+    # FIB-1424: they were drawn on the live FIB frame, which was 114 µm away
+    # at another lamella. They are in the item's own frame: its last FIB image.
+    controller = _Controller()
+    item_image = FibsemImage.generate_blank_image(resolution=(200, 100), hfw=100e-6)
+    asked = []
+
+    def image_of(item):
+        asked.append(item)
+        return item_image
+
+    card = _Card()
+    previews = AgentPreviews(lambda: controller, item_image=image_of, show_picture=card)
+    previews.show_request(_item_edit())
+    assert asked == ["01-full-magpie"]
     frame, layer = _layer(previews.request_picture)
-    # Measured on the FIB view's frame as the request came: 0.5 µm/px.
-    assert frame is controller.image(BeamType.ION)
+    assert frame is item_image  # 0.5 µm/px
     assert layer.crosses == [pytest.approx((80.0, 50.0))]
     assert layer.areas == [[pytest.approx((50.0, 50.0)), pytest.approx((150.0, 75.0))]]
     assert controller.overlays == {}
+    # Captioned with whose image it is.
+    _, caption = card.shown[False]
+    assert caption.startswith("01-full-magpie · FIB")
+
+
+def test_an_item_edit_without_an_image_of_the_item_says_so():
+    # Never the live view instead: it may be at another lamella.
+    controller = _Controller()
+    card = _Card()
+    previews = AgentPreviews(lambda: controller, show_picture=card)
+    previews.show_request(_item_edit("mn56"))
+    assert previews.request_picture is None
+    assert card.notes[False] == "No FIB image of 01-full-magpie yet to draw on"
 
 
 def test_the_card_s_picture_is_the_image_with_its_marks_drawn():

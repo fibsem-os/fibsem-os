@@ -419,6 +419,8 @@ class AgentCard(QFrame):
         # The images under Why, with their captions: the request's, the
         # suggestion's.
         self._images: Dict[str, Tuple[QImage, str, Tuple]] = {}
+        # Why there is no image, in its place: "No FIB image of 05 yet".
+        self._notes: Dict[str, str] = {}
         self.image_label: Optional[_Picture] = None
         self._picture_holder: Optional[QWidget] = None
         self._details_open = False
@@ -622,12 +624,17 @@ class AgentCard(QFrame):
         """The image the waiting request's (or, *suggestion*, the suggested
         answer's) values were measured on, drawn on it, with what it is
         ("FIB · 07:41") and its *legend* (`agent_previews.draw_legend`'s
-        entries); None for none."""
+        entries); None for none, *caption* then why there is none."""
         key = "suggestion" if suggestion else "request"
         if image is None or image.isNull():
-            if self._images.pop(key, None) is None:
+            had = self._images.pop(key, None) is not None
+            note = self._notes.pop(key, "")
+            if caption:
+                self._notes[key] = caption
+            if not had and note == caption:
                 return
         else:
+            self._notes.pop(key, None)
             self._images[key] = (image, caption, tuple(legend))
         self._render()
 
@@ -935,6 +942,10 @@ class AgentCard(QFrame):
         """The *image* the values were measured on (FIB-1411), its legend on it."""
         self.image_label = None
         if image not in self._images:
+            if self._notes.get(image):
+                column.addWidget(
+                    _label(self._notes[image], TEXT_MUTED_COLOR, small=True, wrap=True)
+                )
             return
         picture, caption, legend = self._images[image]
         label = _Picture(picture, self._picture_width(), caption, legend)

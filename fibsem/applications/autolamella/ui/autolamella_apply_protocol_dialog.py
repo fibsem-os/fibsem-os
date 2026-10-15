@@ -71,16 +71,20 @@ class ApplyLamellaConfigDialog(QDialog):
         self.pushButton_select_all_lamella = QPushButton("Select All")
         self.pushButton_deselect_all_lamella = QPushButton("Deselect All")
         self.pushButton_select_all_lamella.clicked.connect(
-            lambda: self._set_all_check_state(self.lamella_list, Qt.Checked))  # type: ignore
+            lambda: self._set_all_check_state(self.lamella_list, Qt.Checked)
+        )  # type: ignore
         self.pushButton_deselect_all_lamella.clicked.connect(
-            lambda: self._set_all_check_state(self.lamella_list, Qt.Unchecked))  # type: ignore
+            lambda: self._set_all_check_state(self.lamella_list, Qt.Unchecked)
+        )  # type: ignore
         lamella_buttons_layout.addWidget(self.pushButton_select_all_lamella)
         lamella_buttons_layout.addWidget(self.pushButton_deselect_all_lamella)
 
         lamella_layout.addWidget(self.lamella_list)
         lamella_layout.addLayout(lamella_buttons_layout)
 
-        self.lamella_group = TitledPanel("Target Lamella", content=lamella_content, collapsible=False)
+        self.lamella_group = TitledPanel(
+            "Target Lamella", content=lamella_content, collapsible=False
+        )
 
         # --- Task selection ---
         task_content = QWidget()
@@ -101,16 +105,20 @@ class ApplyLamellaConfigDialog(QDialog):
         self.pushButton_select_all_tasks = QPushButton("Select All")
         self.pushButton_deselect_all_tasks = QPushButton("Deselect All")
         self.pushButton_select_all_tasks.clicked.connect(
-            lambda: self._set_all_check_state(self.task_list, Qt.Checked))  # type: ignore
+            lambda: self._set_all_check_state(self.task_list, Qt.Checked)
+        )  # type: ignore
         self.pushButton_deselect_all_tasks.clicked.connect(
-            lambda: self._set_all_check_state(self.task_list, Qt.Unchecked))  # type: ignore
+            lambda: self._set_all_check_state(self.task_list, Qt.Unchecked)
+        )  # type: ignore
         task_buttons_layout.addWidget(self.pushButton_select_all_tasks)
         task_buttons_layout.addWidget(self.pushButton_deselect_all_tasks)
 
         task_layout.addWidget(self.task_list)
         task_layout.addLayout(task_buttons_layout)
 
-        self.task_group = TitledPanel("Tasks to Apply", content=task_content, collapsible=False)
+        self.task_group = TitledPanel(
+            "Tasks to Apply", content=task_content, collapsible=False
+        )
 
         # --- Base protocol checkbox ---
         self.checkbox_update_base_protocol = QCheckBox("Also update the base protocol")
@@ -142,7 +150,9 @@ class ApplyLamellaConfigDialog(QDialog):
         # Update info when selections change (must be after buttons are created)
         self.lamella_list.itemChanged.connect(lambda _: self._update_info_label())
         self.task_list.itemChanged.connect(lambda _: self._update_info_label())
-        self.checkbox_update_base_protocol.stateChanged.connect(lambda _: self._update_info_label())
+        self.checkbox_update_base_protocol.stateChanged.connect(
+            lambda _: self._update_info_label()
+        )
         self._update_info_label()
 
     def _setup_layout(self):
@@ -197,7 +207,9 @@ class ApplyLamellaConfigDialog(QDialog):
                 missing.append("target lamella")
             if not selected_tasks:
                 missing.append("tasks")
-            self.label_info.setText(f"Please select at least one {' and '.join(missing)}.")
+            self.label_info.setText(
+                f"Please select at least one {' and '.join(missing)}."
+            )
             self.label_info.setStyleSheet("color: orange; font-style: italic;")
             self.pushButton_apply.setEnabled(False)
             return

@@ -1627,6 +1627,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             task_config=self._agent_task_config,
             show_picture=self.agent_chip.card.set_image,
             item_pose=self._agent_item_pose,
+            item_image=self._agent_item_image,
             overview_image=self._agent_overview_image,
         )
         self._agent_chip_timer = QTimer(self)
@@ -4075,6 +4076,34 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return None
         pose = dict(lamella.poses).get(pose_name)
         return getattr(pose, "stage_position", None)
+
+    def _agent_item_image(self, item_name: str):
+        """An item's last FIB image, the one its point of interest and
+        alignment area are drawn on: its last completed task's final one, else
+        the last one listed. None when it has none (FIB-1424)."""
+        from fibsem.applications.autolamella.server.context import find_item
+        from fibsem.applications.autolamella.task_outputs import (
+            lamella_images,
+            latest_task_image,
+        )
+        from fibsem.structures import FibsemImage
+
+        experiment = self.autolamella_ui.experiment
+        if experiment is None:
+            return None
+        lamella, refusal = find_item(experiment, item_name)
+        if refusal:
+            return None
+        listed = [f for f in lamella_images(lamella, "_ib.tif") if "alignment" not in f]
+        filename = latest_task_image(lamella, "_ib.tif") or (
+            listed[-1] if listed else ""
+        )
+        if not filename:
+            return None
+        try:
+            return FibsemImage.load(os.path.join(lamella.path, filename))
+        except Exception:  # noqa: BLE001 - a broken file: nothing to draw on
+            return None
 
     def _agent_overview_image(self, grid_name: str, filename: str):
         """A grid's recorded overview, for a waiting item_add's preview; None
