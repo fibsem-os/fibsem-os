@@ -90,6 +90,7 @@ from fibsem.devices.core import (
     ParameterMetadata,
     ParameterReadOnly,
     ParameterUnavailable,
+    ResourceBusy,
     command,
 )
 from fibsem.devices.entries import REMOTE_DRIVER
@@ -167,6 +168,8 @@ def error_from(
         # the hardware refused on the far side: a driver's own subclass arrives
         # as the fault it is
         return DeviceFault(message, device=detail.get("device"))
+    if kind == "ResourceBusy":
+        return ResourceBusy(detail.get("resource"), detail.get("holder"), message)
     if kind in _ERRORS:
         return _ERRORS[kind](message)
     return None

@@ -510,6 +510,16 @@ def query(
     return mark(fn) if fn is not None else mark
 
 
+class ResourceBusy(RuntimeError):
+    """A resource is held by someone else (`Resources.hold`): a refusal, not a fault.
+    Say what to stop to free it."""
+
+    def __init__(self, resource: str, holder: str, message: Optional[str] = None):
+        super().__init__(message or f"{resource} is in use by {holder}")
+        self.resource = resource
+        self.holder = holder
+
+
 class Resources:
     """Named shared resources, each a re-entrant lock.
 
@@ -530,6 +540,7 @@ class Resources:
         self._groups = dict(groups or {})
         self._locks: Dict[str, threading.RLock] = dict(locks or {})
         self._guard = threading.Lock()
+        self._holders: Dict[str, str] = {}
 
     def lock(self, name: str) -> threading.RLock:
         group = self._groups.get(name, _SHARED)
@@ -542,6 +553,34 @@ class Resources:
     def claim(self, name: str) -> Iterator[None]:
         with self.lock(name):
             yield
+
+    # Holding is for longer than one claim: a live view holds its scanner for the
+    # whole session, and a claim from anyone else is refused at once rather than
+    # waiting for the session to end. The holder's own claims go on as before.
+
+    def hold(self, name: str, holder: str) -> None:
+        """Hold *name* for *holder* until `release`. Holding it again as the same
+        holder is a no-op.
+
+        Raises:
+            ResourceBusy: another holder has it.
+        """
+        with self._guard:
+            current = self._holders.get(name)
+            if current is not None and current != holder:
+                raise ResourceBusy(name, current)
+            self._holders[name] = holder
+
+    def release(self, name: str, holder: str) -> None:
+        """Let go of *name*, if *holder* holds it."""
+        with self._guard:
+            if self._holders.get(name) == holder:
+                del self._holders[name]
+
+    def holder(self, name: str) -> Optional[str]:
+        """Who holds *name*, or None."""
+        with self._guard:
+            return self._holders.get(name)
 
 
 def resources_of(owner: Any) -> Resources:

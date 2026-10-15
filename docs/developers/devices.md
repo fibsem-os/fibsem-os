@@ -362,6 +362,12 @@ An image a beam acquires records the device in each role it had filled, under
 It is empty for an image from the vendor's own scan. `microscope_state` still
 carries the vendor's detector either way.
 
+One scanner can be bound to both beams, since a unit may switch columns, but it scans
+for one at a time. A beam's live view holds the scanner (`Resources.hold`) for its
+whole session; meanwhile the other beam's `acquire` and `start_live` are refused at
+once with `ResourceBusy` ("unit is live on electron"), a 409 over the device server,
+rather than interleaving its frames. The live beam's own `acquire` goes on.
+
 ## Services
 
 A service is something the instrument does with its devices over time, such as

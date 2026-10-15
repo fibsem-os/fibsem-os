@@ -90,6 +90,7 @@ from fibsem.devices.core import (
     ParameterMetadata,
     ParameterReadOnly,
     ParameterUnavailable,
+    ResourceBusy,
     _limits_to_dict,
 )
 from fibsem.devices.wire import (
@@ -125,6 +126,7 @@ ERROR_STATUS = {
     ParameterUnavailable: 404,
     ParameterReadOnly: 409,
     OperationCancelledError: 409,  # stopped: a sweep, a mill (FIB-1355)
+    ResourceBusy: 409,  # held by someone else: a scanner live on the other beam
     TypeError: 422,
     ValueError: 422,  # an argument that does not decode names its parameter
     NotImplementedError: 501,  # a command this driver has no hook for (a needle's stop)
@@ -147,6 +149,8 @@ def refusal(error: Exception, what: str) -> HTTPException:
     device = getattr(error, "device", None) if isinstance(error, DeviceFault) else None
     if device is not None:
         detail["device"] = device
+    if isinstance(error, ResourceBusy):
+        detail.update(resource=error.resource, holder=error.holder)
     logging.info(f"{what}: {status} {detail['error_type']}: {error}")
     return HTTPException(status, detail)
 

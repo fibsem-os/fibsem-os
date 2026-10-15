@@ -28,7 +28,7 @@ from fibsem_fake_scanner.devices import FakeScanner, build_fake_scanner  # noqa:
 
 import fibsem.config as cfg  # noqa: E402
 from fibsem import utils  # noqa: E402
-from fibsem.devices import DeviceFault  # noqa: E402
+from fibsem.devices import DeviceFault, ResourceBusy  # noqa: E402
 from fibsem.devices.entries import (  # noqa: E402
     DeviceBuildError,
     ResolvedEntry,
@@ -199,18 +199,28 @@ def test_the_beam_offers_only_what_the_scanner_can_scan(microscope):
         )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="GAP: one scanner can be bound to both beams and both can run live on it "
-    "at once; nothing says a scan generator drives one column at a time",
-)
-def test_one_scanner_cannot_serve_two_beams(tmp_path):
+def test_one_scanner_serves_one_beam_at_a_time(tmp_path):
     roles = {
         "electron": {"scanner": "fake_scanner"},
         "ion": {"scanner": "fake_scanner"},
     }
-    with pytest.raises(Exception):
-        _connect(tmp_path, _config(roles=roles))
+    microscope = _connect(tmp_path, _config(roles=roles))  # bound to both: allowed
+    sem = microscope.beams[BeamType.ELECTRON]
+    fib = microscope.beams[BeamType.ION]
+    try:
+        sem.start_live()
+        deadline = time.monotonic() + 5
+        while sem.scanner.resources.holder("scanner") is None:
+            assert time.monotonic() < deadline
+            time.sleep(0.01)
+        with pytest.raises(ResourceBusy, match="fake_scanner is live on electron"):
+            fib.acquire(ImageSettings(beam_type=BeamType.ION, **SETTINGS))
+        sem.stop_live()
+        image = fib.acquire(ImageSettings(beam_type=BeamType.ION, **SETTINGS))
+        assert image.metadata.roles["scanner"]["name"] == "fake_scanner"
+    finally:
+        sem.stop_live()
+        microscope.disconnect()
 
 
 # -- recording ---------------------------------------------------------------------
