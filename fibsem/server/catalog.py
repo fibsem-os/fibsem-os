@@ -392,7 +392,9 @@ CATALOG: Tuple[ToolSpec, ...] = (
         description=(
             "Run a service command listed by list_services, e.g. service=stage_movement "
             "command=move_to_orientation kwargs={'orientation': 'SEM'}. A long command "
-            "(milling run, spot burn run) answers when it ends; command=stop from "
+            "(listed with long: true: milling run, spot burn run) answers at once with "
+            "its run (run_id, state: running) and runs on, in control of the "
+            "microscope; wait_for_run says how it ended. command=stop from "
             "another call stops it: the agent's own run at Assist or Drive, "
             "anyone else's at Drive, never at Watch, always with a reason."
         ),
@@ -405,6 +407,25 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "command": "command name",
             "kwargs": "the command's arguments, by name",
             "reason": "for a stop (stop, stop_live, cancel): why, for the operator (required there)",
+        },
+    ),
+    ToolSpec(
+        name="wait_for_run",
+        description=(
+            "How a long command you started (milling run, spot burn run) is going: "
+            "its run with state running, done, failed or cancelled, and when it has "
+            "ended its result or error. Waits up to wait seconds (at most 60) for "
+            "it to end, so call it again while it says running. With run_id, waits "
+            "for that run; a later run on the service answers at once. The same end "
+            "comes as a command_ended event on get_events."
+        ),
+        method="GET",
+        path="/microscope/services/{service}/run",
+        level="watch",
+        params={
+            "service": "the service the command ran on, e.g. milling",
+            "run_id": "the run_id the command answered with",
+            "wait": "seconds to wait for the end, at most 60 (default 60)",
         },
     ),
     ToolSpec(

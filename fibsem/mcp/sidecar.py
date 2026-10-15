@@ -453,6 +453,15 @@ def build_sidecar(client, capabilities):
             reason=reason,
         )
 
+    def wait_for_run(service: str, run_id: Optional[str] = None, wait: float = 60.0):
+        data, err = _call(
+            client,
+            "GET",
+            f"/microscope/services/{quote(service, safe='')}/run?"
+            + _query(wait=wait, run_id=run_id),
+        )
+        return err if err else _with_images(data)
+
     def call_service_query(service: str, query: str, kwargs: Optional[dict] = None):
         return _routed(
             "call_service_query", service=service, query=query, kwargs=kwargs
@@ -463,6 +472,10 @@ def build_sidecar(client, capabilities):
 
     def auto_focus(beam_type: str = "ELECTRON"):
         return _routed("auto_focus", "result", beam_type=beam_type)
+
+    def _query(**params):
+        """A query string of the *params* that are given (not None)."""
+        return urlencode({k: v for k, v in params.items() if v is not None})
 
     def _app_get(path):
         data, err = _call(client, "GET", path)
@@ -497,15 +510,11 @@ def build_sidecar(client, capabilities):
         level: Optional[str] = None,
         lines: int = 200,
     ):
-        query = {
-            "task_id": task_id,
-            "since": since,
-            "until": until,
-            "level": level,
-            "lines": lines,
-        }
         return _app_get(
-            "/app/log?" + urlencode({k: v for k, v in query.items() if v is not None})
+            "/app/log?"
+            + _query(
+                task_id=task_id, since=since, until=until, level=level, lines=lines
+            )
         )
 
     def get_task_outputs(item_name: str):
@@ -833,6 +842,7 @@ def build_sidecar(client, capabilities):
             set_service_parameter,
             call_service_command,
             call_service_query,
+            wait_for_run,
             autocontrast,
             auto_focus,
             get_app_status,

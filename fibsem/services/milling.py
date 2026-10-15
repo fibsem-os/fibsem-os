@@ -397,7 +397,7 @@ class Milling(Service):
         """Resume paused milling."""
         self._resume()
 
-    @command
+    @command(long=True)
     def run(
         self, stop_event: Optional[Union[threading.Event, AnyStopEvent]] = None
     ) -> str:

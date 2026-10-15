@@ -440,9 +440,12 @@ asked for and what happened, and hand back to the operator.
 
 **Milling.** `prepare` the settings and patterns, mill with `run` (not
 `start`, which reports no progress and records nothing), then `clear` and
-`restore`, and check the ion beam current is back where it was. A long
-`run` can outlast your tool call; read `get_service_parameter` milling
-`progress` and the events to follow it.
+`restore`, and check the ion beam current is back where it was. `run`
+answers at once with its `run_id` (`state: running`) and mills on, in control
+of the microscope: call `wait_for_run` milling with that id, again while it
+says running, before you `clear`. It ends `done` (`result: completed`),
+`cancelled` or `failed` with its error. `get_service_parameter` milling
+`progress` shows how far it has got. A spot burn `run` works the same way.
 
 **`409 microscope_busy` is someone else working.** Its
 `detail.in_control` names who (`workflow`, `script`, or another command)

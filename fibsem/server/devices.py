@@ -74,6 +74,7 @@ from fastapi import (
     Body,
     FastAPI,
     HTTPException,
+    Request,
     WebSocket,
     WebSocketDisconnect,
 )
@@ -106,6 +107,7 @@ from fibsem.server.images import (
     is_image_result,
     tiff_bytes,
 )
+from fibsem.server.runs import Runs
 from fibsem.structures import FibsemImage
 
 # Before uvicorn 0.54 its default websockets implementation imports websockets.legacy,
@@ -154,6 +156,13 @@ def unexpected(error: Exception, what: str) -> HTTPException:
     logging.error(f"{what}: {type(error).__name__}: {error}", exc_info=error)
     detail = {"error_type": type(error).__name__, "message": str(error)}
     return HTTPException(500, detail)
+
+
+def answer_for_error(error: Exception, what: str) -> HTTPException:
+    """The answer to any error: a refusal for an expected one, else unexpected."""
+    if isinstance(error, tuple(ERROR_STATUS)):
+        return refusal(error, what)
+    return unexpected(error, what)
 
 
 def _choices_to_wire(choices: Any) -> Any:
@@ -220,6 +229,8 @@ def describe_device(device: Device, refuse: Optional[Refuse] = None) -> Dict[str
                 "signature": info.signature,
                 "available": info.available,
                 **agent("command", name),
+                # Answered at once with a run id on the App Server.
+                **({"long": True} if info.long else {}),
             }
             for name, info in device.commands.items()
         },
@@ -316,6 +327,10 @@ class _EventHub:
             return
 
 
+# How long ``GET .../run`` may wait for a run to end: under the sidecar's 120 s
+# timeout, so a wait answers before the call gives up.
+RUN_WAIT_CAP_S = 60.0
+
 # A command or query with no arguments may be posted with no body.
 _NO_BODY = Body(default={})
 
@@ -329,6 +344,8 @@ def build_device_router(
     noun: str = "device",
     on_image: Optional[Callable[[FibsemImage], None]] = None,
     refuse: Optional[Refuse] = None,
+    runs: Optional[Runs] = None,
+    adopt_control: Optional[Callable[[Request], Optional[Callable[[], None]]]] = None,
 ) -> APIRouter:
     """The ``/devices`` routes over whatever *devices* returns, by name.
 
@@ -343,6 +360,12 @@ def build_device_router(
     App Server shows it in the app's views (FIB-1375). *refuse* says why a write
     or a command is never allowed here (403 ``not_allowed``), and the listings
     mark those (``agent: false``): the App Server's allowlist.
+
+    With *runs*, a command marked ``long`` answers at once with its run and runs
+    on (`fibsem.server.runs`), and ``GET {prefix}/{name}/run`` reads how it is
+    going; *adopt_control* keeps the control of the microscope the request took
+    until the run ends. Without, every command answers when it ends: the device
+    server, whose client (the remote driver) waits for it.
     """
     router = APIRouter()
 
@@ -382,10 +405,8 @@ def build_device_router(
             return call()
         except HTTPException:
             raise
-        except tuple(ERROR_STATUS) as error:
-            raise refusal(error, what) from None
         except Exception as error:
-            raise unexpected(error, what) from None
+            raise answer_for_error(error, what) from None
 
     @router.get(prefix, dependencies=list(read))
     def list_devices() -> Dict[str, Any]:
@@ -394,6 +415,26 @@ def build_device_router(
     @router.get(prefix + "/{device}", dependencies=list(read))
     def get_device(device: str) -> Dict[str, Any]:
         return describe_device(lookup(device), refuse)
+
+    if runs is not None:
+        # Before /{parameter}, which would otherwise take "run" as a name.
+        @router.get(prefix + "/{device}/run", dependencies=list(read))
+        def read_run(
+            device: str, run_id: Optional[str] = None, wait: float = 0.0
+        ) -> Dict[str, Any]:
+            """The latest run of a long command, waiting up to *wait* seconds
+            (at most a minute) for it to end; with *run_id*, for that run."""
+            lookup(device)
+            found = runs.wait(device, run_id, min(max(wait, 0.0), RUN_WAIT_CAP_S))
+            if found is None:
+                raise HTTPException(
+                    404,
+                    detail={
+                        "error_type": "not_found",
+                        "message": f"{noun} {device} has run no long command",
+                    },
+                )
+            return {"run": found.to_dict()}
 
     # Before /{parameter}, which would otherwise take "values" as a name.
     @router.get(prefix + "/{device}/values", dependencies=list(read))
@@ -408,10 +449,8 @@ def build_device_router(
             except ParameterUnavailable:
                 unavailable.append(name)
                 continue
-            except tuple(ERROR_STATUS) as error:
-                raise refusal(error, f"{noun} {device}.{name}") from None
             except Exception as error:
-                raise unexpected(error, f"{noun} {device}.{name}") from None
+                raise answer_for_error(error, f"{noun} {device}.{name}") from None
             values[name] = to_wire(value)
         return {"values": jsonable_encoder(values), "unavailable": unavailable}
 
@@ -442,8 +481,26 @@ def build_device_router(
             )
         )
 
+    def shown(result: Any) -> Any:
+        """*result*, each image in it given to *on_image* first."""
+        if on_image is not None:
+            for image in _images_in(result):
+                on_image(image)
+        return result
+
+    def json_answer(result: Any, preview: bool) -> Any:
+        """A command's result as JSON. An image list, or with *preview* any
+        image, answers what an agent reads: a summary, its saved path and a
+        small JPEG (image_answer)."""
+        if (preview and is_image_result(result)) or is_image_list(result):
+            return image_answer(result)
+        # A structure with to_dict answers that (an autofocus result, its summary).
+        return jsonable_encoder(to_wire(result))
+
     @router.post(prefix + "/{device}/commands/{command}", dependencies=list(command))
-    def call(device: str, command: str, body: Dict[str, Any] = _NO_BODY) -> Any:
+    def call(
+        request: Request, device: str, command: str, body: Dict[str, Any] = _NO_BODY
+    ) -> Any:
         d = lookup(device)
         if command not in d.commands:
             raise HTTPException(404, f"'{device}' has no command '{command}'")
@@ -451,18 +508,15 @@ def build_device_router(
         what = f"{noun} {device}.{command}"
         kwargs = run(lambda: decode_kwargs(method, body.get("kwargs", {})), what)
         check(d, "command", command, kwargs)
-        result = run(lambda: method(**kwargs), what)
+        if runs is not None and d.commands[command].long:
+            return {"result": start_run(request, device, command, method, kwargs)}
+        result = shown(run(lambda: method(**kwargs), what))
         headers = {}
-        if on_image is not None:
-            for image in _images_in(result):
-                on_image(image)
-        # "answer": "preview" asks for what an agent reads: any image as a
-        # summary, its saved path and a small JPEG (image_answer). Otherwise the
-        # data itself, for programs.
-        if (
-            body.get("answer") == "preview" and is_image_result(result)
-        ) or is_image_list(result):
-            return {"result": image_answer(result)}
+        # "answer": "preview" asks for what an agent reads. Otherwise the data
+        # itself, for programs.
+        preview = body.get("answer") == "preview"
+        if (preview and is_image_result(result)) or is_image_list(result):
+            return {"result": json_answer(result, preview)}
         if isinstance(result, FibsemImage):  # a beam's image: TIFF
             return Response(tiff_bytes(result), media_type=TIFF_MEDIA_TYPE)
         if (
@@ -482,8 +536,24 @@ def build_device_router(
             return Response(
                 buffer.getvalue(), media_type=NPY_MEDIA_TYPE, headers=headers
             )
-        # A structure with to_dict answers that (an autofocus result, its summary).
-        return {"result": jsonable_encoder(to_wire(result))}
+        return {"result": json_answer(result, preview)}
+
+    def start_run(request, device, command, method, kwargs) -> Dict[str, Any]:
+        what = f"{noun} {device}.{command}"
+
+        def failure(error: BaseException) -> Dict[str, Any]:
+            return answer_for_error(error, what).detail
+
+        release = adopt_control(request) if adopt_control is not None else None
+        started = runs.start(
+            device,
+            command,
+            lambda: method(**kwargs),
+            lambda result: json_answer(shown(result), preview=True),
+            failure,
+            release,
+        )
+        return started.to_dict()
 
     @router.post(prefix + "/{device}/queries/{query}", dependencies=list(read))
     def ask(device: str, query: str, body: Dict[str, Any] = _NO_BODY) -> Dict[str, Any]:
