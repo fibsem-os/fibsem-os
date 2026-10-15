@@ -356,6 +356,12 @@ beam's `dwell_time` limits are the overlap of the column's and the scanner's, an
 `resolution` choices are the ones the scanner can scan, so the beam panel and an
 agent are offered only frames that work. The values themselves stay on the beam.
 
+An image a beam acquires records the device in each role it had filled, under
+`image.metadata.roles` (metadata v12): for `scanner`, the scanner's `name`, `class`,
+`driver`, its parameters' cached `values` (the input, the gain) and its `facts`.
+It is empty for an image from the vendor's own scan. `microscope_state` still
+carries the vendor's detector either way.
+
 ## Services
 
 A service is something the instrument does with its devices over time, such as
