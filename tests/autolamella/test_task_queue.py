@@ -459,3 +459,24 @@ def test_mutating_a_consumed_item_is_refused_not_misapplied(queue):
     stale = next(i for i in snapshot if i.id == consumed.id)
     assert queue.move_to_front(stale.id).op is QueueOp.NOT_PENDING
     assert queue.remove(stale.id).op is QueueOp.NOT_PENDING
+
+
+def test_apply_runs_the_menu_actions_by_name(queue):
+    first, second = queue.pending[0], queue.pending[1]
+    assert queue.apply(second.id, "run_next").ok
+    assert queue.pending[0].id == second.id
+    assert queue.apply(second.id, "move_down").ok
+    assert queue.pending[1].id == second.id
+    assert queue.apply(first.id, "remove").ok
+    assert first.id not in [i.id for i in queue.pending]
+    with pytest.raises(ValueError):
+        queue.apply(first.id, "shuffle")
+
+
+def test_find_pair_prefers_the_waiting_one(queue):
+    item = queue.next()
+    assert queue.find_pair(item.item_name, item.task_name).id == item.id
+    queue.mark_done(item, Status.Completed)
+    again = queue.add(item.item_name, item.task_name)
+    assert queue.find_pair(item.item_name, item.task_name).id == again.id
+    assert queue.find_pair("nope", "Trench") is None
