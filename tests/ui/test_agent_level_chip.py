@@ -33,7 +33,7 @@ def test_the_chip_starts_watching_and_its_card_offers_every_level(qapp):
     chip = AgentLevelChip()
     assert chip.level is AgentLevel.WATCH
     assert chip.text() == "Agent: Watching"
-    buttons = chip.card.level_switch.buttons
+    buttons = chip.card.level_menu.buttons
     assert [b.text() for b in buttons.values()] == ["Off", "Watch", "Assist", "Drive"]
     assert [b.text() for b in buttons.values() if b.isChecked()] == ["Watch"]
     chip.deleteLater()
@@ -84,7 +84,7 @@ def test_choosing_a_level_says_so_and_choosing_the_current_one_does_not(qapp):
     chip = AgentLevelChip()
     chosen = []
     chip.level_chosen.connect(chosen.append)
-    buttons = chip.card.level_switch.buttons
+    buttons = chip.card.level_menu.buttons
     buttons[AgentLevel.DRIVE].click()
     assert chosen == [AgentLevel.DRIVE]
     # The chip and its switch show what the window tells them, not the click.
@@ -755,3 +755,146 @@ def test_a_tall_details_table_scrolls_inside_the_card(qapp):
     (table,) = card.findChildren(QScrollArea, "agentDetails")
     assert table.height() < table.widget().sizeHint().height()
     card.deleteLater()
+
+
+# --- the level as a menu, keep on top (FIB-1418) ---------------------------------
+
+
+def test_the_level_is_one_line_that_opens_the_four_with_their_meanings(qapp):
+    card = AgentCard()
+    card.set_level(AgentLevel.ASSIST)
+    menu = card.level_menu
+    assert menu.toggle.text() == "Level: Assist ▾"
+    assert not menu.list.isVisibleTo(card)
+    chosen = []
+    card.level_chosen.connect(chosen.append)
+    menu.toggle.click()
+    assert menu.list.isVisibleTo(card)
+    shown = _labels(card)
+    assert {"No access", "Read only", "Asks first", "Full control"} <= set(shown)
+    menu.buttons[AgentLevel.DRIVE].click()
+    # Picked, it closes; the level stays as the window says until it answers.
+    assert chosen == [AgentLevel.DRIVE]
+    assert not menu.list.isVisibleTo(card)
+    assert menu.toggle.text() == "Level: Assist ▾"
+    card.deleteLater()
+
+
+def test_the_floating_card_can_be_kept_on_top_of_every_window(qapp):
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtWidgets import QMainWindow
+
+    window = QMainWindow()
+    chip = AgentLevelChip()
+    window.statusBar().addPermanentWidget(chip)
+    window.show()
+    pin = chip.card.pin_button
+    assert not pin.isVisibleTo(chip.card)  # on the chip, there is nothing to pin
+    chip.float_card()
+    panel = chip.panel
+    assert pin.isVisibleTo(chip.card)
+    assert not panel.windowFlags() & Qt.WindowStaysOnTopHint  # off at first
+    pin.click()
+    assert chip.keep_on_top and panel.windowFlags() & Qt.WindowStaysOnTopHint
+    assert panel.isVisible()
+    # Kept for the session: put back and floated again, it is still on top.
+    chip.dock_card()
+    chip.float_card()
+    assert panel.windowFlags() & Qt.WindowStaysOnTopHint and pin.isChecked()
+    pin.click()
+    assert not panel.windowFlags() & Qt.WindowStaysOnTopHint
+    window.close()
+
+
+# --- Recent (FIB-1414), and the clamped Why (FIB-1412) ---------------------------
+
+
+def _row(text, outcome="done", tone="ok"):
+    from fibsem.applications.autolamella.ui.agent_recent import RecentRow
+
+    return RecentRow("16:08", text, outcome, tone)
+
+
+def test_recent_shows_at_drive_and_is_hidden_below_it_until_asked_for(qapp):
+    card = AgentCard()
+    logs = []
+    card.event_log_clicked.connect(lambda: logs.append(True))
+    card.set_recent([_row("Moved the stage: move relative")])
+    card.set_level(AgentLevel.ASSIST)
+    assert not card.recent_buttons
+    assert card.recent_link.text() == "Show recent"
+    card.set_level(AgentLevel.DRIVE)
+    assert [b.text() for b in card.recent_buttons] == [
+        "16:08   Moved the stage: move relative"
+    ]
+    assert "done" in _labels(card)
+    card.recent_buttons[0].click()
+    assert logs == [True]
+    # The operator's choice holds at that level for the session.
+    card.recent_link.click()
+    assert not card.recent_buttons
+    card.set_level(AgentLevel.ASSIST)
+    card.recent_link.click()
+    assert card.recent_buttons
+    card.set_level(AgentLevel.DRIVE)
+    assert not card.recent_buttons
+    card.deleteLater()
+
+
+def test_a_long_why_is_clamped_with_more(qapp):
+    card = AgentCard()
+    reason = "The trench floor is high on 01 in the 16:02 FIB image. " * 8
+    card.set_request({**_request(), "reason": reason})
+    line = card.why_label.fontMetrics().lineSpacing()
+    assert card.why_link is not None and card.why_link.text() == "more"
+    assert card.why_label.maximumHeight() == 3 * line
+    card.why_link.click()
+    assert card.why_link.text() == "less"
+    assert card.why_label.maximumHeight() > 3 * line
+    card.set_request(_request())  # a short one: no clamp
+    assert card.why_link is None
+    card.deleteLater()
+
+
+def test_at_drive_what_the_agent_does_shows_in_the_card_now_then_recent(qapp):
+    """FIB-1414 done when: at Drive a move, a mill and an answer each show in
+    the card, Now while running, then in Recent with how it ended."""
+    from types import SimpleNamespace
+
+    from fibsem.acting import AGENT, acting
+    from fibsem.applications.autolamella.server.events import EventBuffer
+    from fibsem.applications.autolamella.ui.agent_activity import AgentActivity
+    from fibsem.control import Control
+    from fibsem.ui.widgets.status_bar import FibsemStatusBar
+
+    bar = FibsemStatusBar()
+    activity = AgentActivity(bar)
+    control = Control()
+    activity.set_microscope(SimpleNamespace(control=control))
+    chip = AgentLevelChip()
+    activity.now_changed.connect(chip.set_now)
+    activity.recent_changed.connect(chip.set_recent)
+    chip.set_level(AgentLevel.DRIVE)
+    buffer = EventBuffer(stamp=lambda kind, payload: {"actor": AGENT})
+    activity.follow_events(buffer)
+    with acting(AGENT), control.take(AGENT, "move stage relative"):
+        assert "move stage relative" in _labels(chip.card)
+        buffer.append("stage_moved", {"move": "move_relative"})
+    buffer.append(
+        "milling", {"milling_task_name": "agent test mill", "status": "completed"}
+    )
+    buffer.append(
+        "prompt_answered", {"question_id": "q", "response": True, "answered_by": AGENT}
+    )
+    qapp.processEvents()
+    texts = [b.text().split("   ", 1)[1] for b in chip.card.recent_buttons]
+    assert texts == [
+        "Answered 'the run's question': yes",
+        "Milled 'agent test mill'",
+        "Moved the stage: move relative",
+    ]
+    assert "move stage relative" not in _labels(chip.card)
+    activity.follow_events(None)
+    activity.set_microscope(None)
+    chip.deleteLater()
+    bar.deleteLater()

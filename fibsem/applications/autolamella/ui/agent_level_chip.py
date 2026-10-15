@@ -16,7 +16,9 @@ turns it amber too, "Agent suggests", and the card shows it with Accept
 The card can float (FIB-1404): its button moves it into a window of its own, a
 tool window over the app (never over other apps) that the operator moves and
 sizes, narrow enough and it stacks. Closing that window, or the button again,
-puts the card back on the chip. The window keeps its place for the session.
+puts the card back on the chip. The window keeps its place for the session, and
+its pin, off at first, keeps it over every window for the session (FIB-1418): a
+waiting request stays in sight while the operator is in another app.
 
 Like `WorkflowControls`, this only shows what it is told and says what was picked.
 What a pick does -- setting the App Server's level -- is the window's.
@@ -201,6 +203,18 @@ class FloatingPanel(QWidget):
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
 
+    def set_keep_on_top(self, on: bool) -> None:
+        """Over every window, or over the app's only."""
+        if bool(self.windowFlags() & Qt.WindowStaysOnTopHint) == on:  # type: ignore
+            return
+        shown = self.isVisible()
+        geometry = self.geometry()
+        self.setWindowFlag(Qt.WindowStaysOnTopHint, on)  # type: ignore
+        if shown:
+            # A window's flags change only as it is shown again.
+            self.setGeometry(geometry)
+            self.show()
+
     def hold(self, card: AgentCard) -> None:
         self._layout.addWidget(card)
         card.show()
@@ -244,6 +258,8 @@ class AgentLevelChip(QPushButton):
         self.card.reject_clicked.connect(self._on_reject)
         self.card.accept_clicked.connect(self._closing(self.accept_clicked))
         self.card.float_clicked.connect(self._on_float_clicked)
+        self.card.keep_on_top_toggled.connect(self.set_keep_on_top)
+        self._keep_on_top = False
         self.popup = _CardPopup(self.card, self)
         # The card's own window, made the first time it floats (the chip has no
         # window to sit over until it is in the status bar).
@@ -303,6 +319,23 @@ class AgentLevelChip(QPushButton):
     def set_now(self, action: Optional[str]) -> None:
         """What the agent is doing on the microscope, for the card."""
         self.card.set_now(action)
+        self._fit_popup()
+
+    def set_recent(self, rows) -> None:
+        """What the agent did lately, for the card's Recent."""
+        self.card.set_recent(rows)
+        self._fit_popup()
+
+    @property
+    def keep_on_top(self) -> bool:
+        return self._keep_on_top
+
+    def set_keep_on_top(self, on: bool) -> None:
+        """Keep the floating card over every window, for the session."""
+        self._keep_on_top = bool(on)
+        self.card.set_keep_on_top(self._keep_on_top)
+        if self.panel is not None:
+            self.panel.set_keep_on_top(self._keep_on_top)
 
     def _paint(self) -> None:
         if self._level is None:
@@ -355,6 +388,7 @@ class AgentLevelChip(QPushButton):
         if self.panel is None:
             self.panel = FloatingPanel(self.window())
             self.panel.closed.connect(self.dock_card)
+            self.panel.set_keep_on_top(self._keep_on_top)
         self.refresh_last_heard()
         self.panel.hold(self.card)
         self.card.set_floating(True)

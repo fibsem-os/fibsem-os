@@ -18,6 +18,10 @@ The agent card's "Now" line is `now`: the action, or while the agent mills,
 which mill, how far and how long is left ("Milling 'trench' · stage 2 of 6 ·
 about 15s left", FIB-1413); `now_changed` says when it changes.
 
+The card's Recent list is `recent`: what the agent did lately, from the session's
+record (`follow_events`), as `agent_recent.RecentActions` reads it (FIB-1414);
+`recent_changed` says when it changes.
+
 A run's or the operator's control is not the agent's and is left to their own
 lines. A mill the agent starts and leaves running lets go of control at once; its
 progress is the milling line's, and the milling panel's bar.
@@ -28,10 +32,11 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Callable, List, Optional, Tuple
 
-from PyQt5.QtCore import QObject, QTimer, pyqtSignal
+from PyQt5.QtCore import QObject, Qt, QTimer, pyqtSignal
 from superqt import ensure_main_thread
 
 from fibsem.acting import AGENT
+from fibsem.applications.autolamella.ui.agent_recent import RecentActions, RecentRow
 from fibsem.milling.progress import AgentMillOwner, MillingProgress
 from fibsem.structures import BeamType
 from fibsem.ui import notification_service
@@ -72,6 +77,9 @@ class AgentActivity(QObject):
     """Follows who is in control of the microscope and says what the agent does."""
 
     now_changed = pyqtSignal(object)  # the `now` text, or None
+    recent_changed = pyqtSignal(object)  # the `recent` rows
+    # A record of the session's, from whichever thread recorded it, to this one.
+    _record_received = pyqtSignal(object)
 
     def __init__(
         self,
@@ -97,6 +105,11 @@ class AgentActivity(QObject):
         self._mill: Optional[Tuple[str, Optional[int], Optional[int], Optional[float]]]
         self._mill = None
         self._now: Optional[str] = None
+        self._events = None
+        self._unsubscribe: Optional[Callable[[], None]] = None
+        self._recent = RecentActions()
+        self._seen = 0
+        self._record_received.connect(self._on_record, Qt.QueuedConnection)  # type: ignore
 
     @property
     def action(self) -> Optional[str]:
@@ -108,6 +121,44 @@ class AgentActivity(QObject):
         """What the agent is doing, for the card's Now line: its mill and how far
         it is while it mills, else its action; None when it does nothing."""
         return self._now
+
+    @property
+    def recent(self) -> List[RecentRow]:
+        """What the agent did lately, newest first."""
+        return self._recent.rows
+
+    def follow_events(self, buffer) -> None:
+        """Read the agent's actions from *buffer*, the session's event stream
+        (``EventBuffer``), from what it already holds on; None stops."""
+        if buffer is self._events:
+            return
+        if self._unsubscribe is not None:
+            try:
+                self._unsubscribe()
+            except Exception:
+                pass
+            self._unsubscribe = None
+        self._events = buffer
+        self._recent.clear()
+        self._seen = 0
+        if buffer is not None:
+            # Subscribed first, then caught up: a record in between is read
+            # once, by its sequence number.
+            self._unsubscribe = buffer.subscribe(self._record_received.emit)
+            for record in buffer.events_since(0).get("events", []):
+                self._take(record)
+        self.recent_changed.emit(self._recent.rows)
+
+    def _on_record(self, record: object) -> None:
+        if isinstance(record, dict) and self._take(record):
+            self.recent_changed.emit(self._recent.rows)
+
+    def _take(self, record: dict) -> bool:
+        seq = record.get("seq") or 0
+        if seq and seq <= self._seen:
+            return False
+        self._seen = max(self._seen, seq)
+        return self._recent.add(record)
 
     def set_microscope(self, microscope: Optional["FibsemMicroscope"]) -> None:
         """Follow *microscope*'s control and milling; None lets the last one go."""

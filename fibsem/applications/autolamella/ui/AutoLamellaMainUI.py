@@ -5,6 +5,7 @@ import html
 import logging
 import os
 import sys
+import threading
 import time
 from dataclasses import replace
 from typing import Callable, List, Optional, Tuple
@@ -164,6 +165,9 @@ CONNECTION_CHIP_MAX_WIDTH = 220
 
 # Icons sat on a button, rather than in a menu, are drawn at this size.
 BUTTON_ICON_SIZE = 16
+
+# How often a waiting request the operator is looking at is read again.
+AGENT_REQUEST_REFRESH_S = 15.0
 
 
 def experiment_tooltip(experiment: Experiment) -> str:
@@ -1609,6 +1613,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             parent=self,
         )
         self.agent_activity.now_changed.connect(self.agent_chip.set_now)
+        self.agent_activity.recent_changed.connect(self.agent_chip.set_recent)
+        # A waiting request's lines, read again while the operator looks at it.
+        self._agent_request_described: Tuple[Optional[str], float] = (None, 0.0)
         # What the agent's waiting request or suggestion would do, on the views.
         self.agent_previews = AgentPreviews(
             lambda: getattr(self, "view_controller", None)
@@ -3820,6 +3827,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def _refresh_agent_chip(self) -> None:
         """Show the chip while the App Server runs, at the level its auth holds."""
+        recorder = getattr(self.autolamella_ui, "_event_recorder", None)
+        self.agent_activity.follow_events(getattr(recorder, "buffer", None))
         host = self._running_app_server()
         if host is None:
             self._watch_agent_requests(None)
@@ -3883,11 +3892,33 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                     if kind == "error"
                     else None,
                 )
+        if current is not None and current.status == "pending":
+            self._describe_agent_request_again(store, current.id)
         shown = current.to_dict() if current is not None else None
         if shown != self.agent_chip.request:
             self.agent_chip.set_request(shown)
         self.agent_previews.show_request(shown)
         self.agent_chip.set_now(self.agent_activity.now)
+
+    def _describe_agent_request_again(self, store, request_id: str) -> None:
+        """While the card shows a waiting request, its values now are read
+        again (FIB-1412): on opening the card, and every
+        `AGENT_REQUEST_REFRESH_S` while it stays open. Off the GUI thread: it
+        reads the routes the request describes."""
+        if not (self.agent_chip.popup.isVisible() or self.agent_chip.floating):
+            self._agent_request_described = (None, 0.0)
+            return
+        last_id, last_at = self._agent_request_described
+        now = time.monotonic()
+        if last_id == request_id and now - last_at < AGENT_REQUEST_REFRESH_S:
+            return
+        self._agent_request_described = (request_id, now)
+        threading.Thread(
+            target=store.refresh,
+            args=(request_id,),
+            name=f"agent-request-{request_id}-describe",
+            daemon=True,
+        ).start()
 
     def _on_approve_agent_request(self, request_id: str) -> None:
         """GUI thread, from the chip: run the request. Its actions run on their
