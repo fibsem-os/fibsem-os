@@ -6,15 +6,17 @@ from typing import (
     List,
 )
 
+from fibsem.display import Display
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.milling.properties import (
-    DEFAULT_CROSS_SECTION_METADATA,
-    DEFAULT_DISTANCE_METADATA,
-    DEFAULT_SCAN_DIRECTION_METADATA,
+    cross_section_metadata,
+    distance_metadata,
+    scan_direction_metadata,
 )
 from fibsem.structures import (
     CrossSectionPattern,
     FibsemRectangleSettings,
+    field_meta,
 )
 
 
@@ -22,65 +24,44 @@ from fibsem.structures import (
 class HorseshoePattern(BasePattern[FibsemRectangleSettings]):
     width: float = field(
         default=40.0e-6,
-        metadata={
-            "label": "Width",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Width of the horseshoe pattern.",
-        },
+        metadata=distance_metadata("Width", "Width of the horseshoe pattern."),
     )
     upper_trench_height: float = field(
         default=10.0e-6,
-        metadata={
-            "label": "Upper Trench Height",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Height of the upper trench.",
-        },
+        metadata=distance_metadata(
+            "Upper Trench Height", "Height of the upper trench."
+        ),
     )
     lower_trench_height: float = field(
         default=10.0e-6,
-        metadata={
-            "label": "Lower Trench Height",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Height of the lower trench.",
-        },
+        metadata=distance_metadata(
+            "Lower Trench Height", "Height of the lower trench."
+        ),
     )
     spacing: float = field(
         default=10.0e-6,
-        metadata={
-            "label": "Spacing",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Spacing between trenches.",
-        },
+        metadata=distance_metadata("Spacing", "Spacing between trenches."),
     )
     depth: float = field(
         default=10.0e-6,
-        metadata={
-            "label": "Depth",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Depth of the trenches.",
-        },
+        metadata=distance_metadata("Depth", "Depth of the trenches."),
     )
     side_width: float = field(
         default=5.0e-6,
-        metadata={
-            "label": "Side Width",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Width of the side trench.",
-        },
+        metadata=distance_metadata("Side Width", "Width of the side trench."),
     )
     inverted: bool = field(
         default=False,
-        metadata={
-            "label": "Inverted",
-            "type": bool,
-            "tooltip": "If true, the side trench will be milled on the opposite side",
-        },
+        metadata=field_meta(
+            doc="If true, the side trench will be milled on the opposite side",
+            display=Display("Inverted"),
+        ),
     )
     scan_direction: str = field(
-        default="TopToBottom", metadata=DEFAULT_SCAN_DIRECTION_METADATA
+        default="TopToBottom", metadata=scan_direction_metadata()
     )
     cross_section: CrossSectionPattern = field(
-        default=CrossSectionPattern.Rectangle, metadata=DEFAULT_CROSS_SECTION_METADATA
+        default=CrossSectionPattern.Rectangle, metadata=cross_section_metadata()
     )
 
     name: ClassVar[str] = "Horseshoe"
@@ -149,57 +130,38 @@ class HorseshoePattern(BasePattern[FibsemRectangleSettings]):
 class HorseshoePatternVertical(BasePattern):
     width: float = field(
         default=2.0e-05,
-        metadata={
-            "label": "Width",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Width of the horseshoe vertical pattern.",
-        },
+        metadata=distance_metadata("Width", "Width of the horseshoe vertical pattern."),
     )
     height: float = field(
         default=5.0e-05,
-        metadata={
-            "label": "Height",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Height of the horseshoe vertical pattern.",
-        },
+        metadata=distance_metadata(
+            "Height", "Height of the horseshoe vertical pattern."
+        ),
     )
     side_trench_width: float = field(
         default=5.0e-06,
-        metadata={
-            "label": "Side Trench Width",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Width of the side trenches.",
-        },
+        metadata=distance_metadata("Side Trench Width", "Width of the side trenches."),
     )
     top_trench_height: float = field(
         default=10.0e-6,
-        metadata={
-            "label": "Top Trench Height",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Height of the top trench.",
-        },
+        metadata=distance_metadata("Top Trench Height", "Height of the top trench."),
     )
     depth: float = field(
         default=4.0e-6,
-        metadata={
-            "label": "Depth",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Depth of the trenches.",
-        },
+        metadata=distance_metadata("Depth", "Depth of the trenches."),
     )
     scan_direction: str = field(
-        default="TopToBottom", metadata=DEFAULT_SCAN_DIRECTION_METADATA
+        default="TopToBottom", metadata=scan_direction_metadata()
     )
     inverted: bool = field(
         default=False,
-        metadata={
-            "label": "Inverted",
-            "type": bool,
-            "tooltip": "If true, the top trench will be milled below the point.",
-        },
+        metadata=field_meta(
+            doc="If true, the top trench will be milled below the point.",
+            display=Display("Inverted"),
+        ),
     )
     cross_section: CrossSectionPattern = field(
-        default=CrossSectionPattern.Rectangle, metadata=DEFAULT_CROSS_SECTION_METADATA
+        default=CrossSectionPattern.Rectangle, metadata=cross_section_metadata()
     )
 
     name: ClassVar[str] = "HorseshoeVertical"

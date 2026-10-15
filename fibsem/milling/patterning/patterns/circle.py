@@ -8,10 +8,11 @@ from typing import (
 
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.milling.properties import (
-    DEFAULT_DISTANCE_METADATA,
+    distance_metadata,
 )
 from fibsem.structures import (
     FibsemCircleSettings,
+    RangeLimit,
 )
 
 
@@ -19,28 +20,19 @@ from fibsem.structures import (
 class CirclePattern(BasePattern[FibsemCircleSettings]):
     radius: float = field(
         default=5.0e-6,
-        metadata={
-            "label": "Radius",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Radius of the circle pattern.",
-        },
+        metadata=distance_metadata("Radius", "Radius of the circle pattern."),
     )
     depth: float = field(
         default=1.0e-6,
-        metadata={
-            "label": "Depth",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Depth of the circle pattern.",
-        },
+        metadata=distance_metadata("Depth", "Depth of the circle pattern."),
     )
     thickness: float = field(
         default=0,
-        metadata={
-            "label": "Thickness",
-            **DEFAULT_DISTANCE_METADATA,
-            "minimum": 0.0,
-            "tooltip": "Thickness of the circle pattern. 0 means solid.",
-        },
+        metadata=distance_metadata(
+            "Thickness",
+            "Thickness of the circle pattern. 0 means solid.",
+            limits=RangeLimit(0.0e-6, 1000.0e-6),
+        ),
     )
 
     name: ClassVar[str] = "Circle"

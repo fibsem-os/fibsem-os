@@ -9,7 +9,7 @@ from typing import (
 
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.milling.properties import (
-    DEFAULT_DISTANCE_METADATA,
+    distance_metadata,
 )
 from fibsem.structures import (
     FibsemCircleSettings,
@@ -35,59 +35,45 @@ class CircularSuspensionPattern(
 
     inner_anchor_height: float = field(
         default=2.0e-6,
-        metadata={
-            "label": "Inner Anchor Height",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Height of the anchor on the inner side of each disc.",
-        },
+        metadata=distance_metadata(
+            "Inner Anchor Height",
+            "Height of the anchor on the inner side of each disc.",
+        ),
     )
     outer_anchor_height: float = field(
         default=2.0e-6,
-        metadata={
-            "label": "Outer Anchor Height",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Height of the anchor on the outer side of each disc.",
-        },
+        metadata=distance_metadata(
+            "Outer Anchor Height",
+            "Height of the anchor on the outer side of each disc.",
+        ),
     )
     outer_radius: float = field(
         default=2.0e-6,
-        metadata={
-            "label": "Outer Radius",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Outer radius of the suspended ring.",
-        },
+        metadata=distance_metadata(
+            "Outer Radius", "Outer radius of the suspended ring."
+        ),
     )
     inner_radius: float = field(
         default=1.0e-6,
-        metadata={
-            "label": "Inner Radius",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Inner radius of the suspended ring.",
-        },
+        metadata=distance_metadata(
+            "Inner Radius", "Inner radius of the suspended ring."
+        ),
     )
     external_radius: float = field(
         default=2.5e-6,
-        metadata={
-            "label": "External Radius",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Radius of the disc milled around each suspension.",
-        },
+        metadata=distance_metadata(
+            "External Radius", "Radius of the disc milled around each suspension."
+        ),
     )
     depth: float = field(
         default=1.0e-6,
-        metadata={
-            "label": "Depth",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Depth of the pattern.",
-        },
+        metadata=distance_metadata("Depth", "Depth of the pattern."),
     )
     spacing: float = field(
         default=10.0e-6,
-        metadata={
-            "label": "Spacing",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Gap between the two discs, edge to edge.",
-        },
+        metadata=distance_metadata(
+            "Spacing", "Gap between the two discs, edge to edge."
+        ),
     )
 
     name: ClassVar[str] = "CircularSuspension"

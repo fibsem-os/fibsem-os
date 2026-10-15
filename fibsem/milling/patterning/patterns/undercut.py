@@ -8,8 +8,8 @@ from typing import (
 
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.milling.properties import (
-    DEFAULT_CROSS_SECTION_METADATA,
-    DEFAULT_DISTANCE_METADATA,
+    cross_section_metadata,
+    distance_metadata,
 )
 from fibsem.structures import (
     CrossSectionPattern,
@@ -21,54 +21,36 @@ from fibsem.structures import (
 class UndercutPattern(BasePattern[FibsemRectangleSettings]):
     width: float = field(
         default=5.0e-6,
-        metadata={
-            "label": "Width",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Width of the undercut pattern.",
-        },
+        metadata=distance_metadata("Width", "Width of the undercut pattern."),
     )
     height: float = field(
         default=10.0e-6,
-        metadata={
-            "label": "Height",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Height of the undercut pattern.",
-        },
+        metadata=distance_metadata("Height", "Height of the undercut pattern."),
     )
     depth: float = field(
         default=10.0e-6,
-        metadata={
-            "label": "Depth",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Depth of the undercut pattern.",
-        },
+        metadata=distance_metadata("Depth", "Depth of the undercut pattern."),
     )
     trench_width: float = field(
         default=2.0e-6,
-        metadata={
-            "label": "Trench Width",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Width of the trench in the undercut pattern.",
-        },
+        metadata=distance_metadata(
+            "Trench Width", "Width of the trench in the undercut pattern."
+        ),
     )
     rhs_height: float = field(
         default=10.0e-6,
-        metadata={
-            "label": "RHS Height",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Height of the right-hand side of the undercut pattern.",
-        },
+        metadata=distance_metadata(
+            "RHS Height", "Height of the right-hand side of the undercut pattern."
+        ),
     )
     h_offset: float = field(
         default=5.0e-6,
-        metadata={
-            "label": "Horizontal Offset",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Horizontal offset of the undercut pattern.",
-        },
+        metadata=distance_metadata(
+            "Horizontal Offset", "Horizontal offset of the undercut pattern."
+        ),
     )
     cross_section: CrossSectionPattern = field(
-        default=CrossSectionPattern.Rectangle, metadata=DEFAULT_CROSS_SECTION_METADATA
+        default=CrossSectionPattern.Rectangle, metadata=cross_section_metadata()
     )
 
     name: ClassVar[str] = "Undercut"
