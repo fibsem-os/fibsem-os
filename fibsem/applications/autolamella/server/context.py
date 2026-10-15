@@ -176,10 +176,28 @@ def _rendered_preview(path: str, filename: str, max_width: int) -> Dict[str, Any
     }
 
 
+def find_item(experiment, item_name: str):
+    """The item named *item_name*, and None; or None and why not, in the words
+    every route refuses an unknown item with, and the names there are. Each
+    route puts the refusal in its own answer's shape."""
+    lamella = (
+        experiment.get_lamella_by_name(item_name) if experiment is not None else None
+    )
+    if lamella is not None:
+        return lamella, None
+    return None, {
+        "error": f"No item named {item_name!r} in this experiment.",
+        "item_names": [p.name for p in experiment.positions]
+        if experiment is not None
+        else [],
+    }
+
+
 def _overview_point_to_stage(path: str, px=None, fraction=None):
-    """The stage position under a point of a recorded overview: the inverse of
-    :func:`_overview_projector`'s projector, from the image's own metadata."""
+    """The stage position under a point of a recorded overview, as the stored
+    overview canvas resolves a click (`fibsem.geometry.projection.image_point_to_stage`)."""
     from fibsem.fm.preview import is_fluorescence_image
+    from fibsem.geometry.projection import image_point_to_stage
 
     if (px is None) == (fraction is None):
         raise ValueError("Give exactly one of px ([x, y] source pixels) or fraction.")
@@ -190,35 +208,23 @@ def _overview_point_to_stage(path: str, px=None, fraction=None):
 
     if is_fluorescence_image(path):
         from fibsem.fm.structures import FluorescenceImage
-        from fibsem.geometry.projection import FMStageProjection
 
         image = FluorescenceImage.load(path)
-        height, width = image.data.shape[-2:]
-        metadata = image.metadata
-        pixel_size = getattr(metadata, "pixel_size_x", None)
-        base = getattr(metadata, "stage_position", None)
-        projection = FMStageProjection.from_image(image)
     else:
-        from fibsem.geometry.projection import BeamStageProjection
         from fibsem.structures import FibsemImage
 
         image = FibsemImage.load(path)
-        height, width = image.data.shape[:2]
-        metadata = image.metadata
-        pixel_size = metadata.pixel_size.x if metadata else None
-        state = getattr(metadata, "microscope_state", None) if metadata else None
-        base = state.stage_position if state is not None else None
-        projection = BeamStageProjection.from_image(image)
-    if projection is None or pixel_size is None or base is None:
-        raise ValueError("The overview has no stage geometry to convert from.")
+    height, width = image.data.shape[-2:]
     if fraction is not None:
         x, y = x * width, y * height
     if not (0 <= x <= width and 0 <= y <= height):
         raise ValueError(f"The point is outside the {width} x {height} image.")
-    # The plane is metres from the image centre, +y down: pixel rows' way.
-    return projection.from_plane(
-        (x - width / 2) * pixel_size, (y - height / 2) * pixel_size, base
-    )
+    try:
+        return image_point_to_stage(image, x, y)
+    except ValueError:
+        raise ValueError(
+            "The overview has no stage geometry to convert from."
+        ) from None
 
 
 def _overview_projector(path: str):
@@ -556,13 +562,9 @@ class AutoLamellaAppContext:
         experiment = self._experiment
         if experiment is None:
             return {"available": False, "item_name": item_name}
-        lamella = experiment.get_lamella_by_name(item_name)
-        if lamella is None:
-            return {
-                "available": False,
-                "item_name": item_name,
-                "error": f"No item named {item_name!r} in this experiment.",
-            }
+        lamella, refusal = find_item(experiment, item_name)
+        if refusal:
+            return {"available": False, "item_name": item_name, **refusal}
         history = list(lamella.task_history)
         tasks = []
         for state in history:
@@ -632,13 +634,9 @@ class AutoLamellaAppContext:
         experiment = self._experiment
         if experiment is None:
             return {"available": False, "jpeg": None}
-        lamella = experiment.get_lamella_by_name(item_name)
-        if lamella is None:
-            return {
-                "available": False,
-                "jpeg": None,
-                "error": f"No item named {item_name!r} in this experiment.",
-            }
+        lamella, refusal = find_item(experiment, item_name)
+        if refusal:
+            return {"available": False, "jpeg": None, **refusal}
         paths = self._recorded_item_paths(lamella)
         match = next((p for p in paths if os.path.basename(p) == filename), None)
         if match is None:
@@ -920,16 +918,6 @@ class AutoLamellaAppContext:
             )
         return experiment, microscope, None
 
-    def _lamella_or_refusal(self, experiment, item_name: str):
-        lamella = experiment.get_lamella_by_name(item_name)
-        if lamella is None:
-            return None, {
-                "error_type": "not_found",
-                "error": f"No item named {item_name!r} in this experiment.",
-                "item_names": [p.name for p in experiment.positions],
-            }
-        return lamella, None
-
     def overview_stage_position(
         self, grid_name: str, filename: str, px=None, fraction=None
     ) -> Dict[str, Any]:
@@ -1022,20 +1010,18 @@ class AutoLamellaAppContext:
         experiment, _, refusal = self._editable()
         if refusal:
             return refusal
-        lamella, refusal = self._lamella_or_refusal(experiment, item_name)
+        lamella, refusal = find_item(experiment, item_name)
         if refusal:
-            return refusal
+            return {"error_type": "not_found", **refusal}
         if getattr(self._host, "is_workflow_running", False):
             return {
                 "error_type": "task_running",
                 "error": "A workflow is running; remove items when it has stopped.",
             }
 
-        def remove():
-            experiment.positions.remove(lamella)
-            experiment.save()
+        from fibsem.applications.autolamella.poses import remove_lamella
 
-        self._agent_call(remove)
+        self._agent_call(lambda: remove_lamella(experiment, lamella))
         return {"applied": True, "item_name": item_name}
 
     def move_to_item_pose(self, item_name: str, pose_name: str) -> Dict[str, Any]:
@@ -1045,9 +1031,9 @@ class AutoLamellaAppContext:
         experiment, microscope, refusal = self._editable()
         if refusal:
             return refusal
-        lamella, refusal = self._lamella_or_refusal(experiment, item_name)
+        lamella, refusal = find_item(experiment, item_name)
         if refusal:
-            return refusal
+            return {"error_type": "not_found", **refusal}
         pose = dict(lamella.poses).get(pose_name)
         if pose is None or pose.stage_position is None:
             return {
@@ -1076,9 +1062,9 @@ class AutoLamellaAppContext:
         experiment, microscope, refusal = self._editable()
         if refusal:
             return refusal
-        lamella, refusal = self._lamella_or_refusal(experiment, item_name)
+        lamella, refusal = find_item(experiment, item_name)
         if refusal:
-            return refusal
+            return {"error_type": "not_found", **refusal}
         known = list(dict(lamella.poses))
         if pose_name not in known:
             return {
@@ -1109,9 +1095,9 @@ class AutoLamellaAppContext:
         experiment, microscope, refusal = self._editable()
         if refusal:
             return refusal
-        lamella, refusal = self._lamella_or_refusal(experiment, item_name)
+        lamella, refusal = find_item(experiment, item_name)
         if refusal:
-            return refusal
+            return {"error_type": "not_found", **refusal}
         fm = getattr(microscope, "fm", None)
         if fm is None:
             return {"error_type": "not_found", "error": "This microscope has no FM."}
@@ -1120,14 +1106,9 @@ class AutoLamellaAppContext:
                 "error_type": "not_found",
                 "error": f"{item_name} has no fluorescence pose.",
             }
-        from fibsem.structures import InsertableDeviceState
+        from fibsem.applications.autolamella.poses import current_objective_position
 
-        objective = fm.objective
-        value = (
-            objective.position
-            if objective.state is InsertableDeviceState.INSERTED
-            else objective.focus_position
-        )
+        value = current_objective_position(fm)
         if value is None:
             return {
                 "error_type": "not_found",
@@ -1154,13 +1135,9 @@ class AutoLamellaAppContext:
         experiment = self._experiment
         if experiment is None:
             return {"available": False, "item_name": item_name}
-        lamella = experiment.get_lamella_by_name(item_name)
-        if lamella is None:
-            return {
-                "available": False,
-                "item_name": item_name,
-                "error": f"No item named {item_name!r} in this experiment.",
-            }
+        lamella, refusal = find_item(experiment, item_name)
+        if refusal:
+            return {"available": False, "item_name": item_name, **refusal}
         from fibsem.applications.autolamella.server.events import to_plain
 
         poses = {}
@@ -1216,13 +1193,13 @@ class AutoLamellaAppContext:
                 "item_name": item_name,
                 "task_name": task_name,
             }
-        lamella = experiment.get_lamella_by_name(item_name)
-        if lamella is None:
+        lamella, refusal = find_item(experiment, item_name)
+        if refusal:
             return {
                 "available": False,
                 "item_name": item_name,
                 "task_name": task_name,
-                "error": f"No item named {item_name!r} in this experiment.",
+                **refusal,
             }
         config = dict(lamella.task_config).get(task_name)
         if config is None:
@@ -1415,20 +1392,9 @@ class AutoLamellaAppContext:
             return {"available": True, "recorded": False, "error": "empty note"}
         item_id = None
         if item_name is not None:
-            experiment = self._experiment
-            item = (
-                experiment.get_lamella_by_name(item_name)
-                if experiment is not None
-                else None
-            )
-            if item is None:
-                names = [p.name for p in experiment.positions] if experiment else []
-                return {
-                    "available": True,
-                    "recorded": False,
-                    "error": f"No item named {item_name!r} in this experiment.",
-                    "item_names": names,
-                }
+            item, refusal = find_item(self._experiment, item_name)
+            if refusal:
+                return {"available": True, "recorded": False, **refusal}
             item_id = item.id
         logging.info(
             "agent note%s: %s",
@@ -2033,11 +1999,13 @@ class AutoLamellaAppContext:
                 "reason": "no workflow is running — the queue exists only during a run",
             }
         experiment = self._experiment
-        if experiment is None or experiment.get_lamella_by_name(item_name) is None:
+        lamella, refusal = find_item(experiment, item_name)
+        if refusal:
             return {
                 "available": True,
                 "queued": False,
-                "reason": f"No item named {item_name!r} in this experiment.",
+                "reason": refusal["error"],
+                "item_names": refusal["item_names"],
             }
         protocol = getattr(experiment, "task_protocol", None)
         config = getattr(protocol, "workflow_config", None) if protocol else None
@@ -2053,7 +2021,7 @@ class AutoLamellaAppContext:
         # stage: a lamella whose grid is not on the stage is refused by name.
         refusal = getattr(self._host, "lamella_run_refusal", None)
         if refusal is not None:
-            refused = refusal([experiment.get_lamella_by_name(item_name)])
+            refused = refusal([lamella])
             if refused:
                 return {"available": True, "queued": False, "reason": refused}
         item = manager.queue.add(item_name, task_name, front=bool(front))

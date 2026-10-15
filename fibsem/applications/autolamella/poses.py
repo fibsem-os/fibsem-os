@@ -22,7 +22,11 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional
 
-from fibsem.structures import FibsemStagePosition, MicroscopeState
+from fibsem.structures import (
+    FibsemStagePosition,
+    InsertableDeviceState,
+    MicroscopeState,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - annotation only
     from fibsem.microscope import FibsemMicroscope
@@ -322,3 +326,23 @@ def set_lamella_pose(
         return False
     lamella.update_milling_angle(microscope)
     return sync_fluorescence_pose(microscope, lamella)
+
+
+def remove_lamella(experiment, lamella) -> bool:
+    """Remove *lamella* from *experiment* and save; its files stay on disk.
+    False when it was not there."""
+    try:
+        experiment.positions.remove(lamella)
+    except ValueError:
+        return False
+    experiment.save()
+    return True
+
+
+def current_objective_position(fm) -> Optional[float]:
+    """The FM objective position to store on a fluorescence pose: where it is
+    when inserted, else its focus position. None when it can't be read."""
+    objective = fm.objective
+    if objective.state is InsertableDeviceState.INSERTED:
+        return objective.position
+    return objective.focus_position
