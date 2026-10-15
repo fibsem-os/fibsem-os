@@ -377,6 +377,11 @@ The argument selects a variation on the same loop:
   the magazine again (minutes). All three are long: wait with
   `service_wait_for_run sample_handling`. A grid run loads its own grids, so
   never load ahead of one.
+- **grid records** (Drive): `grid_add` records the inventory's grids the
+  experiment doesn't have yet. `grid_rename` renames a grid on its slot and
+  in the experiment together; never rename only the slot. A grid that has run
+  keeps its name, so ask the operator before renaming anything, and say the
+  old and new names.
 
 ## Acting beyond answers (Drive)
 

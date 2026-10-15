@@ -252,3 +252,112 @@ def test_assist_asks_for_an_exchange_and_the_operator_reads_it(arctis, tmp_path)
         run = client.get(RUN_STATE, headers=AUTH, params={"wait": 10}).json()["run"]
         assert run["state"] == "done"
     assert [g.name for g in arctis.sample_handling.loaded_grids] == ["G2"]
+
+
+# --- the experiment's grid records ------------------------------------------------
+
+
+@pytest.fixture
+def recording(arctis, tmp_path):
+    """Drive, with an experiment open over the Arctis: the app's grid routes."""
+    from fibsem.applications.autolamella.structures import (
+        AutoLamellaTaskProtocol,
+        Experiment,
+    )
+
+    host = Host()
+    host.microscope = arctis
+    (tmp_path / "grids-exp").mkdir()
+    host.experiment = Experiment(path=tmp_path, name="grids-exp")
+    host.experiment.task_protocol = AutoLamellaTaskProtocol()
+    auth = AuthConfig.generate(level="drive", token=TOKEN)
+    app = build_server(arctis, app_context=RecordingContext(host), auth=auth)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        client.headers.update(AUTH)
+        client.host = host
+        yield client
+
+
+def _slot_names(microscope):
+    return {
+        slot.loaded_grid.name
+        for slot in microscope.sample_handling.magazine.slots.values()
+        if slot.loaded_grid is not None
+    }
+
+
+def test_the_agent_records_the_inventorys_grids_once(recording):
+    added = _call(recording, "grid_add")
+    assert added.status_code == 200, added.text
+    assert added.json()["added"] == ["G1", "G2", "Grid-03"]
+    again = _call(recording, "grid_add").json()
+    assert again["added"] == [] and again["grid_names"] == ["G1", "G2", "Grid-03"]
+
+
+def test_a_rename_names_the_slot_and_the_record(recording, arctis):
+    _call(recording, "grid_add")
+    experiment = recording.host.experiment
+    record = experiment.get_grid_by_name("Grid-03")
+
+    renamed = _call(recording, "grid_rename", grid_name="Grid-03", name=" Lyso-3 ")
+    assert renamed.status_code == 200, renamed.text
+    assert renamed.json() == {"applied": True, "grid_name": "Lyso-3", "was": "Grid-03"}
+    assert record.name == "Lyso-3"
+    assert "Lyso-3" in _slot_names(arctis) and "Grid-03" not in _slot_names(arctis)
+    # The inventory read adds no second record under the new name.
+    assert _call(recording, "grid_add").json()["added"] == []
+
+
+def test_a_grid_with_no_record_yet_is_named_on_its_slot(recording, arctis):
+    renamed = _call(recording, "grid_rename", grid_name="G2", name="Lyso-2")
+    assert renamed.status_code == 200, renamed.text
+    assert "Lyso-2" in _slot_names(arctis)
+    assert _call(recording, "grid_add").json()["added"] == ["G1", "Lyso-2", "Grid-03"]
+
+
+def test_a_rename_the_grids_tab_would_refuse_is_refused(recording, arctis):
+    from fibsem.applications.autolamella.structures import (
+        AutoLamellaTaskState,
+        AutoLamellaTaskStatus,
+    )
+
+    _call(recording, "grid_add")
+    taken = _call(recording, "grid_rename", grid_name="G1", name="G2")
+    assert taken.status_code == 422
+    assert taken.json()["detail"]["message"] == "There is already a grid named G2."
+
+    recording.host.experiment.get_grid_by_name("G1").task_history.append(
+        AutoLamellaTaskState(name="Overview", status=AutoLamellaTaskStatus.Completed)
+    )
+    ran = _call(recording, "grid_rename", grid_name="G1", name="Lyso-1")
+    assert ran.status_code == 422
+    assert "cannot be renamed" in ran.json()["detail"]["message"]
+    assert "G1" in _slot_names(arctis)
+
+    missing = _call(recording, "grid_rename", grid_name="G9", name="Lyso-9")
+    assert missing.status_code == 404
+    assert missing.json()["detail"]["grid_names"] == ["G1", "G2", "Grid-03"]
+
+    recording.host.is_workflow_running = True
+    try:
+        running = _call(recording, "grid_rename", grid_name="G2", name="Lyso-2")
+    finally:
+        recording.host.is_workflow_running = False
+    assert running.status_code == 409
+
+
+def test_the_record_lines_say_which_grids_and_what_changes():
+    answers = {
+        **_inventory(("Slot-01", "G1", "loaded"), ("Slot-02", "G2", "occupied")),
+        "/app/experiment/grids": {"items": [{"name": "G1"}]},
+    }
+    assert describe_action("grid_add", {}, "/x", read=answers.get) == {
+        "what": "Grids",
+        "change": "Record G2 from the inventory",
+    }
+    assert describe_action(
+        "grid_rename", {"grid_name": "G2", "name": "Lyso-2"}, "/x"
+    ) == {
+        "what": "Grid 'G2'",
+        "change": "Rename it 'Lyso-2', on its slot and in the experiment",
+    }

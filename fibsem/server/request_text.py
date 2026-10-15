@@ -890,6 +890,26 @@ def _grid_unload(inventory: Any) -> str:
     return f"Return grid '{current}' to the magazine"
 
 
+def _grid_add(get: Callable[[str], Any]) -> str:
+    """Which grids the inventory read will record: those present and not yet
+    in the experiment."""
+    inventory = _result(get(_SAMPLE_HANDLING + "get_inventory"))
+    records = get("/app/experiment/grids")
+    if not isinstance(inventory, list) or not isinstance(records, dict):
+        return "Record the inventory's grids the experiment has no record of"
+    known = {g.get("name") for g in records.get("items") or []}
+    new = [
+        e.get("name")
+        for e in inventory
+        if e.get("name")
+        and e.get("state") in ("loaded", "occupied")
+        and e.get("name") not in known
+    ]
+    if not new:
+        return "Record the inventory's grids: every one is recorded already"
+    return f"Record {_names_cut(new)} from the inventory"
+
+
 def _slot_move(change: str, slot: Optional[Dict[str, Any]], now: Any) -> str:
     """A move to a holder slot, with where that is and where the stage is now."""
     target = slot.get("position") if slot else None
@@ -1071,6 +1091,13 @@ def _line(
         return {
             "what": "Stage",
             "change": f"Move to the {str(a.get('orientation', '')).upper()} orientation",
+        }
+    if tool == "grid_add":
+        return {"what": "Grids", "change": _grid_add(get)}
+    if tool == "grid_rename":
+        return {
+            "what": f"Grid '{a.get('grid_name')}'",
+            "change": f"Rename it '{a.get('name')}', on its slot and in the experiment",
         }
     if tool in _GRID_COMMANDS.values():
         return _grid_line(tool, a, get, stage_now)

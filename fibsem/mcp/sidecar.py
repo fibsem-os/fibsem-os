@@ -928,6 +928,14 @@ def build_sidecar(client, capabilities):
             {"name": name, "protocol": protocol, "description": description},
         )
 
+    def grid_add():
+        return _app_post("/app/experiment/grids")
+
+    def grid_rename(grid_name: str, name: str):
+        return _app_post(
+            f"/app/experiment/grids/{quote(grid_name, safe='')}/rename", {"name": name}
+        )
+
     def experiment_load(path: str):
         return _app_post("/app/experiment/load", {"path": path})
 
@@ -1112,6 +1120,8 @@ def build_sidecar(client, capabilities):
             grid_get_output_image,
             grid_get_markers,
             grid_get_stage_position,
+            grid_add,
+            grid_rename,
             grid_get_inventory,
             grid_get_current,
             grid_get_holder_slots,

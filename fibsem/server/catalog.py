@@ -908,6 +908,37 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "filename": "an overview basename from grid_list / grid_get",
         },
     ),
+    ToolSpec(
+        name="grid_add",
+        description=(
+            "Record every grid in the inventory that the experiment has no record "
+            "of, as the Grids tab's inventory read does: the loader's last scan "
+            "(grid_run_inventory scans again); nothing moves. Answers the names "
+            "added and every grid the experiment now records."
+        ),
+        method="POST",
+        path="/app/experiment/grids",
+        level="drive",
+        router="app",
+    ),
+    ToolSpec(
+        name="grid_rename",
+        description=(
+            "Rename a grid as the Grids tab's Rename does: the slot that holds it "
+            "first (the loader's slot description, or the holder's record), then "
+            "the experiment's record, with its history and lamellae. Refused for "
+            "a grid that has run (its folder and images carry the name), a name "
+            "another grid has, and while a workflow runs."
+        ),
+        method="POST",
+        path="/app/experiment/grids/{grid_name}/rename",
+        level="drive",
+        router="app",
+        params={
+            "grid_name": "the grid's name now, from grid_list or grid_get_inventory",
+            "name": "its new name",
+        },
+    ),
     # The grids on the hardware: the sample handling service, which loads them
     # onto the stage and names them where the loader keeps names.
     ToolSpec(
