@@ -311,10 +311,12 @@ class Imaging(Service):
         (`fibsem.imaging.tiled.acquire_tiled_overview`). Saved under ``path``:
         the stitched image as ``<name>-<time>``, its tiles in a folder of that
         name. ``stop`` ends it before the next tile, ``cancelled``, keeping the
-        tiles acquired. Answers the stitched image and the tiles' paths."""
+        tiles acquired. Answers the stitched image, the tiles' paths, and the
+        layout: the layout check's warning and what ``register_tiles`` did."""
         from fibsem.imaging.tiled import acquire_tiled_overview, stamped_overview_name
 
         tile_paths: List[str] = []
+        layout: Dict[str, Any] = {}
         try:
             with self._routine():
                 image = acquire_tiled_overview(
@@ -324,10 +326,16 @@ class Imaging(Service):
                     stamped_overview_name(name),
                     stop_event=self._stop_requested,
                     tile_paths=tile_paths,
+                    layout=layout,
                 )
         except OperationCancelledError:
             return {"status": "cancelled", "image": None, "tile_paths": tile_paths}
-        return {"status": "completed", "image": image, "tile_paths": tile_paths}
+        return {
+            "status": "completed",
+            "image": image,
+            "tile_paths": tile_paths,
+            "layout": layout,
+        }
 
     @query
     def estimate_tiled_overview(
@@ -483,8 +491,8 @@ class Imaging(Service):
 
         Refused while the FM is in use or can't see the sample from this pose.
         ``stop`` ends it before the next tile, ``cancelled``, keeping the tiles
-        acquired. Answers the mosaic's path and a summary of it, and the tiles'
-        paths.
+        acquired. Answers the mosaic's path and a summary of it, the tiles'
+        paths, and the layout, as `tiled_overview`'s.
         """
         from fibsem.fm.acquisition import (
             OverviewDestination,
@@ -496,6 +504,7 @@ class Imaging(Service):
         fm = self.parent.fm
         self._refuse_while_fm_live("overview acquisition")
         tile_paths: List[str] = []
+        layout: Dict[str, Any] = {}
         try:
             with self._routine(), fm.acquiring("overview acquisition"):
                 os.makedirs(path, exist_ok=True)
@@ -508,11 +517,17 @@ class Imaging(Service):
                     autofocus_settings=autofocus_settings,
                     stop_event=self._stop_requested,
                     tile_paths=tile_paths,
+                    layout=layout,
                 )
         except OperationCancelledError:
             return {"status": "cancelled", "image": None, "tile_paths": tile_paths}
         image = {"summary": _fm_image_summary(mosaic), "path": saved}
-        return {"status": "completed", "image": image, "tile_paths": tile_paths}
+        return {
+            "status": "completed",
+            "image": image,
+            "tile_paths": tile_paths,
+            "layout": layout,
+        }
 
     @query
     def estimate_fm_tiled_overview(

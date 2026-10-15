@@ -19,7 +19,7 @@ from fibsem.drivers.tescan.services import TescanSpotBurn
 from fibsem.imaging.spot import SpotBurnSettings, SpotBurnStatus
 from fibsem.services import Service
 from fibsem.structures import BeamType, Point
-from tests.test_tescan_milling_service import (  # noqa: F401  (fixtures)
+from tests.drivers.tescan.test_tescan_milling_service import (  # noqa: F401  (fixtures)
     IMAGING_PRESET,
     DBStatus,
     connect,

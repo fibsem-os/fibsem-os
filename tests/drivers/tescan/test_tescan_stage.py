@@ -2,7 +2,7 @@
 
 ``TescanStage.position`` is in fibsem's frame, and every ``Stage.MoveTo`` is in
 Tescan's. What the app sends for each move and click is pinned in
-``tests/test_tescan_frame_pins.py``, which runs through this device. These tests pin
+``tests/drivers/tescan/test_tescan_frame_pins.py``, which runs through this device. These tests pin
 the conversion itself: that it is the change of axes FIB-1114 derives, and how the
 device handles a move that leaves axes out. Nothing here has run on an instrument.
 """

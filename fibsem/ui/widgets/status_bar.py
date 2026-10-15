@@ -65,6 +65,7 @@ from fibsem.imaging.tiling.progress import (
     TiledStatus,
 )
 from fibsem.milling.progress import (
+    AgentMillOwner,
     MillingMessageTracker,
     MillingProgress,
     MillingProgressStatus,
@@ -238,8 +239,10 @@ class FibsemStatusBar(QStatusBar):
         # The milling run the reports belong to, and its name when it is the
         # agent's own mill outside any task: the line is the agent's, not the run's
         # current task, to its end (FIB-1401).
-        self._mill_run_id: Optional[str] = None
-        self._agent_mill: Optional[str] = None
+        self._mill_owner = AgentMillOwner()
+        # The mill's step ("stage 2 of 3") on its own, for a tick to keep: the
+        # line's step may carry the agent's mill name before it (FIB-1413).
+        self._mill_step: Optional[str] = None
         # A tiled run's last count, kept while a state without one (a stage move, the
         # stitch) changes the words: the bar must not snap back to nothing.
         self._tile_count: Optional[Tuple[float, str]] = None
@@ -557,7 +560,8 @@ class FibsemStatusBar(QStatusBar):
         elif self._progress is not None and report.status is not (
             MillingProgressStatus.STAGE_STARTED
         ):
-            step = self._progress[1]  # a tick does not repeat the stage count
+            step = self._mill_step  # a tick does not repeat the stage count
+        self._mill_step = step
         fraction = numbers = None
         remaining, estimated = report.remaining_time, report.estimated_time
         if (
@@ -576,25 +580,8 @@ class FibsemStatusBar(QStatusBar):
         self.set_progress(label, step, fraction, numbers)
 
     def _agent_mill_of(self, report: MillingProgress) -> Optional[str]:
-        """The name of the agent's own mill *report* is from, or None.
-
-        A run outside any task (the agent's ``prepare`` and ``run``) starts with no
-        task start; one first heard while the agent holds the microscope is the
-        agent's to its end, after the agent has let go, whatever task the run is
-        on. A task's run starts with ``task-started``."""
-        run_id = report.milling_run_id
-        if run_id is None:
-            return None
-        if run_id != self._mill_run_id:
-            self._mill_run_id = run_id
-            agents = (
-                self._agent is not None
-                and report.status is not MillingProgressStatus.TASK_STARTED
-            )
-            self._agent_mill = (
-                (report.milling_task_name or "milling") if agents else None
-            )
-        return self._agent_mill
+        """The name of the agent's own mill *report* is from, or None."""
+        return self._mill_owner.agent_mill(report, self._agent is not None)
 
     @staticmethod
     def _set(label: QLabel, text: Optional[str]) -> None:

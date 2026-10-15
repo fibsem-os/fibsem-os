@@ -930,6 +930,12 @@ def build_sidecar(client, capabilities):
             {"item_name": item_name, "task_name": task_name, "front": bool(front)},
         )
 
+    def workflow_edit_queue(item_name: str, task_name: str, action: str):
+        return _app_post(
+            "/app/workflow/queue/edit",
+            {"item_name": item_name, "task_name": task_name, "action": action},
+        )
+
     def app_get_display_images():
         data, err = _call(client, "GET", "/app/experiment/images", None)
         if err:
@@ -1094,6 +1100,7 @@ def build_sidecar(client, capabilities):
             protocol_set_supervision,
             workflow_set_options,
             workflow_requeue,
+            workflow_edit_queue,
             workflow_start,
         )
     }

@@ -438,3 +438,32 @@ def image_point_to_stage(image, x: float, y: float) -> FibsemStagePosition:
     return projection.from_plane(
         (x - width / 2) * pixel_size, (y - height / 2) * pixel_size, position
     )
+
+
+def reproject_pixel(source, target, x: float, y: float) -> Tuple[float, float]:
+    """Source pixel (*x*, *y*) of image *source* as a pixel of image *target*:
+    the same place on the sample, whatever moved or zoomed between them.
+
+    Through the stage position under the pixel when both images say where they
+    were taken (:func:`image_point_to_stage`); otherwise as the same offset from
+    the image centre, in metres, which holds for a change of field of view at
+    one stage position. The one way an agent's value measured on one frame is
+    drawn on the frame a view shows now (FIB-1411).
+    """
+
+    def pixel_size(image) -> float:
+        size = getattr(getattr(image, "metadata", None), "pixel_size", None)
+        return float(getattr(size, "x", size))
+
+    if source is target:
+        return (x, y)
+    sh, sw = np.asarray(source.data).shape[-2:]
+    th, tw = np.asarray(target.data).shape[-2:]
+    to = image_stage_geometry(target)
+    if to is not None and image_stage_geometry(source) is not None:
+        projection, size, base = to
+        dx, dy = projection.to_plane(image_point_to_stage(source, x, y), base)
+    else:
+        size, scale = pixel_size(target), pixel_size(source)
+        dx, dy = (x - sw / 2) * scale, (y - sh / 2) * scale
+    return (dx / size + tw / 2, dy / size + th / 2)

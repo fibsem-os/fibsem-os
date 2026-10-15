@@ -14,6 +14,14 @@ and this follows it:
   service announces what is drawn (``patterns_changed``); they are the agent's
   when the agent is in control as they are drawn.
 
+The agent card's "Now" line is `now`: the action, or while the agent mills,
+which mill, how far and how long is left ("Milling 'trench' · stage 2 of 6 ·
+about 15s left", FIB-1413); `now_changed` says when it changes.
+
+The card's Recent list is `recent`: what the agent did lately, from the session's
+record (`follow_events`), as `agent_recent.RecentActions` reads it (FIB-1414);
+`recent_changed` says when it changes.
+
 A run's or the operator's control is not the agent's and is left to their own
 lines. A mill the agent starts and leaves running lets go of control at once; its
 progress is the milling line's, and the milling panel's bar.
@@ -22,12 +30,14 @@ progress is the milling line's, and the milling panel's bar.
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING, Callable, List, Optional
+from typing import TYPE_CHECKING, Callable, List, Optional, Tuple
 
-from PyQt5.QtCore import QObject, QTimer
+from PyQt5.QtCore import QObject, Qt, QTimer, pyqtSignal
 from superqt import ensure_main_thread
 
 from fibsem.acting import AGENT
+from fibsem.applications.autolamella.ui.agent_recent import RecentActions, RecentRow
+from fibsem.milling.progress import AgentMillOwner, MillingProgress
 from fibsem.structures import BeamType
 from fibsem.ui import notification_service
 from fibsem.ui.tokens import PURPLE_COLOR
@@ -66,6 +76,11 @@ class DrawnStage:
 class AgentActivity(QObject):
     """Follows who is in control of the microscope and says what the agent does."""
 
+    now_changed = pyqtSignal(object)  # the `now` text, or None
+    recent_changed = pyqtSignal(object)  # the `recent` rows
+    # A record of the session's, from whichever thread recorded it, to this one.
+    _record_received = pyqtSignal(object)
+
     def __init__(
         self,
         status_bar: "FibsemStatusBar",
@@ -85,11 +100,65 @@ class AgentActivity(QObject):
         self._announce_timer = QTimer(self)
         self._announce_timer.setSingleShot(True)
         self._announce_timer.timeout.connect(self._announce)
+        # The agent's mill and how far it is: (name, stage, of, seconds left).
+        self._mill_owner = AgentMillOwner()
+        self._mill: Optional[Tuple[str, Optional[int], Optional[int], Optional[float]]]
+        self._mill = None
+        self._now: Optional[str] = None
+        self._events = None
+        self._unsubscribe: Optional[Callable[[], None]] = None
+        self._recent = RecentActions()
+        self._seen = 0
+        self._record_received.connect(self._on_record, Qt.QueuedConnection)  # type: ignore
 
     @property
     def action(self) -> Optional[str]:
         """The agent's action while it is in control, else None."""
         return self._action
+
+    @property
+    def now(self) -> Optional[str]:
+        """What the agent is doing, for the card's Now line: its mill and how far
+        it is while it mills, else its action; None when it does nothing."""
+        return self._now
+
+    @property
+    def recent(self) -> List[RecentRow]:
+        """What the agent did lately, newest first."""
+        return self._recent.rows
+
+    def follow_events(self, buffer) -> None:
+        """Read the agent's actions from *buffer*, the session's event stream
+        (``EventBuffer``), from what it already holds on; None stops."""
+        if buffer is self._events:
+            return
+        if self._unsubscribe is not None:
+            try:
+                self._unsubscribe()
+            except Exception:
+                pass
+            self._unsubscribe = None
+        self._events = buffer
+        self._recent.clear()
+        self._seen = 0
+        if buffer is not None:
+            # Subscribed first, then caught up: a record in between is read
+            # once, by its sequence number.
+            self._unsubscribe = buffer.subscribe(self._record_received.emit)
+            for record in buffer.events_since(0).get("events", []):
+                self._take(record)
+        self.recent_changed.emit(self._recent.rows)
+
+    def _on_record(self, record: object) -> None:
+        if isinstance(record, dict) and self._take(record):
+            self.recent_changed.emit(self._recent.rows)
+
+    def _take(self, record: dict) -> bool:
+        seq = record.get("seq") or 0
+        if seq and seq <= self._seen:
+            return False
+        self._seen = max(self._seen, seq)
+        return self._recent.add(record)
 
     def set_microscope(self, microscope: Optional["FibsemMicroscope"]) -> None:
         """Follow *microscope*'s control and milling; None lets the last one go."""
@@ -98,6 +167,10 @@ class AgentActivity(QObject):
             (
                 getattr(self._milling, "patterns_changed", None),
                 self._on_patterns_changed,
+            ),
+            (
+                getattr(getattr(self._milling, "progress", None), "changed", None),
+                self._on_milling_progress,
             ),
         ):
             if signal is None:
@@ -112,11 +185,15 @@ class AgentActivity(QObject):
             self._milling = None
         self._set_action(None)
         self._show_patterns([])
+        self._set_mill(None)
         if self._control is not None:
             self._control.changed.connect(self._on_control_changed)
             self._on_control_changed(self._control.current)
         if self._milling is not None:
             self._milling.patterns_changed.connect(self._on_patterns_changed)
+            progress = getattr(self._milling, "progress", None)
+            if hasattr(progress, "changed"):
+                progress.changed.connect(self._on_milling_progress)
 
     @ensure_main_thread
     def _on_control_changed(self, in_control: Optional["InControl"]) -> None:
@@ -141,6 +218,44 @@ class AgentActivity(QObject):
         if action is not None:
             self._announce_timer.start(ANNOUNCE_MS)
         self._status_bar.set_agent_action(action)
+        self._say_now()
+
+    @ensure_main_thread
+    def _on_milling_progress(self, payload: object) -> None:
+        """A milling report: the agent's own mill, or any mill while the agent
+        holds the microscope (its ``run_task``), is on the Now line."""
+        report = MillingProgress.from_payload(payload)
+        own = self._mill_owner.agent_mill(report, self._action is not None)
+        if report.status.is_terminal or not (own or self._action is not None):
+            self._set_mill(None)
+            return
+        last = self._mill
+        name = report.milling_task_name or own or (last[0] if last else "milling")
+        stage, total = report.display_stage, report.total_stages
+        if stage is None and last is not None:
+            stage, total = last[1], last[2]  # a tick does not repeat the stage
+        remaining = report.remaining_time
+        if remaining is None and last is not None:
+            remaining = last[3]
+        self._set_mill((name, stage, total, remaining))
+
+    def _set_mill(self, mill) -> None:
+        self._mill = mill
+        self._say_now()
+
+    def _say_now(self) -> None:
+        now = self._action
+        if self._mill is not None:
+            name, stage, total, remaining = self._mill
+            parts = [f"Milling '{name}'"]
+            if stage and total and total > 1:
+                parts.append(f"stage {stage} of {total}")
+            if remaining is not None:
+                parts.append(f"about {format_duration_rounded(remaining)} left")
+            now = " · ".join(parts)
+        if now != self._now:
+            self._now = now
+            self.now_changed.emit(now)
 
     def _on_patterns_changed(self, patterns: List) -> None:
         # On the drawing thread, inside the take: whose they are is read now, not

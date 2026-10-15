@@ -269,6 +269,34 @@ def test_the_agents_mill_outside_a_task_is_the_agents_to_its_end(slot):
     assert slot.text == "01-united-imp › Setup Lamella Position · 1 of 2"
 
 
+def test_the_agents_mill_says_its_name_once_however_many_ticks(slot):
+    # FIB-1413: each tick prepended the mill's name to the last step, so the
+    # line grew "agent test mill · agent test mill · …". It also clears at the end.
+    from fibsem.milling.progress import MillingProgressStatus
+
+    slot.set_agent_action("run")
+    for remaining in (50.0, 40.0, 30.0):
+        slot._on_milling_progress(
+            _agent_mill(remaining_time=remaining, estimated_time=60.0)
+        )
+    assert slot.text == "Agent agent test mill (long) 50% · 30s left"
+    slot._on_milling_progress(
+        _agent_mill(
+            MillingProgressStatus.STAGE_STARTED, current_stage=1, total_stages=2
+        )
+    )
+    for remaining in (20.0, 10.0):
+        slot._on_milling_progress(
+            _agent_mill(remaining_time=remaining, estimated_time=60.0)
+        )
+    assert slot.text.startswith("Agent agent test mill (long) · stage 2 of 2 ")
+    slot.set_agent_action(None)
+    slot._on_milling_progress(_agent_mill(MillingProgressStatus.TASK_FINISHED))
+    assert slot.text == "Agent agent test mill (long) done"
+    _outlast_the_outcome()
+    assert slot.showing != "progress" and "agent test mill" not in slot.text
+
+
 def test_a_task_s_mill_during_the_agents_action_is_not_the_agents_own(slot):
     from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 

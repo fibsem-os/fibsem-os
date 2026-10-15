@@ -40,10 +40,10 @@ from pathlib import Path
 
 import pytest
 
-SCRIPT = Path(__file__).parent / "fixtures" / "autoscript_fm_parity.py"
+SCRIPT = Path(__file__).parents[2] / "fixtures" / "autoscript_fm_parity.py"
 # What the old class did in each case, keyed as the cases are.
 PINS = json.loads(
-    (Path(__file__).parent / "fixtures" / "autoscript_fm_old_pins.json").read_text()
+    (Path(__file__).parents[2] / "fixtures" / "autoscript_fm_old_pins.json").read_text()
 )
 
 PARTS = ("camera", "light", "filter", "objective")

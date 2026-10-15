@@ -25,8 +25,8 @@ import pytest
 
 from tests.fixtures.autoscript_recording import load
 
-SCRIPT = Path(__file__).parent / "fixtures" / "autoscript_parts_parity.py"
-RECORDED = Path(__file__).parent / "fixtures" / "autoscript_old_calls.json"
+SCRIPT = Path(__file__).parents[2] / "fixtures" / "autoscript_parts_parity.py"
+RECORDED = Path(__file__).parents[2] / "fixtures" / "autoscript_old_calls.json"
 
 
 @pytest.fixture(scope="module")

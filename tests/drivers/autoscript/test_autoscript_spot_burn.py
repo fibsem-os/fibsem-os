@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-SCRIPT = Path(__file__).parent / "fixtures" / "autoscript_spot_burn_parity.py"
+SCRIPT = Path(__file__).parents[2] / "fixtures" / "autoscript_spot_burn_parity.py"
 KEYS = [
     "two points",
     "a point outside the image",

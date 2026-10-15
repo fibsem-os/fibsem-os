@@ -5,7 +5,7 @@ import os
 import threading
 from copy import deepcopy
 from dataclasses import replace
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
@@ -41,7 +41,11 @@ from fibsem.imaging.tiling.progress import (
     TiledStatus,
     report_tiled_progress,
 )
-from fibsem.imaging.tiling.registration import compose_mosaic, registered_positions
+from fibsem.imaging.tiling.registration import (
+    compose_mosaic,
+    layout_summary,
+    registered_positions,
+)
 from fibsem.imaging.tiling.reprojection import (  # noqa: E402,F401
     _inverse_y_corrected_stage_movement,
     _transform_position,
@@ -484,6 +488,10 @@ class TiledAcquisitionRunner:
         # Each tile as saved, in the order acquired. The stitched image is what is
         # shown; the tiles are what a model trained on single frames reads.
         self.tile_paths: List[str] = []
+        # What the layout check found and what `register_tiles` did, once
+        # stitched (`layout_summary`).
+        self.layout_warning: Optional[str] = None
+        self.registration: Optional[dict] = None
         # Measures how far apart neighbouring tiles really are, from the pictures, as
         # they arrive. It only reports (`_report_layout`); the canvas is painted from
         # the plan either way.
@@ -602,6 +610,7 @@ class TiledAcquisitionRunner:
         data, registration = self._canvas, None
         if self.settings.register_tiles:
             data, registration = self._registered_canvas()
+        self.registration = registration
         image = FibsemImage(data=data, metadata=deepcopy(self._mosaic_metadata))
         # The path is a per-run detail of the request, and the mosaic goes in the parent
         # of the tile folder, so it is taken from the live settings rather than the
@@ -612,6 +621,9 @@ class TiledAcquisitionRunner:
         filename = os.path.join(image.metadata.image_settings.path, self._prev_label)  # type: ignore
         image.save(filename)
 
+        self.layout_warning = self._report_layout(
+            tile_dir=filename, registration=registration
+        )
         report_tiled_progress(
             self.microscope,
             TiledProgress(
@@ -619,9 +631,7 @@ class TiledAcquisitionRunner:
                 modality=MODALITY_BEAM,
                 completed=total_tiles,
                 total=total_tiles,
-                warning=self._report_layout(
-                    tile_dir=filename, registration=registration
-                ),
+                warning=self.layout_warning,
             ),
         )
         return image
@@ -802,6 +812,7 @@ def acquire_tiled_overview(
     centre_position: Optional[FibsemStagePosition] = None,
     stop_event: Optional[Union[threading.Event, AnyStopEvent]] = None,
     tile_paths: Optional[List[str]] = None,
+    layout: Optional[Dict[str, Any]] = None,
 ) -> FibsemImage:
     """Acquire a tiled SEM or FIB overview and stitch it: the tiles in
     ``<path>/<name>/`` and the stitched image as ``<path>/<name>``.
@@ -817,7 +828,8 @@ def acquire_tiled_overview(
     the stage returns to where it started either way. A ``stop_event`` set
     while it runs raises `OperationCancelledError`. A ``tile_paths`` list is
     extended with each saved tile's path, in the order acquired, also when the
-    run is stopped or fails part way.
+    run is stopped or fails part way. A ``layout`` dict is filled with the
+    finished run's `layout_summary`.
     """
     settings = deepcopy(settings)
     settings.image_settings.save = True
@@ -828,10 +840,13 @@ def acquire_tiled_overview(
         microscope, settings, stop_event=stop_event, centre_position=centre_position
     )
     try:
-        return runner.run_and_stitch()
+        image = runner.run_and_stitch()
     finally:
         if tile_paths is not None:
             tile_paths.extend(getattr(runner, "tile_paths", []))
+    if layout is not None:
+        layout.update(layout_summary(runner))
+    return image
 
 
 ##### REPROJECTION

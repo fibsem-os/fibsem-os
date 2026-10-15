@@ -182,3 +182,66 @@ def test_a_runs_patterns_are_the_milling_panels_not_the_agents(demo):
         microscope.milling.prepare(_recipe(), [_rectangle()])
     assert views.overlays == {}
     assert not activity.showing_patterns
+
+
+def test_the_now_line_says_which_mill_how_far_and_how_long_is_left(qapp):
+    # FIB-1413: the card's Now line read "milling run". It says the mill, the
+    # stage and the time left; a task's run under the agent's control too.
+    from psygnal import Signal
+
+    from fibsem.milling.progress import MillingProgress, MillingProgressStatus
+
+    class _Progress:
+        changed = Signal(object)
+
+    class _Milling:
+        patterns_changed = Signal(object)
+        progress = _Progress()
+
+    bar = FibsemStatusBar()
+    activity = AgentActivity(bar)
+    microscope = SimpleNamespace(control=Control(), milling=_Milling())
+    activity.set_microscope(microscope)
+    said = []
+    activity.now_changed.connect(said.append)
+    progress = microscope.milling.progress.changed
+
+    def report(status=MillingProgressStatus.STAGE_UPDATE, run="r1", **fields):
+        progress.emit(MillingProgress(status, milling_run_id=run, **fields))
+
+    with microscope.control.take(AGENT, "run"):
+        assert activity.now == "run"
+        report(
+            MillingProgressStatus.STAGE_STARTED,
+            milling_task_name="trench",
+            current_stage=1,
+            total_stages=6,
+        )
+        report(remaining_time=15.0, estimated_time=60.0)
+    assert activity.now == "Milling 'trench' · stage 2 of 6 · about 15s left"
+    # The agent let go; its mill runs on and is still its own.
+    report(remaining_time=5.0, estimated_time=60.0)
+    assert activity.now == "Milling 'trench' · stage 2 of 6 · about 5s left"
+    report(MillingProgressStatus.TASK_FINISHED)
+    assert activity.now is None and said[-1] is None
+
+    # A task's run (run_task) while the agent holds the microscope.
+    with microscope.control.take(AGENT, "run task"):
+        report(
+            MillingProgressStatus.TASK_STARTED,
+            run="r2",
+            milling_task_name="Rough Mill",
+            total_stages=3,
+        )
+        report(
+            MillingProgressStatus.STAGE_STARTED,
+            run="r2",
+            current_stage=0,
+            total_stages=3,
+        )
+        assert activity.now == "Milling 'Rough Mill' · stage 1 of 3"
+    # A run's mill without the agent is not on the agent's line.
+    report(MillingProgressStatus.TASK_STARTED, run="r3", milling_task_name="Polish")
+    assert activity.now is None
+    activity.set_microscope(None)
+    bar.deleteLater()

@@ -483,12 +483,20 @@ def test_supervision_and_requeue_require_the_control_scope(ui, qapp):
                 {"task_name": "Rough Milling", "supervise": True},
             ),
             ("/app/workflow/queue/requeue", {"item_name": "01", "task_name": "x"}),
+            (
+                "/app/workflow/queue/edit",
+                {"item_name": "01", "task_name": "x", "action": "remove"},
+            ),
         ):
             refused = client.post(path, headers=AUTH, json=payload)
             assert refused.status_code == 403
             assert refused.json()["detail"]["level"] == "watch"
     with _client(ui, arm_control=True) as client:
-        for path in ("/app/agent/supervision", "/app/workflow/queue/requeue"):
+        for path in (
+            "/app/agent/supervision",
+            "/app/workflow/queue/requeue",
+            "/app/workflow/queue/edit",
+        ):
             rejected = client.post(path, headers=AUTH, json={})
             assert rejected.status_code == 422
             assert rejected.json()["detail"]["error_type"] == "missing_field"

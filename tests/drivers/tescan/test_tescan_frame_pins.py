@@ -19,7 +19,7 @@ pre-tilt, both beams, scan rotation 0 and 180. The expected values are in
 ``tests/fixtures/tescan_frame_pins.json``, recorded from main at the commit that added
 this file. A change that is meant to move one regenerates the file with
 
-    PYTHONPATH=. python tests/test_tescan_frame_pins.py --write
+    PYTHONPATH=. python tests/drivers/tescan/test_tescan_frame_pins.py --write
 
 and says in its pull request which values moved and why.
 """
@@ -41,7 +41,7 @@ from fibsem.structures import BeamType, FibsemStagePosition
 from tests.fixtures.tescan_sdk import connect, image_at
 
 PINS_PATH = os.path.join(
-    os.path.dirname(__file__), "fixtures", "tescan_frame_pins.json"
+    os.path.dirname(__file__), "..", "..", "fixtures", "tescan_frame_pins.json"
 )
 
 PRETILTS = (0.0, 35.0)  # degrees
