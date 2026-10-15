@@ -40,6 +40,7 @@ from __future__ import annotations
 import dataclasses
 import math
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import cv2
@@ -56,7 +57,13 @@ DEFAULT_RESPONSE = ((1.0, 0.0), (0.0, 4.0))
 class BrightnessContrastError(RuntimeError):
     """The routine ended on an image that is mostly black, mostly white, or flat,
     which nothing after it should use. The detector is left at the best brightness
-    and contrast it found."""
+    and contrast it found; ``result`` is the run, to plot and look into."""
+
+    def __init__(
+        self, message: str, result: Optional["BrightnessContrastResult"] = None
+    ):
+        super().__init__(message)
+        self.result = result
 
 
 @dataclass
@@ -203,11 +210,37 @@ def _wide_fraction(mask: np.ndarray, width: int) -> float:
     """The fraction of pixels in ``mask`` that lie in features at least ``width``
     across (a morphological opening), or in all of it for anything but a 2D
     image."""
+    return float(np.mean(_wide(mask, width)))
+
+
+def _wide(mask: np.ndarray, width: int) -> np.ndarray:
     if width <= 1 or mask.ndim != 2 or not mask.any():
-        return float(np.mean(mask))
+        return mask
     kernel = np.ones((width, width), np.uint8)
-    opened = cv2.morphologyEx(mask.astype(np.uint8), cv2.MORPH_OPEN, kernel)
-    return float(np.mean(opened))
+    return cv2.morphologyEx(mask.astype(np.uint8), cv2.MORPH_OPEN, kernel) > 0
+
+
+def clipped_masks(
+    data: np.ndarray, settings: Optional[BrightnessContrastSettings] = None
+) -> Dict[str, np.ndarray]:
+    """Where ``data`` clips: ``black`` and ``white`` (every clipped pixel) and
+    ``black_counted`` and ``white_counted`` (those in areas wide enough to count,
+    as `measure` counts them). For a plot to show which clipping mattered."""
+    settings = settings or BrightnessContrastSettings()
+    if np.issubdtype(data.dtype, np.integer):
+        info = np.iinfo(data.dtype)
+        bottom, top = info.min, info.max
+    else:
+        bottom, top = 0.0, 1.0
+    masks = {"black": data <= bottom, "white": data >= top}
+    for name in ("black", "white"):
+        mask = masks[name]
+        masks[f"{name}_counted"] = (
+            mask
+            if np.mean(mask) > settings.max_clipped_total
+            else _wide(mask, settings.clipped_feature_width)
+        )
+    return masks
 
 
 def problems(stats: HistogramStats, settings: BrightnessContrastSettings) -> List[str]:
@@ -437,44 +470,152 @@ def _brightness_did_little(
 @dataclass
 class BrightnessContrastIteration:
     """One probe image: the controls it was taken at, as the detector reports them,
-    and its histogram."""
+    its histogram, and the image itself (None when not kept)."""
 
     brightness: float
     contrast: float
     stats: HistogramStats
+    image: Optional[np.ndarray] = field(default=None, repr=False)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self, index: int = 0) -> Dict[str, Any]:
+        """Without the image: the file `BrightnessContrastResult.save` writes it
+        to is named instead."""
         return {
+            "index": index,
             "brightness": self.brightness,
             "contrast": self.contrast,
             "stats": self.stats.to_dict(),
+            "image": f"iter_{index:02d}.tif" if self.image is not None else None,
         }
+
+    @classmethod
+    def from_dict(
+        cls, d: Dict[str, Any], result_dir: Optional[Path] = None
+    ) -> "BrightnessContrastIteration":
+        from fibsem.structures import load_tiff
+
+        stats = {
+            k: v
+            for k, v in d["stats"].items()
+            if k in {f.name for f in dataclasses.fields(HistogramStats)}
+        }
+        image = None
+        if d.get("image") and result_dir is not None:
+            image = load_tiff(Path(result_dir) / d["image"])
+        return cls(
+            brightness=d["brightness"],
+            contrast=d["contrast"],
+            stats=HistogramStats(**stats),
+            image=image,
+        )
 
 
 @dataclass
 class BrightnessContrastResult:
-    """Where the routine left the detector, and how it got there."""
+    """Where the routine left the detector, and how it got there: every probe image
+    with its controls and histogram, to plot (`plot`) and keep (`save`, `load`)."""
 
     brightness: float
     contrast: float
     stats: HistogramStats
     converged: bool
-    """The last image met every target. False when the routine ran out of images
-    on one that is short of them but still usable."""
+    """The image it ended on met every target. False when the routine ran out of
+    images on one that is short of them."""
     iterations: List[BrightnessContrastIteration]
     started_from_last: bool = False
     """Whether it started from what last worked at this beam current."""
+    initial_brightness: Optional[float] = None
+    initial_contrast: Optional[float] = None
+    """The detector before the run."""
+    usable: bool = True
+    """False when the image it ended on is mostly black, mostly white or flat: the
+    run raised `BrightnessContrastError`, which carries this result."""
+    beam_type: Optional[str] = None
+    settings: Optional[BrightnessContrastSettings] = None
 
     @property
     def n_images(self) -> int:
         return len(self.iterations)
 
+    @property
+    def image(self) -> Optional[np.ndarray]:
+        """The probe image of the controls it ended on."""
+        for it in reversed(self.iterations):
+            if (it.brightness, it.contrast) == (self.brightness, self.contrast):
+                return it.image
+        return None
+
     def to_dict(self) -> Dict[str, Any]:
+        """The result without its images: what ``save`` writes to ``data.json``,
+        and what the App Server answers."""
         return {
+            "beam_type": self.beam_type,
             "brightness": self.brightness,
             "contrast": self.contrast,
+            "initial_brightness": self.initial_brightness,
+            "initial_contrast": self.initial_contrast,
             "stats": self.stats.to_dict(),
             "converged": self.converged,
+            "usable": self.usable,
             "started_from_last": self.started_from_last,
-            "iterations": [it.to_dict() for it in self.iterations],
+            "n_images": self.n_images,
+            "settings": self.settings.to_dict() if self.settings else None,
+            "iterations": [it.to_dict(i) for i, it in enumerate(self.iterations)],
         }
+
+    def plot(self, save_path: Optional[str] = None) -> Any:
+        """The diagnostic figure: every probe image, and the controls, clipping,
+        centre and spread at each. Written to ``save_path`` when given."""
+        from fibsem.autofunctions.plotting import plot_brightness_contrast_result
+
+        return plot_brightness_contrast_result(self, save_path=save_path)
+
+    def save(
+        self, path: str = ".", name: str = "brightness_contrast", save_plot: bool = True
+    ) -> Path:
+        """Save to ``<path>/<name>/``: ``data.json`` (`to_dict`), ``iter_00.tif``
+        ... (each probe image), and ``plot.png`` when ``save_plot``."""
+        import json
+
+        from fibsem.structures import save_tiff
+
+        result_dir = Path(path) / name
+        result_dir.mkdir(parents=True, exist_ok=True)
+        with open(result_dir / "data.json", "w") as f:
+            json.dump(self.to_dict(), f, indent=2)
+        for i, it in enumerate(self.iterations):
+            if it.image is not None:
+                save_tiff(it.image, result_dir / f"iter_{i:02d}.tif")
+        if save_plot:
+            self.plot(save_path=str(result_dir / "plot.png"))
+        return result_dir
+
+    @classmethod
+    def load(cls, result_dir: str) -> "BrightnessContrastResult":
+        """A result `save` wrote, images included."""
+        import json
+
+        result_dir = Path(result_dir)
+        with open(result_dir / "data.json") as f:
+            data = json.load(f)
+        iterations = [
+            BrightnessContrastIteration.from_dict(it, result_dir)
+            for it in data["iterations"]
+        ]
+        final = BrightnessContrastIteration.from_dict({**data, "image": None}).stats
+        settings = data.get("settings")
+        return cls(
+            brightness=data["brightness"],
+            contrast=data["contrast"],
+            stats=final,
+            converged=data["converged"],
+            iterations=iterations,
+            started_from_last=data.get("started_from_last", False),
+            initial_brightness=data.get("initial_brightness"),
+            initial_contrast=data.get("initial_contrast"),
+            usable=data.get("usable", True),
+            beam_type=data.get("beam_type"),
+            settings=(
+                BrightnessContrastSettings.from_dict(settings) if settings else None
+            ),
+        )

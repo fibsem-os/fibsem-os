@@ -248,6 +248,8 @@ class Imaging(Service):
         self,
         beam_type: BeamType = BeamType.ELECTRON,
         settings: Optional[BrightnessContrastSettings] = None,
+        path: Optional[str] = None,
+        name: str = "brightness_contrast",
     ) -> BrightnessContrastResult:
         """Set ``beam_type``'s detector brightness and contrast from its own probe
         images, not the instrument's routine: few images, and never left mostly
@@ -266,7 +268,12 @@ class Imaging(Service):
         controls and the result says it didn't converge; ending on an image that
         is mostly black, mostly white or flat, it raises
         `BrightnessContrastError`, so a workflow stops rather than align or mill on
-        it. ``stop`` ends it, as cancelled, with the detector where it was.
+        it. The error carries the result. ``stop`` ends it, as cancelled, with the
+        detector where it was.
+
+        Given a ``path``, the result (its probe images, ``data.json`` and the
+        diagnostic plot) is saved to ``<path>/<name>``, also when it raises
+        `BrightnessContrastError`.
         """
         settings = settings or BrightnessContrastSettings()
         beam = self.beam(beam_type)
@@ -298,9 +305,12 @@ class Imaging(Service):
         try:
             for i in range(settings.max_images):
                 raise_if_cancelled(self._stop_requested)
-                stats = measure(beam.acquire(probe).data, settings)
+                data = beam.acquire(probe).data
+                stats = measure(data, settings)
                 controls = (brightness.get_value(), contrast.get_value())
-                iterations.append(BrightnessContrastIteration(*controls, stats))
+                iterations.append(
+                    BrightnessContrastIteration(*controls, stats, image=data)
+                )
                 logging.debug(
                     {
                         "msg": "auto_brightness_contrast",
@@ -323,11 +333,11 @@ class Imaging(Service):
                 param.set_value(value)
             raise
         finally:
-            for name, value in saved.items():
+            for param_name, value in saved.items():
                 try:
-                    getattr(beam, name).write_through(value)
+                    getattr(beam, param_name).write_through(value)
                 except Exception:
-                    logging.exception(f"Failed to restore the beam {name}")
+                    logging.exception(f"Failed to restore the beam {param_name}")
 
         best = iterations[-1]
         if problems(best.stats, settings):
@@ -348,16 +358,27 @@ class Imaging(Service):
             converged=not problems(best.stats, settings),
             iterations=iterations,
             started_from_last=start is not None,
+            initial_brightness=initial[0],
+            initial_contrast=initial[1],
+            usable=not unusable(best.stats, settings),
+            beam_type=beam_type.name,
+            settings=settings,
         )
-        record = {"beam_type": beam_type.name, **result.to_dict()}
-        if unusable(best.stats, settings):
+        if path is not None:
+            try:
+                result.save(path, name)
+            except Exception:
+                logging.exception("Failed to save the brightness and contrast result")
+        record = result.to_dict()
+        if not result.usable:
             self.parent.record_event(
                 "brightness_contrast", {**record, "status": "failed"}
             )
             raise BrightnessContrastError(
                 f"{beam_type.name} brightness and contrast: after {len(iterations)} "
                 f"images, the best is still unusable "
-                f"({'; '.join(problems(best.stats, settings))})."
+                f"({'; '.join(problems(best.stats, settings))}).",
+                result=result,
             )
         if result.converged:
             self._remember(

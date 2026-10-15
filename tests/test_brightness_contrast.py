@@ -8,6 +8,7 @@ from fibsem import config as cfg
 from fibsem import utils
 from fibsem.autofunctions.brightness_contrast import (
     BrightnessContrastError,
+    BrightnessContrastResult,
     BrightnessContrastSettings,
     BrightnessContrastStepper,
     measure,
@@ -160,9 +161,47 @@ def test_a_detector_that_stays_white_raises_rather_than_end_on_it(
         "detector_response",
         lambda data, brightness, contrast: np.full_like(data, 255),
     )
-    with pytest.raises(BrightnessContrastError, match="unusable"):
+    with pytest.raises(BrightnessContrastError, match="unusable") as raised:
         microscope.imaging.auto_brightness_contrast(BeamType.ION)
     assert [e for e in events if "brightness_contrast" in str(e)], events
+    result = raised.value.result
+    assert not result.usable and not result.converged
+    assert result.n_images == SETTINGS.max_images
+
+
+def test_the_result_saves_its_images_and_plot_and_loads_back(microscope, tmp_path):
+    beam = microscope.beams[BeamType.ION]
+    _set(beam, 0.95, 0.5)
+    result = microscope.imaging.auto_brightness_contrast(
+        BeamType.ION, path=str(tmp_path), name="bc"
+    )
+
+    assert (result.initial_brightness, result.initial_contrast) == pytest.approx(
+        (0.95, 0.5)
+    )
+    assert result.beam_type == "ION" and result.usable
+    assert all(it.image is not None for it in result.iterations)
+    saved = tmp_path / "bc"
+    assert (saved / "plot.png").stat().st_size > 0
+    assert len(list(saved.glob("iter_*.tif"))) == result.n_images
+
+    loaded = BrightnessContrastResult.load(saved)
+    assert loaded.to_dict() == result.to_dict()
+    np.testing.assert_array_equal(loaded.image, result.image)
+    assert loaded.settings == result.settings
+
+
+def test_a_failed_run_is_saved_too(microscope, monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        simulator,
+        "detector_response",
+        lambda data, brightness, contrast: np.full_like(data, 255),
+    )
+    with pytest.raises(BrightnessContrastError):
+        microscope.imaging.auto_brightness_contrast(
+            BeamType.ION, path=str(tmp_path), name="bc"
+        )
+    assert not BrightnessContrastResult.load(tmp_path / "bc").usable
 
 
 def test_stop_cancels_and_puts_the_detector_back(microscope):
