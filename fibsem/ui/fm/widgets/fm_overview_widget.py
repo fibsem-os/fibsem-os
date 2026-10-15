@@ -1,7 +1,7 @@
 """Acquire a fluorescence overview: settings, run control, and live result.
 
 Standalone, and embeddable as a tab. It owns nothing the acquisition needs -- it is
-handed a microscope and drives `FMTiledAcquisitionRunner` -- so it can be dropped into
+handed a microscope and runs `acquire_fm_tiled_overview` -- so it can be dropped into
 the AutoLamella UI or opened on its own against a simulator.
 
 Layout follows the house convention: canvas on the left, controls on the right,
@@ -30,11 +30,8 @@ from PyQt5.QtWidgets import (
 from superqt import ensure_main_thread
 
 from fibsem import constants
-from fibsem.fm.acquisition import (
-    FMTiledAcquisitionRunner,
-    OverviewDestination,
-    record_fluorescence_image,
-)
+from fibsem.cancellation import OperationCancelledError
+from fibsem.fm.acquisition import OverviewDestination, acquire_fm_tiled_overview
 from fibsem.fm.progress import (
     FluorescenceAcquisitionProgress,
     FluorescenceAcquisitionStatus,
@@ -262,7 +259,9 @@ class FMOverviewWidget(QWidget):
 
         self._stop_event = threading.Event()
         self._worker: Optional[FunctionWorker] = None
-        self._runner: Optional[FMTiledAcquisitionRunner] = None
+        # What the run in progress was started with, for the worker: the channels,
+        # parameters, z-stack, autofocus and centre `acquire` read before it began.
+        self._run_settings: Optional[dict] = None
         self._mosaic: Optional[FluorescenceImage] = None
         # Every overview the canvas is holding, oldest first, keyed by the id each was
         # given. Replaces a single `_displayed_image` that each acquisition overwrote,
@@ -2599,22 +2598,15 @@ class FMOverviewWidget(QWidget):
 
         self._stop_event.clear()
         self._set_running(True)
-        self._runner = FMTiledAcquisitionRunner(
-            microscope=self.microscope,
-            channel_settings=channels,
-            overview_parameters=parameters,
+        self._run_settings = dict(
+            channels=channels,
+            parameters=parameters,
             zparams=zparams,
             autofocus_settings=autofocus_settings,
-            stop_event=self._stop_event,
             # None means "where the stage is", which the runner resolves itself. The
             # stage still returns to where it started afterwards -- the target is the
             # grid's centre, not a new home.
             centre_position=self._target,
-            # None when no save directory has been set -- the standalone default. The
-            # runner writes each tile as it lands, so a cancelled run keeps what it got.
-            save_directory=self._destination.tiles_directory
-            if self._destination
-            else None,
         )
         self._worker = FunctionWorker(self._acquire_worker)
         self._worker.start()
@@ -2710,80 +2702,40 @@ class FMOverviewWidget(QWidget):
             )
             return None
 
-    def _emit_state(self, status: TiledStatus) -> None:
-        """Announce a state of this run that carries no counts.
-
-        The tile bar keeps whatever it last showed -- N/N is still true while the mosaic
-        is being written -- and the state goes to the status label, which is how
-        `MOVING` has always been handled. Rendering these as indeterminate would paint a
-        *full* bar, which is exactly the "it finished" impression they exist to correct.
-        """
-        self.microscope.tiled_acquisition_signal.emit(
-            TiledProgress(status=status, modality=MODALITY_FLUORESCENCE)
-        )
-
-    def _emit_terminal(
-        self,
-        status: TiledStatus,
-        error: Optional[str] = None,
-        warning: Optional[str] = None,
-    ) -> None:
-        """Say how the run ended.
-
-        One vocabulary now. This used to send two -- its own `state` strings for its own
-        handler, plus the shared signal's `finished`/`outcome` for the window's status
-        bar -- because the two had grown separately and collided on the word "finished".
-        A single `TiledStatus` says it once, and `error` carries the reason rather than
-        a second phrasing of the fact.
-        """
-        self.microscope.tiled_acquisition_signal.emit(
-            TiledProgress(
-                status=status,
-                modality=MODALITY_FLUORESCENCE,
-                error=error,
-                warning=warning,
-            )
-        )
-
     def _acquire_worker(self) -> None:
-        """Runs off the GUI thread. Only signals may cross back."""
-        from fibsem.cancellation import OperationCancelledError
+        """Runs off the GUI thread. Only signals may cross back.
 
+        The run reports its save and its end itself (`acquire_fm_tiled_overview`).
+        The tiles go in the destination claimed before the worker started, None when
+        no save directory has been set -- the standalone default. Each tile is written
+        as it lands, so a cancelled run keeps what it got.
+        """
         try:
-            runner = self._runner
-            mosaic = runner.run_and_stitch()
-            self._mosaic = mosaic
-            # Saved here rather than after the signal: a consumer of `overview_acquired`
-            # may want the file, and the mosaic carries the run's name once written.
-            if self._destination is not None:
-                # The larger half of the gap between the last tile and a finished run:
-                # the stitch is a memcpy into a preallocated canvas (~0.3 s for 1.3 GB)
-                # and the write is most of the rest (~2.3 s for the same). Silent until
-                # now, so a big run appeared to hang just as it completed.
-                self._emit_state(TiledStatus.SAVING)
-                self._saved_path = self._destination.save_mosaic(mosaic)
-            # getattr: describing the run for the record must not be able to fail it
-            record_fluorescence_image(
+            acquire_fm_tiled_overview(
                 self.microscope,
-                mosaic,
-                overview=getattr(runner, "overview_parameters", None),
-            )
-            self.overview_acquired.emit(mosaic)
-            self._emit_terminal(
-                TiledStatus.FINISHED, warning=getattr(runner, "layout_warning", None)
+                destination=self._destination,
+                stop_event=self._stop_event,
+                on_acquired=self._on_acquired,
+                **self._run_settings,
             )
         except OperationCancelledError:
             logging.info("Overview acquisition cancelled")
-            self._emit_terminal(TiledStatus.CANCELLED)
         except Exception as e:
             logging.error(f"Overview acquisition failed: {e}", exc_info=True)
-            self._emit_terminal(TiledStatus.FAILED, str(e))
         finally:
             # A run that ends still marked as acquiring leaves the FM unusable for
             # the rest of the session, with nothing on screen to say why -- so this goes
-            # in a `finally` rather than after the emits, and stays right if a future
+            # in a `finally` rather than after the run, and stays right if a future
             # edit narrows one of the `except` clauses above.
             self.fm.set_acquiring(False)
+
+    def _on_acquired(self, mosaic: FluorescenceImage, path: Optional[str]) -> None:
+        """Keep the saved mosaic and say it arrived, before the run reports finished:
+        the finished report places `_mosaic` and names `_saved_path`, and a consumer
+        of `overview_acquired` may want the file."""
+        self._mosaic = mosaic
+        self._saved_path = path
+        self.overview_acquired.emit(mosaic)
 
     def cancel(self) -> None:
         if not self.is_acquiring:
@@ -2981,7 +2933,7 @@ class FMOverviewWidget(QWidget):
         The preview is a `FluorescenceImage` rather than a bare array plus a stride, so
         everything needed to place it arrives with it:
 
-        * where -- `metadata.stage_position`, instead of reaching into `self._runner` for
+        * where -- `metadata.stage_position`, instead of reaching into the runner for
           the centre it resolved when the run started;
         * at what scale -- `metadata.pixel_size_x`, with the preview's decimation already
           folded in by the producer, instead of `self._projection().pixel_size * stride`;

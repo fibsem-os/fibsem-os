@@ -1636,6 +1636,8 @@ def test_centring_the_grid_is_only_offered_once_it_is_off_centre(
 
 def test_the_target_reaches_the_acquisition(qapp, interactive_widget, monkeypatch):
     """The drag is only worth anything if the run is actually centred there."""
+    from fibsem.cancellation import OperationCancelledError
+    from fibsem.fm import acquisition
     from fibsem.ui.fm.widgets import fm_overview_widget as module
 
     widget = interactive_widget
@@ -1645,7 +1647,10 @@ def test_the_target_reaches_the_acquisition(qapp, interactive_widget, monkeypatc
         def __init__(self, **kwargs):
             recorded.update(kwargs)
 
-    monkeypatch.setattr(module, "FMTiledAcquisitionRunner", _RecordingRunner)
+        def run_and_stitch(self):
+            raise OperationCancelledError()
+
+    monkeypatch.setattr(acquisition, "FMTiledAcquisitionRunner", _RecordingRunner)
     monkeypatch.setattr(
         module, "FunctionWorker", lambda *a, **k: _SynchronousWorker(lambda: None)
     )
@@ -1659,6 +1664,7 @@ def test_the_target_reaches_the_acquisition(qapp, interactive_widget, monkeypatc
     qapp.processEvents()
 
     widget.acquire()
+    widget._acquire_worker()
     qapp.processEvents()
     widget._set_running(False)
 
@@ -5422,7 +5428,7 @@ class TestSayingWhenARunStarts:
 
 
 def test_the_worker_announces_the_save_before_it_writes(
-    qapp, overview_widget, tmp_path
+    qapp, overview_widget, tmp_path, monkeypatch
 ):
     """The larger half of the end-of-run gap, and the half the *widget* owns.
 
@@ -5434,26 +5440,41 @@ def test_the_worker_announces_the_save_before_it_writes(
     the test: the whole risk here is that the widget does not send it, which a test that
     sends it itself cannot see.
     """
+    from fibsem.fm import acquisition
     from fibsem.fm.acquisition import OverviewDestination
 
     widget = overview_widget
     mosaic = _acquire(widget)
 
     class _StubRunner:
+        def __init__(self, **kwargs):
+            pass
+
         def run_and_stitch(self):
             return mosaic
 
     seen = []
     widget.microscope.tiled_acquisition_signal.connect(seen.append)
-    runner, destination, saved = widget._runner, widget._destination, widget._saved_path
+    settings, destination, saved = (
+        widget._run_settings,
+        widget._destination,
+        widget._saved_path,
+    )
+    monkeypatch.setattr(acquisition, "FMTiledAcquisitionRunner", _StubRunner)
     try:
-        widget._runner = _StubRunner()
+        widget._run_settings = dict(
+            channels=[ChannelSettings(name="Channel-01")],
+            parameters=OverviewParameters(),
+            zparams=None,
+            autofocus_settings=None,
+            centre_position=None,
+        )
         widget._destination = OverviewDestination.create(str(tmp_path))
         widget._acquire_worker()
     finally:
         widget.microscope.tiled_acquisition_signal.disconnect(seen.append)
-        widget._runner, widget._destination, widget._saved_path = (
-            runner,
+        widget._run_settings, widget._destination, widget._saved_path = (
+            settings,
             destination,
             saved,
         )

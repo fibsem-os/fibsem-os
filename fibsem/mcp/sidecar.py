@@ -30,7 +30,7 @@ import math
 import os
 import re
 import sys
-from typing import Any, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 from urllib.parse import quote, urlencode
 
 from fibsem.server.catalog import CATALOG, route_call, tools_for_capabilities
@@ -518,6 +518,34 @@ def build_sidecar(client, capabilities):
             auto_focus=auto_focus,
         )
 
+    def acquire_fm_overview(
+        channels: List[dict],
+        parameters: dict,
+        path: str,
+        name: str = "overview",
+        zparams: Optional[dict] = None,
+    ):
+        return _routed(
+            "acquire_fm_overview",
+            "run",
+            channels=channels,
+            parameters=parameters,
+            path=path,
+            name=name,
+            zparams=zparams,
+        )
+
+    def estimate_fm_overview(
+        channels: List[dict], parameters: dict, zparams: Optional[dict] = None
+    ):
+        return _routed(
+            "estimate_fm_overview",
+            "estimate",
+            channels=channels,
+            parameters=parameters,
+            zparams=zparams,
+        )
+
     def _query(**params):
         """A query string of the *params* that are given (not None)."""
         return urlencode({k: v for k, v in params.items() if v is not None})
@@ -897,6 +925,8 @@ def build_sidecar(client, capabilities):
             acquire_overview,
             estimate_overview,
             acquire_focus_stack,
+            acquire_fm_overview,
+            estimate_fm_overview,
             get_app_status,
             get_app_queue,
             get_experiment_summary,

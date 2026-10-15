@@ -6,9 +6,10 @@ implementation. The service passes them through by ``beam_type``, so a caller
 needs only ``microscope.imaging``, and adds what coordinates them over time, the
 same way on every backend: ``auto_focus`` is the one place that chooses between
 the instrument's autofocus and the image-based sweep, and ``focus_sweep`` is the
-sweep (`fibsem.autofunctions.autofocus.run_auto_focus`). Tiled overviews
-(`fibsem.imaging.tiled.acquire_tiled_overview`) and focus stacks run here too. A
-``stop`` from another caller ends any of these.
+sweep (`fibsem.autofunctions.autofocus.run_auto_focus`). Tiled overviews, beam
+(`fibsem.imaging.tiled.acquire_tiled_overview`) and fluorescence
+(`fibsem.fm.acquisition.acquire_fm_tiled_overview`), and focus stacks run here
+too. A ``stop`` from another caller ends any of these.
 
 No driver needs its own imaging code yet, so every backend builds this class.
 Being a service is what lets an agent find and run these routines over the App
@@ -45,6 +46,12 @@ from fibsem.cancellation import (
 from fibsem.devices.beam import Beam
 from fibsem.devices.core import Role, RoleUnfilled, command, query
 from fibsem.devices.fm import FM
+from fibsem.fm.structures import (
+    AutoFocusMode,
+    ChannelSettings,
+    OverviewParameters,
+    ZParameters,
+)
 from fibsem.services.core import Service
 from fibsem.structures import (
     BeamType,
@@ -68,7 +75,8 @@ class Imaging(Service):
     ``autocontrast``, ``start_live``, ``stop_live``); a saved, recorded image
     (``acquire_image``) and reference images of both beams (``reference_images``,
     ``reference_image_sets``) and a focus stacked one (``focus_stack``); tiled
-    overviews (``tiled_overview``, ``estimate_tiled_overview``); ``auto_focus``
+    overviews (``tiled_overview``, ``estimate_tiled_overview``) and fluorescence
+    ones (``fm_tiled_overview``, ``estimate_fm_tiled_overview``); ``auto_focus``
     (the instrument's own where the beam has one, else the sweep),
     ``focus_sweep``, the fluorescence microscope's ``fm_focus_sweep``, and
     ``stop``, which ends any of them."""
@@ -406,6 +414,87 @@ class Imaging(Service):
             return {"status": "cancelled", **(result.to_dict() if result else {})}
         return {"status": "completed", **result.to_dict()}
 
+    @command(long=True, available=_has_fm)
+    def fm_tiled_overview(
+        self,
+        channels: List[ChannelSettings],
+        parameters: OverviewParameters,
+        path: str,
+        name: str = "overview",
+        zparams: Optional[ZParameters] = None,
+        autofocus_settings: Optional[AutoFocusSettings] = None,
+    ) -> Dict[str, Any]:
+        """A fluorescence overview in ``channels``, a grid of ``parameters.rows``
+        x ``parameters.cols`` camera fields centred where the stage is, which it
+        and the objective go back to after
+        (`fibsem.fm.acquisition.acquire_fm_tiled_overview`). Saved under
+        ``path``: the mosaic as ``<name>-<time>.ome.tiff``, its tiles in a folder
+        of that name. ``zparams`` z-stacks each tile when ``parameters.use_zstack``
+        is set; ``autofocus_settings`` is the sweep for ``parameters.autofocus_mode``
+        (default passes when not given).
+
+        Refused while the FM is in use or can't see the sample from this pose.
+        ``stop`` ends it before the next tile, ``cancelled``, keeping the tiles
+        acquired. Answers the mosaic's path and a summary of it, and the tiles'
+        paths.
+        """
+        from fibsem.fm.acquisition import (
+            OverviewDestination,
+            acquire_fm_tiled_overview,
+        )
+        from fibsem.imaging.tiled import stamped_overview_name
+
+        autofocus_settings = _fm_overview_focus(parameters, autofocus_settings)
+        fm = self.parent.fm
+        tile_paths: List[str] = []
+        try:
+            with self._routine(), fm.acquiring("overview acquisition"):
+                os.makedirs(path, exist_ok=True)
+                mosaic, saved = acquire_fm_tiled_overview(
+                    self.parent,
+                    channels,
+                    parameters,
+                    OverviewDestination.create(path, stamped_overview_name(name)),
+                    zparams=zparams if parameters.use_zstack else None,
+                    autofocus_settings=autofocus_settings,
+                    stop_event=self._stop_requested,
+                    tile_paths=tile_paths,
+                )
+        except OperationCancelledError:
+            return {"status": "cancelled", "image": None, "tile_paths": tile_paths}
+        image = {"summary": _fm_image_summary(mosaic), "path": saved}
+        return {"status": "completed", "image": image, "tile_paths": tile_paths}
+
+    @query
+    def estimate_fm_tiled_overview(
+        self,
+        channels: List[ChannelSettings],
+        parameters: OverviewParameters,
+        zparams: Optional[ZParameters] = None,
+        autofocus_settings: Optional[AutoFocusSettings] = None,
+    ) -> Dict[str, Any]:
+        """What an `fm_tiled_overview` with these arguments would do: the tiles,
+        the images it takes (channels x z planes per tile), and how long it runs
+        in seconds, the stage and objective moves and focus sweeps counted
+        (`fibsem.fm.timing.estimate_fm_overview_time`)."""
+        from fibsem.fm.timing import (
+            calculate_total_images_count,
+            estimate_fm_overview_time,
+        )
+
+        autofocus_settings = _fm_overview_focus(parameters, autofocus_settings)
+        zparams = zparams if parameters.use_zstack else None
+        tiles = parameters.n_enabled_tiles
+        return {
+            "tiles": tiles,
+            "nrows": parameters.rows,
+            "ncols": parameters.cols,
+            "images": tiles * calculate_total_images_count(list(channels), zparams),
+            "duration": estimate_fm_overview_time(
+                channels, parameters, zparams, autofocus_settings
+            ),
+        }
+
     @contextmanager
     def _routine(self) -> Iterator[None]:
         """Run a routine that ``stop`` ends. The stop is cleared when the
@@ -421,8 +510,9 @@ class Imaging(Service):
 
     @command
     def stop(self) -> None:
-        """End the sweep in progress, a beam's or the FM's, a tiled overview or a
-        focus stack, as cancelled, and an FM z-stack before its next frame."""
+        """End the sweep in progress, a beam's or the FM's, a tiled overview, beam
+        or fluorescence, or a focus stack, as cancelled, and an FM z-stack before
+        its next frame."""
         self._stop_requested.set()
         if self._has_fm():
             self.fm.cancel()
@@ -433,6 +523,31 @@ def _save_path(image_settings: ImageSettings) -> str:
     ``<path>/<filename>_eb``, or ``_ib`` for the ion beam."""
     suffix = "eb" if image_settings.beam_type is BeamType.ELECTRON else "ib"
     return os.path.join(image_settings.path, f"{image_settings.filename}_{suffix}")
+
+
+def _fm_overview_focus(
+    parameters: OverviewParameters, settings: Optional[AutoFocusSettings]
+) -> Optional[AutoFocusSettings]:
+    """The focus sweep for a fluorescence overview: the one given, else the
+    default passes when ``parameters.autofocus_mode`` focuses at all."""
+    if settings is None and parameters.autofocus_mode is not AutoFocusMode.NONE:
+        return AutoFocusSettings()
+    return settings
+
+
+def _fm_image_summary(image: Any) -> Dict[str, Any]:
+    """What an agent reads about a fluorescence image: its shape, channels, pixel
+    size and where it is."""
+    md = image.metadata
+    position = md.stage_position
+    return {
+        "kind": "fluorescence_image",
+        "shape": list(image.data.shape),
+        "dtype": str(image.data.dtype),
+        "channels": [channel.name for channel in md.channels],
+        "pixel_size": [md.pixel_size_x, md.pixel_size_y],
+        "stage_position": position.to_dict() if position is not None else None,
+    }
 
 
 def acquisition_record(image: FibsemImage, path: Optional[str]) -> Dict[str, Any]:

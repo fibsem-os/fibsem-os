@@ -374,6 +374,11 @@ _SAMPLE_ARGUMENTS = {
     "align_to_reference": {"reference_path": "experiment/reference.tif"},
     "acquire_overview": {"settings": {"nrows": 2, "ncols": 2}, "path": "experiment"},
     "acquire_focus_stack": {"image_settings": {"hfw": 1e-4}, "path": "experiment"},
+    "acquire_fm_overview": {
+        "channels": [{"name": "GFP"}],
+        "parameters": {"rows": 1, "cols": 2},
+        "path": "experiment",
+    },
     "call_command": {"device": "stage", "command": "home"},
     "call_service_command": {"service": "milling", "command": "run"},
 }

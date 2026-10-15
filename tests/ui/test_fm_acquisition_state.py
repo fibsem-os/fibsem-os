@@ -196,29 +196,35 @@ class TestTheOverviewMarksTheInstrument:
         assert widget.fm.is_streaming is False
         assert widget.fm.is_interactive is False
 
-    def test_the_worker_gives_it_back(self, widget, accept_dialog, no_worker):
+    def test_the_worker_gives_it_back(
+        self, widget, accept_dialog, no_worker, monkeypatch
+    ):
         widget.acquire()
-        widget._runner = _RunnerStub()
+        _stub_runner(monkeypatch)
 
         widget._acquire_worker()
 
         assert widget.fm.is_acquiring is False
 
-    def test_a_failed_run_gives_it_back(self, widget, accept_dialog, no_worker):
+    def test_a_failed_run_gives_it_back(
+        self, widget, accept_dialog, no_worker, monkeypatch
+    ):
         """A run that dies holding the FM locks out every FM widget for the rest of the
         session, with nothing on screen to say why."""
         widget.acquire()
-        widget._runner = _RunnerStub(error=RuntimeError("stage refused"))
+        _stub_runner(monkeypatch, error=RuntimeError("stage refused"))
 
         widget._acquire_worker()
 
         assert widget.fm.is_acquiring is False
 
-    def test_a_cancelled_run_gives_it_back(self, widget, accept_dialog, no_worker):
+    def test_a_cancelled_run_gives_it_back(
+        self, widget, accept_dialog, no_worker, monkeypatch
+    ):
         from fibsem.cancellation import OperationCancelledError
 
         widget.acquire()
-        widget._runner = _RunnerStub(error=OperationCancelledError())
+        _stub_runner(monkeypatch, error=OperationCancelledError())
 
         widget._acquire_worker()
 
@@ -493,3 +499,14 @@ class _RunnerStub:
         from fibsem.fm.structures import FluorescenceImage
 
         return FluorescenceImage(data=np.zeros((4, 4), dtype=np.uint16))
+
+
+def _stub_runner(monkeypatch, error=None):
+    """Have the overview the widget runs use a `_RunnerStub` ending with *error*."""
+    from fibsem.fm import acquisition
+
+    monkeypatch.setattr(
+        acquisition,
+        "FMTiledAcquisitionRunner",
+        lambda **kwargs: _RunnerStub(error=error),
+    )

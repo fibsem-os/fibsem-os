@@ -28,9 +28,7 @@ from fibsem.applications.autolamella.workflows.tasks.grid import (
     FluorescenceOverviewGridTaskConfig,
     run_grid_task,
 )
-from fibsem.applications.autolamella.workflows.tasks.grid.fluorescence import (
-    acquire_fluorescence_overview,
-)
+from fibsem.fm.acquisition import OverviewDestination, acquire_fm_tiled_overview
 from fibsem.fm.structures import ChannelSettings, OverviewParameters, ZParameters
 from fibsem.services.sample_handling import BUILTIN_SLOT_NAME
 from fibsem.structures import InsertableDeviceState, SampleGrid
@@ -181,13 +179,14 @@ class TestProgressEndsTheRun:
         # Where the task would have put the stage: the runner refuses to image
         # anywhere but the FM pose, which would report Failed, not Cancelled.
         microscope.move_to_device("FM")
+        directory = experiment.grid_path(grid) / "overview_fm"
+        directory.mkdir(parents=True, exist_ok=True)
         with pytest.raises(Exception):
-            acquire_fluorescence_overview(
+            acquire_fm_tiled_overview(
                 microscope,
                 config.channels,
                 config.overview,
-                microscope.get_stage_position(),
-                experiment.grid_path(grid) / "overview_fm",
+                OverviewDestination.create(str(directory)),
                 stop_event=stop,
             )
         assert reports[-1].status is TiledStatus.CANCELLED

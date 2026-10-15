@@ -472,7 +472,9 @@ time, but not the stage moves, which often take longer than the scanning, so a
 and images a frame in strips, for a tilted view one focus can't hold. Both save
 into a folder you name inside the experiment and are long commands:
 `wait_for_run` imaging gives the image and its path, and `call_service_command`
-imaging `stop`, with a reason, ends either one.
+imaging `stop`, with a reason, ends either one. `acquire_fm_overview` is the
+fluorescence one, from the FM pose with the objective in; `estimate_fm_overview`
+gives its whole run time, stage moves included, and the same `stop` ends it.
 
 **`409 microscope_busy` is someone else working.** Its
 `detail.in_control` names who (`workflow`, `script`, or another command)

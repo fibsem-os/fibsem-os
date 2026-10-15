@@ -449,8 +449,8 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "Run a service command listed by list_services, e.g. service=stage_movement "
             "command=move_to_orientation kwargs={'orientation': 'SEM'}. A long command "
             "(listed with long: true: milling run, run_stage and run_task, spot burn "
-            "run, alignment align, imaging fm_focus_sweep, tiled_overview and "
-            "focus_stack) answers at once with "
+            "run, alignment align, imaging fm_focus_sweep, tiled_overview, "
+            "fm_tiled_overview and focus_stack) answers at once with "
             "its run (run_id, state: running) and runs on, in control of the "
             "microscope; wait_for_run says how it ended. command=stop from "
             "another call stops it: the agent's own run at Assist or Drive, "
@@ -607,6 +607,54 @@ CATALOG: Tuple[ToolSpec, ...] = (
         params={
             "channel_name": "the channel to focus on; left out, the current one",
             "path": "a folder inside the open experiment to save the sweep to",
+        },
+    ),
+    ToolSpec(
+        name="acquire_fm_overview",
+        description=(
+            "A tiled fluorescence overview centred where the stage is: rows x cols "
+            "camera fields in each of the channels, stitched into one mosaic. The "
+            "stage moves to each tile, and it and the objective come back after. "
+            "The objective must be in, at the FM pose; refused while the FM is in "
+            "use. path must be a folder inside the open experiment. "
+            "estimate_fm_overview first: tiles take seconds to minutes each. A "
+            "long command: it answers with its run at once; wait_for_run imaging "
+            "gives the mosaic's path and summary and the tiles' paths; "
+            "call_service_command imaging stop, with a reason, ends it before the "
+            "next tile."
+        ),
+        method="POST",
+        path="/microscope/services/imaging/commands/fm_tiled_overview",
+        level="drive",
+        hardware=True,
+        params={
+            "channels": (
+                "list of ChannelSettings dicts: name, excitation_wavelength, "
+                "emission_wavelength, power, exposure_time"
+            ),
+            "parameters": (
+                "OverviewParameters dict: rows, cols, overlap, autofocus_mode "
+                "(none, once, each_row, each_tile), use_zstack"
+            ),
+            "path": "a folder inside the open experiment to save it in",
+            "name": "the file name, stamped with the time (default overview)",
+            "zparams": "ZParameters dict (zmin, zmax, zstep), with use_zstack",
+        },
+    ),
+    ToolSpec(
+        name="estimate_fm_overview",
+        description=(
+            "What acquire_fm_overview with these arguments would do: how many "
+            "tiles and images, and how long it runs in seconds, stage and "
+            "objective moves and focus sweeps counted. Moves nothing."
+        ),
+        method="POST",
+        path="/microscope/services/imaging/queries/estimate_fm_tiled_overview",
+        level="watch",
+        params={
+            "channels": "list of ChannelSettings dicts, as acquire_fm_overview",
+            "parameters": "OverviewParameters dict, as acquire_fm_overview",
+            "zparams": "ZParameters dict, as acquire_fm_overview",
         },
     ),
 )
@@ -1315,6 +1363,24 @@ _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict
             path=str(a["path"]),
             n_steps=int(a.get("n_steps") or 3),
             auto_focus=a.get("auto_focus", True),
+        ),
+    ),
+    "acquire_fm_overview": lambda a: (
+        {},
+        _kwargs(
+            channels=[dict(c) for c in a["channels"]],
+            parameters=dict(a["parameters"]),
+            path=str(a["path"]),
+            name=str(a.get("name") or "overview"),
+            zparams=a.get("zparams"),
+        ),
+    ),
+    "estimate_fm_overview": lambda a: (
+        {},
+        _kwargs(
+            channels=[dict(c) for c in a["channels"]],
+            parameters=dict(a["parameters"]),
+            zparams=a.get("zparams"),
         ),
     ),
     # A service command or query with no arguments still sends its kwargs.

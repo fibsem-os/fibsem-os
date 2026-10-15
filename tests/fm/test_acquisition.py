@@ -11,10 +11,10 @@ from fibsem.cancellation import OperationCancelledError
 from fibsem.fm import acquisition
 from fibsem.fm.acquisition import (
     FMTiledAcquisitionRunner,
-    acquire_and_stitch_tileset,
+    OverviewDestination,
     acquire_channels,
+    acquire_fm_tiled_overview,
     acquire_image,
-    acquire_multiple_overviews,
     acquire_z_stack,
     calculate_grid_coverage_area,
     calculate_grid_dimensions,
@@ -27,7 +27,6 @@ from fibsem.fm.structures import (
     AutoFocusSettings,
     ChannelSettings,
     FluorescenceImage,
-    FMStagePosition,
     ObjectiveStartPosition,
     OverviewParameters,
     ZParameters,
@@ -674,8 +673,20 @@ def test_acquire_image_description_keeps_an_unrecognised_extension(
     assert os.path.exists(filename)
 
 
-def test_acquire_and_stitch_tileset(fm_microscope):
-    """Test acquire_and_stitch_tileset auto-converts single channel to list."""
+def _stitched(microscope, channel_settings, overview_parameters, zparams=None):
+    """The mosaic of an unsaved `acquire_fm_tiled_overview`."""
+    if not isinstance(channel_settings, list):
+        channel_settings = [channel_settings]
+    mosaic, path = acquire_fm_tiled_overview(
+        microscope, channel_settings, overview_parameters, None, zparams=zparams
+    )
+    assert path is None
+    return mosaic
+
+
+def test_acquire_fm_tiled_overview(fm_microscope):
+    """The runner takes a single channel as a list of one; the overview stitches one
+    channel, two, and two with a z-stack projected."""
     microscope = fm_microscope
 
     # Create single test channel (not in a list)
@@ -692,12 +703,12 @@ def test_acquire_and_stitch_tileset(fm_microscope):
         rows=2, cols=2, overlap=0.1, use_zstack=False, autofocus_mode=AutoFocusMode.NONE
     )
 
-    # Call function with single channel (should auto-convert to list)
-    result = acquire_and_stitch_tileset(
+    # A single channel, not a list
+    result = FMTiledAcquisitionRunner(
         microscope=microscope,
-        channel_settings=channel,  # Single channel, not list
+        channel_settings=channel,
         overview_parameters=overview_params,
-    )
+    ).run_and_stitch()
 
     # Verify result
     assert isinstance(result, FluorescenceImage)
@@ -735,7 +746,7 @@ def test_acquire_and_stitch_tileset(fm_microscope):
     )
 
     # Call function with multiple channels
-    result = acquire_and_stitch_tileset(
+    result = _stitched(
         microscope=microscope,
         channel_settings=channel_settings,  # List of channels
         overview_parameters=overview_params_multi,
@@ -756,7 +767,7 @@ def test_acquire_and_stitch_tileset(fm_microscope):
 
     # z-stack parameters
     z_params = ZParameters(zmin=-0.005, zmax=0.005, zstep=0.001)
-    result = acquire_and_stitch_tileset(
+    result = _stitched(
         microscope=microscope,
         channel_settings=channel_settings,  # List of channels
         overview_parameters=overview_params_multi,
@@ -777,107 +788,53 @@ def test_acquire_and_stitch_tileset(fm_microscope):
     assert result.metadata.channels[1].name == "GFP"
 
 
-def test_acquire_multiple_overviews(fm_microscope):
-    """Test acquire_multiple_overviews function with multiple FM positions."""
+def test_an_overview_saves_its_tiles_and_mosaic_and_reports_the_save(
+    fm_microscope, tmp_path
+):
+    """The tiles in the destination's folder, in the order acquired, and the mosaic
+    beside it; the save announced before the run says it finished."""
     microscope = fm_microscope
+    destination = OverviewDestination.create(str(tmp_path), "run")
+    tile_paths, reports, acquired = [], [], []
+    microscope.tiled_acquisition_signal.connect(reports.append)
+    try:
+        mosaic, path = acquire_fm_tiled_overview(
+            microscope,
+            [ChannelSettings(name="DAPI", exposure_time=0.001)],
+            OverviewParameters(rows=1, cols=2, overlap=0.1),
+            destination,
+            tile_paths=tile_paths,
+            on_acquired=lambda image, saved: acquired.append((image, saved)),
+        )
+    finally:
+        microscope.tiled_acquisition_signal.disconnect(reports.append)
 
-    # Create test positions. Kept well inside the simulated stage limits (x and z
-    # +/-1 mm, y +/-0.378 mm) with room for the 2x2 grid around each: these were at y = 2, 5 and
-    # 8 mm, which no stage in the fixture can reach. That went unnoticed until the FM
-    # runner started checking, since nothing on this path looked at the limits before.
-    positions = [
-        FMStagePosition(
-            name="Region1",
-            stage_position=FibsemStagePosition(x=0.0001, y=0.0002, z=0.0003),
-            objective_position=0.012,
-        ),
-        FMStagePosition(
-            name="Region2",
-            stage_position=FibsemStagePosition(x=0.0004, y=-0.0001, z=0.0006),
-            objective_position=0.015,
-        ),
-        FMStagePosition(
-            name="Region3",
-            stage_position=FibsemStagePosition(x=-0.0003, y=0.0001, z=0.0009),
-            objective_position=0.018,
-        ),
+    assert path == destination.mosaic_path and os.path.isfile(path)
+    assert tile_paths == [
+        os.path.join(destination.tiles_directory, f"tile-00-0{c}.ome.tiff")
+        for c in range(2)
     ]
+    assert all(os.path.isfile(p) for p in tile_paths)
+    assert acquired == [(mosaic, path)]
+    statuses = [r.status for r in reports]
+    assert statuses[-2:] == [TiledStatus.SAVING, TiledStatus.FINISHED]
 
-    # Create test channel
-    channel = ChannelSettings(
-        name="DAPI",
-        excitation_wavelength=358,
-        emission_wavelength=461,
-        power=0.1,
-        exposure_time=0.1,
-    )
 
-    # Test with 2x2 grid
-    overview_params = OverviewParameters(
-        rows=2, cols=2, overlap=0.1, use_zstack=False, autofocus_mode=AutoFocusMode.NONE
-    )
-
-    # Call function
-    result = acquire_multiple_overviews(
-        microscope=microscope,
-        positions=positions,
-        channel_settings=channel,
-        overview_parameters=overview_params,
-    )
-
-    # Verify result
-    assert len(result) == 3  # Should have 3 overview images
-
-    for i, overview in enumerate(result):
-        assert isinstance(overview, FluorescenceImage)
-
-        # Check dimensions: should be (nc_channel=1, nz=1, ny, nx)
-        assert len(overview.data.shape) == 4
-        assert overview.data.shape[0] == 1  # 1 channel
-        assert overview.data.shape[1] == 1  # 1 z-plane
-
-        # Check metadata
-        if overview.metadata is None:
-            raise ValueError("Overview metadata is None")
-        assert len(overview.metadata.channels) == 1
-        assert overview.metadata.channels[0].name == "DAPI"
-
-        # Check that description contains position name
-        assert positions[i].name in overview.metadata.description
-
-        # Check that stage position is set correctly using isclose
-        assert overview.metadata.stage_position is not None
-        assert np.isclose(
-            overview.metadata.stage_position.x, positions[i].stage_position.x, atol=1e-6
-        )
-        assert np.isclose(
-            overview.metadata.stage_position.y, positions[i].stage_position.y, atol=1e-6
-        )
-
-    # Call function with empty positions list should raise ValueError
-    with pytest.raises(ValueError, match="Positions list cannot be empty"):
-        acquire_multiple_overviews(
-            microscope=microscope,
-            positions=[],  # Empty list
-            channel_settings=channel,
-            overview_parameters=overview_params,
-        )
-
-    # Call function without FM microscope should raise ValueError
+def test_an_overview_needs_a_fluorescence_microscope(fm_microscope):
+    microscope = fm_microscope
+    microscope.fm = None
     with pytest.raises(ValueError, match="Fluorescence microscope not initialized"):
-        microscope.fm = None  # Remove FM microscope
-        acquire_multiple_overviews(
-            microscope=microscope,
-            positions=positions,
-            channel_settings=channel,
-            overview_parameters=overview_params,
+        _stitched(
+            microscope,
+            ChannelSettings(name="DAPI", exposure_time=0.1),
+            OverviewParameters(rows=2, cols=2, overlap=0.1),
         )
 
 
 # ---------------------------------------------------------------------------
 # Row direction
 #
-# `acquire_tileset` drives the stage and `stitch_tileset` pastes tiles purely by
+# `FMTiledAcquisitionRunner` drives the stage and `stitch_tileset` pastes tiles by
 # index -- they never communicate, so they have to agree on which way row indices
 # run or the mosaic comes out with its rows reversed. `imaging/tiled.py` already
 # fixes that convention for beam tilesets (`TilePosition`: "row 0 = top",
@@ -908,7 +865,7 @@ def _record_tile_positions(microscope, monkeypatch):
 
 
 def _run_tileset(microscope, rows, cols, overlap=0.1):
-    acquisition.acquire_tileset(
+    acquisition.FMTiledAcquisitionRunner(
         microscope=microscope,
         channel_settings=ChannelSettings(
             name="DAPI",
@@ -924,7 +881,7 @@ def _run_tileset(microscope, rows, cols, overlap=0.1):
             use_zstack=False,
             autofocus_mode=AutoFocusMode.NONE,
         ),
-    )
+    ).run()
 
 
 def _by_tile(positions, rows, cols):
@@ -941,9 +898,7 @@ def _by_tile(positions, rows, cols):
 
 
 @pytest.mark.parametrize("rows,cols", [(2, 2), (3, 2), (1, 4), (4, 1)])
-def test_acquire_tileset_visits_rows_top_to_bottom(
-    fm_microscope, monkeypatch, rows, cols
-):
+def test_the_tileset_visits_rows_top_to_bottom(fm_microscope, monkeypatch, rows, cols):
     """Row 0 is the top of the mosaic, so it sits at the highest stage y."""
     microscope = fm_microscope
     positions = _record_tile_positions(microscope, monkeypatch)
@@ -960,7 +915,7 @@ def test_acquire_tileset_visits_rows_top_to_bottom(
     assert xs == sorted(xs), f"columns must ascend in x, got {xs}"
 
 
-def test_acquire_tileset_uses_absolute_positions_not_accumulated_steps(
+def test_the_tileset_uses_absolute_positions_not_accumulated_steps(
     fm_microscope, monkeypatch
 ):
     """Every tile is projected from the same base, so error cannot accumulate.
@@ -981,9 +936,7 @@ def test_acquire_tileset_uses_absolute_positions_not_accumulated_steps(
     )
 
 
-def test_acquire_tileset_row_direction_matches_the_beam_tiler(
-    fm_microscope, monkeypatch
-):
+def test_the_tileset_row_direction_matches_the_beam_tiler(fm_microscope, monkeypatch):
     """The FM tiler and the beam tiler must agree on the direction of each axis.
 
     Pins the two against each other rather than against a hard-coded sign, so the
@@ -1023,7 +976,7 @@ def test_acquire_tileset_row_direction_matches_the_beam_tiler(
         )
 
 
-def test_acquire_tileset_returns_to_the_starting_position(fm_microscope, monkeypatch):
+def test_the_tileset_returns_to_the_starting_position(fm_microscope, monkeypatch):
     """The grid is centred on wherever the stage was, and it is left there."""
     rows, cols = 2, 2
     microscope = fm_microscope
@@ -1044,7 +997,7 @@ def test_acquire_tileset_returns_to_the_starting_position(fm_microscope, monkeyp
 # (now) the beam tiler use -- rather than returning a short tileset. The partial
 # tiles stay on the runner, which the function form could not offer.
 #
-# Previously acquire_and_stitch_tileset inferred a cancel from
+# Previously the stitching function inferred a cancel from
 #     if not tileset or any(tile is None for row in tileset for tile in row)
 # which cannot distinguish a user cancel from a tile that genuinely failed.
 # ---------------------------------------------------------------------------
@@ -1161,31 +1114,25 @@ def test_a_cancelled_tile_image_raises(fm_microscope, monkeypatch):
         _runner(microscope, 2, 2).run()
 
 
-def test_stitching_reports_a_cancel_as_none_not_an_error(fm_microscope, monkeypatch):
-    """The top-level behaviour callers see is unchanged by the new contract."""
+def test_an_overview_reports_a_cancel_as_cancelled_not_failed(
+    fm_microscope, monkeypatch
+):
+    """What callers see: the cancel raised as itself, and reported as cancelled."""
     microscope = fm_microscope
     _record_tile_positions(microscope, monkeypatch)
     monkeypatch.setattr("fibsem.fm.acquisition.acquire_image", lambda *a, **k: None)
-
-    result = acquire_and_stitch_tileset(
-        microscope=microscope,
-        channel_settings=ChannelSettings(
-            name="DAPI",
-            excitation_wavelength=358,
-            emission_wavelength=461,
-            power=0.1,
-            exposure_time=0.1,
-        ),
-        overview_parameters=OverviewParameters(
-            rows=2,
-            cols=2,
-            overlap=0.1,
-            use_zstack=False,
-            autofocus_mode=AutoFocusMode.NONE,
-        ),
-    )
-
-    assert result is None
+    reports = []
+    microscope.tiled_acquisition_signal.connect(reports.append)
+    try:
+        with pytest.raises(OperationCancelledError):
+            _stitched(
+                microscope,
+                ChannelSettings(name="DAPI", exposure_time=0.1),
+                OverviewParameters(rows=2, cols=2, overlap=0.1),
+            )
+    finally:
+        microscope.tiled_acquisition_signal.disconnect(reports.append)
+    assert reports[-1].status is TiledStatus.CANCELLED
 
 
 def test_a_genuine_failure_is_not_reported_as_a_cancel(fm_microscope, monkeypatch):
@@ -1377,12 +1324,12 @@ def test_each_row_autofocus_survives_a_row_wise_order(fm_microscope, monkeypatch
 def test_stitching_leaves_skipped_tiles_as_zeros_at_full_canvas_size(fm_microscope):
     """The mosaic is the whole grid whatever the mask, with gaps left black."""
     mask = _plus_mask(3)
-    dense = acquire_and_stitch_tileset(
+    dense = _stitched(
         microscope=fm_microscope,
         channel_settings=ChannelSettings(name="DAPI", exposure_time=0.001),
         overview_parameters=OverviewParameters(rows=3, cols=3, overlap=0.1),
     )
-    sparse = acquire_and_stitch_tileset(
+    sparse = _stitched(
         microscope=fm_microscope,
         channel_settings=ChannelSettings(name="DAPI", exposure_time=0.001),
         overview_parameters=OverviewParameters(
@@ -1439,7 +1386,7 @@ def test_the_mosaic_centre_is_the_run_centre_whatever_was_acquired(
     )
     centre = fm_microscope.get_stage_position()
 
-    mosaic = acquire_and_stitch_tileset(
+    mosaic = _stitched(
         microscope=fm_microscope,
         channel_settings=ChannelSettings(name="DAPI", exposure_time=0.001),
         overview_parameters=OverviewParameters(
@@ -1457,7 +1404,7 @@ def test_the_mosaic_records_the_objective_the_run_used(fm_microscope):
     mosaic's -- not whatever the first acquired tile happened to carry."""
     objective = fm_microscope.fm.objective.position
 
-    mosaic = acquire_and_stitch_tileset(
+    mosaic = _stitched(
         microscope=fm_microscope,
         channel_settings=ChannelSettings(name="DAPI", exposure_time=0.001),
         overview_parameters=OverviewParameters(rows=2, cols=2, overlap=0.1),
@@ -1476,7 +1423,7 @@ def test_the_mosaic_carries_the_same_metadata_as_a_single_image(fm_microscope):
     )
     single = acquire_image(fm_microscope.fm, channel)
 
-    mosaic = acquire_and_stitch_tileset(
+    mosaic = _stitched(
         microscope=fm_microscope,
         channel_settings=channel,
         overview_parameters=OverviewParameters(rows=2, cols=2, overlap=0.1),
@@ -2048,7 +1995,7 @@ def _acquired_at(monkeypatch, microscope, mode, rows=1, cols=2, order=None):
         microscope.fm.objective.move_absolute(FOUND_FOCUS)
         return True
 
-    monkeypatch.setattr(acquisition, "run_tileset_autofocus", sweep)
+    monkeypatch.setattr(acquisition, "run_coarse_fine_autofocus", sweep)
 
     real_acquire_image = acquisition.acquire_image
 
@@ -2160,7 +2107,7 @@ def _start_from(monkeypatch, microscope, start, focus=SAVED_FOCUS):
     microscope.fm.objective.focus_position = focus
     positions = []
 
-    monkeypatch.setattr(acquisition, "run_tileset_autofocus", lambda *a, **k: True)
+    monkeypatch.setattr(acquisition, "run_coarse_fine_autofocus", lambda *a, **k: True)
     real = acquisition.acquire_image
 
     def spy(*args, **kwargs):
@@ -2232,10 +2179,8 @@ def test_the_objective_is_moved_before_a_sweep_would_search(fm_microscope, monke
     fm_microscope.fm.objective.focus_position = SAVED_FOCUS
     monkeypatch.setattr(
         acquisition,
-        "run_tileset_autofocus",
-        lambda microscope, *a, **k: (
-            swept_at.append(microscope.fm.objective.position) or True
-        ),
+        "run_coarse_fine_autofocus",
+        lambda **k: swept_at.append(k["microscope"].objective.position) or True,
     )
     monkeypatch.setattr(
         acquisition, "acquire_image", lambda *a, **k: acquisition.acquire_image
@@ -2268,8 +2213,8 @@ def test_the_objective_is_moved_before_a_sweep_would_search(fm_microscope, monke
 def test_a_failed_tileset_autofocus_fails_the_run_rather_than_cancelling_it(
     fm_microscope, monkeypatch
 ):
-    """The tile runner reads False from `run_tileset_autofocus` as the user stopping
-    the run. A sweep that raised used to come back as False too, so a failed
+    """The tile runner reads a sweep that returns None as the user stopping the
+    run. A sweep that raised used to come back as a cancel too, so a failed
     autofocus ended the overview reported as cancelled with the reason only in the
     log. The error now reaches the caller as itself."""
 
@@ -2303,13 +2248,19 @@ def test_a_failed_tileset_autofocus_fails_the_run_rather_than_cancelling_it(
 def test_a_cancelled_tileset_autofocus_still_reads_as_a_cancel(
     fm_microscope, monkeypatch
 ):
-    """The sweep reports a cancel by returning None; that stays False."""
+    """The sweep reports a cancel by returning None; the run ends cancelled."""
     monkeypatch.setattr(acquisition, "run_coarse_fine_autofocus", lambda *a, **k: None)
-
-    assert (
-        acquisition.run_tileset_autofocus(fm_microscope, None, AutoFocusSettings())
-        is False
+    runner = acquisition.FMTiledAcquisitionRunner(
+        microscope=fm_microscope,
+        channel_settings=ChannelSettings(name="DAPI", exposure_time=0.1),
+        overview_parameters=OverviewParameters(
+            rows=1, cols=1, overlap=0.1, autofocus_mode=AutoFocusMode.ONCE
+        ),
+        autofocus_settings=AutoFocusSettings(),
     )
+
+    with pytest.raises(OperationCancelledError, match="autofocus"):
+        runner.run()
 
 
 def test_asking_for_a_focus_position_that_was_never_saved_is_refused(

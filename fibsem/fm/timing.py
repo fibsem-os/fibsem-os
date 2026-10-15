@@ -7,12 +7,16 @@ z-stacks, and tilesets.
 """
 
 import logging
+from dataclasses import replace
 from typing import List, Optional, Tuple, Union
 
+from fibsem import timing
 from fibsem.fm.structures import (
     AutoFocusMode,
     AutoFocusSettings,
     ChannelSettings,
+    ObjectiveStartPosition,
+    OverviewParameters,
     ZParameters,
     ZStackOrder,
 )
@@ -365,3 +369,45 @@ def estimate_tileset_acquisition_time(
         "tiles": total_tiles,
         "breakdown": breakdown,
     }
+
+
+def estimate_fm_overview_time(
+    channels: List[ChannelSettings],
+    parameters: OverviewParameters,
+    zparams: Optional[ZParameters] = None,
+    autofocus_settings: Optional[AutoFocusSettings] = None,
+) -> float:
+    """Seconds for a fluorescence overview (`acquire_fm_tiled_overview`), from the
+    moment it starts at the FM to the stage and objective being put back.
+
+    The images come from `estimate_tileset_acquisition_time`; its tile moves (an
+    unmeasured 5 s) and focus sweeps (a flat 5 s) are replaced by the measured
+    tile move and the sweep as configured -- every pass for a focus once, the
+    finest for one per row or tile, as the runner does. Then the move to the saved
+    focus position when the run starts there, and the runner's return of the stage
+    and objective. ``zparams`` counts only when ``parameters.use_zstack`` is set.
+    Errs long.
+    """
+    tiles = parameters.n_enabled_tiles
+    if tiles <= 0:
+        return 0.0
+    tileset = estimate_tileset_acquisition_time(
+        list(channels),
+        (parameters.rows, parameters.cols),
+        zparams=zparams if parameters.use_zstack else None,
+        autofocus_mode=parameters.autofocus_mode,
+        tile_mask=parameters.tile_mask,
+    )
+    total = tileset["image_acquisition_time"]
+    total += tiles * timing.OVERVIEW_TILE_MOVE_S
+    sweeps = tileset["breakdown"]["autofocus"]["operations"]
+    if sweeps and autofocus_settings is not None and channels:
+        passes = [p for p in autofocus_settings.passes if p.enabled]
+        if parameters.autofocus_mode is not AutoFocusMode.ONCE:
+            passes = passes[-1:]
+        sweep = replace(autofocus_settings, passes=passes)
+        total += sweeps * estimate_autofocus_time(sweep, list(channels))
+    if parameters.objective_start is not ObjectiveStartPosition.CURRENT:
+        total += timing.OBJECTIVE_FOCUS_MOVE_S
+    total += timing.stage_move_cost(1) + timing.OBJECTIVE_FOCUS_MOVE_S
+    return total
