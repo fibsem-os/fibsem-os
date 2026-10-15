@@ -1608,6 +1608,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             view_controller=lambda: getattr(self, "view_controller", None),
             parent=self,
         )
+        self.agent_activity.now_changed.connect(self.agent_chip.set_now)
         # What the agent's waiting request or suggestion would do, on the views.
         self.agent_previews = AgentPreviews(
             lambda: getattr(self, "view_controller", None)
@@ -3886,7 +3887,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if shown != self.agent_chip.request:
             self.agent_chip.set_request(shown)
         self.agent_previews.show_request(shown)
-        self.agent_chip.set_now(self.agent_activity.action)
+        self.agent_chip.set_now(self.agent_activity.now)
 
     def _on_approve_agent_request(self, request_id: str) -> None:
         """GUI thread, from the chip: run the request. Its actions run on their

@@ -366,3 +366,34 @@ class MillingMessageTracker:
         elif report.status is not MillingProgressStatus.STAGE_UPDATE:
             self._message = ""
         return self._message or report.display_message
+
+
+class AgentMillOwner:
+    """Whether a milling run is the agent's own mill, decided at its first report.
+
+    A run outside any task (the agent's ``prepare`` and ``run``) starts with no
+    task start; one first heard while the agent holds the microscope is the
+    agent's to its end, after the agent has let go, whatever task the run is on.
+    A task's run starts with ``task-started``. One rule for the status bar's line
+    and the agent card's (FIB-1401, FIB-1413).
+    """
+
+    def __init__(self) -> None:
+        self._run_id: Optional[str] = None
+        self._name: Optional[str] = None
+
+    def agent_mill(
+        self, report: MillingProgress, agent_in_control: bool
+    ) -> Optional[str]:
+        """The name of the agent's own mill *report* is from, or None."""
+        run_id = report.milling_run_id
+        if run_id is None:
+            return None
+        if run_id != self._run_id:
+            self._run_id = run_id
+            agents = (
+                agent_in_control
+                and report.status is not MillingProgressStatus.TASK_STARTED
+            )
+            self._name = (report.milling_task_name or "milling") if agents else None
+        return self._name

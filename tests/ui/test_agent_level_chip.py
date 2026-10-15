@@ -690,3 +690,68 @@ def test_the_card_floats_in_its_own_window_and_goes_back_on_the_chip(qapp):
     chip.card.float_button.click()  # the button puts it back too
     assert not chip.floating and chip.card.parent() is chip.popup
     window.close()
+
+
+def test_show_details_gives_every_row_its_height_in_the_floating_card(qapp):
+    # FIB-1413: a mill's six-row table was squeezed into two lines, rows over
+    # each other. Rows are one line each, full height; a tall table scrolls.
+    from PyQt5.QtWidgets import QLabel, QMainWindow, QScrollArea
+
+    rows = [
+        [f"Rectangle {i} (upper trench)", "10.00 µm × 5.00 µm", "1.00 µm", "(0, 0)"]
+        for i in range(6)
+    ]
+    request = _request()
+    request["actions"] = [
+        {
+            "tool": "milling_run",
+            "what": "Milling",
+            "change": "Run 'agent test mill'",
+            "details": {
+                "columns": ["Pattern", "Size", "Depth", "Centre"],
+                "rows": rows,
+            },
+        }
+    ]
+    window = QMainWindow()
+    chip = AgentLevelChip()
+    window.statusBar().addPermanentWidget(chip)
+    window.show()
+    chip.set_level(AgentLevel.ASSIST)
+    chip.toggle_card()
+    chip.card.float_button.click()
+    chip.set_request(request)
+    chip.panel.resize(420, 300)
+    qapp.processEvents()
+    chip.card.details_link.click()
+    qapp.processEvents()
+
+    (table,) = chip.card.findChildren(QScrollArea, "agentDetails")
+    cells = [
+        label
+        for label in table.widget().findChildren(QLabel)
+        if label.text().startswith("Rectangle")
+    ]
+    assert len(cells) == 6
+    tops = [cell.mapTo(table.widget(), cell.rect().topLeft()).y() for cell in cells]
+    for cell, top, below in zip(cells, tops, tops[1:]):
+        assert below >= top + cell.sizeHint().height()  # no row over the next
+        assert not cell.wordWrap()
+    # Six rows and the header fit without scrolling.
+    assert table.viewport().height() >= table.widget().sizeHint().height()
+    window.close()
+
+
+def test_a_tall_details_table_scrolls_inside_the_card(qapp):
+    from PyQt5.QtWidgets import QScrollArea
+
+    card = AgentCard()
+    request = _request()
+    request["actions"][0]["details"]["rows"] = [
+        [f"Setting {i}", "1", "2"] for i in range(30)
+    ]
+    card.set_request(request)
+    card.details_link.click()
+    (table,) = card.findChildren(QScrollArea, "agentDetails")
+    assert table.height() < table.widget().sizeHint().height()
+    card.deleteLater()

@@ -35,6 +35,7 @@ from PyQt5.QtWidgets import (
     QLayout,
     QLineEdit,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -83,7 +84,9 @@ _CARD = f"""
     #agentCard {{ background: {SURFACE_COLOR}; }}
     #agentCard QLabel {{ background: transparent; }}
     #agentActions {{ border: 1px solid {BORDER_COLOR}; border-radius: 3px; }}
-    #agentDetails {{ background: {PANEL_COLOR}; border-radius: 3px; }}
+    #agentDetails, #agentDetailsTable {{
+        background: {PANEL_COLOR}; border-radius: 3px;
+    }}
     #agentRule {{ background: {BORDER_COLOR}; }}
     #agentCard QLineEdit {{
         border: 1px solid {BORDER_COLOR}; border-radius: 3px; padding: 4px 6px;
@@ -225,26 +228,47 @@ class LevelSwitch(QWidget):
             self.level_chosen.emit(level)
 
 
-class _Details(QFrame):
-    """An action's every value: the table the server wrote."""
+class _Details(QScrollArea):
+    """An action's every value: the table the server wrote.
+
+    One line per row, never wrapped: a wrapped cell's height depends on its
+    width, which the card's layout does not ask, so rows were squeezed into
+    each other in the floating window (FIB-1413). A tall or wide table
+    scrolls inside the card instead.
+    """
+
+    # Rows shown before the table scrolls.
+    ROWS_SHOWN = 8
 
     def __init__(self, details: Dict[str, Any]) -> None:
         super().__init__()
         self.setObjectName("agentDetails")
-        grid = QGridLayout(self)
+        self.setFrameShape(QFrame.NoFrame)
+        self.setWidgetResizable(True)
+        table = QWidget()
+        table.setObjectName("agentDetailsTable")
+        grid = QGridLayout(table)
         grid.setContentsMargins(8, 6, 8, 6)
         grid.setHorizontalSpacing(16)
         grid.setVerticalSpacing(3)
         columns = list(details.get("columns") or [])
         for column, name in enumerate(columns):
             grid.addWidget(_label(name, TEXT_MUTED_COLOR, small=True), 0, column)
-        for row, values in enumerate(details.get("rows") or [], start=1):
+        rows = list(details.get("rows") or [])
+        for row, values in enumerate(rows, start=1):
             for column, value in enumerate(values):
-                cell = _label(str(value), TEXT_COLOR, small=True, wrap=True)
+                cell = _label(str(value), TEXT_COLOR, small=True)
                 cell.setTextInteractionFlags(Qt.TextSelectableByMouse)  # type: ignore
                 grid.addWidget(cell, row, column)
         if columns:
             grid.setColumnStretch(len(columns) - 1, 1)
+        self.setWidget(table)
+        # Every row at full height, up to ROWS_SHOWN; then it scrolls.
+        full = table.sizeHint().height()
+        shown = min(len(rows), self.ROWS_SHOWN) + 1  # and the header
+        per_row = full / max(len(rows) + 1, 1)
+        height = full if len(rows) <= self.ROWS_SHOWN else round(per_row * shown)
+        self.setFixedHeight(height + self.horizontalScrollBar().sizeHint().height())
 
 
 class AgentCard(QFrame):
