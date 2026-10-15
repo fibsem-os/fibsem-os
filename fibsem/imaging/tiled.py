@@ -134,7 +134,7 @@ class TiledAcquisitionRunner:
         #                   _focus_stack_settings, _af_mode
         # _compute_grid() → _tiles, _ordered, _centre_position, _start_state,
         #                   _tile_stage_positions, _canvas, _dx_step, _dy_step
-        # _run_tile_loop()→ _first_image, _n_tiles_acquired, _layout_check, tile_paths
+        # _run_tile_loop()→ _first_image, _n_tiles_acquired, tile_paths, _layout_check
 
     # ── public entry point ───────────────────────────────────────────────
 
@@ -476,6 +476,9 @@ class TiledAcquisitionRunner:
         total_tiles = self.settings.n_enabled_tiles
         self._first_image: Optional[FibsemImage] = None
         self._n_tiles_acquired: int = 0
+        # Each tile as saved, in the order acquired. The stitched image is what is
+        # shown; the tiles are what a model trained on single frames reads.
+        self.tile_paths: List[str] = []
         # Measures how far apart neighbouring tiles really are, from the pictures, as
         # they arrive. It only reports (`_report_layout`); the canvas is painted from
         # the plan either way.
@@ -486,9 +489,6 @@ class TiledAcquisitionRunner:
         # it where its picture says. The canvas is still painted as planned meanwhile,
         # which is what a run falls back to.
         self._kept_tiles: Dict[Tuple[int, int], np.ndarray] = {}
-        # Each tile as saved, in the order acquired. The stitched image is what is
-        # shown; the tiles are what a model trained on single frames reads.
-        self.tile_paths: List[str] = []
         prev_row = -1
 
         for tile, stage_pos in zip(self._ordered, self._tile_stage_positions):

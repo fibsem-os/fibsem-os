@@ -377,7 +377,8 @@ class Milling(Service):
 
     @command
     def start(self) -> None:
-        """Start milling what is drawn, and return."""
+        """Start milling what is drawn, and return at once. Nothing follows it:
+        no ``progress`` and no ``milling`` event, so an agent mills with ``run``."""
         self._start()
 
     @command

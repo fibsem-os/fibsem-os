@@ -1875,7 +1875,7 @@ class FMOverviewWidget(QWidget):
             self,
             "Confirm Movement",
             f"Move the stage to the fluorescence microscope?\n\n"
-            f"{self.microscope.describe_device_imaging_state('FM')}",
+            f"{self.microscope.explain_imaging_state('FM')}",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
