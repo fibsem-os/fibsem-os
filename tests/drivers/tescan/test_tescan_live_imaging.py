@@ -4,7 +4,7 @@ TESCAN has no continuous/streaming API, so live imaging is a re-acquire loop tha
 each frame on the beam's ``live_frame`` until it is stopped. The shared ``Beam`` runs the
 loop on its thread and forwards frames to the microscope's old signals; that, and the
 SEM/FIB signal each beam reaches, are covered over the fake SDK in
-``tests/test_tescan_imaging.py``. These pin the loop itself.
+``tests/drivers/tescan/test_tescan_imaging.py``. These pin the loop itself.
 
 No hardware or Tescan SDK required: the loop runs on a stand-in for the beam whose
 acquire is stubbed.
