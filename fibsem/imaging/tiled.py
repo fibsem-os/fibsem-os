@@ -39,6 +39,7 @@ from fibsem.imaging.tiling.progress import (
     MODALITY_BEAM,
     TiledProgress,
     TiledStatus,
+    report_tiled_progress,
 )
 from fibsem.imaging.tiling.registration import compose_mosaic, registered_positions
 from fibsem.imaging.tiling.reprojection import (  # noqa: E402,F401
@@ -194,14 +195,15 @@ class TiledAcquisitionRunner:
         both "stopped".
         """
         total_tiles = self.settings.n_enabled_tiles
-        self.microscope.tiled_acquisition_signal.emit(
+        report_tiled_progress(
+            self.microscope,
             TiledProgress(
                 status=status,
                 modality=MODALITY_BEAM,
                 completed=getattr(self, "_n_tiles_acquired", 0),
                 total=total_tiles,
                 error=error,
-            )
+            ),
         )
 
     def run_and_stitch(self) -> FibsemImage:
@@ -260,13 +262,14 @@ class TiledAcquisitionRunner:
         self._image_settings = image_settings
 
         # notify the UI immediately so the progress bar appears before the first move
-        self.microscope.tiled_acquisition_signal.emit(
+        report_tiled_progress(
+            self.microscope,
             TiledProgress(
                 status=TiledStatus.STARTING,
                 modality=MODALITY_BEAM,
                 completed=0,
                 total=self.settings.n_enabled_tiles,
-            )
+            ),
         )
 
     def _compute_grid(self) -> None:
@@ -537,7 +540,8 @@ class TiledAcquisitionRunner:
             if self.settings.register_tiles:
                 self._kept_tiles[(tile.row, tile.col)] = image.filtered_data
             self._n_tiles_acquired += 1
-            self.microscope.tiled_acquisition_signal.emit(
+            report_tiled_progress(
+                self.microscope,
                 TiledProgress(
                     status=TiledStatus.TILE_COLLECTED,
                     modality=MODALITY_BEAM,
@@ -558,7 +562,7 @@ class TiledAcquisitionRunner:
                     preview=self._preview_image(),
                     completed=self._n_tiles_acquired,
                     total=total_tiles,
-                )
+                ),
             )
 
     def _acquire_tile(self, tile: TilePosition) -> FibsemImage:
@@ -577,15 +581,15 @@ class TiledAcquisitionRunner:
         if self._first_image is None:
             raise ValueError("No tiles were acquired; cannot stitch.")
 
-        signal = self.microscope.tiled_acquisition_signal
         total_tiles = self.settings.n_enabled_tiles
-        signal.emit(
+        report_tiled_progress(
+            self.microscope,
             TiledProgress(
                 status=TiledStatus.STITCHING,
                 modality=MODALITY_BEAM,
                 completed=total_tiles,
                 total=total_tiles,
-            )
+            ),
         )
         # The metadata `_compute_grid` built, not a patched copy of the first tile's.
         # deepcopy so the stitched image gets its own snapshot rather than sharing the
@@ -608,7 +612,8 @@ class TiledAcquisitionRunner:
         filename = os.path.join(image.metadata.image_settings.path, self._prev_label)  # type: ignore
         image.save(filename)
 
-        signal.emit(
+        report_tiled_progress(
+            self.microscope,
             TiledProgress(
                 status=TiledStatus.FINISHED,
                 modality=MODALITY_BEAM,
@@ -617,7 +622,7 @@ class TiledAcquisitionRunner:
                 warning=self._report_layout(
                     tile_dir=filename, registration=registration
                 ),
-            )
+            ),
         )
         return image
 

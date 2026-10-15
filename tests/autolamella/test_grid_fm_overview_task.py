@@ -158,7 +158,7 @@ class TestProgressEndsTheRun:
         from fibsem.imaging.tiling.progress import MODALITY_FLUORESCENCE, TiledStatus
 
         reports = []
-        microscope.tiled_acquisition_signal.connect(reports.append)
+        microscope.imaging.tiled_progress.connect(reports.append)
         grid = experiment.get_grid_by_name("grid-aspen")
         run_grid_task(microscope, "overview_fm", experiment, grid)
         statuses = [r.status for r in reports if r.modality == MODALITY_FLUORESCENCE]
@@ -171,7 +171,7 @@ class TestProgressEndsTheRun:
         from fibsem.imaging.tiling.progress import TiledStatus
 
         reports = []
-        microscope.tiled_acquisition_signal.connect(reports.append)
+        microscope.imaging.tiled_progress.connect(reports.append)
         stop = threading.Event()
         stop.set()
         grid = experiment.get_grid_by_name("grid-aspen")

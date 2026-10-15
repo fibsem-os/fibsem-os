@@ -317,7 +317,7 @@ def test_without_a_format_fn_the_built_in_rendering_still_applies(qapp):
 # ── progress bars ────────────────────────────────────────────────────────
 #
 # Two signals, two scales, one bar each: the tileset runner's tile counter on
-# `tiled_acquisition_signal`, and -- from inside each tile -- `acquire_z_stack` /
+# `imaging.tiled_progress`, and -- from inside each tile -- `acquire_z_stack` /
 # `acquire_channels` on the detector's own. A payload must never move both bars,
 # which is now a property of *which handler it reaches* rather than of a `task`
 # key both producers happen to agree on.
@@ -492,7 +492,7 @@ def test_a_state_this_bar_cannot_render_moves_nothing(qapp):
 def test_a_beam_payload_moves_neither_bar(qapp):
     """The other half of the same invariant, on the other handler.
 
-    `tiled_acquisition_signal` has two producers. Ignored today even without the
+    `imaging.tiled_progress` has two producers. Ignored today even without the
     modality check -- beam payloads carry no `task` -- but that is an accident of
     vocabulary, not a decision.
     """
@@ -5454,7 +5454,7 @@ def test_the_worker_announces_the_save_before_it_writes(
             return mosaic
 
     seen = []
-    widget.microscope.tiled_acquisition_signal.connect(seen.append)
+    widget.microscope.imaging.tiled_progress.connect(seen.append)
     settings, destination, saved = (
         widget._run_settings,
         widget._destination,
@@ -5472,7 +5472,7 @@ def test_the_worker_announces_the_save_before_it_writes(
         widget._destination = OverviewDestination.create(str(tmp_path))
         widget._acquire_worker()
     finally:
-        widget.microscope.tiled_acquisition_signal.disconnect(seen.append)
+        widget.microscope.imaging.tiled_progress.disconnect(seen.append)
         widget._run_settings, widget._destination, widget._saved_path = (
             settings,
             destination,
@@ -5491,12 +5491,12 @@ def test_a_tileset_payload_reaches_the_real_widget(qapp, overview_widget):
 
     Every other test here drives `_apply_tile_progress` directly, which covers what the
     widget *does* with a payload and nothing about whether one arrives. The tileset
-    moved to `tiled_acquisition_signal` (FIB-725), so the subscription is precisely what
+    moved to `imaging.tiled_progress` (FIB-725), so the subscription is precisely what
     changed — and a broken one leaves this tab's own bar dead for a whole run with no
     test noticing.
     """
     widget = overview_widget
-    widget.microscope.tiled_acquisition_signal.emit(
+    widget.microscope.imaging.tiled_progress.emit(
         _fm(TiledStatus.TILE_COLLECTED, completed=4, total=9)
     )
     qapp.processEvents()
@@ -5529,7 +5529,7 @@ def test_an_fm_payload_reaches_the_real_widget(qapp, overview_widget):
 def test_closing_disconnects_both_progress_signals(qapp, overview_widget):
     """Both psygnals outlive the widget, so both must be dropped on the way out.
 
-    `tiled_acquisition_signal` was subscribed when the tileset moved onto it (FIB-725)
+    `imaging.tiled_progress` was subscribed when the tileset moved onto it (FIB-725)
     and never added to the teardown list, which the list's own comment claims is
     exhaustive. Emitting into a closed tab from a beam run elsewhere in the application
     is the segfault that list exists to prevent.
@@ -5539,7 +5539,7 @@ def test_closing_disconnects_both_progress_signals(qapp, overview_widget):
     qapp.processEvents()
 
     for signal, slot_name in (
-        (widget.microscope.tiled_acquisition_signal, "_on_tile_progress"),
+        (widget.microscope.imaging.tiled_progress, "_on_tile_progress"),
         (widget.fm.acquisition_progress_signal, "_on_fm_progress"),
     ):
         assert not any(slot_name in repr(s) for s in signal._slots), (
@@ -5555,13 +5555,13 @@ def test_a_beam_run_does_not_drive_the_fluorescence_bar(qapp, overview_widget):
     a `task` key would be a reasonable thing for it to do.
     """
     widget = overview_widget
-    widget.microscope.tiled_acquisition_signal.emit(
+    widget.microscope.imaging.tiled_progress.emit(
         _fm(TiledStatus.TILE_COLLECTED, completed=4, total=9)
     )
     qapp.processEvents()
     before = _bar(widget.progress_tiles).format()
 
-    widget.microscope.tiled_acquisition_signal.emit(
+    widget.microscope.imaging.tiled_progress.emit(
         _fm(
             TiledStatus.TILE_COLLECTED,
             modality=MODALITY_BEAM,

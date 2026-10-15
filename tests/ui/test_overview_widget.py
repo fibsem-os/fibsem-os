@@ -1830,7 +1830,7 @@ class TestLifecycle:
         equivalent leak on the FM overview was a hard segfault, not an exception."""
         widget = FibsemOverviewWidget(microscope)
         signals = (
-            microscope.tiled_acquisition_signal,
+            microscope.imaging.tiled_progress,
             microscope.stage_position_changed,
             microscope.holder_changed,
         )

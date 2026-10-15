@@ -42,6 +42,7 @@ from fibsem.imaging.tiling.progress import (
     MODALITY_FLUORESCENCE,
     TiledProgress,
     TiledStatus,
+    report_tiled_progress,
 )
 from fibsem.imaging.tiling.registration import compose_mosaic, registered_positions
 from fibsem.structures import (
@@ -1125,12 +1126,12 @@ class FMTiledAcquisitionRunner:
     def _emit(self, status: TiledStatus, **fields) -> None:
         """Report a state of this run.
 
-        On `tiled_acquisition_signal`, not the detector's own progress signal. This is
-        tile *n* of *N* and a mosaic so far -- the same event the beam tiler reports,
-        and it belonged on the same signal all along. It grew up on the fluorescence one
-        because this runner grew up in the FM package, next to a signal that was already
-        there and that also carries z-stacks, channel acquisitions and autofocus sweeps
-        (FIB-725).
+        On the imaging service's ``tiled_progress``, not the detector's own progress
+        signal. This is tile *n* of *N* and a mosaic so far -- the same event the beam
+        tiler reports, and it belonged on the same signal all along. It grew up on the
+        fluorescence one because this runner grew up in the FM package, next to a
+        signal that was already there and that also carries z-stacks, channel
+        acquisitions and autofocus sweeps (FIB-725).
 
         What stays on the detector's signal is the work *inside* a tile: those are a
         different scale, and `FMOverviewWidget` draws them in a different bar.
@@ -1142,8 +1143,9 @@ class FMTiledAcquisitionRunner:
         two consumers draw a beam overview from this signal and would paint a
         fluorescence mosaic into it, which is the FIB-725 bug the field exists to stop.
         """
-        self.microscope.tiled_acquisition_signal.emit(
-            TiledProgress(status=status, modality=MODALITY_FLUORESCENCE, **fields)
+        report_tiled_progress(
+            self.microscope,
+            TiledProgress(status=status, modality=MODALITY_FLUORESCENCE, **fields),
         )
 
     def _preview_image(self) -> Optional[FluorescenceImage]:
@@ -1282,7 +1284,7 @@ def acquire_fm_tiled_overview(
     on_acquired: Optional[Callable[[FluorescenceImage, Optional[str]], None]] = None,
 ) -> Tuple[FluorescenceImage, Optional[str]]:
     """Acquire a fluorescence overview, stitch, save and record it, and report how
-    it ended on ``tiled_acquisition_signal``.
+    it ended on the imaging service's ``tiled_progress``.
 
     The one entry point to `FMTiledAcquisitionRunner`, for the FM Overview tab, the
     fluorescence overview grid task and the imaging service's
@@ -1317,8 +1319,9 @@ def acquire_fm_tiled_overview(
     )
 
     def report(status: TiledStatus, **fields) -> None:
-        microscope.tiled_acquisition_signal.emit(
-            TiledProgress(status=status, modality=MODALITY_FLUORESCENCE, **fields)
+        report_tiled_progress(
+            microscope,
+            TiledProgress(status=status, modality=MODALITY_FLUORESCENCE, **fields),
         )
 
     try:
