@@ -332,3 +332,19 @@ def test_a_server_error_is_flagged_and_says_failed():
     sidecar = build_sidecar(client, shape)
     with pytest.raises(ToolError, match=r"failed \(500\).*the stage stopped"):
         asyncio.run(sidecar.call_tool("stage_move_relative", {"dx": 1e-6}))
+
+
+def test_an_unexpected_error_reaches_the_agent_with_its_message():
+    """A tool that raises (here, the connection dropping) tells the agent what
+    went wrong, not only "Error executing tool"."""
+    import httpx
+    from mcp.server.mcpserver.exceptions import ToolError
+
+    def answer(request):
+        raise httpx.ConnectError("the server went away")
+
+    client = httpx.Client(transport=httpx.MockTransport(answer), base_url="http://x")
+    shape = {"routers": {"microscope": True, "app": False}, "level": "drive"}
+    sidecar = build_sidecar(client, shape)
+    with pytest.raises(ToolError, match="ConnectError: the server went away"):
+        asyncio.run(sidecar.call_tool("stage_get_position", {}))

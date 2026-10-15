@@ -1034,14 +1034,21 @@ def build_sidecar(client, capabilities):
 
 def _flag_failures(fn):
     """*fn*, with a server error it answers (`_Failure`) raised as the MCP
-    ToolError, so the call is flagged an error rather than read as a refusal."""
+    ToolError, so the call is flagged an error rather than read as a refusal.
+    Any other exception is raised as a ToolError carrying its type and message:
+    the SDK would otherwise tell the agent only "Error executing tool X"."""
     import functools
 
     from mcp.server.mcpserver.exceptions import ToolError
 
     @functools.wraps(fn)
     def tool(*args, **kwargs):
-        answer = fn(*args, **kwargs)
+        try:
+            answer = fn(*args, **kwargs)
+        except ToolError:
+            raise
+        except Exception as exc:
+            raise ToolError(f"{type(exc).__name__}: {exc}") from exc
         if isinstance(answer, _Failure):
             raise ToolError(str(answer))
         return answer
