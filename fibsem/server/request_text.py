@@ -991,6 +991,29 @@ def _line(
         return {"what": "Fluorescence", "change": f"Focus the objective {on}"}
     if tool == "fm_acquire_overview":
         return _fm_overview(a)
+    if tool == "fm_acquire_image":
+        channels = [c for c in a.get("channels") or [] if isinstance(c, dict)]
+        names = [str(c.get("name") or "channel") for c in channels]
+        change = f"Take an image in {_plural(len(channels), 'channel')}"
+        if names:
+            change += f" ({_names_cut(names)})"
+        return {"what": "Fluorescence", "change": change + ", here"}
+    if tool == "milling_run_stage":
+        stage = a.get("stage") if isinstance(a.get("stage"), dict) else {}
+        name = stage.get("name")
+        return {
+            "what": "Milling",
+            "change": f"Mill the {_clip(str(name))} stage" if name else "Mill a stage",
+        }
+    if tool == "milling_run_task":
+        config = a.get("config") if isinstance(a.get("config"), dict) else {}
+        name = config.get("name")
+        return {
+            "what": "Milling",
+            "change": f"Run the {_clip(str(name))} milling task"
+            if name
+            else "Run a milling task",
+        }
     if tool == "alignment_align_to_reference":
         reference = (
             os.path.basename(str(a.get("reference_path") or "")) or "a reference"
