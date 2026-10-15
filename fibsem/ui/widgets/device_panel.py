@@ -16,7 +16,6 @@ from __future__ import annotations
 import inspect
 import json
 import logging
-import threading
 from dataclasses import replace
 from typing import Any, Dict, Mapping, Optional
 
@@ -34,15 +33,15 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.widgets.form_builder import Control, build_control, parameter_spec
 
 
 class _Bridge(QObject):
-    """Moves what arrives on other threads (a device's ``changed``, a command's
-    result) onto the GUI thread."""
+    """Moves a device's ``changed``, which arrives on any thread, onto the GUI
+    thread."""
 
     changed = pyqtSignal(str, object)
-    finished = pyqtSignal(str, str)
 
 
 def no_argument_commands(device: Any) -> Dict[str, Any]:
@@ -70,7 +69,6 @@ class DevicePanel(QWidget):
         self.buttons: Dict[str, QPushButton] = {}
         self._bridge = _Bridge(self)
         self._bridge.changed.connect(self._show_value)
-        self._bridge.finished.connect(self._show_result)
 
         layout = QVBoxLayout(self)
         heading = QLabel(f"<b>{device.name}</b>  ·  {_describe(device)}")
@@ -167,22 +165,22 @@ class DevicePanel(QWidget):
             if asked != QMessageBox.Yes:
                 return
         self.status.setText(f"{name}: running…")
-
-        def work() -> None:
-            try:
-                result = getattr(self.device, name)()
-                text = "done" if result is None else _short(result)
-            except Exception as error:
-                text = f"failed: {error}"
-            try:
-                self._bridge.finished.emit(name, text)
-            except RuntimeError:  # the panel closed while it ran
-                logging.info(f"{self.device.name}.{name}: {text}")
-
-        threading.Thread(target=work, name=f"{name}-command", daemon=True).start()
+        worker = FunctionWorker(getattr(self.device, name))
+        worker.returned.connect(
+            lambda result, name=name: self._show_result(
+                name, "done" if result is None else _short(result)
+            )
+        )
+        worker.errored.connect(
+            lambda error, name=name: self._show_result(name, f"failed: {error}")
+        )
+        worker.start()
 
     def _show_result(self, name: str, text: str) -> None:
-        self.status.setText(f"{name}: {text}")
+        try:
+            self.status.setText(f"{name}: {text}")
+        except RuntimeError:  # the panel closed while it ran
+            logging.info(f"{self.device.name}.{name}: {text}")
 
 
 class DevicesPanel(QWidget):
