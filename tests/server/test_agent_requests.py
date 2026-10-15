@@ -377,6 +377,7 @@ _SAMPLE_ARGUMENTS = {
     "move_stage_absolute": _AXES,
     "safe_move_stage_absolute": _AXES,
     "move_to_milling_angle": {"milling_angle_deg": 18.0},
+    "align_to_reference": {"reference_path": "experiment/reference.tif"},
     "call_command": {"device": "stage", "command": "home"},
     "call_service_command": {"service": "milling", "command": "run"},
 }

@@ -86,7 +86,26 @@ def _same_geometry(request: "Request", live: object, value: object) -> bool:
             abs(getattr(live, f) - getattr(value, f)) <= 1e-6
             for f in ("left", "top", "width", "height")
         )
+    if isinstance(request, ConfirmDetection):
+        # Features are in image pixels: half a pixel, as for a point.
+        return all(
+            live.get(name) is not None
+            and abs(live[name].x - px.x) <= 0.5
+            and abs(live[name].y - px.y) <= 0.5
+            for name, px in value.items()
+        )
+    if isinstance(request, RunSpotBurn):
+        # Points are 0-1 fractions of the frame.
+        return len(live) == len(value) and all(
+            abs(a.x - b.x) <= 1e-6 and abs(a.y - b.y) <= 1e-6
+            for a, b in zip(live, value)
+        )
     return False
+
+
+# The questions an answer may carry a value for: the same edit the operator
+# could make in the widget the question is asked on.
+_VALUE_QUESTIONS = (EditAlignmentArea, PickPOI, ConfirmDetection, RunSpotBurn)
 
 
 class QtResponder(QObject):
@@ -251,7 +270,9 @@ class QtResponder(QObject):
         ``value`` optionally carries an adjusted answer for the questions read
         from live widget state — a :class:`FibsemRectangle` for
         ``EditAlignmentArea``, a :class:`Point` (microscope image coordinates)
-        for ``PickPOI``. It is applied to the widget first, exactly as if the
+        for ``PickPOI``, ``{name: Point}`` in image pixels for
+        ``ConfirmDetection``, a list of :class:`Point` (0-1 fractions of the
+        frame) for ``RunSpotBurn``. It is applied to the widget first, exactly as if the
         operator had dragged it there, and then the ordinary click path reads
         it back — so the proposed geometry lands on screen, and attribution,
         the question id, and first-writer-wins all hold unchanged. A value on any
@@ -381,9 +402,7 @@ class QtResponder(QObject):
                 ),
             )
             return
-        if value is not None and not isinstance(
-            pending[0], (PickPOI, EditAlignmentArea)
-        ):
+        if value is not None and not isinstance(pending[0], _VALUE_QUESTIONS):
             self._fail(outcome, ValueError("this question takes no value"))
             return
         self._suggestion = (question_id, bool(response), value, str(reason))
@@ -493,9 +512,29 @@ class QtResponder(QObject):
             )
             controller.set_points(BeamType.ION, "poi", [(px.x, px.y)])
             return
+        if isinstance(request, ConfirmDetection):
+            if not isinstance(value, dict) or not all(
+                isinstance(px, Point) for px in value.values()
+            ):
+                raise ValueError("a ConfirmDetection value must be {name: Point}")
+            det_widget = self._ui.det_widget
+            if det_widget is None:
+                raise RuntimeError("No detection widget to move the features on.")
+            det_widget.move_features(value)
+            return
+        if isinstance(request, RunSpotBurn):
+            if not isinstance(value, list) or not all(
+                isinstance(pt, Point) for pt in value
+            ):
+                raise ValueError("a RunSpotBurn value must be a list of Points")
+            widget = self._ui.spot_burn_widget
+            if widget is None:
+                raise RuntimeError("No spot burn widget to place the points on.")
+            widget.set_coordinates(value)
+            return
         raise ValueError(
-            f"{type(request).__name__} answers cannot carry a value; "
-            "only EditAlignmentArea and PickPOI can."
+            f"{type(request).__name__} answers cannot carry a value; only "
+            "EditAlignmentArea, PickPOI, ConfirmDetection and RunSpotBurn can."
         )
 
     def peek_live_answer(self) -> "Future":
@@ -553,6 +592,16 @@ class QtResponder(QObject):
             if image_widget is None:
                 return question_id, None
             return question_id, deepcopy(image_widget.get_alignment_area())
+        if isinstance(request, ConfirmDetection):
+            det = getattr(self._ui.det_widget, "det", None)
+            if det is None:
+                return question_id, None
+            return question_id, {f.name: deepcopy(f.px) for f in det.features}
+        if isinstance(request, RunSpotBurn):
+            widget = self._ui.spot_burn_widget
+            if widget is None:
+                return question_id, None
+            return question_id, deepcopy(widget.get_coordinates())
         return question_id, None
 
     def _dispatch(self, request: "Request", future: "Future") -> None:

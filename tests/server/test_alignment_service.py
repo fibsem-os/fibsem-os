@@ -1,0 +1,114 @@
+"""Aligning to a saved reference image through the App Server (map 8c): the
+alignment service's ``align`` runs on as a long command and saves beside the
+reference; ``measure_shift`` measures between two saved images and moves
+nothing. Both read only inside the open experiment.
+"""
+
+import os
+from types import SimpleNamespace
+
+import pytest
+
+pytest.importorskip("fastapi")
+pytest.importorskip("httpx")  # TestClient transport
+
+from fastapi.testclient import TestClient  # noqa: E402
+
+from fibsem import utils  # noqa: E402
+from fibsem.server import AuthConfig, build_server  # noqa: E402
+from fibsem.structures import BeamType, ImageSettings  # noqa: E402
+
+TOKEN = "test-token"
+ALIGNMENT = "/microscope/services/alignment"
+
+
+@pytest.fixture(scope="module")
+def microscope():
+    previous = os.environ.get("FIBSEM_SIM_NO_DELAY")
+    os.environ["FIBSEM_SIM_NO_DELAY"] = "1"
+    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
+    yield microscope
+    if previous is None:
+        os.environ.pop("FIBSEM_SIM_NO_DELAY", None)
+    else:
+        os.environ["FIBSEM_SIM_NO_DELAY"] = previous
+
+
+@pytest.fixture
+def experiment(tmp_path):
+    folder = tmp_path / "experiment"
+    folder.mkdir()
+    return folder
+
+
+@pytest.fixture
+def client(microscope, experiment):
+    context = SimpleNamespace(experiment_path=str(experiment))
+    app = build_server(
+        microscope,
+        app_context=context,
+        auth=AuthConfig.generate(level="drive", token=TOKEN),
+    )
+    with TestClient(app, raise_server_exceptions=False) as client:
+        client.headers.update({"Authorization": f"Bearer {TOKEN}"})
+        yield client
+
+
+def _saved(microscope, folder, name="reference") -> str:
+    image = microscope.acquire_image(
+        ImageSettings(beam_type=BeamType.ION, resolution=[384, 256], hfw=150e-6)
+    )
+    path = str(folder / f"{name}.tif")
+    image.save(path)
+    return path
+
+
+def test_measure_shift_between_an_image_and_itself_is_none(
+    client, microscope, experiment
+):
+    path = _saved(microscope, experiment)
+    resp = client.post(
+        f"{ALIGNMENT}/queries/measure_shift",
+        json={"kwargs": {"reference_path": path, "image_path": path}},
+    )
+    assert resp.status_code == 200, resp.text
+    shift = resp.json()["result"]
+    assert abs(shift["shift_px"]["x"]) < 1 and abs(shift["shift_px"]["y"]) < 1
+    assert shift["method"] == "cross-correlation"
+
+
+def test_align_runs_on_and_saves_beside_the_reference(client, microscope, experiment):
+    path = _saved(microscope, experiment)
+    resp = client.post(
+        f"{ALIGNMENT}/commands/align",
+        json={"kwargs": {"reference_path": path, "steps": 1}},
+    )
+    assert resp.status_code == 200, resp.text
+    run = resp.json()["result"]
+    assert run["state"] == "running"
+    ended = client.get(
+        f"{ALIGNMENT}/run", params={"run_id": run["run_id"], "wait": 30}
+    ).json()["run"]
+    assert ended["state"] == "done", ended
+    result = ended["result"]
+    assert result["status"] == "completed"
+    assert len(result["results"]) == 1
+    assert result["path"].startswith(str(experiment / "Alignment"))
+    assert os.path.isdir(result["path"])
+
+
+def test_a_reference_outside_the_experiment_is_refused(client, microscope, tmp_path):
+    path = _saved(microscope, tmp_path, "elsewhere")
+    for route, kwargs in (
+        ("commands/align", {"reference_path": path}),
+        ("queries/measure_shift", {"reference_path": path, "image_path": path}),
+    ):
+        resp = client.post(f"{ALIGNMENT}/{route}", json={"kwargs": kwargs})
+        assert resp.status_code == 403, route
+        assert resp.json()["detail"]["error_type"] == "not_allowed"
+
+
+def test_the_listing_has_the_alignment_service(client):
+    alignment = client.get("/microscope/services").json()["alignment"]
+    assert alignment["commands"]["align"]["long"] is True
+    assert "measure_shift" in alignment["queries"]

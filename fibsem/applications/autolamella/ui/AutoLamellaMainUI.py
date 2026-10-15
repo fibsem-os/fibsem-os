@@ -708,10 +708,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             parent=self,
         )
 
-        # The embedded App Server's dialog: status, services, the dashboard. The
-        # agent's level and connecting one are the agent chip's (FIB-1035); the
-        # durable settings are in Preferences -> App Server. Visible only with the
-        # App Server enabled, next to Scripts (FIB-863).
+        # The embedded App Server's dialog: whether it runs, its services, the
+        # dashboard. The agent's level and connecting one are the agent chip's
+        # (FIB-1035). Always visible: it is where the server is turned on. Next
+        # to Scripts (FIB-863).
         self.action_app_server = QAction("App Server...", self)
         self.action_app_server.setMenuRole(QAction.NoRole)
         self.action_app_server.setToolTip(
@@ -990,9 +990,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def _apply_preferences(self):
         """Apply current preferences to UI state."""
-        # The embedded App Server follows its flag immediately: ticking the
-        # box mid-session starts it against the connected microscope (or stops
-        # it), instead of waiting for the next connect.
+        # The embedded App Server follows its saved switch (set in Tools → App
+        # Server) against the connected microscope.
         if getattr(self, "autolamella_ui", None) is not None:
             self.autolamella_ui.sync_app_server_with_preference()
         d = self._preferences.display
@@ -1014,8 +1013,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_open_coincidence_viewer.setVisible(coincidence_enabled)
         self._action_coincidence_separator.setVisible(coincidence_enabled)
         self._apply_review_visibility()
-        # Same rule as the rest of the agent chrome: invisible unless enabled.
-        self.action_app_server.setVisible(self._preferences.app_server.enabled)
         # getattr because this also runs from the preferences dialog, and the tab it
         # reaches into is built by AutoLamellaUI rather than here.
         system_widget = getattr(self.autolamella_ui, "system_widget", None)
@@ -3781,14 +3778,33 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             AppServerDialog,
         )
 
+        preference = fibsem_cfg.load_user_preferences().app_server
         dialog = AppServerDialog(
             host_provider=lambda: getattr(
                 self.autolamella_ui, "_app_server_host", None
             ),
             parent=self,
-            set_microscope=self.autolamella_ui.set_app_server_microscope,
+            set_enabled=self._set_app_server_enabled,
+            set_microscope=self._set_app_server_microscope,
+            enabled=preference.enabled,
+            serve_microscope=preference.microscope,
         )
         dialog.exec_()
+
+    def _set_app_server_enabled(self, enabled: bool) -> None:
+        """Tools → App Server: save whether the server runs, and act on it now."""
+        self._preferences = fibsem_cfg.update_user_preferences(
+            lambda p: setattr(p.app_server, "enabled", bool(enabled))
+        )
+        self.autolamella_ui.sync_app_server_with_preference()
+
+    def _set_app_server_microscope(self, serve: bool) -> None:
+        """Tools → App Server: save whether the microscope is served, and act on it
+        now (a running server restarts)."""
+        self._preferences = fibsem_cfg.update_user_preferences(
+            lambda p: setattr(p.app_server, "microscope", bool(serve))
+        )
+        self.autolamella_ui.set_app_server_microscope(serve)
 
     def _running_app_server(self):
         """The App Server's host while it runs, else None."""
