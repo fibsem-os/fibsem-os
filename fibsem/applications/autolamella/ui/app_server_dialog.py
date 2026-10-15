@@ -5,9 +5,9 @@ The App Server is the API inside AutoLamella that the agent, the dashboard and
 (FIB-1035): what the agent may do is its level, on the chip in the status bar,
 and connecting one is the chip's "Connect an agent…" (``connect_agent_dialog``).
 
-Whether it runs lives in Preferences → App Server. Whether this session
-serves the microscope is chosen here (FIB-1359), per session like the
-agent level; Preferences keeps only the start-up default.
+Whether it runs, and whether it serves the microscope, are both set here and
+saved: they are the operator's standing choice, so the next launch starts the
+same way. The agent's level is not: it resets to Watch at every launch.
 """
 
 from typing import Callable, Optional
@@ -29,18 +29,25 @@ from fibsem.ui.tokens import OK_COLOR, TEXT_MUTED_COLOR, TEXT_STRONG_COLOR
 
 __all__ = ["AppServerDialog"]
 
-# A change to the microscope toggle restarts the server, so it applies once the
-# toggle has been still this long: a double click restarts nothing (FIB-1409).
-MICROSCOPE_SETTLE_MS = 600
+# A change to either switch starts, stops or restarts the server, so it applies
+# once the switches have been still this long: a double click restarts nothing
+# (FIB-1409).
+SETTLE_MS = 600
 
+ENABLED_LABEL = "Run the App Server"
+ENABLED_TIP = (
+    "Run the App Server while a microscope is connected: a local, token-protected "
+    "API over this session that an AI agent (through the fibsem-mcp sidecar) and "
+    "the dashboard can reach. Kept for the next launch. What the agent may do "
+    "is its level, set from the Agent chip in the status bar, which resets to "
+    "Watch at every launch."
+)
 MICROSCOPE_LABEL = "Serve the microscope"
 MICROSCOPE_TIP = (
     "Also serve the routes that reach the instrument: its devices, stage, beams "
     "and milling state, reads included. Off, clients see the session but cannot "
-    "query the microscope. Moving it still needs the agent at Drive, or your "
-    "approval at Assist. Changing this restarts the App Server; a connected "
-    "agent carries on. For this "
-    "session only; Preferences → App Server sets what a new session starts with."
+    "query the microscope. Changing this restarts a running App Server; a "
+    "connected agent carries on. Kept for the next launch."
 )
 
 _SECTION_STYLE = (
@@ -78,14 +85,20 @@ class AppServerDialog(QDialog):
         self,
         host_provider: Callable[[], Optional[object]],
         parent=None,
+        set_enabled: Optional[Callable[[bool], None]] = None,
         set_microscope: Optional[Callable[[bool], None]] = None,
+        enabled: bool = False,
+        serve_microscope: bool = False,
     ):
         super().__init__(parent)
         self.setWindowTitle("App Server")
         self.setMinimumWidth(440)
         self._host_provider = host_provider
-        # Serves or stops serving the microscope this session; restarts the server.
+        # Each saves the operator's choice and starts, stops or restarts the server.
+        self._set_enabled = set_enabled
         self._set_microscope = set_microscope
+        # What was last applied, so a switch put back where it was does nothing.
+        self._applied = (bool(enabled), bool(serve_microscope))
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 14, 16, 12)
@@ -102,15 +115,21 @@ class AppServerDialog(QDialog):
         layout.addLayout(status_row)
         self._services_label = note("")
         layout.addWidget(self._services_label)
+        self._chk_enabled = QCheckBox(ENABLED_LABEL)
+        self._chk_enabled.setToolTip(ENABLED_TIP)
+        self._chk_enabled.setChecked(bool(enabled))
+        self._chk_enabled.setVisible(set_enabled is not None)
         self._chk_microscope = QCheckBox(MICROSCOPE_LABEL)
         self._chk_microscope.setToolTip(MICROSCOPE_TIP)
+        self._chk_microscope.setChecked(bool(serve_microscope))
         self._chk_microscope.setVisible(set_microscope is not None)
-        self._chk_microscope.toggled.connect(self._on_microscope_toggled)
-        self._microscope_timer = QTimer(self)
-        self._microscope_timer.setSingleShot(True)
-        self._microscope_timer.setInterval(MICROSCOPE_SETTLE_MS)
-        self._microscope_timer.timeout.connect(self._apply_microscope)
-        layout.addWidget(self._chk_microscope)
+        self._settle_timer = QTimer(self)
+        self._settle_timer.setSingleShot(True)
+        self._settle_timer.setInterval(SETTLE_MS)
+        self._settle_timer.timeout.connect(self._apply_switches)
+        for box in (self._chk_enabled, self._chk_microscope):
+            box.toggled.connect(self._on_switch_toggled)
+            layout.addWidget(box)
 
         layout.addSpacing(6)
 
@@ -160,7 +179,6 @@ class AppServerDialog(QDialog):
         layout.addSpacing(6)
 
         # --- footer ---------------------------------------------------------
-        layout.addWidget(note("Whether it runs is in Preferences → App Server."))
         footer = QHBoxLayout()
         footer.addStretch(1)
         self._btn_close = QPushButton("Close")
@@ -214,15 +232,19 @@ class AppServerDialog(QDialog):
         self._btn_dashboard.setEnabled(running)
         self._btn_event_log.setEnabled(running)
         self._btn_copy_link.setEnabled(running)
+        # Nothing to serve while the server is off.
+        self._chk_microscope.setEnabled(
+            self._chk_enabled.isChecked() or self._set_enabled is None
+        )
         if not running:
             self._status_dot.setStyleSheet(f"color: {TEXT_MUTED_COLOR};")
             self._status_label.setText(
-                "Not running — enable it in Preferences → App Server and connect "
-                "a microscope."
+                "Not running. It starts when a microscope connects."
+                if self._chk_enabled.isChecked()
+                else "Not running."
             )
             self._status_label.setStyleSheet(f"color: {TEXT_MUTED_COLOR};")
             self._services_label.setText("")
-            self._chk_microscope.setEnabled(False)
             self._agent_label.setText("No clients while the App Server is off.")
             self._agent_label.setStyleSheet(f"color: {TEXT_MUTED_COLOR};")
             return
@@ -230,37 +252,38 @@ class AppServerDialog(QDialog):
         self._status_label.setText(self._status_text(host))
         self._status_label.setStyleSheet(f"color: {TEXT_STRONG_COLOR};")
         self._services_label.setText(self.services_text(host))
-        self._chk_microscope.setEnabled(True)
-        if not self._microscope_timer.isActive():  # keep a change not yet applied
-            self._chk_microscope.blockSignals(True)
-            self._chk_microscope.setChecked(
-                bool(getattr(host, "serve_microscope", False))
-            )
-            self._chk_microscope.blockSignals(False)
         self._agent_label.setText(self.agent_text(host))
         self._agent_label.setStyleSheet(f"color: {TEXT_STRONG_COLOR};")
 
     # --- actions --------------------------------------------------------------
 
-    def _on_microscope_toggled(self, checked: bool) -> None:
-        if self._set_microscope is None:
-            return
-        self._microscope_timer.start()  # restarts the wait on each toggle
+    def _on_switch_toggled(self, _checked: bool) -> None:
+        self._chk_microscope.setEnabled(
+            self._chk_enabled.isChecked() or self._set_enabled is None
+        )
+        self._settle_timer.start()  # restarts the wait on each toggle
 
-    def _apply_microscope(self) -> None:
-        """Apply the toggle as it stands; unchanged, nothing restarts."""
-        self._microscope_timer.stop()
-        host = self._host()
+    def _apply_switches(self) -> None:
+        """Apply the switches as they stand; one put back where it was does nothing.
+
+        The microscope first, so turning both on starts the server once,
+        already serving it.
+        """
+        self._settle_timer.stop()
+        enabled = self._chk_enabled.isChecked()
         serve = self._chk_microscope.isChecked()
-        if self._set_microscope is not None and host is not None:
-            if serve != bool(getattr(host, "serve_microscope", False)):
-                self._set_microscope(serve)
+        was_enabled, was_serving = self._applied
+        if self._set_microscope is not None and serve != was_serving:
+            self._set_microscope(serve)
+        if self._set_enabled is not None and enabled != was_enabled:
+            self._set_enabled(enabled)
+        self._applied = (enabled, serve)
         self.refresh()
 
     def hideEvent(self, event) -> None:
         # Closing the dialog applies a change that is still waiting.
-        if self._microscope_timer.isActive():
-            self._apply_microscope()
+        if self._settle_timer.isActive():
+            self._apply_switches()
         super().hideEvent(event)
 
     @staticmethod

@@ -245,11 +245,7 @@ def test_live_view_runs_on_the_beam_and_reaches_the_old_signal(connected, beam_t
         if len(seen) == 3:
             done.set()
 
-    signal = (
-        microscope.sem_acquisition_signal
-        if beam_type is E
-        else microscope.fib_acquisition_signal
-    )
+    signal = beam.live_frame
     signal.connect(on_frame)
     try:
         microscope.start_acquisition(beam_type)

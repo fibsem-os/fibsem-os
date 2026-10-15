@@ -212,21 +212,20 @@ def test_one_scanner_cannot_serve_two_beams(tmp_path):
 
 def test_a_command_records_through_the_microscope_session(microscope):
     events = []
-    microscope.record_signal.connect(lambda kind, payload: events.append(kind))
+    microscope.session.record_signal.connect(lambda kind, payload: events.append(kind))
     microscope.devices["fake_scanner"].self_test()
     assert events == ["scanner_self_test"]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="GAP: an image a bound scanner made says nothing about it; the metadata "
-    "carries the vendor detector (ETD) and no scanner name, input or gain",
-)
 def test_the_image_says_which_scanner_made_it(microscope):
     image = microscope.acquire_image(
         ImageSettings(beam_type=BeamType.ELECTRON, **SETTINGS)
     )
-    assert "fake_scanner" in str(image.metadata.to_dict())
+    record = image.metadata.roles["scanner"]
+    assert record["name"] == "fake_scanner"
+    assert record["driver"] == "FakeScan"
+    assert record["values"]["input"] == "adc0"
+    assert record["facts"]["serial"] == "FS-0001"
 
 
 def test_disconnect_closes_the_scanners_connection(tmp_path):

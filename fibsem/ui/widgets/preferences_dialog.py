@@ -81,20 +81,6 @@ _TIP_PROPOSE_REVIEW = (
     "records what it did whether this is on or not; this shows the tab and "
     "allows a task to be set to Review. Early access."
 )
-_LBL_APP_SERVER = "Enable App Server"
-_LBL_APP_SERVER_MICROSCOPE = "Serve the microscope at start-up"
-_TIP_APP_SERVER_MICROSCOPE = (
-    "Whether a new session also serves the routes that reach the instrument: "
-    "its devices, stage, beams and milling state, reads included. Turn them on "
-    "or off for this session in Tools → App Server."
-)
-_TIP_APP_SERVER = (
-    "Run the App Server when a microscope connects: a local, token-protected "
-    "API over this session that an AI agent (through the fibsem-mcp sidecar) "
-    "and the dashboard can reach. What the agent may do is its level, set "
-    "from the Agent chip in the status bar; every launch starts at Watch."
-)
-
 # Experiment defaults
 _LBL_EXP_DIR = "Default Experiment Directory"
 _TIP_EXP_DIR = "Directory where new experiments will be saved. Pre-fills the directory field when creating a new experiment."
@@ -146,9 +132,7 @@ class PreferencesDialog(QDialog):
 
         self._sidebar = QListWidget()
         self._sidebar.setFixedWidth(120)
-        self._sidebar.addItems(
-            ["Display", "Features", "Experiment", "Movement", "App Server"]
-        )
+        self._sidebar.addItems(["Display", "Features", "Experiment", "Movement"])
         self._sidebar.setCurrentRow(0)
 
         self._stack = QStackedWidget()
@@ -232,30 +216,6 @@ class PreferencesDialog(QDialog):
         movement_form.addRow(_LBL_ACQ_FIB, self._chk_acquire_fib)
         self._stack.addWidget(movement_page)
 
-        # --- App Server ---
-        # Durable policy only. The agent's level is deliberately absent: it is
-        # consent, set per session from the Agent chip, and must not survive a
-        # restart via this file.
-        agent_page = QWidget()
-        agent_form = QFormLayout(agent_page)
-        self._chk_app_server = QCheckBox()
-        self._chk_app_server.setToolTip(_TIP_APP_SERVER)
-        self._chk_app_server_microscope = QCheckBox()
-        self._chk_app_server_microscope.setToolTip(_TIP_APP_SERVER_MICROSCOPE)
-        # A service of the App Server: nothing to serve while it is off.
-        self._chk_app_server.toggled.connect(self._chk_app_server_microscope.setEnabled)
-        agent_intro = QLabel(
-            "Let an AI agent and the dashboard reach this session over a "
-            "local, token-protected connection. The agent watches until you "
-            "raise its level from the Agent chip in the status bar."
-        )
-        agent_intro.setWordWrap(True)
-        agent_intro.setStyleSheet("color: #868e93; font-size: 11px;")
-        agent_form.addRow(agent_intro)
-        agent_form.addRow(_LBL_APP_SERVER, self._chk_app_server)
-        agent_form.addRow(_LBL_APP_SERVER_MICROSCOPE, self._chk_app_server_microscope)
-        self._stack.addWidget(agent_page)
-
         self._sidebar.currentRowChanged.connect(self._stack.setCurrentIndex)
 
         # Buttons
@@ -292,10 +252,6 @@ class PreferencesDialog(QDialog):
         self._chk_coincidence_milling.setChecked(f.coincidence_milling_enabled)
         self._chk_connection_chip.setChecked(f.connection_chip)
         self._chk_propose_review.setChecked(f.proposer_reviewer_workflow_enabled)
-
-        self._chk_app_server.setChecked(prefs.app_server.enabled)
-        self._chk_app_server_microscope.setChecked(prefs.app_server.microscope)
-        self._chk_app_server_microscope.setEnabled(prefs.app_server.enabled)
 
         self._chk_update_check.setChecked(prefs.reporting.update_check_enabled)
 
@@ -363,9 +319,6 @@ class PreferencesDialog(QDialog):
         m = prefs.movement
         m.acquire_sem_after_stage_movement = self._chk_acquire_sem.isChecked()
         m.acquire_fib_after_stage_movement = self._chk_acquire_fib.isChecked()
-
-        prefs.app_server.enabled = self._chk_app_server.isChecked()
-        prefs.app_server.microscope = self._chk_app_server_microscope.isChecked()
 
         prefs.reporting.update_check_enabled = self._chk_update_check.isChecked()
 

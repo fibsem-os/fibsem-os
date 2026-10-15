@@ -525,6 +525,24 @@ CATALOG: Tuple[ToolSpec, ...] = (
         hardware=True,
         params={"beam_type": "ELECTRON or ION"},
     ),
+    ToolSpec(
+        name="auto_brightness_contrast",
+        description=(
+            "Set a beam's detector brightness and contrast from its own images, "
+            "not the instrument's routine: at most 6 images of the centre of the "
+            "field of view, starting from what last worked at this beam current. "
+            "Answers the brightness and contrast it set, whether it converged, "
+            "and each image's clipped fractions. Fails, with the detector at the "
+            "best it found, when every image was mostly black, mostly white or "
+            "flat; stop before aligning or milling on that beam. Changes detector "
+            "settings."
+        ),
+        method="POST",
+        path="/microscope/services/imaging/commands/auto_brightness_contrast",
+        level="drive",
+        hardware=True,
+        params={"beam_type": "ELECTRON or ION"},
+    ),
 )
 
 
@@ -1217,6 +1235,7 @@ _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict
     ),
     "autocontrast": lambda a: ({}, _kwargs(**_beam(a))),
     "auto_focus": lambda a: ({}, _kwargs(**_beam(a))),
+    "auto_brightness_contrast": lambda a: ({}, _kwargs(**_beam(a))),
     # A service command or query with no arguments still sends its kwargs.
     "stop_milling": lambda a: ({}, _stop(_kwargs(), a)),
     "estimate_milling_time": lambda a: ({}, _kwargs()),

@@ -2324,6 +2324,13 @@ class AutoLamellaAppContext:
             # than having the workflow reach into the widget to build the
             # request. Same whole-reference grab as display_images.
             payload["image"] = self._display_frame("ib_image")
+        if payload["type"] == "PickPOI":
+            # The marker sits on the frame the FIB view shows, which is newer
+            # than the request's when anything moved since the task took it (an
+            # agent's approved moves, FIB-1399): serve that one.
+            shown = self._display_frame("ib_image")
+            if shown is not None:
+                payload["image"] = shown
         return {"available": True, "pending": payload}
 
     def _display_frame(self, attr: str) -> Optional[Dict[str, Any]]:

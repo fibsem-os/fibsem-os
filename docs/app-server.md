@@ -23,18 +23,18 @@ observer with a doorbell, not a second driver.
 
 ## Turning it on
 
-1. **Preferences → App Server**: tick *Enable App Server*. This is the durable
-   switch.
+1. **Tools → App Server**: tick *Run the App Server*. It is saved, so the
+   next launch starts the same way.
 2. Connect a microscope. The server starts with the session and stops with it.
-3. **Tools → App Server** shows the server: whether it is running, which
+3. **Tools → App Server** also shows the server: whether it is running, which
    services it serves, when the agent was last heard from, and the
    dashboard. *Serve the microscope* there also serves the routes that
    reach the instrument, everything under `/microscope`: who it is, its
    state, its devices and its services (milling, stage movement, spot burn,
-   sample handling, imaging), reads included. It is a choice for the session, like the agent's
-   level, and changing it restarts the server; a connected agent carries on.
-   It starts off, because a read of the instrument is hardware access, not
-   monitoring; Preferences → App Server sets what a new session starts with.
+   sample handling, imaging), reads included. It is saved too, and changing
+   it restarts a running server; a connected agent carries on. It starts
+   off, because a read of the instrument is hardware access, not
+   monitoring. Only the agent's level resets at every launch.
 4. The **Agent chip** in the status bar shows and sets the agent's level
    (below). Its menu's *Connect an agent…* shows how to connect one.
 
@@ -261,9 +261,8 @@ bearer token — the sidecar is convenience, not a requirement.
 
 ## When something is off
 
-- *The dialog says "Not running"* — the feature is enabled but no microscope
-  is connected yet, or the enable box was ticked after connecting (it starts
-  on the next connect, or immediately after saving Preferences).
+- *The dialog says "Not running"* — *Run the App Server* is off, or it is on
+  but no microscope is connected yet; it starts when one connects.
 - *The sidecar exits with "no server found"* — it waited for a server that
   never appeared; start AutoLamella (with the feature on) first, or pass
   `--url`/`--token` explicitly.

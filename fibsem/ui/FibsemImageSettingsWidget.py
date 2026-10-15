@@ -68,7 +68,8 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
 
         # NOTE: the canvases are intentionally left empty ("No image") on connect — no
         # blank placeholder is seeded. eb_image / ib_image remain as internal fallbacks
-        # and appear once a real acquisition arrives (sem/fib_acquisition_signal).
+        # and appear once a real acquisition arrives (sem/fib_acquisition_signal, or a
+        # beam's live_frame).
 
     # ------------------------------------------------------------------
     # Display backend
@@ -286,6 +287,8 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         )
         self.microscope.sem_acquisition_signal.connect(self._on_acquire)
         self.microscope.fib_acquisition_signal.connect(self._on_acquire)
+        for beam in getattr(self.microscope, "beams", {}).values():
+            beam.live_frame.connect(self._on_acquire)
         self.pushButton_start_acquisition.clicked.connect(self.toggle_live_acquisition)
 
         self._connect_canvas_controls()

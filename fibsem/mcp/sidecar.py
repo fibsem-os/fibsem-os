@@ -495,6 +495,8 @@ def build_sidecar(client, capabilities):
     def auto_focus(beam_type: str = "ELECTRON"):
         return _routed("auto_focus", "result", beam_type=beam_type)
 
+    def auto_brightness_contrast(beam_type: str = "ELECTRON"):
+        return _routed("auto_brightness_contrast", "result", beam_type=beam_type)
     def _query(**params):
         """A query string of the *params* that are given (not None)."""
         return urlencode({k: v for k, v in params.items() if v is not None})
@@ -879,6 +881,7 @@ def build_sidecar(client, capabilities):
             wait_for_run,
             autocontrast,
             auto_focus,
+            auto_brightness_contrast,
             get_app_status,
             get_app_queue,
             get_experiment_summary,
