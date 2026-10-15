@@ -147,6 +147,85 @@ def test_the_marker_sits_on_the_frame_the_view_shows(window, ui, qapp):
     assert poi.y == pytest.approx(initial.y, abs=new.metadata.pixel_size.x)
 
 
+def _swap_view_frame(ui, hfw):
+    """Put another FIB frame on the view, as a new image would, and say so."""
+    from fibsem.structures import FibsemImage
+
+    frame = FibsemImage.generate_blank_image(resolution=(1536, 1024), hfw=hfw)
+    frame.metadata.image_settings.beam_type = BeamType.ION
+    ui.image_widget.ib_image = frame
+    ui.image_widget.viewer_update_signal.emit()
+    return frame
+
+
+def _pixel(frame, point):
+    from fibsem import conversions
+
+    px = conversions.microscope_image_to_image_coordinates(
+        point, frame.data.shape, frame.metadata.pixel_size.x
+    )
+    return (px.x, px.y)
+
+
+def test_the_marker_follows_the_view_to_another_frame(window, ui, qapp):
+    """FIB-1410: the view takes a frame at another field of view while the
+    question waits. The marker moves to the same point on it, and the click
+    answers with the point the operator saw, not a pixel read on the wrong
+    frame."""
+    shown = ui.image_widget.ib_image
+    _swap_view_frame(ui, 150e-6)
+    initial = Point(x=5e-6, y=-3e-6)
+    try:
+        thread, outcome = _pick_on_worker_thread(
+            ui, qapp, _fib_image(ui), initial=initial
+        )
+        new = _swap_view_frame(ui, 80e-6)
+        (col, row), *_ = window.view_controller.overlay_points(BeamType.ION, "poi")
+        assert (col, row) == pytest.approx(_pixel(new, initial), abs=1)
+
+        ui.pushButton_yes.click()
+        _finish(thread, qapp)
+    finally:
+        ui.image_widget.ib_image = shown
+
+    poi = outcome.get("poi")
+    assert poi.x == pytest.approx(initial.x, abs=new.metadata.pixel_size.x)
+    assert poi.y == pytest.approx(initial.y, abs=new.metadata.pixel_size.x)
+
+
+def test_a_suggested_point_is_previewed_and_accepted_on_one_frame(window, ui, qapp):
+    """FIB-1410: the suggestion's cross, Accept's placement and the read-back
+    all use the frame the view shows, including after the view swaps to
+    another field of view before Accept."""
+    from concurrent.futures import Future
+
+    shown = ui.image_widget.ib_image
+    old = _swap_view_frame(ui, 150e-6)
+    suggested = Point(x=5e-6, y=-3e-6)
+    try:
+        thread, outcome = _pick_on_worker_thread(
+            ui, qapp, _fib_image(ui), initial=Point(x=0.0, y=0.0)
+        )
+        responder = ui.ui_responder
+        _, question_id = responder.pending_question_and_id()
+        responder._apply_agent_suggestion(
+            True, question_id, suggested, "the cell", Future()
+        )
+        assert ui.suggestion_shown["point"] == pytest.approx(_pixel(old, suggested))
+
+        new = _swap_view_frame(ui, 80e-6)
+        assert ui.suggestion_shown["point"] == pytest.approx(_pixel(new, suggested))
+
+        assert ui.take_suggestion() is True
+        _finish(thread, qapp)
+    finally:
+        ui.image_widget.ib_image = shown
+
+    poi = outcome.get("poi")
+    assert poi.x == pytest.approx(suggested.x, abs=new.metadata.pixel_size.x)
+    assert poi.y == pytest.approx(suggested.y, abs=new.metadata.pixel_size.x)
+
+
 def test_the_prompt_serves_the_frame_the_view_shows(window, ui, qapp):
     """The agent reads the POI question on the frame the marker sits on, with
     when it was taken, not the frame the task took before an agent's approved
