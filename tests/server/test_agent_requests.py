@@ -690,7 +690,7 @@ def test_a_run_task_reads_by_its_stages_with_whose_estimate_it_is():
             {"item_name": "01-full-magpie", "patch": {"poi.x": 2e-6}, "version": "v"},
             {"/x": {"poi": {"x": 1e-6, "y": 0.0}}},
             "01-full-magpie",
-            "POI x: 1 µm → 2 µm",
+            "Point of interest: (1, 0) µm → (2, 0) µm",
         ),
         (
             "review_decide",
