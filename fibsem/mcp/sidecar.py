@@ -30,7 +30,7 @@ import math
 import os
 import re
 import sys
-from typing import Any, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 from urllib.parse import quote, urlencode
 
 from fibsem.server.catalog import CATALOG, route_call, tools_for_capabilities
@@ -495,8 +495,60 @@ def build_sidecar(client, capabilities):
     def auto_focus(beam_type: str = "ELECTRON"):
         return _routed("auto_focus", "result", beam_type=beam_type)
 
+    def fm_auto_focus(channel_name: Optional[str] = None, path: Optional[str] = None):
+        return _routed("fm_auto_focus", "run", channel_name=channel_name, path=path)
+
+    def acquire_overview(settings: dict, path: str, name: str = "overview"):
+        return _routed(
+            "acquire_overview", "run", settings=settings, path=path, name=name
+        )
+
+    def estimate_overview(settings: dict):
+        return _routed("estimate_overview", "estimate", settings=settings)
+
+    def acquire_focus_stack(
+        image_settings: dict, path: str, n_steps: int = 3, auto_focus: bool = True
+    ):
+        return _routed(
+            "acquire_focus_stack",
+            "run",
+            image_settings=image_settings,
+            path=path,
+            n_steps=n_steps,
+            auto_focus=auto_focus,
+        )
+
+    def acquire_fm_overview(
+        channels: List[dict],
+        parameters: dict,
+        path: str,
+        name: str = "overview",
+        zparams: Optional[dict] = None,
+    ):
+        return _routed(
+            "acquire_fm_overview",
+            "run",
+            channels=channels,
+            parameters=parameters,
+            path=path,
+            name=name,
+            zparams=zparams,
+        )
+
+    def estimate_fm_overview(
+        channels: List[dict], parameters: dict, zparams: Optional[dict] = None
+    ):
+        return _routed(
+            "estimate_fm_overview",
+            "estimate",
+            channels=channels,
+            parameters=parameters,
+            zparams=zparams,
+        )
+
     def auto_brightness_contrast(beam_type: str = "ELECTRON"):
         return _routed("auto_brightness_contrast", "result", beam_type=beam_type)
+
     def _query(**params):
         """A query string of the *params* that are given (not None)."""
         return urlencode({k: v for k, v in params.items() if v is not None})
@@ -881,6 +933,12 @@ def build_sidecar(client, capabilities):
             wait_for_run,
             autocontrast,
             auto_focus,
+            fm_auto_focus,
+            acquire_overview,
+            estimate_overview,
+            acquire_focus_stack,
+            acquire_fm_overview,
+            estimate_fm_overview,
             auto_brightness_contrast,
             get_app_status,
             get_app_queue,

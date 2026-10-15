@@ -166,21 +166,20 @@ def test_stitched_overview_matches_single_wide_shot(microscope, beam_type, tmp_p
     two paths (stage stepping vs in-image mapping); they must agree."""
     from skimage.transform import resize
 
-    from fibsem.imaging.tiled import tiled_image_acquisition_and_stitch
+    from fibsem.imaging.tiled import acquire_tiled_overview
 
     _enable_projection(microscope)
     # anchor the scene's world at the centre position before tiling starts
     microscope.acquire_image(image_settings=_image_settings(beam_type))
 
     tile_settings = _image_settings(beam_type, hfw=150e-6, resolution=(512, 512))
-    tile_settings.save = True
-    tile_settings.path = str(tmp_path)
-    tile_settings.filename = "ov"
-    stitched = tiled_image_acquisition_and_stitch(
+    stitched = acquire_tiled_overview(
         microscope,
         OverviewAcquisitionSettings(
             image_settings=tile_settings, nrows=2, ncols=2, overlap=0.0
         ),
+        str(tmp_path),
+        "ov",
     )
     # the 2x2 grid of 150um tiles covers ~300um; one wide shot of the same area
     single = microscope.acquire_image(

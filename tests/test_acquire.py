@@ -36,8 +36,8 @@ def test_focus_stacking_leaves_the_callers_settings_alone(tmp_path):
     settings.image.save = True
     settings.image.reduced_area = None
 
-    image = acquire.acquire_focus_stacked_image(
-        microscope, settings.image, n_steps=3, auto_focus=False
+    image = microscope.imaging.focus_stacked_image(
+        settings.image, n_steps=3, auto_focus=False
     )
 
     assert isinstance(image, FibsemImage)

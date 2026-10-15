@@ -17,7 +17,7 @@ from typing import Any, Callable, Dict, Mapping, Optional, Tuple
 from fibsem.devices.beam import Beam
 from fibsem.devices.chamber import Chamber
 from fibsem.devices.core import Device
-from fibsem.devices.fm import Objective
+from fibsem.devices.fm import FM, Objective
 from fibsem.devices.manipulator import Manipulator
 from fibsem.devices.stage import Stage
 
@@ -38,6 +38,9 @@ _BLOCKED: Tuple[Tuple[type, Dict[str, Any]], ...] = (
     (Manipulator, {"write": ALL, "command": ALL}),
     # The safety limit the objective's moves are checked against.
     (Objective, {"write": {"limit_position"}}),
+    # A z-stack's cancel: the agent stops the FM through imaging.stop, under
+    # the stop rule like every other stop.
+    (FM, {"command": {"cancel"}}),
 )
 
 _WHY = {
@@ -46,6 +49,7 @@ _WHY = {
     Stage: "the operator's, at the microscope",
     Manipulator: "the manipulator is the operator's for now",
     Objective: "the objective's safety limit",
+    FM: "stop the FM with the imaging service's stop",
 }
 
 

@@ -4,7 +4,7 @@ import threading
 import time
 from copy import deepcopy
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
@@ -22,7 +22,6 @@ from fibsem.fm.structures import (
     ChannelSettings,
     FluorescenceImage,
     FluorescenceImageMetadata,
-    FMStagePosition,
     ObjectiveStartPosition,
     OverviewParameters,
     ZParameters,
@@ -308,51 +307,6 @@ def acquire_image(
     return image
 
 
-def run_tileset_autofocus(
-    microscope: "FibsemMicroscope",
-    channel_settings: Optional[ChannelSettings],
-    autofocus_settings: AutoFocusSettings,
-    stop_event: Optional[threading.Event] = None,
-) -> bool:
-    """Run autofocus during tileset acquisition.
-
-    A thin wrapper over `run_coarse_fine_autofocus` -- the same sweep the live
-    auto-focus button runs -- so a tileset focuses exactly the way focusing by hand
-    does. It used to iterate passes itself, which made it a second implementation of
-    a loop that already existed and could drift from it.
-
-    Args:
-        microscope: The FIBSEM microscope instance
-        channel_settings: Channel settings for autofocus
-        autofocus_settings: Sweep passes, method and channel. Every enabled pass runs,
-            each centred on where the previous one left the objective.
-        stop_event: Threading event to check for cancellation (optional)
-
-    Returns:
-        True if autofocus completed successfully, False if cancelled
-
-    Raises:
-        ValueError: if the microscope has no fluorescence microscope.
-        Whatever the sweep raised. A failure is not a cancel: the tile runner reads
-        False as the user stopping the run, so a failed sweep returning False ended
-        the overview reported as cancelled, with the error only in the log.
-    """
-    if microscope.fm is None:
-        raise ValueError(
-            "Fluorescence microscope not initialized in the FibsemMicroscope instance"
-        )
-    result = run_coarse_fine_autofocus(
-        microscope=microscope.fm,
-        autofocus_settings=autofocus_settings,
-        channel_settings=channel_settings,
-        stop_event=stop_event,
-    )
-    if result is None:
-        logging.info("Auto-focus cancelled")
-        return False
-    return True
-
-
 def _to_channel_planes(data: np.ndarray, n_channels: int) -> np.ndarray:
     """Normalise tile data to (C, Y, X), projecting z the way the final stitch does.
 
@@ -518,6 +472,9 @@ class FMTiledAcquisitionRunner:
         # place instead of collapsing toward the origin.
         self.tileset: List[List[Optional[FluorescenceImage]]] = []
 
+        # Each saved tile's path, in the order acquired, a cancelled run's too.
+        self.tile_paths: List[str] = []
+
         # What the tile layout check found, for whoever reports the run's end: None
         # when the tiles line up with the stage steps, or could not be checked.
         self.layout_warning: Optional[str] = None
@@ -592,8 +549,8 @@ class FMTiledAcquisitionRunner:
         #
         # The beam tiler has always said "Stitching Tiles" here. This is the same phase
         # in the same place; it is only that the fluorescence stitch and save happen in
-        # two different objects, so they are announced separately -- the save from the
-        # widget that performs it.
+        # two different places, so they are announced separately -- the save from
+        # `acquire_fm_tiled_overview`, which performs it.
         self._emit(TiledStatus.STITCHING)
         return stitch_tileset(
             self.tileset,
@@ -1029,12 +986,16 @@ class FMTiledAcquisitionRunner:
         settings = (
             self._autofocus_full if mode is AutoFocusMode.ONCE else self._autofocus_fine
         )
-        if not run_tileset_autofocus(
-            self.microscope,
-            self._autofocus_channel,
-            settings,
+        # The same sweep the live auto-focus button runs, so a tileset focuses the
+        # way focusing by hand does. None is a cancel; a failure raises, and is not
+        # reported as one.
+        result = run_coarse_fine_autofocus(
+            microscope=self.microscope.fm,
+            autofocus_settings=settings,
+            channel_settings=self._autofocus_channel,
             stop_event=self.stop_event,
-        ):
+        )
+        if result is None:
             raise OperationCancelledError(
                 f"Tileset autofocus ({mode.value}) cancelled by user."
             )
@@ -1121,6 +1082,8 @@ class FMTiledAcquisitionRunner:
             raise OperationCancelledError(
                 "Tileset acquisition cancelled by user during tile acquisition."
             )
+        if filename is not None:
+            self.tile_paths.append(filename)
 
         if self.zparams is not None:
             # TODO(FIB-394): make the projection method selectable; focus_stack()
@@ -1306,56 +1269,80 @@ class FMTiledAcquisitionRunner:
         )
 
 
-def acquire_tileset(
+def acquire_fm_tiled_overview(
     microscope: "FibsemMicroscope",
-    channel_settings: Union[ChannelSettings, List[ChannelSettings]],
-    overview_parameters: OverviewParameters,
+    channels: List[ChannelSettings],
+    parameters: OverviewParameters,
+    destination: Optional[OverviewDestination],
     zparams: Optional[ZParameters] = None,
-    beam_type: BeamType = BeamType.ELECTRON,
     autofocus_settings: Optional[AutoFocusSettings] = None,
-    save_directory: Optional[str] = None,
+    centre_position: Optional[FibsemStagePosition] = None,
     stop_event: Optional[threading.Event] = None,
-) -> List[List[Optional[FluorescenceImage]]]:
-    """Acquire a tileset of fluorescence images across a grid pattern.
+    tile_paths: Optional[List[str]] = None,
+    on_acquired: Optional[Callable[[FluorescenceImage, Optional[str]], None]] = None,
+) -> Tuple[FluorescenceImage, Optional[str]]:
+    """Acquire a fluorescence overview, stitch, save and record it, and report how
+    it ended on ``tiled_acquisition_signal``.
 
-    Thin wrapper over :class:`FMTiledAcquisitionRunner`. Use the runner directly when
-    you need the partial tiles after a cancellation, or want to hold the object to
-    poll and stop it -- which is what the acquisition UI wants.
+    The one entry point to `FMTiledAcquisitionRunner`, for the FM Overview tab, the
+    fluorescence overview grid task and the imaging service's
+    ``fm_tiled_overview``. The tiles go in ``destination.tiles_directory`` and the
+    mosaic to ``destination.mosaic_path``; with no ``destination`` nothing is
+    saved. ``zparams`` z-stacks each tile, None for none. ``centre_position`` is
+    the grid's centre, None for wherever the stage is; the stage and objective
+    return to where they started either way.
 
-    Args:
-        microscope: The fluorescence microscope instance
-        channel_settings: Single channel or list of channels to acquire
-        overview_parameters: Overview parameters containing grid size, overlap, autofocus mode
-        zparams: Optional Z parameters for z-stack acquisition (overrides overview_parameters.use_zstack)
-        beam_type: Unused for stage movement. Tiles are projected through the camera's
-            own axis tilt; kept for signature compatibility with callers that still pass it.
-        autofocus_settings: Optional AutoFocusSettings for autofocus configuration
-        save_directory: Optional directory path to save individual tile images (default: None)
-        stop_event: Threading event to signal cancellation (optional)
+    The runner reports up to the stitch; this reports the save and the end
+    (finished, with the tile layout check's warning; cancelled; failed), so the
+    window's status bar does not stay on "Stitching tiles". ``on_acquired`` is
+    called with the mosaic and its path once saved and recorded, before the
+    finished report, for a caller that shows it.
 
-    Returns:
-        List of lists containing FluorescenceImage objects organized as [row][col]
-
-    Raises:
-        ValueError: If grid_size contains non-positive values or overlap is invalid
-        OperationCancelledError: If the acquisition was cancelled by the user.
-
-    Example:
-        >>> # Acquire a 3x3 grid with 10% overlap
-        >>> channel = ChannelSettings(name="DAPI", excitation_wavelength=365,
-        ...                          emission_wavelength=450, power=50, exposure_time=0.1)
-        >>> tileset = acquire_tileset(microscope, channel, grid_size=(3, 3), tile_overlap=0.1)
-        >>> print(f"Acquired {len(tileset)}x{len(tileset[0])} tiles")
+    Returns the mosaic and where it was written: None when there was no
+    ``destination`` or the write failed (the mosaic is still returned). A
+    ``stop_event`` set while it runs raises `OperationCancelledError`. A
+    ``tile_paths`` list is extended with each saved tile's path, also when the
+    run is stopped or fails part way. Taking the FM for the run
+    (`FluorescenceMicroscope.acquiring`) is the caller's.
     """
-    return FMTiledAcquisitionRunner(
+    runner = FMTiledAcquisitionRunner(
         microscope=microscope,
-        channel_settings=channel_settings,
-        overview_parameters=overview_parameters,
+        channel_settings=list(channels),
+        overview_parameters=parameters,
         zparams=zparams,
         autofocus_settings=autofocus_settings,
-        save_directory=save_directory,
+        save_directory=destination.tiles_directory if destination else None,
         stop_event=stop_event,
-    ).run()
+        centre_position=centre_position,
+    )
+
+    def report(status: TiledStatus, **fields) -> None:
+        microscope.tiled_acquisition_signal.emit(
+            TiledProgress(status=status, modality=MODALITY_FLUORESCENCE, **fields)
+        )
+
+    try:
+        mosaic = runner.run_and_stitch()
+        path = None
+        if destination is not None:
+            # Most of the gap between the last tile and a finished run is the
+            # write (~2.3 s of 2.6 s for a 1.3 GB mosaic), so it is announced.
+            report(TiledStatus.SAVING)
+            path = destination.save_mosaic(mosaic)
+        record_fluorescence_image(microscope, mosaic, overview=parameters)
+        if on_acquired is not None:
+            on_acquired(mosaic, path)
+    except OperationCancelledError:
+        report(TiledStatus.CANCELLED)
+        raise
+    except Exception as e:
+        report(TiledStatus.FAILED, error=str(e))
+        raise
+    finally:
+        if tile_paths is not None:
+            tile_paths.extend(getattr(runner, "tile_paths", []))
+    report(TiledStatus.FINISHED, warning=getattr(runner, "layout_warning", None))
+    return mosaic, path
 
 
 def stitch_tileset(
@@ -1403,7 +1390,7 @@ def stitch_tileset(
         ValueError: If tileset is empty or irregular
 
     Example:
-        >>> tileset = acquire_tileset(microscope, channel, grid_size=(3, 3))
+        >>> tileset = FMTiledAcquisitionRunner(microscope, channels, parameters).run()
         >>> mosaic = stitch_tileset(tileset, tile_overlap=0.1)
         >>> print(f"Mosaic size: {mosaic.data.shape}")
     """
@@ -1560,220 +1547,6 @@ def stitch_tileset(
 
     logging.info(f"Stitching complete: {mosaic_height}x{mosaic_width} mosaic created")
     return stitched_image
-
-
-def acquire_and_stitch_tileset(
-    microscope: "FibsemMicroscope",
-    channel_settings: Union[ChannelSettings, List[ChannelSettings]],
-    overview_parameters: OverviewParameters,
-    zparams: Optional[ZParameters] = None,
-    beam_type: BeamType = BeamType.ELECTRON,
-    autofocus_settings: Optional[AutoFocusSettings] = None,
-    save_directory: Optional[str] = None,
-    stop_event: Optional[threading.Event] = None,
-) -> Optional[FluorescenceImage]:
-    """Acquire a tileset and stitch it into a single mosaic image.
-
-    Args:
-        microscope: The fluorescence microscope instance
-        channel_settings: Single channel or list of channels to acquire
-        overview_parameters: Overview parameters containing grid size, overlap, autofocus mode
-        zparams: Optional Z parameters for z-stack acquisition (overrides overview_parameters.use_zstack)
-        beam_type: Unused for stage movement. Tiles are stepped with fm_stable_move,
-            which projects through the camera's own axis tilt; kept for signature
-            compatibility with callers that still pass it.
-        autofocus_settings: Optional AutoFocusSettings for autofocus configuration
-        save_directory: Optional directory path to save individual tile images (default: None)
-        stop_event: Optional threading event to signal cancellation
-
-    Returns:
-        Single stitched FluorescenceImage with dimensions (nc_channel, 1, ny, nx)
-    """
-
-    # TODO: support different projection methods (e.g. max intensity, focus stacking)
-
-    # Auto-convert channel_settings to list for consistent processing
-    if not isinstance(channel_settings, list):
-        channel_settings = [channel_settings]
-
-    destination = (
-        OverviewDestination.create(save_directory)
-        if save_directory is not None
-        else None
-    )
-    tiles_directory = destination.tiles_directory if destination is not None else None
-
-    # Check if zparams is provided when z-stack is requested
-    if zparams is None and overview_parameters.use_zstack:
-        raise ValueError(
-            "Z-stack requested in overview parameters but no zparams provided"
-        )
-
-    # acquire the tileset
-    # A cancel is now signalled explicitly rather than inferred from the result. The
-    # previous check -- empty tileset, or any tile None -- could not tell a user
-    # cancel from a tile that genuinely failed, and reported both the same way.
-    try:
-        # Driven through the runner rather than the `acquire_tileset` wrapper, so the
-        # stitched mosaic can be given the position and objective the run captured
-        # instead of values inferred from whichever tiles came back.
-        overview_image = FMTiledAcquisitionRunner(
-            microscope=microscope,
-            channel_settings=channel_settings,
-            overview_parameters=overview_parameters,
-            zparams=zparams,
-            autofocus_settings=autofocus_settings,
-            save_directory=tiles_directory,
-            stop_event=stop_event,
-        ).run_and_stitch()
-    except OperationCancelledError:
-        logging.info("Tileset acquisition was cancelled, cannot stitch")
-        return None
-
-    # Save overview to experiment directory
-    if destination is not None:
-        destination.save_mosaic(overview_image)
-    record_fluorescence_image(microscope, overview_image, overview=overview_parameters)
-
-    return overview_image
-
-
-def acquire_multiple_overviews(
-    microscope: "FibsemMicroscope",
-    positions: List[FMStagePosition],
-    channel_settings: Union[ChannelSettings, List[ChannelSettings]],
-    overview_parameters: OverviewParameters,
-    zparams: Optional[ZParameters] = None,
-    beam_type: BeamType = BeamType.ELECTRON,
-    autofocus_settings: Optional[AutoFocusSettings] = None,
-    save_directory: Optional[str] = None,
-    stop_event: Optional[threading.Event] = None,
-) -> List[Optional[FluorescenceImage]]:
-    """Acquire multiple overview images at different fluorescence microscopy positions.
-
-    This function moves to each specified FMStagePosition (both stage and objective)
-    and acquires a stitched overview image using the same parameters as
-    acquire_and_stitch_tileset.
-
-    Args:
-        microscope: The FIBSEM microscope instance with fluorescence microscope
-        positions: List of FMStagePosition objects defining where to acquire overviews
-        channel_settings: Single channel or list of channels to acquire
-        overview_parameters: Overview parameters containing grid size, overlap, autofocus mode
-        zparams: Optional Z parameters for z-stack acquisition (overrides overview_parameters.use_zstack)
-        beam_type: Unused for stage movement. Tiles are stepped with fm_stable_move,
-            which projects through the camera's own axis tilt; kept for signature
-            compatibility with callers that still pass it.
-        autofocus_settings: Optional AutoFocusSettings for autofocus configuration
-        save_directory: Optional directory path to save overview images. Creates subdirectories
-                       for each position (default: None)
-        stop_event: Threading event to signal cancellation (optional)
-
-    Returns:
-        List of stitched FluorescenceImage objects (or None if acquisition was cancelled)
-        corresponding to each position
-
-    Raises:
-        ValueError: If positions is empty or microscope.fm is None
-
-    Example:
-        >>> # Define positions
-        >>> pos1 = FMStagePosition(name="Region1", stage_position=stage_pos1, objective_position=0.012)
-        >>> pos2 = FMStagePosition(name="Region2", stage_position=stage_pos2, objective_position=0.013)
-        >>> positions = [pos1, pos2]
-        >>>
-        >>> # Define channel settings and overview parameters
-        >>> channel = ChannelSettings(name="DAPI", excitation_wavelength=365,
-        ...                          emission_wavelength=450, power=50, exposure_time=0.1)
-        >>> overview_params = OverviewParameters(rows=3, cols=3, overlap=0.1)
-        >>>
-        >>> # Acquire 3x3 overview grids at each position
-        >>> overviews = acquire_multiple_overviews(microscope, positions, channel, overview_params,
-        ...                                       save_directory="/data/experiment")
-        >>> print(f"Acquired {len(overviews)} overview images")
-    """
-    if microscope.fm is None:
-        raise ValueError(
-            "Fluorescence microscope not initialized in the FibsemMicroscope instance"
-        )
-    if not positions:
-        raise ValueError("Positions list cannot be empty")
-
-    # Store initial positions to restore later
-    initial_stage_position = microscope.get_stage_position()
-    initial_objective_position = microscope.fm.objective.position
-
-    overview_images: List[Optional[FluorescenceImage]] = []
-
-    try:
-        for i, fm_pos in enumerate(positions):
-            # Check for cancellation before each position
-            if stop_event and stop_event.is_set():
-                logging.info("Multiple overview acquisition cancelled")
-                return overview_images  # Return images acquired so far
-
-            logging.info(
-                f"Acquiring overview at position {i + 1}/{len(positions)}: {fm_pos.name}"
-            )
-
-            # Move stage to the specified position
-            logging.info(f"Moving stage to: {fm_pos.stage_position}")
-            microscope.safe_absolute_stage_movement(fm_pos.stage_position)
-
-            # Move objective to the specified position
-            logging.info(
-                f"Moving objective to: {fm_pos.objective_position * 1e3:.2f} mm"
-            )
-            microscope.fm.objective.move_absolute(fm_pos.objective_position)
-
-            # Create position-specific save directory if requested
-            position_save_directory = None
-            if save_directory is not None:
-                position_name = fm_pos.name or f"position_{i + 1:03d}"
-                position_save_directory = os.path.join(save_directory, position_name)
-                os.makedirs(position_save_directory, exist_ok=True)
-
-            # Acquire overview at current position
-            overview_image = acquire_and_stitch_tileset(
-                microscope=microscope,
-                channel_settings=channel_settings,
-                overview_parameters=overview_parameters,
-                zparams=zparams,
-                beam_type=beam_type,
-                autofocus_settings=autofocus_settings,
-                save_directory=position_save_directory,
-                stop_event=stop_event,
-            )
-
-            # Check if acquisition was cancelled
-            if overview_image is None:
-                logging.info("Overview acquisition cancelled")
-                overview_images.append(None)
-                return overview_images  # Return images acquired so far
-
-            # Update metadata with position information
-            if overview_image is not None:
-                overview_image.metadata.description = (
-                    f"{fm_pos.name}-overview-{overview_image.metadata.acquisition_date}"
-                )
-                logging.info(f"Acquired overview at position: {fm_pos.name}")
-
-            overview_images.append(overview_image)
-
-    except Exception as e:
-        logging.error(f"Error during multiple overview acquisition: {e}")
-        raise
-
-    finally:
-        # Return to initial positions
-        logging.info("Returning to initial positions")
-        microscope.safe_absolute_stage_movement(initial_stage_position)
-        microscope.fm.objective.move_absolute(initial_objective_position)
-
-    logging.info(
-        f"Multiple overview acquisition complete: {len(overview_images)} overviews acquired"
-    )
-    return overview_images
 
 
 def convert_grid_positions_to_stage_positions(

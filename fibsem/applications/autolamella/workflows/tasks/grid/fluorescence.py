@@ -1,18 +1,18 @@
 """The fluorescence overview grid task: a thin wrapper over the FM tiled runner.
 
-The operation -- `acquire_fluorescence_overview` -- is a plain function over
-`FMTiledAcquisitionRunner` and `OverviewDestination`, laying files out as the FM
-Overview tab does. The task adds the travel to the FM, the objective, the grid's
-own directory, and the record: the mosaic and a channel-composite thumbnail.
+The operation is `fibsem.fm.acquisition.acquire_fm_tiled_overview`, which the FM
+Overview tab and the imaging service call too. The task adds the travel to the
+FM, the objective, the grid's own directory, and the record: the mosaic and a
+channel-composite thumbnail.
 """
 
 from __future__ import annotations
 
 import logging
 from copy import deepcopy
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, ClassVar, List, Optional, Tuple, Type, Union
+from typing import TYPE_CHECKING, ClassVar, List, Optional, Tuple, Type
 
 from fibsem import timing
 from fibsem.applications.autolamella.workflows.tasks.grid.base import (
@@ -26,21 +26,10 @@ from fibsem.applications.autolamella.workflows.tasks.grid.registry import (
     register_grid_task,
 )
 from fibsem.autofunctions.autofocus import AutoFocusSettings
-from fibsem.cancellation import OperationCancelledError
-from fibsem.fm.acquisition import (
-    FMTiledAcquisitionRunner,
-    OverviewDestination,
-    record_fluorescence_image,
-)
+from fibsem.fm.acquisition import OverviewDestination, acquire_fm_tiled_overview
 from fibsem.fm.preview import composite_projection
-from fibsem.fm.structures import (
-    AutoFocusMode,
-    ChannelSettings,
-    ObjectiveStartPosition,
-    OverviewParameters,
-    ZParameters,
-)
-from fibsem.fm.timing import estimate_autofocus_time, estimate_tileset_acquisition_time
+from fibsem.fm.structures import ChannelSettings, OverviewParameters, ZParameters
+from fibsem.fm.timing import estimate_fm_overview_time
 from fibsem.geometry.projection import FMStageProjection
 from fibsem.imaging.thumbnail import write_thumbnail
 from fibsem.imaging.tiled import stamped_overview_name
@@ -48,16 +37,10 @@ from fibsem.imaging.tiling.geometry import (
     compute_tile_grid_from_fov,
     unreachable_tiles,
 )
-from fibsem.imaging.tiling.progress import (
-    MODALITY_FLUORESCENCE,
-    TiledProgress,
-    TiledStatus,
-)
 from fibsem.services.sample_handling import uncalibrated_message
 from fibsem.structures import FibsemStagePosition, InsertableDeviceState
 
 if TYPE_CHECKING:
-    from fibsem.fm.structures import FluorescenceImage
     from fibsem.microscope import FibsemMicroscope
 
 # ---------------------------------------------------------------------------
@@ -113,62 +96,6 @@ def reachable_fluorescence_overview(
     return parameters, skipped
 
 
-def acquire_fluorescence_overview(
-    microscope: "FibsemMicroscope",
-    channels: List[ChannelSettings],
-    parameters: OverviewParameters,
-    centre: FibsemStagePosition,
-    directory: Union[str, Path],
-    stem: str = "overview",
-    zparams: Optional[ZParameters] = None,
-    autofocus_settings: Optional[AutoFocusSettings] = None,
-    stop_event=None,
-) -> Tuple["FluorescenceImage", Optional[str]]:
-    """Acquire a fluorescence tileset centred on `centre`, saved under `directory`.
-
-    Returns the stitched mosaic and where it was written (None if the write
-    failed; the mosaic is still returned). The tiles land in a directory of the
-    run's name beside the mosaic, as the FM Overview tab lays them out.
-    """
-    Path(directory).mkdir(parents=True, exist_ok=True)
-    destination = OverviewDestination.create(
-        str(directory), stamped_overview_name(stem)
-    )
-    runner = FMTiledAcquisitionRunner(
-        microscope=microscope,
-        channel_settings=list(channels),
-        overview_parameters=parameters,
-        zparams=zparams if parameters.use_zstack else None,
-        autofocus_settings=autofocus_settings,
-        save_directory=destination.tiles_directory,
-        stop_event=stop_event,
-        centre_position=centre,
-    )
-
-    # The runner reports up to the stitch and leaves the save and the ending to
-    # whoever does the save: on the FM Overview tab that is the widget, here it
-    # is this function. Without the terminal report the window's status bar
-    # stays on "Stitching tiles" after the run has finished.
-    def report(status: TiledStatus, error: Optional[str] = None) -> None:
-        microscope.tiled_acquisition_signal.emit(
-            TiledProgress(status=status, modality=MODALITY_FLUORESCENCE, error=error)
-        )
-
-    try:
-        mosaic = runner.run_and_stitch()
-        report(TiledStatus.SAVING)
-        path = destination.save_mosaic(mosaic)
-        record_fluorescence_image(microscope, mosaic, overview=parameters)
-    except OperationCancelledError:
-        report(TiledStatus.CANCELLED)
-        raise
-    except Exception as e:
-        report(TiledStatus.FAILED, error=str(e))
-        raise
-    report(TiledStatus.FINISHED)
-    return mosaic, path
-
-
 @dataclass
 class FluorescenceOverviewGridTaskConfig(GridTaskConfig):
     """A tiled fluorescence overview of the grid: the FM Overview tab's inputs."""
@@ -190,40 +117,20 @@ class FluorescenceOverviewGridTaskConfig(GridTaskConfig):
     @property
     def estimated_duration(self) -> float:
         """What ``_run`` does, in order: the move to the FM, the objective in, the
-        tileset, the runner's return of the stage and objective, the objective out.
-
-        The images come from ``estimate_tileset_acquisition_time``; its tile moves
-        (an unmeasured 5 s) and focus sweeps (a flat 5 s) are replaced by the
-        measured tile move and the sweep as configured -- every pass for a focus
-        once, the finest for one per row or tile, as the runner does. Inserting and
-        retracting are always counted, though the task skips both when the
-        objective is already in: which it is, is runtime state. Errs long.
+        overview (`estimate_fm_overview_time`, which counts the runner's return of
+        the stage and objective), the objective out. Inserting and retracting are
+        always counted, though the task skips both when the objective is already
+        in: which it is, is runtime state. Errs long.
         """
-        overview = self.overview
-        tiles = overview.n_enabled_tiles
-        if tiles <= 0:
+        if self.overview.n_enabled_tiles <= 0:
             return 0.0
-        tileset = estimate_tileset_acquisition_time(
-            list(self.channels),
-            (overview.rows, overview.cols),
-            zparams=self.zparams if overview.use_zstack else None,
-            autofocus_mode=overview.autofocus_mode,
-            tile_mask=overview.tile_mask,
+        total = estimate_fm_overview_time(
+            self.channels,
+            self.overview,
+            zparams=self.zparams,
+            autofocus_settings=self.autofocus_settings,
         )
-        total = tileset["image_acquisition_time"]
-        total += tiles * timing.OVERVIEW_TILE_MOVE_S
-        sweeps = tileset["breakdown"]["autofocus"]["operations"]
-        focus = self.autofocus_settings
-        if sweeps and focus is not None and self.channels:
-            passes = [p for p in focus.passes if p.enabled]
-            if overview.autofocus_mode is not AutoFocusMode.ONCE:
-                passes = passes[-1:]
-            sweep = replace(focus, passes=passes)
-            total += sweeps * estimate_autofocus_time(sweep, list(self.channels))
-        if overview.objective_start is not ObjectiveStartPosition.CURRENT:
-            total += timing.OBJECTIVE_FOCUS_MOVE_S
         total += timing.stage_move_cost(1) + timing.OBJECTIVE_INSERT_S
-        total += timing.stage_move_cost(1) + timing.OBJECTIVE_FOCUS_MOVE_S
         total += timing.OBJECTIVE_RETRACT_S
         return total
 
@@ -293,15 +200,17 @@ class FluorescenceOverviewGridTask(GridTask):
                 f"{overview.cols} tiles{out_of_reach}, "
                 f"{len(self.config.channels)} channel(s)",
             )
-            mosaic, saved = acquire_fluorescence_overview(
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+            mosaic, saved = acquire_fm_tiled_overview(
                 self.microscope,
                 self.config.channels,
                 overview,
-                centre,
-                self.output_dir,
-                stem=self.config.filename,
-                zparams=self.config.zparams,
+                OverviewDestination.create(
+                    str(self.output_dir), stamped_overview_name(self.config.filename)
+                ),
+                zparams=self.config.zparams if overview.use_zstack else None,
                 autofocus_settings=self.config.autofocus_settings,
+                centre_position=centre,
                 stop_event=self._stop_event,
             )
             if saved is None:

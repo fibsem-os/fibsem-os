@@ -1,19 +1,21 @@
 from __future__ import annotations
 
-import datetime
 import logging
 import os
 import threading
 from copy import deepcopy
 from dataclasses import replace
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
 from fibsem import acquire, conversions
 from fibsem.autofunctions.autofocus import run_auto_focus
-from fibsem.cancellation import OperationCancelledError, raise_if_cancelled
-from fibsem.constants import DATETIME_FILE
+from fibsem.cancellation import (
+    AnyStopEvent,
+    OperationCancelledError,
+    raise_if_cancelled,
+)
 
 # Moved to the `tiling` package (FIB-390); re-exported so existing importers and the
 # public API are unaffected. `fibsem/imaging/__init__.py` star-imports this module.
@@ -118,7 +120,7 @@ class TiledAcquisitionRunner:
         self,
         microscope: FibsemMicroscope,
         settings: OverviewAcquisitionSettings,
-        stop_event: Optional[threading.Event] = None,
+        stop_event: Optional[Union[threading.Event, AnyStopEvent]] = None,
         centre_position: Optional[FibsemStagePosition] = None,
     ):
         self.microscope = microscope
@@ -562,11 +564,11 @@ class TiledAcquisitionRunner:
     def _acquire_tile(self, tile: TilePosition) -> FibsemImage:
         """Acquire one tile — focus-stack or plain image."""
         if self._focus_stack_settings.enabled:
-            return acquire.acquire_focus_stacked_image(
-                microscope=self.microscope,
-                image_settings=self._image_settings,
+            return self.microscope.imaging.focus_stacked_image(
+                self._image_settings,
                 n_steps=self._focus_stack_settings.n_steps,
                 auto_focus=self._focus_stack_settings.auto_focus,
+                stop_event=self.stop_event,
             )
         return acquire.acquire_image(self.microscope, self._image_settings)
 
@@ -787,29 +789,44 @@ class TiledAcquisitionRunner:
         pass
 
 
-def tiled_image_acquisition_and_stitch(
+def acquire_tiled_overview(
     microscope: FibsemMicroscope,
     settings: OverviewAcquisitionSettings,
-    stop_event: Optional[threading.Event] = None,
+    path: str,
+    name: str,
     centre_position: Optional[FibsemStagePosition] = None,
+    stop_event: Optional[Union[threading.Event, AnyStopEvent]] = None,
+    tile_paths: Optional[List[str]] = None,
 ) -> FibsemImage:
-    """Acquire a tiled image and stitch it together.
-    Args:
-        microscope: The microscope connection.
-        settings: Overview acquisition settings (image_settings, nrows, ncols, overlap).
-        stop_event: Optional threading.Event to cancel acquisition.
-        centre_position: Where to centre the grid. None means wherever the stage is.
-            The stage still returns to where it started afterwards.
-    Returns:
-        The stitched image."""
-    # add datetime to filename for uniqueness
-    filename = settings.image_settings.filename
-    timestamp = datetime.datetime.now().strftime(DATETIME_FILE)
-    settings.image_settings.filename = f"{filename}-{timestamp}"
+    """Acquire a tiled SEM or FIB overview and stitch it: the tiles in
+    ``<path>/<name>/`` and the stitched image as ``<path>/<name>``.
 
-    return TiledAcquisitionRunner(
-        microscope, settings, stop_event, centre_position=centre_position
-    ).run_and_stitch()
+    The one entry point to `TiledAcquisitionRunner`, for the Overview tab, the
+    beam overview grid task and the imaging service's ``tiled_overview``. The
+    beam is ``settings.image_settings.beam_type``. ``name`` is used as given;
+    `stamped_overview_name` makes one that two runs cannot share. A copy of
+    ``settings`` is used, so the caller's object is not rewritten with the
+    path and name.
+
+    ``centre_position`` is the grid's centre, None for wherever the stage is;
+    the stage returns to where it started either way. A ``stop_event`` set
+    while it runs raises `OperationCancelledError`. A ``tile_paths`` list is
+    extended with each saved tile's path, in the order acquired, also when the
+    run is stopped or fails part way.
+    """
+    settings = deepcopy(settings)
+    settings.image_settings.save = True
+    settings.image_settings.path = str(path)
+    settings.image_settings.filename = name
+    os.makedirs(path, exist_ok=True)
+    runner = TiledAcquisitionRunner(
+        microscope, settings, stop_event=stop_event, centre_position=centre_position
+    )
+    try:
+        return runner.run_and_stitch()
+    finally:
+        if tile_paths is not None:
+            tile_paths.extend(getattr(runner, "tile_paths", []))
 
 
 ##### REPROJECTION

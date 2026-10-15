@@ -397,7 +397,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "device": "device name from list_devices",
             "command": "command name",
             "kwargs": "the command's arguments, by name",
-            "reason": "for a stop (stop, stop_live, cancel): why, for the operator (required there)",
+            "reason": "for a stop (stop, stop_live): why, for the operator (required there)",
         },
     ),
     ToolSpec(
@@ -449,7 +449,8 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "Run a service command listed by list_services, e.g. service=stage_movement "
             "command=move_to_orientation kwargs={'orientation': 'SEM'}. A long command "
             "(listed with long: true: milling run, run_stage and run_task, spot burn "
-            "run, alignment align) answers at once with "
+            "run, alignment align, imaging fm_focus_sweep, tiled_overview, "
+            "fm_tiled_overview and focus_stack) answers at once with "
             "its run (run_id, state: running) and runs on, in control of the "
             "microscope; wait_for_run says how it ended. command=stop from "
             "another call stops it: the agent's own run at Assist or Drive, "
@@ -463,7 +464,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "service": "service name from list_services",
             "command": "command name",
             "kwargs": "the command's arguments, by name",
-            "reason": "for a stop (stop, stop_live, cancel): why, for the operator (required there)",
+            "reason": "for a stop (stop, stop_live): why, for the operator (required there)",
         },
     ),
     ToolSpec(
@@ -524,6 +525,137 @@ CATALOG: Tuple[ToolSpec, ...] = (
         level="drive",
         hardware=True,
         params={"beam_type": "ELECTRON or ION"},
+    ),
+    ToolSpec(
+        name="acquire_overview",
+        description=(
+            "A tiled SEM or FIB overview centred where the stage is: tiles of "
+            "image_settings (hfw is one tile's field of view, beam_type the beam) "
+            "in nrows x ncols, stitched into one image. The stage moves to each "
+            "tile and comes back after. path must be a folder inside the open "
+            "experiment. estimate_overview first: a big grid at a long dwell runs "
+            "for hours. A long command: it answers with its run at once; "
+            "wait_for_run imaging gives the stitched image (summary, path, "
+            "preview) and the tiles' paths; call_service_command imaging stop, "
+            "with a reason, ends it before the next tile."
+        ),
+        method="POST",
+        path="/microscope/services/imaging/commands/tiled_overview",
+        level="drive",
+        hardware=True,
+        params={
+            "settings": (
+                "OverviewAcquisitionSettings dict: image_settings, nrows, ncols, "
+                "overlap, autofocus_mode, autocontrast_mode, focus_stack_settings"
+            ),
+            "path": "a folder inside the open experiment to save it in",
+            "name": "the file name, stamped with the time (default overview)",
+        },
+    ),
+    ToolSpec(
+        name="estimate_overview",
+        description=(
+            "What acquire_overview with these settings would do: how many tiles, "
+            "the beam-on scan time in seconds and the field of view in metres. "
+            "Not the run's length: the stage moves between tiles add to it, "
+            "often more than the scanning. Moves nothing."
+        ),
+        method="POST",
+        path="/microscope/services/imaging/queries/estimate_tiled_overview",
+        level="watch",
+        params={"settings": "OverviewAcquisitionSettings dict, as acquire_overview"},
+    ),
+    ToolSpec(
+        name="acquire_focus_stack",
+        description=(
+            "One image focused in strips: the frame is split into n_steps "
+            "horizontal strips, each focused (auto_focus) and acquired on its own, "
+            "and stacked into one image. For a tilted view where one focus "
+            "can't hold the whole frame. Moves the working distance. path must "
+            "be a folder inside the open experiment. A long command: it answers "
+            "with its run at once; wait_for_run imaging gives the image "
+            "(summary, path, preview); call_service_command imaging stop, with "
+            "a reason, ends it before the next strip."
+        ),
+        method="POST",
+        path="/microscope/services/imaging/commands/focus_stack",
+        level="drive",
+        hardware=True,
+        params={
+            "image_settings": "ImageSettings dict: beam_type, hfw, resolution, dwell_time, filename",
+            "path": "a folder inside the open experiment to save it in",
+            "n_steps": "how many strips (default 3)",
+            "auto_focus": "focus each strip first (default true)",
+        },
+    ),
+    ToolSpec(
+        name="fm_auto_focus",
+        description=(
+            "Focus the fluorescence microscope: sweep the objective, a coarse then "
+            "a fine pass, scoring a frame at each step on the current channel, as "
+            "the FM tab's auto-focus does, and leave it at the best position. "
+            "Refused while the FM is in use or can't see the sample from this "
+            "pose (move to the FM pose first). A long command: it answers with "
+            "its run at once; wait_for_run imaging gives the best objective "
+            "position and the scores; call_service_command imaging stop, with a "
+            "reason, ends it."
+        ),
+        method="POST",
+        path="/microscope/services/imaging/commands/fm_focus_sweep",
+        level="drive",
+        hardware=True,
+        params={
+            "channel_name": "the channel to focus on; left out, the current one",
+            "path": "a folder inside the open experiment to save the sweep to",
+        },
+    ),
+    ToolSpec(
+        name="acquire_fm_overview",
+        description=(
+            "A tiled fluorescence overview centred where the stage is: rows x cols "
+            "camera fields in each of the channels, stitched into one mosaic. The "
+            "stage moves to each tile, and it and the objective come back after. "
+            "The objective must be in, at the FM pose; refused while the FM is in "
+            "use. path must be a folder inside the open experiment. "
+            "estimate_fm_overview first: tiles take seconds to minutes each. A "
+            "long command: it answers with its run at once; wait_for_run imaging "
+            "gives the mosaic's path and summary and the tiles' paths; "
+            "call_service_command imaging stop, with a reason, ends it before the "
+            "next tile."
+        ),
+        method="POST",
+        path="/microscope/services/imaging/commands/fm_tiled_overview",
+        level="drive",
+        hardware=True,
+        params={
+            "channels": (
+                "list of ChannelSettings dicts: name, excitation_wavelength, "
+                "emission_wavelength, power, exposure_time"
+            ),
+            "parameters": (
+                "OverviewParameters dict: rows, cols, overlap, autofocus_mode "
+                "(none, once, each_row, each_tile), use_zstack"
+            ),
+            "path": "a folder inside the open experiment to save it in",
+            "name": "the file name, stamped with the time (default overview)",
+            "zparams": "ZParameters dict (zmin, zmax, zstep), with use_zstack",
+        },
+    ),
+    ToolSpec(
+        name="estimate_fm_overview",
+        description=(
+            "What acquire_fm_overview with these arguments would do: how many "
+            "tiles and images, and how long it runs in seconds, stage and "
+            "objective moves and focus sweeps counted. Moves nothing."
+        ),
+        method="POST",
+        path="/microscope/services/imaging/queries/estimate_fm_tiled_overview",
+        level="watch",
+        params={
+            "channels": "list of ChannelSettings dicts, as acquire_fm_overview",
+            "parameters": "OverviewParameters dict, as acquire_fm_overview",
+            "zparams": "ZParameters dict, as acquire_fm_overview",
+        },
     ),
     ToolSpec(
         name="auto_brightness_contrast",
@@ -1235,6 +1367,53 @@ _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict
     ),
     "autocontrast": lambda a: ({}, _kwargs(**_beam(a))),
     "auto_focus": lambda a: ({}, _kwargs(**_beam(a))),
+    "fm_auto_focus": lambda a: (
+        {},
+        _kwargs(
+            settings=(
+                {"channel_name": str(a["channel_name"])}
+                if a.get("channel_name")
+                else None
+            ),
+            path=a.get("path"),
+        ),
+    ),
+    "acquire_overview": lambda a: (
+        {},
+        _kwargs(
+            settings=dict(a["settings"]),
+            path=str(a["path"]),
+            name=str(a.get("name") or "overview"),
+        ),
+    ),
+    "estimate_overview": lambda a: ({}, _kwargs(settings=dict(a["settings"]))),
+    "acquire_focus_stack": lambda a: (
+        {},
+        _kwargs(
+            image_settings=dict(a["image_settings"]),
+            path=str(a["path"]),
+            n_steps=int(a.get("n_steps") or 3),
+            auto_focus=a.get("auto_focus", True),
+        ),
+    ),
+    "acquire_fm_overview": lambda a: (
+        {},
+        _kwargs(
+            channels=[dict(c) for c in a["channels"]],
+            parameters=dict(a["parameters"]),
+            path=str(a["path"]),
+            name=str(a.get("name") or "overview"),
+            zparams=a.get("zparams"),
+        ),
+    ),
+    "estimate_fm_overview": lambda a: (
+        {},
+        _kwargs(
+            channels=[dict(c) for c in a["channels"]],
+            parameters=dict(a["parameters"]),
+            zparams=a.get("zparams"),
+        ),
+    ),
     "auto_brightness_contrast": lambda a: ({}, _kwargs(**_beam(a))),
     # A service command or query with no arguments still sends its kwargs.
     "stop_milling": lambda a: ({}, _stop(_kwargs(), a)),
