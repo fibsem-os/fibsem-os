@@ -7,10 +7,11 @@ from pprint import pprint
 import numpy as np
 
 import fibsem
-from fibsem import acquire, alignment, milling, utils
+from fibsem import acquire, alignment, utils
 from fibsem.alignment import AlignmentSubsystem
 from fibsem.structures import (
     BeamType,
+    CrossSectionPattern,
     FibsemMillingSettings,
     FibsemRectangleSettings,
     ImageSettings,
@@ -33,21 +34,23 @@ def main():
         patterning_mode="Serial",
     )
 
-    # setup for milling
-    milling.setup_milling(microscope=microscope, mill_settings=milling_settings)
-
     pattern_settings = FibsemRectangleSettings(
         width=settings.protocol["milling"]["width"],
         height=settings.protocol["milling"]["height"],
         depth=settings.protocol["milling"]["depth"],
+        centre_x=0.0,
+        centre_y=0.0,
         scan_direction=settings.protocol["milling"]["scan_direction"],
-        cross_section=settings.protocol["milling"]["cross_section"],
+        cross_section=CrossSectionPattern[
+            settings.protocol["milling"]["cross_section"]
+        ],
     )
 
-    # angle correction, on the electron beam (Thermo only)
+    # angle correction, on the electron beam (where the instrument has it)
     sem = microscope.beams[BeamType.ELECTRON]
-    sem.parameters["tilt_correction"].value = True
-    sem.parameters["angular_correction"].value = np.deg2rad(-38)
+    if "tilt_correction" in sem.parameters:
+        sem.tilt_correction.set_value(True)
+        sem.angular_correction.set_value(np.deg2rad(-38))
 
     # update image settings
     settings.image.filename = "reference"
@@ -61,13 +64,12 @@ def main():
         # slice
         logging.info("------------------------ SLICE ------------------------")
 
-        patterns = milling.draw_pattern(microscope, pattern_settings)
-        # estimated_milling_time = milling.estimate_milling_time_in_seconds([patterns])
-        # logging.info(f"Estimated milling time: {estimated_milling_time}")
-        milling.run_milling(
-            microscope, milling_current=milling_settings.milling_current
-        )
-        milling.finish_milling(microscope, settings.system.ion.current)
+        microscope.setup_milling(milling_settings)
+        microscope.draw_pattern(pattern_settings)
+        logging.info(f"Estimated milling time: {microscope.estimate_milling_time()} s")
+        microscope.run_milling()
+        # clear the pattern and put the ion beam back as setup found it
+        microscope.finish_milling()
 
         # view
         logging.info("------------------------ VIEW ------------------------")
