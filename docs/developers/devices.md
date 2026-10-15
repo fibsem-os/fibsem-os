@@ -348,7 +348,13 @@ role's interface, a name no entry has, or bindings that form a cycle. A bound de
 that is switched off (`enabled: false`) leaves the role empty, with a warning.
 
 `Scanner` is minimal until a real unit's SDK says more: `acquire(resolution,
-dwell_time)` returns one frame, and `stop()` ends a frame in flight.
+dwell_time)` returns one frame, and `stop()` ends a frame in flight. A driver whose
+unit has limits returns them from `_dwell_time_limits()` (a `RangeLimit`, in s) and
+`_resolution_limits()` (the smallest and largest `(width, height)`), and `acquire`
+refuses a frame outside them with a `ValueError`. While the scanner is bound, the
+beam's `dwell_time` limits are the overlap of the column's and the scanner's, and its
+`resolution` choices are the ones the scanner can scan, so the beam panel and an
+agent are offered only frames that work. The values themselves stay on the beam.
 
 ## Services
 
