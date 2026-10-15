@@ -3,10 +3,10 @@
 `FIELD_METADATA_KEYS` is what a dataclass field may declare: a
 ``Parameter``'s vocabulary (unit, limits in SI, choices, doc, device_parameter,
 filepath) and a `Display` for how it is shown. The older flat keys (`tooltip`,
-`label`, `minimum` in display units, `items`, ...) and the spellings before them
-(`help`, `units`; FIB-384) are deprecated: read for now through
-`upgrade_metadata`, so a v0.5 plugin keeps its labels and limits (FIB-1415), and
-warned about with what replaced each one.
+`label`, `minimum` in display units, `items`, ...) are **not** read, and neither
+are the older spellings before them (`help`, `units`; FIB-384). What makes that
+safe rather than silent is the warning: a field still declaring one is told what
+replaced it, instead of simply losing its tooltip.
 
 `field_meta` closes the same hole from the other end (FIB-531): it spells the
 vocabulary out as keyword arguments, so a declaration written through it fails at
@@ -57,13 +57,14 @@ def test_no_renamed_key_is_still_current():
         assert old not in FIELD_METADATA_KEYS, f"{old!r} is both superseded and current"
 
 
-def test_a_superseded_key_is_read_for_now():
-    """A v0.5 plugin's field keeps its tooltip and unit while it converts
-    (FIB-1415). A lone `minimum` is no range, so it sets no limits."""
+def test_a_superseded_key_is_not_resolved():
+    """The old keys are gone, not aliased: one vocabulary, not two accepted
+    forever. A field still declaring `tooltip` renders without one -- and is warned
+    about, which is what makes dropping them safe rather than silent."""
     spec = field_specs(MetadataProbe)["superseded"]
 
-    assert spec.doc == "old key"
-    assert spec.unit == "m"
+    assert spec.doc == ""
+    assert spec.unit is None
     assert spec.limits is None
 
 
@@ -202,73 +203,12 @@ def test_every_parameter_reaches_the_result():
 
 
 @pytest.mark.parametrize("key", ["help", "units", "tooltip", "label", "minimum"])
-def test_a_superseded_keyword_is_deprecated(key):
-    """The v0.5 keywords still work for now, warned with what replaced them
-    (FIB-1415); an unknown keyword is still a TypeError."""
-    with pytest.warns(DeprecationWarning, match=f"{key}= is now"):
-        field_meta(**{key: 1.0 if key == "minimum" else "old"})
-
-
-def test_a_v05_declaration_reads_as_today_s():
-    """The v0.5 forms a plugin used: a spread shared dict with overrides, a base
-    dict with keywords, and flat keywords. Each reads as the declaration it would
-    be written as today: SI limits, the doc, a Display."""
-    from fibsem.milling import properties
-
-    with pytest.warns(DeprecationWarning, match="distance_metadata"):
-        distance = properties.DEFAULT_DISTANCE_METADATA
-    with pytest.warns(DeprecationWarning, match="angle_metadata"):
-        angle = properties.DEFAULT_ANGLE_METADATA
-    with pytest.warns(DeprecationWarning):
-        overtilt_meta = field_meta(angle, label="Overtilt")
-    with pytest.warns(DeprecationWarning):
-        passes_meta = field_meta(
-            label="Passes", minimum=1, maximum=10, tooltip="How many"
-        )
-
-    @dataclass
-    class OlderPlugin:
-        width: float = field(
-            default=10e-6,
-            metadata={**distance, "label": "Width", "tooltip": "The width."},
-        )
-        overtilt: float = field(default=0.0, metadata=overtilt_meta)
-        passes: int = field(default=1, metadata=passes_meta)
-
-    specs = field_specs(OlderPlugin)
-    width = specs["width"]
-    assert (width.unit, width.doc) == ("m", "The width.")
-    assert width.limits == RangeLimit(0.01e-6, 1000e-6)
-    assert width.display == Display("Width", scale=1e6, step=0.1, decimals=2)
-    assert specs["overtilt"].display.label == "Overtilt"
-    assert specs["overtilt"].limits == RangeLimit(0.0, 360.0)
-    assert specs["passes"].doc == "How many"
-    assert specs["passes"].limits == RangeLimit(1, 10)
-    assert specs["passes"].display == Display("Passes")
-
-
-def test_every_v05_shared_dict_is_still_importable():
-    from fibsem.milling import properties
-
-    for name in properties._OLDER_METADATA:
-        with pytest.warns(DeprecationWarning, match=name):
-            meta = getattr(properties, name)
-
-        @dataclass
-        class Uses:
-            value: float = field(default=0.0, metadata=meta)
-
-        assert field_specs(Uses)["value"].display.label or name.endswith(
-            "DISTANCE_METADATA"
-        )
-    with pytest.raises(ImportError):
-        from fibsem.milling.properties import DEFAULT_NOTHING_METADATA  # noqa: F401
-
-
-def test_today_s_keys_win_over_the_older_ones():
-    assert fstructures.upgrade_metadata({"doc": "new", "tooltip": "old"}) == {
-        "doc": "new"
-    }
+def test_a_superseded_key_is_rejected_at_import(key):
+    """FIB-384's bug is unrepresentable through this door: a raw dict takes
+    `tooltip` happily and renders without one; here it is a TypeError, raised
+    while the module is being imported."""
+    with pytest.raises(TypeError, match=key):
+        field_meta(**{key: "old"})
 
 
 def test_a_misspelled_key_is_rejected_at_import():
