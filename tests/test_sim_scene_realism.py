@@ -131,6 +131,7 @@ def test_beam_shift_moves_the_content_the_way_the_alignment_expects(microscope):
     assert np.hypot(shift.x, shift.y) > 1e-6  # it really was the beam that moved
 
 
+@pytest.mark.slow
 def test_a_small_beam_offset_is_measured_as_dx_and_tolerated(microscope):
     _scene(
         microscope,
@@ -147,6 +148,7 @@ def test_a_small_beam_offset_is_measured_as_dx_and_tolerated(microscope):
     assert abs(result.measurements[0].dz) == pytest.approx(8e-6, abs=1e-6)
 
 
+@pytest.mark.slow
 def test_a_large_beam_offset_is_refused_as_lateral(microscope):
     _scene(
         microscope,
@@ -328,6 +330,7 @@ def test_the_film_is_continuous_by_default():
     assert SampleScene().film == "continuous"
 
 
+@pytest.mark.slow
 @pytest.mark.xfail(
     reason="the fine-pass correlator aliases on the 4 um hole lattice: at the "
     "fiducial the two bands disagree by a hole pitch, and an 80 um error "

@@ -472,6 +472,7 @@ def test_every_frame_lands_at_its_own_channel_and_plane(
             )
 
 
+@pytest.mark.slow
 def test_acquisition_order_does_not_change_the_assembled_stack(fm_microscope):
     """The two orders differ in when frames are taken, not in what comes back."""
     fm = fm_microscope.fm
@@ -684,6 +685,7 @@ def _stitched(microscope, channel_settings, overview_parameters, zparams=None):
     return mosaic
 
 
+@pytest.mark.slow
 def test_acquire_fm_tiled_overview(fm_microscope):
     """The runner takes a single channel as a list of one; the overview stitches one
     channel, two, and two with a z-stack projected."""
@@ -1321,6 +1323,7 @@ def test_each_row_autofocus_survives_a_row_wise_order(fm_microscope, monkeypatch
     assert runner._autofocus_mode is AutoFocusMode.EACH_ROW
 
 
+@pytest.mark.slow
 def test_stitching_leaves_skipped_tiles_as_zeros_at_full_canvas_size(fm_microscope):
     """The mosaic is the whole grid whatever the mask, with gaps left black."""
     mask = _plus_mask(3)
@@ -1360,6 +1363,7 @@ def test_a_tileset_of_nothing_but_gaps_is_rejected(fm_microscope):
 # centre it reports has to be where the mosaic actually is, whatever was acquired.
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize(
     ("name", "predicate"),
     [
@@ -1508,6 +1512,7 @@ def test_each_preview_frame_is_its_own_array(fm_microscope):
     assert (first > 0).sum() < (frames[-1].preview.data > 0).sum()
 
 
+@pytest.mark.slow
 def test_the_preview_is_decimated(fm_microscope):
     frames = _preview_frames(fm_microscope, 5, 5)
 
@@ -1589,6 +1594,7 @@ def _autofocus_payloads(microscope, monkeypatch, mode):
     return seen
 
 
+@pytest.mark.slow
 def test_focusing_once_runs_every_enabled_pass(fm_microscope, monkeypatch):
     """Coarse then fine, which is the whole reason to configure more than one pass.
 
@@ -1601,6 +1607,7 @@ def test_focusing_once_runs_every_enabled_pass(fm_microscope, monkeypatch):
     assert passes == [(1, 2, 5), (2, 2, 7)]
 
 
+@pytest.mark.slow
 def test_per_tile_focusing_runs_only_the_narrowest_pass(fm_microscope, monkeypatch):
     """It refines an already-good position; a wide sweep at every tile would dominate."""
     seen = _autofocus_payloads(fm_microscope, monkeypatch, AutoFocusMode.EACH_TILE)
@@ -1673,6 +1680,7 @@ def _offset_from(position, dx, dy):
     return moved
 
 
+@pytest.mark.slow
 def test_the_grid_is_laid_out_around_the_requested_centre(fm_microscope):
     start = fm_microscope.get_stage_position()
     centre = _offset_from(start, 400e-6, -250e-6)
