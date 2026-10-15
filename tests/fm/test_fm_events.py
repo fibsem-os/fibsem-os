@@ -85,21 +85,18 @@ def test_an_image_that_was_not_saved_is_recorded_without_a_path(microscope, tmp_
 
 
 def test_an_overview_is_one_event_not_one_per_tile(microscope, tmp_path):
-    from fibsem.applications.autolamella.workflows.tasks.grid.fluorescence import (
-        acquire_fluorescence_overview,
-    )
+    from fibsem.fm.acquisition import OverviewDestination, acquire_fm_tiled_overview
 
     parameters = OverviewParameters(
         rows=2, cols=2, overlap=0.1, use_zstack=False, autofocus_mode=AutoFocusMode.NONE
     )
     recorder = EventRecorder(microscope, experiment_path=tmp_path)
     try:
-        _, path = acquire_fluorescence_overview(
+        _, path = acquire_fm_tiled_overview(
             microscope,
             [CHANNEL],
             parameters,
-            centre=microscope.get_stage_position(),
-            directory=tmp_path / "overviews",
+            OverviewDestination.create(str(tmp_path)),
         )
     finally:
         recorder.close()
@@ -217,9 +214,7 @@ def test_report_v2_reads_each_acquisition_once(microscope, tmp_path):
     """A z-stack and a stitched overview, read back as report v2's fm table
     (FIB-1036): one row each, with what was acquired and for how long."""
     from fibsem.applications.autolamella.tools.event_tables import read_event_tables
-    from fibsem.applications.autolamella.workflows.tasks.grid.fluorescence import (
-        acquire_fluorescence_overview,
-    )
+    from fibsem.fm.acquisition import OverviewDestination, acquire_fm_tiled_overview
 
     recorder = EventRecorder(microscope, experiment_path=tmp_path)
     try:
@@ -229,7 +224,7 @@ def test_report_v2_reads_each_acquisition_once(microscope, tmp_path):
             zparams=ZParameters(zmin=-2e-6, zmax=2e-6, zstep=1e-6),
             filename=str(tmp_path / "01-lamella-zstack.ome.tiff"),
         )
-        _, overview = acquire_fluorescence_overview(
+        _, overview = acquire_fm_tiled_overview(
             microscope,
             [CHANNEL],
             OverviewParameters(
@@ -239,8 +234,7 @@ def test_report_v2_reads_each_acquisition_once(microscope, tmp_path):
                 use_zstack=False,
                 autofocus_mode=AutoFocusMode.NONE,
             ),
-            centre=microscope.get_stage_position(),
-            directory=tmp_path / "overviews",
+            OverviewDestination.create(str(tmp_path)),
         )
     finally:
         recorder.close()

@@ -17,7 +17,7 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.fm.acquisition import acquire_tileset
+from fibsem.fm.acquisition import FMTiledAcquisitionRunner
 from fibsem.fm.structures import (
     AutoFocusMode,
     ChannelSettings,
@@ -59,11 +59,11 @@ def test_an_offset_system_can_acquire_an_overview_at_the_fm():
     """The headline: this raised "Stage is not in SEM, or FM orientation FIB"."""
     microscope = _at_the_fm()
 
-    tiles = acquire_tileset(
+    tiles = FMTiledAcquisitionRunner(
         microscope=microscope,
         channel_settings=CHANNEL,
         overview_parameters=_overview(),
-    )
+    ).run()
 
     assert len(tiles) == 2 and len(tiles[0]) == 2
     assert all(tile is not None for row in tiles for tile in row)
@@ -74,11 +74,11 @@ def test_the_stage_comes_back_to_where_the_overview_started():
     microscope = _at_the_fm()
     start_x = microscope.get_stage_position().x
 
-    acquire_tileset(
+    FMTiledAcquisitionRunner(
         microscope=microscope,
         channel_settings=CHANNEL,
         overview_parameters=_overview(rows=1, cols=1),
-    )
+    ).run()
 
     assert microscope.get_stage_position().x == pytest.approx(start_x)
     assert microscope.get_current_device() == "FM"
@@ -87,12 +87,12 @@ def test_the_stage_comes_back_to_where_the_overview_started():
 def test_zstacked_overviews_work_at_the_fm_too():
     microscope = _at_the_fm()
 
-    tiles = acquire_tileset(
+    tiles = FMTiledAcquisitionRunner(
         microscope=microscope,
         channel_settings=CHANNEL,
         overview_parameters=_overview(rows=1, cols=1, use_zstack=True),
         zparams=ZParameters(zmin=-1e-6, zmax=1e-6, zstep=1e-6),
-    )
+    ).run()
 
     assert tiles[0][0] is not None
 
@@ -103,11 +103,11 @@ def test_an_offset_system_still_refuses_at_milling():
     microscope.move_to_orientation("MILLING")
 
     with pytest.raises(ValueError, match="MILLING"):
-        acquire_tileset(
+        FMTiledAcquisitionRunner(
             microscope=microscope,
             channel_settings=CHANNEL,
             overview_parameters=_overview(),
-        )
+        ).run()
 
 
 def test_a_compustage_tileset_needs_the_fm_pose():
@@ -122,17 +122,17 @@ def test_a_compustage_tileset_needs_the_fm_pose():
     microscope.fm.objective.insert()
 
     microscope.move_to_device("FM")
-    tiles = acquire_tileset(
+    tiles = FMTiledAcquisitionRunner(
         microscope=microscope,
         channel_settings=CHANNEL,
         overview_parameters=_overview(rows=1, cols=1),
-    )
+    ).run()
     assert tiles[0][0] is not None
 
     microscope.move_to_orientation("SEM")
     with pytest.raises(ValueError, match="Re-pose"):
-        acquire_tileset(
+        FMTiledAcquisitionRunner(
             microscope=microscope,
             channel_settings=CHANNEL,
             overview_parameters=_overview(),
-        )
+        ).run()

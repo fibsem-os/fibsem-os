@@ -380,3 +380,15 @@ def test_a_mill_inside_a_task_or_a_spot_burn_is_not_recorded_twice(scripted):
     assert events == []
     service.run()
     assert len(events) == 1
+
+
+def test_a_mill_part_of_a_spot_burn_reports_to_it_not_as_milling(scripted):
+    service = scripted([])
+    mills, burn = [], []
+    service.progress.changed.connect(mills.append)
+    with service.part_of(report=burn.append):
+        service.run()
+    assert mills == []
+    assert burn, "the run's ticks go to the spot burn"
+    service.run()
+    assert mills, "and to milling progress again once it is over"

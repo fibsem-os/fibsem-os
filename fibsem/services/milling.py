@@ -52,6 +52,7 @@ import uuid
 from contextlib import contextmanager
 from typing import (
     Any,
+    Callable,
     Dict,
     Iterator,
     List,
@@ -222,6 +223,11 @@ class Milling(Service):
 
     def _report(self, progress: MillingProgress) -> None:
         progress = self._in_run_context(progress)
+        report = getattr(self._part_of, "report", None)
+        if report is not None:
+            # A run that is part of something else reports to it, not as a mill.
+            report(progress)
+            return
         self._progress = progress
         self.progress.report(progress)
 
@@ -258,8 +264,8 @@ class Milling(Service):
     def report(self, progress: MillingProgress) -> None:
         """Report ``progress`` for whoever is driving the mill: a strategy or a task
         with words of its own, or its own countdown (coincidence milling). The
-        microscope's ``milling_progress_signal`` sends on what ``progress`` reports,
-        so this is how a report reaches it."""
+        app's progress bars listen on ``progress``, so this is how a report reaches
+        them."""
         self._report(progress)
 
     def beam(self, channel: BeamType = BeamType.ION) -> Beam:
@@ -546,14 +552,23 @@ class Milling(Service):
         )
 
     @contextmanager
-    def part_of(self) -> Iterator[None]:
+    def part_of(
+        self, report: Optional[Callable[[MillingProgress], None]] = None
+    ) -> Iterator[None]:
         """Runs in the block, on this thread, are part of something that records
-        itself (a spot burn), so they record no ``milling`` event of their own."""
+        itself (a spot burn), so they record no ``milling`` event of their own.
+
+        With *report*, their progress goes to it instead of ``progress``: what
+        listens for milling progress does not see a spot burn's mill as a mill."""
         self._part_of.depth = getattr(self._part_of, "depth", 0) + 1
+        outer = getattr(self._part_of, "report", None)
+        if report is not None:
+            self._part_of.report = report
         try:
             yield
         finally:
             self._part_of.depth -= 1
+            self._part_of.report = outer
 
     def _run_on_the_record(
         self, stop_event: Optional[Union[threading.Event, AnyStopEvent]]

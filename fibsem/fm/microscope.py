@@ -34,6 +34,7 @@ from typing import (
     Any,
     Callable,
     Dict,
+    Iterator,
     List,
     Optional,
     Sequence,
@@ -495,6 +496,11 @@ class FilterSet:
         _param(self._device, "emission_filter").write_through(found)
 
 
+class AcquisitionRefused(RuntimeError):
+    """Something may not drive the FM now: it is in use, or can't see the sample
+    from this pose (`FluorescenceMicroscope.refusal_to_start`)."""
+
+
 class FluorescenceMicroscope:
     """The FM API, over the FM's devices (``fibsem.devices.fm``), local or remote.
 
@@ -732,6 +738,20 @@ class FluorescenceMicroscope:
                 f"Cannot start {what}. {self.parent.explain_imaging_state('FM', state)}"
             )
         return None
+
+    @contextmanager
+    def acquiring(self, what: str) -> Iterator[None]:
+        """Drive the FM for *what* in one thread: refused with
+        `AcquisitionRefused` for `refusal_to_start`'s reason, else marked as
+        acquiring (`set_acquiring`) until the block ends, however it ends."""
+        refusal = self.refusal_to_start(what)
+        if refusal is not None:
+            raise AcquisitionRefused(refusal)
+        self.set_acquiring(True, what)
+        try:
+            yield
+        finally:
+            self.set_acquiring(False)
 
     def set_active_channel(self) -> None:
         """Point the microscope's imaging channel at the FM, and leave it there.

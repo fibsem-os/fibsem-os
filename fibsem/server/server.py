@@ -82,9 +82,9 @@ class _RefusingRoute(APIRoute):
         return refusing
 
 
-# Device and service commands that stop something (an FM z-stack's `cancel`
-# too). No control taken, so never refused by the running move or mill.
-STOP_COMMANDS = frozenset(("stop", "stop_live", "cancel"))
+# Device and service commands that stop something (an FM z-stack stops through
+# `imaging.stop`). No control taken, so never refused by the running move or mill.
+STOP_COMMANDS = frozenset(("stop", "stop_live"))
 
 # The instrument half of the API; /app is the application's.
 MICROSCOPE = "/microscope"

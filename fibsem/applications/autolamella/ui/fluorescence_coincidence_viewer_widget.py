@@ -19,7 +19,7 @@ The tab widget (right column) holds four tabs:
   4. FM       — FMControlWidget (fluorescence microscope control)
 
 The bottom bar shows the selected lamella name, start/pause/stop buttons,
-and two progress bars driven by ``microscope.milling_progress_signal``.
+and two progress bars driven by ``microscope.milling.progress``.
 """
 
 import datetime
@@ -1323,7 +1323,9 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             ion.live_frame.connect(lambda image: self._fib_image_ready.emit(image))
 
         # Milling progress
-        self.microscope.milling_progress_signal.connect(self._on_milling_progress)
+        milling = getattr(self.microscope, "milling", None)
+        if milling is not None:
+            milling.progress.changed.connect(self._on_milling_progress)
 
     # ------------------------------------------------------------------
     # Slots

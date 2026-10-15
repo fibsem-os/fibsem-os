@@ -4109,11 +4109,13 @@ class FibsemOverviewWidget(QWidget):
 
         result = {"cancelled": False, "error": None}
         try:
-            self._mosaic = tiled.tiled_image_acquisition_and_stitch(
-                microscope=self.microscope,
-                settings=settings,
-                stop_event=self._stop_event,
+            self._mosaic = tiled.acquire_tiled_overview(
+                self.microscope,
+                settings,
+                settings.image_settings.path,
+                settings.image_settings.filename,
                 centre_position=centre_position,
+                stop_event=self._stop_event,
             )
             self.overview_acquired.emit(self._mosaic)
         except OperationCancelledError:

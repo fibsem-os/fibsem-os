@@ -809,7 +809,10 @@ class AutoLamellaTask(ABC):
             if progress.status is MillingProgressStatus.TASK_STARTED:
                 runs.append(progress.milling_run_id)
 
-        self.microscope.milling_progress_signal.connect(_count_runs)
+        # Without a milling service (no ion beam) nothing runs, so nothing counts.
+        milling = getattr(self.microscope, "milling", None)
+        if milling is not None:
+            milling.progress.changed.connect(_count_runs)
         try:
             config = ask(
                 self.parent_ui.ui_responder,
@@ -828,7 +831,8 @@ class AutoLamellaTask(ABC):
                 abort=lambda: _abort_requested(self.parent_ui),
             )
         finally:
-            self.microscope.milling_progress_signal.disconnect(_count_runs)
+            if milling is not None:
+                milling.progress.changed.disconnect(_count_runs)
         if milling_enabled and not runs:
             record_milling_skipped(
                 self.microscope, config, "Continue was pressed without running it"

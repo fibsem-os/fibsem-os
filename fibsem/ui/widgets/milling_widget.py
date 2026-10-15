@@ -81,8 +81,9 @@ class FibsemMillingWidget2(QWidget):
         )
         self.progressBar_milling.setStyleSheet(stylesheets.PROGRESS_BAR_STYLESHEET)
 
-        if self.parent_widget._milling_enabled:
-            self.microscope.milling_progress_signal.connect(self._on_milling_progress)
+        milling = getattr(self.microscope, "milling", None)
+        if self.parent_widget._milling_enabled and milling is not None:
+            milling.progress.changed.connect(self._on_milling_progress)
 
         # TODO: milling message display
 
