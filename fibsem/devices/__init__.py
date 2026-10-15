@@ -46,8 +46,8 @@ from fibsem.devices.core import (
 )
 from fibsem.devices.gis import GIS_RESOURCE, GasInjector
 from fibsem.devices.manipulator import MANIPULATOR_RESOURCE, Manipulator
-from fibsem.devices.sputter_coater import SPUTTER_COATER_RESOURCE, SputterCoater
 from fibsem.devices.scanner import Scanner
+from fibsem.devices.sputter_coater import SPUTTER_COATER_RESOURCE, SputterCoater
 from fibsem.devices.stage import (
     AXIS_UNITS,
     STAGE_RESOURCE,
