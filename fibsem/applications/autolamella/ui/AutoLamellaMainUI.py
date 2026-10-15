@@ -53,7 +53,7 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.applications.autolamella.ui.agent_activity import AgentActivity
 from fibsem.applications.autolamella.ui.agent_level_chip import (
     AgentLevelChip,
-    request_failure_text,
+    request_outcome,
 )
 from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor import (
     AutoLamellaProtocolEditorWidget,
@@ -1594,7 +1594,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.agent_chip.reject_clicked.connect(self._on_reject_agent_request)
         self.status_bar.add_action(self.agent_chip)
         # The agent's requests (FIB-1283): the store being watched, and the
-        # requests whose outcome the status bar has already said.
+        # requests whose outcome a toast has already said (FIB-1404).
         self._agent_requests = None
         self._agent_requests_unsubscribe = None
         self._agent_requests_reported: set = set()
@@ -3815,6 +3815,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if store is None:
             self.agent_chip.set_request(None)
             return
+        # What ended before the window was watching is not news.
+        self._agent_requests_reported.update(
+            request.id
+            for request in store.recent()
+            if request.status not in ("pending", "applying")
+        )
 
         def changed(_request, signal=self.agent_request_changed):
             try:
@@ -3825,24 +3831,31 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._agent_requests_unsubscribe = store.subscribe(changed)
 
     def _show_agent_request(self, store) -> None:
-        """The chip shows a request waiting or being applied; a refused one leaves
-        its failure on the status bar, once."""
+        """The chip shows a request waiting or being applied; how one ended is
+        said once, as a toast, so the status bar keeps what is running now."""
         current = None
         for request in store.recent() if store is not None else []:
             if request.status in ("pending", "applying"):
-                current = request
-                break
-            if (
-                request.status == "failed"
-                and request.id not in self._agent_requests_reported
-            ):
-                self._agent_requests_reported.add(request.id)
-                self.status_bar.show_failure(
-                    "Agent's request", request_failure_text(request.to_dict())
+                current = current or request
+                continue
+            if request.id in self._agent_requests_reported:
+                continue
+            self._agent_requests_reported.add(request.id)
+            outcome = request_outcome(request.to_dict())
+            if outcome is not None:
+                message, kind = outcome
+                # Kept in the bell's history: the toast goes, the outcome stays.
+                notification_service.show(
+                    message,
+                    kind,
+                    action=("Show in event log", self._on_open_event_log)
+                    if kind == "error"
+                    else None,
                 )
         shown = current.to_dict() if current is not None else None
         if shown != self.agent_chip.request:
             self.agent_chip.set_request(shown)
+        self.agent_chip.set_now(self.agent_activity.action)
 
     def _on_approve_agent_request(self, request_id: str) -> None:
         """GUI thread, from the chip: run the request. Its actions run on their
@@ -3868,7 +3881,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             else:
                 store.reject(request_id, reason=reason)
         except RequestRefused as refused:
-            self.status_bar.show_failure("Agent's request", str(refused))
+            notification_service.show_toast(f"Agent's request: {refused}", "error")
         logging.info(
             "Agent's request %s %s by the operator",
             request_id,
