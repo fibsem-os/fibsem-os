@@ -9,7 +9,11 @@ from typing import Optional
 from PyQt5 import QtCore, QtWidgets
 
 from fibsem.applications.autolamella import config as cfg
-from fibsem.applications.autolamella.experiment_setup import create_experiment
+from fibsem.applications.autolamella.experiment_setup import (
+    create_experiment,
+    default_experiment_directory,
+    default_protocol_path,
+)
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
@@ -156,15 +160,7 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
         # Experiment Directory
         self.lineEdit_experiment_directory = QDirectoryLineEdit()
         prefs = load_user_preferences()
-        pref_dir = prefs.experiment.default_experiment_directory
-        if pref_dir and os.path.isdir(pref_dir):
-            self.lineEdit_experiment_directory.setText(pref_dir)
-        else:
-            if pref_dir:
-                logging.warning(
-                    f"Preference default_experiment_directory '{pref_dir}' does not exist; using default."
-                )
-            self.lineEdit_experiment_directory.setText(str(cfg.LOG_PATH))
+        self.lineEdit_experiment_directory.setText(default_experiment_directory())
 
         exp_prefs = prefs.experiment
         if exp_prefs.user:
@@ -397,18 +393,9 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
 
     def _load_default_protocol(self):
         """Load the default task protocol, preferring the path set in user preferences."""
-        prefs = load_user_preferences()
-        pref_protocol = prefs.experiment.default_protocol_path
-        if pref_protocol and os.path.isfile(pref_protocol):
-            protocol_path_to_load = pref_protocol
-        else:
-            if pref_protocol:
-                logging.warning(
-                    f"Preference default_protocol_path '{pref_protocol}' does not exist; using default."
-                )
-            if not os.path.exists(cfg.TASK_PROTOCOL_PATH):
-                return
-            protocol_path_to_load = str(cfg.TASK_PROTOCOL_PATH)
+        protocol_path_to_load = default_protocol_path()
+        if not os.path.exists(protocol_path_to_load):
+            return
 
         try:
             self.protocol = AutoLamellaTaskProtocol.load(protocol_path_to_load)

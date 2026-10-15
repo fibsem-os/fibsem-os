@@ -905,16 +905,24 @@ class AutoLamellaAppContext:
             "protocols": experiment_setup.list_protocols(),
         }
 
-    def _session_refusal(self) -> Optional[Dict[str, Any]]:
-        """Why the open experiment cannot be replaced now, or None."""
+    def _not_while_running(self, what: str) -> Optional[Dict[str, Any]]:
+        """The refusal while a workflow runs (*what* to do when it has
+        stopped), or None."""
         if getattr(self._host, "is_workflow_running", False):
             return {
                 "error_type": "task_running",
-                "error": "A workflow is running; change experiments when it has stopped.",
+                "error": f"A workflow is running; {what} when it has stopped.",
             }
+        return None
+
+    def _no_microscope(self) -> Optional[Dict[str, Any]]:
         if self._microscope is None:
             return {"error_type": "not_found", "error": "No microscope is connected."}
         return None
+
+    def _session_refusal(self) -> Optional[Dict[str, Any]]:
+        """Why the open experiment cannot be replaced now, or None."""
+        return self._not_while_running("change experiments") or self._no_microscope()
 
     def _protocol_or_refusal(self, name: Optional[str]):
         from fibsem.applications.autolamella import experiment_setup
@@ -991,10 +999,7 @@ class AutoLamellaAppContext:
     def load_experiment(self, path: str) -> Dict[str, Any]:
         """Open one of the recent experiments (``path`` as the recent list gives
         it), as the Load dialog does. One with no protocol is refused."""
-        from pathlib import Path
-
         from fibsem.applications.autolamella import experiment_setup
-        from fibsem.applications.autolamella.structures import Experiment
 
         refusal = self._session_refusal()
         if refusal:
@@ -1007,16 +1012,9 @@ class AutoLamellaAppContext:
                 "opens any other from the Load dialog.",
                 "recent_paths": recent,
             }
-        try:
-            experiment = Experiment.load(Path(path))
-        except Exception as exc:  # noqa: BLE001 - a broken file is a data fact
-            return {"error_type": "invalid", "error": f"Could not load {path}: {exc}"}
-        if experiment.task_protocol is None:
-            return {
-                "error_type": "invalid",
-                "error": f"{experiment.name} has no protocol; load it from the "
-                "dialog to attach one.",
-            }
+        experiment, why = experiment_setup.load_for_adoption(path)
+        if experiment is None:
+            return {"error_type": "invalid", "error": f"Not loaded: {why}."}
         self._adopt(experiment)
         experiment_setup.record_recent(experiment)
         return {"applied": True, "experiment": self.experiment_summary()}
@@ -1037,11 +1035,12 @@ class AutoLamellaAppContext:
             return refusal
 
         def attach():
-            experiment.task_protocol = task_protocol
-            experiment.save_protocol()
-            signal = getattr(self._host, "experiment_update_signal", None)
-            if signal is not None:
-                signal.emit()
+            adopt_protocol = getattr(self._host, "_adopt_protocol", None)
+            if adopt_protocol is not None:
+                adopt_protocol(task_protocol)
+            else:  # a host with no window: just set and save it
+                experiment.task_protocol = task_protocol
+                experiment.save_protocol()
 
         self._agent_call(attach)
         return {"applied": True, "protocol": self.protocol()}
@@ -1065,14 +1064,10 @@ class AutoLamellaAppContext:
                 None,
                 {"error_type": "not_found", "error": "No experiment is loaded."},
             )
-        microscope = self._microscope
-        if microscope is None:
-            return (
-                None,
-                None,
-                {"error_type": "not_found", "error": "No microscope is connected."},
-            )
-        return experiment, microscope, None
+        refusal = self._no_microscope()
+        if refusal:
+            return None, None, refusal
+        return experiment, self._microscope, None
 
     def overview_stage_position(
         self, grid_name: str, filename: str, px=None, fraction=None
@@ -1169,11 +1164,9 @@ class AutoLamellaAppContext:
         lamella, refusal = find_item(experiment, item_name)
         if refusal:
             return {"error_type": "not_found", **refusal}
-        if getattr(self._host, "is_workflow_running", False):
-            return {
-                "error_type": "task_running",
-                "error": "A workflow is running; remove items when it has stopped.",
-            }
+        refusal = self._not_while_running("remove items")
+        if refusal:
+            return refusal
 
         from fibsem.applications.autolamella.poses import remove_lamella
 
