@@ -168,6 +168,45 @@ CATALOG: Tuple[ToolSpec, ...] = (
         },
     ),
     ToolSpec(
+        name="align_to_reference",
+        description=(
+            "Bring the view back onto a saved reference image: acquire with its "
+            "settings, measure the shift and correct it, steps times, with the "
+            "beam shift (fine, small range), the stage (stable move) or "
+            "stage-vertical. reference_path must be inside the open experiment "
+            "(a path from get_task_outputs or an image you saved). A long command: "
+            "it answers with its run at once; wait_for_run alignment gives each "
+            "step's shift, whether the methods agree on what is left, and the "
+            "folder the run saved to. measure_shift first if you only want to know "
+            "how far off the view is."
+        ),
+        method="POST",
+        path="/microscope/services/alignment/commands/align",
+        level="drive",
+        hardware=True,
+        params={
+            "reference_path": "a saved image inside the open experiment",
+            "steps": "how many measure-and-correct steps (default 3)",
+            "subsystem": "beam-shift (default), stage or stage-vertical",
+        },
+    ),
+    ToolSpec(
+        name="measure_shift",
+        description=(
+            "The shift of one saved image from another, as align_to_reference "
+            "measures it: metres and pixels, a score (higher is better) and "
+            "whether it cleared the minimum. Both paths inside the open "
+            "experiment. Reads the files and moves nothing."
+        ),
+        method="POST",
+        path="/microscope/services/alignment/queries/measure_shift",
+        level="watch",
+        params={
+            "reference_path": "the saved reference image",
+            "image_path": "the saved image to measure against it",
+        },
+    ),
+    ToolSpec(
         name="stop_milling",
         description="Stop an in-progress mill, with the reason the operator reads.",
         method="POST",
@@ -410,7 +449,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "Run a service command listed by list_services, e.g. service=stage_movement "
             "command=move_to_orientation kwargs={'orientation': 'SEM'}. A long command "
             "(listed with long: true: milling run, run_stage and run_task, spot burn "
-            "run) answers at once with "
+            "run, alignment align) answers at once with "
             "its run (run_id, state: running) and runs on, in control of the "
             "microscope; wait_for_run says how it ended. command=stop from "
             "another call stops it: the agent's own run at Assist or Drive, "
@@ -1168,6 +1207,20 @@ _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict
     # A service command or query with no arguments still sends its kwargs.
     "stop_milling": lambda a: ({}, _stop(_kwargs(), a)),
     "estimate_milling_time": lambda a: ({}, _kwargs()),
+    "align_to_reference": lambda a: (
+        {},
+        _kwargs(
+            reference_path=str(a["reference_path"]),
+            steps=int(a.get("steps") or 3),
+            subsystem=str(a.get("subsystem") or "beam-shift"),
+        ),
+    ),
+    "measure_shift": lambda a: (
+        {},
+        _kwargs(
+            reference_path=str(a["reference_path"]), image_path=str(a["image_path"])
+        ),
+    ),
     "get_pattern_preview": lambda a: (
         {},
         _kwargs(image_path=str(a["image_path"]), stages=a.get("stages")),

@@ -455,6 +455,15 @@ says running, before you `clear`. It ends `done` (`result: completed`),
 `cancelled` or `failed` with its error. `get_service_parameter` milling
 `progress` shows how far it has got. A spot burn `run` works the same way.
 
+**Aligning to a reference.** To bring the view back onto a saved image (a
+task's reference from `get_task_outputs`, or one you saved), `measure_shift`
+the reference against a fresh saved image to see how far off you are, then
+`align_to_reference`: beam shift for a small offset, `stage` when it is beyond
+the beam shift's range. It is a long command; `wait_for_run` alignment gives
+each step's shift and whether the methods agree on what is left. If they don't
+agree, or the score stays low, the view has changed (milled, drifted out of
+frame): stop and tell the operator rather than aligning again.
+
 **`409 microscope_busy` is someone else working.** Its
 `detail.in_control` names who (`workflow`, `script`, or another command)
 and what. Treat it as a person would: say who has the microscope and what you
