@@ -19,6 +19,7 @@ from fibsem.applications.autolamella.workflows.tasks.base import (
     ALIGNMENT_REFERENCE_IMAGE_FILENAME,
     AutoLamellaTask,
 )
+from fibsem.display import Display
 from fibsem.milling.patterning.utils import (
     get_pattern_reduced_area,
     get_patterns_bounding_box,
@@ -34,23 +35,23 @@ class MillFiducialTaskConfig(AutoLamellaTaskConfig):
     alignment_expansion: float = field(
         default=100.0,
         metadata=field_meta(
-            tooltip="The percentage to expand the alignment area around the fiducial",
             unit="%",
+            doc="The percentage to expand the alignment area around the fiducial",
         ),
     )
     align_to_reference: bool = field(
         default=True,
         metadata=field_meta(
-            tooltip="Align to the reference image before milling fiducial (if available)"
+            doc="Align to the reference image before milling fiducial (if available)"
         ),
     )
     confirm_alignment_area: bool = field(
         default=True,
         metadata=field_meta(
-            label="Confirm Alignment Area",
-            tooltip="Ask you to check the alignment area around the milled "
+            doc="Ask you to check the alignment area around the milled "
             "fiducial before the alignment reference is taken in it. Off, the "
             "area is used as it stands.",
+            display=Display("Confirm Alignment Area"),
         ),
     )
     task_type: ClassVar[str] = "MILL_FIDUCIAL"

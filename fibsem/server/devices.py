@@ -83,7 +83,7 @@ from fastapi import (
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
 
-from fibsem.cancellation import OperationCancelledError
+from fibsem.cancellation import NothingToStop, OperationCancelledError
 from fibsem.devices.core import (
     Device,
     DeviceFault,
@@ -127,6 +127,7 @@ ERROR_STATUS = {
     ParameterReadOnly: 409,
     OperationCancelledError: 409,  # stopped: a sweep, a mill (FIB-1355)
     ResourceBusy: 409,  # held by someone else: a scanner live on the other beam
+    NothingToStop: 409,  # a stop with nothing running (FIB-1398)
     TypeError: 422,
     ValueError: 422,  # an argument that does not decode names its parameter
     NotImplementedError: 501,  # a command this driver has no hook for (a needle's stop)

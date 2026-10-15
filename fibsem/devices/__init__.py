@@ -45,7 +45,6 @@ from fibsem.devices.core import (
     command,
     query,
 )
-from fibsem.devices.display import Display
 from fibsem.devices.manipulator import MANIPULATOR_RESOURCE, Manipulator
 from fibsem.devices.scanner import Scanner
 from fibsem.devices.stage import (
@@ -55,6 +54,7 @@ from fibsem.devices.stage import (
     Stage,
     StageLimitError,
 )
+from fibsem.display import Display
 
 __all__ = [
     "AXIS_UNITS",

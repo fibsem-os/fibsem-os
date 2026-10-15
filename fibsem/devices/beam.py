@@ -28,9 +28,9 @@ from fibsem.devices.core import (
     Role,
     command,
 )
-from fibsem.devices.display import Display
 from fibsem.devices.scanner import SCANNER_RESOURCE, Scanner, resolution_within
 from fibsem.devices.wire import to_wire
+from fibsem.display import Display
 from fibsem.structures import (
     BeamType,
     FibsemImage,

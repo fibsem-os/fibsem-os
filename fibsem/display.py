@@ -1,9 +1,10 @@
 """How a value is shown: label, scale, unit, step and decimals.
 
-Declared once per device ``Parameter`` (``Parameter(display=Display(...))``), in the
-same vocabulary as a dataclass field's ``field_meta``, so a form renders device
-parameters and recipe fields alike. What a value may be (limits, choices, settable) is
-not here: the instrument reports that, in ``ParameterMetadata``.
+Declared once per device ``Parameter`` (``Parameter(display=Display(...))``) and per
+dataclass field (``field_meta(display=Display(...))``), so a form renders device
+parameters and recipe fields alike. What a value may be (its unit, limits and
+choices) is not here: the parameter or field declares that, in SI, and an instrument
+reports its own.
 
 It imports nothing from fibsem.
 """
@@ -31,24 +32,8 @@ class Display:
     step: Optional[float] = None
     decimals: Optional[int] = None
     advanced: bool = False
-
-    def as_field_metadata(self, unit: Optional[str] = None) -> Dict[str, Any]:
-        """The hint as ``field_meta`` keys, for a parameter in ``unit`` (its SI unit).
-
-        Only the keys this hint sets, so they can be laid over a form's defaults.
-        """
-        keys = {
-            "label": self.label,
-            "scale": self.scale,
-            "unit": unit,
-            "display_unit": self.unit,
-            "step": self.step,
-            "decimals": self.decimals,
-        }
-        metadata = {key: value for key, value in keys.items() if value is not None}
-        if self.advanced:
-            metadata["advanced"] = True
-        return metadata
+    # never shown in a form: set by code, not by hand (a pattern's drawn shapes)
+    hidden: bool = False
 
 
 # A composite value (a Point, a stage position) takes one hint per field.
@@ -73,4 +58,6 @@ def display_to_dict(hint: Optional[DisplayHint]) -> Optional[Dict[str, Any]]:
     shown = {key: value for key, value in fields.items() if value is not None}
     if hint.advanced:
         shown["advanced"] = True
+    if hint.hidden:
+        shown["hidden"] = True
     return shown

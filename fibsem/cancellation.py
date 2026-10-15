@@ -25,6 +25,11 @@ class OperationCancelledError(Exception):
     """
 
 
+class NothingToStop(Exception):
+    """A stop with nothing running to stop: refused, so the caller is not told it
+    stopped something (FIB-1398)."""
+
+
 class AnyStopEvent:
     """A stop signal that is set when any of its component events is set.
 

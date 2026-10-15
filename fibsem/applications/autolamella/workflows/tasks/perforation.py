@@ -20,8 +20,8 @@ class MillPerforationTaskConfig(AutoLamellaTaskConfig):
     orientation: Literal["SEM", "FIB", "MILLING"] = field(
         default="SEM",
         metadata=field_meta(
-            tooltip="The orientation to perform perforation milling in",
-            items=("SEM", "FIB", "MILLING"),
+            choices=("SEM", "FIB", "MILLING"),
+            doc="The orientation to perform perforation milling in",
         ),
     )
     task_type: ClassVar[str] = "MILL_PERFORATION"

@@ -63,7 +63,8 @@ class FibsemClient:
     Fetches system settings from the server at init
     so they are available as direct attributes, matching the FibsemMicroscope interface.
     Every call goes to a device or service route, so it needs what that route needs:
-    reads the agent at Watch, writes and commands at Drive.
+    reads the agent at Watch, writes and commands at Drive (at Assist they are
+    refused, 403 ask_first: the agent asks through a request instead).
     """
 
     def __init__(
@@ -223,7 +224,7 @@ class FibsemClient:
         over this server's ``/microscope/devices`` routes, with this client's token, built on
         first access. A read is live, a write is checked here and again on the
         server, and a command runs on the server; writes and commands need the
-        agent at Drive.
+        agent at Drive (at Assist, a request the operator approves).
 
         The App Server has no event stream, so no change made elsewhere (the
         microscope's own UI, another client) is signalled: ``changed`` fires only

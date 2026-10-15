@@ -17,6 +17,7 @@ import inspect
 import json
 import logging
 import threading
+from dataclasses import replace
 from typing import Any, Dict, Mapping, Optional
 
 from PyQt5.QtCore import QObject, Qt, pyqtSignal
@@ -33,11 +34,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.ui.widgets.form_builder import (
-    Control,
-    build_control,
-    parameter_field_metadata,
-)
+from fibsem.ui.widgets.form_builder import Control, build_control, parameter_spec
 
 
 class _Bridge(QObject):
@@ -113,15 +110,15 @@ class DevicePanel(QWidget):
     # -- parameters
 
     def _label(self, parameter: Any) -> str:
-        return parameter_field_metadata(parameter).get("label") or parameter.name
+        return parameter_spec(parameter).display.label or parameter.name
 
     def _control(self, name: str, parameter: Any) -> QWidget:
         try:
             value = parameter.get_value()
         except Exception as error:  # a sick read shows as such, not as a crash
             return QLabel(f"unavailable: {error}")
-        metadata = {"items": None, "type": None, **parameter_field_metadata(parameter)}
-        control = build_control(metadata, value, annotation=parameter.type)
+        spec = replace(parameter_spec(parameter), type=parameter.type)
+        control = build_control(spec, value)
         if control is None:
             return QLabel(str(value))
         if not parameter.settable:

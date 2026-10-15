@@ -477,6 +477,48 @@ def test_a_stop_between_stages_is_recorded_as_cancelled(tmp_path):
     assert polish["reason"] == "the run was stopped before this stage"
 
 
+def test_the_milling_service_s_stop_ends_the_whole_task(tmp_path):
+    """An agent's stop_milling, or Stop agent, stops the milling service. That
+    ended only the stage milling then, and the next started (FIB-1398): it must
+    end the task."""
+    stages = [FibsemMillingStage(name=n) for n in ("one", "two", "three")]
+    microscope, task = _task(tmp_path, stages=stages, acquire_final_image=False)
+    milled = []
+
+    def run_milling(*a, **k):
+        milled.append(k.get("stop_event"))
+        microscope.milling.stop()  # from elsewhere, while the stage mills
+
+    microscope.run_milling = run_milling
+    events = _milling_events(microscope)
+
+    task.run()
+
+    assert len(milled) == 1, "no stage starts after a stop"
+    assert task.outcome is MillingProgressStatus.TASK_CANCELLED
+    (run,) = events
+    assert [s["status"] for s in run["stages"]] == ["cancelled", "skipped", "skipped"]
+
+
+def test_the_microscope_s_stop_milling_stops_only_the_pattern(tmp_path):
+    """A strategy that ends a mill on purpose (coincidence milling) stops the
+    pattern through the microscope; the task goes on to its next stage."""
+    stages = [FibsemMillingStage(name=n) for n in ("one", "two")]
+    microscope, task = _task(tmp_path, stages=stages, acquire_final_image=False)
+    milled = []
+
+    def run_milling(*a, **k):
+        milled.append(1)
+        microscope.stop_milling()
+
+    microscope.run_milling = run_milling
+
+    task.run()
+
+    assert len(milled) == 2
+    assert task.outcome is MillingProgressStatus.TASK_FINISHED
+
+
 def test_a_run_with_every_stage_turned_off_is_skipped(tmp_path):
     stage = FibsemMillingStage(name="rough")
     stage.enabled = False

@@ -352,16 +352,16 @@ def test_the_form_builder_can_draw_every_parameter(microscope):
     """The shared form builder, which the Devices tab uses, can draw each of its
     parameters from its metadata."""
     pytest.importorskip("PyQt5")
+    from dataclasses import replace
+
     from PyQt5.QtWidgets import QApplication
 
-    from fibsem.ui.widgets.form_builder import build_control, parameter_field_metadata
+    from fibsem.ui.widgets.form_builder import build_control, parameter_spec
 
     _app = QApplication.instance() or QApplication([])
     for name, parameter in microscope.devices["fake_scanner"].parameters.items():
-        metadata = {"items": None, "type": None, **parameter_field_metadata(parameter)}
-        control = build_control(
-            metadata, parameter.get_value(), annotation=parameter.type
-        )
+        spec = replace(parameter_spec(parameter), type=parameter.type)
+        control = build_control(spec, parameter.get_value())
         assert control is not None and control.editable, name
 
 

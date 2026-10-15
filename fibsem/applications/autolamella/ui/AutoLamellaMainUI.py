@@ -707,10 +707,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             parent=self,
         )
 
-        # The embedded App Server's dialog: status, services, the dashboard. The
-        # agent's level and connecting one are the agent chip's (FIB-1035); the
-        # durable settings are in Preferences -> App Server. Visible only with the
-        # App Server enabled, next to Scripts (FIB-863).
+        # The embedded App Server's dialog: whether it runs, its services, the
+        # dashboard. The agent's level and connecting one are the agent chip's
+        # (FIB-1035). Always visible: it is where the server is turned on. Next
+        # to Scripts (FIB-863).
         self.action_app_server = QAction("App Server...", self)
         self.action_app_server.setMenuRole(QAction.NoRole)
         self.action_app_server.setToolTip(
@@ -989,9 +989,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def _apply_preferences(self):
         """Apply current preferences to UI state."""
-        # The embedded App Server follows its flag immediately: ticking the
-        # box mid-session starts it against the connected microscope (or stops
-        # it), instead of waiting for the next connect.
+        # The embedded App Server follows its saved switch (set in Tools → App
+        # Server) against the connected microscope.
         if getattr(self, "autolamella_ui", None) is not None:
             self.autolamella_ui.sync_app_server_with_preference()
         d = self._preferences.display
@@ -1013,8 +1012,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_open_coincidence_viewer.setVisible(coincidence_enabled)
         self._action_coincidence_separator.setVisible(coincidence_enabled)
         self._apply_review_visibility()
-        # Same rule as the rest of the agent chrome: invisible unless enabled.
-        self.action_app_server.setVisible(self._preferences.app_server.enabled)
         # getattr because this also runs from the preferences dialog, and the tab it
         # reaches into is built by AutoLamellaUI rather than here.
         system_widget = getattr(self.autolamella_ui, "system_widget", None)
@@ -1633,6 +1630,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             QMessageBox.No,
         )
         if reply == QMessageBox.Yes and self.autolamella_ui is not None:
+            self._record_operator_stop("workflow", "Stop")
             self.autolamella_ui.stop_task_workflow()
             self._set_border_state("stopping")
 
@@ -3533,6 +3531,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             # Two halves, as Stop Workflow has: tell the queue this task is being
             # abandoned, and bring the hardware to a halt. Without the second, the
             # task stops waiting for the mill but the mill keeps going.
+            self._record_operator_stop("task", "Stop Task", task=label)
             manager.stop_task()
             self.autolamella_ui.stop_current_operations()
             # No queue mutation here: the task unwinds on the worker thread and the
@@ -3770,14 +3769,33 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             AppServerDialog,
         )
 
+        preference = fibsem_cfg.load_user_preferences().app_server
         dialog = AppServerDialog(
             host_provider=lambda: getattr(
                 self.autolamella_ui, "_app_server_host", None
             ),
             parent=self,
-            set_microscope=self.autolamella_ui.set_app_server_microscope,
+            set_enabled=self._set_app_server_enabled,
+            set_microscope=self._set_app_server_microscope,
+            enabled=preference.enabled,
+            serve_microscope=preference.microscope,
         )
         dialog.exec_()
+
+    def _set_app_server_enabled(self, enabled: bool) -> None:
+        """Tools → App Server: save whether the server runs, and act on it now."""
+        self._preferences = fibsem_cfg.update_user_preferences(
+            lambda p: setattr(p.app_server, "enabled", bool(enabled))
+        )
+        self.autolamella_ui.sync_app_server_with_preference()
+
+    def _set_app_server_microscope(self, serve: bool) -> None:
+        """Tools → App Server: save whether the microscope is served, and act on it
+        now (a running server restarts)."""
+        self._preferences = fibsem_cfg.update_user_preferences(
+            lambda p: setattr(p.app_server, "microscope", bool(serve))
+        )
+        self.autolamella_ui.set_app_server_microscope(serve)
 
     def _running_app_server(self):
         """The App Server's host while it runs, else None."""
@@ -3907,6 +3925,18 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 stopped=stopped,
             )
         self._refresh_agent_chip()
+
+    def _record_operator_stop(self, stopped: str, by: str, **extra) -> None:
+        """Put the operator's stop on the session's record (events.jsonl) and in
+        the log, before the stop runs: what was stopped (the workflow or one
+        task) and from where. Without it a stop leaves only the run's
+        ``task_cancelled``, which does not say who stopped it (FIB-1397). The
+        agent's stop records itself (``agent_stop``)."""
+        logging.info("%s stopped by the operator (%s)", stopped.capitalize(), by)
+        recorder = getattr(self.autolamella_ui, "_event_recorder", None)
+        if recorder is None:
+            return
+        recorder.buffer.append("workflow_stop", {"stopped": stopped, "by": by, **extra})
 
     def _record_agent_event(self, kind: str, previous, level, **extra) -> None:
         """Put a level change on the session's record (events.jsonl). Emitted
@@ -4382,6 +4412,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         box.setDefaultButton(QMessageBox.No)
         if box.exec_() != QMessageBox.Yes:
             return False
+        self._record_operator_stop("workflow", "closing the window")
         ui.stop_task_workflow()
         return True
 

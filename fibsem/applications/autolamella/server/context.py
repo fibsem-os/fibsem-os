@@ -1517,15 +1517,6 @@ class AutoLamellaAppContext:
         outcome = host.request_apply_item_patch(item_name, dict(patch), str(version))
         result = outcome.result(timeout=timeout)
         result["available"] = True
-        if result.get("applied") and self._event_buffer is not None:
-            self._event_buffer.append(
-                "config_edited",
-                {
-                    "level": "item_fields",
-                    "item_name": item_name,
-                    "changes": result.get("changes", []),
-                },
-            )
         return result
 
     # --- propose and review (FIB-950) -----------------------------------------
@@ -1737,16 +1728,6 @@ class AutoLamellaAppContext:
         )
         result = outcome.result(timeout=timeout)
         result["available"] = True
-        if result.get("applied") and self._event_buffer is not None:
-            self._event_buffer.append(
-                "config_edited",
-                {
-                    "level": level,
-                    "item_name": item_name or None,
-                    "task_name": task_name,
-                    "reorder": {"milling_key": milling_key, "order": list(order)},
-                },
-            )
         return result
 
     def apply_protocol_to_item(
@@ -1794,15 +1775,6 @@ class AutoLamellaAppContext:
         outcome = host.request_apply_protocol_to_item(item_name, task_names)
         result = outcome.result(timeout=timeout)
         result["available"] = True
-        if result.get("applied") and self._event_buffer is not None:
-            self._event_buffer.append(
-                "config_edited",
-                {
-                    "level": "protocol_applied",
-                    "item_name": item_name,
-                    "task_names": result.get("task_names", []),
-                },
-            )
         return result
 
     def apply_protocol_task_config_patch(
@@ -1827,15 +1799,6 @@ class AutoLamellaAppContext:
         )
         result = outcome.result(timeout=timeout)
         result["available"] = True
-        if result.get("applied") and self._event_buffer is not None:
-            self._event_buffer.append(
-                "config_edited",
-                {
-                    "level": "protocol",
-                    "task_name": task_name,
-                    "changes": result.get("changes", []),
-                },
-            )
         return result
 
     @staticmethod
@@ -1900,16 +1863,6 @@ class AutoLamellaAppContext:
         )
         result = outcome.result(timeout=timeout)
         result["available"] = True
-        if result.get("applied") and self._event_buffer is not None:
-            self._event_buffer.append(
-                "config_edited",
-                {
-                    "level": "item",
-                    "item_name": item_name,
-                    "task_name": task_name,
-                    "changes": result.get("changes", []),
-                },
-            )
         return result
 
     # --- instrument-adjacent (cached only, never a hardware call) --------------
@@ -2268,7 +2221,8 @@ class AutoLamellaAppContext:
         The queue exists only while a workflow runs, so a re-run is queued into
         the live run: "run 03 again" while the batch continues. Adding a
         duplicate of a completed pair is the queue's own re-run mechanism; the
-        item lands at the back (or the front with ``front=True``).
+        item lands at the back (or the front with ``front=True``). A pair
+        already waiting is refused (``already_queued``): it runs once.
         """
         manager = self._manager
         if manager is None:
@@ -2303,6 +2257,15 @@ class AutoLamellaAppContext:
             refused = refusal([lamella])
             if refused:
                 return {"available": True, "queued": False, "reason": refused}
+        if manager.queue.has_pending_pair(item_name, task_name):
+            # A re-ask after a partial failure would queue it twice (FIB-1405).
+            return {
+                "available": True,
+                "queued": False,
+                "error_type": "already_queued",
+                "reason": f"{item_name} / {task_name} is already waiting in the "
+                "queue; it runs once.",
+            }
         item = manager.queue.add(item_name, task_name, front=bool(front))
         if item is None:
             return {"available": True, "queued": False, "reason": "add refused"}
@@ -2361,6 +2324,13 @@ class AutoLamellaAppContext:
             # than having the workflow reach into the widget to build the
             # request. Same whole-reference grab as display_images.
             payload["image"] = self._display_frame("ib_image")
+        if payload["type"] == "PickPOI":
+            # The marker sits on the frame the FIB view shows, which is newer
+            # than the request's when anything moved since the task took it (an
+            # agent's approved moves, FIB-1399): serve that one.
+            shown = self._display_frame("ib_image")
+            if shown is not None:
+                payload["image"] = shown
         return {"available": True, "pending": payload}
 
     def _display_frame(self, attr: str) -> Optional[Dict[str, Any]]:
