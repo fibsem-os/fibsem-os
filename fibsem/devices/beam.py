@@ -9,16 +9,26 @@ from __future__ import annotations
 import copy
 import logging
 import threading
+from dataclasses import replace
 from math import pi
-from typing import Any, Dict, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Optional, Sequence, Tuple
 
 from psygnal import Signal
 
 from fibsem.cancellation import COMPLETED, ended_by
 from fibsem.constants import DEGREE_SYMBOL
-from fibsem.devices.core import UNLIMITED, Device, Parameter, Role, command
+from fibsem.devices.core import (
+    UNLIMITED,
+    BoundParameter,
+    Device,
+    MetadataSource,
+    Parameter,
+    ParameterMetadata,
+    Role,
+    command,
+)
 from fibsem.devices.display import Display
-from fibsem.devices.scanner import Scanner
+from fibsem.devices.scanner import Scanner, resolution_within
 from fibsem.structures import (
     BeamType,
     FibsemImage,
@@ -185,6 +195,95 @@ class Beam(Device):
         # The settings this beam last acquired with, when it was given some: where
         # that image was saved, which `image_settings` carries on.
         self._last_image_settings: Optional[ImageSettings] = None
+
+    # -- a bound scanner's limits ------------------------------------------------
+    #
+    # While a scanner is bound, the beam's dwell time and resolution offer only what
+    # both the column and the scanner can do: the limits are intersected, and the
+    # resolution choices filtered. The values stay the beam's.
+
+    _SCANNER_LIMITED = ("dwell_time", "resolution")
+
+    def bind(
+        self,
+        name: str,
+        read: Callable[[], Any],
+        write: Optional[Callable[[Any], None]] = None,
+        metadata: MetadataSource = None,
+        needs_channel: bool = False,
+    ) -> BoundParameter:
+        if name in self._SCANNER_LIMITED:
+            metadata = self._within_scanner(name, metadata)
+        return super().bind(name, read, write, metadata, needs_channel)
+
+    def fill_roles(self, **devices: Device) -> "Beam":
+        super().fill_roles(**devices)
+        if "scanner" in devices:
+            for name in self._SCANNER_LIMITED:
+                param = self.parameters.get(name)
+                if param is not None:
+                    param.refresh_metadata()
+        return self
+
+    def _within_scanner(
+        self, name: str, source: MetadataSource
+    ) -> Callable[[], ParameterMetadata]:
+        spec = self.declared_parameters()[name]
+
+        def metadata() -> ParameterMetadata:
+            own = source() if callable(source) else (source or ParameterMetadata())
+            scanner = self._roles.get("scanner")
+            if scanner is None:
+                return own
+            if name == "dwell_time":
+                return self._dwell_within(own, spec.limits, scanner.dwell_time_limits)
+            return self._resolutions_within(
+                own, spec.choices, scanner.resolution_limits
+            )
+
+        return metadata
+
+    def _dwell_within(
+        self,
+        own: ParameterMetadata,
+        default: Optional[RangeLimit],
+        scanner: Optional[RangeLimit],
+    ) -> ParameterMetadata:
+        limits = own.limits if own.limits is not None else default
+        if scanner is None:
+            return own
+        if limits is None:
+            return replace(own, limits=scanner)
+        both = RangeLimit(
+            min=max(limits.min, scanner.min), max=min(limits.max, scanner.max)
+        )
+        if both.min > both.max:
+            logging.warning(
+                f"{self.name}: its dwell times ({limits.min}-{limits.max} s) and its "
+                f"scanner's ({scanner.min}-{scanner.max} s) don't overlap; offering "
+                "the scanner's"
+            )
+            both = scanner
+        return replace(own, limits=both)
+
+    def _resolutions_within(
+        self,
+        own: ParameterMetadata,
+        default: Optional[Sequence[Any]],
+        scanner: Optional[Tuple[Tuple[int, int], Tuple[int, int]]],
+    ) -> ParameterMetadata:
+        choices = own.choices if own.choices is not None else default
+        if scanner is None or choices is None:
+            return own
+        within = [c for c in choices if resolution_within(tuple(c), scanner)]
+        if not within:
+            logging.warning(
+                f"{self.name}: none of its resolutions is within its scanner's "
+                f"{scanner}; offering them all, and the scanner refuses what it "
+                "can't scan"
+            )
+            return own
+        return replace(own, choices=within)
 
     def facts(self) -> Dict[str, Any]:
         """The gas the column's source reports running, if any."""
