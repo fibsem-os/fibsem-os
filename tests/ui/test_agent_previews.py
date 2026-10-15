@@ -131,14 +131,26 @@ def test_without_views_nothing_is_drawn():
     assert previews.drawn == []
 
 
-def test_a_suggested_point_of_interest_is_in_the_question_s_pixels():
+def test_a_suggested_point_of_interest_is_in_the_view_s_pixels():
+    """In the FIB view's frame (FIB-1410); the question's when no view shows one."""
+    import types
+
     from fibsem.applications.autolamella.ui.qt_responder import QtResponder
     from fibsem.applications.autolamella.workflows.interaction import PickPOI
 
     image = FibsemImage.generate_blank_image(resolution=(200, 100), hfw=100e-6)
     request = PickPOI(image=image)
-    assert QtResponder._suggested_pixel(request, Point(-10e-6, 5e-6)) == (80.0, 40.0)
-    assert QtResponder._suggested_pixel(request, None) is None
+    no_view = types.SimpleNamespace(_ui=None)
+    pixel = QtResponder._suggested_pixel(no_view, request, Point(-10e-6, 5e-6))
+    assert pixel == (80.0, 40.0)
+    assert QtResponder._suggested_pixel(no_view, request, None) is None
+
+    shown = FibsemImage.generate_blank_image(resolution=(200, 100), hfw=50e-6)
+    view = types.SimpleNamespace(
+        _ui=types.SimpleNamespace(image_widget=types.SimpleNamespace(ib_image=shown))
+    )
+    pixel = QtResponder._suggested_pixel(view, request, Point(-10e-6, 5e-6))
+    assert pixel == pytest.approx((60.0, 30.0))
 
 
 class _Signal:
