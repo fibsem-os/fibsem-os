@@ -14,7 +14,7 @@ from PyQt5.QtWidgets import (
 
 from fibsem.milling.base import MillingStrategy, get_strategy
 from fibsem.milling.strategy import get_strategy_names
-from fibsem.structures import BeamType, FieldSpec
+from fibsem.structures import BeamType, Parameter
 from fibsem.ui.tokens import (
     TEXT_MUTED_COLOR,
 )
@@ -119,7 +119,7 @@ class FibsemStrategySettingsWidget(QWidget):
     def _instrument_choices(self, parameter: str) -> List[Any]:
         """The choices of a field the instrument decides: the milling beam's for its
         parameter, else what every beam declares (with no microscope)."""
-        bound = FieldSpec(name=parameter, microscope_parameter=parameter)
+        bound = Parameter(name=parameter, device_parameter=f"beam.{parameter}")
         return list(beam_spec(bound, self.microscope, BeamType.ION).choices or [])
 
     def _build_controls(self, strategy: MillingStrategy[Any]) -> None:

@@ -35,8 +35,8 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskConfig,
 )
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
-from fibsem.display import Display
 from fibsem.structures import (
+    Display,
     FibsemRectangle,
     InsertableDeviceState,
     Point,

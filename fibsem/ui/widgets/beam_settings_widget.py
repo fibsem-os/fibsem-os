@@ -15,7 +15,7 @@ from superqt.utils import qdebounced
 from fibsem import utils
 from fibsem.devices.beam import STANDARD_RESOLUTIONS, Beam
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import BeamSettings, BeamType, FieldSpec, Point, Resolution
+from fibsem.structures import BeamSettings, BeamType, Parameter, Point, Resolution
 from fibsem.ui import notification_service
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.utils import find_data, install_wheel_blocker
@@ -587,7 +587,7 @@ class FibsemBeamSettingsWidget(QWidget):
             return [] if value is None else [value]
         return self._choices(key)
 
-    def _field(self, name: str, field=None) -> FieldSpec:
+    def _field(self, name: str, field=None) -> Parameter:
         """How to show the beam parameter ``name`` (one ``field`` of a point): its
         display hint, with the limits and choices this beam reports. With no such
         beam, or a beam without the parameter, what every beam declares."""

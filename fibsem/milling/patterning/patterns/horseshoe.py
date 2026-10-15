@@ -6,7 +6,6 @@ from typing import (
     List,
 )
 
-from fibsem.display import Display
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.milling.properties import (
     cross_section_metadata,
@@ -15,6 +14,7 @@ from fibsem.milling.properties import (
 )
 from fibsem.structures import (
     CrossSectionPattern,
+    Display,
     FibsemRectangleSettings,
     field_meta,
 )

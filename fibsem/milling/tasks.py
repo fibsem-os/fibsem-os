@@ -21,7 +21,6 @@ from fibsem.cancellation import (
     ended_by,
     raise_if_cancelled,
 )
-from fibsem.display import Display
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.base import FibsemMillingStage, MillingStrategyResult
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
@@ -29,6 +28,7 @@ from fibsem.services.milling import report_progress
 from fibsem.services.milling import task_running as _task_running
 from fibsem.structures import (
     BeamType,
+    Display,
     FibsemImage,
     ImageSettings,
     MillingAlignment,

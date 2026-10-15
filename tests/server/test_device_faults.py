@@ -15,7 +15,7 @@ pytest.importorskip("httpx")  # TestClient transport
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from fibsem.devices import Device, DeviceFault, Parameter, command  # noqa: E402
+from fibsem.devices import Device, DeviceFault, DeviceParameter, command  # noqa: E402
 from fibsem.server.devices import build_device_app  # noqa: E402
 
 
@@ -24,7 +24,7 @@ class ControllerError(DeviceFault):
 
 
 class Unit(Device):
-    gain = Parameter(float)
+    gain = DeviceParameter(float)
 
     def read_gain(self):
         raise ControllerError("controller offline", device=self.name)

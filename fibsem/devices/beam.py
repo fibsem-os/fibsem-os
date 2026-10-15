@@ -21,17 +21,17 @@ from fibsem.devices.core import (
     UNLIMITED,
     BoundParameter,
     Device,
+    DeviceParameter,
     MetadataSource,
-    Parameter,
     ParameterMetadata,
     Role,
     command,
 )
 from fibsem.devices.scanner import Scanner, resolution_within
 from fibsem.devices.wire import to_wire
-from fibsem.display import Display
 from fibsem.structures import (
     BeamType,
+    Display,
     FibsemImage,
     FibsemImageMetadata,
     FibsemRectangle,
@@ -90,28 +90,30 @@ DEFAULT_STIGMATION_LIMITS = {
 
 
 class Beam(Device):
-    voltage = Parameter(float, unit="V", display=Display("Beam Voltage", advanced=True))
+    voltage = DeviceParameter(
+        float, unit="V", display=Display("Beam Voltage", advanced=True)
+    )
     # the currents an instrument offers change with the gas and the voltage (AutoScript)
-    current = Parameter(
+    current = DeviceParameter(
         float,
         unit="A",
         depends_on=("plasma_gas", "voltage"),
         display=Display("Beam Current"),
     )
-    plasma_gas = Parameter(str, display=Display("Plasma Gas"))
-    working_distance = Parameter(
+    plasma_gas = DeviceParameter(str, display=Display("Plasma Gas"))
+    working_distance = DeviceParameter(
         float,
         unit="m",
         limits=DEFAULT_WORKING_DISTANCE_LIMITS,
         display=Display("Working Distance", scale=1e3, step=0.01, decimals=3),
     )
-    hfw = Parameter(
+    hfw = DeviceParameter(
         float,
         unit="m",
         limits=DEFAULT_HFW_LIMITS,
         display=Display("Field of View", scale=1e6, step=50.0, decimals=1),
     )
-    scan_rotation = Parameter(
+    scan_rotation = DeviceParameter(
         float,
         unit="rad",
         limits=RangeLimit(min=0.0, max=2 * pi),
@@ -124,56 +126,56 @@ class Beam(Device):
             advanced=True,
         ),
     )
-    blanked = Parameter(bool, display=Display("Blanked"))
-    live = Parameter(bool, doc="Whether live view is running. Read only.")
-    preset = Parameter(str, display=Display("Preset"))
-    detector_type = Parameter(str, display=Display("Detector Type"))
-    detector_mode = Parameter(
+    blanked = DeviceParameter(bool, display=Display("Blanked"))
+    live = DeviceParameter(bool, doc="Whether live view is running. Read only.")
+    preset = DeviceParameter(str, display=Display("Preset"))
+    detector_type = DeviceParameter(str, display=Display("Detector Type"))
+    detector_mode = DeviceParameter(
         str, depends_on=("detector_type",), display=Display("Detector Mode")
     )
-    detector_contrast = Parameter(
+    detector_contrast = DeviceParameter(
         float,
         limits=RangeLimit(min=0.0, max=1.0),
         display=Display("Contrast", step=0.01, decimals=3),
     )
-    detector_brightness = Parameter(
+    detector_brightness = DeviceParameter(
         float,
         limits=RangeLimit(min=0.0, max=1.0),
         display=Display("Brightness", step=0.01, decimals=3),
     )
-    resolution = Parameter(
+    resolution = DeviceParameter(
         tuple,
         unit="px",
         choices=STANDARD_RESOLUTIONS,
         doc="(width, height). The choices are what the scan can be set to.",
         display=Display("Resolution"),
     )
-    dwell_time = Parameter(
+    dwell_time = DeviceParameter(
         float,
         unit="s",
         limits=DEFAULT_DWELL_TIME_LIMITS,
         display=Display("Dwell Time", scale=1e6, step=0.01, decimals=3),
     )
-    stigmation = Parameter(
+    stigmation = DeviceParameter(
         Point,
         limits=DEFAULT_STIGMATION_LIMITS,
         display=Display("Stigmation", step=0.001, decimals=4, advanced=True),
     )
-    shift = Parameter(
+    shift = DeviceParameter(
         Point,
         unit="m",
         limits=DEFAULT_SHIFT_LIMITS,
         doc="Beam shift.",
         display=Display("Shift", scale=1e6, step=0.01, decimals=3, advanced=True),
     )
-    on = Parameter(bool, doc="The beam is switched on.")
-    scanning_mode = Parameter(
+    on = DeviceParameter(bool, doc="The beam is switched on.")
+    scanning_mode = DeviceParameter(
         ScanMode, doc="What the beam scans; the scan commands set it."
     )
-    angular_correction = Parameter(
+    angular_correction = DeviceParameter(
         float, unit="rad", doc="The tilt the angular correction corrects the image for."
     )
-    tilt_correction = Parameter(
+    tilt_correction = DeviceParameter(
         bool, doc="The angular correction's tilt correction is on."
     )
 

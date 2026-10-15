@@ -1,7 +1,7 @@
-"""A dataclass field says what a device Parameter says (fibsem.devices.core).
+"""A dataclass field and a device parameter are the same ``Parameter``.
 
 Its meaning -- SI unit, limits in SI, choices, a doc -- and its look, a ``Display``.
-``field_specs`` reads them off a dataclass as one ``FieldSpec`` per field, which is
+``field_specs`` reads them off a dataclass as one ``Parameter`` per field, which is
 what every form reads.
 """
 
@@ -10,8 +10,8 @@ from typing import Optional
 
 import pytest
 
-from fibsem.display import Display
 from fibsem.structures import (
+    Display,
     FibsemMillingSettings,
     RangeLimit,
     field_meta,
@@ -38,9 +38,9 @@ class Probe:
         default_factory=list, metadata=field_meta(display=Display(hidden=True))
     )
     current: float = field(
-        default=1e-9, metadata=field_meta(microscope_parameter="current")
+        default=1e-9, metadata=field_meta(device_parameter="beam.current")
     )
-    hfw: float = field(default=150e-6, metadata=field_meta(microscope_parameter="hfw"))
+    hfw: float = field(default=150e-6, metadata=field_meta(device_parameter="beam.hfw"))
 
 
 def test_si_limits_are_shown_through_the_scale():
@@ -110,3 +110,37 @@ def test_no_gui_default_in_the_milling_settings():
     hfw = field_specs(FibsemMillingSettings)["hfw"]
     assert hfw.limits == RangeLimit(20e-6, 950e-6)
     assert hfw.shown_range == pytest.approx((20.0, 950.0))
+
+
+# --- one Parameter for fields and devices -------------------------------------
+
+
+def test_a_device_parameter_is_a_parameter():
+    """What a form or a description reads off a device parameter is what it reads
+    off a field: the device class only adds the binding."""
+    from fibsem.devices.beam import Beam
+    from fibsem.structures import Parameter
+
+    assert isinstance(Beam.current, Parameter)
+    assert field_specs(Probe)["current"].unit == Beam.current.unit
+
+
+def test_a_device_declaring_a_plain_parameter_is_refused():
+    """A plain Parameter on a device would bind nothing and read as absent."""
+    from fibsem.devices.core import Device
+    from fibsem.structures import Parameter
+
+    with pytest.raises(TypeError, match="DeviceParameter"):
+
+        class Gauge(Device):
+            pressure = Parameter(float, unit="Pa")
+
+
+def test_a_device_parameter_names_its_device():
+    with pytest.raises(ValueError, match="beam.current"):
+        field_meta(device_parameter="current")
+
+
+def test_a_bound_field_reports_its_device_parameter_name():
+    spec = field_specs(Probe)["current"]
+    assert (spec.device_parameter, spec.bound_name) == ("beam.current", "current")

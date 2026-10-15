@@ -14,14 +14,13 @@ import numpy as np
 
 from fibsem.devices import (
     DeviceFault,
-    Parameter,
+    DeviceParameter,
     ParameterMetadata,
     Resources,
     command,
 )
 from fibsem.devices.scanner import Scanner
-from fibsem.display import Display
-from fibsem.structures import RangeLimit
+from fibsem.structures import Display, RangeLimit
 from fibsem_fake_scanner import MANUFACTURER
 from fibsem_fake_scanner.sdk import (
     INPUTS,
@@ -38,21 +37,23 @@ if TYPE_CHECKING:
 class FakeScanner(Scanner):
     """A simulated external scan generator on its own controller."""
 
-    input = Parameter(
+    input = DeviceParameter(
         str, choices=INPUTS, doc="The input (ADC) the frame is read from."
     )
-    gain = Parameter(
+    gain = DeviceParameter(
         float,
         limits=RangeLimit(0.0, 1.0),
         doc="The selected input's analogue gain, as a fraction of its range.",
         display=Display("Gain", scale=100, unit="%", step=1, decimals=0),
     )
-    offset = Parameter(
+    offset = DeviceParameter(
         float,
         limits=RangeLimit(-1.0, 1.0),
         doc="The selected input's offset, as a fraction of full scale.",
     )
-    pattern = Parameter(str, choices=PATTERNS, doc="The test pattern the unit scans.")
+    pattern = DeviceParameter(
+        str, choices=PATTERNS, doc="The test pattern the unit scans."
+    )
 
     def __init__(
         self, name: str, controller: FakeScanController, parent: Any = None, **kw: Any

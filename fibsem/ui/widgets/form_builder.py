@@ -12,8 +12,8 @@ could not.
 through it, so a form never inspects a control's type. Adding a control type is
 one branch here rather than four branches in three places each.
 
-Each field arrives as a ``FieldSpec``: what a device Parameter says (SI unit,
-SI limits, choices, doc) and a ``Display`` (label, scale, step, decimals). A device
+Each field arrives as a ``Parameter`` (``fibsem.structures``): SI unit, SI limits,
+choices, doc, and a ``Display`` (label, scale, step, decimals). A device
 parameter becomes one through ``parameter_spec``, so a panel of beam controls and a
 recipe form read the same thing.
 
@@ -47,9 +47,8 @@ from typing import (
 
 from PyQt5.QtWidgets import QCheckBox, QDoubleSpinBox, QHBoxLayout, QWidget
 
-from fibsem.devices.core import BoundParameter, Parameter, ParameterMetadata
-from fibsem.display import Display
-from fibsem.structures import FieldSpec, Point
+from fibsem.devices.core import BoundParameter
+from fibsem.structures import Display, Parameter, ParameterMetadata, Point
 from fibsem.ui.widgets.custom_widgets import (
     IntegerValueSpinBox,
     QFilePathLineEdit,
@@ -143,7 +142,7 @@ def _default_label(name: str) -> str:
 
 def parameter_spec(
     parameter: Union[Parameter, BoundParameter], part: Optional[str] = None
-) -> FieldSpec:
+) -> Parameter:
     """A device parameter as a form field: its unit, doc and ``Display``, with what
     the instrument reports (or, for a declared parameter, what every instrument
     has) as its limits and choices.
@@ -157,10 +156,10 @@ def parameter_spec(
     if isinstance(hint, Mapping):
         hint = hint.get(part)
     hint = hint or Display()
-    field = FieldSpec(
+    field = Parameter(
         name=spec.name,
         unit=spec.unit,
-        doc=spec.doc or None,
+        doc=spec.doc,
         display=replace(hint, label=hint.label or _default_label(spec.name)),
     )
     return field.with_reported(reported_metadata(parameter), part)
@@ -178,7 +177,7 @@ def reported_metadata(parameter: Union[Parameter, BoundParameter]) -> ParameterM
     )
 
 
-def configure_spinbox(spinbox: QDoubleSpinBox, spec: FieldSpec) -> None:
+def configure_spinbox(spinbox: QDoubleSpinBox, spec: Parameter) -> None:
     """Set a spin box's suffix, step, decimals, range and tooltip from a field, for
     a panel that keeps its own boxes. What the field leaves out keeps the box's own."""
     suffix = spec.suffix
@@ -203,7 +202,7 @@ def _enum_label(member: Any) -> str:
     return re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", name)
 
 
-def _combo(items: Sequence[Any], value: Any, spec: FieldSpec) -> Control:
+def _combo(items: Sequence[Any], value: Any, spec: Parameter) -> Control:
     # "CleaningCrossSection" and "EACH_ROW" are names for code; the form shows
     # words. Here rather than on the Enum branch alone: a field can also reach a
     # combo through declared `choices`, as cross_section does. A declared
@@ -232,7 +231,7 @@ def _combo(items: Sequence[Any], value: Any, spec: FieldSpec) -> Control:
 
 
 def _point(
-    value: Point, spec: FieldSpec, fallback: Optional[Tuple[float, float]]
+    value: Point, spec: Parameter, fallback: Optional[Tuple[float, float]]
 ) -> Control:
     """Two spinboxes for a Point-typed field.
 
@@ -279,7 +278,7 @@ def _point(
 
 
 def _bounds(
-    spec: FieldSpec, fallback: Optional[Tuple[float, float]]
+    spec: Parameter, fallback: Optional[Tuple[float, float]]
 ) -> Tuple[Optional[float], Optional[float]]:
     """The field's limits in shown units, else the form's own defaults."""
     if spec.shown_range is not None:
@@ -377,7 +376,7 @@ def _scalar_list(value: Any, annotation: Any) -> Control:
 
 
 def build_control(
-    spec: FieldSpec,
+    spec: Parameter,
     value: Any,
     *,
     resolve_choices: Optional[Callable[[str], Sequence[Any]]] = None,
@@ -389,7 +388,7 @@ def build_control(
     Dispatches on the field's type (its annotation), and on the value where the
     field has none. ``resolve_choices`` gives a field whose choices are the
     instrument's (``spec.instrument_choices``) the microscope's, by its
-    ``microscope_parameter``; without it such a field offers its current value
+    ``bound_name``; without it such a field offers its current value
     alone.
 
     A type this form has no editor for gets a read-only Control --
@@ -400,9 +399,7 @@ def build_control(
     kind = _resolve(spec.type)
 
     if spec.instrument_choices and spec.choices is None:
-        resolved = (
-            resolve_choices(spec.microscope_parameter) if resolve_choices else None
-        )
+        resolved = resolve_choices(spec.bound_name) if resolve_choices else None
         return _combo(resolved if resolved else [value], value, spec)
 
     if spec.choices:

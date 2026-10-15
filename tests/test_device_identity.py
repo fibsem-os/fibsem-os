@@ -9,9 +9,8 @@ everything it needs from `fibsem.devices`.
 import pytest
 
 from fibsem import utils
-from fibsem.devices import Device, Display, Parameter
-from fibsem.display import display_to_dict
-from fibsem.structures import BeamType
+from fibsem.devices import Device, DeviceParameter, Display
+from fibsem.structures import BeamType, display_to_dict
 
 
 @pytest.fixture(scope="module")
@@ -39,7 +38,7 @@ def test_a_description_carries_each_parameters_display_hint(microscope):
 
 def test_a_parameter_without_a_hint_has_no_display_key():
     class Knife(Device):
-        angle = Parameter(float, unit="rad")
+        angle = DeviceParameter(float, unit="rad")
 
         def read_angle(self):
             return 0.0
@@ -67,5 +66,5 @@ def test_the_device_server_describes_the_driver_and_the_hints(microscope):
 def test_a_plugin_imports_what_it_needs_from_fibsem_devices():
     import fibsem.devices as devices
 
-    for name in ("Scanner", "Role", "Display", "query", "command", "Parameter"):
+    for name in ("Scanner", "Role", "Display", "query", "command", "DeviceParameter"):
         assert name in devices.__all__ and hasattr(devices, name)

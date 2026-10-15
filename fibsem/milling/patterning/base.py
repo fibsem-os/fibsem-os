@@ -19,11 +19,11 @@ from typing import (
 
 import numpy as np
 
-from fibsem.display import Display
 from fibsem.milling.properties import distance_metadata
 from fibsem.structures import (
     CrossSectionPattern,
-    FieldSpec,
+    Display,
+    Parameter,
     Point,
     RangeLimit,
     TFibsemPatternSettings,
@@ -116,7 +116,7 @@ class BasePattern(ABC, Generic[TFibsemPatternSettings]):
         return sum([shape.volume for shape in self.define()])
 
     @property
-    def field_specs(self) -> Dict[str, FieldSpec]:
+    def field_specs(self) -> Dict[str, Parameter]:
         """Each field as a form reads it."""
         return field_specs(self.__class__)
 

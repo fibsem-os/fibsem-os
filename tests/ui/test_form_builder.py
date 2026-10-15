@@ -17,8 +17,7 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QCheckBox
 
-from fibsem.display import Display
-from fibsem.structures import FieldSpec, Point, RangeLimit
+from fibsem.structures import Display, Parameter, Point, RangeLimit
 from fibsem.ui.widgets.custom_widgets import (
     IntegerValueSpinBox,
     QFilePathLineEdit,
@@ -32,19 +31,18 @@ SPEC_KEYS = (
     "unit",
     "limits",
     "choices",
-    "microscope_parameter",
-    "instrument_choices",
+    "device_parameter",
     "filepath",
 )
 
 
-def spec(**kwargs) -> FieldSpec:
+def spec(**kwargs) -> Parameter:
     """A field as a form sees it: what the value means, and the rest (scale, step,
     the shown unit as ``shown_unit``) its Display."""
     meaning = {key: kwargs.pop(key) for key in SPEC_KEYS if key in kwargs}
     if "shown_unit" in kwargs:
         kwargs["unit"] = kwargs.pop("shown_unit")
-    return FieldSpec(name="value", display=Display(**kwargs), **meaning)
+    return Parameter(name="value", display=Display(**kwargs), **meaning)
 
 
 # --- the two de-hardcoded behaviours ------------------------------------------
@@ -182,7 +180,7 @@ def test_instrument_choices_are_resolved_through_the_caller(qapp):
         return ["TopToBottom", "BottomToTop"]
 
     control = build_control(
-        spec(instrument_choices=True, microscope_parameter="scan_direction", type=str),
+        spec(device_parameter="milling.scan_direction", type=str),
         "TopToBottom",
         resolve_choices=resolver,
     )
@@ -195,7 +193,7 @@ def test_instrument_choices_are_resolved_through_the_caller(qapp):
 def test_instrument_choices_fall_back_to_the_current_value(qapp):
     """No resolver, or nothing cached: the field still shows what it holds."""
     control = build_control(
-        spec(instrument_choices=True, microscope_parameter="scan_direction", type=str),
+        spec(device_parameter="milling.scan_direction", type=str),
         "TopToBottom",
     )
 

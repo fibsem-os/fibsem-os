@@ -11,7 +11,7 @@ from PyQt5.QtWidgets import (
 
 from fibsem.devices.core import ParameterMetadata
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import BeamType, FibsemMillingSettings, FieldSpec
+from fibsem.structures import BeamType, FibsemMillingSettings, Parameter
 from fibsem.ui.utils import beam_choices
 from fibsem.ui.widgets.custom_widgets import FormGrid, align_form
 from fibsem.ui.widgets.form_builder import Control, build_control
@@ -104,7 +104,7 @@ class FibsemMillingSettingsWidget(QWidget):
 
         align_form(layout)
 
-    def _instrument_spec(self, spec: FieldSpec) -> FieldSpec:
+    def _instrument_spec(self, spec: Parameter) -> Parameter:
         """The field with the milling service's choices and limits in place of its
         fixed ones, where the service reports them."""
         reported = (self._supported or {}).get(spec.name)
@@ -121,7 +121,7 @@ class FibsemMillingSettingsWidget(QWidget):
         the field, else the milling beam's for its parameter."""
         if self._supported is not None:
             for name, spec in _SPECS.items():
-                if spec.microscope_parameter == parameter and name in self._supported:
+                if spec.bound_name == parameter and name in self._supported:
                     choices = self._supported[name].choices
                     if choices is not None:
                         return list(choices)

@@ -19,8 +19,8 @@ from PyQt5.QtWidgets import (
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
     BeamType,
-    FieldSpec,
     ImageSettings,
+    Parameter,
     Resolution,
     field_specs,
 )
@@ -47,7 +47,7 @@ def _field(
     name: str,
     microscope: Optional[FibsemMicroscope] = None,
     beam_type: Optional[BeamType] = None,
-) -> FieldSpec:
+) -> Parameter:
     """The field, with what the beam allows in place of its own limits and choices for
     a field bound to a beam parameter: what ``beam_type`` reports, else what every beam declares."""
     return beam_spec(_SPECS[name], microscope, beam_type)

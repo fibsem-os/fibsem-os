@@ -8,7 +8,6 @@ from typing import (
 )
 
 from fibsem import constants
-from fibsem.display import Display
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.milling.properties import (
     angle_metadata,
@@ -19,6 +18,7 @@ from fibsem.milling.properties import (
 )
 from fibsem.structures import (
     CrossSectionPattern,
+    Display,
     FibsemCircleSettings,
     FibsemRectangleSettings,
     Point,

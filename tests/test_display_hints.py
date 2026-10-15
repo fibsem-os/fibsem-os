@@ -6,11 +6,10 @@ import pytest
 
 from fibsem import utils
 from fibsem.devices.beam import Beam
-from fibsem.devices.core import Parameter
+from fibsem.devices.core import DeviceParameter
 from fibsem.devices.fm import Camera
 from fibsem.devices.stage import Stage
-from fibsem.display import Display
-from fibsem.structures import BeamType
+from fibsem.structures import BeamType, Display
 
 
 def test_the_beam_declares_its_hints_and_a_bound_parameter_has_them():
@@ -28,7 +27,7 @@ def test_a_composite_value_has_a_hint_per_field():
 
 def test_a_backend_keeps_the_hint_when_it_redeclares_the_parameter():
     class _Camera(Camera):
-        gain = Parameter(float, doc="This camera's gain.")
+        gain = DeviceParameter(float, doc="This camera's gain.")
 
     assert _Camera.gain.display == Camera.gain.display
 
@@ -37,7 +36,7 @@ def test_a_backend_cannot_show_a_parameter_differently():
     with pytest.raises(TypeError, match="display"):
 
         class _Camera(Camera):
-            gain = Parameter(float, display=Display("Gain", scale=1))
+            gain = DeviceParameter(float, display=Display("Gain", scale=1))
 
 
 def test_an_explicit_display_unit_wins_over_the_scale_prefix():

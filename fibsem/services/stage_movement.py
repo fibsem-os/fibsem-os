@@ -28,7 +28,7 @@ from typing import Any, Dict, Optional, Tuple, Type, TypeVar
 import numpy as np
 
 from fibsem.devices.beam import Beam
-from fibsem.devices.core import Parameter, Role, command, query
+from fibsem.devices.core import DeviceParameter, Role, command, query
 from fibsem.devices.fm import FM, mount_transform_from_name
 from fibsem.devices.stage import Stage, recording_move
 from fibsem.geometry.angles import wrap_angle
@@ -115,7 +115,7 @@ class StageMovement(Service):
         (`FibsemMicroscope.vertical_move_views`)."""
         return tuple(self.parent.vertical_move_views)
 
-    milling_angle = Parameter(
+    milling_angle = DeviceParameter(
         float,
         unit="deg",
         doc="The stored milling angle the MILLING orientation is built from, in "

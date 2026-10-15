@@ -45,8 +45,14 @@ from typing import (
 
 from psygnal import Signal
 
-from fibsem.display import DisplayHint, display_to_dict
-from fibsem.structures import RangeLimit
+from fibsem.structures import (
+    DisplayHint,
+    Limits,
+    Parameter,
+    ParameterMetadata,
+    RangeLimit,
+    display_to_dict,
+)
 
 IMAGING_CHANNEL = "imaging_channel"
 _SHARED = "shared"
@@ -81,30 +87,13 @@ class RoleUnfilled(AttributeError):
     """The device declares the role, but no device fills it."""
 
 
-Limits = Union[RangeLimit, Mapping[str, RangeLimit]]
-
-
-@dataclass(frozen=True)
-class ParameterMetadata:
-    """What a parameter allows. Filled from the vendor API once, then cached.
-
-    ``limits`` is a ``RangeLimit`` for a number. For a composite value, such as a
-    stage position, it is one ``RangeLimit`` per field, by field name.
-
-    ``native_max`` and ``native_unit`` are for a parameter kept as a fraction of the
-    hardware's maximum (power, gain): what 1.0 is in the hardware's own units, when
-    the driver knows. A display can then show both.
-    """
-
-    limits: Optional[Limits] = None
-    choices: Optional[Sequence[Any]] = None
-    settable: bool = True
-    native_max: Optional[float] = None
-    native_unit: Optional[str] = None
-
-
-class Parameter:
+@dataclass(frozen=True, eq=False, repr=False)
+class DeviceParameter(Parameter):
     """A parameter a device class may have. Declared on the class, bound per instance.
+
+    It is a ``fibsem.structures.Parameter`` (type, unit, limits, choices, doc,
+    display), so a form or a description reads it as it reads a dataclass field; this
+    class adds what binds it to the hardware.
 
     ``limits`` and ``choices`` given here are static defaults; a backend's metadata
     replaces them. ``depends_on`` names parameters whose change alters this one's
@@ -136,34 +125,24 @@ class Parameter:
     the parameter is read back, so its cache and its ``changed`` signal carry what the
     hardware applied rather than what was asked for.
 
-    ``display`` says how to show it (a ``fibsem.display.Display``, or one per field for
+    ``display`` says how to show it (a ``fibsem.structures.Display``, or one per field for
     a composite value). Like the type and unit it means the same on every backend: a
     subclass that redeclares the parameter keeps it, and can't give another.
     """
 
-    def __init__(
-        self,
-        type_: type,
-        unit: Optional[str] = None,
-        limits: Optional[Limits] = None,
-        choices: Optional[Sequence[Any]] = None,
-        depends_on: Sequence[str] = (),
-        doc: str = "",
-        nearest: bool = False,
-        display: Optional[DisplayHint] = None,
-    ):
-        self.type = type_
-        self.unit = unit
-        self.limits = limits
-        self.choices = choices
-        self.depends_on = tuple(depends_on)
-        self.doc = doc
-        self.nearest = nearest
-        self.display = display
-        self.name = ""
+    depends_on: Sequence[str] = ()
+    nearest: bool = False
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "depends_on", tuple(self.depends_on))
+
+    # One declaration is one parameter: compared and hashed by identity, as the
+    # class attribute it is.
+    __eq__ = object.__eq__
+    __hash__ = object.__hash__
 
     def __set_name__(self, owner: type, name: str) -> None:
-        self.name = name
+        object.__setattr__(self, "name", name)
 
     def __get__(self, device: Optional[_Controllable], owner: type) -> Any:
         if device is None:
@@ -177,7 +156,7 @@ class Parameter:
 
     def __repr__(self) -> str:
         unit = f", unit={self.unit!r}" if self.unit else ""
-        return f"Parameter({self.type.__name__}{unit})"
+        return f"DeviceParameter({self.type.__name__}{unit})"
 
 
 class Role:
@@ -238,7 +217,7 @@ class BoundParameter:
     def __init__(
         self,
         device: _Controllable,
-        spec: Parameter,
+        spec: DeviceParameter,
         read: Callable[[], Any],
         write: Optional[Callable[[Any], None]],
         metadata: MetadataSource,
@@ -684,11 +663,11 @@ class _Controllable:
     # -- binding, done by a backend ------------------------------------------------
 
     @classmethod
-    def declared_parameters(cls) -> Dict[str, Parameter]:
-        found: Dict[str, Parameter] = {}
+    def declared_parameters(cls) -> Dict[str, DeviceParameter]:
+        found: Dict[str, DeviceParameter] = {}
         for klass in reversed(cls.__mro__):
             for name, attr in vars(klass).items():
-                if isinstance(attr, Parameter):
+                if isinstance(attr, DeviceParameter):
                     found[name] = attr
         return found
 
@@ -767,8 +746,13 @@ class _Controllable:
             for name, param in base.declared_parameters().items()
         }
         for name, attr in vars(cls).items():
+            if isinstance(attr, Parameter) and not isinstance(attr, DeviceParameter):
+                raise TypeError(
+                    f"{cls.__name__}.{name} is a plain Parameter; a device declares a "
+                    f"DeviceParameter, which binds it to the hardware"
+                )
             base_param = inherited.get(name)
-            if not isinstance(attr, Parameter) or base_param is None:
+            if not isinstance(attr, DeviceParameter) or base_param is None:
                 continue
             if (attr.type, attr.unit) != (base_param.type, base_param.unit):
                 raise TypeError(
@@ -778,7 +762,7 @@ class _Controllable:
                     f"or unit"
                 )
             if attr.display is None:
-                attr.display = base_param.display
+                object.__setattr__(attr, "display", base_param.display)
             elif attr.display != base_param.display:
                 raise TypeError(
                     f"{cls.__name__}.{name} declares another display than "

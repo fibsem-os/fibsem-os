@@ -36,8 +36,8 @@ from fibsem.applications.autolamella.proposals import Proposer, TaskResultPropos
 from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskStatus,
-    FieldSpec,
     GridRecord,
+    Parameter,
     attention_from,
     field_specs,
 )
@@ -101,7 +101,7 @@ class GridTaskConfig(ABC):
         return tuple(f.name for f in fields(self) if f.name not in _WORKFLOW_FIELDS)
 
     @property
-    def field_specs(self) -> Dict[str, FieldSpec]:
+    def field_specs(self) -> Dict[str, Parameter]:
         return field_specs(self.__class__)
 
     def to_dict(self) -> Dict[str, Any]:

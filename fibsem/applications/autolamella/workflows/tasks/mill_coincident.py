@@ -36,7 +36,6 @@ from fibsem.applications.autolamella.workflows.tasks.setup_coincidence_milling i
     COINCIDENCE_SETUP_REFERENCE_FILENAME,
     SetupCoincidenceMillingTaskConfig,
 )
-from fibsem.display import Display
 from fibsem.fm.acquisition import acquire_image
 from fibsem.fm.structures import ChannelSettings
 from fibsem.milling.base import FibsemMillingSettings
@@ -46,7 +45,12 @@ from fibsem.milling.strategy.coincidence import (
     CoincidenceMillingStrategyConfig,
 )
 from fibsem.milling.tasks import FibsemMillingStage, FibsemMillingTaskConfig
-from fibsem.structures import CrossSectionPattern, InsertableDeviceState, field_meta
+from fibsem.structures import (
+    CrossSectionPattern,
+    Display,
+    InsertableDeviceState,
+    field_meta,
+)
 
 MILL_COINCIDENT_KEY = "mill_coincident"
 DEFAULT_SETUP_TASK_NAME = "Setup Coincidence Milling"
