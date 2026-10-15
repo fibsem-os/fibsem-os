@@ -210,7 +210,9 @@ def describe_patch(root: Any, patch: Any) -> Dict[str, Any]:
 # --- the milling service, in the milling panel's words --------------------------------
 
 
-def _patterns(values: Any) -> List[Any]:
+def parse_patterns(values: Any) -> List[Any]:
+    """Pattern dicts as the milling service takes them, as pattern settings;
+    one that does not parse is left out."""
     from fibsem.structures import FibsemPatternSettings
 
     patterns = []
@@ -260,7 +262,7 @@ def _estimate(patterns: List[Any], current: Optional[float]) -> Optional[float]:
 
 
 def _prepare(kwargs: Dict[str, Any]) -> Dict[str, Any]:
-    patterns = _patterns(kwargs.get("patterns"))
+    patterns = parse_patterns(kwargs.get("patterns"))
     settings = kwargs.get("settings") or {}
     current = settings.get("milling_current") if isinstance(settings, dict) else None
     voltage = settings.get("milling_voltage") if isinstance(settings, dict) else None

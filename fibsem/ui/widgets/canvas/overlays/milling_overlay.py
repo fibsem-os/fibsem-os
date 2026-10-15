@@ -64,6 +64,7 @@ _LINEWIDTH = 1.0  # default pattern edge width
 _LINEWIDTH_SELECTED = 2.5  # selected stage edge width
 _BACKGROUND_COLOUR = "black"  # background milling stages
 _EXCLUSION_COLOUR = "black"  # exclusion shapes, whatever their stage's colour
+_DASHED_FILL_ALPHA = 0.15  # a preview's fill: there, but not milled yet
 
 
 class MillingPatternOverlay(CanvasOverlay):
@@ -81,6 +82,8 @@ class MillingPatternOverlay(CanvasOverlay):
         self._selected_index: Optional[int] = None
         self._image: Optional[FibsemImage] = None
         self._legend = None
+        self._colour: Optional[str] = None
+        self._dashed = False
 
     # ── overlay protocol ──────────────────────────────────────────────────
 
@@ -112,12 +115,18 @@ class MillingPatternOverlay(CanvasOverlay):
         *,
         background_stages: Sequence = (),
         selected_index: Optional[int] = None,
+        colour: Optional[str] = None,
+        dashed: bool = False,
     ) -> None:
         """Display *stages* against *image*.
 
         ``background_stages`` are drawn in black behind the foreground stages;
         ``selected_index`` (into *stages*) is drawn with a thicker edge, on top.
+        ``colour`` draws every stage in it instead of a colour each; ``dashed``
+        draws them as a preview, dashed with a fainter fill.
         """
+        self._colour = colour
+        self._dashed = dashed
         self._stages = list(stages)
         self._background_stages = list(background_stages)
         self._selected_index = selected_index
@@ -180,7 +189,7 @@ class MillingPatternOverlay(CanvasOverlay):
 
         # foreground stages (per-colour; selected is thicker and on top)
         for i, stage in enumerate(self._stages):
-            colour = COLOURS[i % len(COLOURS)]
+            colour = self._stage_colour(i)
             selected = i == self._selected_index
             linewidth = _LINEWIDTH_SELECTED if selected else _LINEWIDTH
             zorder = _PATTERN_ZORDER + 2 if selected else _PATTERN_ZORDER
@@ -195,12 +204,22 @@ class MillingPatternOverlay(CanvasOverlay):
                 )
         self._draw_legend()
 
+    def _stage_colour(self, index: int) -> str:
+        return self._colour or COLOURS[index % len(COLOURS)]
+
+    def _fill_alpha(self) -> float:
+        return _DASHED_FILL_ALPHA if self._dashed else _FILL_ALPHA
+
+    def _linestyle(self) -> str:
+        return "--" if self._dashed else "-"
+
     def _draw_legend(self) -> None:
         """Colour-keyed legend of stage names, top-right."""
         handles = [
             mpatches.Patch(
-                facecolor=to_rgba(COLOURS[i % len(COLOURS)], _FILL_ALPHA),
-                edgecolor=COLOURS[i % len(COLOURS)],
+                facecolor=to_rgba(self._stage_colour(i), self._fill_alpha()),
+                edgecolor=self._stage_colour(i),
+                linestyle=self._linestyle(),
                 label=getattr(stage, "name", f"Stage {i + 1}"),
             )
             for i, stage in enumerate(self._stages)
@@ -257,8 +276,9 @@ class MillingPatternOverlay(CanvasOverlay):
         # alphas via RGBA (a patch-level ``alpha`` would dim the edge too).
         patch_kw = dict(
             edgecolor=colour,
-            facecolor=to_rgba(colour, _FILL_ALPHA),
+            facecolor=to_rgba(colour, self._fill_alpha()),
             linewidth=linewidth,
+            linestyle=self._linestyle(),
             zorder=zorder,
         )
         if isinstance(ps, FibsemRectangleSettings):
@@ -279,6 +299,7 @@ class MillingPatternOverlay(CanvasOverlay):
                     [y0, y1],
                     color=colour,
                     linewidth=linewidth,
+                    linestyle=self._linestyle(),
                     zorder=zorder,
                 )
             ]
@@ -363,6 +384,7 @@ class MillingPatternOverlay(CanvasOverlay):
             edgecolor=colour,
             facecolor="none",
             linewidth=linewidth,
+            linestyle=self._linestyle(),
             zorder=zorder,
         )
         outline.set_transform(self._ax.transData)
@@ -371,7 +393,7 @@ class MillingPatternOverlay(CanvasOverlay):
         # which is its TOP edge on the y-inverted image axes, so row 0 of the bitmap
         # has to go at the extent's `bottom` to land at the top of the pattern.
         image = AxesImage(self._ax, extent=(0, 1, 0, 1), origin="lower", zorder=zorder)
-        image.set_data(bitmap_to_rgba(ps, width, height, colour, _FILL_ALPHA))
+        image.set_data(bitmap_to_rgba(ps, width, height, colour, self._fill_alpha()))
         image.set_transform(
             outline.get_patch_transform() + outline.get_data_transform()
         )

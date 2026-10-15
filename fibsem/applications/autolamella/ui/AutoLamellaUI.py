@@ -214,7 +214,7 @@ class AutoLamellaUI(QMainWindow):
         self.parent_widget = parent_ui
 
         # The agent's suggestion the responder last showed (see show_suggestion).
-        self.suggestion_shown: Optional[Dict[str, str]] = None
+        self.suggestion_shown: Optional[Dict[str, object]] = None
         # The Qt side of the workflow's Responder seam: workflow code is handed
         # this one-method object, never the window itself.
         self.ui_responder = QtResponder(self)
@@ -2917,10 +2917,16 @@ class AutoLamellaUI(QMainWindow):
             self.label_workflow_information.setText(msg)
         self.label_workflow_information.setVisible(show)
 
-    def show_suggestion(self, label: Optional[str], reason: str = "") -> None:
+    def show_suggestion(
+        self,
+        label: Optional[str],
+        reason: str = "",
+        point: Optional[Tuple[float, float]] = None,
+    ) -> None:
         """The agent's suggested answer, or None to take it down. Called by the
         responder, which owns when it stands. Not on the prompt: the agent card
-        shows it (FIB-1407), so this says so through `suggestion_changed`."""
+        shows it (FIB-1407), so this says so through `suggestion_changed`.
+        *point* is a suggested point of interest, in the FIB image's pixels."""
         if label is None:
             self.suggestion_shown = None
         else:
@@ -2929,6 +2935,8 @@ class AutoLamellaUI(QMainWindow):
                 "answer": label,
                 "reason": reason,
             }
+            if point is not None:
+                self.suggestion_shown["point"] = point
         self.suggestion_changed.emit(self.suggestion_shown)
 
     def take_suggestion(self) -> bool:

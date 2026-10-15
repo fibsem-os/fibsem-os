@@ -55,6 +55,7 @@ from fibsem.applications.autolamella.ui.agent_level_chip import (
     AgentLevelChip,
     request_outcome,
 )
+from fibsem.applications.autolamella.ui.agent_previews import AgentPreviews
 from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor import (
     AutoLamellaProtocolEditorWidget,
 )
@@ -1609,6 +1610,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.status_bar,
             view_controller=lambda: getattr(self, "view_controller", None),
             parent=self,
+        )
+        # What the agent's waiting request or suggestion would do, on the views.
+        self.agent_previews = AgentPreviews(
+            lambda: getattr(self, "view_controller", None)
         )
         self._agent_chip_timer = QTimer(self)
         self._agent_chip_timer.setInterval(1000)
@@ -3799,6 +3804,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         host = self._running_app_server()
         if host is None:
             self._watch_agent_requests(None)
+            self.agent_previews.show_request(None)
             self.agent_chip.hide()
             return
         level = host.auth.level or AgentLevel.WATCH
@@ -3861,6 +3867,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         shown = current.to_dict() if current is not None else None
         if shown != self.agent_chip.request:
             self.agent_chip.set_request(shown)
+        self.agent_previews.show_request(shown)
         self.agent_chip.set_now(self.agent_activity.action)
 
     def _on_approve_agent_request(self, request_id: str) -> None:
@@ -3984,6 +3991,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         shown = self.agent_chip.suggestion
         self._dropped_agent_suggestion = shown if suggestion is None else None
         self.agent_chip.set_suggestion(suggestion)
+        self.agent_previews.show_suggested_point(
+            suggestion.get("point") if suggestion is not None else None
+        )
 
     def _on_accept_agent_suggestion(self) -> None:
         """Accept on the agent's card: the operator answers with the agent's

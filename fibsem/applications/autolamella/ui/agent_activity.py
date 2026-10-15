@@ -10,7 +10,7 @@ and this follows it:
   ends. Quick ones (an image, a stage move) get none: a toast for each of those
   would bury the window during a session;
 * the patterns the agent draws for a mill are drawn on the FIB view, labelled
-  "Agent", until they are removed (the run ends, or the next setup). The milling
+  "Agent" in the agent's purple, until they are removed (the run ends, or the next setup). The milling
   service announces what is drawn (``patterns_changed``); they are the agent's
   when the agent is in control as they are drawn.
 
@@ -30,6 +30,7 @@ from superqt import ensure_main_thread
 from fibsem.acting import AGENT
 from fibsem.structures import BeamType
 from fibsem.ui import notification_service
+from fibsem.ui.tokens import PURPLE_COLOR
 from fibsem.util.durations import format_duration_rounded
 
 if TYPE_CHECKING:
@@ -44,15 +45,15 @@ ANNOUNCE_MS = 3000
 OVERLAY_ID = "agent_milling"
 
 
-class _DrawnStage:
+class DrawnStage:
     """The agent's patterns as the milling overlay draws a stage: a name for the
     legend and the shapes. No point it was placed at, so no crosshair."""
 
-    name = "Agent"
     pattern = None
 
-    def __init__(self, patterns: List) -> None:
+    def __init__(self, patterns: List, name: str = "Agent") -> None:
         self._patterns = patterns
+        self.name = name
 
     def define_patterns(self) -> List:
         return self._patterns
@@ -162,7 +163,10 @@ class AgentActivity(QObject):
         from fibsem.ui.widgets.canvas.canvas_state import MillingSpec
 
         controller.set_overlay(
-            BeamType.ION, MillingSpec(id=OVERLAY_ID, stages=[_DrawnStage(patterns)])
+            BeamType.ION,
+            MillingSpec(
+                id=OVERLAY_ID, stages=[DrawnStage(patterns)], colour=PURPLE_COLOR
+            ),
         )
         self._showing_patterns = True
 

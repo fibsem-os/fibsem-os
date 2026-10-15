@@ -432,10 +432,29 @@ class QtResponder(QObject):
         if suggestion is None:
             show(None, "")
             return
-        _question_id, response, _value, reason = suggestion
+        _question_id, response, value, reason = suggestion
         pending = self._pending_question
         label = self._button_label(pending[0], response) if pending else None
-        show(label or ("Yes" if response else "No"), reason)
+        point = None
+        if pending is not None and isinstance(pending[0], PickPOI):
+            point = self._suggested_pixel(pending[0], value)
+        show(label or ("Yes" if response else "No"), reason, point)
+
+    @staticmethod
+    def _suggested_pixel(request: "PickPOI", value: object):
+        """The suggested point of interest in the question's image, in pixels,
+        for the FIB view to draw; None for none."""
+        from fibsem import conversions
+        from fibsem.structures import Point
+
+        image = request.image
+        metadata = getattr(image, "metadata", None)
+        if not isinstance(value, Point) or metadata is None:
+            return None
+        pixel = conversions.microscope_image_to_image_coordinates(
+            value, image.data.shape, metadata.pixel_size.x
+        )
+        return (pixel.x, pixel.y)
 
     @staticmethod
     def _button_label(request: "Request", response: bool) -> Optional[str]:

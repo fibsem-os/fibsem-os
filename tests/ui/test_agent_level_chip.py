@@ -16,6 +16,7 @@ from fibsem.applications.autolamella.ui.agent_level_chip import (  # noqa: E402
     request_outcome,
 )
 from fibsem.server.levels import AgentLevel  # noqa: E402
+from fibsem.structures import BeamType  # noqa: E402
 
 
 def _labels(widget):
@@ -571,3 +572,37 @@ def test_the_window_shows_a_suggestion_on_the_card_and_says_when_it_is_dropped(
         ("Agent's suggestion dropped: you answered the question yourself", "info")
     ]
     assert main_ui.agent_chip.suggestion is None
+
+
+def test_the_window_draws_a_waiting_request_s_mill_and_takes_it_down(main_ui, host):
+    from fibsem.applications.autolamella.ui.agent_previews import PATTERNS_OVERLAY
+
+    rectangle = {
+        "type": "Rectangle",
+        "width": 2e-6,
+        "height": 1e-6,
+        "depth": 2e-7,
+        "centre_x": 0.0,
+        "centre_y": 0.0,
+    }
+    waiting = _request(request_id="mill1")
+    waiting["actions"] = [
+        {
+            "tool": "call_service_command",
+            "arguments": {
+                "service": "milling",
+                "command": "prepare",
+                "kwargs": {"patterns": [rectangle]},
+            },
+            "what": "Milling",
+            "change": "Prepare: 1 rectangle",
+        }
+    ]
+    host.auth.set_level(AgentLevel.ASSIST)
+    host.requests.requests = [waiting]
+    main_ui._refresh_agent_chip()
+    assert (BeamType.ION, PATTERNS_OVERLAY) in main_ui.agent_previews.drawn
+
+    host.requests.requests = [dict(waiting, status="rejected")]
+    main_ui._refresh_agent_chip()
+    assert main_ui.agent_previews.drawn == []
