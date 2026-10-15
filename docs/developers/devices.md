@@ -726,6 +726,7 @@ its type's interface, so a served device names its `driver` and `type`, and the
 coordinator makes it with the class the driver's `DriverEntry.remote_devices` names
 for that type, when the plugin is installed there too:
 
+<!-- not run -->
 ```python
 DriverEntry(
     manufacturer="FakeScan",
