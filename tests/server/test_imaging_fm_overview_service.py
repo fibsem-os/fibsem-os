@@ -122,6 +122,28 @@ def test_an_overview_runs_on_and_saves_inside_the_experiment(
     assert abs(end.x - start.x) < 1e-9 and abs(end.y - start.y) < 1e-9
     assert microscope.fm.objective.position == pytest.approx(objective)
     assert not microscope.fm.is_acquiring
+    assert result["layout"]["registration"] is None
+
+
+def test_an_overview_says_what_tile_registration_did(client, experiment):
+    parameters = ONE_BY_TWO.to_dict()
+    parameters["register_tiles"] = True
+    resp = client.post(
+        f"{IMAGING}/commands/fm_tiled_overview",
+        json={
+            "kwargs": _kwargs(
+                parameters=parameters, path=str(experiment / "overviews"), name="reg"
+            )
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    ended = client.get(
+        f"{IMAGING}/run", params={"run_id": resp.json()["result"]["run_id"], "wait": 60}
+    ).json()["run"]
+    assert ended["state"] == "done", ended
+    registration = ended["result"]["layout"]["registration"]
+    assert isinstance(registration["applied"], bool)
+    assert registration["note"]
 
 
 def test_a_path_outside_the_experiment_is_refused(client, tmp_path):
