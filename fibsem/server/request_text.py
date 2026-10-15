@@ -472,32 +472,30 @@ def _describe(
             return None
         return answer.get(key) if key else answer
 
-    if tool == "move_stage_relative":
+    if tool == "stage_move_relative":
         return {"what": "Stage", "change": _stage_relative(a)}
-    if tool == "move_stage_absolute":
-        return {"what": "Stage", "change": _stage_absolute(a)}
-    if tool == "safe_move_stage_absolute":
+    if tool == "stage_move_absolute":
         return {"what": "Stage", "change": "Safe " + _stage_absolute(a).lower()}
-    if tool == "stable_move":
+    if tool == "stage_stable_move":
         return {
             "what": "Stage",
             "change": f"Stable move in {_beam_words(a.get('beam_type'))}: "
             f"{_offset(a.get('dx'), a.get('dy'))}",
         }
-    if tool == "vertical_move":
+    if tool == "stage_vertical_move":
         return {
             "what": "Stage",
             "change": "Vertical move, to centre a feature "
             f"{_offset(a.get('dx'), a.get('dy'))} in {_beam_words(a.get('beam_type'), 'ION')}",
         }
-    if tool == "move_to_orientation":
+    if tool == "stage_move_to_orientation":
         return {
             "what": "Stage",
             "change": f"Move to the {str(a.get('orientation', '')).upper()} orientation",
         }
-    if tool == "stop_milling":
+    if tool == "milling_stop":
         return {"what": "Milling", "change": _MILLING["stop"]}
-    if tool == "move_to_milling_angle":
+    if tool == "stage_move_to_milling_angle":
         return {
             "what": "Stage",
             "change": f"Tilt to the milling angle, {_short(a.get('milling_angle_deg'))}°"
@@ -507,23 +505,23 @@ def _describe(
                 else ""
             ),
         }
-    if tool == "acquire_image_preview":
+    if tool == "beam_acquire_image":
         return {"what": _beam(a), "change": "Take an image"}
     if tool == "last_image_preview":
         return {"what": _beam(a), "change": "Show the last image"}
-    if tool == "autocontrast":
+    if tool == "beam_auto_contrast":
         return {"what": _beam(a), "change": "Autocontrast"}
-    if tool == "set_parameter":
+    if tool == "device_set_parameter":
         return {
             "what": str(a.get("device")),
             "change": f"Set {a.get('parameter')} to {_short(a.get('value'))}",
         }
-    if tool in ("call_command", "call_service_command"):
-        owner = a.get("device") if tool == "call_command" else a.get("service")
+    if tool in ("device_call_command", "service_call_command"):
+        owner = a.get("device") if tool == "device_call_command" else a.get("service")
         kwargs = a.get("kwargs") or {}
         if not isinstance(kwargs, dict):
             kwargs = {}
-        if tool == "call_service_command" and owner == "milling":
+        if tool == "service_call_command" and owner == "milling":
             line = _milling_command(str(a.get("command")), kwargs, estimate)
             if line is not None:
                 return line
@@ -539,69 +537,69 @@ def _describe(
         if details is not None and _short(kwargs) not in line["change"]:
             line["details"] = details
         return line
-    if tool == "update_item_task_config":
+    if tool == "item_update_task_config":
         return {
             "what": f"{item} · {task}",
             "change": _patch_lines(a.get("patch"), document("config")),
         }
-    if tool == "update_protocol_task_config":
+    if tool == "protocol_update_task_config":
         return {
             "what": f"Protocol · {task}",
             "change": _patch_lines(a.get("patch"), document("config")),
         }
-    if tool == "update_item_detail":
+    if tool == "item_update":
         return {
             "what": str(item),
             "change": _patch_lines(a.get("patch"), document(None)),
         }
-    if tool == "apply_protocol_to_item":
+    if tool == "item_apply_protocol":
         tasks = _names(a.get("task_names"), "every task")
         return {
             "what": str(item),
             "change": f"Copy the protocol's settings for {tasks}",
         }
-    if tool == "reorder_item_milling_stages":
+    if tool == "item_reorder_milling_stages":
         return {
             "what": f"{item} · {task}",
             "change": f"Reorder {a.get('milling_key')} stages: {_short(a.get('order'))}",
         }
-    if tool == "reorder_protocol_milling_stages":
+    if tool == "protocol_reorder_milling_stages":
         return {
             "what": f"Protocol · {task}",
             "change": f"Reorder {a.get('milling_key')} stages: {_short(a.get('order'))}",
         }
-    if tool == "set_task_schedule":
+    if tool == "protocol_set_schedule":
         when = a.get("scheduled_at")
         return {
             "what": str(task),
             "change": f"Schedule for {when}" if when else "Clear its schedule",
         }
-    if tool == "start_workflow":
+    if tool == "workflow_start":
         return {
             "what": "Workflow",
             "change": f"Run {_names(a.get('task_names'), 'no tasks')} on "
             f"{_names(a.get('item_names'), 'every lamella')}",
         }
-    if tool == "start_grid_workflow":
+    if tool == "workflow_start_grids":
         return {
             "what": "Grids",
             "change": f"Run {_names(a.get('task_names'), 'no tasks')} on "
             f"{_names(a.get('grid_names'), 'every grid')}",
         }
-    if tool == "set_task_supervision":
+    if tool == "protocol_set_supervision":
         return {
             "what": str(task),
             "change": "Supervised: ask at each decision"
             if a.get("supervise")
             else "Automated: run without asking",
         }
-    if tool == "requeue_task":
+    if tool == "workflow_requeue":
         return {
             "what": str(item),
             "change": f"Queue {task} to run again"
             + (", first" if a.get("front") else ""),
         }
-    if tool == "decide_review":
+    if tool == "review_decide":
         outcome = str(a.get("outcome", "")).lower()
         if outcome.startswith("reject"):
             change = f"Reject the proposal: {a.get('reason', '')}".rstrip(": ")
@@ -610,7 +608,7 @@ def _describe(
             if a.get("values"):
                 change += f" with {_short(a.get('values'))}"
         return {"what": f"{a.get('item_id')} · {task}", "change": change}
-    if tool == "answer_prompt":
+    if tool == "prompt_answer":
         change = "Answer yes" if a.get("response") else "Answer no"
         if a.get("value"):
             change += f" with {_short(a.get('value'))}"

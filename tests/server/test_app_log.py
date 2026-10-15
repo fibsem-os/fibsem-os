@@ -241,7 +241,7 @@ def test_the_tool_passes_the_window(client):
     client.headers["Authorization"] = f"Bearer {TOKEN}"
     sidecar = build_sidecar(client, client.get("/capabilities").json())
     since = (T0 + timedelta(seconds=100)).isoformat() + "+10:00"
-    result = asyncio.run(sidecar.call_tool("get_log", {"since": since, "lines": 2}))
+    result = asyncio.run(sidecar.call_tool("app_get_log", {"since": since, "lines": 2}))
     if isinstance(result, tuple):
         result = result[0]
     text = "".join(c.text for c in getattr(result, "content", result))

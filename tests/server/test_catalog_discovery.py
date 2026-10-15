@@ -89,11 +89,28 @@ def test_catalog_names_unique_and_levels_valid():
     # A stop needs Drive (Patrick, 2026-10-14), so at Assist it goes in a
     # request; the agent's own mill it stops at any level, which the note says.
     by_name = {t.name: t for t in CATALOG}
-    assert by_name["stop_milling"].level == "drive"
-    assert "Assist or Drive, never at Watch" in by_name["stop_milling"].level_note
-    assert by_name["stop_workflow"].level == "drive"
+    assert by_name["milling_stop"].level == "drive"
+    assert "Assist or Drive, never at Watch" in by_name["milling_stop"].level_note
+    assert by_name["workflow_stop"].level == "drive"
     # Only what drives the microscope takes control of it.
     assert all(t.level == "drive" for t in CATALOG if t.hardware)
+
+
+# Group first, then verb (plans: mcp-tool-naming): sorted, a group reads as one
+# block. A new tool joins a group here, or the group is added on purpose.
+GROUPS = (
+    "server microscope device service stage beam fm milling alignment "
+    "app experiment protocol item grid workflow prompt review request"
+).split()
+
+
+def test_every_tool_name_starts_with_its_group():
+    stray = [t.name for t in CATALOG if t.name.split("_", 1)[0] not in GROUPS]
+    assert stray == []
+    # Every <group>_get(name) has a <group>_list giving the names it takes.
+    names = {t.name for t in CATALOG}
+    for group in ("protocol", "grid", "item", "request"):
+        assert f"{group}_list" in names
 
 
 def test_discovery_round_trip(tmp_path):

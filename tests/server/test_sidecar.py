@@ -67,8 +67,8 @@ def test_hardware_tools_are_offered_at_watch():
     )
     client.headers["Authorization"] = f"Bearer {TOKEN}"
     sidecar = build_sidecar(client, _capabilities(client))
-    assert "move_stage_relative" in _tool_names(sidecar)
-    result = asyncio.run(sidecar.call_tool("move_stage_relative", {"dx": 1e-6}))
+    assert "stage_move_relative" in _tool_names(sidecar)
+    result = asyncio.run(sidecar.call_tool("stage_move_relative", {"dx": 1e-6}))
     text = "".join(getattr(c, "text", "") for c in _contents(result))
     assert "level" in text
 
@@ -76,21 +76,21 @@ def test_hardware_tools_are_offered_at_watch():
 def test_each_description_names_the_level_it_needs(armed_sidecar):
     listed = asyncio.run(armed_sidecar.list_tools())
     described = {t.name: t.description for t in getattr(listed, "tools", listed)}
-    assert described["get_stage_position"].endswith("Works at Watch, Assist and Drive.")
-    assert "started itself it can stop at Assist or Drive" in described["stop_milling"]
-    assert "Needs the agent at Drive" in described["move_stage_relative"]
-    assert "request_actions" in described["move_stage_relative"]
-    assert "(409)" in described["move_stage_relative"]
+    assert described["stage_get_position"].endswith("Works at Watch, Assist and Drive.")
+    assert "started itself it can stop at Assist or Drive" in described["milling_stop"]
+    assert "Needs the agent at Drive" in described["stage_move_relative"]
+    assert "request_create" in described["stage_move_relative"]
+    assert "(409)" in described["stage_move_relative"]
 
 
 def test_read_tool_round_trip(armed_sidecar):
-    result = asyncio.run(armed_sidecar.call_tool("get_stage_position", {}))
+    result = asyncio.run(armed_sidecar.call_tool("stage_get_position", {}))
     text = "".join(getattr(c, "text", "") for c in _contents(result))
     assert '"position"' in text
 
 
 def test_move_tool_round_trip(armed_sidecar):
-    result = asyncio.run(armed_sidecar.call_tool("move_stage_relative", {"dx": 1e-6}))
+    result = asyncio.run(armed_sidecar.call_tool("stage_move_relative", {"dx": 1e-6}))
     text = "".join(getattr(c, "text", "") for c in _contents(result))
     assert '"position"' in text
 
@@ -99,7 +99,7 @@ def test_set_parameter_takes_a_number_sent_as_text(armed_sidecar):
     """The value's schema names no type, so a client may send 120e-6 as text."""
     result = asyncio.run(
         armed_sidecar.call_tool(
-            "set_parameter",
+            "device_set_parameter",
             {"device": "electron", "parameter": "hfw", "value": "120e-6"},
         )
     )
@@ -111,7 +111,7 @@ def test_set_service_parameter_sets_the_milling_angle(armed_sidecar):
     def milling_angle():
         result = asyncio.run(
             armed_sidecar.call_tool(
-                "get_service_parameter",
+                "service_get_parameter",
                 {"service": "stage_movement", "parameter": "milling_angle"},
             )
         )
@@ -121,7 +121,7 @@ def test_set_service_parameter_sets_the_milling_angle(armed_sidecar):
     try:
         result = asyncio.run(
             armed_sidecar.call_tool(
-                "set_service_parameter",
+                "service_set_parameter",
                 {
                     "service": "stage_movement",
                     "parameter": "milling_angle",
@@ -135,7 +135,7 @@ def test_set_service_parameter_sets_the_milling_angle(armed_sidecar):
     finally:
         asyncio.run(
             armed_sidecar.call_tool(
-                "set_service_parameter",
+                "service_set_parameter",
                 {
                     "service": "stage_movement",
                     "parameter": "milling_angle",
@@ -152,17 +152,17 @@ def test_vertical_move_works_from_either_view(armed_sidecar):
         {"dy": 2e-6},
         {"dy": 2e-6, "beam_type": "ELECTRON", "relaxation": 0.8},
     ):
-        before = _call_json(armed_sidecar, "get_stage_position", {})["position"]
-        after = _call_json(armed_sidecar, "vertical_move", arguments)["position"]
+        before = _call_json(armed_sidecar, "stage_get_position", {})["position"]
+        after = _call_json(armed_sidecar, "stage_vertical_move", arguments)["position"]
         assert after["z"] != pytest.approx(before["z"]), arguments
 
 
 def test_stable_move_tool_round_trip(armed_sidecar):
-    before = asyncio.run(armed_sidecar.call_tool("get_stage_position", {}))
+    before = asyncio.run(armed_sidecar.call_tool("stage_get_position", {}))
     before = json.loads("".join(getattr(c, "text", "") for c in _contents(before)))
     result = asyncio.run(
         armed_sidecar.call_tool(
-            "stable_move", {"dx": 5e-6, "dy": 0.0, "beam_type": "ELECTRON"}
+            "stage_stable_move", {"dx": 5e-6, "dy": 0.0, "beam_type": "ELECTRON"}
         )
     )
     after = json.loads("".join(getattr(c, "text", "") for c in _contents(result)))
@@ -171,7 +171,7 @@ def test_stable_move_tool_round_trip(armed_sidecar):
 
 def test_image_tool_returns_image_content(armed_sidecar):
     result = asyncio.run(
-        armed_sidecar.call_tool("acquire_image_preview", {"beam_type": "ION"})
+        armed_sidecar.call_tool("beam_acquire_image", {"beam_type": "ION"})
     )
     contents = _contents(result)
     types = {getattr(c, "type", None) for c in contents}
@@ -186,18 +186,18 @@ def test_hardware_refusal_is_readable_text_not_an_error():
     read_client = _make_client("watch")
     armed_shape = {"routers": {"microscope": True, "app": False}, "level": "drive"}
     sidecar = build_sidecar(read_client, armed_shape)
-    result = asyncio.run(sidecar.call_tool("move_stage_relative", {"dx": 1e-6}))
+    result = asyncio.run(sidecar.call_tool("stage_move_relative", {"dx": 1e-6}))
     text = "".join(getattr(c, "text", "") for c in _contents(result))
     assert "level" in text
 
 
 def test_service_query_tool_round_trip(armed_sidecar):
     """FIB-1359: a service query was reachable over raw HTTP only."""
-    here = asyncio.run(armed_sidecar.call_tool("get_stage_position", {}))
+    here = asyncio.run(armed_sidecar.call_tool("stage_get_position", {}))
     position = json.loads("".join(getattr(c, "text", "") for c in _contents(here)))
     result = asyncio.run(
         armed_sidecar.call_tool(
-            "call_service_query",
+            "service_call_query",
             {
                 "service": "stage_movement",
                 "query": "project_stable_move",
@@ -223,17 +223,17 @@ def test_the_milling_angle_tools_speak_degrees(armed_sidecar):
     """The tools and the stage movement command all speak degrees (FIB-853).
     Moving to 15 deg must read back as ~15 deg, not ~859."""
     moved = _call_json(
-        armed_sidecar, "move_to_milling_angle", {"milling_angle_deg": 15.0}
+        armed_sidecar, "stage_move_to_milling_angle", {"milling_angle_deg": 15.0}
     )
     assert moved == {"success": True}
-    angle = _call_json(armed_sidecar, "get_milling_angle", {})
+    angle = _call_json(armed_sidecar, "stage_get_milling_angle", {})
     assert angle["milling_angle_deg"] == pytest.approx(15.0, abs=0.5)
-    orientation = _call_json(armed_sidecar, "get_stage_orientation", {})
+    orientation = _call_json(armed_sidecar, "stage_get_orientation", {})
     assert orientation == {"orientation": "MILLING"}
 
 
 def test_the_geometry_is_one_read(armed_sidecar):
-    geometry = _call_json(armed_sidecar, "get_geometry", {})["geometry"]
+    geometry = _call_json(armed_sidecar, "stage_get_geometry", {})["geometry"]
     assert set(geometry["views"]) == {"ELECTRON", "ION"}
     assert geometry["milling_angle"]["stored_deg"] is not None
     assert "FIB" in geometry["orientations"]
@@ -242,11 +242,11 @@ def test_the_geometry_is_one_read(armed_sidecar):
 def test_the_milling_angle_move_takes_a_rotation_in_degrees(armed_sidecar):
     moved = _call_json(
         armed_sidecar,
-        "move_to_milling_angle",
+        "stage_move_to_milling_angle",
         {"milling_angle_deg": 15.0, "rotation_deg": 10.0},
     )
     assert moved == {"success": True}
-    position = _call_json(armed_sidecar, "get_stage_position", {})["position"]
+    position = _call_json(armed_sidecar, "stage_get_position", {})["position"]
     assert math.degrees(position["r"]) == pytest.approx(10.0, abs=0.1)
 
 
@@ -264,7 +264,7 @@ def test_a_command_that_images_answers_the_agent_an_image(armed_sidecar, device)
     summary and an image the agent can look at, not bytes it can't read."""
     result = asyncio.run(
         armed_sidecar.call_tool(
-            "call_command", {"device": device, "command": "acquire"}
+            "device_call_command", {"device": device, "command": "acquire"}
         )
     )
     contents = _contents(result)
@@ -284,6 +284,6 @@ def test_the_milling_state_is_answered_by_name(armed_sidecar):
     assert [MillingState[name].value for name in _MILLING_STATES] == list(
         range(len(_MILLING_STATES))
     )
-    result = asyncio.run(armed_sidecar.call_tool("get_milling_state", {}))
+    result = asyncio.run(armed_sidecar.call_tool("milling_get_state", {}))
     text = "".join(getattr(c, "text", "") for c in _contents(result))
     assert json.loads(text) == {"state": "IDLE"}

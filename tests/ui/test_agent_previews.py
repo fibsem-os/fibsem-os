@@ -36,7 +36,7 @@ def _request(status="pending", request_id="ab12"):
         "status": status,
         "actions": [
             {
-                "tool": "call_service_command",
+                "tool": "service_call_command",
                 "arguments": {
                     "service": "milling",
                     "command": "prepare",
@@ -44,11 +44,11 @@ def _request(status="pending", request_id="ab12"):
                 },
             },
             {
-                "tool": "stable_move",
+                "tool": "stage_stable_move",
                 "arguments": {"dx": 10e-6, "dy": -5e-6, "beam_type": "ION"},
             },
-            {"tool": "vertical_move", "arguments": {"dx": 0.0, "dy": 2e-6}},
-            {"tool": "move_to_orientation", "arguments": {"orientation": "FIB"}},
+            {"tool": "stage_vertical_move", "arguments": {"dx": 0.0, "dy": 2e-6}},
+            {"tool": "stage_move_to_orientation", "arguments": {"orientation": "FIB"}},
         ],
     }
 

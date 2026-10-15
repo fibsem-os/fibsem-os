@@ -225,7 +225,7 @@ def test_the_agent_text_registers_for_every_project_by_absolute_path(tmp_path):
     assert f'claude mcp add -s user fibsem -- "{path}"' in text
     assert f'"{path}" --check' in text
     assert '"connected to http://127.0.0.1:8002"' in text
-    assert "get_capabilities" in text
+    assert "server_get_capabilities" in text
     # Desktop users merge one entry into mcpServers; they never replace the file.
     entry = text.split('"fibsem": ', 1)[1].split(" under", 1)[0]
     assert json.loads(entry) == {"command": str(path)}

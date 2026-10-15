@@ -128,7 +128,7 @@ class WorkflowInfoWidget(QWidget):
 
     def showEvent(self, event) -> None:
         # The agent can change an option while this is closed
-        # (set_workflow_options); show what is set now, not what was.
+        # (workflow_set_options); show what is set now, not what was.
         if self._options is not None:
             self.set_options(self._options)
         super().showEvent(event)

@@ -32,7 +32,10 @@ TARGET_OVERLAY = "agent_request_target"
 SUGGESTION_OVERLAY = "agent_suggestion"
 
 # The beam a move tool works in when the agent does not say: as the tools do.
-_MOVE_BEAMS = {"stable_move": BeamType.ELECTRON, "vertical_move": BeamType.ION}
+_MOVE_BEAMS = {
+    "stage_stable_move": BeamType.ELECTRON,
+    "stage_vertical_move": BeamType.ION,
+}
 
 
 def _beam(value: Any, default: BeamType) -> BeamType:
@@ -52,7 +55,7 @@ def request_patterns(request: Dict[str, Any]) -> List:
     for action in request.get("actions", []):
         arguments = action.get("arguments") or {}
         if (
-            action.get("tool") != "call_service_command"
+            action.get("tool") != "service_call_command"
             or arguments.get("service") != "milling"
             or arguments.get("command") != "prepare"
         ):

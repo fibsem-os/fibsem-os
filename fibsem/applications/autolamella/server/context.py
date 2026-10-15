@@ -672,7 +672,7 @@ class AutoLamellaAppContext:
                 }
                 for task in config.tasks
             ],
-            # the run options set_workflow_options changes
+            # the run options workflow_set_options changes
             "options": {
                 "turn_beams_off": task_protocol.options.turn_beams_off,
                 "show_run_summary": task_protocol.options.show_run_summary,
@@ -1505,10 +1505,10 @@ class AutoLamellaAppContext:
         if experiment is None:
             return None
         task_name = arguments.get("task_name")
-        if tool == "update_item_task_config":
+        if tool == "item_update_task_config":
             lamella = experiment.get_lamella_by_name(arguments.get("item_name"))
             configs = getattr(lamella, "task_config", None) if lamella else None
-        elif tool == "update_protocol_task_config":
+        elif tool == "protocol_update_task_config":
             protocol = getattr(experiment, "task_protocol", None)
             configs = getattr(protocol, "task_config", None) if protocol else None
         else:
@@ -1571,7 +1571,7 @@ class AutoLamellaAppContext:
                     "item_id": item.id,
                     "item_name": item.name,
                     "task_name": task_name,
-                    # what this is; decide_review passes it back. The run is
+                    # what this is; review_decide passes it back. The run is
                     # here as a fact about it, and still names it for a caller
                     # that has not learned the id.
                     "proposal_id": proposal.id,

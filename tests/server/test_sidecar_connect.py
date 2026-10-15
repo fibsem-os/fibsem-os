@@ -157,7 +157,7 @@ def test_a_prompt_image_travels_as_mcp_image_content():
     fake = _FakeClient([_FakeResponse(200, payload)])
     capabilities = {"routers": {"app": True}, "level": "watch"}
     mcp = sidecar.build_sidecar(fake, capabilities)
-    result = asyncio.run(mcp.call_tool("get_pending_prompt", {}))
+    result = asyncio.run(mcp.call_tool("prompt_get", {}))
     contents = result[0] if isinstance(result, tuple) else result
     contents = getattr(contents, "content", contents)
     texts = [c.text for c in contents if getattr(c, "type", "") == "text"]

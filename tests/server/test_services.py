@@ -83,9 +83,9 @@ def test_the_instrument_tools_are_offered_with_the_microscope_off(microscope):
     client = _client(microscope, serve_microscope=False)
     capabilities = client.get("/capabilities", headers=AUTH).json()
     names = {t.name for t in tools_for_capabilities(capabilities)}
-    assert {"get_stage_position", "stable_move", "list_devices"} <= names
+    assert {"stage_get_position", "stage_stable_move", "device_list"} <= names
     # An app tool still needs a server that hosts an application.
-    assert "get_app_status" not in names
+    assert "app_get_status" not in names
 
 
 def test_get_capabilities_is_offered_with_the_microscope_off(microscope):
@@ -94,7 +94,7 @@ def test_get_capabilities_is_offered_with_the_microscope_off(microscope):
     client = _client(microscope, serve_microscope=False)
     capabilities = client.get("/capabilities", headers=AUTH).json()
     names = {t.name for t in tools_for_capabilities(capabilities)}
-    assert "get_capabilities" in names
+    assert "server_get_capabilities" in names
 
 
 def test_the_instrument_is_served_by_default(microscope):

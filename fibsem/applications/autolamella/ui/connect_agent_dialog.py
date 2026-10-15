@@ -103,7 +103,7 @@ def agent_setup_text(
         f'"connected to {url}".\n'
         "3. Tell me to start a new session, or reconnect fibsem in /mcp, so the "
         "tools load.\n"
-        "4. Then call get_capabilities and tell me your agent level. I set it "
+        "4. Then call server_get_capabilities and tell me your agent level. I set it "
         "from the Agent chip in AutoLamella.\n"
     )
 
