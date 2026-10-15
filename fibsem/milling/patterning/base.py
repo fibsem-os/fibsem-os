@@ -19,12 +19,12 @@ from typing import (
 
 import numpy as np
 
-from fibsem.milling.properties import (
-    DEFAULT_DISTANCE_METADATA,
-)
+from fibsem.display import Display
+from fibsem.milling.properties import distance_metadata
 from fibsem.structures import (
     CrossSectionPattern,
     Point,
+    RangeLimit,
     TFibsemPatternSettings,
     field_meta,
     get_fields_with_metadata,
@@ -36,27 +36,21 @@ TPattern = TypeVar("TPattern", bound="BasePattern")
 @dataclass
 class BasePattern(ABC, Generic[TFibsemPatternSettings]):
     name: ClassVar[str] = field(init=False)
-    # `type` has to be Point, and has to win over the base: the form dispatches
-    # the two-spinbox row on it. The dict literal this replaces declared
-    # `"type": Point` *before* spreading DEFAULT_DISTANCE_METADATA, so the
-    # spread's `float` silently won and the declaration was a lie -- which is
-    # why the row had to be special-cased on the field being named "point".
+    # Its type, Point, comes from the annotation: the form dispatches the
+    # two-spinbox row on it. An offset from the image centre, so signed.
     point: Point = field(
         default_factory=Point,
-        metadata=field_meta(
-            DEFAULT_DISTANCE_METADATA,
-            label="Point",
-            type=Point,
-            minimum=-1000.0,
-            maximum=1000.0,
-            tooltip="Point coordinates for the milling pattern.",
+        metadata=distance_metadata(
+            "Point",
+            "Point coordinates for the milling pattern.",
+            limits=RangeLimit(-1e-3, 1e-3),
             advanced=True,
         ),
     )
     # Computed by define(), never edited: the form skips it on `hidden` rather
     # than on a hardcoded field name, so a plugin can hide its own fields too.
     shapes: Optional[List[TFibsemPatternSettings]] = field(
-        default=None, init=False, metadata=field_meta(hidden=True)
+        default=None, init=False, metadata=field_meta(display=Display(hidden=True))
     )
 
     @abstractmethod
@@ -107,12 +101,16 @@ class BasePattern(ABC, Generic[TFibsemPatternSettings]):
     @cached_property
     def advanced_attributes(self) -> Tuple[str, ...]:
         """Return attributes that are marked as advanced in the metadata."""
-        return tuple(f.name for f in fields(self) if f.metadata.get("advanced", False))
+        return tuple(
+            name for name, meta in self.field_metadata.items() if meta["advanced"]
+        )
 
     @cached_property
     def _hidden_attributes(self) -> Tuple[str, ...]:
         """Return attributes that are hidden from the UI."""
-        return tuple(f.name for f in fields(self) if f.metadata.get("hidden", False))
+        return tuple(
+            name for name, meta in self.field_metadata.items() if meta["hidden"]
+        )
 
     @property
     def volume(self) -> float:
