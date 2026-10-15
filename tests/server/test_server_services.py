@@ -379,7 +379,13 @@ def test_an_agent_runs_a_spot_burn(armed_client, microscope):
         json={"kwargs": {"settings": settings.to_dict()}},
     )
     assert resp.status_code == 200, resp.text
-    assert resp.json()["result"] == "finished"
+    # A long command: answered at once with its run, read back when it ends.
+    run = resp.json()["result"]
+    ended = armed_client.get(
+        "/microscope/services/spot_burn/run",
+        params={"run_id": run["run_id"], "wait": 10},
+    )
+    assert ended.json()["run"]["result"] == "finished"
 
 
 def test_an_agent_prepares_milling_with_patterns(armed_client, microscope):

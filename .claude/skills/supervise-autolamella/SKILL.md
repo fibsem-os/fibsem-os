@@ -102,7 +102,27 @@ fibsem-mcp watch
 
 It comes with fibsem and finds the app the way the MCP tools do. If
 `fibsem-mcp` is not on your PATH, run `python -m fibsem.mcp.sidecar watch`
-with the Python fibsem is installed in.
+with the Python fibsem is installed in, from a folder that holds no other
+fibsem checkout (the current folder is searched first). Check it is the
+fibsem the app runs: a watcher from before Assist prints no `REQUEST` lines
+and has no `--since`.
+
+A process that only runs in the background is not a wake-up call: its
+lines go to a file, and you read them on your next turn, which may be
+long after the question. In Claude Code, run the watcher in the
+background writing to a file, then stream that file with the Monitor
+tool, so each new line wakes you:
+
+```
+fibsem-mcp watch > watch.log 2>&1        # Bash, run_in_background
+tail -n +1 -f watch.log                  # Monitor
+```
+
+A monitor expires after 30 minutes. Re-arm it each time it ends, starting
+after the last line you read (`tail -n +43 -f watch.log` when you have read
+42 lines), so a line written in between still reaches you. The watcher
+itself keeps running. Other harnesses need the same thing: a line from the
+watcher has to start your turn.
 
 Wake and act on its lines: `PROMPT` (a question is standing, with its
 `question_id`), `QUESTION` (the run is stopped on a recorded question — rule 5),
@@ -219,7 +239,19 @@ collaborative mode. With the review preference on this is a recorded
 question (rule 5): a `detection` review whose `values.features` are the
 model's points in image pixels, each with a name. Confirm with the features
 as they are to say the model was right; move one only for a correction you
-can state.
+can state. Where it is a prompt rather than a review, the payload's
+`current` is the live features, and an answer may move some:
+`"value": {"features": [{"name", "px": {"x", "y"}}]}` (source-image pixels,
+origin top-left; features you leave out stay). The model's points are kept
+beside your correction, as they are when the operator drags one.
+
+**`RunSpotBurn`** — points to burn on the FIB image. Yes burns the points
+as shown and the question comes back after the burn; no continues. The
+payload's `current` is the live points and `image` the frame they sit on.
+Placing points is a placement: held for the operator unless delegated. When
+it is, an answer may carry them: `"value": {"points": [{"x", "y"}]}`
+(fractions of the frame, origin top-left). Current and exposure stay the
+protocol's.
 
 **A `state` review** — the task's position, "press Continue when ready" on
 the record (rule 5). Confirming carries no values: the task reads the
@@ -406,11 +438,31 @@ may have hit something. Then stop moving: don't retry it, and don't reach the
 same place another way. Read the stage position, add a note saying what you
 asked for and what happened, and hand back to the operator.
 
-**Milling.** `prepare` the settings and patterns, mill with `run` (not
+**Milling.** Mill a protocol's stage with milling `run_stage` (a
+`FibsemMillingStage` dict, e.g. one from `get_item_task_config`) and a
+multi-stage job with `run_task` (a `FibsemMillingTaskConfig` dict). They mill
+as the app does: each stage's strategy, alignment between stages, the beam put
+back. Leave `path` out or give one inside the experiment. Before milling,
+`get_pattern_preview` with a saved ion image and the stages shows where they
+will mill; look at it. Both are long commands: `wait_for_run` milling, and the
+result says the status, the folder and how each stage ended.
+Only where neither fits, `prepare` the settings and patterns, mill with `run` (not
 `start`, which reports no progress and records nothing), then `clear` and
-`restore`, and check the ion beam current is back where it was. A long
-`run` can outlast your tool call; read `get_service_parameter` milling
-`progress` and the events to follow it.
+`restore`, and check the ion beam current is back where it was. `run`
+answers at once with its `run_id` (`state: running`) and mills on, in control
+of the microscope: call `wait_for_run` milling with that id, again while it
+says running, before you `clear`. It ends `done` (`result: completed`),
+`cancelled` or `failed` with its error. `get_service_parameter` milling
+`progress` shows how far it has got. A spot burn `run` works the same way.
+
+**Aligning to a reference.** To bring the view back onto a saved image (a
+task's reference from `get_task_outputs`, or one you saved), `measure_shift`
+the reference against a fresh saved image to see how far off you are, then
+`align_to_reference`: beam shift for a small offset, `stage` when it is beyond
+the beam shift's range. It is a long command; `wait_for_run` alignment gives
+each step's shift and whether the methods agree on what is left. If they don't
+agree, or the score stays low, the view has changed (milled, drifted out of
+frame): stop and tell the operator rather than aligning again.
 
 **`409 microscope_busy` is someone else working.** Its
 `detail.in_control` names who (`workflow`, `script`, or another command)

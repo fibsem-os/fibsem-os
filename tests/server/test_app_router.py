@@ -934,6 +934,13 @@ def test_fm_overview_previews_in_colour_and_places_markers(
     )
     assert at_centre["inside"] is True
     assert by_name[experiment.positions[1].name]["inside"] is False
+    # The inverse: the mosaic's centre pixel is the stage position it was taken at.
+    converted = client.get(
+        "/app/experiment/grids/grid-aspen/outputs/overview.ome.tiff/stage_position",
+        params={"x": 32, "y": 32},
+        headers=AUTH,
+    ).json()["stage_position"]
+    assert (converted["x"], converted["y"]) == pytest.approx((centre.x, centre.y))
 
     listed = client.get("/app/experiment/grids", headers=AUTH).json()["items"][0][
         "overviews"
@@ -967,3 +974,153 @@ def test_unlinked_items_fall_back_only_on_a_single_grid_experiment(
     assert body["linked"] is False
     assert body["markers"] == [] and body["unplaced"] == []
     assert "several grids" in body["reason"]
+
+
+# -- lamella positions: the Lamella tab's buttons, for an agent at Drive ----------
+
+
+@pytest.fixture
+def driver(microscope, host, event_buffer):
+    app = build_server(
+        microscope,
+        app_context=AutoLamellaAppContext(host, event_buffer=event_buffer),
+        auth=AuthConfig.generate(level="drive", token=TOKEN),
+    )
+    with TestClient(app, raise_server_exceptions=False) as client:
+        client.headers["Authorization"] = f"Bearer {TOKEN}"
+        yield client
+
+
+def test_an_item_is_added_where_the_stage_is(driver, host, microscope):
+    from fibsem.structures import FibsemStagePosition
+
+    microscope.move_stage_absolute(FibsemStagePosition(x=1e-4, y=-2e-4))
+    before = len(host.experiment.positions)
+    resp = driver.post("/app/experiment/items", json={"name": "site-a"})
+    assert resp.status_code == 200, resp.text
+    item = resp.json()["item"]
+    assert item["item_name"] == "site-a"
+    assert len(host.experiment.positions) == before + 1
+    lamella = host.experiment.get_lamella_by_name("site-a")
+    assert lamella.milling_pose.stage_position.x == pytest.approx(1e-4)
+    assert lamella.milling_angle is not None
+    # Saved, as a click saves.
+    from fibsem.applications.autolamella.structures import Experiment
+
+    saved = Experiment.load(os.path.join(host.experiment.path, "experiment.yaml"))
+    assert "site-a" in [p.name for p in saved.positions]
+
+    taken = driver.post("/app/experiment/items", json={"name": "site-a"})
+    assert taken.status_code == 422
+
+
+def test_an_item_is_added_under_an_overview_point(driver, host, grid_with_overview):
+    # The marker for the new item lands back on the pixel it was added at: the
+    # conversion is the markers' inverse.
+    point = [40.0, 90.0]
+    converted = driver.get(
+        "/app/experiment/grids/grid-aspen/outputs/overview.tif/stage_position",
+        params={"x": point[0], "y": point[1]},
+    )
+    assert converted.status_code == 200, converted.text
+    assert converted.json()["grid_id"] == grid_with_overview.id
+    by_fraction = driver.get(
+        "/app/experiment/grids/grid-aspen/outputs/overview.tif/stage_position",
+        params={"fx": point[0] / 128, "fy": point[1] / 128},
+    ).json()
+    assert by_fraction["stage_position"] == pytest.approx(
+        converted.json()["stage_position"]
+    )
+
+    resp = driver.post(
+        "/app/experiment/items",
+        json={
+            "name": "picked",
+            "overview": {
+                "grid_name": "grid-aspen",
+                "filename": "overview.tif",
+                "px": point,
+            },
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    assert host.experiment.get_lamella_by_name("picked").grid_id == (
+        grid_with_overview.id
+    )
+    markers = driver.get(
+        "/app/experiment/grids/grid-aspen/outputs/overview.tif/markers"
+    ).json()
+    marker = next(m for m in markers["markers"] if m["item_name"] == "picked")
+    assert (marker["x"], marker["y"]) == pytest.approx(point, abs=0.5)
+
+    outside = driver.get(
+        "/app/experiment/grids/grid-aspen/outputs/overview.tif/stage_position",
+        params={"x": 500, "y": 10},
+    )
+    assert outside.status_code == 422
+    unknown = driver.get(
+        "/app/experiment/grids/grid-aspen/outputs/nope.tif/stage_position",
+        params={"x": 1, "y": 1},
+    )
+    assert unknown.status_code == 404
+    assert unknown.json()["detail"]["filenames"] == ["overview.tif"]
+
+
+def test_a_pose_is_set_from_the_stage_and_moved_back_to(driver, host, microscope):
+    from fibsem.structures import FibsemStagePosition
+
+    name = host.experiment.positions[0].name
+    microscope.move_stage_absolute(FibsemStagePosition(x=3e-4, y=1e-4))
+    resp = driver.post(f"/app/experiment/items/{name}/poses/MILLING")
+    assert resp.status_code == 200, resp.text
+    lamella = host.experiment.get_lamella_by_name(name)
+    assert lamella.milling_pose.stage_position.x == pytest.approx(3e-4)
+    assert lamella.milling_angle is not None
+
+    microscope.move_stage_absolute(FibsemStagePosition(x=0.0, y=0.0))
+    moved = driver.post(
+        f"/app/experiment/items/{name}/move_to", json={"pose": "MILLING"}
+    )
+    assert moved.status_code == 200, moved.text
+    assert microscope.get_stage_position().x == pytest.approx(3e-4)
+    assert moved.json()["stage_position"]["x"] == pytest.approx(3e-4)
+
+    no_pose = driver.post(
+        f"/app/experiment/items/{name}/move_to", json={"pose": "NOPE"}
+    )
+    assert no_pose.status_code == 404
+    assert "MILLING" in no_pose.json()["detail"]["pose_names"]
+    unknown = driver.post("/app/experiment/items/nope/poses/MILLING")
+    assert unknown.status_code == 404
+    assert name in unknown.json()["detail"]["item_names"]
+
+
+def test_an_item_is_removed_but_not_while_a_run_is_on(driver, host):
+    host.experiment.add_new_lamella(MicroscopeState(), EventedDict(), name="spare")
+    host.is_workflow_running = True
+    try:
+        refused = driver.delete("/app/experiment/items/spare")
+        assert refused.status_code == 409
+    finally:
+        host.is_workflow_running = False
+    removed = driver.delete("/app/experiment/items/spare")
+    assert removed.status_code == 200
+    assert host.experiment.get_lamella_by_name("spare") is None
+
+
+def test_position_edits_need_drive(client, host):
+    name = host.experiment.positions[0].name
+    assert (
+        client.post("/app/experiment/items", headers=AUTH, json={}).status_code == 403
+    )
+    assert (
+        client.delete(f"/app/experiment/items/{name}", headers=AUTH).status_code == 403
+    )
+    assert (
+        client.post(
+            f"/app/experiment/items/{name}/move_to",
+            headers=AUTH,
+            json={"pose": "MILLING"},
+        ).status_code
+        == 403
+    )

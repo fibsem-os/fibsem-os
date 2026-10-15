@@ -10,7 +10,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.constants import MICRO_TO_SI, SI_TO_MICRO
+from fibsem.constants import SI_TO_MICRO
 from fibsem.structures import ReferenceImageParameters
 from fibsem.ui import stylesheets
 from fibsem.ui.tokens import SEMANTIC_WARNING_COLOR
@@ -271,10 +271,10 @@ class ReferenceImageParametersWidget(QWidget):
         # Update settings
         self._settings.imaging = self.imaging_widget.get_settings()
         self._settings.field_of_view1 = (
-            self.fov1_spinbox.value() * MICRO_TO_SI
+            self.fov1_spinbox.value() / SI_TO_MICRO
         )  # Convert μm to m
         self._settings.field_of_view2 = (
-            self.fov2_spinbox.value() * MICRO_TO_SI
+            self.fov2_spinbox.value() / SI_TO_MICRO
         )  # Convert μm to m
         self._settings.acquire_sem = self.acquire_sem_check.isChecked()
         self._settings.acquire_fib = self.acquire_fib_check.isChecked()
