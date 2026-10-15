@@ -135,6 +135,14 @@ class _CardPopup(QFrame):
         self.setFixedWidth(NARROW_WIDTH)
 
 
+# The floating card over the app's window only: a tool window. Pinned, over
+# every window: a plain window with the on-top hint. On macOS a tool window is an
+# NSPanel, whose floating level holds only while its app is active, so pinned it
+# went behind the next app (FIB-1427).
+_OVER_APP = Qt.Tool  # type: ignore
+_OVER_ALL = Qt.Window | Qt.WindowStaysOnTopHint  # type: ignore
+
+
 class FloatingPanel(QWidget):
     """The card in a window of its own, over the app's window only (a tool
     window); closing it puts the card back on the chip."""
@@ -142,7 +150,7 @@ class FloatingPanel(QWidget):
     closed = pyqtSignal()
 
     def __init__(self, parent: Optional[QWidget]) -> None:
-        super().__init__(parent, Qt.Tool)  # type: ignore
+        super().__init__(parent, _OVER_APP)
         self.setWindowTitle("Agent")
         self.setObjectName("agentPanel")
         self._layout = QVBoxLayout(self)
@@ -154,7 +162,7 @@ class FloatingPanel(QWidget):
             return
         shown = self.isVisible()
         geometry = self.geometry()
-        self.setWindowFlag(Qt.WindowStaysOnTopHint, on)  # type: ignore
+        self.setWindowFlags(_OVER_ALL if on else _OVER_APP)
         if shown:
             # A window's flags change only as it is shown again.
             self.setGeometry(geometry)

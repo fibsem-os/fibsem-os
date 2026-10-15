@@ -530,6 +530,8 @@ class AgentCard(QFrame):
         self._about = QHBoxLayout()
         self._about.setSpacing(10)
         layout.addLayout(self._about)
+        # A tall floating window keeps the rows packed at the top (FIB-1427).
+        layout.addStretch(1)
 
         self.set_level(AgentLevel.WATCH)
         self.set_last_heard(None)

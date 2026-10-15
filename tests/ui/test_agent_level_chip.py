@@ -163,6 +163,28 @@ def test_now_shows_under_the_title_while_a_request_waits_too(qapp):
     card.deleteLater()
 
 
+def test_a_tall_card_keeps_its_rows_packed_at_the_top(qapp):
+    # FIB-1427: a large floating window spread Now, Recent and the footer apart.
+    card = AgentCard()
+    card.resize(900, 740)
+    card.show()
+    card.set_now("Milling 'trench'")
+    short = AgentCard()
+    short.resize(900, short.sizeHint().height())
+    short.show()
+    short.set_now("Milling 'trench'")
+    qapp.processEvents()
+    for tall_one, short_one in (
+        (card.recent_link, short.recent_link),
+        (card.level_menu, short.level_menu),
+    ):
+        assert tall_one.mapTo(card, tall_one.rect().topLeft()).y() == (
+            short_one.mapTo(short, short_one.rect().topLeft()).y()
+        )
+    card.deleteLater()
+    short.deleteLater()
+
+
 def test_the_image_shows_beside_the_steps_and_follows_the_card_s_width(qapp):
     # Patrick, 2026-10-15 (layout E): the steps and Why left, the image right,
     # wider as the card is; stacked under them with details open.
@@ -868,6 +890,9 @@ def test_the_floating_card_can_be_kept_on_top_of_every_window(qapp):
     assert not panel.windowFlags() & Qt.WindowStaysOnTopHint  # off at first
     pin.click()
     assert chip.keep_on_top and panel.windowFlags() & Qt.WindowStaysOnTopHint
+    # A plain window: a tool window (an NSPanel on macOS) floats over other
+    # apps only while the app is active (FIB-1427).
+    assert panel.windowType() == Qt.Window
     assert panel.isVisible()
     # Kept for the session: put back and floated again, it is still on top.
     chip.dock_card()
@@ -875,6 +900,7 @@ def test_the_floating_card_can_be_kept_on_top_of_every_window(qapp):
     assert panel.windowFlags() & Qt.WindowStaysOnTopHint and pin.isChecked()
     pin.click()
     assert not panel.windowFlags() & Qt.WindowStaysOnTopHint
+    assert panel.windowType() == Qt.Tool and panel.parent() is window
     window.close()
 
 
