@@ -266,8 +266,8 @@ bearer token — the sidecar is convenience, not a requirement.
 - *The sidecar exits with "no server found"* — it waited for a server that
   never appeared; start AutoLamella (with the feature on) first, or pass
   `--url`/`--token` explicitly.
-- *The agent says it can't act* — it is at Watch. Raise it to Drive from the
-  Agent chip if you want it to; refusals name the level (`level`, or `ask_first` at Assist),
+- *The agent says it can't act* — it is at Watch. Raise it from the Agent chip
+  if you want it to: to Assist, where it asks you before each action, or Drive; refusals name the level (`level`, or `ask_first` at Assist),
   a stop (`agent_stopped`) or Off (`agent_off`).
 - *An agent's answer is refused with `stale_prompt`* — the question changed
   between the agent reading it and answering (often: you answered first).

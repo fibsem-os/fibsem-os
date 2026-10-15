@@ -23,8 +23,9 @@ The Swagger UI is available at `http://<host>:8001/docs`.
 
 Every request needs the server's bearer token, sent as an
 `Authorization: Bearer <token>` header. What the token may do is the agent
-level the operator sets from the Agent chip: reads at Watch, acting at Drive;
-at Off everything is refused. A refusal is a structured 403
+level the operator sets from the Agent chip: reads at Watch, asking first at
+Assist (a request the operator approves), acting at Drive; at Off everything is
+refused. A refusal is a structured 403
 naming why (`level`, `ask_first`, `agent_off`, `agent_stopped`, `not_allowed`).
 Separate from the level, an allowlist (`fibsem/server/allowlist.py`) names what
 the agent may never write or run, at any level and in an approved request too:
@@ -195,8 +196,8 @@ The settings groups (beam, imaging, detector) are put together by the client
 from one `values` read, and written parameter by parameter. Stage moves and
 milling go through the `stage_movement` and `milling` services.
 
-Reads work at Watch. Parameter writes and commands need Drive and take control
-of the microscope, except the stops (`stop`, `stop_live`, `cancel`), which follow
+Reads work at Watch. Parameter writes and commands need Drive, or a request the
+operator approved at Assist, and take control of the microscope, except the stops (`stop`, `stop_live`, `cancel`), which follow
 the stop rule above and never take control.
 
 ---

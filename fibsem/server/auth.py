@@ -191,6 +191,12 @@ def lending_drive() -> Iterator[None]:
         _lent.reset(token)
 
 
+def drive_is_lent() -> bool:
+    """Whether this call is an approved request's (:func:`lending_drive`): the
+    app's doing, not the agent's."""
+    return _lent.get()
+
+
 def _bearer_token(request: Request) -> Optional[str]:
     header = request.headers.get("Authorization")
     if header is None or not header.startswith("Bearer "):

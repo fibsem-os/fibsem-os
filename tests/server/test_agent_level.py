@@ -14,6 +14,7 @@ from psygnal.containers import EventedDict  # noqa: E402
 
 from fibsem import utils  # noqa: E402
 from fibsem.acting import AGENT as AGENT_ACTOR  # noqa: E402
+from fibsem.acting import current_actor  # noqa: E402
 from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
@@ -247,6 +248,57 @@ def test_a_stop_needs_a_reason_and_records_it(client, auth, microscope):
     assert stops == [
         {"action": "milling stop", "reason": WHY["reason"], "own": False},
         {"action": "workflow", "reason": WHY["reason"], "own": False},
+    ]
+
+
+def test_a_refused_action_is_recorded_and_a_refused_read_is_not(
+    client, auth, microscope
+):
+    recorded = []
+
+    def record(kind, payload):
+        recorded.append((kind, payload, current_actor()))
+
+    microscope.session.record_signal.connect(record)
+    try:
+        auth.set_level(AgentLevel.ASSIST)
+        refused = client.post(MOVE_RELATIVE, headers=AGENT, json=_NUDGE)
+        assert _error(refused) == "ask_first"
+        auth.set_level(AgentLevel.DRIVE)
+        vent = client.post(
+            "/microscope/devices/chamber/commands/vent", headers=AGENT, json={}
+        )
+        assert _error(vent) == "not_allowed"
+        auth.set_level(AgentLevel.OFF)
+        assert client.get("/app/workflow/status", headers=AGENT).status_code == 403
+        # Not the agent: no token, or the dashboard's.
+        assert client.post(MOVE_RELATIVE, json=_NUDGE).status_code == 401
+        assert (
+            client.post(MOVE_RELATIVE, headers=DASHBOARD, json=_NUDGE).status_code
+            == 403
+        )
+    finally:
+        microscope.session.record_signal.disconnect(record)
+    refusals = [(p, actor) for kind, p, actor in recorded if kind == "agent_refused"]
+    assert refusals == [
+        (
+            {
+                "action": "move relative",
+                "route": f"POST {MOVE_RELATIVE}",
+                "error_type": "ask_first",
+                "level": "assist",
+            },
+            AGENT_ACTOR,
+        ),
+        (
+            {
+                "action": "chamber vent",
+                "route": "POST /microscope/devices/chamber/commands/vent",
+                "error_type": "not_allowed",
+                "level": "drive",
+            },
+            AGENT_ACTOR,
+        ),
     ]
 
 
