@@ -32,7 +32,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fibsem.acting import AGENT, acting
 from fibsem.server.auth import AgentLevel, AuthConfig, lending_drive, require_level
 from fibsem.server.catalog import CATALOG, ToolSpec, route_call
-from fibsem.server.request_text import describe_action
+from fibsem.server.request_text import Describer, describe_actions
 
 PENDING = "pending"
 APPLYING = "applying"
@@ -69,6 +69,8 @@ class Action:
     # The operator's two lines for it, written by the server (request_text).
     what: str = ""
     change: str = ""
+    # Every value, for the operator's "Show details": {columns, rows}, or None.
+    details: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -78,6 +80,7 @@ class Action:
             "path": self.path,
             "what": self.what,
             "change": self.change,
+            "details": self.details,
         }
 
 
@@ -184,8 +187,10 @@ class RequestStore:
         auth: AuthConfig,
         mounted: frozenset,
         emit: Optional[Callable[[str, Dict[str, Any]], Any]] = None,
+        describe: Optional[Describer] = None,
     ) -> None:
         self._app = app
+        self._describe = describe
         self._auth = auth
         self._mounted = mounted
         self._emit_fn = emit
@@ -248,11 +253,14 @@ class RequestStore:
             )
         if on_expiry not in ("approve", "reject"):
             raise ValueError("on_expiry is 'approve' or 'reject'")
-        for action in resolved:
-            described = describe_action(
-                action.tool, action.arguments, action.path, read=self._read
-            )
-            action.what, action.change = described["what"], described["change"]
+        lines = describe_actions(
+            [(a.tool, a.arguments, a.path) for a in resolved],
+            read=self._read,
+            describe=self._describe,
+        )
+        for action, line in zip(resolved, lines):
+            action.what, action.change = line["what"], line["change"]
+            action.details = line.get("details")
         with self._lock:
             waiting = self._pending_locked()
             if waiting is not None:

@@ -13,6 +13,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient  # noqa: E402
 from psygnal.containers import EventedDict  # noqa: E402
 
+import fibsem.applications.autolamella  # noqa: E402
 from fibsem import utils  # noqa: E402
 from fibsem.acting import current_actor  # noqa: E402
 from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
@@ -35,6 +36,11 @@ SUPERVISE = {
 }
 STOP_MILL = {"tool": "stop_milling", "arguments": {"reason": "the mill is off target"}}
 MOVE_RELATIVE = "/microscope/services/stage_movement/commands/move_relative"
+_PROTOCOL = os.path.join(
+    os.path.dirname(fibsem.applications.autolamella.__file__),
+    "protocol",
+    "task-protocol.yaml",
+)
 
 
 class Host:
@@ -405,6 +411,135 @@ def test_each_action_is_described_by_the_server_with_old_and_new(client, context
         (item.name, "description: first pass → trench floor high"),
         ("MILL_ROUGH", "Supervised: ask at each decision"),
     ]
+
+
+def test_a_config_edit_reads_as_its_form_names_it_in_display_units(client, context):
+    """FIB-1403: the setting under its milling stage, old -> new in the form's
+    units, and the same as a table; never the dotted path."""
+    item = context._host.experiment.positions[0]
+    protocol = AutoLamellaTaskProtocol.load(_PROTOCOL)
+    rough = next(
+        c for c in protocol.task_config.values() if c.task_type == "MILL_ROUGH"
+    )
+    item.task_config["Rough Milling"] = rough
+    stage = "milling.mill_rough.stages.0"
+    edit = {
+        "tool": "update_item_task_config",
+        "arguments": {
+            "item_name": item.name,
+            "task_name": "Rough Milling",
+            "patch": {
+                f"{stage}.pattern.depth": 2.5e-6,
+                f"{stage}.milling.milling_current": 6e-11,
+            },
+            "version": "v",
+        },
+    }
+    action = _file(client, edit).json()["actions"][0]
+    assert action["what"] == f"{item.name} · Rough Milling"
+    assert action["change"] == (
+        "Rough Mill 01 · trench depth 2 µm → 2.5 µm\n"
+        "Rough Mill 01 · milling current 740 pA → 60 pA"
+    )
+    assert action["details"] == {
+        "columns": ["Setting", "Now", "New"],
+        "rows": [
+            ["Rough Mill 01 · trench depth", "2 µm", "2.5 µm"],
+            ["Rough Mill 01 · milling current", "740 pA", "60 pA"],
+        ],
+    }
+
+
+def test_a_mill_reads_as_its_patterns_and_its_run_as_how_long():
+    from fibsem.server.request_text import describe_actions
+    from fibsem.structures import FibsemMillingSettings, FibsemRectangleSettings
+
+    def rectangle(x):
+        pattern = FibsemRectangleSettings(
+            width=2e-6, height=1e-6, depth=0.2e-6, centre_x=x, centre_y=4e-6
+        )
+        return {**pattern.to_dict(), "type": "Rectangle"}
+
+    settings = FibsemMillingSettings(milling_current=2e-11).to_dict()
+    prepare, run = describe_actions(
+        [
+            (
+                "call_service_command",
+                {
+                    "service": "milling",
+                    "command": "prepare",
+                    "kwargs": {
+                        "settings": settings,
+                        "patterns": [rectangle(-3e-6), rectangle(0.0)],
+                        "name": "agent test mill",
+                    },
+                },
+                "/x",
+            ),
+            ("call_service_command", {"service": "milling", "command": "run"}, "/x"),
+        ]
+    )
+    assert prepare["what"] == "Milling"
+    assert prepare["change"] == (
+        "Prepare 'agent test mill': 2 rectangles, 2 × 1 µm, 0.2 µm deep, 20 pA at 30 kV"
+    )
+    assert prepare["details"]["rows"] == [
+        ["Rectangle 1", "2 × 1 µm", "0.2 µm", "(-3.0, +4.0) µm"],
+        ["Rectangle 2", "2 × 1 µm", "0.2 µm", "(+0.0, +4.0) µm"],
+    ]
+    assert run["what"] == "Milling"
+    assert run["change"].startswith("Run, about ")
+
+
+@pytest.mark.parametrize(
+    "tool, arguments, line",
+    [
+        (
+            "stable_move",
+            {"dx": 33e-6, "dy": -27e-6, "beam_type": "ION"},
+            ("Stage", "Stable move in the ion beam: 33 µm right, 27 µm down"),
+        ),
+        (
+            "stop_milling",
+            {"reason": "off target"},
+            ("Milling", "Stop the mill now running"),
+        ),
+        (
+            "move_to_orientation",
+            {"orientation": "fib"},
+            ("Stage", "Move to the FIB orientation"),
+        ),
+        (
+            "call_service_command",
+            {"service": "milling", "command": "run"},
+            ("Milling", "Run"),
+        ),
+        (
+            "call_command",
+            {"device": "ion_beam", "command": "autofocus"},
+            ("Ion beam", "Autofocus"),
+        ),
+    ],
+)
+def test_an_action_reads_as_one_plain_line(tool, arguments, line):
+    from fibsem.server.request_text import describe_action
+
+    described = describe_action(tool, arguments, "/x")
+    assert (described["what"], described["change"]) == line
+
+
+def test_a_long_argument_is_cut_in_the_line_and_whole_in_the_details():
+    from fibsem.server.request_text import describe_action
+
+    path = "/data/" + "a" * 80 + ".tif"
+    described = describe_action(
+        "call_service_command",
+        {"service": "imaging", "command": "focus_sweep", "kwargs": {"path": path}},
+        "/x",
+    )
+    assert path not in described["change"]
+    assert described["change"].startswith("Focus sweep: path /data/")
+    assert described["details"]["rows"] == [["path", path]]
 
 
 def test_an_unknown_tool_in_the_describer_falls_back_to_its_name():
