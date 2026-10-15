@@ -25,18 +25,18 @@ from __future__ import annotations
 import time
 from typing import Any, Optional
 
-from fibsem.devices.core import Device, Parameter, command
+from fibsem.devices.core import Device, DeviceParameter, command
 from fibsem.structures import InsertableDeviceState
 
 GIS_RESOURCE = "gis"
 
 
 class GasInjector(Device):
-    gas = Parameter(str, doc="The gas in use.")
-    state = Parameter(InsertableDeviceState, doc="Where the needle is.")
-    heated = Parameter(bool, doc="The heater is on.")
-    opened = Parameter(bool, doc="The valve is open.")
-    temperature = Parameter(float, unit="K", doc="The heater's temperature.")
+    gas = DeviceParameter(str, doc="The gas in use.")
+    state = DeviceParameter(InsertableDeviceState, doc="Where the needle is.")
+    heated = DeviceParameter(bool, doc="The heater is on.")
+    opened = DeviceParameter(bool, doc="The valve is open.")
+    temperature = DeviceParameter(float, unit="K", doc="The heater's temperature.")
 
     def __init__(self, parent: Any = None, **kwargs: Any):
         super().__init__(name="gis", parent=parent, **kwargs)
