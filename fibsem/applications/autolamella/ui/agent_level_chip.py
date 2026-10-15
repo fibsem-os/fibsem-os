@@ -13,6 +13,11 @@ at a time, so the chip carries no count. A suggested answer to the run's questio
 turns it amber too, "Agent suggests", and the card shows it with Accept
 (FIB-1407).
 
+The card can float (FIB-1404): its button moves it into a window of its own, a
+tool window over the app (never over other apps) that the operator moves and
+sizes, narrow enough and it stacks. Closing that window, or the button again,
+puts the card back on the chip. The window keeps its place for the session.
+
 Like `WorkflowControls`, this only shows what it is told and says what was picked.
 What a pick does -- setting the App Server's level -- is the window's.
 """
@@ -21,7 +26,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, Optional
 
-from PyQt5.QtCore import QPoint, Qt, pyqtSignal
+from PyQt5.QtCore import QPoint, QRect, Qt, pyqtSignal
 from PyQt5.QtWidgets import QFrame, QPushButton, QVBoxLayout, QWidget
 
 from fibsem.applications.autolamella.ui.agent_card import (
@@ -178,6 +183,28 @@ class _CardPopup(QFrame):
         self.setFixedWidth(820)
 
 
+class FloatingPanel(QWidget):
+    """The card in a window of its own, over the app's window only (a tool
+    window); closing it puts the card back on the chip."""
+
+    closed = pyqtSignal()
+
+    def __init__(self, parent: Optional[QWidget]) -> None:
+        super().__init__(parent, Qt.Tool)  # type: ignore
+        self.setWindowTitle("Agent")
+        self.setObjectName("agentPanel")
+        self._layout = QVBoxLayout(self)
+        self._layout.setContentsMargins(0, 0, 0, 0)
+
+    def hold(self, card: AgentCard) -> None:
+        self._layout.addWidget(card)
+        card.show()
+
+    def closeEvent(self, event) -> None:  # noqa: N802 - Qt's name
+        super().closeEvent(event)
+        self.closed.emit()
+
+
 class AgentLevelChip(QPushButton):
     """The agent's level, and the card it opens."""
 
@@ -211,7 +238,12 @@ class AgentLevelChip(QPushButton):
         self.card.approve_clicked.connect(self._on_approve)
         self.card.reject_clicked.connect(self._on_reject)
         self.card.accept_clicked.connect(self._closing(self.accept_clicked))
+        self.card.float_clicked.connect(self._on_float_clicked)
         self.popup = _CardPopup(self.card, self)
+        # The card's own window, made the first time it floats (the chip has no
+        # window to sit over until it is in the status bar).
+        self.panel: Optional[FloatingPanel] = None
+        self._panel_geometry: Optional[QRect] = None
         self.clicked.connect(self.toggle_card)
 
         # One width for every level and request state, so the status bar doesn't
@@ -285,7 +317,15 @@ class AgentLevelChip(QPushButton):
 
     # --- the card -------------------------------------------------------------
 
+    @property
+    def floating(self) -> bool:
+        return self.panel is not None and self.panel.isVisible()
+
     def toggle_card(self) -> None:
+        if self.floating:
+            self.panel.raise_()
+            self.panel.activateWindow()
+            return
         if self.popup.isVisible():
             self.popup.close()
             return
@@ -294,8 +334,49 @@ class AgentLevelChip(QPushButton):
         self.popup.show()
         self._fit_popup()
 
+    def _on_float_clicked(self) -> None:
+        if self.floating:
+            self.dock_card()
+        else:
+            self.float_card()
+
+    def float_card(self) -> None:
+        """The card into its own window, where it was last, else where the
+        popup stood."""
+        if self.floating:
+            return
+        start = self.popup.geometry() if self.popup.isVisible() else None
+        self.popup.close()
+        if self.panel is None:
+            self.panel = FloatingPanel(self.window())
+            self.panel.closed.connect(self.dock_card)
+        self.refresh_last_heard()
+        self.panel.hold(self.card)
+        self.card.set_floating(True)
+        if self._panel_geometry is not None:
+            self.panel.setGeometry(self._panel_geometry)
+        else:
+            self.panel.resize(820, self.card.sizeHint().height())
+            if start is not None:
+                self.panel.move(start.topLeft())
+        self.panel.show()
+        self.panel.raise_()
+
+    def dock_card(self) -> None:
+        """The card back on the chip; the window keeps its place for next time."""
+        panel = self.panel
+        if panel is None or self.card.parent() is self.popup:
+            return
+        self._panel_geometry = panel.geometry()
+        self.card.set_floating(False)
+        self.popup.layout().addWidget(self.card)
+        if panel.isVisible():
+            panel.hide()
+
     def _fit_popup(self) -> None:
         """Above the chip, its right edge on the chip's, inside the screen."""
+        if self.floating:
+            return
         popup = self.popup
         popup.adjustSize()
         if not popup.isVisible():

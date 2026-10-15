@@ -12,8 +12,9 @@ The chip in the status bar opens it. It holds, top to bottom:
   is and when it was last heard from, and the event log.
 
 It is wide: the actions on the left, the reason and the decision on the right.
-Narrower than `STACK_BELOW` px it stacks them, so the same card can float as a
-small window.
+Narrower than `STACK_BELOW` px it stacks them, so the same card floats as a
+window the operator sizes (the button at its top right floats it, and puts it
+back on the chip).
 
 Like the chip, it only shows what it is told and says what was clicked. What a
 click does is the window's.
@@ -256,6 +257,7 @@ class AgentCard(QFrame):
     approve_clicked = pyqtSignal(str)  # request id
     reject_clicked = pyqtSignal(str, str)  # request id, the operator's reason
     accept_clicked = pyqtSignal()  # the suggestion shown
+    float_clicked = pyqtSignal()  # float the card, or put it back on the chip
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -283,6 +285,12 @@ class AgentCard(QFrame):
         self._title = _label("Agent", TEXT_STRONG_COLOR, bold=True)
         head.addWidget(self._dot)
         head.addWidget(self._title, 1)
+        self.float_button = QPushButton()
+        self.float_button.setObjectName("agentLink")
+        self.float_button.setCursor(Qt.PointingHandCursor)  # type: ignore
+        self.float_button.clicked.connect(self.float_clicked)
+        head.addWidget(self.float_button)
+        self.set_floating(False)
         self.head = head
         layout.addLayout(head)
 
@@ -381,6 +389,20 @@ class AgentCard(QFrame):
         self._now = action
         if self._request is None and self._suggestion is None:
             self._render()
+
+    def set_floating(self, floating: bool) -> None:
+        """Whether the card is in its own window: its button then puts it back."""
+        self.float_button.setIcon(
+            fibsem_icon(
+                "mdi:dock-bottom" if floating else "mdi:open-in-new",
+                color=TEXT_MUTED_COLOR,
+            )
+        )
+        self.float_button.setToolTip(
+            "Put the card back on the chip"
+            if floating
+            else "Keep the card open in its own window, above the app"
+        )
 
     def set_last_heard(self, text: Optional[str], heard: bool = False) -> None:
         """Who the agent is and when it was last heard; not heard from yet, the
