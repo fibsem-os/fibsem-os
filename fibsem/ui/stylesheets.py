@@ -394,8 +394,7 @@ QToolTip {{
 # -- and the rules used to be spelled out once per widget. That is how ``agent``
 # came to exist in one copy and not the other. One mapping and one builder, so
 # adding a state or changing a colour is a single edit rather than two.
-#
-# TODO: no token -- #BF00FF
+# The agent's is the agent chip's purple, everywhere the agent is shown (FIB-1404).
 BORDER_STATE_COLOURS = {
     "idle": SURFACE_COLOR,
     "pending": PENDING_COLOR,
@@ -403,7 +402,7 @@ BORDER_STATE_COLOURS = {
     "supervised": PRIMARY_COLOR,
     "waiting": ORANGE_COLOR,
     "stopping": SEMANTIC_ERROR_COLOR,
-    "agent": "#BF00FF",
+    "agent": PURPLE_COLOR,
 }
 
 BORDER_WIDTH_PX = 4

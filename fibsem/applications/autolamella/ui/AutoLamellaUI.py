@@ -16,7 +16,7 @@ import os
 import threading
 from copy import deepcopy
 from pathlib import Path
-from typing import TYPE_CHECKING, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
@@ -205,6 +205,9 @@ class AutoLamellaUI(QMainWindow):
     # answers are: the work, bound to its arguments and its Future, and marked
     # as whoever asked (FIB-1276) -- the mark stays on the requesting thread.
     _agent_call = pyqtSignal(object)
+    # The agent's suggested answer to the question up (a dict, see
+    # show_suggestion), or None when it goes.
+    suggestion_changed = pyqtSignal(object)
 
     def __init__(
         self,
@@ -215,6 +218,8 @@ class AutoLamellaUI(QMainWindow):
         self._setup_ui()
         self.parent_widget = parent_ui
 
+        # The agent's suggestion the responder last showed (see show_suggestion).
+        self.suggestion_shown: Optional[Dict[str, object]] = None
         # The Qt side of the workflow's Responder seam: workflow code is handed
         # this one-method object, never the window itself.
         self.ui_responder = QtResponder(self)
@@ -346,17 +351,6 @@ class AutoLamellaUI(QMainWindow):
 
         self.pushButton_yes = QPushButton("Yes")
         self.pushButton_no = QPushButton("No")
-        # The agent's suggested answer (FIB-1283): a button the operator may take,
-        # and the agent's reason under it. Hidden while there is none.
-        self.pushButton_suggestion = QPushButton("")
-        self.pushButton_suggestion.setStyleSheet(
-            stylesheets.SECONDARY_BUTTON_STYLESHEET
-        )
-        self.pushButton_suggestion.setVisible(False)
-        self.label_suggestion = QLabel("")
-        self.label_suggestion.setWordWrap(True)
-        self.label_suggestion.setStyleSheet(f"color: {stylesheets.TEXT_MUTED_COLOR};")
-        self.label_suggestion.setVisible(False)
 
         # Who answered what, under the buttons: fed by the responder's
         # question-lifecycle feed, hidden until the first answer.
@@ -371,9 +365,7 @@ class AutoLamellaUI(QMainWindow):
         self.gridLayout.addWidget(self.label_instructions, 3, 0, 1, 2)
         self.gridLayout.addWidget(self.pushButton_yes, 4, 0)
         self.gridLayout.addWidget(self.pushButton_no, 4, 1)
-        self.gridLayout.addWidget(self.pushButton_suggestion, 5, 0, 1, 2)
-        self.gridLayout.addWidget(self.label_suggestion, 6, 0, 1, 2)
-        self.gridLayout.addWidget(self.question_timeline, 7, 0, 1, 2)
+        self.gridLayout.addWidget(self.question_timeline, 5, 0, 1, 2)
 
         self.setCentralWidget(self.centralwidget)
         self.tabWidget.setCurrentIndex(0)
@@ -436,7 +428,6 @@ class AutoLamellaUI(QMainWindow):
         # workflow interaction
         self.pushButton_yes.clicked.connect(self.push_interaction_button)
         self.pushButton_no.clicked.connect(self.push_interaction_button)
-        self.pushButton_suggestion.clicked.connect(self._take_suggestion)
 
         # signals
         self.workflow_status_signal.connect(self.handle_workflow_status)
@@ -2883,22 +2874,32 @@ class AutoLamellaUI(QMainWindow):
             self.label_workflow_information.setText(msg)
         self.label_workflow_information.setVisible(show)
 
-    def show_suggestion(self, label: Optional[str], reason: str = "") -> None:
-        """The agent's suggested answer under the prompt's buttons, or None to
-        take it down. Shown by the responder, which owns when it stands."""
-        self.pushButton_suggestion.setVisible(label is not None)
-        self.label_suggestion.setVisible(label is not None and bool(reason))
+    def show_suggestion(
+        self,
+        label: Optional[str],
+        reason: str = "",
+        point: Optional[Tuple[float, float]] = None,
+    ) -> None:
+        """The agent's suggested answer, or None to take it down. Called by the
+        responder, which owns when it stands. Not on the prompt: the agent card
+        shows it (FIB-1407), so this says so through `suggestion_changed`.
+        *point* is a suggested point of interest, in the FIB image's pixels."""
         if label is None:
-            return
-        self.pushButton_suggestion.setText(f"Agent suggests: {label}")
-        self.pushButton_suggestion.setEnabled(True)
-        self.label_suggestion.setText(f"Why: {reason}")
+            self.suggestion_shown = None
+        else:
+            self.suggestion_shown = {
+                "question": self.label_instructions.text(),
+                "answer": label,
+                "reason": reason,
+            }
+            if point is not None:
+                self.suggestion_shown["point"] = point
+        self.suggestion_changed.emit(self.suggestion_shown)
 
-    def _take_suggestion(self) -> None:
+    def take_suggestion(self) -> bool:
         """The operator takes the agent's suggestion: their answer, suggested by
-        the agent."""
-        self.pushButton_suggestion.setEnabled(False)
-        self.ui_responder.take_suggestion()
+        the agent. False when it had gone."""
+        return self.ui_responder.take_suggestion()
 
     def push_interaction_button(self):
         """Handle the user interaction with the workflow."""

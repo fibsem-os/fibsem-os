@@ -319,15 +319,39 @@ if __name__ == "__main__":
 def test_patterns_drawn_on_their_own_have_no_crosshair(axes):
     """An agent's mill (FIB-1375) is drawn from its patterns, with no stage pattern
     placed at a point: the shapes and the legend, and no crosshair."""
-    from fibsem.applications.autolamella.ui.agent_activity import _DrawnStage
+    from fibsem.applications.autolamella.ui.agent_activity import DrawnStage
     from fibsem.structures import FibsemRectangleSettings
 
     rectangle = FibsemRectangleSettings(
         width=10e-6, height=5e-6, depth=1e-6, centre_x=0, centre_y=0
     )
     overlay = _overlay(axes)
-    overlay.set_stages([_DrawnStage([rectangle, rectangle])], _image())
+    overlay.set_stages([DrawnStage([rectangle, rectangle])], _image())
 
     kinds = [type(a).__name__ for a in overlay._artists]
     assert kinds == ["Polygon", "Polygon"], kinds
     assert [t.get_text() for t in overlay._legend.get_texts()] == ["Agent"]
+
+
+def test_a_preview_is_drawn_in_one_colour_dashed(axes):
+    """The agent's waiting request (FIB-1404): every stage in the agent's purple,
+    dashed, with a fainter fill than patterns on the microscope."""
+    from matplotlib.colors import to_rgba
+
+    from fibsem.applications.autolamella.ui.agent_activity import DrawnStage
+    from fibsem.structures import FibsemRectangleSettings
+
+    rectangle = FibsemRectangleSettings(
+        width=10e-6, height=5e-6, depth=1e-6, centre_x=0, centre_y=0
+    )
+    overlay = _overlay(axes)
+    overlay.set_stages(
+        [DrawnStage([rectangle]), DrawnStage([rectangle], name="second")],
+        _image(),
+        colour="#8b5cf6",
+        dashed=True,
+    )
+    for artist in overlay._artists:
+        assert artist.get_edgecolor() == to_rgba("#8b5cf6")
+        assert artist.get_linestyle() == "--"
+        assert artist.get_facecolor()[3] < 0.4
