@@ -89,6 +89,7 @@ def test_a_waiting_request_is_drawn_dashed_in_purple_and_comes_down_when_decided
 
     spec = controller.overlays[(BeamType.ION, PATTERNS_OVERLAY)]
     assert spec.colour == PURPLE_COLOR and spec.dashed
+    assert spec.legend_loc == "lower left"  # clear of the view's toolbar
     assert len(spec.stages[0].define_patterns()) == 2
     assert spec.stages[0].name == "Agent · waiting for you"
     targets = controller.overlays[(BeamType.ION, TARGET_OVERLAY)]

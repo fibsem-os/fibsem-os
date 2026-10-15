@@ -49,6 +49,8 @@ class MillingSpec(OverlaySpec):
     # Dashed edges and a fainter fill: patterns not drawn on the microscope yet,
     # such as the ones an agent's waiting request would draw (FIB-1404).
     dashed: bool = False
+    # Where the stage legend goes (a matplotlib legend loc).
+    legend_loc: str = "upper right"
 
 
 @dataclass

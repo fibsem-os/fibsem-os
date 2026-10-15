@@ -1336,6 +1336,7 @@ class MicroscopeViewController(QObject):
                 selected_index=spec.selected_index,
                 colour=spec.colour,
                 dashed=spec.dashed,
+                legend_loc=spec.legend_loc,
             )
         elif isinstance(spec, AlignmentSpec):
             if spec.rect is not None:

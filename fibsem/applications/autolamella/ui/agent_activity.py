@@ -44,6 +44,10 @@ ANNOUNCE_MS = 3000
 # The FIB view's overlay for the agent's patterns, beside the milling panel's own.
 OVERLAY_ID = "agent_milling"
 
+# Where the agent's pattern legends go: clear of the view's toolbar and of the
+# milling panel's own legend, both top-right.
+AGENT_LEGEND = "lower left"
+
 
 class DrawnStage:
     """The agent's patterns as the milling overlay draws a stage: a name for the
@@ -165,7 +169,10 @@ class AgentActivity(QObject):
         controller.set_overlay(
             BeamType.ION,
             MillingSpec(
-                id=OVERLAY_ID, stages=[DrawnStage(patterns)], colour=PURPLE_COLOR
+                id=OVERLAY_ID,
+                stages=[DrawnStage(patterns)],
+                colour=PURPLE_COLOR,
+                legend_loc=AGENT_LEGEND,
             ),
         )
         self._showing_patterns = True

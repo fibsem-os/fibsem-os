@@ -84,6 +84,7 @@ class MillingPatternOverlay(CanvasOverlay):
         self._legend = None
         self._colour: Optional[str] = None
         self._dashed = False
+        self._legend_loc = "upper right"
 
     # ── overlay protocol ──────────────────────────────────────────────────
 
@@ -117,16 +118,19 @@ class MillingPatternOverlay(CanvasOverlay):
         selected_index: Optional[int] = None,
         colour: Optional[str] = None,
         dashed: bool = False,
+        legend_loc: str = "upper right",
     ) -> None:
         """Display *stages* against *image*.
 
         ``background_stages`` are drawn in black behind the foreground stages;
         ``selected_index`` (into *stages*) is drawn with a thicker edge, on top.
         ``colour`` draws every stage in it instead of a colour each; ``dashed``
-        draws them as a preview, dashed with a fainter fill.
+        draws them as a preview, dashed with a fainter fill. ``legend_loc`` places
+        the stage legend.
         """
         self._colour = colour
         self._dashed = dashed
+        self._legend_loc = legend_loc
         self._stages = list(stages)
         self._background_stages = list(background_stages)
         self._selected_index = selected_index
@@ -228,7 +232,7 @@ class MillingPatternOverlay(CanvasOverlay):
             return
         self._legend = self._ax.legend(
             handles=handles,
-            loc="upper right",
+            loc=self._legend_loc,
             fontsize=8,
             facecolor=CANVAS_BG,
             edgecolor=DARK.grid,

@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from fibsem.applications.autolamella.ui.agent_activity import DrawnStage
+from fibsem.applications.autolamella.ui.agent_activity import AGENT_LEGEND, DrawnStage
 from fibsem.server.request_text import parse_patterns
 from fibsem.structures import BeamType, Point
 from fibsem.ui.tokens import PURPLE_COLOR
@@ -94,8 +94,8 @@ def _cross(overlay_id: str, points, name: str):
         color=PURPLE_COLOR,
         selected_color=PURPLE_COLOR,
         marker="+",
-        size=18.0,
-        edge_width=2.0,
+        size=28.0,
+        edge_width=3.0,
         legend_label=name,
         # Never armed, so never takes a click: a preview, not a marker to move.
         modal=True,
@@ -141,6 +141,7 @@ class AgentPreviews:
                     stages=[DrawnStage(patterns, name="Agent · waiting for you")],
                     colour=PURPLE_COLOR,
                     dashed=True,
+                    legend_loc=AGENT_LEGEND,
                 ),
             )
             self._drawn.append((BeamType.ION, PATTERNS_OVERLAY))
