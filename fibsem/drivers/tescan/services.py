@@ -489,23 +489,16 @@ class TescanSpotBurn(SpotBurn):
                 )
             )
 
-        # The run reports a spot burn, not a mill: the milling progress signal is
-        # blocked while it runs. (Blocked, not disconnected: reconnecting a psygnal
-        # signal's ``emit`` calls it once, with nonsense, to read its signature.)
-        signal = getattr(microscope, "milling_progress_signal", None)
-        quiet = signal.blocked() if signal is not None else contextlib.nullcontext()
-        milling.progress.changed.connect(report)
         try:
-            # A spot burn records itself, not a mill.
-            with quiet, milling.part_of():
+            # A spot burn records itself, not a mill, and its mill's progress is
+            # the spot burn's: milling progress does not see it.
+            with milling.part_of(report=report):
                 milling.run(
                     stop_event=AnyStopEvent(self._stop_requested, *_events(stop_event))
                 )
         except OperationCancelledError:
             logging.info("Spot burn cancelled.")
             return SpotBurnStatus.CANCELLED
-        finally:
-            milling.progress.changed.disconnect(report)
         return SpotBurnStatus.FINISHED
 
     def _finish(self, ion: Beam) -> None:
