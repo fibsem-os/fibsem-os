@@ -8,7 +8,10 @@ Uses the shared offscreen ``qapp`` fixture from tests/conftest.py.
 import os
 
 import pytest
-from PyQt5.QtWidgets import QMessageBox
+
+pytest.importorskip("PyQt5")
+
+from PyQt5.QtWidgets import QMessageBox  # noqa: E402
 
 
 @pytest.fixture
