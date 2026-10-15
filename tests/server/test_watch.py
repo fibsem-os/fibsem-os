@@ -422,7 +422,9 @@ def test_evicted_events_print_a_gap_then_carry_on(microscope, tmp_path, discover
     assert lines[2] == "RUN ENDED (workflow_completed)"
 
 
-def test_a_new_stream_prints_a_gap_and_reads_it_from_the_start(app):
+def test_a_new_stream_says_the_app_restarted_and_reads_it_from_the_start(app):
+    """A restarted app's seqs start again: nothing was lost, so the line says it
+    restarted rather than GAP (FIB-1421)."""
     for _ in range(5):
         app.buffer.append("tick", {})
 
@@ -436,8 +438,47 @@ def test_a_new_stream_prints_a_gap_and_reads_it_from_the_start(app):
     code, lines = _watch({2: restart})
 
     assert code == 0
-    assert lines[0].startswith("GAP:")
-    assert lines[1:] == ["EVENT task_started l2", "RUN ENDED (workflow_completed)"]
+    assert lines == [
+        watch_mod.RESTARTED_LINE,
+        "EVENT task_started l2",
+        "RUN ENDED (workflow_completed)",
+    ]
+
+
+def test_a_new_stream_past_the_cursor_is_still_a_restart(app):
+    """A new session that has already run past the cursor is told by its stream,
+    not its seqs: read from its start, not from the old cursor."""
+    app.buffer.append("tick", {})
+
+    def restart():
+        app.context._event_buffer = EventBuffer()
+        app.buffer.append("task_started", {"item_name": "l2"})
+        app.buffer.append("tick", {})
+        app.buffer.append("workflow_completed", {})
+
+    code, lines = _watch({2: restart})
+
+    assert code == 0
+    assert lines == [
+        watch_mod.RESTARTED_LINE,
+        "EVENT task_started l2",
+        "RUN ENDED (workflow_completed)",
+    ]
+
+
+def test_resuming_with_a_seq_from_before_a_restart_says_so(app):
+    """``--since`` from a watch of the app before it restarted."""
+    app.buffer.append("task_started", {"item_name": "l3"})
+    app.buffer.append("workflow_completed", {})
+
+    code, lines = _watch({}, since=40)
+
+    assert code == 0
+    assert lines == [
+        watch_mod.RESTARTED_LINE,
+        "EVENT task_started l3",
+        "RUN ENDED (workflow_completed)",
+    ]
 
 
 def test_a_401_rereads_discovery_and_carries_on(app, discovery):
