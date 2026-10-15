@@ -702,13 +702,11 @@ def _focus_stack(a: Dict[str, Any]) -> Dict[str, Any]:
     return {"what": _beam(image), "change": change}
 
 
-def _fm_overview(a: Dict[str, Any]) -> Dict[str, Any]:
-    parameters = a.get("parameters") if isinstance(a.get("parameters"), dict) else {}
+def _fm_channels(a: Dict[str, Any], change: str) -> Dict[str, Any]:
+    """*change* in the channels the call names, with their settings as details."""
     channels = [c for c in a.get("channels") or [] if isinstance(c, dict)]
     names = [str(c.get("name") or "channel") for c in channels]
-    rows, cols = parameters.get("rows"), parameters.get("cols")
-    grid = f"{rows} × {cols} " if rows and cols else ""
-    change = f"Take a {grid}overview in {_plural(len(channels), 'channel')}"
+    change += f" in {_plural(len(channels), 'channel')}"
     if names:
         change += f" ({_names_cut(names)})"
     change += ", here"
@@ -724,6 +722,18 @@ def _fm_overview(a: Dict[str, Any]) -> Dict[str, Any]:
         "change": change,
         "details": _table(("Channel", "Settings"), table) if table else None,
     }
+
+
+def _fm_overview(a: Dict[str, Any]) -> Dict[str, Any]:
+    parameters = a.get("parameters") if isinstance(a.get("parameters"), dict) else {}
+    rows, cols = parameters.get("rows"), parameters.get("cols")
+    grid = f"{rows} × {cols} " if rows and cols else ""
+    return _fm_channels(a, f"Take a {grid}overview")
+
+
+def _fm_image(a: Dict[str, Any]) -> Dict[str, Any]:
+    zparams = a.get("zparams") if isinstance(a.get("zparams"), dict) else None
+    return _fm_channels(a, "Take a z-stack" if zparams else "Take an image")
 
 
 _ALIGN_WITH = {
@@ -1099,6 +1109,12 @@ def _line(
         return {"what": "Fluorescence", "change": f"Focus the objective {on}"}
     if tool == "fm_acquire_overview":
         return _fm_overview(a)
+    if tool == "fm_acquire_image":
+        return _fm_image(a)
+    if tool == "milling_run_stage":
+        return _run_stage(a)
+    if tool == "milling_run_task":
+        return _run_task(a)
     if tool == "alignment_align_to_reference":
         reference = (
             os.path.basename(str(a.get("reference_path") or "")) or "a reference"
