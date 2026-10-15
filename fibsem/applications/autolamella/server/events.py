@@ -18,7 +18,7 @@ Rules the taps live by:
   the images themselves are fetched through the preview endpoints on demand.
   The acquisition signals fire only from the streaming live-view worker. A
   one-shot acquisition reaches the stream as ``image_acquired`` (on
-  ``record_signal``) when it goes through ``acquire.acquire_image``, as workflow
+  ``session.record_signal``) when it goes through ``acquire.acquire_image``, as workflow
   reference images do; a direct ``microscope.acquire_image`` call still does not.
 
 Sequence numbers make polling honest: a client asks for everything after seq
@@ -233,8 +233,8 @@ def attach_microscope_taps(buffer: EventBuffer, microscope) -> List[Callable[[],
     def on_record(kind: str, payload: Any) -> None:
         append(kind, to_plain, payload)
 
-    microscope.record_signal.connect(on_record)
-    disposers.append(lambda: microscope.record_signal.disconnect(on_record))
+    microscope.session.record_signal.connect(on_record)
+    disposers.append(lambda: microscope.session.record_signal.disconnect(on_record))
 
     tap(microscope.milling_progress_signal, "milling_progress", to_plain)
     tap(microscope.spot_burn_progress_signal, "spot_burn_progress", to_plain)

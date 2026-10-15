@@ -101,7 +101,7 @@ def test_a_tescan_safe_move_records_where_it_ended():
     microscope, _ = _tescan()
     microscope.get_stage_position()  # read on connect
     events = []
-    microscope.record_signal.connect(
+    microscope.session.record_signal.connect(
         lambda kind, payload: events.append((kind, payload))
     )
 
