@@ -406,7 +406,15 @@ may have hit something. Then stop moving: don't retry it, and don't reach the
 same place another way. Read the stage position, add a note saying what you
 asked for and what happened, and hand back to the operator.
 
-**Milling.** `prepare` the settings and patterns, mill with `run` (not
+**Milling.** Mill a protocol's stage with milling `run_stage` (a
+`FibsemMillingStage` dict, e.g. one from `get_item_task_config`) and a
+multi-stage job with `run_task` (a `FibsemMillingTaskConfig` dict). They mill
+as the app does: each stage's strategy, alignment between stages, the beam put
+back. Leave `path` out or give one inside the experiment. Before milling,
+`get_pattern_preview` with a saved ion image and the stages shows where they
+will mill; look at it. Both are long commands: `wait_for_run` milling, and the
+result says the status, the folder and how each stage ended.
+Only where neither fits, `prepare` the settings and patterns, mill with `run` (not
 `start`, which reports no progress and records nothing), then `clear` and
 `restore`, and check the ion beam current is back where it was. `run`
 answers at once with its `run_id` (`state: running`) and mills on, in control

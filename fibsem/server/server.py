@@ -93,7 +93,8 @@ _drive = require_level(AgentLevel.DRIVE)
 
 def _refuse(app_context) -> Callable[[Any, str, str, Mapping[str, Any]], Optional[str]]:
     """The App Server's allowlist (`fibsem.server.allowlist`): what the agent may
-    never touch, and a ``path`` it may only give inside the open experiment."""
+    never touch, and a path it may only give inside the open experiment, to a
+    command or a query."""
 
     def experiment_path() -> Optional[str]:
         return getattr(app_context, "experiment_path", None)
@@ -101,7 +102,7 @@ def _refuse(app_context) -> Callable[[Any, str, str, Mapping[str, Any]], Optiona
     def refuse(device, kind: str, name: str, kwargs: Mapping[str, Any]):
         return allowlist.blocked(device, kind, name) or (
             allowlist.path_outside(kwargs, experiment_path)
-            if kind == "command"
+            if kind in ("command", "query")
             else None
         )
 

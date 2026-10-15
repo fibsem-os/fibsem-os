@@ -563,8 +563,11 @@ def build_device_router(
         method = getattr(d, query)
         what = f"{noun} {device}.{query}"
         kwargs = run(lambda: decode_kwargs(method, body.get("kwargs", {})), what)
+        check(d, "query", query, kwargs)
         result = run(lambda: method(**kwargs), what)
-        return {"result": jsonable_encoder(to_wire(result))}
+        # A query is asked by an agent: an image (a pattern preview) comes back
+        # as one it reads.
+        return {"result": json_answer(result, preview=True)}
 
     return router
 

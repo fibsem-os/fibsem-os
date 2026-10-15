@@ -51,7 +51,10 @@ class Run:
 
 def _cancelled(result: Any) -> bool:
     """A run that was stopped answers ``cancelled`` (the milling service's
-    string, the spot burn service's status) rather than raising (FIB-1377)."""
+    string, the spot burn service's status, a milling task's ``status``)
+    rather than raising (FIB-1377)."""
+    if isinstance(result, dict):
+        result = result.get("status")
     return str(getattr(result, "value", result)).lower() == CANCELLED
 
 
