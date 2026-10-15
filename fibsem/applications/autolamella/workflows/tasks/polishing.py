@@ -13,8 +13,7 @@ from fibsem.applications.autolamella.workflows.tasks.base import (
     ALIGNMENT_REFERENCE_IMAGE_FILENAME,
     AutoLamellaTask,
 )
-from fibsem.display import Display
-from fibsem.structures import field_meta
+from fibsem.structures import Display, field_meta
 
 
 @dataclass

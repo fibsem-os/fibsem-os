@@ -35,7 +35,7 @@ from fibsem.devices.core import (
     CommandInfo,
     Device,
     DeviceFault,
-    Parameter,
+    DeviceParameter,
     ParameterMetadata,
     ParameterReadOnly,
     ParameterUnavailable,
@@ -54,7 +54,7 @@ from fibsem.devices.stage import (
     Stage,
     StageLimitError,
 )
-from fibsem.display import Display
+from fibsem.structures import Display
 
 __all__ = [
     "AXIS_UNITS",
@@ -74,7 +74,7 @@ __all__ = [
     "DeviceFault",
     "Display",
     "ParameterMetadata",
-    "Parameter",
+    "DeviceParameter",
     "ParameterReadOnly",
     "ParameterUnavailable",
     "ResourceBusy",

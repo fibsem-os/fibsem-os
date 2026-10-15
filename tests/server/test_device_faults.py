@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from fibsem.devices import (  # noqa: E402
     Device,
     DeviceFault,
-    Parameter,
+    DeviceParameter,
     ResourceBusy,
     command,
 )
@@ -30,7 +30,7 @@ class ControllerError(DeviceFault):
 
 
 class Unit(Device):
-    gain = Parameter(float)
+    gain = DeviceParameter(float)
 
     def read_gain(self):
         raise ControllerError("controller offline", device=self.name)

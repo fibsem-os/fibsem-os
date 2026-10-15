@@ -18,9 +18,8 @@ from fibsem.applications.autolamella.workflows.tasks.base import (
     ALIGNMENT_REFERENCE_IMAGE_FILENAME,
     AutoLamellaTask,
 )
-from fibsem.display import Display
 from fibsem.milling.tasks import FibsemMillingTaskConfig
-from fibsem.structures import Point, field_meta
+from fibsem.structures import Display, Point, field_meta
 
 
 @dataclass

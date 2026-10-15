@@ -103,6 +103,7 @@ from fibsem.devices.wire import (
     from_wire,
     to_wire,
 )
+from fibsem.schema import arguments_schema
 from fibsem.server.images import (
     TIFF_MEDIA_TYPE,
     image_answer,
@@ -235,6 +236,7 @@ def describe_device(device: Device, refuse: Optional[Refuse] = None) -> Dict[str
         "commands": {
             name: {
                 "signature": info.signature,
+                "arguments": _arguments(device, name),
                 "available": info.available,
                 **agent("command", name),
                 # Answered at once with a run id on the App Server.
@@ -243,11 +245,25 @@ def describe_device(device: Device, refuse: Optional[Refuse] = None) -> Dict[str
             for name, info in device.commands.items()
         },
         "queries": {
-            name: {"signature": info.signature, "available": info.available}
+            name: {
+                "signature": info.signature,
+                "arguments": _arguments(device, name),
+                "available": info.available,
+            }
             for name, info in getattr(device, "queries", {}).items()
         },
         "facts": _facts(device),
     }
+
+
+def _arguments(device: Device, name: str) -> Dict[str, Any]:
+    """A command's or query's arguments as JSON Schema (``fibsem.schema``): what an
+    agent sends, with the units, SI limits and choices the GUI reads."""
+    try:
+        return arguments_schema(getattr(type(device), name))
+    except Exception as error:  # a schema is a help, never a reason to fail a listing
+        logging.warning(f"{device.name}.{name}: no argument schema: {error!r}")
+        return {}
 
 
 def metadata_payload(metadata: ParameterMetadata) -> Dict[str, Any]:

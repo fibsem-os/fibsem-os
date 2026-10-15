@@ -12,7 +12,6 @@ from typing import (
 from numpy.typing import NDArray
 
 from fibsem import constants
-from fibsem.display import Display
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.milling.properties import (
     angle_metadata,
@@ -22,6 +21,7 @@ from fibsem.milling.properties import (
     scan_direction_metadata,
 )
 from fibsem.structures import (
+    Display,
     FibsemBitmapSettings,
     field_meta,
 )

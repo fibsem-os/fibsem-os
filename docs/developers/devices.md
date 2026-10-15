@@ -525,14 +525,14 @@ A device class declares its parameters and commands. A driver implements each
 parameter with methods named after it, which `connect()` binds:
 
 ```python
-from fibsem.devices import Device, Parameter, ParameterMetadata, command
+from fibsem.devices import Device, DeviceParameter, ParameterMetadata, command
 from fibsem.structures import RangeLimit
 
 
 class Knife(Device):
     """A device type a plugin adds."""
 
-    angle = Parameter(float, unit="rad")
+    angle = DeviceParameter(float, unit="rad")
 
     def __init__(self, name, parent=None):
         super().__init__(name, parent)
@@ -571,11 +571,18 @@ metadata. `needs_channel` names the parameters whose reads and writes claim the
 imaging channel. The vendor-neutral classes live in `fibsem/devices/` and never import
 a driver; each driver's classes live in `fibsem/drivers/<driver>/devices.py`.
 
-A plugin imports only from `fibsem.devices` (`Device`, `Parameter`,
+A plugin imports only from `fibsem.devices` (`Device`, `DeviceParameter`,
 `ParameterMetadata`, `Display`, `Role`, `command`, `query`, `Resources`, and the
 interfaces such as `Scanner`) and `fibsem.drivers.registry`; the submodules may move.
 A parameter's `Display` crosses to clients in its description (`describe()`, and the
 device server's `GET /devices`), so an agent shows it as a form does.
+
+A `DeviceParameter` is a `fibsem.structures.Parameter` (type, SI unit, SI limits,
+choices, doc, `Display`) with the binding to the hardware added. A dataclass field
+declares the same `Parameter` through `field_meta`, so a form, a description and the
+JSON Schema of a command's arguments (`fibsem.schema`, the `arguments` of each command
+in `GET /devices`) read a device parameter and a recipe field the same way. A field
+bound to a device parameter names it as `device_parameter="beam.current"`.
 
 ## Adding a driver
 

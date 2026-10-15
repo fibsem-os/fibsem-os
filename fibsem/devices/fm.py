@@ -25,11 +25,15 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 import numpy as np
 
-from fibsem.devices.core import Device, Parameter, Role, command
+from fibsem.devices.core import Device, DeviceParameter, Role, command
 from fibsem.devices.wire import Frame, to_wire
-from fibsem.display import Display
 from fibsem.fm.structures import EmissionFilter
-from fibsem.structures import CameraImageTransform, InsertableDeviceState, RangeLimit
+from fibsem.structures import (
+    CameraImageTransform,
+    Display,
+    InsertableDeviceState,
+    RangeLimit,
+)
 from fibsem.util.timestamps import now_iso, zone_known
 
 
@@ -52,29 +56,29 @@ def mount_transform_from_name(name: Optional[str]) -> CameraImageTransform:
 
 
 class Camera(Device):
-    exposure_time = Parameter(
+    exposure_time = DeviceParameter(
         float,
         unit="s",
         display=Display("Exposure Time", scale=1e3, step=1.0, decimals=1),
     )
-    binning = Parameter(int, display=Display("Binning"))
-    gain = Parameter(
+    binning = DeviceParameter(int, display=Display("Binning"))
+    gain = DeviceParameter(
         float,
         limits=RangeLimit(0.0, 1.0),
         doc="A fraction of the camera's gain range, 0 to 1.",
         display=Display("Gain", scale=100, unit="%", step=1.0, decimals=1),
     )
-    offset = Parameter(float)
-    pixel_size = Parameter(tuple, unit="m", doc="(x, y), after binning.")
-    resolution = Parameter(tuple, doc="(width, height) in pixels, after binning.")
-    mount_transform = Parameter(
+    offset = DeviceParameter(float)
+    pixel_size = DeviceParameter(tuple, unit="m", doc="(x, y), after binning.")
+    resolution = DeviceParameter(tuple, doc="(width, height) in pixels, after binning.")
+    mount_transform = DeviceParameter(
         str,
         doc="The flip that puts the camera's frames into the stage's axes, from how "
         "it is mounted: none, flip-x, flip-y or flip-xy. Applied to every frame "
         "before the user's own image transform.",
     )
 
-    display_transform = Parameter(
+    display_transform = DeviceParameter(
         str,
         doc="The flip the user views frames under: none, flip-x, flip-y or flip-xy. "
         "A display preference, applied after mount_transform; a move by a "
@@ -120,7 +124,7 @@ class LightSource(Device):
     says what the next frame will use.
     """
 
-    power = Parameter(
+    power = DeviceParameter(
         float,
         doc="A fraction of the source's maximum, 0 to 1.",
         display=Display("Power", scale=100, unit="%", step=1.0, decimals=1),
@@ -137,14 +141,14 @@ class FilterSet(Device):
     frame. Camera and objective parameters, by contrast, are live hardware state.
     """
 
-    excitation_wavelength = Parameter(
+    excitation_wavelength = DeviceParameter(
         float,
         unit="nm",
         nearest=True,
         doc="The excitation band, by its centre in nm: a wavelength between bands "
         "selects the nearest band.",
     )
-    emission_filter = Parameter(
+    emission_filter = DeviceParameter(
         EmissionFilter,
         doc="The emission filter in the light path; the choices are this filter set's.",
     )
@@ -153,16 +157,18 @@ class FilterSet(Device):
 class Objective(Device):
     """Where the objective is and what it's doing. It moves only through commands."""
 
-    position = Parameter(
+    position = DeviceParameter(
         float,
         unit="m",
         display=Display("Position", scale=1e6, step=1.0, decimals=1),
     )
-    state = Parameter(InsertableDeviceState)
+    state = DeviceParameter(InsertableDeviceState)
     # The objective's hardware description: read only on every backend.
-    magnification = Parameter(float)
-    numerical_aperture = Parameter(float)
-    limit_position = Parameter(float, unit="m", doc="The furthest a move may go in.")
+    magnification = DeviceParameter(float)
+    numerical_aperture = DeviceParameter(float)
+    limit_position = DeviceParameter(
+        float, unit="m", doc="The furthest a move may go in."
+    )
 
     @command
     def insert(self) -> Optional[bool]:
@@ -228,7 +234,7 @@ z position."""
 class FM(Device):
     """The group: sequences over several parts, run by the driver next to them."""
 
-    progress = Parameter(
+    progress = DeviceParameter(
         dict,
         doc="Where a running z-stack is: channel, channel_index, total_channels, "
         "zlevel and total_zlevels (1-based), reported before each frame; empty when "

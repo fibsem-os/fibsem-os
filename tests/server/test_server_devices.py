@@ -85,6 +85,17 @@ def test_lists_every_device_the_microscope_built(read_client, microscope):
     assert "move_relative" in body["stage"]["commands"]
 
 
+def test_a_command_lists_its_arguments_as_json_schema(read_client):
+    """An agent has no copy of the classes: the listing says what each argument is."""
+    body = read_client.get("/microscope/devices").json()
+    arguments = body["stage"]["commands"]["move_relative"]["arguments"]
+
+    assert arguments["type"] == "object"
+    (position,) = arguments["required"][:1]
+    assert arguments["properties"][position] == {"$ref": "#/$defs/FibsemStagePosition"}
+    assert arguments["$defs"]["FibsemStagePosition"]["type"] == "object"
+
+
 def test_device_routes_need_the_token(microscope):
     app = build_server(microscope, auth=AuthConfig(token=TOKEN))
     with TestClient(app, raise_server_exceptions=False) as client:

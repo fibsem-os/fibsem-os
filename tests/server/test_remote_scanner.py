@@ -17,7 +17,7 @@ import yaml
 pytest.importorskip("fastapi")
 pytest.importorskip("websockets")
 
-from fibsem.devices import Device, Parameter  # noqa: E402
+from fibsem.devices import Device, DeviceParameter  # noqa: E402
 from fibsem.devices.entries import (  # noqa: E402
     ResolvedEntry,
     build_device_entries,
@@ -52,7 +52,7 @@ class LimitedScanner(DemoScanGenerator):
 class Lockin(Device):
     """A device of a type fibsem has no interface for: a plugin's own."""
 
-    frequency = Parameter(float, unit="Hz")
+    frequency = DeviceParameter(float, unit="Hz")
 
     def read_frequency(self) -> float:
         return 1e3

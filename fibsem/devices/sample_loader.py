@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Iterator, Optional, Tuple
 
-from fibsem.devices.core import Device, Parameter, command
+from fibsem.devices.core import Device, DeviceParameter, command
 from fibsem.devices.stage import STAGE_RESOURCE
 
 SAMPLE_LOADER_RESOURCE = "sample_loader"
@@ -133,13 +133,15 @@ class StageSample:
 
 
 class SampleLoader(Device):
-    magazine = Parameter(Magazine, doc="Every magazine slot, as the loader last knew.")
-    on_stage = Parameter(StageSample, doc="What the loader reports on the stage.")
-    capacity = Parameter(int, doc="How many slots the magazine has.")
-    exchange_time = Parameter(
+    magazine = DeviceParameter(
+        Magazine, doc="Every magazine slot, as the loader last knew."
+    )
+    on_stage = DeviceParameter(StageSample, doc="What the loader reports on the stage.")
+    capacity = DeviceParameter(int, doc="How many slots the magazine has.")
+    exchange_time = DeviceParameter(
         float, unit="s", doc="How long one exchange takes, an unload and a load."
     )
-    busy = Parameter(bool, doc="Whether a command is running on the loader.")
+    busy = DeviceParameter(bool, doc="Whether a command is running on the loader.")
 
     def __init__(self, parent: Any = None, **kwargs: Any):
         super().__init__(name="sample_loader", parent=parent, **kwargs)

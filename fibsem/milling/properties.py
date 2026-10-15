@@ -1,10 +1,10 @@
 from typing import Any, Dict
 
 from fibsem import constants
-from fibsem.display import Display
 from fibsem.structures import (  # noqa: F401  (distance_metadata, DISTANCE_LIMITS: re-exported)
     DISTANCE_LIMITS,
     CrossSectionPattern,
+    Display,
     RangeLimit,
     distance_metadata,
     field_meta,
@@ -61,7 +61,7 @@ def scan_direction_metadata(
 ) -> Dict[str, Any]:
     """The milling service's scan directions, which the instrument decides."""
     return field_meta(
-        microscope_parameter="scan_direction",
+        device_parameter="milling.scan_direction",
         doc=doc,
         display=Display("Scan Direction"),
     )
@@ -82,8 +82,7 @@ def image_resolution_metadata(
 ) -> Dict[str, Any]:
     """The beam's resolutions, which the instrument decides."""
     return field_meta(
-        microscope_parameter="resolution",
+        device_parameter="beam.resolution",
         doc=doc,
-        display=Display("Image Resolution"),
-        format_fn=format_resolution_as_str,
+        display=Display("Image Resolution", format_fn=format_resolution_as_str),
     )

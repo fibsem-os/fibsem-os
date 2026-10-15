@@ -40,7 +40,7 @@ from typing import (
 # from its type hints (a SpotBurnSettings sent as a dict).
 from fibsem.cancellation import AnyStopEvent
 from fibsem.devices.beam import Beam
-from fibsem.devices.core import Parameter, ParameterMetadata, Role, command, query
+from fibsem.devices.core import DeviceParameter, ParameterMetadata, Role, command, query
 from fibsem.imaging.spot import SpotBurnProgress, SpotBurnSettings, SpotBurnStatus
 from fibsem.services.core import Service, forward_to, save_beam_conditions
 from fibsem.structures import BeamType, Point
@@ -58,7 +58,9 @@ class SpotBurn(Service):
     ion = Role(Beam, doc="The ion beam, which burns.")
 
     # Reported by `run` as it goes; reading it doesn't touch the instrument.
-    progress = Parameter(SpotBurnProgress, doc="The run's point and times; read-only.")
+    progress = DeviceParameter(
+        SpotBurnProgress, doc="The run's point and times; read-only."
+    )
 
     # How often a run reports while a point exposes, in seconds.
     poll_interval: float = 1.0

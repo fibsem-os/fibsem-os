@@ -40,8 +40,11 @@ from fibsem.applications.autolamella.ui.autolamella_task_config_widget import ( 
     TASK_FORM_DEFAULTS,
     AutoLamellaTaskParametersConfigWidget,
 )
-from fibsem.display import Display  # noqa: E402
-from fibsem.structures import RangeLimit, field_meta  # noqa: E402
+from fibsem.structures import (  # noqa: E402
+    Display,  # noqa: E402
+    RangeLimit,
+    field_meta,
+)
 from fibsem.ui.widgets.custom_widgets import (  # noqa: E402
     IntegerValueSpinBox,
     ValueComboBox,

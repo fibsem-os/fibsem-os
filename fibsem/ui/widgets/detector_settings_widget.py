@@ -12,7 +12,7 @@ from superqt import QDoubleSlider
 
 from fibsem.devices.beam import Beam
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import BeamType, FibsemDetectorSettings, FieldSpec
+from fibsem.structures import BeamType, FibsemDetectorSettings, Parameter
 from fibsem.ui.utils import install_wheel_blocker
 from fibsem.ui.widgets.form_builder import parameter_spec
 
@@ -231,7 +231,7 @@ class FibsemDetectorSettingsWidget(QWidget):
             self.mode_combo.setCurrentText(current_mode)
         self.mode_combo.blockSignals(False)
 
-    def _field(self, name: str) -> FieldSpec:
+    def _field(self, name: str) -> Parameter:
         """How to show the beam parameter ``name``: its display hint, with the limits
         and choices this beam reports, or what every beam declares when it has none."""
         beam = self.microscope.beams.get(self.beam_type)

@@ -9,7 +9,7 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QApplication  # noqa: E402
 
-from fibsem.devices import Device, DeviceFault, Parameter, command  # noqa: E402
+from fibsem.devices import Device, DeviceFault, DeviceParameter, command  # noqa: E402
 from fibsem.structures import RangeLimit  # noqa: E402
 from fibsem.ui.widgets.device_panel import (  # noqa: E402
     DevicePanel,
@@ -19,8 +19,8 @@ from fibsem.ui.widgets.device_panel import (  # noqa: E402
 
 
 class Unit(Device):
-    gain = Parameter(float, limits=RangeLimit(0.0, 1.0))
-    serial = Parameter(str)
+    gain = DeviceParameter(float, limits=RangeLimit(0.0, 1.0))
+    serial = DeviceParameter(str)
 
     def __init__(self, name="unit"):
         super().__init__(name=name)

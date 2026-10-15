@@ -43,7 +43,6 @@ from fibsem.config import (
     METADATA_VERSION,
     UNVERSIONED_METADATA,
 )
-from fibsem.display import Display
 from fibsem.util.timestamps import (
     acquisition_datetime_of,
     now,
@@ -81,26 +80,238 @@ class RangeLimit:
         return RangeLimit(min=d["min"], max=d["max"])
 
 
-# What a dataclass field may declare in its metadata, in the device Parameter's
-# vocabulary (fibsem.devices.core): what the value means, then how a form shows it.
+Limits = Union[RangeLimit, Mapping[str, RangeLimit]]
+
+
+@dataclass(frozen=True)
+class Display:
+    """How to show a value. Every field is optional; a form falls back to its own
+    default for the ones left out. What a value may be (its unit, limits and
+    choices) is not here: the ``Parameter`` says that, in SI.
+
+    ``scale`` turns the SI value into the shown one (1e6: metres to µm). ``unit`` is the
+    shown unit; left out, it is the parameter's unit with the scale's SI prefix (1e6 and
+    "m" give "µm"). Give it when the scale isn't an SI prefix: 180/π for degrees, 100
+    for percent. ``step`` is in shown units. ``format_fn`` writes each choice in a
+    combo box; it stays in the process (``to_dict`` leaves it out).
+    """
+
+    label: Optional[str] = None
+    scale: Optional[float] = None
+    unit: Optional[str] = None
+    step: Optional[float] = None
+    decimals: Optional[int] = None
+    advanced: bool = False
+    # never shown in a form: set by code, not by hand (a pattern's drawn shapes)
+    hidden: bool = False
+    format_fn: Optional[Callable[[Any], str]] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """What it sets, as JSON-ready data: what a description carries, so a client
+        with no copy of the class (an agent) shows the value the same way."""
+        shown = {
+            key: value
+            for key, value in (
+                ("label", self.label),
+                ("scale", self.scale),
+                ("unit", self.unit),
+                ("step", self.step),
+                ("decimals", self.decimals),
+            )
+            if value is not None
+        }
+        if self.advanced:
+            shown["advanced"] = True
+        if self.hidden:
+            shown["hidden"] = True
+        return shown
+
+
+# A composite value (a Point, a stage position) takes one Display per field.
+DisplayHint = Union[Display, Mapping[str, Display]]
+
+
+@dataclass(frozen=True)
+class ParameterMetadata:
+    """What a parameter allows. Filled from the vendor API once, then cached.
+
+    ``limits`` is a ``RangeLimit`` for a number. For a composite value, such as a
+    stage position, it is one ``RangeLimit`` per field, by field name.
+
+    ``native_max`` and ``native_unit`` are for a parameter kept as a fraction of the
+    hardware's maximum (power, gain): what 1.0 is in the hardware's own units, when
+    the driver knows. A display can then show both.
+    """
+
+    limits: Optional[Limits] = None
+    choices: Optional[Sequence[Any]] = None
+    settable: bool = True
+    native_max: Optional[float] = None
+    native_unit: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class Parameter:
+    """A value's meaning and look: its type, SI ``unit``, ``limits`` in SI, ``choices``,
+    a ``doc``, and a ``Display`` for how a form shows it.
+
+    One shape for both places a value is declared: a device's parameter
+    (``fibsem.devices.core.DeviceParameter`` is one, bound to the hardware) and a
+    dataclass field (``field_specs`` reads one off each field's ``field_meta``). A form,
+    a description or a JSON schema reads either the same way.
+
+    For a field, ``type`` is its annotation (Optional and List left on).
+    ``device_parameter`` binds it to a device parameter, as ``"beam.current"``: the
+    device's live limits and choices apply, and the device's display fills what the
+    field's leaves out. ``filepath`` marks a string that names a file.
+    """
+
+    type: Any = None
+    unit: Optional[str] = None
+    limits: Optional[Limits] = None
+    choices: Optional[Sequence[Any]] = None
+    doc: str = ""
+    display: Optional[DisplayHint] = None
+    name: str = ""
+    device_parameter: Optional[str] = None
+    filepath: bool = False
+
+    # -- how it is shown: one Display (a composite's are per field) ----------------
+
+    @property
+    def _shown(self) -> Display:
+        return self.display if isinstance(self.display, Display) else Display()
+
+    @property
+    def label(self) -> Optional[str]:
+        return self._shown.label
+
+    @property
+    def scale(self) -> Optional[float]:
+        """SI to shown: 1e6 shows metres as µm. None shows the value as it is."""
+        return self._shown.scale
+
+    @property
+    def advanced(self) -> bool:
+        return self._shown.advanced
+
+    @property
+    def hidden(self) -> bool:
+        return self._shown.hidden
+
+    @property
+    def format_fn(self) -> Optional[Callable[[Any], str]]:
+        return self._shown.format_fn
+
+    @property
+    def suffix(self) -> str:
+        """The shown unit: the display's, else the SI unit with the scale's prefix
+        (1e6 and "m" give "µm"). Empty for a value with no unit."""
+        if self._shown.unit:
+            return self._shown.unit
+        if not self.unit:
+            return ""
+        if not self.scale:
+            return self.unit
+        from fibsem.utils import _get_display_unit
+
+        return _get_display_unit(self.scale, self.unit)
+
+    @property
+    def shown_range(self) -> Optional[Tuple[float, float]]:
+        """The limits in shown units, lowest first; None for no finite limits.
+        Unscaled, they stay as declared, so an int field keeps int bounds."""
+        limits = self.limits
+        if not isinstance(limits, RangeLimit) or not (
+            math.isfinite(limits.min) and math.isfinite(limits.max)
+        ):
+            return None
+        if not self.scale:
+            return (limits.min, limits.max)
+        low, high = sorted((limits.min * self.scale, limits.max * self.scale))
+        return (low, high)
+
+    @property
+    def bound_name(self) -> Optional[str]:
+        """The name of the device parameter it is bound to: ``"current"`` for
+        ``"beam.current"``. None when it is bound to none."""
+        if not self.device_parameter:
+            return None
+        return split_device_parameter(self.device_parameter)[1]
+
+    @property
+    def instrument_choices(self) -> bool:
+        """Bound to a device parameter that is picked from what the instrument offers
+        (scan direction, resolution) rather than set within a range: its choices come
+        from the instrument when a form has one."""
+        if self.device_parameter is None or self.choices is not None:
+            return False
+        bound = declared_device_parameter(self.device_parameter)
+        return bound is None or bound.limits is None
+
+    # -- variants ----------------------------------------------------------------
+
+    def part(self, name: Optional[str]) -> "Parameter":
+        """One field of a composite value (``"x"`` of a shift): its own Display and
+        limits. A plain value, or ``name`` None, comes back as it is."""
+        if name is None:
+            return self
+        display = self.display
+        limits = self.limits
+        return replace(
+            self,
+            display=display.get(name) if isinstance(display, Mapping) else display,
+            limits=limits.get(name) if isinstance(limits, Mapping) else limits,
+        )
+
+    def with_reported(self, reported: Any, part: Optional[str] = None) -> "Parameter":
+        """This value with what an instrument reports (a ``ParameterMetadata``) in
+        place of its own limits and choices. Unbounded limits (a driver that doesn't
+        know its range) keep the declared ones. ``part`` picks one field's limits
+        when they are given per field (``"x"`` of a shift)."""
+        limits = reported.limits
+        if isinstance(limits, Mapping):
+            limits = limits.get(part)
+        changes: Dict[str, Any] = {}
+        if (
+            isinstance(limits, RangeLimit)
+            and math.isfinite(limits.min)
+            and math.isfinite(limits.max)
+        ):
+            changes["limits"] = limits
+        if reported.choices is not None:
+            changes["choices"] = tuple(reported.choices)
+        return replace(self, **changes) if changes else self
+
+
+def display_to_dict(hint: Optional[DisplayHint]) -> Optional[Dict[str, Any]]:
+    """A Display, or one per field of a composite value, as JSON-ready data; None
+    for none."""
+    if hint is None:
+        return None
+    if isinstance(hint, Mapping):
+        return {name: shown.to_dict() for name, shown in hint.items()}
+    return hint.to_dict()
+
+
+# What a dataclass field may declare in its metadata: a Parameter's vocabulary.
 FIELD_METADATA_KEYS: Tuple[str, ...] = (
     "unit",  # the value's SI unit ("m", "s", "A"); shown with the scale's prefix (m + 1e6 -> µm)
     "limits",  # a RangeLimit, in the SI unit
     "choices",  # the values it may take
     "doc",  # what the value is, for a tooltip or an agent
-    "microscope_parameter",  # the beam parameter it sets, for its live limits and choices
+    "device_parameter",  # the device parameter it sets ("beam.current"), for its live limits and choices
     "filepath",  # a string field that names a file
-    "display",  # a fibsem.display.Display: label, scale, unit, step, decimals, advanced, hidden
-    "format_fn",  # how a combo box writes each choice
+    "display",  # a Display: label, scale, unit, step, decimals, advanced, hidden, format_fn
 )
 
-# An older key -> what replaced it, so a field still declaring one (a plugin's) is
-# told what to change rather than rendering without it. Nothing reads these.
+# An older key -> what replaced it, so a field still declaring one is told what to
+# change rather than rendering without it. Nothing reads these.
 RENAMED_METADATA_KEYS: Dict[str, str] = {
     "help": "doc",
     "units": "unit",
     "tooltip": "doc",
-    "items": "choices (or microscope_parameter, for the instrument's)",
+    "items": "choices (or device_parameter, for the instrument's)",
     "minimum": "limits, in SI",
     "maximum": "limits, in SI",
     "label": "display=Display(label=...)",
@@ -111,6 +322,8 @@ RENAMED_METADATA_KEYS: Dict[str, str] = {
     "decimals": "display=Display(decimals=...)",
     "advanced": "display=Display(advanced=True)",
     "hidden": "display=Display(hidden=True)",
+    "format_fn": "display=Display(format_fn=...)",
+    "microscope_parameter": 'device_parameter="beam.<name>"',
     "type": "the field's annotation",
     "default": "the field's default",
 }
@@ -122,16 +335,14 @@ def field_meta(
     limits: Optional[RangeLimit] = None,
     choices: Optional[Sequence[Any]] = None,
     doc: Optional[str] = None,
-    microscope_parameter: Optional[str] = None,
+    device_parameter: Optional[str] = None,
     filepath: Optional[bool] = None,
     display: Optional[Display] = None,
-    format_fn: Optional[Callable[[Any], str]] = None,
 ) -> Dict[str, Any]:
     """A field's metadata, checked when the module is imported.
 
-    A field says what a device Parameter says, split the same way: what the value
-    means (its SI unit, its limits in SI, its choices, a doc) and how a form shows
-    it (a ``Display``)::
+    A field says what a ``Parameter`` says: what the value means (its SI unit, its
+    limits in SI, its choices, a doc) and how a form shows it (a ``Display``)::
 
         width: float = field(
             default=10e-6,
@@ -143,9 +354,9 @@ def field_meta(
             ),
         )
 
-    ``microscope_parameter`` binds the field to a beam parameter: the beam's live
-    limits and choices then apply, and the beam's display fills what the field's
-    leaves out.
+    ``device_parameter`` binds the field to a device parameter, as
+    ``"beam.current"``: the device's live limits and choices then apply, and its
+    display fills what the field's leaves out.
 
     Every key is a keyword argument, so a misspelling is a TypeError when the
     module is imported rather than a form that silently renders without its
@@ -155,15 +366,19 @@ def field_meta(
         raise TypeError(f"limits must be a RangeLimit, got {limits!r}")
     if display is not None and not isinstance(display, Display):
         raise TypeError(f"display must be a Display, got {display!r}")
+    if device_parameter is not None and "." not in device_parameter:
+        raise ValueError(
+            f"device_parameter names the device and the parameter, as "
+            f'"beam.current"; got {device_parameter!r}'
+        )
     declared = {
         "unit": unit,
         "limits": limits,
         "choices": None if choices is None else tuple(choices),
         "doc": doc,
-        "microscope_parameter": microscope_parameter,
+        "device_parameter": device_parameter,
         "filepath": filepath,
         "display": display,
-        "format_fn": format_fn,
     }
     return {key: value for key, value in declared.items() if value is not None}
 
@@ -192,125 +407,30 @@ def distance_metadata(
     )
 
 
-@dataclass(frozen=True)
-class FieldSpec:
-    """One field as a form reads it: what it means (``unit``, SI ``limits``,
-    ``choices``, ``doc``) and how it is shown (``display``), as a device Parameter
-    says them. ``field_specs`` reads them off a dataclass; a form turns a device
-    parameter into one the same way, so the two render alike.
+def field_specs(struct_cls: Type[Any]) -> Dict[str, Parameter]:
+    """Each field of a dataclass as a ``Parameter``, in declaration order.
 
-    ``type`` is the field's annotation, Optional and List left on.
-    ``instrument_choices`` marks a field bound to a beam parameter that is picked
-    from what the instrument offers (scan direction, resolution) rather than set
-    within a range; its choices come from the instrument when a form has one.
-    """
-
-    name: str
-    type: Any = None
-    unit: Optional[str] = None
-    limits: Optional[RangeLimit] = None
-    choices: Optional[Tuple[Any, ...]] = None
-    doc: Optional[str] = None
-    display: Display = Display()
-    microscope_parameter: Optional[str] = None
-    instrument_choices: bool = False
-    filepath: bool = False
-    format_fn: Optional[Callable[[Any], str]] = None
-
-    @property
-    def label(self) -> Optional[str]:
-        return self.display.label
-
-    @property
-    def scale(self) -> Optional[float]:
-        """SI to shown: 1e6 shows metres as µm. None shows the value as it is."""
-        return self.display.scale
-
-    @property
-    def advanced(self) -> bool:
-        return self.display.advanced
-
-    @property
-    def hidden(self) -> bool:
-        return self.display.hidden
-
-    @property
-    def suffix(self) -> str:
-        """The shown unit: the display's, else the SI unit with the scale's prefix
-        (1e6 and "m" give "µm"). Empty for a field with no unit."""
-        if self.display.unit:
-            return self.display.unit
-        if not self.unit:
-            return ""
-        if not self.scale:
-            return self.unit
-        from fibsem.utils import _get_display_unit
-
-        return _get_display_unit(self.scale, self.unit)
-
-    @property
-    def shown_range(self) -> Optional[Tuple[float, float]]:
-        """The limits in shown units, lowest first; None for no finite limits.
-        Unscaled, they stay as declared, so an int field keeps int bounds."""
-        limits = self.limits
-        if limits is None or not (
-            math.isfinite(limits.min) and math.isfinite(limits.max)
-        ):
-            return None
-        if not self.scale:
-            return (limits.min, limits.max)
-        low, high = sorted((limits.min * self.scale, limits.max * self.scale))
-        return (low, high)
-
-    def with_reported(self, reported: Any, part: Optional[str] = None) -> "FieldSpec":
-        """This field with what an instrument reports (a ``ParameterMetadata``) in
-        place of its own limits and choices. Unbounded limits (a driver that doesn't
-        know its range) keep the declared ones. ``part`` picks one field's limits
-        when they are given per field (``"x"`` of a shift)."""
-        limits = reported.limits
-        if isinstance(limits, Mapping):
-            limits = limits.get(part)
-        changes: Dict[str, Any] = {}
-        if (
-            isinstance(limits, RangeLimit)
-            and math.isfinite(limits.min)
-            and math.isfinite(limits.max)
-        ):
-            changes["limits"] = limits
-        if reported.choices is not None:
-            changes["choices"] = tuple(reported.choices)
-        return replace(self, **changes) if changes else self
-
-
-def field_specs(struct_cls: Type[Any]) -> Dict[str, FieldSpec]:
-    """Each field of a dataclass as a ``FieldSpec``, in declaration order.
-
-    A field bound to a beam parameter (``microscope_parameter``) takes the beam's
+    A field bound to a device parameter (``device_parameter``) takes the device's
     unit and display for what it leaves out, keeping its own label and placement,
     so a milling current reads like the beam panel's current.
     """
     types = _field_types(struct_cls)
-    specs: Dict[str, FieldSpec] = {}
+    specs: Dict[str, Parameter] = {}
     for f in fields(struct_cls):
         declared = dict(f.metadata)
         _warn_unknown_metadata_keys(struct_cls, f.name, declared)
         known = {key: declared[key] for key in FIELD_METADATA_KEYS if key in declared}
         display = known.pop("display", None) or Display()
-        name = known.get("microscope_parameter")
-        parameter = declared_beam_parameter(name)
-        if parameter is not None:
-            known.setdefault("unit", parameter.unit)
-            display = _fill_display(display, parameter.display)
+        bound = declared_device_parameter(known.get("device_parameter"))
+        if bound is not None:
+            known.setdefault("unit", bound.unit)
+            display = _fill_display(display, bound.display)
         if known.get("choices") is not None:
             known["choices"] = tuple(known["choices"])
-        specs[f.name] = FieldSpec(
-            name=f.name,
-            type=types.get(f.name),
-            display=display,
-            instrument_choices=bool(name)
-            and known.get("choices") is None
-            and not (parameter is not None and parameter.limits is not None),
-            **known,
+        if known.get("doc") is None:
+            known.pop("doc", None)
+        specs[f.name] = Parameter(
+            name=f.name, type=types.get(f.name), display=display, **known
         )
     return specs
 
@@ -319,24 +439,22 @@ def flagged_fields(struct_cls: Type[Any], flag: str) -> Tuple[str, ...]:
     """The names of the fields whose ``Display`` sets ``flag`` ("advanced" or
     "hidden"), in declaration order."""
     return tuple(
-        name
-        for name, spec in field_specs(struct_cls).items()
-        if getattr(spec.display, flag)
+        name for name, spec in field_specs(struct_cls).items() if getattr(spec, flag)
     )
 
 
-def _fill_display(own: Display, beam: Optional[Display]) -> Display:
-    """``own`` with the beam's scale, unit, step and decimals where it gives none.
+def _fill_display(own: Display, device: Optional[DisplayHint]) -> Display:
+    """``own`` with the device's scale, unit, step and decimals where it gives none.
     The label and the placement (advanced, hidden) stay the field's: it names the
     value in its own context."""
-    if beam is None:
+    if not isinstance(device, Display):
         return own
     return replace(
         own,
-        scale=own.scale if own.scale is not None else beam.scale,
-        unit=own.unit if own.unit is not None else beam.unit,
-        step=own.step if own.step is not None else beam.step,
-        decimals=own.decimals if own.decimals is not None else beam.decimals,
+        scale=own.scale if own.scale is not None else device.scale,
+        unit=own.unit if own.unit is not None else device.unit,
+        step=own.step if own.step is not None else device.step,
+        decimals=own.decimals if own.decimals is not None else device.decimals,
     )
 
 
@@ -349,9 +467,8 @@ def _warn_unknown_metadata_keys(
     """Log once for a metadata key nothing will ever read.
 
     A mis-keyed field is otherwise silent: the form renders, the value is right,
-    and the label or suffix is simply missing. Plugin authors have no way to
-    discover the vocabulary, so a typo costs an afternoon. Warned once per
-    (class, field, key) because form metadata is re-read on every rebuild.
+    and the label or suffix is simply missing. Warned once per (class, field, key)
+    because form metadata is re-read on every rebuild.
     """
     for key in metadata:
         if key in FIELD_METADATA_KEYS:
@@ -400,14 +517,42 @@ def _field_types(struct_cls: Type[Any]) -> Dict[str, Any]:
     return found
 
 
-def declared_beam_parameter(name: Optional[str]) -> Any:
-    """The beam's declared Parameter ``name``, or None for a name it doesn't declare."""
-    if not name:
-        return None
-    from fibsem.devices.beam import Beam
-    from fibsem.devices.core import Parameter
+# The device (or service) a ``device_parameter`` names, by its first part: module,
+# class. Looked up when first read, since fibsem.devices imports this module.
+_DEVICE_CLASSES: Dict[str, Tuple[str, str]] = {
+    "milling": ("fibsem.services.milling", "Milling"),
+    "beam": ("fibsem.devices.beam", "Beam"),
+    "scanner": ("fibsem.devices.scanner", "Scanner"),
+    "stage": ("fibsem.devices.stage", "Stage"),
+    "manipulator": ("fibsem.devices.manipulator", "Manipulator"),
+    "chamber": ("fibsem.devices.chamber", "Chamber"),
+    "sample_loader": ("fibsem.devices.sample_loader", "SampleLoader"),
+    "camera": ("fibsem.devices.fm", "Camera"),
+    "light_source": ("fibsem.devices.fm", "LightSource"),
+    "filter_set": ("fibsem.devices.fm", "FilterSet"),
+    "objective": ("fibsem.devices.fm", "Objective"),
+}
 
-    parameter = getattr(Beam, name, None)
+
+def split_device_parameter(ref: str) -> Tuple[str, str]:
+    """``"beam.current"`` as ``("beam", "current")``."""
+    device, _, name = ref.partition(".")
+    return device, name
+
+
+def declared_device_parameter(ref: Optional[str]) -> Optional[Parameter]:
+    """The device parameter ``ref`` names (``"beam.current"``), as its device class
+    declares it; None for no ref, or one naming nothing a device declares."""
+    if not ref:
+        return None
+    device, name = split_device_parameter(ref)
+    where = _DEVICE_CLASSES.get(device)
+    if where is None:
+        return None
+    import importlib
+
+    cls = getattr(importlib.import_module(where[0]), where[1])
+    parameter = getattr(cls, name, None)
     return parameter if isinstance(parameter, Parameter) else None
 
 
@@ -1138,19 +1283,19 @@ class ImageSettings:
     resolution: Tuple[int, int] = field(
         default=(1536, 1024),
         metadata=field_meta(
-            microscope_parameter="resolution", display=Display("Resolution")
+            device_parameter="beam.resolution", display=Display("Resolution")
         ),
     )
     dwell_time: float = field(
         default=1e-6,
         metadata=field_meta(
-            microscope_parameter="dwell_time", display=Display("Dwell Time")
+            device_parameter="beam.dwell_time", display=Display("Dwell Time")
         ),
     )
     hfw: float = field(
         default=150e-6,
         metadata=field_meta(
-            microscope_parameter="hfw", display=Display("Field of View")
+            device_parameter="beam.hfw", display=Display("Field of View")
         ),
     )
     autocontrast: bool = False
@@ -2066,7 +2211,7 @@ class FibsemMillingSettings:
     milling_current: float = field(
         default=20.0e-12,
         metadata=field_meta(
-            microscope_parameter="current",
+            device_parameter="beam.current",
             doc="The current used for milling. Higher currents mill faster but with less precision and more damage.",
             display=Display("Milling Current"),
         ),
@@ -2074,7 +2219,7 @@ class FibsemMillingSettings:
     milling_voltage: float = field(
         default=30e3,
         metadata=field_meta(
-            microscope_parameter="voltage",
+            device_parameter="beam.voltage",
             doc="The voltage used for milling. Higher voltages provide higher energy ions for milling.",
             display=Display("Milling Voltage", advanced=True),
         ),
@@ -2082,7 +2227,7 @@ class FibsemMillingSettings:
     application_file: str = field(
         default="Si",
         metadata=field_meta(
-            microscope_parameter="application_file",
+            device_parameter="beam.application_file",
             doc="The application file used for milling. Note: this can be changed at runtime depending on the pattern and other parameters.",
             display=Display("Application File", advanced=True),
         ),
@@ -2099,7 +2244,7 @@ class FibsemMillingSettings:
         default=150e-6,
         metadata=field_meta(
             limits=RangeLimit(20e-6, 950e-6),
-            microscope_parameter="hfw",
+            device_parameter="beam.hfw",
             doc="The horizontal field width used for milling. Patterns must fit within this field of view.",
             display=Display("Field of View", hidden=True),
         ),
@@ -2107,7 +2252,7 @@ class FibsemMillingSettings:
     preset: str = field(
         default="30 keV; 2nA",
         metadata=field_meta(
-            microscope_parameter="preset",
+            device_parameter="beam.preset",
             doc="The preset used for milling. Presets define the beam settings for different milling conditions.",
             display=Display("Preset"),
         ),
@@ -2244,7 +2389,7 @@ class FibsemMillingSettings:
         return milling_settings
 
     @property
-    def field_specs(self) -> Dict[str, FieldSpec]:
+    def field_specs(self) -> Dict[str, Parameter]:
         """Each field as a form reads it."""
         return field_specs(self.__class__)
 

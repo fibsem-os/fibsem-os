@@ -14,9 +14,8 @@ from fibsem.applications.autolamella.workflows.tasks.base import (
     AutoLamellaTask,
 )
 from fibsem.applications.autolamella.workflows.ui import _abort_requested
-from fibsem.display import Display
 from fibsem.imaging.spot import SpotBurnSettings, run_spot_burn
-from fibsem.structures import BeamType, Point, field_meta
+from fibsem.structures import BeamType, Display, Point, field_meta
 
 
 @dataclass

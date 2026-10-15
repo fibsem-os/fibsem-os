@@ -12,7 +12,6 @@ import numpy as np
 from psygnal import Signal
 
 from fibsem import acquire, constants
-from fibsem.display import Display
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling import (
@@ -26,6 +25,7 @@ from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.services.milling import report_progress
 from fibsem.structures import (
     BeamType,
+    Display,
     FibsemImage,
     FibsemRectangle,
     MillingState,

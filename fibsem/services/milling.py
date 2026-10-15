@@ -77,7 +77,7 @@ from fibsem.cancellation import (
     raise_if_cancelled,
 )
 from fibsem.devices.beam import Beam
-from fibsem.devices.core import Parameter, ParameterMetadata, Role, command, query
+from fibsem.devices.core import DeviceParameter, ParameterMetadata, Role, command, query
 from fibsem.milling.base import FibsemMillingStage, estimate_milling_time
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.services.core import Service, forward_to, save_beam_conditions
@@ -151,11 +151,13 @@ class Milling(Service):
     # Read only when asked: on ThermoFisher a read selects the milling view, which a
     # caller holding the view for something else (coincidence milling) must not have
     # done behind its back, so the commands don't read it after themselves.
-    state = Parameter(MillingState, doc="Idle, running, paused, ...; read-only.")
+    state = DeviceParameter(MillingState, doc="Idle, running, paused, ...; read-only.")
     # Reported by `run` as it goes; reading it doesn't touch the instrument.
     # A stage update (`MillingProgress`) with what a run knows: its state, start,
     # total and remaining time. The task and stage fields are a task's to fill.
-    progress = Parameter(MillingProgress, doc="The run's state and times; read-only.")
+    progress = DeviceParameter(
+        MillingProgress, doc="The run's state and times; read-only."
+    )
 
     # The patterns the next run mills, as drawn: the list so far after each
     # ``draw``, and empty when setup, ``clear`` or the end of a run removes them.
@@ -278,7 +280,7 @@ class Milling(Service):
         """The recipe (`FibsemMillingSettings`) fields this instrument mills with on
         ``channel``, each with its choices and limits; the fields left out it ignores.
 
-        A field whose ``microscope_parameter`` is one of the milling beam's parameters
+        A field bound to one of the milling beam's parameters
         (milling current and voltage, preset, hfw) has that parameter's own metadata, and is left out when that beam doesn't
         have it or can't set it. The others (application file, patterning mode,
         Tescan's rate and dwell, ...) have what the driver reports. A channel this
@@ -291,7 +293,7 @@ class Milling(Service):
         available: Dict[str, ParameterMetadata] = {}
         specs = field_specs(FibsemMillingSettings)
         for name in self.setting_names:
-            beam_parameter = specs[name].microscope_parameter
+            beam_parameter = specs[name].bound_name
             if beam_parameter not in beam.parameters:
                 available[name] = self._metadata_of(name)
             elif _settable(beam, beam_parameter):

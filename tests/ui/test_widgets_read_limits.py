@@ -20,8 +20,8 @@ from fibsem.devices.beam import (  # noqa: E402
 from fibsem.devices.core import ParameterMetadata  # noqa: E402
 from fibsem.structures import (  # noqa: E402
     BeamType,
-    FieldSpec,
     ImageSettings,
+    Parameter,
     RangeLimit,
     field_specs,
 )
@@ -80,7 +80,7 @@ def test_a_bound_field_takes_the_beams_limits():
     hfw = beam_spec(IMAGE["hfw"], microscope, I)
     assert hfw.shown_range[1] == pytest.approx(DEFAULT_HFW_LIMITS.max * 1e6)
     # a field bound to nothing the beam declares comes back as it is
-    unbound = FieldSpec(name="thing", microscope_parameter="not_a_parameter")
+    unbound = Parameter(name="thing", device_parameter="beam.not_a_parameter")
     assert beam_spec(unbound, microscope, E) is unbound
 
 

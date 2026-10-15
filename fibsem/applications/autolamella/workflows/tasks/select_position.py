@@ -26,8 +26,7 @@ from fibsem.applications.autolamella.workflows.tasks.fiducial import (
     fiducial_point_in_alignment_area,
 )
 from fibsem.applications.autolamella.workflows.ui import ask_user, select_poi_ui
-from fibsem.display import Display
-from fibsem.structures import BeamType, ImageSettings, Point, field_meta
+from fibsem.structures import BeamType, Display, ImageSettings, Point, field_meta
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Lamella

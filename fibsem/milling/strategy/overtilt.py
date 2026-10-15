@@ -10,7 +10,6 @@ import numpy as np
 from fibsem import acquire, alignment
 from fibsem import config as fcfg
 from fibsem.cancellation import raise_if_cancelled
-from fibsem.display import Display
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling import setup_milling
 from fibsem.milling.base import (
@@ -21,6 +20,7 @@ from fibsem.milling.base import (
 from fibsem.milling.patterning.patterns import TrenchPattern
 from fibsem.milling.properties import angle_metadata, image_resolution_metadata
 from fibsem.structures import (
+    Display,
     FibsemStagePosition,
     ImageSettings,
     RangeLimit,

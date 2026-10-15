@@ -14,15 +14,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from fibsem.devices.core import Device, Parameter, command
+from fibsem.devices.core import Device, DeviceParameter, command
 from fibsem.structures import ChamberState
 
 CHAMBER_RESOURCE = "chamber"
 
 
 class Chamber(Device):
-    state = Parameter(ChamberState, doc="The vacuum state.")
-    pressure = Parameter(float, unit="Pa", doc="Chamber pressure.")
+    state = DeviceParameter(ChamberState, doc="The vacuum state.")
+    pressure = DeviceParameter(float, unit="Pa", doc="Chamber pressure.")
 
     def __init__(self, parent: Any = None, **kwargs: Any):
         super().__init__(name="chamber", parent=parent, **kwargs)

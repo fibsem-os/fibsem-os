@@ -31,9 +31,9 @@ from fibsem.structures import (
     FibsemImage,
     FibsemMillingSettings,
     FibsemPatternSettings,
-    FieldSpec,
     ImageSettings,
     MillingAlignment,
+    Parameter,
     field_specs,
     flagged_fields,
 )
@@ -85,7 +85,7 @@ class MillingStrategyConfig(ABC):
         return flagged_fields(self.__class__, "hidden")
 
     @property
-    def field_specs(self) -> Dict[str, FieldSpec]:
+    def field_specs(self) -> Dict[str, Parameter]:
         """Each field as a form reads it."""
         return field_specs(self.__class__)
 

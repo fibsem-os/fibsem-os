@@ -10,7 +10,7 @@ import pytest
 import fibsem.devices
 from fibsem.devices.core import (
     Device,
-    Parameter,
+    DeviceParameter,
     ParameterMetadata,
     Resources,
     Role,
@@ -21,7 +21,7 @@ from fibsem.services import Service
 
 
 class Beam(Device):
-    current = Parameter(float, unit="A")
+    current = DeviceParameter(float, unit="A")
 
     def __init__(self, name="ion", **kwargs):
         super().__init__(name, **kwargs)
@@ -36,7 +36,7 @@ class Beam(Device):
 
 class Milling(Service):
     beam = Role(Beam)
-    state = Parameter(str)
+    state = DeviceParameter(str)
 
     def __init__(self, **kwargs):
         super().__init__("milling", **kwargs)
@@ -104,4 +104,4 @@ def test_a_service_cant_change_a_parameters_type():
     with pytest.raises(TypeError):
 
         class Bad(Milling):
-            state = Parameter(int)
+            state = DeviceParameter(int)

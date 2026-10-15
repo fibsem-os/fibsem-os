@@ -69,9 +69,9 @@ from fibsem.structures import (
     FibsemRectangle,
     FibsemStagePosition,
     FibsemUser,
-    FieldSpec,
     ImageSettings,
     MicroscopeState,
+    Parameter,
     Point,
     ReferenceImageParameters,
     SessionInfo,
@@ -237,7 +237,7 @@ class AutoLamellaTaskConfig(ABC):
         return tuple(f.name for f in fields(self) if f.name not in core_params)
 
     @property
-    def field_specs(self) -> Dict[str, FieldSpec]:
+    def field_specs(self) -> Dict[str, Parameter]:
         """Each field as a form reads it, as patterns and milling strategies expose."""
         return field_specs(self.__class__)
 

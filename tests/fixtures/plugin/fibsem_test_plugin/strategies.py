@@ -4,13 +4,13 @@ import threading
 from dataclasses import dataclass, field
 from typing import Optional
 
-from fibsem.display import Display
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.base import (
     FibsemMillingStage,
     MillingStrategy,
     MillingStrategyConfig,
 )
+from fibsem.structures import Display
 from fibsem_test_plugin import STRATEGY_NAME
 
 

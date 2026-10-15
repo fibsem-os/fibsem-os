@@ -6,12 +6,12 @@ from typing import (
     List,
 )
 
-from fibsem.display import Display
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.milling.properties import (
     distance_metadata,
 )
 from fibsem.structures import (
+    Display,
     FibsemLineSettings,
     field_meta,
 )

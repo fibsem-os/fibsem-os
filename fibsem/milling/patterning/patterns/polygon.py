@@ -8,12 +8,12 @@ from typing import (
 
 import numpy as np
 
-from fibsem.display import Display
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.milling.properties import (
     distance_metadata,
 )
 from fibsem.structures import (
+    Display,
     FibsemPolygonSettings,
     field_meta,
 )

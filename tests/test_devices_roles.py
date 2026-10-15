@@ -7,13 +7,13 @@ and on reading for any.
 
 import pytest
 
-from fibsem.devices.core import Device, Parameter, Role, RoleUnfilled
+from fibsem.devices.core import Device, DeviceParameter, Role, RoleUnfilled
 from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
 from fibsem.drivers.demo.devices import bind_demo_fm
 
 
 class Sensor(Device):
-    reading = Parameter(float)
+    reading = DeviceParameter(float)
 
     def read_reading(self):
         return 1.0

@@ -16,7 +16,7 @@ from fibsem import utils
 from fibsem.devices import (
     Beam,
     Device,
-    Parameter,
+    DeviceParameter,
     ParameterMetadata,
     ParameterReadOnly,
     ParameterUnavailable,
@@ -159,7 +159,7 @@ def test_cached_reads_do_not_touch_the_instrument():
     reads = []
 
     class Thing(Device):
-        level = Parameter(float)
+        level = DeviceParameter(float)
 
     thing = Thing("thing")
     thing.bind("level", read=lambda: reads.append(1) or 3.0, write=lambda v: None)
@@ -194,8 +194,8 @@ def test_a_dependency_changed_outside_refreshes_the_dependent_metadata():
     metadata_reads = []
 
     class Detector(Device):
-        kind = Parameter(str)
-        mode = Parameter(str, depends_on=("kind",))
+        kind = DeviceParameter(str)
+        mode = DeviceParameter(str, depends_on=("kind",))
 
     def mode_metadata():
         metadata_reads.append(kind["value"])
@@ -226,7 +226,7 @@ def test_needs_channel_claims_the_resource_and_selects_the_channel():
     events = []
 
     class Detector(Device):
-        contrast = Parameter(float, limits=RangeLimit(min=0.0, max=1.0))
+        contrast = DeviceParameter(float, limits=RangeLimit(min=0.0, max=1.0))
 
     det = Detector("sem-detector", resources=resources)
     det.bind_channel(lambda: events.append("select"))
@@ -255,7 +255,7 @@ def test_a_selected_channel_is_restored_before_the_resource_is_released():
     events = []
 
     class Detector(Device):
-        contrast = Parameter(float, limits=RangeLimit(min=0.0, max=1.0))
+        contrast = DeviceParameter(float, limits=RangeLimit(min=0.0, max=1.0))
 
     def select():
         events.append("select")
@@ -397,15 +397,15 @@ def test_a_backend_cannot_change_a_parameters_type_or_unit():
     with pytest.raises(TypeError, match="current"):
 
         class CurrentAsLabel(Beam):
-            current = Parameter(str)
+            current = DeviceParameter(str)
 
     with pytest.raises(TypeError, match="hfw"):
 
         class HfwInMicrons(Beam):
-            hfw = Parameter(float, unit="um")
+            hfw = DeviceParameter(float, unit="um")
 
     class NarrowerRotation(Beam):  # same type and unit, new static limits: allowed
-        scan_rotation = Parameter(
+        scan_rotation = DeviceParameter(
             float, unit="rad", limits=RangeLimit(min=0.0, max=1.0)
         )
 
@@ -418,7 +418,7 @@ def test_needs_channel_is_declared_on_the_backend_class():
     events = []
 
     class Detector(Device):
-        contrast = Parameter(float)
+        contrast = DeviceParameter(float)
         needs_channel = frozenset({"contrast"})
 
         def select_channel(self):

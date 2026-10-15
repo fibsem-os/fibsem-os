@@ -23,7 +23,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 if TYPE_CHECKING:
-    from fibsem.structures import FieldSpec
+    from fibsem.structures import Parameter
 
 # GET a route's JSON (the document an edit patches), or None.
 Reader = Callable[[str], Optional[Dict[str, Any]]]
@@ -102,7 +102,7 @@ def _kwargs_table(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 # --- a typed config's fields, as its form shows them ----------------------------------
 
 
-def _display(value: Any, spec: Optional["FieldSpec"]) -> str:
+def _display(value: Any, spec: Optional["Parameter"]) -> str:
     """``value`` as the field's form shows it: 2e-06 with scale 1e6 and unit m
     reads "2 µm"."""
     if isinstance(value, Enum):
@@ -149,7 +149,7 @@ def _shape_name(node: Any) -> Optional[str]:
     return type(node).__name__.replace("Pattern", "") or None
 
 
-def describe_field(root: Any, path: str) -> Tuple[str, Optional["FieldSpec"], Any]:
+def describe_field(root: Any, path: str) -> Tuple[str, Optional["Parameter"], Any]:
     """``(setting, spec, value)`` for a dotted ``path`` into the typed config
     ``root``: the setting as its form names it, under the milling stage it is in
     ("Rough Mill 01 · trench depth"), the field as its form reads it (None for

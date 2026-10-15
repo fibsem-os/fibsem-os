@@ -44,7 +44,7 @@ from fibsem.devices.core import (
     Axes,
     AxisLimitError,
     Device,
-    Parameter,
+    DeviceParameter,
     Session,
     axes_outside_limits,
     build_axes,
@@ -52,11 +52,11 @@ from fibsem.devices.core import (
     plain,
     query,
 )
-from fibsem.display import Display
 from fibsem.structures import (
     BEAMS_STAGE_DEVICE,
     KNOWN_ORIENTATIONS,
     STAGE_FRAME_FIBSEM,
+    Display,
     FibsemStagePosition,
     RangeLimit,
 )
@@ -158,7 +158,7 @@ class StageLimitError(AxisLimitError):
 
 
 class Stage(Device):
-    position = Parameter(
+    position = DeviceParameter(
         FibsemStagePosition,
         doc="Raw stage coordinates, in the fibsem-os frame. Its limits are per axis.",
         display={
@@ -170,8 +170,8 @@ class Stage(Device):
             "t": Display("Tilt", scale=180 / math.pi, unit=DEGREE_SYMBOL),
         },
     )
-    homed = Parameter(bool)
-    linked = Parameter(bool, doc="z linked to the working distance.")
+    homed = DeviceParameter(bool)
+    linked = DeviceParameter(bool, doc="z linked to the working distance.")
 
     frame: str = STAGE_FRAME_FIBSEM
     """The frame ``position`` is in, stamped on every image (FIB-1114)."""

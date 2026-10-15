@@ -36,7 +36,7 @@ from fibsem.devices.core import (
     Axes,
     AxisLimitError,
     Device,
-    Parameter,
+    DeviceParameter,
     ParameterMetadata,
     Role,
     axes_outside_limits,
@@ -58,8 +58,8 @@ class ManipulatorLimitError(AxisLimitError):
 
 
 class Manipulator(Device):
-    position = Parameter(FibsemManipulatorPosition, doc="Raw needle coordinates.")
-    state = Parameter(InsertableDeviceState, doc="Where the needle is.")
+    position = DeviceParameter(FibsemManipulatorPosition, doc="Raw needle coordinates.")
+    state = DeviceParameter(InsertableDeviceState, doc="Where the needle is.")
     stage = Role(
         Stage,
         required=False,

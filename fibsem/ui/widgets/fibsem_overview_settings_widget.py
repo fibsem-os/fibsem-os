@@ -39,10 +39,10 @@ from fibsem.structures import (
     AutoContrastMode,
     AutoFocusMode,
     BeamType,
-    FieldSpec,
     FocusStackSettings,
     ImageSettings,
     OverviewAcquisitionSettings,
+    Parameter,
     Resolution,
     TileOrderStrategy,
     field_specs,
@@ -112,7 +112,7 @@ class FibsemOverviewSettingsWidget(QWidget):
             configure_spinbox(spinbox, self._beam_field(name))
             spinbox.blockSignals(blocked)
 
-    def _beam_field(self, name: str) -> FieldSpec:
+    def _beam_field(self, name: str) -> Parameter:
         return beam_spec(_SPECS[name], self._microscope, self.combo_beam.value())
 
     def _populate_resolutions(self, saved: Optional[tuple] = None) -> None:

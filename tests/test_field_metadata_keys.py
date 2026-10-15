@@ -1,7 +1,7 @@
 """One metadata vocabulary, and a diagnostic for anything outside it.
 
-`FIELD_METADATA_KEYS` is what a dataclass field may declare: the device
-Parameter's vocabulary (unit, limits in SI, choices, doc, microscope_parameter,
+`FIELD_METADATA_KEYS` is what a dataclass field may declare: a
+``Parameter``'s vocabulary (unit, limits in SI, choices, doc, device_parameter,
 filepath) and a `Display` for how it is shown. The older flat keys (`tooltip`,
 `label`, `minimum` in display units, `items`, ...) are **not** read, and neither
 are the older spellings before them (`help`, `units`; FIB-384). What makes that
@@ -21,10 +21,10 @@ from dataclasses import dataclass, field
 import pytest
 
 import fibsem.structures as fstructures
-from fibsem.display import Display
 from fibsem.structures import (
     FIELD_METADATA_KEYS,
     RENAMED_METADATA_KEYS,
+    Display,
     RangeLimit,
     field_meta,
     field_specs,
@@ -63,7 +63,7 @@ def test_a_superseded_key_is_not_resolved():
     about, which is what makes dropping them safe rather than silent."""
     spec = field_specs(MetadataProbe)["superseded"]
 
-    assert spec.doc is None
+    assert spec.doc == ""
     assert spec.unit is None
     assert spec.limits is None
 
@@ -79,7 +79,7 @@ def test_a_field_declaring_nothing_gets_the_defaults():
     spec = field_specs(MetadataProbe)["neither"]
 
     assert (spec.doc, spec.unit, spec.limits, spec.filepath) == (
-        None,
+        "",
         None,
         None,
         False,
@@ -195,6 +195,7 @@ def test_every_parameter_reaches_the_result():
         "limits": RangeLimit(0.0, 1.0),
         "display": Display("A"),
         "choices": ("a", "b"),
+        "device_parameter": "beam.current",
     }
     for name in keyword_only_parameters():
         marker = typed.get(name, object())
