@@ -55,75 +55,106 @@ def test_the_dialog_shows_status_services_and_the_agent(qapp):
     dialog.deleteLater()
 
 
-def test_the_dialog_serves_the_microscope_this_session(qapp):
-    """FIB-1359: the microscope toggle is here, per session, not in Preferences."""
-    hosts = [_Host(serve_microscope=False)]
-    chosen = []
+class _Session:
+    """The window's side of the two switches: what they set, as the fake host."""
 
-    def set_microscope(on):
-        chosen.append(on)
-        hosts.append(_Host(serve_microscope=on))  # the restarted server
+    def __init__(self, enabled=False, serve_microscope=False):
+        self.calls = []
+        self.enabled = enabled
+        self.serve_microscope = serve_microscope
 
-    dialog = AppServerDialog(lambda: hosts[-1], set_microscope=set_microscope)
-    assert dialog._chk_microscope.isEnabled() and not dialog._chk_microscope.isChecked()
+    def host(self):
+        return _Host(self.serve_microscope) if self.enabled else None
+
+    def set_enabled(self, on):
+        self.calls.append(("enabled", on))
+        self.enabled = on
+
+    def set_microscope(self, on):
+        self.calls.append(("microscope", on))
+        self.serve_microscope = on
+
+    def dialog(self):
+        return AppServerDialog(
+            self.host,
+            set_enabled=self.set_enabled,
+            set_microscope=self.set_microscope,
+            enabled=self.enabled,
+            serve_microscope=self.serve_microscope,
+        )
+
+
+def _settle(dialog):
+    dialog._settle_timer.timeout.emit()
+
+
+def test_the_server_is_turned_on_here(qapp):
+    """One place for both switches: the server is turned on here, not in Preferences."""
+    session = _Session()
+    dialog = session.dialog()
+
+    assert not dialog._chk_enabled.isChecked()
+    assert not dialog._chk_microscope.isEnabled()  # nothing to serve while off
+    assert dialog._status_label.text() == "Not running."
+
+    dialog._chk_enabled.setChecked(True)
+    assert dialog._chk_microscope.isEnabled()
+    assert session.calls == []  # waits for the switches to settle
+    _settle(dialog)
+    assert session.calls == [("enabled", True)]
+    assert dialog._status_label.text() == "Running on http://127.0.0.1:8001"
+
     dialog._chk_microscope.setChecked(True)
-    assert chosen == []  # waits for the toggle to settle
-    dialog._microscope_timer.timeout.emit()
-    assert chosen == [True]
+    _settle(dialog)
+    assert session.calls[-1] == ("microscope", True)
     assert dialog._services_label.text() == "Services: monitoring · microscope on"
-    # A refresh that reads the box back sets nothing.
-    dialog.refresh()
-    assert chosen == [True]
+    dialog.refresh()  # a refresh changes nothing
+    assert len(session.calls) == 2
     dialog.deleteLater()
 
 
-def test_a_double_click_on_the_microscope_toggle_restarts_once_or_not_at_all(qapp):
+def test_the_switches_open_as_saved(qapp):
+    dialog = _Session(enabled=True, serve_microscope=True).dialog()
+    assert dialog._chk_enabled.isChecked() and dialog._chk_microscope.isChecked()
+    dialog.deleteLater()
+
+
+def test_turning_both_on_serves_the_microscope_from_the_start(qapp):
+    """The microscope is applied first, so the server starts once, serving it."""
+    session = _Session()
+    dialog = session.dialog()
+    dialog._chk_enabled.setChecked(True)
+    dialog._chk_microscope.setChecked(True)
+    _settle(dialog)
+    assert session.calls == [("microscope", True), ("enabled", True)]
+    dialog.deleteLater()
+
+
+def test_a_double_click_restarts_once_or_not_at_all(qapp):
     """FIB-1409: each toggle restarted the server; only the settled state applies."""
-    hosts = [_Host(serve_microscope=False)]
-    chosen = []
-
-    def set_microscope(on):
-        chosen.append(on)
-        hosts.append(_Host(serve_microscope=on))
-
-    dialog = AppServerDialog(lambda: hosts[-1], set_microscope=set_microscope)
+    session = _Session(enabled=True)
+    dialog = session.dialog()
     box = dialog._chk_microscope
     box.setChecked(True)
     box.setChecked(False)
-    dialog.refresh()  # the periodic refresh keeps a change still waiting
-    assert not box.isChecked()
-    dialog._microscope_timer.timeout.emit()
-    assert chosen == []  # back where it started: no restart
+    _settle(dialog)
+    assert session.calls == []  # back where it started: no restart
 
     box.setChecked(True)
     box.setChecked(False)
     box.setChecked(True)
-    dialog.refresh()
-    assert box.isChecked()
-    dialog._microscope_timer.timeout.emit()
-    assert chosen == [True]
+    _settle(dialog)
+    assert session.calls == [("microscope", True)]
     dialog.deleteLater()
 
 
 def test_closing_the_dialog_applies_a_waiting_change(qapp):
-    hosts = [_Host(serve_microscope=False)]
-    chosen = []
-
-    def set_microscope(on):
-        chosen.append(on)
-        hosts.append(_Host(serve_microscope=on))
-
-    dialog = AppServerDialog(lambda: hosts[-1], set_microscope=set_microscope)
+    session = _Session(enabled=True)
+    dialog = session.dialog()
     dialog.show()
     dialog._chk_microscope.setChecked(True)
     dialog.close()
-    assert chosen == [True]
-    dialog.deleteLater()
-
-
-def test_the_microscope_toggle_waits_for_a_running_server(qapp):
-    dialog = AppServerDialog(lambda: None, set_microscope=lambda on: None)
-    assert not dialog._chk_microscope.isEnabled()
+    assert session.calls == [("microscope", True)]
     dialog.deleteLater()
 
 

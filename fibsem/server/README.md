@@ -12,8 +12,8 @@ pip install -e .[server]
 
 ## Starting the Server
 
-The App Server runs inside AutoLamella: turn it on in Preferences → App
-Server, and Tools → App Server shows its address and the dashboard. With
+The App Server runs inside AutoLamella: turn it on in Tools → App Server,
+which also shows its address and the dashboard. With
 *Serve the microscope* on, it also serves the `/microscope` routes below. While it runs it writes `~/.fibsem/app-server.json` (url and
 token), so local clients connect without copying anything.
 

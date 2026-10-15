@@ -790,13 +790,10 @@ class AutoLamellaUI(QMainWindow):
     def sync_app_server_with_preference(self) -> None:
         """Start or stop the embedded server to match the saved preference.
 
-        Called after preferences are saved, so ticking the box acts now rather
+        Called when Tools → App Server saves the switch, so it acts now rather
         than at the next connect. Starting needs a connected microscope (the
         server wraps it); without one this is a no-op and the connect path
         picks the preference up as before.
-
-        The microscope preference is only the start-up default: this session's
-        choice is made in Tools → App Server (``set_app_server_microscope``).
         """
         host = self._app_server_host
         preference = fibsem_cfg.load_user_preferences().app_server
@@ -807,8 +804,8 @@ class AutoLamellaUI(QMainWindow):
             host.stop()
 
     def set_app_server_microscope(self, serve: bool) -> None:
-        """Serve the microscope this session, or stop serving it (FIB-1359),
-        from Tools → App Server.
+        """Serve the microscope, or stop serving it (FIB-1359), from Tools →
+        App Server, which also saves the choice for the next launch.
 
         The services are fixed when the server starts, so a change restarts a
         running server. The agent's token and level are the session's and
