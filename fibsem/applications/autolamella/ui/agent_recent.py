@@ -44,6 +44,17 @@ _RUN_ENDED = {
 }
 
 
+# A queue edit, as the timeline's menu names it (queue_changed).
+_QUEUE_CHANGES = {
+    "remove": "Took out of the queue",
+    "move_up": "Moved up the queue",
+    "move_down": "Moved down the queue",
+    "run_next": "Queued to run next",
+    "requeue": "Queued again",
+    "requeue_front": "Queued again, first",
+}
+
+
 @dataclass
 class RecentRow:
     """One thing the agent did: when (HH:MM), what, and how it ended."""
@@ -299,6 +310,13 @@ class RecentActions:
             "done",
             OK,
         )
+
+    def _on_queue_changed(self, record, p, agent):
+        if not self._own(agent):
+            return False
+        action = _QUEUE_CHANGES.get(str(p.get("action")), _words(p.get("action")))
+        text = f"{action}: {p.get('item_name')} · {p.get('task_name')}"
+        return self._put(("queue", record.get("seq")), record, text, "done", OK)
 
     def _on_agent_note(self, record, p, agent):
         return self._put(

@@ -166,6 +166,20 @@ def test_a_long_command_is_one_row_and_a_refusal_says_why():
     ]
 
 
+def test_the_agent_s_queue_edit_is_a_row_and_the_operator_s_is_not():
+    recent = RecentActions()
+    edit = {"item_name": "01-full-magpie", "task_name": "Trench Milling"}
+    recent.add(_record("queue_changed", dict(edit, action="remove")))
+    assert not recent.add(
+        _record("queue_changed", dict(edit, action="move_up"), actor=OPERATOR)
+    )
+    recent.add(_record("queue_changed", dict(edit, action="requeue_front")))
+    assert _rows(recent) == [
+        ("Queued again, first: 01-full-magpie · Trench Milling", "done", OK),
+        ("Took out of the queue: 01-full-magpie · Trench Milling", "done", OK),
+    ]
+
+
 def test_it_keeps_the_last_ten():
     recent = RecentActions()
     for index in range(12):

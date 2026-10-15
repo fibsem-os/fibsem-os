@@ -835,15 +835,6 @@ class AgentCard(QFrame):
         answer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         rows.addWidget(answer)
         left.addWidget(box)
-        if suggestion.get("point") is not None:
-            note = QHBoxLayout()
-            note.addStretch(1)
-            note.addWidget(
-                _label(
-                    "The point is shown on the FIB view", TEXT_MUTED_COLOR, small=True
-                )
-            )
-            left.addLayout(note)
         left.addStretch(1)
 
         right = QVBoxLayout()
