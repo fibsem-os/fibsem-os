@@ -491,9 +491,14 @@ def build_device_router(
     def json_answer(result: Any, preview: bool) -> Any:
         """A command's result as JSON. An image list, or with *preview* any
         image, answers what an agent reads: a summary, its saved path and a
-        small JPEG (image_answer)."""
+        small JPEG (image_answer). So does an image under ``image`` in a dict
+        (a tiled overview's answer)."""
         if (preview and is_image_result(result)) or is_image_list(result):
             return image_answer(result)
+        if isinstance(result, dict) and isinstance(result.get("image"), FibsemImage):
+            return json_answer(
+                {**result, "image": image_answer(result["image"])}, preview
+            )
         # A structure with to_dict answers that (an autofocus result, its summary).
         return jsonable_encoder(to_wire(result))
 

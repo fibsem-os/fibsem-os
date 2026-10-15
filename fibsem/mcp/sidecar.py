@@ -498,6 +498,26 @@ def build_sidecar(client, capabilities):
     def fm_auto_focus(channel_name: Optional[str] = None, path: Optional[str] = None):
         return _routed("fm_auto_focus", "run", channel_name=channel_name, path=path)
 
+    def acquire_overview(settings: dict, path: str, name: str = "overview"):
+        return _routed(
+            "acquire_overview", "run", settings=settings, path=path, name=name
+        )
+
+    def estimate_overview(settings: dict):
+        return _routed("estimate_overview", "estimate", settings=settings)
+
+    def acquire_focus_stack(
+        image_settings: dict, path: str, n_steps: int = 3, auto_focus: bool = True
+    ):
+        return _routed(
+            "acquire_focus_stack",
+            "run",
+            image_settings=image_settings,
+            path=path,
+            n_steps=n_steps,
+            auto_focus=auto_focus,
+        )
+
     def _query(**params):
         """A query string of the *params* that are given (not None)."""
         return urlencode({k: v for k, v in params.items() if v is not None})
@@ -874,6 +894,9 @@ def build_sidecar(client, capabilities):
             autocontrast,
             auto_focus,
             fm_auto_focus,
+            acquire_overview,
+            estimate_overview,
+            acquire_focus_stack,
             get_app_status,
             get_app_queue,
             get_experiment_summary,

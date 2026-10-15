@@ -464,6 +464,16 @@ each step's shift and whether the methods agree on what is left. If they don't
 agree, or the score stays low, the view has changed (milled, drifted out of
 frame): stop and tell the operator rather than aligning again.
 
+**Overviews and focus stacks.** `acquire_overview` images a grid of tiles
+around where the stage is and stitches them; the stage moves to each tile and
+comes back. Ask `estimate_overview` first: it gives the tile count and the scan
+time, but not the stage moves, which often take longer than the scanning, so a
+3 x 3 that scans for seconds still takes minutes. `acquire_focus_stack` focuses
+and images a frame in strips, for a tilted view one focus can't hold. Both save
+into a folder you name inside the experiment and are long commands:
+`wait_for_run` imaging gives the image and its path, and `call_service_command`
+imaging `stop`, with a reason, ends either one.
+
 **`409 microscope_busy` is someone else working.** Its
 `detail.in_control` names who (`workflow`, `script`, or another command)
 and what. Treat it as a person would: say who has the microscope and what you

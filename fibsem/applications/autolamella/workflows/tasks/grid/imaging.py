@@ -1,11 +1,10 @@
 """The beam overview grid task: a thin wrapper over the FIB/SEM tiled runner.
 
-The operation -- `acquire_beam_overview` -- is a plain function over
-`TiledAcquisitionRunner`, callable from the Overview tab or a script. The task
-adds only what makes it a workflow step: where the grid is (its calibrated slot,
-re-expressed for the requested orientation), where the files go (the grid's own
-directory), and what to record (the stitched image, its tiles and a thumbnail, by
-role).
+The operation is `fibsem.imaging.tiled.acquire_tiled_overview`, which the
+Overview tab and the imaging service call too. The task adds only what makes it
+a workflow step: where the grid is (its calibrated slot, re-expressed for the
+requested orientation), where the files go (the grid's own directory), and what
+to record (the stitched image, its tiles and a thumbnail, by role).
 """
 
 from __future__ import annotations
@@ -22,10 +21,7 @@ from typing import (
     Optional,
     Tuple,
     Type,
-    Union,
 )
-
-import numpy as np
 
 from fibsem import timing
 from fibsem.applications.autolamella.proposals import (
@@ -42,12 +38,11 @@ from fibsem.applications.autolamella.workflows.tasks.grid.registry import (
 )
 from fibsem.geometry.projection import BeamStageProjection
 from fibsem.imaging.thumbnail import write_thumbnail
-from fibsem.imaging.tiled import TiledAcquisitionRunner, stamped_overview_name
+from fibsem.imaging.tiled import acquire_tiled_overview, stamped_overview_name
 from fibsem.imaging.tiling.geometry import compute_tile_grid, unreachable_tiles
 from fibsem.services.sample_handling import uncalibrated_message
 from fibsem.structures import (
     BeamType,
-    FibsemImage,
     FibsemStagePosition,
     OverviewAcquisitionSettings,
 )
@@ -61,39 +56,8 @@ ROLE_BY_BEAM = {BeamType.ELECTRON: "overview_sem", BeamType.ION: "overview_fib"}
 
 
 # ---------------------------------------------------------------------------
-# The operation
+# Reach
 # ---------------------------------------------------------------------------
-
-
-def acquire_beam_overview(
-    microscope: "FibsemMicroscope",
-    settings: OverviewAcquisitionSettings,
-    centre: FibsemStagePosition,
-    directory: Union[str, Path],
-    stem: str = "overview",
-    stop_event=None,
-    tile_paths: Optional[List[str]] = None,
-) -> FibsemImage:
-    """Acquire a tiled SEM or FIB overview centred on `centre`, saved under `directory`.
-
-    A copy of `settings` is used, so the caller's object is not rewritten with the
-    per-run path and stamped name. The beam is `settings.image_settings.beam_type`.
-    The runner restores the stage to where it started; `centre` is the grid's
-    centre, not a new home. A `tile_paths` list is extended with the path of each
-    saved tile, in the order acquired.
-    """
-    settings = deepcopy(settings)
-    settings.image_settings.save = True
-    settings.image_settings.path = str(directory)
-    settings.image_settings.filename = stamped_overview_name(stem)
-    Path(directory).mkdir(parents=True, exist_ok=True)
-    runner = TiledAcquisitionRunner(
-        microscope, settings, stop_event=stop_event, centre_position=centre
-    )
-    image = runner.run_and_stitch()
-    if tile_paths is not None:
-        tile_paths.extend(runner.tile_paths)
-    return image
 
 
 def disable_tiles(
@@ -268,12 +232,12 @@ class BeamOverviewGridTask(GridTask):
             f"{settings.ncols} tiles{out_of_reach}",
         )
         tiles: List[str] = []
-        image = acquire_beam_overview(
+        image = acquire_tiled_overview(
             self.microscope,
             settings,
-            centre,
-            self.output_dir,
-            stem=self.config.filename,
+            str(self.output_dir),
+            stamped_overview_name(self.config.filename),
+            centre_position=centre,
             stop_event=self._stop_event,
             tile_paths=tiles,
         )

@@ -6,8 +6,9 @@ implementation. The service passes them through by ``beam_type``, so a caller
 needs only ``microscope.imaging``, and adds what coordinates them over time, the
 same way on every backend: ``auto_focus`` is the one place that chooses between
 the instrument's autofocus and the image-based sweep, and ``focus_sweep`` is the
-sweep (`fibsem.autofunctions.autofocus.run_auto_focus`), which a ``stop`` from
-another caller ends.
+sweep (`fibsem.autofunctions.autofocus.run_auto_focus`). Tiled overviews
+(`fibsem.imaging.tiled.acquire_tiled_overview`) and focus stacks run here too. A
+``stop`` from another caller ends any of these.
 
 No driver needs its own imaging code yet, so every backend builds this class.
 Being a service is what lets an agent find and run these routines over the App
@@ -20,17 +21,38 @@ import copy
 import logging
 import os
 import threading
-from typing import Any, Dict, List, Optional, Sequence, Type, TypeVar, Union
+from contextlib import contextmanager
+from typing import (
+    Any,
+    Dict,
+    Iterator,
+    List,
+    Optional,
+    Sequence,
+    Type,
+    TypeVar,
+    Union,
+)
 
 # At import, not under TYPE_CHECKING: the App Server decodes a command's arguments
 # from its type hints (an AutoFocusSettings sent as a dict).
 from fibsem.autofunctions.autofocus import AutoFocusResult, AutoFocusSettings
-from fibsem.cancellation import AnyStopEvent
+from fibsem.cancellation import (
+    AnyStopEvent,
+    OperationCancelledError,
+    raise_if_cancelled,
+)
 from fibsem.devices.beam import Beam
-from fibsem.devices.core import Role, RoleUnfilled, command
+from fibsem.devices.core import Role, RoleUnfilled, command, query
 from fibsem.devices.fm import FM
 from fibsem.services.core import Service
-from fibsem.structures import BeamType, FibsemImage, FibsemRectangle, ImageSettings
+from fibsem.structures import (
+    BeamType,
+    FibsemImage,
+    FibsemRectangle,
+    ImageSettings,
+    OverviewAcquisitionSettings,
+)
 
 # The role each beam fills.
 _BEAM_ROLES: Dict[BeamType, str] = {
@@ -45,9 +67,11 @@ class Imaging(Service):
     """Imaging over the beams: the beam commands by ``beam_type`` (``acquire``,
     ``autocontrast``, ``start_live``, ``stop_live``); a saved, recorded image
     (``acquire_image``) and reference images of both beams (``reference_images``,
-    ``reference_image_sets``); ``auto_focus`` (the instrument's own where the
-    beam has one, else the sweep), ``focus_sweep``, the fluorescence
-    microscope's ``fm_focus_sweep``, and ``stop``, which ends any of them."""
+    ``reference_image_sets``) and a focus stacked one (``focus_stack``); tiled
+    overviews (``tiled_overview``, ``estimate_tiled_overview``); ``auto_focus``
+    (the instrument's own where the beam has one, else the sweep),
+    ``focus_sweep``, the fluorescence microscope's ``fm_focus_sweep``, and
+    ``stop``, which ends any of them."""
 
     electron = Role(Beam, required=False, doc="The electron beam.")
     ion = Role(Beam, required=False, doc="The ion beam.")
@@ -56,6 +80,7 @@ class Imaging(Service):
     def __init__(self, name: str = "imaging", **kwargs: Any):
         super().__init__(name, **kwargs)
         self._stop_requested = threading.Event()
+        self._depth = 0  # routines running, a sweep inside a focus stack counted
 
     def beam(self, beam_type: BeamType) -> Beam:
         """The beam that images as ``beam_type``; a ValueError when this microscope
@@ -113,14 +138,9 @@ class Imaging(Service):
         if image_settings.autocontrast:
             self.autocontrast(beam_type, image_settings.reduced_area)
         image = self.acquire(beam_type, image_settings)
-        path = None
-        if image_settings.save:
-            suffix = "eb" if beam_type is BeamType.ELECTRON else "ib"
-            path = image.save(
-                path=os.path.join(
-                    image_settings.path, f"{image_settings.filename}_{suffix}"
-                )
-            )
+        path = (
+            image.save(path=_save_path(image_settings)) if image_settings.save else None
+        )
         self.session.record("image_acquired", acquisition_record(image, path))
         return image
 
@@ -164,6 +184,129 @@ class Imaging(Service):
             settings.filename = f"{filename}_res_{i:02d}"
             sets.append(self.reference_images(settings, electron=electron, ion=ion))
         return sets
+
+    def focus_stacked_image(
+        self,
+        image_settings: ImageSettings,
+        n_steps: int = 3,
+        auto_focus: bool = True,
+        stop_event: Optional[Union[threading.Event, AnyStopEvent]] = None,
+    ) -> FibsemImage:
+        """One image focused in ``n_steps`` horizontal strips: each strip is
+        acquired on its own (`acquire_image`, saving nothing), after `auto_focus`
+        on that strip when ``auto_focus`` is set, and the strips are stacked into
+        a full frame. Saved to ``<path>/<filename>_eb`` (or ``_ib``) when the
+        settings' ``save`` is set. The metadata is the middle strip's.
+
+        A ``stop_event`` set raises `OperationCancelledError` before the next
+        strip. The beam goes back to full frame scanning however it ends. The
+        settings given are not changed. `focus_stack` is this as a command; a
+        tiled overview with a focus stack calls it per tile.
+        """
+        import numpy as np
+        from skimage.transform import resize
+
+        if n_steps < 1:
+            raise ValueError(f"n_steps must be at least 1, got {n_steps}")
+        settings = copy.copy(image_settings)
+        settings.save = False
+        height = 1.0 / n_steps
+        strips: List[FibsemImage] = []
+        try:
+            for i in range(n_steps):
+                raise_if_cancelled(stop_event, "Focus stack cancelled.")
+                settings.reduced_area = FibsemRectangle(
+                    left=0, top=i * height, width=1, height=height
+                )
+                if auto_focus:
+                    self.auto_focus(settings.beam_type, settings.reduced_area)
+                    raise_if_cancelled(stop_event, "Focus stack cancelled.")
+                strips.append(self.acquire_image(settings))
+        finally:
+            self.parent.set_full_frame_scanning_mode(settings.beam_type)
+
+        data = np.vstack([strip.data for strip in strips])
+        shape = tuple(settings.resolution[::-1])
+        if data.shape != shape:
+            data = resize(data, shape, preserve_range=True).astype(np.uint8)
+        metadata = copy.deepcopy(strips[(n_steps - 1) // 2].metadata)
+        metadata.image_settings.reduced_area = None
+        stacked = FibsemImage(data=data, metadata=metadata)
+        if image_settings.save:
+            stacked.save(_save_path(image_settings))
+        return stacked
+
+    @command(long=True)
+    def focus_stack(
+        self,
+        image_settings: ImageSettings,
+        path: str,
+        n_steps: int = 3,
+        auto_focus: bool = True,
+    ) -> Dict[str, Any]:
+        """A `focus_stacked_image` saved under ``path``, as
+        ``<path>/<filename>_eb`` (or ``_ib``), whatever the settings' own path
+        and ``save`` say. ``stop`` ends it before the next strip, ``cancelled``.
+        Answers the stacked image."""
+        settings = copy.copy(image_settings)
+        settings.path = path
+        settings.save = True
+        try:
+            with self._routine():
+                image = self.focus_stacked_image(
+                    settings, n_steps, auto_focus, stop_event=self._stop_requested
+                )
+        except OperationCancelledError:
+            return {"status": "cancelled", "image": None}
+        return {"status": "completed", "image": image}
+
+    # -- overviews -----------------------------------------------------------------
+
+    @command(long=True)
+    def tiled_overview(
+        self,
+        settings: OverviewAcquisitionSettings,
+        path: str,
+        name: str = "overview",
+    ) -> Dict[str, Any]:
+        """A tiled overview with ``settings.image_settings.beam_type``, centred
+        where the stage is, which it goes back to after
+        (`fibsem.imaging.tiled.acquire_tiled_overview`). Saved under ``path``:
+        the stitched image as ``<name>-<time>``, its tiles in a folder of that
+        name. ``stop`` ends it before the next tile, ``cancelled``, keeping the
+        tiles acquired. Answers the stitched image and the tiles' paths."""
+        from fibsem.imaging.tiled import acquire_tiled_overview, stamped_overview_name
+
+        tile_paths: List[str] = []
+        try:
+            with self._routine():
+                image = acquire_tiled_overview(
+                    self.parent,
+                    settings,
+                    path,
+                    stamped_overview_name(name),
+                    stop_event=self._stop_requested,
+                    tile_paths=tile_paths,
+                )
+        except OperationCancelledError:
+            return {"status": "cancelled", "image": None, "tile_paths": tile_paths}
+        return {"status": "completed", "image": image, "tile_paths": tile_paths}
+
+    @query
+    def estimate_tiled_overview(
+        self, settings: OverviewAcquisitionSettings
+    ) -> Dict[str, Any]:
+        """What a `tiled_overview` with ``settings`` covers and scans: the tiles
+        it would acquire, the beam-on time in seconds, and the field of view in
+        metres. Not how long it takes: the stage moves between tiles are not in
+        it (`OverviewAcquisitionSettings.scan_time`)."""
+        return {
+            "tiles": settings.n_enabled_tiles,
+            "nrows": settings.nrows,
+            "ncols": settings.ncols,
+            "scan_time": settings.scan_time,
+            "fov": [settings.total_fov_x, settings.total_fov_y],
+        }
 
     # -- routines ------------------------------------------------------------------
 
@@ -215,17 +358,17 @@ class Imaging(Service):
         beam = self.beam(beam_type)
         if hfw is None:
             hfw = beam.hfw.get_value()
-        self._stop_requested.clear()
         events = [e for e in (stop_event, self._stop_requested) if e is not None]
-        return run_auto_focus(
-            self.parent,
-            beam_type=beam_type,
-            hfw=hfw,
-            settings=settings,
-            stop_event=AnyStopEvent(*events),
-            path=path,
-            name=name,
-        )
+        with self._routine():
+            return run_auto_focus(
+                self.parent,
+                beam_type=beam_type,
+                hfw=hfw,
+                settings=settings,
+                stop_event=AnyStopEvent(*events),
+                path=path,
+                name=name,
+            )
 
     def _has_fm(self) -> bool:
         return "fm" in self._roles
@@ -251,8 +394,7 @@ class Imaging(Service):
         from fibsem.fm.calibration import run_coarse_fine_autofocus
 
         fm = self.parent.fm
-        self._stop_requested.clear()
-        with fm.acquiring("auto-focus"):
+        with self._routine(), fm.acquiring("auto-focus"):
             result = run_coarse_fine_autofocus(
                 fm,
                 autofocus_settings=settings or AutoFocusSettings(),
@@ -264,13 +406,33 @@ class Imaging(Service):
             return {"status": "cancelled", **(result.to_dict() if result else {})}
         return {"status": "completed", **result.to_dict()}
 
+    @contextmanager
+    def _routine(self) -> Iterator[None]:
+        """Run a routine that ``stop`` ends. The stop is cleared when the
+        outermost one starts only, so a sweep inside a focus stack or an
+        overview tile doesn't drop a stop meant for the whole run."""
+        if self._depth == 0:
+            self._stop_requested.clear()
+        self._depth += 1
+        try:
+            yield
+        finally:
+            self._depth -= 1
+
     @command
     def stop(self) -> None:
-        """End the sweep in progress, a beam's or the FM's, as cancelled, and an
-        FM z-stack before its next frame."""
+        """End the sweep in progress, a beam's or the FM's, a tiled overview or a
+        focus stack, as cancelled, and an FM z-stack before its next frame."""
         self._stop_requested.set()
         if self._has_fm():
             self.fm.cancel()
+
+
+def _save_path(image_settings: ImageSettings) -> str:
+    """Where an image taken with ``image_settings`` is saved:
+    ``<path>/<filename>_eb``, or ``_ib`` for the ion beam."""
+    suffix = "eb" if image_settings.beam_type is BeamType.ELECTRON else "ib"
+    return os.path.join(image_settings.path, f"{image_settings.filename}_{suffix}")
 
 
 def acquisition_record(image: FibsemImage, path: Optional[str]) -> Dict[str, Any]:

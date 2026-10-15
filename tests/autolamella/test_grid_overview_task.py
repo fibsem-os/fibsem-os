@@ -30,10 +30,8 @@ from fibsem.applications.autolamella.workflows.tasks.grid import (
     BeamOverviewGridTaskConfig,
     run_grid_task,
 )
-from fibsem.applications.autolamella.workflows.tasks.grid.imaging import (
-    acquire_beam_overview,
-)
 from fibsem.imaging.thumbnail import write_thumbnail
+from fibsem.imaging.tiled import acquire_tiled_overview, stamped_overview_name
 from fibsem.services.sample_handling import bind_sample_handling
 from fibsem.structures import (
     BeamType,
@@ -241,12 +239,12 @@ class TestRun:
 
     def test_the_operation_is_callable_standalone(self, microscope, tmp_path):
         tiles = []
-        image = acquire_beam_overview(
+        image = acquire_tiled_overview(
             microscope,
             _small_settings(),
-            microscope.get_stage_position(),
-            tmp_path / "standalone",
-            stem="ov",
+            str(tmp_path / "standalone"),
+            stamped_overview_name("ov"),
+            centre_position=microscope.get_stage_position(),
             tile_paths=tiles,
         )
         assert len(tiles) == 4 and all(Path(t).is_file() for t in tiles)
