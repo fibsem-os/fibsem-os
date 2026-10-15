@@ -57,7 +57,8 @@ request; the server says so when it can't (`not_an_action`).
 
 ## Watch the session
 
-Run the watcher as a background monitor, as the supervise skill says,
+Run the watcher as a background monitor, as the supervise skill says (in
+Claude Code, a Monitor on its output, re-armed every 30 minutes),
 and start it before you file anything. The operator often decides within
 seconds.
 
@@ -165,9 +166,10 @@ the question, check image freshness, and separate reading from acting. Then
 The prompt shows "Agent suggests: <the button>" with your reason under it.
 The operator's click answers, as theirs, and the watcher's `ANSWERED` line
 shows `suggested_by=agent`. If they answer some other way, your suggestion
-is dropped. That's their call, not an error. For `EditAlignmentArea` and
-`PickPOI` a suggestion may carry a `value`, as `answer_prompt` would. It is
-placed on screen only if the operator takes the suggestion.
+is dropped. That's their call, not an error. For `EditAlignmentArea`,
+`PickPOI`, `ConfirmDetection` and `RunSpotBurn` a suggestion may carry a
+`value`, as `answer_prompt` would. It is placed on screen only if the
+operator takes the suggestion.
 
 A **recorded question** (`QUESTION item=… task=…`, or a prompt saying
 `answer_via: "decide"`) is decided, not answered, so a suggestion is

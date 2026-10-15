@@ -91,7 +91,7 @@ def test_a_saved_image_keeps_it(microscope, tmp_path):
     image.save(str(tmp_path / "image.tif"))
     loaded = FibsemImage.load(str(tmp_path / "image.tif"))
 
-    assert loaded.metadata.version == cfg.METADATA_VERSION == "v11"
+    assert loaded.metadata.version == cfg.METADATA_VERSION == "v12"
     assert loaded.metadata.acquisition_datetime == image.metadata.acquisition_datetime
     assert loaded.metadata.acquisition_date == acquisition_datetime_of(image.metadata)
 

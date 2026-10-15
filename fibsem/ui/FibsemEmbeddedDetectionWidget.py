@@ -1,7 +1,7 @@
 import logging
 import os
 from copy import deepcopy
-from typing import Optional
+from typing import Dict, Optional
 
 import numpy as np
 from PyQt5 import QtWidgets
@@ -10,6 +10,9 @@ from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import QGridLayout, QLabel, QSizePolicy, QSpacerItem
 
 import fibsem
+from fibsem.applications.autolamella.workflows.question_adapters import (
+    apply_feature_px,
+)
 from fibsem.detection import utils as det_utils
 from fibsem.detection.detection import DetectedFeatures
 from fibsem.segmentation.model import load_model
@@ -123,6 +126,27 @@ class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
             if i < len(self.det.features):
                 self.det.features[i].px = Point(x=x, y=y)
         self.has_user_corrected = True
+        self.update_info()
+
+    def move_features(self, px_by_name: Dict[str, Point]) -> None:
+        """Move the named features to new image pixels, as dragging them would.
+
+        Unlike :meth:`set_detected_features` the baseline stays: Confirm saves the
+        model's points beside the corrected ones, so a correction made here is
+        recorded as a correction. Features not named stay where they are.
+        """
+        apply_feature_px(
+            self.det,
+            {n: Point(x=float(px.x), y=float(px.y)) for n, px in px_by_name.items()},
+        )
+        self.has_user_corrected = True
+        controller = self._view_controller()
+        if controller is not None and self._host_beam is not None:
+            controller.set_points(
+                self._host_beam,
+                "detection",
+                [(f.px.x, f.px.y) for f in self.det.features],
+            )
         self.update_info()
 
     def closeEvent(self, event) -> None:
