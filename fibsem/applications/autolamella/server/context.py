@@ -1018,15 +1018,6 @@ class AutoLamellaAppContext:
         outcome = host.request_apply_item_patch(item_name, dict(patch), str(version))
         result = outcome.result(timeout=timeout)
         result["available"] = True
-        if result.get("applied") and self._event_buffer is not None:
-            self._event_buffer.append(
-                "config_edited",
-                {
-                    "level": "item_fields",
-                    "item_name": item_name,
-                    "changes": result.get("changes", []),
-                },
-            )
         return result
 
     # --- propose and review (FIB-950) -----------------------------------------
@@ -1249,16 +1240,6 @@ class AutoLamellaAppContext:
         )
         result = outcome.result(timeout=timeout)
         result["available"] = True
-        if result.get("applied") and self._event_buffer is not None:
-            self._event_buffer.append(
-                "config_edited",
-                {
-                    "level": level,
-                    "item_name": item_name or None,
-                    "task_name": task_name,
-                    "reorder": {"milling_key": milling_key, "order": list(order)},
-                },
-            )
         return result
 
     def apply_protocol_to_item(
@@ -1306,15 +1287,6 @@ class AutoLamellaAppContext:
         outcome = host.request_apply_protocol_to_item(item_name, task_names)
         result = outcome.result(timeout=timeout)
         result["available"] = True
-        if result.get("applied") and self._event_buffer is not None:
-            self._event_buffer.append(
-                "config_edited",
-                {
-                    "level": "protocol_applied",
-                    "item_name": item_name,
-                    "task_names": result.get("task_names", []),
-                },
-            )
         return result
 
     def apply_protocol_task_config_patch(
@@ -1339,15 +1311,6 @@ class AutoLamellaAppContext:
         )
         result = outcome.result(timeout=timeout)
         result["available"] = True
-        if result.get("applied") and self._event_buffer is not None:
-            self._event_buffer.append(
-                "config_edited",
-                {
-                    "level": "protocol",
-                    "task_name": task_name,
-                    "changes": result.get("changes", []),
-                },
-            )
         return result
 
     @staticmethod
@@ -1412,16 +1375,6 @@ class AutoLamellaAppContext:
         )
         result = outcome.result(timeout=timeout)
         result["available"] = True
-        if result.get("applied") and self._event_buffer is not None:
-            self._event_buffer.append(
-                "config_edited",
-                {
-                    "level": "item",
-                    "item_name": item_name,
-                    "task_name": task_name,
-                    "changes": result.get("changes", []),
-                },
-            )
         return result
 
     # --- instrument-adjacent (cached only, never a hardware call) --------------

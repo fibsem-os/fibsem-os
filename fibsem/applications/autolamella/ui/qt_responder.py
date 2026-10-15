@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple, Type
 
 from PyQt5.QtCore import QObject, pyqtSignal
 
-from fibsem.acting import TASK, acting
+from fibsem.acting import AGENT, TASK, acting
 from fibsem.applications.autolamella.proposals import AuthorKind, DecisionOutcome
 from fibsem.applications.autolamella.workflows.interaction import (
     ClearMillingConfig,
@@ -173,14 +173,15 @@ class QtResponder(QObject):
 
         return dispose
 
-    def _emit_question_event(self, kind: str, payload: Dict) -> None:
+    def _emit_question_event(self, kind: str, payload: Dict, actor: str = TASK) -> None:
         """Tell every observer, each on its own; failures are logged, never raised.
 
         On the GUI thread, but every question is a task's: it is raised and
         withdrawn on the task's behalf, so it is marked as the task's for the
-        experiment's record (FIB-1062). An answer says who answered.
+        experiment's record (FIB-1062). An answer says who answered. A
+        suggestion is the agent's own, so it is marked as the agent's.
         """
-        with acting(TASK):
+        with acting(actor):
             for observer in list(self._question_observers):
                 try:
                     observer(kind, payload)
@@ -395,7 +396,7 @@ class QtResponder(QObject):
         }
         if value is not None:
             payload["has_value"] = True
-        self._emit_question_event("prompt_suggested", payload)
+        self._emit_question_event("prompt_suggested", payload, actor=AGENT)
         self._show_suggestion()
         self._deliver(outcome, True)
 
