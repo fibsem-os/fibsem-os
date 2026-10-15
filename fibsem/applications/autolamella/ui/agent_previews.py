@@ -288,6 +288,12 @@ def _fraction_pixel(frame, fraction: Tuple[float, float]) -> Tuple[float, float]
 # How a mark draws its places: a point of interest or a feature "+", a move
 # target a crosshair, a spot burn point a dot.
 CROSS, TARGET, DOT = "cross", "target", "dot"
+# How the legend shows the rest: patterns to mill, filled; patterns outlined (a
+# config edit's as they are now, those past the field); an area, dashed.
+FILL, OUTLINE, AREA = "fill", "outline", "area"
+# The patterns to mill: see-through, so where they overlap shows darker
+# (FIB-1424; Patrick: "solid rectangles", not bounding boxes).
+FILL_ALPHA = 70
 
 
 class _Mark:
@@ -337,19 +343,25 @@ _BEFORE = WHITE_ICON_COLOR
 class _Layer:
     """What one colour draws on the card's picture: crosses, crosshairs, dots
     and areas (pixels of the picture's frame), and patterns (metres from the
-    field's centre)."""
+    field's centre), filled (*fill*, what would be milled) or outlined.
+    Areas, which are never milled, are dashed."""
 
-    def __init__(self, colour: str, dashed: bool = True) -> None:
+    def __init__(self, colour: str, fill: bool = False) -> None:
         self.colour = colour
-        self.dashed = dashed
+        self.fill = fill
         self.crosses: List[Tuple[float, float]] = []
         self.targets: List[Tuple[float, float]] = []
         self.dots: List[Tuple[float, float]] = []
         self.areas: List[List[Tuple[float, float]]] = []
         self.patterns: List = []
         # What it draws, for the picture's legend: (shape, words), shape
-        # "box" or a mark's.
+        # FILL, OUTLINE, AREA or a mark's.
         self.keys: List[Tuple[str, str]] = []
+
+    @property
+    def pattern_shape(self) -> str:
+        """How the legend shows this layer's patterns."""
+        return FILL if self.fill else OUTLINE
 
     def key(self, shape: str, text: str, drawn=True) -> None:
         """Name what this colour draws in the picture's legend, when it draws it."""
@@ -410,11 +422,12 @@ def draw_picture(frame, layers: List[_Layer]):
         return QPointF(pixel[0] * scale, pixel[1] * scale)
 
     for layer in layers:
-        pen = QPen(QColor(layer.colour), line)
-        if layer.dashed:
-            pen.setStyle(Qt.DashLine)  # type: ignore
+        colour = QColor(layer.colour)
+        pen = QPen(colour, line)
         painter.setPen(pen)
-        painter.setBrush(Qt.NoBrush)  # type: ignore
+        fill = QColor(colour)
+        fill.setAlpha(FILL_ALPHA)
+        painter.setBrush(fill if layer.fill else Qt.NoBrush)  # type: ignore
         for pattern in layer.patterns:
             for ring in pattern_outline(pattern):
                 points = [at(_offset_pixel(frame, Point(x=x, y=y))) for x, y in ring]
@@ -422,6 +435,9 @@ def draw_picture(frame, layers: List[_Layer]):
                     painter.drawLine(QLineF(points[0], points[1]))
                 else:
                     painter.drawPolygon(QPolygonF(points))
+        painter.setBrush(Qt.NoBrush)  # type: ignore
+        pen.setStyle(Qt.DashLine)  # type: ignore
+        painter.setPen(pen)
         for (x0, y0), (x1, y1) in layer.areas:
             painter.drawPolygon(
                 QPolygonF([at((x0, y0)), at((x1, y0)), at((x1, y1)), at((x0, y1))])
@@ -459,13 +475,11 @@ def _draw_mark(painter, shape: str, centre, arm: float) -> None:
     painter.drawLine(QLineF(x, y - arm, x, y + arm))
 
 
-def legend_entries(layers: List[_Layer]) -> List[Tuple[str, bool, str, str]]:
-    """What each layer draws, for the picture's legend: ``(colour, dashed,
-    shape, words)``."""
+def legend_entries(layers: List[_Layer]) -> List[Tuple[str, str, str]]:
+    """What each layer draws, for the picture's legend: ``(colour, shape,
+    words)``."""
     return [
-        (layer.colour, layer.dashed, shape, text)
-        for layer in layers
-        for shape, text in layer.keys
+        (layer.colour, shape, text) for layer in layers for shape, text in layer.keys
     ]
 
 
@@ -488,23 +502,27 @@ def draw_legend(painter, entries, font_px: int) -> None:
     box = QRectF(
         pad,
         pad,
-        pad * 3 + sample + max(metrics.horizontalAdvance(e[3]) for e in entries),
+        pad * 3 + sample + max(metrics.horizontalAdvance(e[-1]) for e in entries),
         pad * 2 + row * len(entries),
     )
     painter.setPen(Qt.NoPen)  # type: ignore
     painter.setBrush(QColor(0, 0, 0, 170))
     painter.drawRoundedRect(box, pad / 2, pad / 2)
     painter.setBrush(Qt.NoBrush)  # type: ignore
-    for index, (colour, dashed, shape, text) in enumerate(entries):
+    for index, (colour, shape, text) in enumerate(entries):
         top = box.top() + pad + row * index
         middle = top + row / 2
         left = box.left() + pad
         pen = QPen(QColor(colour), 1.5)
-        if shape == "box" and dashed:
+        if shape == AREA:
             pen.setStyle(Qt.DashLine)  # type: ignore
         painter.setPen(pen)
-        if shape == "box":
+        if shape in (FILL, OUTLINE, AREA):
+            fill = QColor(colour)
+            fill.setAlpha(FILL_ALPHA)
+            painter.setBrush(fill if shape == FILL else Qt.NoBrush)  # type: ignore
             painter.drawRect(QRectF(left, middle - sample * 0.3, sample, sample * 0.6))
+            painter.setBrush(Qt.NoBrush)  # type: ignore
         else:
             _draw_mark(
                 painter, shape, QPointF(left + sample / 2, middle), sample * 0.45
@@ -602,21 +620,21 @@ class AgentPreviews:
         if frame is None:
             return
         layers = [
-            _Layer(_BEFORE, dashed=False),
-            _Layer(PURPLE_COLOR),
+            _Layer(_BEFORE),
+            _Layer(PURPLE_COLOR, fill=True),
             _Layer(RED_COLOR),
         ]
         grey, purple, red = layers
         if beam is BeamType.ION:
             grey.patterns = _stage_patterns(before)
-            # Past the field, red over purple.
+            # Past the field, outlined in red over purple.
             purple.patterns = patterns + _stage_patterns(milled)
             red.patterns = outside
-            grey.key("box", "as now", grey.patterns)
+            grey.key(OUTLINE, "as now", grey.patterns)
             purple.key(
-                "box", "after the edit" if before else "patterns", purple.patterns
+                FILL, "after the edit" if before else "patterns", purple.patterns
             )
-            red.key("box", "past the field", red.patterns)
+            red.key(OUTLINE, "past the field", red.patterns)
         self._add_marks(frame, [m for m in marks.values() if not m.before], purple)
         self._add_marks(frame, [m for m in marks.values() if m.before], grey)
         self._picture(
@@ -845,7 +863,7 @@ class AgentPreviews:
             pixels = mark.pixels(frame)
             if mark.area:
                 layer.areas.append(pixels[:2])
-                layer.key("box", mark.legend)
+                layer.key(AREA, mark.legend)
             else:
                 layer.points(mark.shape).extend(pixels)
                 layer.key(mark.shape, mark.legend)

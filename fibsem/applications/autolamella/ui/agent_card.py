@@ -88,7 +88,7 @@ WHY_LINES = 3
 PICTURE_MIN = 420
 STEPS_MIN = 300
 # The legend drawn on the image: this size on screen, however wide it shows.
-LEGEND_PX = 12
+LEGEND_PX = 11
 # The image, clicked: at most this wide.
 ENLARGED_WIDTH = 1024
 

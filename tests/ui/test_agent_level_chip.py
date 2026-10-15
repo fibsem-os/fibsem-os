@@ -198,7 +198,7 @@ def test_the_image_shows_beside_the_steps_and_follows_the_card_s_width(qapp):
     card.set_request(_request())
     assert card.image_label is None
     image = QImage(1024, 683, QImage.Format_RGB32)
-    legend = [("#8b5cf6", True, "target", "move target")]
+    legend = [("#8b5cf6", "target", "move target")]
     card.set_image(image, "FIB · 07:41", legend=legend)
     narrow = card.image_label.pixmap().width()
     assert narrow >= PICTURE_MIN

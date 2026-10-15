@@ -208,7 +208,8 @@ def test_a_run_stage_or_run_task_request_draws_the_stages_it_would_mill():
     _, layer = _layer(previews.request_picture)
     stages = request_stages(request)
     assert len(layer.patterns) == sum(len(s.define_patterns()) for s in stages)
-    assert layer.dashed
+    # Areas to mill: filled, see-through (FIB-1424), not dashed outlines.
+    assert layer.fill and layer.keys == [("fill", "patterns")]
 
 
 def test_patterns_past_the_edge_of_the_field_are_drawn_again_in_red():
@@ -444,9 +445,9 @@ def test_a_task_config_edit_draws_the_milling_as_it_would_be_and_as_it_is():
     assert grey.patterns[0].width == pytest.approx(width)
     # As it is now: solid white, seen on a grey image; the legend says which
     # is which.
-    assert not grey.dashed
-    assert grey.keys == [("box", "as now")]
-    assert purple.keys == [("box", "after the edit")]
+    assert not grey.fill and purple.fill
+    assert grey.keys == [("outline", "as now")]
+    assert purple.keys == [("fill", "after the edit")]
     # The item's own config is untouched: the edit was drawn on a copy.
     assert config.milling["milling"].stages[0].pattern.width == pytest.approx(width)
 
@@ -468,7 +469,7 @@ def test_a_suggested_area_and_spot_burn_points_are_drawn_on_the_card():
     _, layer = _layer(previews.suggestion_picture)
     assert layer.areas == [[pytest.approx((50.0, 50.0)), pytest.approx((150.0, 75.0))]]
     assert card.shown[True] is not None
-    assert layer.keys == [("box", "alignment area")]
+    assert layer.keys == [("area", "alignment area")]
 
     points = [Point(0.5, 0.5), Point(0.75, 0.25)]
     previews.show_suggestion(RunSpotBurn(settings=None), points)
@@ -526,7 +527,7 @@ def test_the_legend_is_drawn_on_the_picture_at_its_own_size(qapp):
         image = QImage(width, 200, QImage.Format_RGB32)
         image.fill(QColor("#ffffff"))
         painter = QPainter(image)
-        draw_legend(painter, [(PURPLE_COLOR, False, "dot", "spot burn points")], 12)
+        draw_legend(painter, [(PURPLE_COLOR, "dot", "spot burn points")], 12)
         painter.end()
         # The box's darkened corner, and how far right it reaches.
         assert image.pixelColor(10, 10).lightness() < 128
@@ -534,6 +535,31 @@ def test_the_legend_is_drawn_on_the_picture_at_its_own_size(qapp):
             max(x for x in range(width) if image.pixelColor(x, 10).lightness() < 128)
         )
     assert sizes[0] == sizes[1]
+
+
+def test_patterns_to_mill_are_filled_and_an_area_is_only_outlined(qapp):
+    # FIB-1424 (decided): patterns as see-through solid areas, one colour;
+    # dashed outlines only for what is not milled.
+    from fibsem.applications.autolamella.ui.agent_previews import (
+        _Layer,
+        draw_picture,
+    )
+    from fibsem.server.request_text import parse_patterns
+
+    frame = FibsemImage.generate_blank_image(resolution=(200, 100), hfw=100e-6)
+    milled = _Layer(PURPLE_COLOR, fill=True)
+    milled.patterns = parse_patterns(
+        [{**_RECTANGLE, "width": 40e-6, "height": 20e-6, "centre_x": -25e-6}]
+    )
+    area = _Layer(PURPLE_COLOR)
+    area.areas = [[(120.0, 30.0), (180.0, 70.0)]]
+    image = draw_picture(frame, [milled, area])
+    background = image.pixelColor(100, 95)
+    inside_pattern = image.pixelColor(50, 50)  # 25 µm left of centre
+    inside_area = image.pixelColor(150, 50)
+    assert inside_pattern != background
+    assert inside_pattern.blue() > inside_pattern.green()  # tinted purple
+    assert inside_area == background
 
 
 def _one(tool, arguments):
