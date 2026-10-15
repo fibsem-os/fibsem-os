@@ -46,6 +46,7 @@ The tools this skill uses, with their routes for plain HTTP:
 |---|---|
 | `request_actions` | `POST /app/agent/requests` |
 | `get_request` | `GET /app/agent/requests/{request_id}` |
+| `withdraw_request` | `POST /app/agent/requests/{request_id}/withdraw` with `{"reason": ...}` |
 | `suggest_answer` | `POST /app/workflow/prompt/suggest` |
 | `add_note` | `POST /app/agent/notes` |
 | `stop_workflow`, `stop_milling` | `POST /app/workflow/stop`, `POST /microscope/services/milling/commands/stop`, each with `{"reason": ...}` |
@@ -53,7 +54,8 @@ The tools this skill uses, with their routes for plain HTTP:
 In a request, `tool` is the tool's name without the `mcp__fibsem__`
 prefix (`set_task_supervision`, `move_stage_relative`, `requeue_task`), and
 `arguments` are what that tool takes. Any tool that acts can go in a
-request; the server says so when it can't (`not_an_action`).
+request; the server says so when it can't (`not_an_action`), or when the
+agent may never use it (`403 not_allowed`: `agent: false` in `list_devices`).
 
 ## Watch the session
 
@@ -108,8 +110,9 @@ edit, the path with old → new) from the arguments themselves. Your words
 appear only in **reason**.
 
 **One request at a time.** While one is waiting, another is refused
-(`409 request_pending`, naming it). Put things that belong together in one
-request. A config change and the re-run it is for are one request, not two.
+(`409 request_pending`, naming it). When the plan changes before the
+operator decides, withdraw it (`withdraw_request`, with a reason) and file
+the new one. Put things that belong together in one request. A config change and the re-run it is for are one request, not two.
 Things that don't belong together wait their turn.
 
 **Write the reason for someone deciding in a few seconds.** Say what you
@@ -123,7 +126,9 @@ the operator approves, nothing is checked against the live state. A stale
 version is refused when the request runs (`409 stale_config`), which is
 correct. Read again and ask again. A stage move has no version: a relative
 move runs from wherever the stage is when the operator approves it, so
-say in the reason where you read it from.
+say in the reason where you read it from. Before asking for a
+`requeue_task`, read the queue (`get_app_queue`): a pair already waiting is
+refused (`409 already_queued`).
 
 **Ask for what was asked.** When the operator asks for one thing, the
 request is that thing. Don't add an image, a second move or a tidy-up they
@@ -212,9 +217,13 @@ microscope* rules: read the stage before each move, take a fresh image
 before judging, and treat `409 microscope_busy` as someone else working. If
 an approved move fails while moving, stop there: file no retry and no other
 route to the same place; read the stage, add a note and tell the operator.
-An image costs dose on a real sample. If you need one to check a move,
-say so in chat first, and when the operator agrees put the move and the
-image in one request.
+An image costs dose on a real sample, so a fresh one is an action at
+Assist: a direct call is refused (`403 ask_first`). To look without asking,
+read what is already there: the app's views (`get_display_images`, blank
+until someone has acquired) and the images a task saved
+(`get_item_output_image`). If you need a new one to check a move, say so in
+chat first, and when the operator agrees put the move and the image in one
+request.
 
 ## Notes
 

@@ -1780,7 +1780,8 @@ class AutoLamellaAppContext:
         The queue exists only while a workflow runs, so a re-run is queued into
         the live run: "run 03 again" while the batch continues. Adding a
         duplicate of a completed pair is the queue's own re-run mechanism; the
-        item lands at the back (or the front with ``front=True``).
+        item lands at the back (or the front with ``front=True``). A pair
+        already waiting is refused (``already_queued``): it runs once.
         """
         manager = self._manager
         if manager is None:
@@ -1813,6 +1814,15 @@ class AutoLamellaAppContext:
             refused = refusal([experiment.get_lamella_by_name(item_name)])
             if refused:
                 return {"available": True, "queued": False, "reason": refused}
+        if manager.queue.has_pending_pair(item_name, task_name):
+            # A re-ask after a partial failure would queue it twice (FIB-1405).
+            return {
+                "available": True,
+                "queued": False,
+                "error_type": "already_queued",
+                "reason": f"{item_name} / {task_name} is already waiting in the "
+                "queue; it runs once.",
+            }
         item = manager.queue.add(item_name, task_name, front=bool(front))
         if item is None:
             return {"available": True, "queued": False, "reason": "add refused"}

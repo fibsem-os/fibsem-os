@@ -106,6 +106,33 @@ def _refuse(app_context) -> Callable[[Any, str, str, Mapping[str, Any]], Optiona
     return refuse
 
 
+def _not_allowed(microscope: FibsemMicroscope) -> Callable[[str, str], Optional[str]]:
+    """Why a route call is on the allowlist's block list (a device or service
+    write or command), or None: for a request, before it is filed. Its
+    arguments are checked when it runs, as for any call."""
+
+    def why(method: str, path: str) -> Optional[str]:
+        parts = path.strip("/").split("/")
+        if len(parts) < 4 or "/" + parts[0] != MICROSCOPE:
+            return None
+        if method == "PUT" and len(parts) == 4:
+            kind, name = "write", parts[3]
+        elif method == "POST" and len(parts) == 5 and parts[3] == "commands":
+            kind, name = "command", parts[4]
+        else:
+            return None
+        if parts[1] == "devices":
+            devices = microscope.devices
+        elif parts[1] == "services":
+            devices = microscope.services
+        else:
+            return None
+        device = devices.get(parts[2])
+        return None if device is None else allowlist.blocked(device, kind, name)
+
+    return why
+
+
 def _device_command_gate(request: Request, command: str):
     """A device command's gate: a stop by the stop rule (:func:`_stop_gate`),
     anything else Drive and control of the microscope."""
@@ -371,6 +398,7 @@ def build_server(
             auth,
             frozenset(mounted),
             emit=getattr(app_context, "record_event", None),
+            not_allowed=_not_allowed(microscope) if serve_microscope else None,
         )
         app.include_router(build_request_router(app.state.requests))
     return app

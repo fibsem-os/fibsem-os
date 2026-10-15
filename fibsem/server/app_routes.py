@@ -597,9 +597,15 @@ def build_app_control_router(context: AppContext) -> APIRouter:
                     "front (boolean) is optional.",
                 },
             )
-        return context.requeue_task(
+        result = context.requeue_task(
             item_name, task_name, front=bool(body.get("front", False))
         )
+        if result.get("error_type") == "already_queued":
+            raise HTTPException(
+                status_code=409,
+                detail={"error_type": "already_queued", "message": result["reason"]},
+            )
+        return result
 
     return router
 
@@ -681,9 +687,9 @@ def build_app_suggest_router(context: AppContext) -> APIRouter:
 
 
 def build_app_stop_router(context: AppContext) -> APIRouter:
-    """Stopping the run. Mounted (by build_server) at Assist: at Assist and
-    Drive the agent stops without asking (FIB-1283); a watching
-    agent stops nothing (FIB-1035)."""
+    """Stopping the run. Mounted (by build_server) at Drive, with a reason: the
+    workflow is never the agent's own, so at Assist the stop goes in a request
+    the operator approves (FIB-1283); a watching agent stops nothing (FIB-1035)."""
     router = APIRouter(prefix="/app")
 
     @router.post("/workflow/stop")

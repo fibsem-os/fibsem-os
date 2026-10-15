@@ -576,6 +576,15 @@ def build_sidecar(client, capabilities):
         )
         return err if err else data
 
+    def withdraw_request(request_id: str, reason: str):
+        data, err = _call(
+            client,
+            "POST",
+            f"/app/agent/requests/{request_id}/withdraw",
+            {"reason": str(reason)},
+        )
+        return err if err else data
+
     def get_request(request_id: str):
         # An applied image action carries its preview: an image, not base64 text.
         data, err = _call(client, "GET", f"/app/agent/requests/{request_id}")
@@ -832,6 +841,7 @@ def build_sidecar(client, capabilities):
             apply_protocol_to_item,
             add_note,
             request_actions,
+            withdraw_request,
             get_request,
             reorder_item_milling_stages,
             reorder_protocol_milling_stages,

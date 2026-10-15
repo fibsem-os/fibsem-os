@@ -33,8 +33,9 @@ MICROSCOPE_LABEL = "Serve the microscope"
 MICROSCOPE_TIP = (
     "Also serve the routes that reach the instrument: its devices, stage, beams "
     "and milling state, reads included. Off, clients see the session but cannot "
-    "query the microscope. Moving it still needs the agent at Drive. Changing "
-    "this restarts the App Server; a connected agent carries on. For this "
+    "query the microscope. Moving it still needs the agent at Drive, or your "
+    "approval at Assist. Changing this restarts the App Server; a connected "
+    "agent carries on. For this "
     "session only; Preferences → App Server sets what a new session starts with."
 )
 
