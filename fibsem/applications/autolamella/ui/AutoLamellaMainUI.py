@@ -4059,6 +4059,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.agent_previews.show_suggested_point(
             suggestion.get("point") if suggestion is not None else None
         )
+        responder = self.autolamella_ui.ui_responder
+        standing = responder.suggestion if suggestion is not None else None
+        self.agent_previews.show_suggestion(
+            responder.pending_question(), standing[2] if standing else None
+        )
 
     def _on_accept_agent_suggestion(self) -> None:
         """Accept on the agent's card: the operator answers with the agent's

@@ -12,7 +12,8 @@ purple, dashed, so the operator sees it before they approve:
   beam's view.
 
 A suggested point of interest is drawn on the FIB view as a cross too, beside the
-operator's own marker, until the suggestion goes.
+operator's own marker, until the suggestion goes; so are a suggested alignment
+area, spot-burn points, and detected features (on the beam they were found in).
 
 They come down when the request is decided (an approved one draws its real
 patterns as it runs) or the suggestion is taken or dropped. Display only: none
@@ -43,6 +44,10 @@ POI_OVERLAY = "agent_request_poi"
 AREA_OVERLAY = "agent_request_area"
 # What a request places on the sample, re-projected as the views move.
 SAMPLE_OVERLAYS = (TARGET_OVERLAY, POI_OVERLAY, AREA_OVERLAY)
+# The agent's suggested answer's values, where the operator would edit them.
+SUGGESTED_AREA_OVERLAY = "agent_suggested_area"
+SUGGESTED_POINTS_OVERLAY = "agent_suggested_points"
+SUGGESTED_OVERLAYS = (SUGGESTED_AREA_OVERLAY, SUGGESTED_POINTS_OVERLAY)
 SUGGESTION_OVERLAY = "agent_suggestion"
 
 # The beam a move tool works in when the agent does not say: as the tools do.
@@ -392,9 +397,10 @@ class AgentPreviews:
                 ),
             )
             self._drawn.append((BeamType.ION, OUTSIDE_OVERLAY))
-        self._marks = self._request_marks(request)
+        marks = self._request_marks(request)
+        self._marks.update(marks)
         self._follow(controller)
-        for overlay_id in self._marks:
+        for overlay_id in marks:
             self._draw_mark(controller, overlay_id)
 
     def _request_marks(self, request: Dict[str, Any]) -> Dict[str, _Mark]:
@@ -453,6 +459,57 @@ class AgentPreviews:
                         area=True,
                     )
         return marks
+
+    def show_suggestion(self, request: object, value: object) -> None:
+        """Draw the agent's suggested value for the pending *request* (a
+        question) where the operator would edit it: an alignment area, detected
+        features, spot-burn points. None, or a question without such a value,
+        takes them down. A suggested point of interest is
+        :meth:`show_suggested_point`'s."""
+        from fibsem.applications.autolamella.workflows.interaction import (
+            ConfirmDetection,
+            EditAlignmentArea,
+            RunSpotBurn,
+        )
+
+        self._remove(*SUGGESTED_OVERLAYS)
+        controller = self._view_controller()
+        if controller is None or value is None:
+            return
+        marks: Dict[str, _Mark] = {}
+        if isinstance(request, EditAlignmentArea):
+            corners = [
+                (value.left, value.top),
+                (value.left + value.width, value.top + value.height),
+            ]
+            marks[SUGGESTED_AREA_OVERLAY] = _Mark(
+                BeamType.ION,
+                "Agent's suggested area",
+                [(None, lambda frame, c=c: _fraction_pixel(frame, c)) for c in corners],
+                area=True,
+            )
+        elif isinstance(request, RunSpotBurn):
+            marks[SUGGESTED_POINTS_OVERLAY] = _Mark(
+                BeamType.ION,
+                "Agent's suggested points",
+                [
+                    (None, lambda frame, p=p: _fraction_pixel(frame, (p.x, p.y)))
+                    for p in value
+                ],
+            )
+        elif isinstance(request, ConfirmDetection):
+            image = getattr(request.detection, "fibsem_image", None)
+            if _has_pixel_size(image):
+                beam = image.metadata.image_settings.beam_type or BeamType.ION
+                marks[SUGGESTED_POINTS_OVERLAY] = _Mark(
+                    beam,
+                    "Agent's suggested features",
+                    [(image, (px.x, px.y)) for px in value.values()],
+                )
+        self._marks.update(marks)
+        self._follow(controller)
+        for overlay_id in marks:
+            self._draw_mark(controller, overlay_id)
 
     def show_suggested_point(self, pixel: Optional[Tuple[float, float]]) -> None:
         """Draw the agent's suggested point of interest on the FIB view, in

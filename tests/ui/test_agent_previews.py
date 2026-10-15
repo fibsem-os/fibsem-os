@@ -438,3 +438,67 @@ def test_a_task_config_edit_draws_the_milling_as_it_would_be_and_as_it_is():
     assert spec.background_stages[0].pattern.width == pytest.approx(width)
     # The item's own config is untouched: the edit was drawn on a copy.
     assert config.milling["milling"].stages[0].pattern.width == pytest.approx(width)
+
+
+def test_a_suggested_area_and_spot_burn_points_are_drawn_where_they_would_go():
+    # FIB-1411: a suggested area (left 0.03, top 0.30, 0.22 × 0.40) was not
+    # drawn: only the current green area showed.
+    from fibsem.applications.autolamella.ui.agent_previews import (
+        SUGGESTED_AREA_OVERLAY,
+        SUGGESTED_POINTS_OVERLAY,
+    )
+    from fibsem.applications.autolamella.workflows.interaction import (
+        EditAlignmentArea,
+        RunSpotBurn,
+    )
+    from fibsem.structures import FibsemRectangle
+
+    controller = _FramedController()  # 200 × 100 px, 0.5 µm/px
+    previews = AgentPreviews(lambda: controller)
+    area = FibsemRectangle(left=0.25, top=0.5, width=0.5, height=0.25)
+    previews.show_suggestion(EditAlignmentArea(initial=FibsemRectangle()), area)
+    (rectangle,) = (
+        controller.overlays[(BeamType.ION, SUGGESTED_AREA_OVERLAY)]
+        .stages[0]
+        .define_patterns()
+    )
+    assert (rectangle.width, rectangle.height) == pytest.approx((50e-6, 12.5e-6))
+
+    points = [Point(0.5, 0.5), Point(0.75, 0.25)]
+    previews.show_suggestion(RunSpotBurn(settings=None), points)
+    assert (BeamType.ION, SUGGESTED_AREA_OVERLAY) not in controller.overlays
+    assert controller.overlays[(BeamType.ION, SUGGESTED_POINTS_OVERLAY)].points == [
+        pytest.approx((100.0, 50.0)),
+        pytest.approx((150.0, 25.0)),
+    ]
+    # On a closer frame the points stay on the sample.
+    closer = FibsemImage.generate_blank_image(resolution=(200, 100), hfw=50e-6)
+    controller.show(BeamType.ION, closer)
+    assert controller.overlays[(BeamType.ION, SUGGESTED_POINTS_OVERLAY)].points == [
+        pytest.approx((100.0, 50.0)),
+        pytest.approx((200.0, 0.0)),
+    ]
+    previews.show_suggestion(None, None)
+    assert controller.overlays == {}
+
+
+def test_suggested_features_are_drawn_on_the_beam_they_were_found_in():
+    from types import SimpleNamespace
+
+    from fibsem.applications.autolamella.ui.agent_previews import (
+        SUGGESTED_POINTS_OVERLAY,
+    )
+    from fibsem.applications.autolamella.workflows.interaction import (
+        ConfirmDetection,
+    )
+
+    found_in = FibsemImage.generate_blank_image(resolution=(200, 100), hfw=100e-6)
+    found_in.metadata.image_settings.beam_type = BeamType.ELECTRON
+    request = ConfirmDetection(detection=SimpleNamespace(fibsem_image=found_in))
+    controller = _FramedController()
+    AgentPreviews(lambda: controller).show_suggestion(
+        request, {"LamellaCentre": Point(30.0, 40.0)}
+    )
+    assert controller.overlays[
+        (BeamType.ELECTRON, SUGGESTED_POINTS_OVERLAY)
+    ].points == [pytest.approx((30.0, 40.0))]
