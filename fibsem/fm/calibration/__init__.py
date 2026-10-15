@@ -129,7 +129,7 @@ def run_autofocus(
     if not state.allows_acquisition:
         raise ValueError(
             "Cannot start autofocus. "
-            + microscope.parent.describe_device_imaging_state("FM", state)
+            + microscope.parent.explain_imaging_state("FM", state)
         )
 
     # Held for the whole sweep, as a tileset holds it for a whole run. Without it
