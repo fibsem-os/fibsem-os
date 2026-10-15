@@ -9,6 +9,7 @@ from typing import Optional
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from fibsem.applications.autolamella import config as cfg
+from fibsem.applications.autolamella.experiment_setup import record_recent
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
@@ -649,13 +650,8 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
 
         logging.info(f"Experiment '{self.experiment.name}' loaded successfully")
 
-        # Save last used experiment path
-        prefs = load_user_preferences()
-        prefs.experiment.last_experiment_path = str(self.experiment.path)
-        save_user_preferences(prefs)
-
-        # Record in the recent experiments quick-select list
-        record_recent_experiment(os.path.join(self.experiment.path, "experiment.yaml"))
+        # The last used experiment, at the top of the recents
+        record_recent(self.experiment)
 
         # Accept the dialog
         self.accept()

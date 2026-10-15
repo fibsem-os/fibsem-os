@@ -173,12 +173,13 @@ async def _asgi_call(app, method: str, path: str, body, token: str):
 def _cut_short(answer: Any) -> bool:
     """Whether an action ran but was stopped part way: a mill answers
     ``cancelled`` rather than failing (FIB-1377). Applied, but the operator and
-    the agent are told it was cut short (FIB-1398)."""
+    the agent are told it was cut short (FIB-1398). A long command answers its
+    run, whose ``state`` says so when it ended before the answer."""
     if not isinstance(answer, dict):
         return False
     result = answer.get("result")
     if isinstance(result, dict):
-        result = result.get("status")
+        result = result.get("status") or result.get("state")
     return isinstance(result, str) and result.lower() == CANCELLED
 
 
