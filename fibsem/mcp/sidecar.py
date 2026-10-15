@@ -333,6 +333,9 @@ def build_sidecar(client, capabilities):
     def get_milling_angle():
         return _service_call("get_milling_angle", {}, "milling_angle_deg")
 
+    def get_geometry():
+        return _service_call("get_geometry", {}, "geometry")
+
     def get_milling_state():
         data, err = _call(client, "GET", by_name["get_milling_state"].path)
         return err if err else {"state": data["value"]}
@@ -752,6 +755,7 @@ def build_sidecar(client, capabilities):
             get_stage_orientation,
             get_microscope_state,
             get_milling_angle,
+            get_geometry,
             get_milling_state,
             estimate_milling_time,
             stop_milling,

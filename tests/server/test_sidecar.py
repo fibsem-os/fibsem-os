@@ -232,6 +232,13 @@ def test_the_milling_angle_tools_speak_degrees(armed_sidecar):
     assert orientation == {"orientation": "MILLING"}
 
 
+def test_the_geometry_is_one_read(armed_sidecar):
+    geometry = _call_json(armed_sidecar, "get_geometry", {})["geometry"]
+    assert set(geometry["views"]) == {"ELECTRON", "ION"}
+    assert geometry["milling_angle"]["stored_deg"] is not None
+    assert "FIB" in geometry["orientations"]
+
+
 def test_the_milling_angle_move_takes_a_rotation_in_degrees(armed_sidecar):
     moved = _call_json(
         armed_sidecar,

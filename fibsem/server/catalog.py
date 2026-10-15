@@ -124,9 +124,16 @@ CATALOG: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="get_milling_angle",
-        description="Current milling angle in degrees, from the stage tilt.",
+        description="Current milling angle in degrees: the angle between the ion beam and the sample surface at the stage's rotation and tilt (90 at the FIB pose).",
         method="POST",
         path="/microscope/services/stage_movement/queries/current_milling_angle",
+        level="watch",
+    ),
+    ToolSpec(
+        name="get_geometry",
+        description="The instrument's geometry in one read: column tilts, pre-tilt, rotation reference and centre, the orientation table, device origins, and what they mean at the stage's pose now: which way raw +z goes in the chamber, the milling angle here and the pose for the stored one, and per beam the stage move a +1 µm stable move along each image axis makes at the current scan rotation. Read it first on a new instrument, then confirm once with one small move. Angles in degrees.",
+        method="POST",
+        path="/microscope/services/stage_movement/queries/geometry",
         level="watch",
     ),
     ToolSpec(
@@ -1008,6 +1015,7 @@ _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict
     "estimate_milling_time": lambda a: ({}, _kwargs()),
     "get_stage_orientation": lambda a: ({}, _kwargs()),
     "get_milling_angle": lambda a: ({}, _kwargs()),
+    "get_geometry": lambda a: ({}, _kwargs()),
     "stable_move": lambda a: (
         {},
         _kwargs(
