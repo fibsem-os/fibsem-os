@@ -12,16 +12,18 @@ from typing import (
 from numpy.typing import NDArray
 
 from fibsem import constants
+from fibsem.display import Display
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.milling.properties import (
-    DEFAULT_ANGLE_METADATA,
-    DEFAULT_DISTANCE_METADATA,
-    DEFAULT_DURATION_METADATA,
-    DEFAULT_PASSES_METADATA,
-    DEFAULT_SCAN_DIRECTION_METADATA,
+    angle_metadata,
+    distance_metadata,
+    duration_metadata,
+    passes_metadata,
+    scan_direction_metadata,
 )
 from fibsem.structures import (
     FibsemBitmapSettings,
+    field_meta,
 )
 
 
@@ -29,58 +31,45 @@ from fibsem.structures import (
 class BitmapPattern(BasePattern[FibsemBitmapSettings]):
     width: float = field(
         default=10.0e-6,
-        metadata={
-            "label": "Width",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Width of the bitmap pattern.",
-        },
+        metadata=distance_metadata("Width", "Width of the bitmap pattern."),
     )
     height: float = field(
         default=10.0e-6,
-        metadata={
-            "label": "Height",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Height of the bitmap pattern.",
-        },
+        metadata=distance_metadata("Height", "Height of the bitmap pattern."),
     )
     depth: float = field(
         default=1.0e-6,
-        metadata={
-            "label": "Depth",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Depth of the bitmap pattern.",
-        },
+        metadata=distance_metadata("Depth", "Depth of the bitmap pattern."),
     )
     rotation: float = field(
         default=0,
-        metadata={
-            **DEFAULT_ANGLE_METADATA,
-            "tooltip": "Rotation of the bitmap pattern in degrees.",
-        },
+        metadata=angle_metadata(
+            "Rotation", "Rotation of the bitmap pattern in degrees."
+        ),
     )
-    time: float = field(default=0, metadata=DEFAULT_DURATION_METADATA)
-    passes: int = field(default=0, metadata=DEFAULT_PASSES_METADATA)
+    time: float = field(default=0, metadata=duration_metadata())
+    passes: int = field(default=0, metadata=passes_metadata())
     scan_direction: str = field(
-        default="TopToBottom", metadata=DEFAULT_SCAN_DIRECTION_METADATA
+        default="TopToBottom", metadata=scan_direction_metadata()
     )
     path: str = field(
         default="",
-        metadata={
-            "label": "File Path",
-            "type": str,
-            "filepath": True,
-            "tooltip": "Path to the bitmap image file.",
-        },
+        metadata=field_meta(
+            doc="Path to the bitmap image file.",
+            filepath=True,
+            display=Display("File Path"),
+        ),
     )
-    array: Optional[NDArray[Any]] = field(default=None, metadata={"hidden": True})
+    array: Optional[NDArray[Any]] = field(
+        default=None, metadata=field_meta(display=Display(hidden=True))
+    )
     interpolation: Optional[Literal["nearest", "bilinear", "bicubic"]] = field(
         default=None,
-        metadata={
-            "label": "Interpolation",
-            "advanced": True,
-            "items": [None, "nearest", "bilinear", "bicubic"],
-            "tooltip": "Interpolation method for resizing the bitmap image.",
-        },
+        metadata=field_meta(
+            choices=[None, "nearest", "bilinear", "bicubic"],
+            doc="Interpolation method for resizing the bitmap image.",
+            display=Display("Interpolation", advanced=True),
+        ),
     )
 
     name: ClassVar[str] = "Bitmap"

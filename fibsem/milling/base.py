@@ -75,12 +75,16 @@ class MillingStrategyConfig(ABC):
     @cached_property
     def advanced_attributes(self) -> Tuple[str, ...]:
         """Return attributes that are marked as advanced in the metadata."""
-        return tuple(f.name for f in fields(self) if f.metadata.get("advanced", False))
+        return tuple(
+            name for name, meta in self.field_metadata.items() if meta["advanced"]
+        )
 
     @cached_property
     def _hidden_attributes(self) -> Tuple[str, ...]:
         """Return attributes that are hidden from the UI."""
-        return tuple(f.name for f in fields(self) if f.metadata.get("hidden", False))
+        return tuple(
+            name for name, meta in self.field_metadata.items() if meta["hidden"]
+        )
 
     @property
     def field_metadata(self) -> Dict[str, Dict[str, Any]]:
