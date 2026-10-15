@@ -4,9 +4,11 @@
 
 The MCP sidecar lets Claude (Code or Desktop) work through AutoLamella's App
 Server: acquire and *look at* images, read state, move the stage, and stop a
-mill. The server is the security boundary: the sidecar registers every tool the
-server's mounted routers serve, whatever the agent's level, and the server
-refuses what the level doesn't allow with a 403 that says so. Each tool's description names the level it needs. If the server
+mill. The server is the security boundary: the sidecar registers every tool,
+whatever the agent's level, and the server refuses what the level doesn't allow
+with a 403 that says so. The microscope's tools are registered even while the
+microscope isn't served; until it is, each answers 404 `microscope_off`. Only
+the app's tools depend on the server hosting the application. Each tool's description names the level it needs. If the server
 restarts with a new token, the sidecar re-reads the discovery file and carries
 on.
 
@@ -20,8 +22,8 @@ pip install -e ".[server,mcp]"
 
 In AutoLamella, turn the App Server on in Tools → App Server (the guide,
 [docs/app-server.md](../../docs/app-server.md), walks through it). *Serve the
-microscope* there adds the microscope tools; the Agent chip sets what
-the agent may do with them.
+microscope* there serves the routes the microscope tools reach; the Agent chip
+sets what the agent may do with them.
 
 - While running, the server writes `~/.fibsem/app-server.json`
   (url + token) so local clients connect without copying anything, and
@@ -63,8 +65,8 @@ the absolute path to the script (e.g. `<env>/bin/fibsem-mcp`).
 
 ## 3. Use it
 
-Start a new Claude session (`/mcp` should show `fibsem` connected with 15
-tools) and ask:
+Start a new Claude session (`/mcp` should show `fibsem` connected, with its
+tools listed) and ask:
 
 - "What's the stage position?"
 - "Acquire an ion image and tell me what you see."
@@ -81,10 +83,12 @@ fibsem-mcp watch
 ```
 
 It finds the server as the sidecar does (`--url`/`--token`, the environment
-variables, the discovery file) and follows a restarted app the same way. It
+variables, the discovery file) and follows a restarted app the same way;
+`--since N` resumes after event N. It
 prints `PROMPT`, `ANSWERED`, `PROMPT WITHDRAWN`, `QUESTION`,
-`QUESTION RELEASED`, task `EVENT` lines, `GAP` (events were lost; re-read the
-prompt and status) and `RUN ENDED`, and exits 0 when the run ends or 1 when
+`QUESTION RELEASED`, `REQUEST` (the agent's request decided, finished or
+cancelled), task `EVENT` lines, `COMMAND ENDED` (a long command's end), `GAP`
+(events were lost; re-read the prompt and status) and `RUN ENDED`, and exits 0 when the run ends or 1 when
 the app cannot be watched. A run ends completed, cancelled, stalled or failed;
 one that stops without recording an end ends the watch too, as
 `RUN ENDED (stopped without an end event)`. It needs only fibsem, not the `[mcp]` extra; where
