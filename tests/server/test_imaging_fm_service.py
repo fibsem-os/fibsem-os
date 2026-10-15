@@ -132,6 +132,30 @@ def test_the_sweep_is_refused_while_the_fm_is_in_use(microscope):
         microscope.fm.set_acquiring(False)
 
 
+def test_the_sweep_is_refused_while_the_fm_device_is_live(microscope):
+    """Live view started on the device itself, as an agent starts it, is not
+    the FM tab's stream, which is all `acquiring` sees."""
+    device = microscope.fm_devices["fm"]
+    device.start_live()
+    try:
+        assert not microscope.fm.is_acquiring
+        with pytest.raises(AcquisitionRefused, match="live view"):
+            microscope.imaging.fm_focus_sweep(settings=SHORT)
+    finally:
+        device.stop_live()
+
+
+def test_the_sweep_is_refused_away_from_the_fm_pose(microscope):
+    """Acquiring from a beam pose is allowed (NEEDS_REPOSE), but a focus sweep
+    there sweeps the objective where it cannot see the sample."""
+    microscope.move_to_orientation("SEM")
+    try:
+        with pytest.raises(AcquisitionRefused, match="Cannot start auto-focus"):
+            microscope.imaging.fm_focus_sweep(settings=SHORT)
+    finally:
+        microscope.move_to_orientation("FM")
+
+
 def test_the_agent_stops_the_fm_through_imaging(client):
     resp = client.post(
         "/microscope/devices/fm/commands/cancel",

@@ -341,14 +341,17 @@ CATALOG: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="stage_move_to_milling_angle",
-        description="Tilt the stage to a milling angle, in degrees.",
+        description=(
+            "Tilt the stage to a milling angle, in degrees. The stage stays at its "
+            "current rotation unless rotation_deg names another."
+        ),
         method="POST",
         path="/microscope/services/stage_movement/commands/move_to_milling_angle",
         level="drive",
         hardware=True,
         params={
             "milling_angle_deg": "target milling angle in degrees",
-            "rotation_deg": "stage rotation in degrees; the rotation reference if left out",
+            "rotation_deg": "stage rotation in degrees; the current rotation if left out",
         },
     ),
     ToolSpec(
@@ -451,7 +454,8 @@ CATALOG: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="service_wait_for_run",
         description=(
-            "How a long command you started (milling run, spot burn run) is going: "
+            "How a long command you started (a milling or spot burn run, an "
+            "alignment, an FM auto-focus, an overview or a focus stack) is going: "
             "its run with state running, done, failed or cancelled, and when it has "
             "ended its result or error. Waits up to wait seconds (at most 60) for "
             "it to end, so call it again while it says running. With run_id, waits "
@@ -462,7 +466,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
         path="/microscope/services/{service}/run",
         level="watch",
         params={
-            "service": "the service the command ran on, e.g. milling",
+            "service": "required: the service the command ran on, e.g. milling, imaging or alignment",
             "run_id": "the run_id the command answered with",
             "wait": "seconds to wait for the end, at most 60 (default 60)",
         },
@@ -913,7 +917,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="item_add",
-        description="Add a lamella, as the Lamella tab's Add does: at the stage position now (no where), at stage_position, or under a point of a recorded grid overview (overview = {grid_name, filename, px: [x, y] source pixels or fraction: [x, y] 0-1}), which also puts it on that grid. Its poses, milling angle and grid are worked out as for a click, and it is saved. The app names it unless name is given. Answers with the new item.",
+        description="Add a lamella, as the Lamella tab's Add does: at the stage position now (no where; refused while a workflow runs, since the run moves the stage), at stage_position, or under a point of a recorded grid overview (overview = {grid_name, filename, px: [x, y] source pixels or fraction: [x, y] 0-1}), which also puts it on that grid. Its poses, milling angle and grid are worked out as for a click, and it is saved. The app names it unless name is given. Answers with the new item.",
         method="POST",
         path="/app/experiment/items",
         level="drive",
@@ -1462,6 +1466,7 @@ _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict
             rotation=(
                 None if a.get("rotation_deg") is None else float(a["rotation_deg"])
             ),
+            keep_rotation=True,
         ),
     ),
     "device_call_command": lambda a: (

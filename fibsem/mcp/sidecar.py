@@ -193,11 +193,19 @@ def _connect_with_retry(client_factory, url, token, wait_s, sleep_fn=None):
 _MILLING_STATES = ("IDLE", "RUNNING", "STOPPING", "PAUSED", "ERROR", "UNKNOWN")
 
 
+class _Failure(str):
+    """The server's own error (5xx), as text: unlike a refusal, the call may have
+    done part of its work (a stage move that failed partway has moved). A tool
+    that answers one is flagged an error (`_flag_failures`)."""
+
+
 def _refusal(resp):
     try:
         detail = resp.json().get("detail", resp.text)
-    except ValueError:
+    except (ValueError, AttributeError):
         detail = resp.text
+    if resp.status_code >= 500:
+        return _Failure(f"failed ({resp.status_code}): {json.dumps(detail)}")
     return f"refused ({resp.status_code}): {json.dumps(detail)}"
 
 
@@ -205,7 +213,8 @@ def _call(client, method, path, payload=None):
     """Call the server; refusals come back as readable text, not exceptions.
 
     Agents act sensibly on a structured refusal string; a raw traceback for a
-    403 teaches them nothing.
+    403 teaches them nothing. A server error comes back as a `_Failure`: it
+    says "failed", not "refused", because the call may have done part of its work.
     """
     resp = client.request(method, path, json=payload)
     if resp.status_code >= 400:
@@ -270,18 +279,20 @@ def build_sidecar(client, capabilities):
 
         return spec, tool
 
-    def _route(name, **arguments):
+    # The tool's name is positional-only: a tool may take an argument called
+    # `name` (an overview's file name) and pass it on in **arguments.
+    def _route(tool_name, /, **arguments):
         """Call a tool's route as the catalog maps its arguments: (data, err)."""
         try:
-            method, path, body = route_call(by_name[name], arguments)
+            method, path, body = route_call(by_name[tool_name], arguments)
         except ValueError as exc:
             return None, f"refused: {exc}"
         return _call(client, method, path, body)
 
-    def _routed(name, key=None, **arguments):
+    def _routed(tool_name, key=None, /, **arguments):
         """A routed tool's answer, its route's result under *key* when given; an
         image in it (a command answered with a preview) as MCP image content."""
-        data, err = _route(name, **arguments)
+        data, err = _route(tool_name, **arguments)
         if err:
             return err
         return _with_images({key: data["result"]} if key else data)
@@ -1013,8 +1024,36 @@ def build_sidecar(client, capabilities):
 
     for name, fn in implementations.items():
         if name in offered:
-            mcp.add_tool(fn, name=name, description=by_name[name].full_description)
+            mcp.add_tool(
+                _flag_failures(fn),
+                name=name,
+                description=by_name[name].full_description,
+            )
     return mcp
+
+
+def _flag_failures(fn):
+    """*fn*, with a server error it answers (`_Failure`) raised as the MCP
+    ToolError, so the call is flagged an error rather than read as a refusal.
+    Any other exception is raised as a ToolError carrying its type and message:
+    the SDK would otherwise tell the agent only "Error executing tool X"."""
+    import functools
+
+    from mcp.server.mcpserver.exceptions import ToolError
+
+    @functools.wraps(fn)
+    def tool(*args, **kwargs):
+        try:
+            answer = fn(*args, **kwargs)
+        except ToolError:
+            raise
+        except Exception as exc:
+            raise ToolError(f"{type(exc).__name__}: {exc}") from exc
+        if isinstance(answer, _Failure):
+            raise ToolError(str(answer))
+        return answer
+
+    return tool
 
 
 def _watch_argv(argv):

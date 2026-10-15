@@ -1108,6 +1108,27 @@ def test_an_item_is_removed_but_not_while_a_run_is_on(driver, host):
     assert host.experiment.get_lamella_by_name("spare") is None
 
 
+def test_an_item_is_not_added_where_the_stage_is_while_a_run_is_on(driver, host):
+    """The run has moved the stage, so "here" is wherever it left it; a given
+    stage_position is still taken."""
+    host.is_workflow_running = True
+    try:
+        refused = driver.post("/app/experiment/items", json={"name": "here"})
+        assert refused.status_code == 409
+        assert "stage_position" in refused.json()["detail"]["message"]
+        given = driver.post(
+            "/app/experiment/items",
+            json={
+                "name": "given",
+                "stage_position": {"x": 1e-4, "y": 0, "z": 0, "r": 0, "t": 0},
+            },
+        )
+        assert given.status_code == 200, given.text
+    finally:
+        host.is_workflow_running = False
+    assert host.experiment.get_lamella_by_name("here") is None
+
+
 def test_position_edits_need_drive(client, host):
     name = host.experiment.positions[0].name
     assert (

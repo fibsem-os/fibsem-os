@@ -57,6 +57,7 @@ from fibsem.cancellation import (
 from fibsem.devices.beam import Beam, nearest_resolution
 from fibsem.devices.core import Role, RoleUnfilled, command, query
 from fibsem.devices.fm import FM
+from fibsem.fm.microscope import AcquisitionRefused
 from fibsem.fm.structures import (
     AutoFocusMode,
     ChannelSettings,
@@ -66,6 +67,7 @@ from fibsem.fm.structures import (
 from fibsem.services.core import Service, save_beam_conditions
 from fibsem.structures import (
     BeamType,
+    DeviceImagingState,
     FibsemImage,
     FibsemRectangle,
     ImageSettings,
@@ -400,6 +402,16 @@ class Imaging(Service):
     def _has_fm(self) -> bool:
         return "fm" in self._roles
 
+    def _refuse_while_fm_live(self, what: str) -> None:
+        """Refuse *what* while the FM device's own live view runs. The FM's
+        `acquiring` sees the FM tab's stream, but not live view started on the
+        device itself (its ``start_live`` command, as an agent starts it)."""
+        if self.fm.is_live:
+            raise AcquisitionRefused(
+                f"Cannot start {what}: the fluorescence microscope is in use "
+                "(live view). Stop it first."
+            )
+
     @command(long=True, available=_has_fm)
     def fm_focus_sweep(
         self,
@@ -412,8 +424,10 @@ class Imaging(Service):
         channel (``settings.channel_name`` picks another), as the FM tab's
         auto-focus does (`fibsem.fm.calibration.run_coarse_fine_autofocus`).
 
-        Refused while the FM is in use (live view, a tileset, the tab's own
-        sweep) or can't see the sample from this pose. ``stop`` ends it between
+        Refused while the FM is in use (live view, the device's own included, a
+        tileset, the tab's own sweep), and unless the stage is at the FM's pose:
+        from any other pose the objective sweeps where it cannot see the sample,
+        so the scores mean nothing. ``stop`` ends it between
         steps, ``cancelled``, with the objective where the passes left it. Given
         a ``path``, the result is saved to ``<path>/<name>``. Answers the best
         objective position and the sweep's scores.
@@ -421,6 +435,13 @@ class Imaging(Service):
         from fibsem.fm.calibration import run_coarse_fine_autofocus
 
         fm = self.parent.fm
+        self._refuse_while_fm_live("auto-focus")
+        state = self.parent.get_device_imaging_state("FM")
+        if state is not DeviceImagingState.READY:
+            raise AcquisitionRefused(
+                "Cannot start auto-focus. "
+                f"{self.parent.explain_imaging_state('FM', state)}"
+            )
         with self._routine(), fm.acquiring("auto-focus"):
             result = run_coarse_fine_autofocus(
                 fm,
@@ -465,6 +486,7 @@ class Imaging(Service):
 
         autofocus_settings = _fm_overview_focus(parameters, autofocus_settings)
         fm = self.parent.fm
+        self._refuse_while_fm_live("overview acquisition")
         tile_paths: List[str] = []
         try:
             with self._routine(), fm.acquiring("overview acquisition"):

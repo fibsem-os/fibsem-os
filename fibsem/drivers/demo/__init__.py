@@ -27,6 +27,8 @@ DRIVER = DriverEntry(
                 "chamber_camera",
                 "manipulator",
                 "sample_loader",
+                "gis",
+                "sputter_coater",
                 "fm",
             )
         },

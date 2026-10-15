@@ -39,6 +39,13 @@ hardware:                                                   # what the instrumen
         exchange_delay: 5.0                               # seconds each load and each unload takes (a real Arctis is nearer two minutes); skipped under FIBSEM_SIM_NO_DELAY=1, as the tests run
         start_unscanned: false                            # true: every slot reads unknown, with no grid, until Scan magazine (Microscope -> Sample), as a real magazine does after it is undocked
         scan_delay: 10.0                                  # seconds a magazine scan takes (a real Arctis takes about ten minutes); skipped under FIBSEM_SIM_NO_DELAY=1
+      - name: gis                                          # the simulated gas injection system
+        type: gis
+        gas: Pt
+        heater_delay: 3.0                                 # seconds the heater takes to come up; skipped under FIBSEM_SIM_NO_DELAY=1
+      - name: sputter_coater                               # the simulated sputter coater; a run takes as long as it asks
+        type: sputter_coater
+        current: 1.2e-7                                   # amperes
 calibration:                                                # measured at this instrument
     shuttle_pre_tilt:           0                        
 defaults:                                                   # what a session starts from
