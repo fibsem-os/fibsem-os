@@ -8,7 +8,7 @@ from typing import (
 
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.milling.properties import (
-    DEFAULT_DISTANCE_METADATA,
+    distance_metadata,
 )
 from fibsem.structures import (
     FibsemRectangleSettings,
@@ -19,35 +19,27 @@ from fibsem.structures import (
 class MicroExpansionPattern(BasePattern[FibsemRectangleSettings]):
     width: float = field(
         default=0.5e-6,
-        metadata={
-            "label": "Width",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Width of the microexpansion joint pattern.",
-        },
+        metadata=distance_metadata(
+            "Width", "Width of the microexpansion joint pattern."
+        ),
     )
     height: float = field(
         default=15.0e-6,
-        metadata={
-            "label": "Height",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Height of the microexpansion joint pattern.",
-        },
+        metadata=distance_metadata(
+            "Height", "Height of the microexpansion joint pattern."
+        ),
     )
     depth: float = field(
         default=1.0e-6,
-        metadata={
-            "label": "Depth",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Depth of the microexpansion joint pattern.",
-        },
+        metadata=distance_metadata(
+            "Depth", "Depth of the microexpansion joint pattern."
+        ),
     )
     distance: float = field(
         default=10.0e-6,
-        metadata={
-            "label": "Distance",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Distance between microexpansion joints.",
-        },
+        metadata=distance_metadata(
+            "Distance", "Distance between microexpansion joints."
+        ),
     )
 
     name: ClassVar[str] = "MicroExpansion"

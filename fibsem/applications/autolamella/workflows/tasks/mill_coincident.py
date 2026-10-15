@@ -36,6 +36,7 @@ from fibsem.applications.autolamella.workflows.tasks.setup_coincidence_milling i
     COINCIDENCE_SETUP_REFERENCE_FILENAME,
     SetupCoincidenceMillingTaskConfig,
 )
+from fibsem.display import Display
 from fibsem.fm.acquisition import acquire_image
 from fibsem.fm.structures import ChannelSettings
 from fibsem.milling.base import FibsemMillingSettings
@@ -78,18 +79,18 @@ class MillCoincidentTaskConfig(AutoLamellaTaskConfig):
     setup_task: str = field(
         default=DEFAULT_SETUP_TASK_NAME,
         metadata=field_meta(
-            label="Setup Task",
-            tooltip="The Setup Coincidence Milling task whose per-site record "
+            doc="The Setup Coincidence Milling task whose per-site record "
             "(objective height, FM region, pattern position, channel, drop "
             "fraction) this mill runs from",
+            display=Display("Setup Task"),
         ),
     )
     acquire_fluorescence_images: bool = field(
         default=True,
         metadata=field_meta(
-            label="Acquire Fluorescence Images",
-            tooltip="Acquire a fluorescence image after coincident milling, with the "
+            doc="Acquire a fluorescence image after coincident milling, with the "
             "lamella's fluorescence task settings",
+            display=Display("Acquire Fluorescence Images"),
         ),
     )
     # The channel the strategy monitors while milling. Its own settings, not a
@@ -105,7 +106,9 @@ class MillCoincidentTaskConfig(AutoLamellaTaskConfig):
             power=0.1,
             exposure_time=0.1,
         ),
-        metadata=field_meta(hidden=True),  # its own controls, not a form row
+        metadata=field_meta(
+            display=Display(hidden=True)
+        ),  # its own controls, not a form row
     )
     task_type: ClassVar[str] = "MILL_COINCIDENT"
     display_name: ClassVar[str] = "Coincident Milling"

@@ -31,7 +31,7 @@ from fibsem.ui.fm.widgets.fm_limits import (
     show_native_units,
 )
 from fibsem.ui.widgets.custom_widgets import TitledPanel, ValueComboBox, ValueSpinBox
-from fibsem.ui.widgets.form_builder import configure_spinbox, parameter_field_metadata
+from fibsem.ui.widgets.form_builder import configure_spinbox, parameter_spec
 
 _MS_TO_S = 1e-3
 _S_TO_MS = 1e3
@@ -108,23 +108,25 @@ class ChannelSettingsWidget(QWidget):
 
         # Unit, step and decimals are the devices' display hints; the exposure and
         # power ranges are what the FM reports.
-        exposure = parameter_field_metadata(Camera.exposure_time)
+        exposure = parameter_spec(Camera.exposure_time)
         self.exposure_spin = ValueSpinBox()
         configure_spinbox(self.exposure_spin, exposure)
-        self.exposure_spin.setRange(*exposure_range_ms(self._fm, exposure["decimals"]))
+        self.exposure_spin.setRange(
+            *exposure_range_ms(self._fm, exposure.display.decimals)
+        )
         self.exposure_spin.setToolTip("Exposure time (ms)")
         form.addRow("Exposure", self.exposure_spin)
 
-        power = parameter_field_metadata(LightSource.power)
+        power = parameter_spec(LightSource.power)
         self.power_spin = ValueSpinBox()
         configure_spinbox(self.power_spin, power)
-        self.power_spin.setRange(*power_range_percent(self._fm, power["decimals"]))
+        self.power_spin.setRange(*power_range_percent(self._fm, power.display.decimals))
         self.power_spin.setToolTip("Light source power (%)")
         show_native_units(self.power_spin, power_scale(self._fm))
         form.addRow("Power", self.power_spin)
 
         self.gain_spin = ValueSpinBox()
-        configure_spinbox(self.gain_spin, parameter_field_metadata(Camera.gain))
+        configure_spinbox(self.gain_spin, parameter_spec(Camera.gain))
         self.gain_spin.setToolTip("Detector gain (%)")
         show_native_units(self.gain_spin, gain_scale(self._fm))
         form.addRow("Gain", self.gain_spin)

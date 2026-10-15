@@ -25,11 +25,11 @@ def microscope():
 def stops(microscope, monkeypatch):
     """What got stopped, in order, instead of stopping it."""
     seen = []
-    monkeypatch.setattr(microscope, "stop_milling", lambda: seen.append("milling"))
     monkeypatch.setattr(
         microscope, "stop_acquisition", lambda: seen.append("acquisition")
     )
-    for name in ("spot_burn", "imaging"):
+    # The milling service's stop, which ends a milling task too (FIB-1398).
+    for name in ("milling", "spot_burn", "imaging"):
         service = getattr(microscope, name, None)
         if service is not None:
             monkeypatch.setattr(service, "stop", lambda n=name: seen.append(n))
@@ -70,6 +70,13 @@ def test_a_run_or_script_in_control_is_left_alone(host, microscope, stops, by):
         assert host.stop_agent(microscope) is None
     assert stops == []
     assert host.auth.level is AgentLevel.WATCH
+
+
+def test_nothing_milling_is_no_failure(host, microscope):
+    """The milling service refuses a stop with nothing milling (FIB-1398); Stop
+    agent lets that be, and stops the rest."""
+    with microscope.control.take(AGENT, "POST /run_milling"):
+        assert host.stop_agent(microscope) == "POST /run_milling"
 
 
 def test_the_agent_borrowing_during_a_question_is_stopped(host, microscope, stops):

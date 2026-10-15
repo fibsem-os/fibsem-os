@@ -9,7 +9,7 @@ from typing import (
 
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.milling.properties import (
-    DEFAULT_DISTANCE_METADATA,
+    distance_metadata,
 )
 from fibsem.structures import (
     FibsemCircleSettings,
@@ -21,19 +21,11 @@ from fibsem.structures import (
 class CloverPattern(BasePattern[Union[FibsemCircleSettings, FibsemRectangleSettings]]):
     radius: float = field(
         default=10.0e-6,
-        metadata={
-            "label": "Radius",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Radius of the clover leaves.",
-        },
+        metadata=distance_metadata("Radius", "Radius of the clover leaves."),
     )
     depth: float = field(
         default=5.0e-6,
-        metadata={
-            "label": "Depth",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Depth of the clover pattern.",
-        },
+        metadata=distance_metadata("Depth", "Depth of the clover pattern."),
     )
 
     name: ClassVar[str] = "Clover"

@@ -27,9 +27,9 @@ from fibsem.devices.core import (
     Role,
     command,
 )
-from fibsem.devices.display import Display
 from fibsem.devices.scanner import Scanner, resolution_within
 from fibsem.devices.wire import to_wire
+from fibsem.display import Display
 from fibsem.structures import (
     BeamType,
     FibsemImage,
@@ -444,6 +444,7 @@ class Beam(Device):
             metadata.roles = {
                 name: _role_record(device) for name, device in self._roles.items()
             }
+
     def _live_frame_acquired(self, image: Any) -> None:
         self.image_acquired.emit(image)
 

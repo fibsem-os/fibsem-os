@@ -150,6 +150,7 @@ def test_monitoring_channel_roundtrips_and_is_not_a_parameter():
     assert loaded.monitoring_channel.exposure_time == pytest.approx(0.05)
 
 
+@pytest.mark.slow
 def test_the_mill_sets_the_monitoring_channel_on_the_fm(microscope, tmp_path):
     from fibsem.fm.structures import ChannelSettings
 
@@ -193,6 +194,7 @@ def test_fails_when_setup_has_not_run(microscope, tmp_path):
         task.run()
 
 
+@pytest.mark.slow
 def test_headless_mill_runs_from_the_setup_record_to_timeout(
     microscope, tmp_path, caplog
 ):
@@ -239,6 +241,7 @@ def test_headless_mill_runs_from_the_setup_record_to_timeout(
     assert lamella.task_state.outputs.get("final_fib")
 
 
+@pytest.mark.slow
 def test_abort_token_stops_the_mill(microscope, tmp_path):
     lamella = _lamella(microscope, tmp_path)
     _run_setup(microscope, lamella)

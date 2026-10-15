@@ -39,22 +39,28 @@ from fibsem.applications.autolamella.server.events import (
     attach_microscope_taps,
     make_lifecycle_hook,
 )
+from fibsem.cancellation import NothingToStop
 
 __all__ = ["AppServerHost"]
 
 
 def _stop_the_microscope(microscope) -> None:
     """Stop whatever the microscope is running: milling, a spot burn, an auto
-    focus sweep, live imaging. Each stop is safe when nothing is running, and
-    one failing never keeps the others from being tried."""
-    stops = [microscope.stop_milling, microscope.stop_acquisition]
-    for service in ("spot_burn", "imaging"):
+    focus sweep, live imaging. Each stop is safe when nothing is running (the
+    milling service's says so, and is let be), and one failing never keeps the
+    others from being tried."""
+    stops = [microscope.stop_acquisition]
+    # The milling service's stop, not the microscope's: it ends a milling task
+    # as well as its pattern, so no later stage starts (FIB-1398).
+    for service in ("milling", "spot_burn", "imaging"):
         found = getattr(microscope, service, None)
         if found is not None:
             stops.append(found.stop)
     for stop in stops:
         try:
             stop()
+        except NothingToStop:
+            pass
         except Exception:
             logging.exception("Stop agent: %s failed", getattr(stop, "__name__", stop))
 

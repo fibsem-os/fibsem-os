@@ -5,24 +5,28 @@ the same loop: map field metadata to a control, then a matching `isinstance`
 ladder in `get_*` to read the value back and a third in `set_*` to push one in.
 Three ladders per form, four forms, and they had already drifted -- the strategy
 form honoured `format_fn` on comboboxes and the pattern form did not; the pattern
-form could resolve `items="dynamic"` against the microscope and the strategy form
+form could resolve a field's choices against the microscope and the strategy form
 could not.
 
 `build_control` returns the control *together with* the adapters that move values
 through it, so a form never inspects a control's type. Adding a control type is
 one branch here rather than four branches in three places each.
 
-Deliberately Qt-only: no microscope, no pattern or strategy imports. `items:
-"dynamic"` needs the microscope, so the caller passes a resolver rather than the
-builder reaching for one -- which is also what makes this testable without
-hardware.
+Each field arrives as a ``FieldSpec``: what a device Parameter says (SI unit,
+SI limits, choices, doc) and a ``Display`` (label, scale, step, decimals). A device
+parameter becomes one through ``parameter_spec``, so a panel of beam controls and a
+recipe form read the same thing.
+
+Deliberately Qt-only: no microscope, no pattern or strategy imports. A field whose
+choices are the instrument's needs the microscope, so the caller passes a resolver
+rather than the builder reaching for one -- which is also what makes this testable
+without hardware.
 """
 
 from __future__ import annotations
 
 import inspect
 import logging
-import math
 import re
 from dataclasses import dataclass, replace
 from dataclasses import field as dataclass_field
@@ -43,9 +47,9 @@ from typing import (
 
 from PyQt5.QtWidgets import QCheckBox, QDoubleSpinBox, QHBoxLayout, QWidget
 
-from fibsem import utils
 from fibsem.devices.core import BoundParameter, Parameter, ParameterMetadata
-from fibsem.structures import Point, RangeLimit
+from fibsem.display import Display
+from fibsem.structures import FieldSpec, Point
 from fibsem.ui.widgets.custom_widgets import (
     IntegerValueSpinBox,
     QFilePathLineEdit,
@@ -54,7 +58,7 @@ from fibsem.ui.widgets.custom_widgets import (
     ValueSpinBox,
 )
 
-# Fallback spinbox bounds, used when a field declares no minimum/maximum.
+# Fallback spinbox bounds, used when a field declares no limits.
 #
 # `ValueSpinBox` itself falls back to (0.0, 1e6), which is wrong for any field
 # that can go negative -- and a floor of zero does not error, it silently clamps.
@@ -132,62 +136,34 @@ class Control:
             widget.blockSignals(blocked)
 
 
-def effective_scale(metadata: dict) -> Optional[float]:
-    """The scale actually applied to a value, raised to `dimensions` if declared.
-
-    An area declares `scale=1e6, dimensions=2` because m² -> µm² is 1e12, not
-    1e6. The display *suffix* is still built from the base scale, so that a
-    cubic rate reads "mm³/A/s" rather than being prefixed by 1e9.
-    """
-    base = metadata.get("scale")
-    dims = metadata.get("dimensions")
-    return (base**dims) if (base and dims) else base
-
-
-def display_suffix(metadata: dict) -> str:
-    """The spinbox suffix, prefixed for the scale (1e6 + "m" -> "µm").
-
-    A declared ``display_unit`` wins: a scale that isn't an SI prefix (180/pi for
-    degrees, 100 for percent) would otherwise read "mrad" or "m%".
-
-    Empty when the field declares no unit, even if it declares a scale. The
-    milling forms used to render a bare prefix -- a lone "µ" with nothing after
-    it -- for a scaled field with no unit.
-    """
-    if metadata.get("display_unit"):
-        return metadata["display_unit"]
-    unit = metadata.get("unit")
-    if not unit:
-        return ""
-    base = metadata.get("scale")
-    return utils._get_display_unit(base, unit) if base else unit
-
-
 def _default_label(name: str) -> str:
     """``dwell_time`` -> ``Dwell time``."""
     return name.replace("_", " ").capitalize()
 
 
-def parameter_field_metadata(
-    parameter: Union[Parameter, BoundParameter], field: Optional[str] = None
-) -> dict:
-    """A device parameter as field metadata: its ``Display``, then what the
-    instrument reports laid over it (``runtime_overrides``).
+def parameter_spec(
+    parameter: Union[Parameter, BoundParameter], part: Optional[str] = None
+) -> FieldSpec:
+    """A device parameter as a form field: its unit, doc and ``Display``, with what
+    the instrument reports (or, for a declared parameter, what every instrument
+    has) as its limits and choices.
 
     A bound parameter carries what its instrument reports; a declared one (``Beam.hfw``,
-    for a form with no instrument) its static limits and choices. ``field`` picks one
+    for a form with no instrument) its static limits and choices. ``part`` picks one
     field of a composite value (``"x"`` of a shift), for its hint and its limits.
     """
     spec = getattr(parameter, "spec", parameter)
     hint = spec.display
     if isinstance(hint, Mapping):
-        hint = hint.get(field)
-    metadata = {"label": _default_label(spec.name), "unit": spec.unit}
-    if spec.doc:
-        metadata["tooltip"] = spec.doc
-    if hint is not None:
-        metadata.update(hint.as_field_metadata(spec.unit))
-    return runtime_overrides(metadata, reported_metadata(parameter), field)
+        hint = hint.get(part)
+    hint = hint or Display()
+    field = FieldSpec(
+        name=spec.name,
+        unit=spec.unit,
+        doc=spec.doc or None,
+        display=replace(hint, label=hint.label or _default_label(spec.name)),
+    )
+    return field.with_reported(reported_metadata(parameter), part)
 
 
 def reported_metadata(parameter: Union[Parameter, BoundParameter]) -> ParameterMetadata:
@@ -202,49 +178,19 @@ def reported_metadata(parameter: Union[Parameter, BoundParameter]) -> ParameterM
     )
 
 
-def runtime_overrides(
-    metadata: dict, reported: ParameterMetadata, field: Optional[str] = None
-) -> dict:
-    """``metadata`` with what the instrument reports on top: its limits (SI, shown
-    through the scale) as minimum and maximum, and its choices as items.
-
-    What the instrument reports always wins over a static declaration. ``field``
-    picks one field's limits when they are given per field.
-    """
-    metadata = dict(metadata)
-    limits = reported.limits
-    if isinstance(limits, Mapping):
-        limits = limits.get(field)
-    # unbounded limits (a driver that doesn't know its range) keep the declared range,
-    # since a spin box can't show an infinite range
-    if (
-        isinstance(limits, RangeLimit)
-        and math.isfinite(limits.min)
-        and math.isfinite(limits.max)
-    ):
-        scale = effective_scale(metadata) or 1
-        metadata["minimum"], metadata["maximum"] = sorted(
-            (limits.min * scale, limits.max * scale)
-        )
-    if reported.choices is not None:
-        metadata["items"] = list(reported.choices)
-    return metadata
-
-
-def configure_spinbox(spinbox: QDoubleSpinBox, metadata: dict) -> None:
-    """Set a spin box's suffix, step, decimals, range and tooltip from field
-    metadata, for a panel that keeps its own boxes. Keys the metadata leaves out
-    keep the box's own."""
-    suffix = display_suffix(metadata)
+def configure_spinbox(spinbox: QDoubleSpinBox, spec: FieldSpec) -> None:
+    """Set a spin box's suffix, step, decimals, range and tooltip from a field, for
+    a panel that keeps its own boxes. What the field leaves out keeps the box's own."""
+    suffix = spec.suffix
     spinbox.setSuffix(f" {suffix}" if suffix else "")
-    if metadata.get("decimals") is not None:
-        spinbox.setDecimals(metadata["decimals"])
-    if metadata.get("step") is not None:
-        spinbox.setSingleStep(metadata["step"])
-    if metadata.get("minimum") is not None and metadata.get("maximum") is not None:
-        spinbox.setRange(metadata["minimum"], metadata["maximum"])
-    if metadata.get("tooltip"):
-        spinbox.setToolTip(metadata["tooltip"])
+    if spec.display.decimals is not None:
+        spinbox.setDecimals(spec.display.decimals)
+    if spec.display.step is not None:
+        spinbox.setSingleStep(spec.display.step)
+    if spec.shown_range is not None:
+        spinbox.setRange(*spec.shown_range)
+    if spec.doc:
+        spinbox.setToolTip(spec.doc)
 
 
 def _enum_label(member: Any) -> str:
@@ -257,17 +203,15 @@ def _enum_label(member: Any) -> str:
     return re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", name)
 
 
-def _combo(items: Sequence[Any], value: Any, metadata: dict) -> Control:
+def _combo(items: Sequence[Any], value: Any, spec: FieldSpec) -> Control:
     # "CleaningCrossSection" and "EACH_ROW" are names for code; the form shows
     # words. Here rather than on the Enum branch alone: a field can also reach a
-    # combo through declared `items`, as cross_section does. A declared
+    # combo through declared `choices`, as cross_section does. A declared
     # format_fn still wins.
-    format_fn = metadata.get("format_fn")
+    format_fn = spec.format_fn
     if format_fn is None and any(isinstance(item, Enum) for item in items):
         format_fn = _enum_label
-    control = ValueComboBox(
-        list(items), value, metadata.get("unit"), format_fn=format_fn
-    )
+    control = ValueComboBox(list(items), value, spec.unit, format_fn=format_fn)
     # ValueComboBox's constructor skips `set_value` for None, which leaves the
     # first item selected. `None` is a real choice for an Optional field -- the
     # trench task's orientation defaults to it -- so select it explicitly.
@@ -288,20 +232,20 @@ def _combo(items: Sequence[Any], value: Any, metadata: dict) -> Control:
 
 
 def _point(
-    value: Point, metadata: dict, fallback: Optional[Tuple[float, float]]
+    value: Point, spec: FieldSpec, fallback: Optional[Tuple[float, float]]
 ) -> Control:
     """Two spinboxes for a Point-typed field.
 
-    Dispatched on the declared `type`, not on the field being called "point", so
+    Dispatched on the field's type, not on the field being called "point", so
     a plugin pattern with its own Point field gets the same row.
     """
-    scale = effective_scale(metadata) or 1.0
-    suffix = display_suffix(metadata)
-    minimum, maximum = _bounds(metadata, fallback or POINT_FALLBACK_RANGE)
+    scale = spec.scale or 1.0
+    suffix = spec.suffix
+    minimum, maximum = _bounds(spec, fallback or POINT_FALLBACK_RANGE)
 
     def spinbox(initial: float) -> ValueSpinBox:
         box = ValueSpinBox(
-            suffix, minimum, maximum, metadata.get("step"), metadata.get("decimals")
+            suffix, minimum, maximum, spec.display.step, spec.display.decimals
         )
         box.setValue(initial * scale)
         return box
@@ -335,15 +279,14 @@ def _point(
 
 
 def _bounds(
-    metadata: dict, fallback: Optional[Tuple[float, float]]
+    spec: FieldSpec, fallback: Optional[Tuple[float, float]]
 ) -> Tuple[Optional[float], Optional[float]]:
-    """Declared bounds, falling back to the form's own defaults when unset."""
-    minimum = metadata.get("minimum")
-    maximum = metadata.get("maximum")
+    """The field's limits in shown units, else the form's own defaults."""
+    if spec.shown_range is not None:
+        return spec.shown_range
     if fallback is not None:
-        minimum = fallback[0] if minimum is None else minimum
-        maximum = fallback[1] if maximum is None else maximum
-    return minimum, maximum
+        return fallback
+    return None, None
 
 
 def _is_optional(annotation: Any) -> bool:
@@ -434,53 +377,48 @@ def _scalar_list(value: Any, annotation: Any) -> Control:
 
 
 def build_control(
-    metadata: dict,
+    spec: FieldSpec,
     value: Any,
     *,
-    annotation: Any = None,
-    dynamic_items: Optional[Callable[[str], Sequence[Any]]] = None,
+    resolve_choices: Optional[Callable[[str], Sequence[Any]]] = None,
     defaults: FormDefaults = FormDefaults(),
+    read_only_fallback: bool = True,
 ) -> Optional[Control]:
     """Build the control for one field, or None if nothing here can render it.
 
-    `metadata` is the merged view from `get_fields_with_metadata`, so every key
-    is present. `annotation` is the field's resolved type, consulted only where
-    the metadata declares no `type`: the milling forms declare one, the task
-    configs mostly do not, and dispatching on the value alone cannot tell a
-    Literal or an Enum from a plain string.
+    Dispatches on the field's type (its annotation), and on the value where the
+    field has none. ``resolve_choices`` gives a field whose choices are the
+    instrument's (``spec.instrument_choices``) the microscope's, by its
+    ``microscope_parameter``; without it such a field offers its current value
+    alone.
 
-    `dynamic_items` resolves `items: "dynamic"` against the microscope; without
-    it such a field falls back to its current value alone.
-
-    Returns a read-only Control -- `editable=False` -- for a type this form has
-    no editor for, rather than None, so the value stays visible.
+    A type this form has no editor for gets a read-only Control --
+    ``editable=False`` -- so the value stays visible, or None with
+    ``read_only_fallback=False``.
     """
-    items = metadata.get("items")
-    type_ = metadata.get("type")
-    optional = _is_optional(annotation)
-    annotation = _resolve(annotation)
-    kind = type_ if type_ is not None else annotation
+    optional = _is_optional(spec.type)
+    kind = _resolve(spec.type)
 
-    if items == "dynamic":
+    if spec.instrument_choices and spec.choices is None:
         resolved = (
-            dynamic_items(metadata["microscope_parameter"]) if dynamic_items else None
+            resolve_choices(spec.microscope_parameter) if resolve_choices else None
         )
-        return _combo(resolved if resolved else [value], value, metadata)
+        return _combo(resolved if resolved else [value], value, spec)
 
-    if items:
-        return _combo(items, value, metadata)
+    if spec.choices:
+        return _combo(spec.choices, value, spec)
 
     # A Literal is a fixed set of allowable values written in the type itself,
-    # which is what `items` expresses -- render it the same way rather than as a
+    # which is what `choices` expresses -- render it the same way rather than as a
     # free-text box the operator can mistype.
-    if get_origin(annotation) is Literal:
-        return _combo(list(get_args(annotation)), value, metadata)
+    if get_origin(kind) is Literal:
+        return _combo(list(get_args(kind)), value, spec)
 
     if kind is Point or isinstance(value, Point):
-        return _point(value, metadata, defaults.float_range)
+        return _point(value, spec, defaults.float_range)
 
     if kind is str:
-        control = QFilePathLineEdit() if metadata.get("filepath") else QLineEdit()
+        control = QFilePathLineEdit() if spec.filepath else QLineEdit()
         control.setText(str(value) if value else "")
 
         def read_text():
@@ -512,14 +450,14 @@ def build_control(
         )
 
     if kind is int:
-        scale = int(round(effective_scale(metadata) or 1))
-        minimum, maximum = _bounds(metadata, defaults.int_range)
+        scale = int(round(spec.scale or 1))
+        minimum, maximum = _bounds(spec, defaults.int_range)
         # An integer spinbox stepping by less than its own scale cannot reach
         # every representable value, so the step is floored at the scale.
         # int(): QSpinBox.setSingleStep rejects a float outright, and a form's
         # fallback step is naturally written as one.
-        step = int(max(metadata.get("step") or defaults.step or 1, scale))
-        control = IntegerValueSpinBox(display_suffix(metadata), minimum, maximum, step)
+        step = int(max(spec.display.step or defaults.step or 1, scale))
+        control = IntegerValueSpinBox(spec.suffix, minimum, maximum, step)
         control.setValue(int(round(value * scale)))
         return Control(
             widget=control,
@@ -530,16 +468,16 @@ def build_control(
             signals=(control.valueChanged,),
         )
 
-    if kind is float or (annotation is None and isinstance(value, (float, int))):
-        scale = effective_scale(metadata) or 1
-        minimum, maximum = _bounds(metadata, defaults.float_range)
+    if kind is float or (kind is None and isinstance(value, (float, int))):
+        scale = spec.scale or 1
+        minimum, maximum = _bounds(spec, defaults.float_range)
         control = ValueSpinBox(
-            display_suffix(metadata),
+            spec.suffix,
             minimum,
             maximum,
-            metadata.get("step") if metadata.get("step") is not None else defaults.step,
-            metadata.get("decimals")
-            if metadata.get("decimals") is not None
+            spec.display.step if spec.display.step is not None else defaults.step,
+            spec.display.decimals
+            if spec.display.decimals is not None
             else defaults.decimals,
         )
         control.setValue(value * scale)
@@ -551,20 +489,20 @@ def build_control(
         )
 
     if inspect.isclass(kind) and issubclass(kind, Enum):
-        return _combo(list(kind), value, metadata)
+        return _combo(list(kind), value, spec)
 
-    if get_origin(annotation) is list or (
-        inspect.isclass(kind) and issubclass(kind, list)
-    ):
-        item_types = get_args(annotation)
+    if get_origin(kind) is list or (inspect.isclass(kind) and issubclass(kind, list)):
+        item_types = get_args(kind)
         if not item_types or item_types[0] in (bool, int, float, str):
-            return _scalar_list(value, annotation)
+            return _scalar_list(value, kind)
 
-    if annotation is None:
-        # A milling form, which has no annotation to fall back on: nothing here
-        # can render this, and there is no value in showing it disabled.
+    if not read_only_fallback:
+        # A milling form: there is no value in showing a field it can't edit.
         logging.warning(
-            "No control for field of type %r (value %r)", type_, type(value)
+            "No control for field %s of type %r (value %r)",
+            spec.name,
+            spec.type,
+            type(value),
         )
         return None
 

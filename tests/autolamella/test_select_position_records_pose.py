@@ -24,6 +24,10 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
     SelectMillingPositionTaskConfig,
 )
 
+# Tens of seconds each on the simulator, so pull requests run these on one CI leg
+# only; the nightly and release runs take them everywhere (python-package.yml).
+pytestmark = pytest.mark.slow
+
 CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
 
 

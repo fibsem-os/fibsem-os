@@ -11,10 +11,10 @@ from PyQt5.QtWidgets import (
 
 from fibsem.devices.core import ParameterMetadata
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import BeamType, FibsemMillingSettings
+from fibsem.structures import BeamType, FibsemMillingSettings, FieldSpec
 from fibsem.ui.utils import beam_choices
 from fibsem.ui.widgets.custom_widgets import FormGrid, align_form
-from fibsem.ui.widgets.form_builder import Control, build_control, runtime_overrides
+from fibsem.ui.widgets.form_builder import Control, build_control
 
 
 @dataclass
@@ -27,10 +27,10 @@ class _Row:
     advanced: bool
 
 
-_META = FibsemMillingSettings().field_metadata
+_SPECS = FibsemMillingSettings().field_specs
 
-# Fields hidden from UI — derived from metadata (hidden=True), not hardcoded
-_HIDDEN_FIELDS = {name for name, m in _META.items() if m.get("hidden", False)}
+# Fields hidden from UI — derived from their display (hidden=True), not hardcoded
+_HIDDEN_FIELDS = {name for name, spec in _SPECS.items() if spec.hidden}
 
 
 def _supported_settings(
@@ -74,22 +74,23 @@ class FibsemMillingSettingsWidget(QWidget):
         layout = FormGrid(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        for field_name, m in _META.items():
-            if m.get("hidden", False):
+        for field_name, spec in _SPECS.items():
+            if spec.hidden:
                 continue
 
             control = build_control(
-                self._instrument_metadata(field_name, m),
+                self._instrument_spec(spec),
                 getattr(self._settings, field_name),
-                dynamic_items=self._dynamic_items,
+                resolve_choices=self._instrument_choices,
+                read_only_fallback=False,
             )
             if control is None:
                 continue
 
-            label = QLabel(m.get("label") or field_name.replace("_", " ").title())
-            if m.get("tooltip"):
-                label.setToolTip(m["tooltip"])
-                control.widget.setToolTip(m["tooltip"])
+            label = QLabel(spec.label or field_name.replace("_", " ").title())
+            if spec.doc:
+                label.setToolTip(spec.doc)
+                control.widget.setToolTip(spec.doc)
 
             layout.addRow(label, control.widget)
             self._rows.append(
@@ -97,32 +98,30 @@ class FibsemMillingSettingsWidget(QWidget):
                     label=label,
                     control=control,
                     field=field_name,
-                    advanced=m.get("advanced", False),
+                    advanced=spec.advanced,
                 )
             )
 
         align_form(layout)
 
-    def _instrument_metadata(self, field_name: str, m: dict) -> dict:
-        """The field's metadata with the milling service's choices and limits in
-        place of its fixed ones, where the service reports them."""
-        reported = (self._supported or {}).get(field_name)
+    def _instrument_spec(self, spec: FieldSpec) -> FieldSpec:
+        """The field with the milling service's choices and limits in place of its
+        fixed ones, where the service reports them."""
+        reported = (self._supported or {}).get(spec.name)
         if reported is None:
-            return m
-        if m.get("items") in (None, "dynamic"):
-            # a number box stays one; a dynamic list is resolved by _dynamic_items
+            return spec
+        if spec.choices is None:
+            # a number box stays one; the instrument's choices come through
+            # _instrument_choices
             reported = replace(reported, choices=None)
-        return runtime_overrides(m, reported)
+        return spec.with_reported(reported)
 
-    def _dynamic_items(self, parameter: str):
-        """Resolve an `items: "dynamic"` field: the milling service's choices for the
-        field, else the milling beam's choices for its parameter."""
+    def _instrument_choices(self, parameter: str):
+        """The choices of a field the instrument decides: the milling service's for
+        the field, else the milling beam's for its parameter."""
         if self._supported is not None:
-            for name, m in _META.items():
-                if (
-                    m.get("microscope_parameter") == parameter
-                    and name in self._supported
-                ):
+            for name, spec in _SPECS.items():
+                if spec.microscope_parameter == parameter and name in self._supported:
                     choices = self._supported[name].choices
                     if choices is not None:
                         return list(choices)
