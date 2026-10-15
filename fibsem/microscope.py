@@ -1685,22 +1685,6 @@ class FibsemMicroscope(ABC):
         param = None if self.stage is None else self.stage.parameters.get(name)
         return None if param is None else param.get_value()
 
-    def home(self) -> Optional[bool]:
-        """Home the stage. A stage that cannot home is left alone; returns whether
-        it is homed (None when it cannot say).
-
-        Deprecated: call ``microscope.stage.home()``.
-        """
-        warnings.warn(
-            "microscope.home() is deprecated and will be removed in the next minor "
-            "release; use microscope.stage.home() instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        if self.stage is not None and self.stage.commands["home"].available:
-            return self.stage.home()
-        return self._stage_value("homed")
-
     def link_stage(self) -> Optional[bool]:
         """Link the stage to the working distance. A stage that cannot link is left
         alone; returns whether it is linked (None when it cannot say)."""
