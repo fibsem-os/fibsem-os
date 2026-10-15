@@ -360,6 +360,25 @@ def build_sidecar(client, capabilities):
     def get_pattern_preview(image_path: str, stages: Optional[list] = None):
         return _routed("get_pattern_preview", image_path=image_path, stages=stages)
 
+    def align_to_reference(
+        reference_path: str, steps: int = 3, subsystem: str = "beam-shift"
+    ):
+        return _routed(
+            "align_to_reference",
+            "run",
+            reference_path=reference_path,
+            steps=steps,
+            subsystem=subsystem,
+        )
+
+    def measure_shift(reference_path: str, image_path: str):
+        return _routed(
+            "measure_shift",
+            "shift",
+            reference_path=reference_path,
+            image_path=image_path,
+        )
+
     def stop_milling(reason: str):
         data, err = _route("stop_milling", reason=reason)
         return err if err else {"status": "ok"}
@@ -787,6 +806,8 @@ def build_sidecar(client, capabilities):
             get_milling_state,
             estimate_milling_time,
             get_pattern_preview,
+            align_to_reference,
+            measure_shift,
             stop_milling,
             acquire_image_preview,
             move_stage_relative,

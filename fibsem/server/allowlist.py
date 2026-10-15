@@ -66,9 +66,14 @@ def path_outside(
     """Why a command's or query's path is refused, or None: the agent saves
     and reads inside the open experiment only, never anywhere the app can
     write. The path is a ``path`` argument (the focus sweep's, a milling
-    task's folder), an ``image_path`` (the image a pattern preview draws on),
-    or the ``path`` of settings that save (an image's ``image_settings``)."""
-    paths = [kwargs.get("path"), kwargs.get("image_path")] + [
+    task's folder), any ``*_path`` argument (the image a pattern preview draws
+    on, an alignment's reference), or the ``path`` of settings that save (an
+    image's ``image_settings``)."""
+    paths = [
+        value
+        for name, value in kwargs.items()
+        if name == "path" or name.endswith("_path")
+    ] + [
         getattr(value, "path", None)
         for value in kwargs.values()
         if getattr(value, "save", False)

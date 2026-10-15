@@ -71,6 +71,7 @@ from fibsem.structures import (
 if TYPE_CHECKING:
     from fibsem.cancellation import AnyStopEvent
     from fibsem.imaging.spot import SpotBurnSettings
+    from fibsem.services.alignment import Alignment
     from fibsem.services.imaging import Imaging
     from fibsem.services.milling import Milling
     from fibsem.services.sample_handling import SampleHandling
@@ -184,6 +185,10 @@ class FibsemMicroscope(ABC):
     #: `auto_focus`, and the focus sweep. None when no beam was built: `auto_focus`
     #: raises then.
     imaging: Optional[Imaging] = None
+    #: The alignment service (`fibsem.services.alignment.Alignment`): aligning
+    #: to a saved reference image, and the shift between two. None without
+    #: imaging.
+    alignment: Optional[Alignment] = None
     #: Whether this driver's sample loader reads its magazine when the sample
     #: handling service is built: only where that read is free (the simulator).
     _read_magazine_at_connect: bool = False
@@ -404,9 +409,12 @@ class FibsemMicroscope(ABC):
     def _build_imaging(self) -> None:
         """Build the imaging service over the beams; `auto_focus` then goes to it.
         Without a beam there is none."""
+        from fibsem.services.alignment import Alignment, bind_alignment
         from fibsem.services.imaging import Imaging, bind_imaging
 
         self.imaging = bind_imaging(Imaging, self)
+        # Alignment acquires through the imaging, so it comes and goes with it.
+        self.alignment = bind_alignment(Alignment, self)
 
     def reset_beam_shifts(self) -> None:
         """Set the beam shift to zero for the electron and ion beams."""
@@ -1186,6 +1194,7 @@ class FibsemMicroscope(ABC):
         "spot_burn",
         "sample_handling",
         "imaging",
+        "alignment",
     )
 
     @property
