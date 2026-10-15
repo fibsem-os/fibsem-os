@@ -23,11 +23,13 @@ from fibsem.display import Display
 from fibsem.milling.properties import distance_metadata
 from fibsem.structures import (
     CrossSectionPattern,
+    FieldSpec,
     Point,
     RangeLimit,
     TFibsemPatternSettings,
     field_meta,
-    get_fields_with_metadata,
+    field_specs,
+    flagged_fields,
 )
 
 TPattern = TypeVar("TPattern", bound="BasePattern")
@@ -101,16 +103,12 @@ class BasePattern(ABC, Generic[TFibsemPatternSettings]):
     @cached_property
     def advanced_attributes(self) -> Tuple[str, ...]:
         """Return attributes that are marked as advanced in the metadata."""
-        return tuple(
-            name for name, meta in self.field_metadata.items() if meta["advanced"]
-        )
+        return flagged_fields(self.__class__, "advanced")
 
     @cached_property
     def _hidden_attributes(self) -> Tuple[str, ...]:
         """Return attributes that are hidden from the UI."""
-        return tuple(
-            name for name, meta in self.field_metadata.items() if meta["hidden"]
-        )
+        return flagged_fields(self.__class__, "hidden")
 
     @property
     def volume(self) -> float:
@@ -118,9 +116,9 @@ class BasePattern(ABC, Generic[TFibsemPatternSettings]):
         return sum([shape.volume for shape in self.define()])
 
     @property
-    def field_metadata(self) -> Dict[str, Dict[str, Any]]:
-        """Return dataclass fields with metadata, filling any missing keys with defaults."""
-        return get_fields_with_metadata(self.__class__)
+    def field_specs(self) -> Dict[str, FieldSpec]:
+        """Each field as a form reads it."""
+        return field_specs(self.__class__)
 
     def summary(self) -> str:
         """Return a multi-line human-readable summary of key pattern parameters."""
@@ -131,9 +129,9 @@ class BasePattern(ABC, Generic[TFibsemPatternSettings]):
             if attr in self.advanced_attributes:
                 continue
             val = getattr(self, attr)
-            meta = self.field_metadata.get(attr, {})
-            unit = meta.get("unit", None)
-            label = meta.get("label", attr.replace("_", " ").title())
+            spec = self.field_specs.get(attr)
+            unit = spec.unit if spec else None
+            label = (spec and spec.label) or attr.replace("_", " ").title()
             if isinstance(val, float) and unit:
                 val_str = format_value(val, unit=unit, precision=1)
             elif hasattr(val, "name"):  # Enum

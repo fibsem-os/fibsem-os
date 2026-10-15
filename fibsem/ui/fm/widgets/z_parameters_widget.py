@@ -10,7 +10,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.fm.structures import ZParameters, ZStackOrder
-from fibsem.structures import get_fields_with_metadata
+from fibsem.structures import field_specs
 from fibsem.ui.tokens import (
     NEUTRAL_650,
 )
@@ -21,7 +21,7 @@ from fibsem.ui.widgets.custom_widgets import (
 from fibsem.ui.widgets.form_builder import configure_spinbox
 
 # How each value is shown, and its bounds: ZParameters' field metadata.
-_META = get_fields_with_metadata(ZParameters)
+_SPECS = field_specs(ZParameters)
 
 
 class ZParametersWidget(QWidget):
@@ -36,23 +36,23 @@ class ZParametersWidget(QWidget):
     def initUI(self):
 
         # Z minimum
-        self.label_zmin = QLabel(_META["zmin"]["label"], self)
+        self.label_zmin = QLabel(_SPECS["zmin"].label, self)
         self.doubleSpinBox_zmin = ValueSpinBox(parent=self)
-        configure_spinbox(self.doubleSpinBox_zmin, _META["zmin"])
+        configure_spinbox(self.doubleSpinBox_zmin, _SPECS["zmin"])
         self.doubleSpinBox_zmin.setValue(self._shown("zmin"))
         self.doubleSpinBox_zmin.setKeyboardTracking(False)
 
         # Z maximum
-        self.label_zmax = QLabel(_META["zmax"]["label"], self)
+        self.label_zmax = QLabel(_SPECS["zmax"].label, self)
         self.doubleSpinBox_zmax = ValueSpinBox(parent=self)
-        configure_spinbox(self.doubleSpinBox_zmax, _META["zmax"])
+        configure_spinbox(self.doubleSpinBox_zmax, _SPECS["zmax"])
         self.doubleSpinBox_zmax.setValue(self._shown("zmax"))
         self.doubleSpinBox_zmax.setKeyboardTracking(False)
 
         # Z step
-        self.label_zstep = QLabel(_META["zstep"]["label"], self)
+        self.label_zstep = QLabel(_SPECS["zstep"].label, self)
         self.doubleSpinBox_zstep = ValueSpinBox(parent=self)
-        configure_spinbox(self.doubleSpinBox_zstep, _META["zstep"])
+        configure_spinbox(self.doubleSpinBox_zstep, _SPECS["zstep"])
         self.doubleSpinBox_zstep.setValue(self._shown("zstep"))
         self.doubleSpinBox_zstep.setKeyboardTracking(False)
 
@@ -97,7 +97,7 @@ class ZParametersWidget(QWidget):
 
     def _shown(self, name: str) -> float:
         """The parameter ``name`` as its box shows it (µm)."""
-        return getattr(self._z_parameters, name) * _META[name]["scale"]
+        return getattr(self._z_parameters, name) * _SPECS[name].scale
 
     @property
     def z_parameters(self) -> ZParameters:
@@ -143,7 +143,7 @@ class ZParametersWidget(QWidget):
 
     def _on_zmin_changed(self, value: float):
         """Handle Z min value change."""
-        self.z_parameters.zmin = value / _META["zmin"]["scale"]
+        self.z_parameters.zmin = value / _SPECS["zmin"].scale
         self._update_num_planes_display()
 
         # Ensure zmin <= zmax
@@ -153,7 +153,7 @@ class ZParametersWidget(QWidget):
 
     def _on_zmax_changed(self, value: float):
         """Handle Z max value change."""
-        self.z_parameters.zmax = value / _META["zmax"]["scale"]
+        self.z_parameters.zmax = value / _SPECS["zmax"].scale
         self._update_num_planes_display()
 
         # Ensure zmax >= zmin
@@ -163,7 +163,7 @@ class ZParametersWidget(QWidget):
 
     def _on_zstep_changed(self, value: float):
         """Handle Z step value change."""
-        self.z_parameters.zstep = value / _META["zstep"]["scale"]
+        self.z_parameters.zstep = value / _SPECS["zstep"].scale
         self._update_num_planes_display()
         self.settings_changed.emit(self.z_parameters)
 

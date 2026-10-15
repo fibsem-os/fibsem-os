@@ -19,15 +19,16 @@ from PyQt5.QtWidgets import (
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
     BeamType,
+    FieldSpec,
     ImageSettings,
     Resolution,
-    get_fields_with_metadata,
+    field_specs,
 )
 from fibsem.ui import stylesheets
 from fibsem.ui.tokens import (
     NEUTRAL_400,
 )
-from fibsem.ui.utils import beam_field_metadata, find_data, install_wheel_blocker
+from fibsem.ui.utils import beam_spec, find_data, install_wheel_blocker
 from fibsem.ui.widgets.custom_widgets import (
     IconToolButton,
     QDirectoryLineEdit,
@@ -35,26 +36,25 @@ from fibsem.ui.widgets.custom_widgets import (
 )
 from fibsem.ui.widgets.form_builder import (
     configure_spinbox,
-    effective_scale,
 )
 
 # How each control is shown: ImageSettings' field metadata, which takes the beam's
 # display hint for the fields bound to a beam parameter.
-_META = get_fields_with_metadata(ImageSettings)
+_SPECS = field_specs(ImageSettings)
 
 
 def _field(
     name: str,
     microscope: Optional[FibsemMicroscope] = None,
     beam_type: Optional[BeamType] = None,
-) -> dict:
-    """The field's metadata, with what the beam allows laid over it for a field bound
-    to a beam parameter: what ``beam_type`` reports, else what every beam declares."""
-    return beam_field_metadata(_META[name], microscope, beam_type)
+) -> FieldSpec:
+    """The field, with what the beam allows in place of its own limits and choices for
+    a field bound to a beam parameter: what ``beam_type`` reports, else what every beam declares."""
+    return beam_spec(_SPECS[name], microscope, beam_type)
 
 
 def _scale(name: str) -> float:
-    return effective_scale(_META[name]) or 1.0
+    return _SPECS[name].scale or 1.0
 
 
 class ImageSettingsWidget(QWidget):
@@ -123,10 +123,10 @@ class ImageSettingsWidget(QWidget):
         outer_layout.addWidget(grid_widget)
 
         # Resolution
-        self.resolution_label = QLabel(_META["resolution"]["label"])
+        self.resolution_label = QLabel(_SPECS["resolution"].label)
         self.resolution_combo = QComboBox()
         # What every beam declares until `use_beam` names one.
-        for width, height in _field("resolution").get("items") or ():
+        for width, height in _field("resolution").choices or ():
             self.resolution_combo.addItem(
                 str(Resolution(width, height)), (width, height)
             )
@@ -135,7 +135,7 @@ class ImageSettingsWidget(QWidget):
         layout.addWidget(self.resolution_combo, 0, 1)
 
         # Dwell time
-        self.dwell_label = QLabel(_META["dwell_time"]["label"])
+        self.dwell_label = QLabel(_SPECS["dwell_time"].label)
         self.dwell_time_spinbox = QDoubleSpinBox()
         install_wheel_blocker(self.dwell_time_spinbox)
         configure_spinbox(self.dwell_time_spinbox, _field("dwell_time"))
@@ -143,7 +143,7 @@ class ImageSettingsWidget(QWidget):
         layout.addWidget(self.dwell_time_spinbox, 1, 1)
 
         # Field of View
-        self.hfw_label = QLabel(_META["hfw"]["label"])
+        self.hfw_label = QLabel(_SPECS["hfw"].label)
         self.hfw_spinbox = QDoubleSpinBox()
         install_wheel_blocker(self.hfw_spinbox)
         configure_spinbox(self.hfw_spinbox, _field("hfw"))
@@ -151,31 +151,27 @@ class ImageSettingsWidget(QWidget):
         layout.addWidget(self.hfw_spinbox, 2, 1)
 
         # Line Integration
-        self.line_integration_label = QLabel(_META["line_integration"]["label"])
+        self.line_integration_label = QLabel(_SPECS["line_integration"].label)
         self.line_integration_spinbox = QSpinBox()
         install_wheel_blocker(self.line_integration_spinbox)
-        self.line_integration_spinbox.setRange(
-            _META["line_integration"]["minimum"], _META["line_integration"]["maximum"]
-        )
+        self.line_integration_spinbox.setRange(*_SPECS["line_integration"].shown_range)
         layout.addWidget(self.line_integration_label, 3, 0)
         layout.addWidget(self.line_integration_spinbox, 3, 1)
 
         # Scan Interlacing
-        self.scan_interlacing_label = QLabel(_META["scan_interlacing"]["label"])
+        self.scan_interlacing_label = QLabel(_SPECS["scan_interlacing"].label)
         self.scan_interlacing_spinbox = QSpinBox()
         install_wheel_blocker(self.scan_interlacing_spinbox)
-        self.scan_interlacing_spinbox.setRange(
-            _META["scan_interlacing"]["minimum"], _META["scan_interlacing"]["maximum"]
-        )
+        self.scan_interlacing_spinbox.setRange(*_SPECS["scan_interlacing"].shown_range)
         layout.addWidget(self.scan_interlacing_label, 4, 0)
         layout.addWidget(self.scan_interlacing_spinbox, 4, 1)
 
         # Frame Integration
-        self.frame_integration_label = QLabel(_META["frame_integration"]["label"])
+        self.frame_integration_label = QLabel(_SPECS["frame_integration"].label)
         self.frame_integration_spinbox = QSpinBox()
         install_wheel_blocker(self.frame_integration_spinbox)
         self.frame_integration_spinbox.setRange(
-            _META["frame_integration"]["minimum"], _META["frame_integration"]["maximum"]
+            *_SPECS["frame_integration"].shown_range
         )
         layout.addWidget(self.frame_integration_label, 5, 0)
         layout.addWidget(self.frame_integration_spinbox, 5, 1)
@@ -366,7 +362,7 @@ class ImageSettingsWidget(QWidget):
     def use_beam(self, microscope: FibsemMicroscope, beam_type: BeamType) -> None:
         """Offer what ``beam_type`` can acquire: its resolutions, and its field of view
         and dwell time limits. What the beam doesn't report keeps the standard values."""
-        resolutions = _field("resolution", microscope, beam_type).get("items")
+        resolutions = _field("resolution", microscope, beam_type).choices
         if resolutions:
             selected = self.resolution_combo.currentText()
             self.set_available_resolutions(

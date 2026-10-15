@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import sys
 import weakref
 from abc import ABC, abstractmethod
 from copy import deepcopy
-from dataclasses import InitVar, asdict, dataclass, field, fields
+from dataclasses import InitVar, asdict, dataclass, field, fields, replace
 from datetime import datetime, tzinfo
 from enum import Enum, auto
 from pathlib import Path
@@ -80,75 +81,42 @@ class RangeLimit:
         return RangeLimit(min=d["min"], max=d["max"])
 
 
-DEFAULT_FIELD_METADATA: Dict[str, Any] = {
-    # What the value means, as a device Parameter says it (fibsem.devices.core):
-    # its SI unit, its limits in that unit, its choices and what it is. A field
-    # bound to a microscope parameter takes that parameter's live limits and
-    # choices over these.
-    "unit": None,  # the value's SI unit ("m", "s", "A"); shown with the scale's prefix (m + 1e6 -> µm)
-    "limits": None,  # a RangeLimit, in the SI unit
-    "choices": None,  # the values it may take
-    "doc": None,  # what the value is, for a tooltip or an agent
-    "microscope_parameter": None,  # the microscope parameter it sets, for its live limits and choices
-    "filepath": None,  # a string field that names a file
-    # How a form shows it: a fibsem.display.Display (label, scale, unit, step,
-    # decimals, advanced, hidden), the same hint a device Parameter carries.
-    "display": None,
-    # The flat keys the forms read. A field declaring the keys above gets these
-    # filled from them by get_fields_with_metadata; declaring them directly is the
-    # older way, still read while the declarations convert.
-    "label": None,  # the display label for the field
-    "type": None,  # the data type of the field
-    "display_unit": None,  # the shown unit, when the scale isn't an SI prefix (° , %)
-    "tooltip": None,  # the tooltip/help text for the field
-    "scale": None,  # scale factor for display (e.g., 1e6 for metres to microns)
-    "dimensions": None,  # for complex dimensions, e.g. areas or volumes
-    "minimum": None,  # minimum value for numeric fields
-    "maximum": None,  # maximum value for numeric fields
-    "step": None,  # step size for numeric fields
-    "decimals": None,  # number of decimal places for numeric fields
-    "items": None,  # for lists/enums, the possible items. items specified as 'dynamic' are fetched from the microscope via the 'microscope_parameter' key
-    "hidden": False,  # whether the field is hidden from the UI
-    "advanced": False,  # whether the field is considered advanced in the UI
-    "format_fn": None,  # function to format the value for display
-    "format_fn_kwargs": None,  # kwargs for the format function # NOTE: unused yet
-}
+# What a dataclass field may declare in its metadata, in the device Parameter's
+# vocabulary (fibsem.devices.core): what the value means, then how a form shows it.
+FIELD_METADATA_KEYS: Tuple[str, ...] = (
+    "unit",  # the value's SI unit ("m", "s", "A"); shown with the scale's prefix (m + 1e6 -> µm)
+    "limits",  # a RangeLimit, in the SI unit
+    "choices",  # the values it may take
+    "doc",  # what the value is, for a tooltip or an agent
+    "microscope_parameter",  # the beam parameter it sets, for its live limits and choices
+    "filepath",  # a string field that names a file
+    "display",  # a fibsem.display.Display: label, scale, unit, step, decimals, advanced, hidden
+    "format_fn",  # how a combo box writes each choice
+)
 
-# A key of the Parameter vocabulary -> the flat keys it fills. A field says each
-# thing once: declaring both is a TypeError.
-_FILLS: Dict[str, Tuple[str, ...]] = {
-    "doc": ("tooltip",),
-    "choices": ("items",),
-    "limits": ("minimum", "maximum"),
-    "display": (
-        "label",
-        "scale",
-        "display_unit",
-        "dimensions",
-        "step",
-        "decimals",
-        "advanced",
-        "hidden",
-    ),
-}
-
-# Superseded spelling -> the key that replaced it. Nothing resolves these at
-# runtime, so a field still declaring one renders without a tooltip or a unit
-# suffix; this map exists only so the diagnostics below say something useful.
-#
-# The AutoLamella task configs used to spell two keys differently from the rest
-# of the codebase, and the form that rendered them read only those spellings. All
-# in-tree declarations were converted (FIB-384); this map exists so an
-# out-of-tree config that has not been converted is told exactly what to change,
-# rather than getting the generic "no form reads this" line.
+# An older key -> what replaced it, so a field still declaring one (a plugin's) is
+# told what to change rather than rendering without it. Nothing reads these.
 RENAMED_METADATA_KEYS: Dict[str, str] = {
-    "help": "tooltip",
+    "help": "doc",
     "units": "unit",
+    "tooltip": "doc",
+    "items": "choices (or microscope_parameter, for the instrument's)",
+    "minimum": "limits, in SI",
+    "maximum": "limits, in SI",
+    "label": "display=Display(label=...)",
+    "scale": "display=Display(scale=...)",
+    "display_unit": "display=Display(unit=...)",
+    "dimensions": "display=Display(scale=...), the whole factor",
+    "step": "display=Display(step=...)",
+    "decimals": "display=Display(decimals=...)",
+    "advanced": "display=Display(advanced=True)",
+    "hidden": "display=Display(hidden=True)",
+    "type": "the field's annotation",
+    "default": "the field's default",
 }
 
 
 def field_meta(
-    base: Optional[Mapping[str, Any]] = None,
     *,
     unit: Optional[str] = None,
     limits: Optional[RangeLimit] = None,
@@ -157,23 +125,9 @@ def field_meta(
     microscope_parameter: Optional[str] = None,
     filepath: Optional[bool] = None,
     display: Optional[Display] = None,
-    label: Optional[str] = None,
-    type: Optional[Any] = None,
-    display_unit: Optional[str] = None,
-    tooltip: Optional[str] = None,
-    scale: Optional[float] = None,
-    dimensions: Optional[int] = None,
-    minimum: Optional[float] = None,
-    maximum: Optional[float] = None,
-    step: Optional[float] = None,
-    decimals: Optional[int] = None,
-    items: Optional[Union[str, Sequence[Any]]] = None,
-    hidden: Optional[bool] = None,
-    advanced: Optional[bool] = None,
-    format_fn: Optional[Callable[..., str]] = None,
-    format_fn_kwargs: Optional[Dict[str, Any]] = None,
+    format_fn: Optional[Callable[[Any], str]] = None,
 ) -> Dict[str, Any]:
-    """Build a field's metadata dict, checking the keys at import time.
+    """A field's metadata, checked when the module is imported.
 
     A field says what a device Parameter says, split the same way: what the value
     means (its SI unit, its limits in SI, its choices, a doc) and how a form shows
@@ -189,87 +143,201 @@ def field_meta(
             ),
         )
 
-    ``microscope_parameter`` binds the field to a microscope parameter, whose live
-    limits and choices then apply. The flat keys after ``display`` (label, tooltip,
-    minimum and maximum in display units, items, ...) are the older way to say the
-    same, read while the declarations convert; a field may not say one thing both
-    ways.
+    ``microscope_parameter`` binds the field to a beam parameter: the beam's live
+    limits and choices then apply, and the beam's display fills what the field's
+    leaves out.
 
-    Every key is spelled out as a keyword argument, so a misspelling is a
-    TypeError when the module is imported rather than a form that silently
-    renders without its tooltip or its unit suffix. That failure mode is not
-    hypothetical: two spellings of two keys coexisted across the codebase for a
-    long time and neither side ever got an error (FIB-384).
-
-    `base` extends a shared metadata dict, the way `dict(base, key=value)` does,
-    which is how most patterns and strategies are declared:
-
-        overtilt: float = field(metadata=field_meta(DEFAULT_ANGLE_METADATA, label="Overtilt"))
-
-    Keywords override the base, matching the `{**BASE, "label": ...}` literal it
-    replaces. The base's keys are checked too, so this cannot be used to launder
-    a raw dict past the check it exists to perform.
-
-    Passing the base by `**` instead is stricter, since Python rejects a keyword
-    the base already supplies:
-
-        field_meta(**DEFAULT_DISTANCE_METADATA, type=Point)   # TypeError
-
-    Worth preferring where nothing needs overriding, because a dict literal
-    silently resolves that collision instead -- `BasePattern.point`
-    declares `"type": Point` and renders as a float because the spread that
-    follows wins.
-
-    This returns the plain dict every form already reads, so raw-dict
-    declarations keep working and files convert as they are touched. Arguments
-    left unset are omitted rather than returned as None, which is what lets the
-    base, a struct-level DEFAULT_METADATA, or `get_fields_with_metadata`'s own
-    defaults supply them instead.
+    Every key is a keyword argument, so a misspelling is a TypeError when the
+    module is imported rather than a form that silently renders without its
+    tooltip or its unit (FIB-384). Arguments left unset are left out.
     """
-    # `locals()` here is exactly the parameters, which is the point: listing them
-    # again would let a newly added one be silently dropped -- the same class of
-    # bug this function exists to prevent.
-    declared = dict(locals())
-    inherited = declared.pop("base") or {}
-    for key in inherited:
-        if key not in DEFAULT_FIELD_METADATA:
-            renamed = RENAMED_METADATA_KEYS.get(key)
-            hint = f", which was renamed to {renamed!r}" if renamed else ""
-            raise TypeError(
-                f"field_meta() base declares unknown metadata key {key!r}{hint}"
-            )
-    metadata = {
-        **inherited,
-        **{key: value for key, value in declared.items() if value is not None},
+    if limits is not None and not isinstance(limits, RangeLimit):
+        raise TypeError(f"limits must be a RangeLimit, got {limits!r}")
+    if display is not None and not isinstance(display, Display):
+        raise TypeError(f"display must be a Display, got {display!r}")
+    declared = {
+        "unit": unit,
+        "limits": limits,
+        "choices": None if choices is None else tuple(choices),
+        "doc": doc,
+        "microscope_parameter": microscope_parameter,
+        "filepath": filepath,
+        "display": display,
+        "format_fn": format_fn,
     }
-    _check_said_once(metadata)
-    return metadata
+    return {key: value for key, value in declared.items() if value is not None}
 
 
-def _check_said_once(metadata: Mapping[str, Any]) -> None:
-    """Refuse a field that says one thing in both vocabularies: which one a form
-    reads would decide what it shows."""
-    if metadata.get("limits") is not None and not isinstance(
-        metadata["limits"], RangeLimit
-    ):
-        raise TypeError(f"limits must be a RangeLimit, got {metadata['limits']!r}")
-    if metadata.get("display") is not None and not isinstance(
-        metadata["display"], Display
-    ):
-        raise TypeError(f"display must be a Display, got {metadata['display']!r}")
-    for key, flat in _FILLS.items():
-        if metadata.get(key) is None:
-            continue
-        both = [
-            name
-            for name in flat
-            if metadata.get(name) is not None and metadata.get(name) is not False
-        ]
-        if both:
-            raise TypeError(
-                f"field metadata gives {key!r} and {', '.join(map(repr, both))}, "
-                f"which {key!r} replaces; give it once"
-            )
+# The range a pattern or strategy length takes unless it says otherwise.
+DISTANCE_LIMITS = RangeLimit(0.01e-6, 1000e-6)
+
+
+def distance_metadata(
+    label: str,
+    doc: str,
+    *,
+    limits: RangeLimit = DISTANCE_LIMITS,
+    step: float = 0.1,
+    decimals: int = 2,
+    advanced: bool = False,
+) -> Dict[str, Any]:
+    """A length in metres, shown in µm."""
+    return field_meta(
+        unit="m",
+        limits=limits,
+        doc=doc,
+        display=Display(
+            label, scale=1e6, step=step, decimals=decimals, advanced=advanced
+        ),
+    )
+
+
+@dataclass(frozen=True)
+class FieldSpec:
+    """One field as a form reads it: what it means (``unit``, SI ``limits``,
+    ``choices``, ``doc``) and how it is shown (``display``), as a device Parameter
+    says them. ``field_specs`` reads them off a dataclass; a form turns a device
+    parameter into one the same way, so the two render alike.
+
+    ``type`` is the field's annotation, Optional and List left on.
+    ``instrument_choices`` marks a field bound to a beam parameter that is picked
+    from what the instrument offers (scan direction, resolution) rather than set
+    within a range; its choices come from the instrument when a form has one.
+    """
+
+    name: str
+    type: Any = None
+    unit: Optional[str] = None
+    limits: Optional[RangeLimit] = None
+    choices: Optional[Tuple[Any, ...]] = None
+    doc: Optional[str] = None
+    display: Display = Display()
+    microscope_parameter: Optional[str] = None
+    instrument_choices: bool = False
+    filepath: bool = False
+    format_fn: Optional[Callable[[Any], str]] = None
+
+    @property
+    def label(self) -> Optional[str]:
+        return self.display.label
+
+    @property
+    def scale(self) -> Optional[float]:
+        """SI to shown: 1e6 shows metres as µm. None shows the value as it is."""
+        return self.display.scale
+
+    @property
+    def advanced(self) -> bool:
+        return self.display.advanced
+
+    @property
+    def hidden(self) -> bool:
+        return self.display.hidden
+
+    @property
+    def suffix(self) -> str:
+        """The shown unit: the display's, else the SI unit with the scale's prefix
+        (1e6 and "m" give "µm"). Empty for a field with no unit."""
+        if self.display.unit:
+            return self.display.unit
+        if not self.unit:
+            return ""
+        if not self.scale:
+            return self.unit
+        from fibsem.utils import _get_display_unit
+
+        return _get_display_unit(self.scale, self.unit)
+
+    @property
+    def shown_range(self) -> Optional[Tuple[float, float]]:
+        """The limits in shown units, lowest first; None for no finite limits.
+        Unscaled, they stay as declared, so an int field keeps int bounds."""
+        limits = self.limits
+        if limits is None or not (
+            math.isfinite(limits.min) and math.isfinite(limits.max)
+        ):
+            return None
+        if not self.scale:
+            return (limits.min, limits.max)
+        low, high = sorted((limits.min * self.scale, limits.max * self.scale))
+        return (low, high)
+
+    def with_reported(self, reported: Any, part: Optional[str] = None) -> "FieldSpec":
+        """This field with what an instrument reports (a ``ParameterMetadata``) in
+        place of its own limits and choices. Unbounded limits (a driver that doesn't
+        know its range) keep the declared ones. ``part`` picks one field's limits
+        when they are given per field (``"x"`` of a shift)."""
+        limits = reported.limits
+        if isinstance(limits, Mapping):
+            limits = limits.get(part)
+        changes: Dict[str, Any] = {}
+        if (
+            isinstance(limits, RangeLimit)
+            and math.isfinite(limits.min)
+            and math.isfinite(limits.max)
+        ):
+            changes["limits"] = limits
+        if reported.choices is not None:
+            changes["choices"] = tuple(reported.choices)
+        return replace(self, **changes) if changes else self
+
+
+def field_specs(struct_cls: Type[Any]) -> Dict[str, FieldSpec]:
+    """Each field of a dataclass as a ``FieldSpec``, in declaration order.
+
+    A field bound to a beam parameter (``microscope_parameter``) takes the beam's
+    unit and display for what it leaves out, keeping its own label and placement,
+    so a milling current reads like the beam panel's current.
+    """
+    types = _field_types(struct_cls)
+    specs: Dict[str, FieldSpec] = {}
+    for f in fields(struct_cls):
+        declared = dict(f.metadata)
+        _warn_unknown_metadata_keys(struct_cls, f.name, declared)
+        known = {key: declared[key] for key in FIELD_METADATA_KEYS if key in declared}
+        display = known.pop("display", None) or Display()
+        name = known.get("microscope_parameter")
+        parameter = declared_beam_parameter(name)
+        if parameter is not None:
+            known.setdefault("unit", parameter.unit)
+            display = _fill_display(display, parameter.display)
+        if known.get("choices") is not None:
+            known["choices"] = tuple(known["choices"])
+        specs[f.name] = FieldSpec(
+            name=f.name,
+            type=types.get(f.name),
+            display=display,
+            instrument_choices=bool(name)
+            and known.get("choices") is None
+            and not (parameter is not None and parameter.limits is not None),
+            **known,
+        )
+    return specs
+
+
+def flagged_fields(struct_cls: Type[Any], flag: str) -> Tuple[str, ...]:
+    """The names of the fields whose ``Display`` sets ``flag`` ("advanced" or
+    "hidden"), in declaration order."""
+    return tuple(
+        name
+        for name, spec in field_specs(struct_cls).items()
+        if getattr(spec.display, flag)
+    )
+
+
+def _fill_display(own: Display, beam: Optional[Display]) -> Display:
+    """``own`` with the beam's scale, unit, step and decimals where it gives none.
+    The label and the placement (advanced, hidden) stay the field's: it names the
+    value in its own context."""
+    if beam is None:
+        return own
+    return replace(
+        own,
+        scale=own.scale if own.scale is not None else beam.scale,
+        unit=own.unit if own.unit is not None else beam.unit,
+        step=own.step if own.step is not None else beam.step,
+        decimals=own.decimals if own.decimals is not None else beam.decimals,
+    )
 
 
 _warned_metadata_keys: set = set()
@@ -286,7 +354,7 @@ def _warn_unknown_metadata_keys(
     (class, field, key) because form metadata is re-read on every rebuild.
     """
     for key in metadata:
-        if key in DEFAULT_FIELD_METADATA:
+        if key in FIELD_METADATA_KEYS:
             continue
         marker = (struct_cls.__qualname__, field_name, key)
         if marker in _warned_metadata_keys:
@@ -295,88 +363,26 @@ def _warn_unknown_metadata_keys(
         replacement = RENAMED_METADATA_KEYS.get(key)
         if replacement is not None:
             logging.warning(
-                f"{struct_cls.__name__}.{field_name} declares metadata key {key!r}, which was "
-                f"renamed to {replacement!r} and is no longer read. The field will render "
+                f"{struct_cls.__name__}.{field_name} declares metadata key {key!r}, which "
+                f"is no longer read; declare {replacement} instead. The field will render "
                 f"without it until the declaration is updated."
             )
         else:
             logging.warning(
                 f"{struct_cls.__name__}.{field_name} declares metadata key {key!r}, which no "
-                f"form reads. Known keys: {', '.join(sorted(DEFAULT_FIELD_METADATA))}."
+                f"form reads. Known keys: {', '.join(sorted(FIELD_METADATA_KEYS))}."
             )
 
 
-def get_fields_with_metadata(struct_cls: Type[Any]) -> Dict[str, Dict[str, Any]]:
-    """Return dataclass fields with metadata, filling any missing keys with defaults."""
-    # Prefer a struct-level DEFAULT_METADATA if provided, layering on top of the
-    # module-wide defaults so any missing keys are still populated.
-    default_metadata = {
-        **DEFAULT_FIELD_METADATA,
-        **getattr(struct_cls, "DEFAULT_METADATA", {}),
-    }
-    field_metadata: Dict[str, Dict[str, Any]] = {}
-    annotations = _field_types(struct_cls)
-    for f in fields(struct_cls):
-        declared = dict(f.metadata)
-        _warn_unknown_metadata_keys(struct_cls, f.name, declared)
-        merged_metadata = {
-            **default_metadata,
-            **_beam_parameter_display(declared.get("microscope_parameter")),
-            **declared,
-        }
-        field_metadata[f.name] = _fill_flat_keys(
-            merged_metadata, annotations.get(f.name)
-        )
-    return field_metadata
-
-
-def _fill_flat_keys(metadata: Dict[str, Any], annotation: Any) -> Dict[str, Any]:
-    """The flat keys the forms read, filled from the Parameter vocabulary: the
-    display's label, scale and step, the doc as the tooltip, the choices as items,
-    and the SI limits shown through the scale as minimum and maximum. A field bound
-    to a microscope parameter that has no range takes its items from the
-    microscope ("dynamic"), and a field declaring no type takes its annotation's.
-    """
-    display = metadata.get("display")
-    if display is not None:
-        metadata.update(display.as_field_metadata(metadata.get("unit")))
-    if metadata.get("doc") is not None:
-        metadata["tooltip"] = metadata["doc"]
-    if metadata.get("choices") is not None:
-        metadata["items"] = list(metadata["choices"])
-    limits = metadata.get("limits")
-    if limits is not None:
-        # unscaled, the limits stay as declared: an int field keeps int bounds
-        scale = metadata.get("scale")
-        if scale and metadata.get("dimensions"):
-            scale = scale ** metadata["dimensions"]
-        bounds = (limits.min, limits.max)
-        if scale:
-            bounds = (limits.min * scale, limits.max * scale)
-        metadata["minimum"], metadata["maximum"] = sorted(bounds)
-    name = metadata.get("microscope_parameter")
-    if name and metadata.get("items") is None and not _beam_parameter_has_range(name):
-        metadata["items"] = "dynamic"
-    # only for a field in the new vocabulary, which drops a type its annotation
-    # already says; an older declaration with no type renders as it always has
-    declares = any(metadata.get(key) is not None for key in _FILLS)
-    if declares and metadata.get("type") is None and annotation is not None:
-        metadata["type"] = annotation
-    return metadata
-
-
 def _field_types(struct_cls: Type[Any]) -> Dict[str, Any]:
-    """Each field's type, Optional unwrapped, where it is a plain class (float, an
-    Enum, Point); the others are left out. A hint that doesn't resolve (a name
-    imported only for type checking) is left out too."""
-    import typing
-
+    """Each field's annotation, resolved: a string annotation is evaluated in the
+    module of the class that declared it, since an inherited field's names are the
+    base class's. One that doesn't resolve (a name imported only for type checking)
+    is left out."""
     found: Dict[str, Any] = {}
     for f in fields(struct_cls):
         hint = f.type
         if isinstance(hint, str):
-            # resolved where it was written: an inherited field's names are those
-            # of the base class's module, not the subclass's
             owner = next(
                 (
                     c
@@ -390,42 +396,19 @@ def _field_types(struct_cls: Type[Any]) -> Dict[str, Any]:
                 hint = eval(hint, dict(vars(module)) if module else {})  # noqa: S307
             except Exception:
                 continue
-        if typing.get_origin(hint) is Union:
-            args = [a for a in typing.get_args(hint) if a is not type(None)]
-            hint = args[0] if len(args) == 1 else None
-        if isinstance(hint, type):
-            found[f.name] = hint
+        found[f.name] = hint
     return found
 
 
-def _beam_parameter_has_range(name: str) -> bool:
-    """Whether the beam declares ``name`` with limits: a number set within a range
-    (hfw, dwell time), rather than one picked from the instrument's choices."""
-    from fibsem.devices.beam import Beam
-    from fibsem.devices.core import Parameter
-
-    parameter = getattr(Beam, name, None)
-    return isinstance(parameter, Parameter) and parameter.limits is not None
-
-
-def _beam_parameter_display(name: Optional[str]) -> Dict[str, Any]:
-    """How the beam shows its parameter ``name``, for a field bound to it: the unit,
-    scale, step and decimals a field leaves out are the beam's, so a milling current
-    reads like the beam panel's current. Empty for a name the beam doesn't declare.
-    """
+def declared_beam_parameter(name: Optional[str]) -> Any:
+    """The beam's declared Parameter ``name``, or None for a name it doesn't declare."""
     if not name:
-        return {}
+        return None
     from fibsem.devices.beam import Beam
     from fibsem.devices.core import Parameter
 
     parameter = getattr(Beam, name, None)
-    if not isinstance(parameter, Parameter) or parameter.display is None:
-        return {}
-    metadata = parameter.display.as_field_metadata(parameter.unit)
-    # the field names it in its own context, and says where its form shows it
-    metadata.pop("label", None)
-    metadata.pop("advanced", None)
-    return metadata
+    return parameter if isinstance(parameter, Parameter) else None
 
 
 class Resolution(NamedTuple):
@@ -2261,19 +2244,14 @@ class FibsemMillingSettings:
         return milling_settings
 
     @property
-    def field_metadata(self) -> Dict[str, Dict[str, Any]]:
-        """Return dataclass fields with metadata, filling any missing keys with defaults."""
-        return get_fields_with_metadata(self.__class__)
+    def field_specs(self) -> Dict[str, FieldSpec]:
+        """Each field as a form reads it."""
+        return field_specs(self.__class__)
 
     @property
     def advanced_attributes(self) -> Set[str]:
         """Return a set of advanced attribute names."""
-        fields_with_metadata = self.field_metadata
-        return {
-            field_name
-            for field_name, metadata in fields_with_metadata.items()
-            if metadata.get("advanced", False)
-        }
+        return set(flagged_fields(self.__class__, "advanced"))
 
     def summary(self) -> str:
         from fibsem.utils import format_value

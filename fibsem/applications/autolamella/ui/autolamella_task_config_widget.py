@@ -8,16 +8,15 @@ This form used to read raw ``dataclasses.fields(...).metadata`` and understood
 four keys, so most of the vocabulary was simply unavailable to it: an int field
 got the full 32-bit range because nothing could say otherwise, floats got Qt's
 defaults, and there was no way to mark a field advanced or hidden. Going through
-``config.field_metadata`` means a task config now declares those the same way a
+``config.field_specs`` means a task config now declares those the same way a
 pattern does.
 
 The container stays separate from the milling ones on purpose: it has milling
 sub-configs and reference imaging to show, and no type selector.
 """
 
-import logging
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, get_type_hints
+from typing import List, Optional
 
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
@@ -31,35 +30,16 @@ from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.ui.widgets.custom_widgets import TitledPanel, align_form
 from fibsem.ui.widgets.form_builder import Control, FormDefaults, build_control
 
-# What this form falls back to for keys a field does not declare. These are the
+# What this form falls back to for what a field does not declare. These are the
 # bounds and precision it already had hardcoded; passing them keeps the form
-# looking the same, so declaring a real `minimum` is a visible change rather
-# than a side effect of moving onto the shared builder.
+# looking the same, so declaring real `limits` is a visible change rather than a
+# side effect of moving onto the shared builder.
 TASK_FORM_DEFAULTS = FormDefaults(
     float_range=(-1e10, 1e10),
     int_range=(-2147483648, 2147483647),
     step=1.0,
     decimals=2,
 )
-
-
-def resolve_field_types(config: Any) -> Dict[str, Any]:
-    """Resolve a dataclass's field annotations to concrete types.
-
-    Task configs that use ``from __future__ import annotations`` store their
-    field annotations as strings (e.g. ``'float'``), so
-    ``dataclasses.fields(...).type`` is a string, not a type. The builder
-    dispatches on the real type, and a string matches nothing -- the field would
-    fall through to the read-only display.
-    """
-    try:
-        return get_type_hints(type(config))
-    except Exception as exc:
-        logging.warning(
-            f"Could not resolve type hints for {type(config).__name__}: {exc}. "
-            "Falling back to raw field annotations."
-        )
-        return {}
 
 
 @dataclass
@@ -80,27 +60,23 @@ def build_parameter_rows(
     Shared by both containers in this module, which each carried their own copy
     of this loop -- and had already drifted: only one of them honoured `label`.
     """
-    type_hints = resolve_field_types(config)
-    metadata = config.field_metadata
+    specs = config.field_specs
     rows: List[_Row] = []
 
     for name in config.parameters:
-        m = metadata.get(name, {})
-        if m.get("hidden", False):
+        spec = specs[name]
+        if spec.hidden:
             continue
 
         control = build_control(
-            m,
-            getattr(config, name),
-            annotation=type_hints.get(name),
-            defaults=TASK_FORM_DEFAULTS,
+            spec, getattr(config, name), defaults=TASK_FORM_DEFAULTS
         )
         if control is None:
             continue
 
-        label = QLabel(m.get("label") or name.replace("_", " ").title())
-        if m.get("tooltip"):
-            label.setToolTip(m["tooltip"])
+        label = QLabel(spec.label or name.replace("_", " ").title())
+        if spec.doc:
+            label.setToolTip(spec.doc)
 
         row_index = len(rows)
         grid.addWidget(label, row_index, 0)
@@ -110,7 +86,7 @@ def build_parameter_rows(
                 label=label,
                 control=control,
                 field=name,
-                advanced=m.get("advanced", False),
+                advanced=spec.advanced,
             )
         )
 

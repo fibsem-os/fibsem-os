@@ -91,7 +91,7 @@ from fibsem.structures import (
     FibsemPolygonSettings,
     FibsemRectangleSettings,
     MillingState,
-    get_fields_with_metadata,
+    field_specs,
 )
 from fibsem.util.timestamps import now_iso
 
@@ -280,9 +280,9 @@ class Milling(Service):
             return {}
         beam = self.beam(channel)
         available: Dict[str, ParameterMetadata] = {}
-        fields = get_fields_with_metadata(FibsemMillingSettings)
+        specs = field_specs(FibsemMillingSettings)
         for name in self.setting_names:
-            beam_parameter = fields[name].get("microscope_parameter")
+            beam_parameter = specs[name].microscope_parameter
             if beam_parameter not in beam.parameters:
                 available[name] = self._metadata_of(name)
             elif _settable(beam, beam_parameter):

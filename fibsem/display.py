@@ -35,26 +35,6 @@ class Display:
     # never shown in a form: set by code, not by hand (a pattern's drawn shapes)
     hidden: bool = False
 
-    def as_field_metadata(self, unit: Optional[str] = None) -> Dict[str, Any]:
-        """The hint as ``field_meta`` keys, for a parameter in ``unit`` (its SI unit).
-
-        Only the keys this hint sets, so they can be laid over a form's defaults.
-        """
-        keys = {
-            "label": self.label,
-            "scale": self.scale,
-            "unit": unit,
-            "display_unit": self.unit,
-            "step": self.step,
-            "decimals": self.decimals,
-        }
-        metadata = {key: value for key, value in keys.items() if value is not None}
-        if self.advanced:
-            metadata["advanced"] = True
-        if self.hidden:
-            metadata["hidden"] = True
-        return metadata
-
 
 # A composite value (a Point, a stage position) takes one hint per field.
 DisplayHint = Union[Display, Mapping[str, Display]]
