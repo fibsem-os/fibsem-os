@@ -7,6 +7,7 @@ methods; this covers the service called directly.
 
 import os
 
+import numpy as np
 import pytest
 
 from fibsem import utils
@@ -64,7 +65,7 @@ def test_its_plain_moves_check_the_stage_limits(microscope):
 
 def test_a_move_called_on_it_is_recorded_once_under_its_name(microscope):
     moves = []
-    microscope.record_signal.connect(
+    microscope.session.record_signal.connect(
         lambda kind, payload: moves.append(payload) if kind == "stage_moved" else None
     )
 
@@ -136,3 +137,77 @@ def test_without_the_service_the_moves_say_there_is_no_stage(microscope):
     with pytest.raises(ValueError, match="no stage"):
         microscope.move_to_orientation("SEM")
     assert not microscope.supports_vertical_move(BeamType.ION)
+
+
+# -- the milling angle at any rotation (FIB-1392), and the geometry read ---------------
+
+
+def _formula(t_deg, pre_tilt=35.0, column_tilt=52.0, side=1):
+    # The tilt-plane formula: the pre-tilt leans the other way half a turn round.
+    return 90.0 - column_tilt + t_deg - side * pre_tilt
+
+
+@pytest.mark.parametrize("t_deg", [-30.0, 0.0, 12.0, 35.0, 60.0])
+def test_the_milling_angle_turns_with_the_shuttle(microscope, t_deg):
+    movement = microscope.stage_movement
+    at = lambda r_deg: movement.current_milling_angle(  # noqa: E731
+        FibsemStagePosition(r=np.radians(r_deg), t=np.radians(t_deg))
+    )
+    assert at(0) == pytest.approx(_formula(t_deg))
+    assert at(180) == pytest.approx(_formula(t_deg, side=-1))
+
+
+def test_the_fib_pose_is_normal_to_the_beam_and_near_it_is_not(microscope):
+    movement = microscope.stage_movement
+    fib = movement.orientation("FIB")
+    assert movement.current_milling_angle(fib) == pytest.approx(90.0)
+    # Still classified FIB, but tilted 3 degrees off: the old answer was a flat 90.
+    off = FibsemStagePosition(r=fib.r, t=fib.t + np.radians(3))
+    assert movement.stage_orientation(off) == "FIB"
+    assert movement.current_milling_angle(off) == pytest.approx(93.0)
+
+
+@pytest.mark.parametrize("rotation", [0.0, 90.0, 180.0])
+def test_the_milling_angle_move_reaches_it_at_any_rotation(microscope, rotation):
+    movement = microscope.stage_movement
+    assert movement.move_to_milling_angle(15.0, rotation=rotation) is True
+    assert movement.current_milling_angle() == pytest.approx(15.0, abs=0.1)
+    position = microscope.get_stage_position()
+    assert np.degrees(position.r) % 360 == pytest.approx(rotation)
+
+
+def test_the_geometry_read(microscope):
+    movement = microscope.stage_movement
+    geometry = movement.geometry()
+    assert geometry["column_tilt_deg"] == {"electron": 0.0, "ion": 52.0}
+    assert geometry["shuttle_pre_tilt_deg"] == 35.0
+    assert set(geometry["orientations"]) >= {"SEM", "FIB", "MILLING"}
+    assert geometry["orientation"] == movement.stage_orientation()
+    assert geometry["milling_angle"]["current_deg"] == pytest.approx(
+        movement.current_milling_angle()
+    )
+    # Raw +z at the stage's tilt, in the chamber (z up).
+    t = microscope.get_stage_position().t
+    assert geometry["stage_plus_z_in_chamber"] == pytest.approx(
+        [0.0, -np.sin(t), np.cos(t)]
+    )
+    # Each view's answer is what stable_move would do: its projection, not config text.
+    for beam_type in (BeamType.ELECTRON, BeamType.ION):
+        view = geometry["views"][beam_type.name]
+        base = FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=0.0, t=0.0)
+        moved = movement.project_stable_move(0.0, 1e-6, beam_type, base)
+        assert view["stable_move_plus_dy_1um"]["y"] == pytest.approx(moved.y)
+        assert view["stable_move_plus_dy_1um"]["z"] == pytest.approx(moved.z)
+        assert view["stage_plus_x_in_image"] == "+x"
+        assert view["scan_rotation_handled"] is True
+    assert set(geometry["devices"]) == set(microscope.system.stage.devices)
+
+
+def test_the_geometry_says_a_half_turn_of_scan_rotation_flips_x(microscope):
+    microscope.beams[BeamType.ION].scan_rotation.set_value(np.pi)
+    view = microscope.stage_movement.geometry()["views"]["ION"]
+    assert view["stage_plus_x_in_image"] == "-x"
+    assert view["scan_rotation_handled"] is True
+    microscope.beams[BeamType.ION].scan_rotation.set_value(np.radians(30))
+    view = microscope.stage_movement.geometry()["views"]["ION"]
+    assert view["scan_rotation_handled"] is False

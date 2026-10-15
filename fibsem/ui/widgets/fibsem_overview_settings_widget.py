@@ -236,6 +236,12 @@ class FibsemOverviewSettingsWidget(QWidget):
         self.spin_scan_interlacing = self._integration_box("scan_interlacing")
         self.spin_frame_integration = self._integration_box("frame_integration")
         self.check_drift_correction = QCheckBox()
+        self.check_register_tiles = QCheckBox()
+        self.check_register_tiles.setToolTip(
+            "Experimental. Place each tile where it matches its neighbours rather "
+            "than where the grid planned it. Only applied when the tiles match the "
+            "stage steps; otherwise the overview is left as planned."
+        )
 
         form = self._form()
         form.addRow("Beam", self.combo_beam)
@@ -253,6 +259,7 @@ class FibsemOverviewSettingsWidget(QWidget):
             (QLabel(_META["scan_interlacing"]["label"]), self.spin_scan_interlacing),
             (QLabel(_META["frame_integration"]["label"]), self.spin_frame_integration),
             (QLabel("Drift correction"), self.check_drift_correction),
+            (QLabel("Align tiles"), self.check_register_tiles),
         ]
         self._advanced_fields = [field for _, field in self._advanced_rows]
         self._advanced_labels = [label for label, _ in self._advanced_rows]
@@ -509,6 +516,7 @@ class FibsemOverviewSettingsWidget(QWidget):
             autofocus_mode=self.combo_autofocus.value(),
             autocontrast_mode=autocontrast_mode,
             tile_order=self.grid.tile_order,
+            register_tiles=self.check_register_tiles.isChecked(),
         )
 
     def update_from_settings(self, settings: OverviewAcquisitionSettings) -> None:
@@ -524,6 +532,7 @@ class FibsemOverviewSettingsWidget(QWidget):
             self.spin_scan_interlacing,
             self.spin_frame_integration,
             self.check_drift_correction,
+            self.check_register_tiles,
             self.check_focus_stack,
             self.spin_focus_steps,
             self.check_focus_autofocus,
@@ -544,6 +553,7 @@ class FibsemOverviewSettingsWidget(QWidget):
             self.spin_scan_interlacing.setValue(image.scan_interlacing or 1)
             self.spin_frame_integration.setValue(image.frame_integration or 1)
             self.check_drift_correction.setChecked(bool(image.drift_correction))
+            self.check_register_tiles.setChecked(settings.register_tiles)
             self.check_focus_stack.setChecked(settings.focus_stack_settings.enabled)
             self.spin_focus_steps.setValue(settings.focus_stack_settings.n_steps)
             self.check_focus_autofocus.setChecked(

@@ -1406,6 +1406,11 @@ class OverviewAcquisitionSettings:
             every tile. Disabled tiles are skipped but keep their place: the mosaic is
             still the full grid size and acquired tiles land at the same canvas
             coordinates they would have in a dense overview.
+        register_tiles: Experimental. Place each tile where its picture says it is,
+            measured against its neighbours, rather than where the grid planned it.
+            Only when the tiles match the stage steps (the layout check raises no
+            warning) and at least three pairs match; otherwise the planned mosaic is
+            kept. Size, centre and pixel size are unchanged either way.
         autofocus_mode: *When* to focus during the traversal (NONE, ONCE, EACH_ROW,
             EACH_TILE).
         autocontrast_mode: *When* to set the contrast (NONE, ONCE at the grid centre,
@@ -1433,6 +1438,7 @@ class OverviewAcquisitionSettings:
     autocontrast_mode: AutoContrastMode = AutoContrastMode.NONE
     tile_order: TileOrderStrategy = TileOrderStrategy.TYPEWRITER
     tile_mask: Optional[List[List[bool]]] = None
+    register_tiles: bool = False
 
     @property
     def n_enabled_tiles(self) -> int:
@@ -1549,6 +1555,7 @@ class OverviewAcquisitionSettings:
             tile_mask=None
             if mask is None
             else [[bool(v) for v in row] for row in mask],
+            register_tiles=bool(d.get("register_tiles", False)),
         )
 
     def to_dict(self) -> dict:
@@ -1567,6 +1574,7 @@ class OverviewAcquisitionSettings:
             "tile_mask": None
             if self.tile_mask is None
             else [[bool(v) for v in row] for row in self.tile_mask],
+            "register_tiles": self.register_tiles,
         }
 
 
@@ -4071,7 +4079,7 @@ class FibsemExperimentRef:
     -- *what produced this image* -- and a reader wants "experiment X, lamella Y, task
     Z" in one place rather than assembled from two.
 
-    That only works because every image gets its **own copy**: `_set_additional_metadata`
+    That only works because every image gets its **own copy**: `Session.stamp`
     deepcopies this. It used to be shared by reference, which was harmless while
     nothing mutated it, and would have silently rewritten the item on every
     already-acquired image the moment one did.

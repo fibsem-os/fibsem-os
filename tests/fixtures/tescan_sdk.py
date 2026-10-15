@@ -436,7 +436,7 @@ def image_at(
         microscope.stage,
     )
     image.metadata.image_settings.beam_type = beam_type
-    microscope._set_additional_metadata(image)
+    microscope.session.stamp(image)
     return image
 
 

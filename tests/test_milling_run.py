@@ -270,7 +270,7 @@ def test_a_stop_event_the_beam_ignores_gives_up(scripted):
 
 def _milling_events(microscope):
     events = []
-    microscope.record_signal.connect(
+    microscope.session.record_signal.connect(
         lambda kind, payload: events.append(payload) if kind == "milling" else None
     )
     return events
