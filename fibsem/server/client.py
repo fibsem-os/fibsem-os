@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Tuple
 import numpy as np
 import requests
 
+from fibsem.cancellation import OperationCancelledError
 from fibsem.devices.wire import NPY_MEDIA_TYPE, to_wire
 from fibsem.server.images import TIFF_MEDIA_TYPE
 from fibsem.structures import (
@@ -574,8 +575,11 @@ class FibsemClient:
         return self.wait_for_run(MILLING, run["run_id"], timeout=timeout)
 
     def wait_for_run(self, service: str, run_id: str, timeout: float = 3600) -> Any:
-        """Wait for a long command's run to end and return its result. A failed
-        run raises RuntimeError with its error; TimeoutError past *timeout*."""
+        """Wait for a long command's run to end and return its result. A run
+        that raised raises again: the exception its error names (a stop as
+        OperationCancelledError, a hardware refusal as DeviceFault), else
+        RuntimeError with its error; TimeoutError past *timeout*. A run stopped
+        without raising (a mill answering ``cancelled``) returns that answer."""
         deadline = time.monotonic() + timeout
         while True:
             left = deadline - time.monotonic()
@@ -590,13 +594,19 @@ class FibsemClient:
                 raise RuntimeError(f"{service} run {run_id} was replaced by another")
             if run["state"] == "running":
                 continue
-            if run["state"] == "failed":
-                error = run.get("error") or {}
-                raise RuntimeError(
-                    f"{service}.{run['command']} failed: "
-                    f"{error.get('error_type')}: {error.get('message')}"
-                )
-            return run["result"]
+            error = run.get("error")
+            if error is None:
+                return run["result"]
+            # It raised: a stop, or a failure.
+            from fibsem.drivers.remote.devices import error_from
+
+            raised = error_from(error)
+            if raised is None and run["state"] == "cancelled":
+                raised = OperationCancelledError(error.get("message"))
+            raise raised or RuntimeError(
+                f"{service}.{run['command']} failed: "
+                f"{error.get('error_type')}: {error.get('message')}"
+            )
 
     def start_milling(self) -> None:
         self._milling("start")

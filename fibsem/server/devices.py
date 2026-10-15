@@ -158,6 +158,13 @@ def unexpected(error: Exception, what: str) -> HTTPException:
     return HTTPException(500, detail)
 
 
+def answer_for_error(error: Exception, what: str) -> HTTPException:
+    """The answer to any error: a refusal for an expected one, else unexpected."""
+    if isinstance(error, tuple(ERROR_STATUS)):
+        return refusal(error, what)
+    return unexpected(error, what)
+
+
 def _choices_to_wire(choices: Any) -> Any:
     return None if choices is None else [to_wire(choice) for choice in choices]
 
@@ -398,10 +405,8 @@ def build_device_router(
             return call()
         except HTTPException:
             raise
-        except tuple(ERROR_STATUS) as error:
-            raise refusal(error, what) from None
         except Exception as error:
-            raise unexpected(error, what) from None
+            raise answer_for_error(error, what) from None
 
     @router.get(prefix, dependencies=list(read))
     def list_devices() -> Dict[str, Any]:
@@ -444,10 +449,8 @@ def build_device_router(
             except ParameterUnavailable:
                 unavailable.append(name)
                 continue
-            except tuple(ERROR_STATUS) as error:
-                raise refusal(error, f"{noun} {device}.{name}") from None
             except Exception as error:
-                raise unexpected(error, f"{noun} {device}.{name}") from None
+                raise answer_for_error(error, f"{noun} {device}.{name}") from None
             values[name] = to_wire(value)
         return {"values": jsonable_encoder(values), "unavailable": unavailable}
 
@@ -478,6 +481,22 @@ def build_device_router(
             )
         )
 
+    def shown(result: Any) -> Any:
+        """*result*, each image in it given to *on_image* first."""
+        if on_image is not None:
+            for image in _images_in(result):
+                on_image(image)
+        return result
+
+    def json_answer(result: Any, preview: bool) -> Any:
+        """A command's result as JSON. An image list, or with *preview* any
+        image, answers what an agent reads: a summary, its saved path and a
+        small JPEG (image_answer)."""
+        if (preview and is_image_result(result)) or is_image_list(result):
+            return image_answer(result)
+        # A structure with to_dict answers that (an autofocus result, its summary).
+        return jsonable_encoder(to_wire(result))
+
     @router.post(prefix + "/{device}/commands/{command}", dependencies=list(command))
     def call(
         request: Request, device: str, command: str, body: Dict[str, Any] = _NO_BODY
@@ -491,18 +510,13 @@ def build_device_router(
         check(d, "command", command, kwargs)
         if runs is not None and d.commands[command].long:
             return {"result": start_run(request, device, command, method, kwargs)}
-        result = run(lambda: method(**kwargs), what)
+        result = shown(run(lambda: method(**kwargs), what))
         headers = {}
-        if on_image is not None:
-            for image in _images_in(result):
-                on_image(image)
-        # "answer": "preview" asks for what an agent reads: any image as a
-        # summary, its saved path and a small JPEG (image_answer). Otherwise the
-        # data itself, for programs.
-        if (
-            body.get("answer") == "preview" and is_image_result(result)
-        ) or is_image_list(result):
-            return {"result": image_answer(result)}
+        # "answer": "preview" asks for what an agent reads. Otherwise the data
+        # itself, for programs.
+        preview = body.get("answer") == "preview"
+        if (preview and is_image_result(result)) or is_image_list(result):
+            return {"result": json_answer(result, preview)}
         if isinstance(result, FibsemImage):  # a beam's image: TIFF
             return Response(tiff_bytes(result), media_type=TIFF_MEDIA_TYPE)
         if (
@@ -522,28 +536,22 @@ def build_device_router(
             return Response(
                 buffer.getvalue(), media_type=NPY_MEDIA_TYPE, headers=headers
             )
-        # A structure with to_dict answers that (an autofocus result, its summary).
-        return {"result": jsonable_encoder(to_wire(result))}
+        return {"result": json_answer(result, preview)}
 
     def start_run(request, device, command, method, kwargs) -> Dict[str, Any]:
         what = f"{noun} {device}.{command}"
 
-        def answer(result: Any) -> Any:
-            if on_image is not None:
-                for image in _images_in(result):
-                    on_image(image)
-            if is_image_result(result) or is_image_list(result):
-                return image_answer(result)
-            return jsonable_encoder(to_wire(result))
-
         def failure(error: BaseException) -> Dict[str, Any]:
-            if isinstance(error, tuple(ERROR_STATUS)):
-                return refusal(error, what).detail
-            return unexpected(error, what).detail
+            return answer_for_error(error, what).detail
 
         release = adopt_control(request) if adopt_control is not None else None
         started = runs.start(
-            device, command, lambda: method(**kwargs), answer, failure, release
+            device,
+            command,
+            lambda: method(**kwargs),
+            lambda result: json_answer(shown(result), preview=True),
+            failure,
+            release,
         )
         return started.to_dict()
 

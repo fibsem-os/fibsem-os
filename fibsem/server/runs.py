@@ -21,14 +21,13 @@ import uuid
 from dataclasses import asdict, dataclass
 from typing import Any, Callable, Dict, Optional
 
+from fibsem.cancellation import CANCELLED, FAILED, ended_by
 from fibsem.util.timestamps import now_iso
 
 __all__ = ["Run", "Runs", "RUNNING", "DONE", "FAILED", "CANCELLED"]
 
 RUNNING = "running"
 DONE = "done"
-FAILED = "failed"
-CANCELLED = "cancelled"
 
 
 @dataclass
@@ -113,7 +112,7 @@ class Runs:
                     state = CANCELLED
             except BaseException as exc:  # noqa: BLE001 - the run's answer says it
                 error = failure(exc)
-                state = CANCELLED if error.get("status") == CANCELLED else FAILED
+                state = ended_by(exc)["status"]
         finally:
             if release is not None:
                 release()

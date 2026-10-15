@@ -17,6 +17,8 @@ pytest.importorskip("httpx")  # TestClient transport
 from fastapi.testclient import TestClient  # noqa: E402
 
 from fibsem import utils  # noqa: E402
+from fibsem.cancellation import OperationCancelledError  # noqa: E402
+from fibsem.devices.core import DeviceFault  # noqa: E402
 from fibsem.imaging.spot import SpotBurnSettings  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
 from fibsem.server.client import FibsemClient  # noqa: E402
@@ -178,12 +180,34 @@ class _Session:
         return lambda url, timeout=None, **kwargs: call(url, **kwargs)
 
 
-def test_the_client_waits_for_the_run(client, held):
+def _fibsem_client(client):
     fibsem_client = FibsemClient.__new__(FibsemClient)
     fibsem_client.base_url = ""
     fibsem_client._session = _Session(client)
+    return fibsem_client
+
+
+def test_the_client_waits_for_the_run(client, held):
+    fibsem_client = _fibsem_client(client)
     held["go"].set()
     run = fibsem_client.call_service_command("spot_burn", "run", settings=SETTINGS)
     assert fibsem_client.wait_for_run("spot_burn", run["run_id"], timeout=10) == (
         "finished"
     )
+
+
+@pytest.mark.parametrize(
+    "outcome, raised",
+    [
+        (OperationCancelledError("stopped"), OperationCancelledError),
+        (DeviceFault("the beam would not blank"), DeviceFault),
+        (KeyError("nothing here"), RuntimeError),
+    ],
+)
+def test_the_client_raises_what_the_run_raised(client, held, outcome, raised):
+    fibsem_client = _fibsem_client(client)
+    held["outcome"] = outcome
+    held["go"].set()
+    run = fibsem_client.call_service_command("spot_burn", "run", settings=SETTINGS)
+    with pytest.raises(raised):
+        fibsem_client.wait_for_run("spot_burn", run["run_id"], timeout=10)
