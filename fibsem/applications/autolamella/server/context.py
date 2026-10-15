@@ -331,6 +331,85 @@ def _attendance_line(task_protocol: Any, task_name: str) -> str:
     return att.line if att is not None else ""
 
 
+# The questions an answer may carry a value for (see ``answer_prompt``).
+_VALUE_TYPES = ("PickPOI", "EditAlignmentArea", "ConfirmDetection", "RunSpotBurn")
+
+
+def _parse_detection_value(request, value: Dict[str, Any], refuse):
+    """A ConfirmDetection value as ``{name: Point}`` in source-image pixels.
+
+    Only features the detection has may move, each inside the image. Returns
+    ``(parsed, None)`` or ``(None, refusal)``.
+    """
+    from fibsem.structures import Point
+
+    detection = getattr(request, "detection", None)
+    names = [f.name for f in getattr(detection, "features", [])]
+    features = value.get("features")
+    if not isinstance(features, list) or not features:
+        return None, refuse(
+            'a ConfirmDetection value needs "features": [{"name", "px": {"x", "y"}}], '
+            "source-image pixels, origin top-left, +y down."
+        )
+    image = getattr(detection, "image", None)
+    shape = getattr(getattr(image, "data", image), "shape", None)
+    moved: Dict[str, Point] = {}
+    for entry in features:
+        name = entry.get("name") if isinstance(entry, dict) else None
+        if name not in names:
+            return None, refuse(
+                f"no detected feature named {name!r}; the features are {names}."
+            )
+        if name in moved:
+            return None, refuse(f"feature {name!r} is given twice.")
+        try:
+            px = Point.from_dict(entry["px"])
+        except Exception:
+            return None, refuse(
+                f"feature {name!r} needs px: {{x, y}}, numbers in source-image pixels."
+            )
+        if shape is not None and len(shape) >= 2:
+            height, width = shape[0], shape[1]
+            if not (0 <= px.x < width and 0 <= px.y < height):
+                return None, refuse(
+                    f"feature {name!r} at ({px.x:.1f}, {px.y:.1f}) px is outside "
+                    f"the {width} x {height} px image."
+                )
+        moved[name] = px
+    return moved, None
+
+
+def _parse_spot_burn_value(value: Dict[str, Any], refuse):
+    """A RunSpotBurn value as a list of Points, 0-1 fractions of the frame.
+
+    Returns ``(parsed, None)`` or ``(None, refusal)``.
+    """
+    from fibsem.services.spot_burn import in_frame
+    from fibsem.structures import Point
+
+    points = value.get("points")
+    if not isinstance(points, list):
+        return None, refuse(
+            'a RunSpotBurn value needs "points": [{"x", "y"}], fractions of '
+            "the frame, origin top-left, +y down."
+        )
+    parsed: List[Point] = []
+    for entry in points:
+        try:
+            pt = Point.from_dict(entry)
+        except Exception:
+            return None, refuse(
+                "each spot burn point needs numeric x, y: fractions of the frame."
+            )
+        if not in_frame(pt):
+            return None, refuse(
+                f"point ({pt.x:.3f}, {pt.y:.3f}) is outside the frame: x and y "
+                "are fractions, 0 to 1."
+            )
+        parsed.append(pt)
+    return parsed, None
+
+
 class AutoLamellaAppContext:
     """Read-only facade over a running (or resting) AutoLamella session."""
 
@@ -2273,7 +2352,10 @@ class AutoLamellaAppContext:
         current = self._peek_current(responder, payload["type"], question_id)
         if current is not None:
             payload["current"] = current
-        if payload["type"] == "EditAlignmentArea" and payload.get("image") is None:
+        if (
+            payload["type"] in ("EditAlignmentArea", "RunSpotBurn")
+            and payload.get("image") is None
+        ):
             # The frame the area sits on is display state, not workflow state:
             # attach it here, where the display cache already lives, rather
             # than having the workflow reach into the widget to build the
@@ -2300,15 +2382,16 @@ class AutoLamellaAppContext:
         """The live half of the question — where the marker IS, not where it
         started.
 
-        PickPOI and EditAlignmentArea are answered from widget state the
-        operator may still be adjusting; the frozen request only shows the
-        starting value. The peek marshals to the GUI thread, so it is skipped
+        PickPOI, EditAlignmentArea, ConfirmDetection and RunSpotBurn are
+        answered from widget state the operator may still be adjusting; the
+        frozen request only shows the starting value. The peek marshals to the GUI thread, so it is skipped
         entirely for question types with no live half, and degrades to absent
         (never an error — the question itself must still be visible) if the GUI
         is too busy to answer within 2 s or the prompt changed mid-peek.
         """
-        if request_type not in ("PickPOI", "EditAlignmentArea"):
+        if request_type not in _VALUE_TYPES:
             return None
+        from fibsem.applications.autolamella.proposals import features_to_dict
         from fibsem.applications.autolamella.server.events import to_plain
 
         try:
@@ -2318,6 +2401,12 @@ class AutoLamellaAppContext:
         if peeked_question_id != question_id or value is None:
             return None
         try:
+            if request_type == "ConfirmDetection":
+                # The same shape an answer's value takes.
+                features = [{"name": n, "px": px} for n, px in value.items()]
+                return {"features": to_plain(features_to_dict(features))}
+            if request_type == "RunSpotBurn":
+                return {"points": [to_plain(pt.to_dict()) for pt in value]}
             return to_plain(value.to_dict())
         except Exception:
             return None
@@ -2338,11 +2427,16 @@ class AutoLamellaAppContext:
         posting is gone — answered, withdrawn, or replaced — the result is
         ``stale`` and nothing was clicked.
 
-        ``value`` optionally carries adjusted geometry for the two questions
-        answered from live widget state: an alignment area
+        ``value`` optionally carries the edit the operator could make in the
+        widget the question is asked on: an alignment area
         (``{"left", "top", "width", "height"}``, fractions of the frame) for
-        ``EditAlignmentArea``, or a point (``{"x", "y"}``, metres in microscope
-        image coordinates, origin centre, +y up) for ``PickPOI``. The value is
+        ``EditAlignmentArea``; a point (``{"x", "y"}``, metres in microscope
+        image coordinates, origin centre, +y up) for ``PickPOI``; moved
+        features (``{"features": [{"name", "px": {"x", "y"}}]}``, source-image
+        pixels, only the named ones move) for ``ConfirmDetection``; the points
+        to burn (``{"points": [{"x", "y"}]}``, fractions of the frame, origin
+        top-left; current and exposure stay the protocol's) for
+        ``RunSpotBurn``. The value is
         validated here — in bounds, non-degenerate, the right shape for the
         pending question — and refused as ``invalid_value`` without clicking
         anything when it is not. A valid value is placed into the widget as if
@@ -2508,9 +2602,15 @@ class AutoLamellaAppContext:
                 )
             return point, None
 
+        if type_name == "ConfirmDetection":
+            return _parse_detection_value(request, value, _refuse)
+
+        if type_name == "RunSpotBurn":
+            return _parse_spot_burn_value(value, _refuse)
+
         return None, _refuse(
-            f"{type_name} answers cannot carry a value; "
-            "only EditAlignmentArea and PickPOI can."
+            f"{type_name} answers cannot carry a value; only EditAlignmentArea, "
+            "PickPOI, ConfirmDetection and RunSpotBurn can."
         )
 
     # --- events -----------------------------------------------------------------

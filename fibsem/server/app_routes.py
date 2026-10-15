@@ -513,7 +513,8 @@ def build_app_control_router(context: AppContext) -> APIRouter:
                     "error_type": "invalid_value",
                     "message": "value, when given, must be a JSON object: "
                     "{left, top, width, height} for EditAlignmentArea, "
-                    "{x, y} for PickPOI.",
+                    "{x, y} for PickPOI, {features: [...]} for "
+                    "ConfirmDetection, {points: [...]} for RunSpotBurn.",
                 },
             )
         result = context.answer_prompt(
@@ -690,7 +691,8 @@ def build_app_suggest_router(context: AppContext) -> APIRouter:
                     "error_type": "invalid_value",
                     "message": "value, when given, must be a JSON object: "
                     "{left, top, width, height} for EditAlignmentArea, "
-                    "{x, y} for PickPOI.",
+                    "{x, y} for PickPOI, {features: [...]} for "
+                    "ConfirmDetection, {points: [...]} for RunSpotBurn.",
                 },
             )
         suggest = getattr(context, "suggest_answer", None)

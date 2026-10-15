@@ -18,7 +18,9 @@ from fibsem.applications.autolamella.workflows.interaction import (
     EditAlignmentArea,
     PickPOI,
     RunMillingTask,
+    RunSpotBurn,
 )
+from fibsem.imaging.spot import SpotBurnSettings
 from fibsem.structures import FibsemImage, FibsemRectangle, Point
 
 
@@ -98,3 +100,76 @@ def test_run_milling_payload_tells_the_first_ask_from_a_re_ask():
     assert "accepts what was milled" in again["message"]
     json.dumps(first)
     json.dumps(again)
+
+
+def test_spot_burn_payload_carries_points_and_settings():
+    settings = SpotBurnSettings(
+        coordinates=[Point(0.25, 0.5)], milling_current=60e-12, exposure_time=5.0
+    )
+    payload = serialize_request(RunSpotBurn(settings=settings, message="Burn"))
+
+    assert payload["points"] == [{"x": 0.25, "y": 0.5}]
+    assert payload["milling_current"] == pytest.approx(60e-12)
+    assert payload["exposure_time"] == 5.0
+    assert payload["positive"] == "Run Spot Burn"
+    assert "fractions of the frame" in payload["coordinates"]
+    json.dumps(payload)
+
+
+def _refuse(message):
+    return {"invalid_value": message}
+
+
+def _detection():
+    from fibsem.detection.detection import DetectedFeatures, LamellaCentre
+
+    return DetectedFeatures(
+        features=[LamellaCentre()],
+        image=np.zeros((8, 10), dtype=np.uint8),
+        mask=np.zeros((8, 10), dtype=np.uint8),
+        rgb=np.zeros((8, 10, 3), dtype=np.uint8),
+        pixelsize=1e-9,
+    )
+
+
+def test_a_detection_value_moves_named_features_inside_the_image():
+    from fibsem.applications.autolamella.server.context import _parse_detection_value
+    from fibsem.applications.autolamella.workflows.interaction import (
+        ConfirmDetection,
+    )
+
+    request = ConfirmDetection(detection=_detection())
+    name = request.detection.features[0].name
+
+    moved, refusal = _parse_detection_value(
+        request, {"features": [{"name": name, "px": {"x": 9, "y": 7}}]}, _refuse
+    )
+    assert refusal is None and moved == {name: Point(9.0, 7.0)}
+
+    for bad in (
+        {"features": []},
+        {"features": [{"name": "Nope", "px": {"x": 1, "y": 1}}]},
+        {"features": [{"name": name, "px": {"x": 10, "y": 1}}]},  # x == width
+        {"features": [{"name": name, "px": {"x": 1}}]},
+        {"features": [{"name": name, "px": {"x": 1, "y": 1}}] * 2},
+    ):
+        parsed, refusal = _parse_detection_value(request, bad, _refuse)
+        assert parsed is None and "invalid_value" in refusal, bad
+
+
+def test_a_spot_burn_value_is_points_inside_the_frame():
+    from fibsem.applications.autolamella.server.context import _parse_spot_burn_value
+
+    points, refusal = _parse_spot_burn_value(
+        {"points": [{"x": 0, "y": 1}, {"x": 0.5, "y": 0.25}]}, _refuse
+    )
+    assert refusal is None and points == [Point(0.0, 1.0), Point(0.5, 0.25)]
+
+    for bad in (
+        {},
+        {"points": [{"x": 1.2, "y": 0.5}]},
+        {"points": [{"x": "a", "y": 0.5}]},
+        {"points": [{"x": float("nan"), "y": 0.5}]},
+    ):
+        parsed, refusal = _parse_spot_burn_value(bad, _refuse)
+        assert parsed is None and "invalid_value" in refusal, bad

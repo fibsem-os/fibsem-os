@@ -305,14 +305,18 @@ class SpotBurn(Service):
         )
 
 
+def in_frame(point: Point) -> bool:
+    """Whether *point* is inside the image: 0 to 1 on both axes."""
+    return 0 <= point.x <= 1 and 0 <= point.y <= 1
+
+
 def in_bounds(points: Sequence[Point]) -> Tuple[List[Point], List[Point]]:
     """The points inside the image (0 to 1 on both axes), and the ones dropped, with
     a warning: the instruments refuse a spot outside the scan field."""
     kept: List[Point] = []
     dropped: List[Point] = []
     for point in points:
-        inside = 0 <= point.x <= 1 and 0 <= point.y <= 1
-        (kept if inside else dropped).append(point)
+        (kept if in_frame(point) else dropped).append(point)
     if dropped:
         logging.warning(
             f"Skipping {len(dropped)} spot burn coordinate(s) outside image bounds "
