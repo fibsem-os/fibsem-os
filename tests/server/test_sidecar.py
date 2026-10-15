@@ -145,6 +145,18 @@ def test_set_service_parameter_sets_the_milling_angle(armed_sidecar):
         )
 
 
+def test_vertical_move_works_from_either_view(armed_sidecar):
+    """Coincidence from either beam: with the feature centred in the FIB, the
+    offset is measured in the SEM view (beam_type ELECTRON)."""
+    for arguments in (
+        {"dy": 2e-6},
+        {"dy": 2e-6, "beam_type": "ELECTRON", "relaxation": 0.8},
+    ):
+        before = _call_json(armed_sidecar, "get_stage_position", {})["position"]
+        after = _call_json(armed_sidecar, "vertical_move", arguments)["position"]
+        assert after["z"] != pytest.approx(before["z"]), arguments
+
+
 def test_stable_move_tool_round_trip(armed_sidecar):
     before = asyncio.run(armed_sidecar.call_tool("get_stage_position", {}))
     before = json.loads("".join(getattr(c, "text", "") for c in _contents(before)))

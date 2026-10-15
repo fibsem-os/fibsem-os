@@ -184,8 +184,10 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "its own surface and stays at the same height: the feature stays in "
             "focus and, at the coincidence point, stays in the other beam's view "
             "too. Prefer it to move_stage_relative whenever the move comes from an "
-            "image. Take a fresh image afterwards to check where the feature "
-            "landed."
+            "image. It uses the stage and scan rotation as they are now, so an "
+            "offset measured on an older image is only right if neither has "
+            "changed since. Take a fresh image afterwards to check where the "
+            "feature landed."
         ),
         method="POST",
         path="/microscope/services/stage_movement/commands/stable_move",
@@ -200,20 +202,24 @@ CATALOG: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="vertical_move",
         description=(
-            "Restore coincidence: with a feature centred in the electron image, "
-            "move the stage along the chamber vertical so the same feature comes "
-            "to the centre of the ion image. dy (and dx) are the feature's offset "
-            "from the centre of the ION image, in metres, x right and y up. The "
-            "electron beam sees no change. Use it after a stable_move in the "
-            "electron image when the ion image is off; never a plain z move."
+            "Restore coincidence: with a feature centred in one beam's image, move "
+            "the stage along the chamber vertical so the same feature comes to the "
+            "centre of the other beam's image; the first beam sees no change. "
+            "beam_type names the view the offset was measured in: ION (the "
+            "default) when the feature is centred in the electron image, ELECTRON "
+            "when it is centred in the ion image. dy (and dx) are the feature's "
+            "offset from that image's centre, in metres, x right and y up. "
+            "Use it after a stable_move in the other beam; never a plain z move."
         ),
         method="POST",
         path="/microscope/services/stage_movement/commands/vertical_move",
         level="drive",
         hardware=True,
         params={
-            "dy": "the feature's offset from the ion image centre along y, metres, up positive",
+            "dy": "the feature's offset from the image centre along y, metres, up positive",
             "dx": "the offset along x, metres, right positive (usually 0)",
+            "beam_type": "the view the offset was measured in: ION (default) or ELECTRON",
+            "relaxation": "fraction of the exact move to make, 0-1 (default 1); below 1 undershoots, to keep a repeated look-and-correct loop from overshooting",
         },
     ),
     ToolSpec(
@@ -921,10 +927,14 @@ NOT_TOOLS: Dict[str, str] = {
 def tools_for_capabilities(capabilities: Dict) -> Tuple[ToolSpec, ...]:
     """Catalog entries to offer given a full /capabilities payload.
 
-    Every tool whose router is mounted, whatever the agent's level: the level
-    changes mid-session and the server's 403 is the gate (FIB-1035).
+    Every tool whatever the agent's level: the level changes mid-session and
+    the server's 403 is the gate (FIB-1035). The microscope's tools too while
+    its routes are off: the operator can turn them on mid-session, and until
+    then each answers 404 ``microscope_off`` saying so, where tools fixed at
+    start would need the agent to reconnect. Only the app's tools depend on
+    the routers: a server hosts an application or not for its whole life.
     """
-    routers = dict(capabilities.get("routers", {}), base=True)
+    routers = dict(capabilities.get("routers", {}), base=True, microscope=True)
     return tuple(t for t in CATALOG if routers.get(t.router, False))
 
 
@@ -1008,7 +1018,12 @@ _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict
     ),
     "vertical_move": lambda a: (
         {},
-        _kwargs(dy=float(a["dy"]), dx=float(a.get("dx", 0.0))),
+        _kwargs(
+            dy=float(a["dy"]),
+            dx=float(a.get("dx", 0.0)),
+            beam_type=str(a.get("beam_type") or "ION"),
+            relaxation=float(a.get("relaxation") or 1.0),
+        ),
     ),
     "move_to_orientation": lambda a: ({}, _kwargs(orientation=str(a["orientation"]))),
     "safe_move_stage_absolute": lambda a: ({}, _kwargs(stage_position=_absolute(a))),

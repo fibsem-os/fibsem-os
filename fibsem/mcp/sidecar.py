@@ -361,8 +361,20 @@ def build_sidecar(client, capabilities):
     def stable_move(dx: float, dy: float, beam_type: str = "ELECTRON"):
         return _routed("stable_move", "position", dx=dx, dy=dy, beam_type=beam_type)
 
-    def vertical_move(dy: float, dx: float = 0.0):
-        return _routed("vertical_move", "position", dy=dy, dx=dx)
+    def vertical_move(
+        dy: float,
+        dx: float = 0.0,
+        beam_type: Optional[str] = None,
+        relaxation: Optional[float] = None,
+    ):
+        return _routed(
+            "vertical_move",
+            "position",
+            dy=dy,
+            dx=dx,
+            beam_type=beam_type,
+            relaxation=relaxation,
+        )
 
     def move_to_orientation(orientation: str):
         return _routed("move_to_orientation", "position", orientation=orientation)
