@@ -310,6 +310,7 @@ def _parse_spot_burn_value(value: Dict[str, Any], refuse):
 
     Returns ``(parsed, None)`` or ``(None, refusal)``.
     """
+    from fibsem.services.spot_burn import in_frame
     from fibsem.structures import Point
 
     points = value.get("points")
@@ -326,7 +327,7 @@ def _parse_spot_burn_value(value: Dict[str, Any], refuse):
             return None, refuse(
                 "each spot burn point needs numeric x, y: fractions of the frame."
             )
-        if not (0 <= pt.x <= 1 and 0 <= pt.y <= 1):
+        if not in_frame(pt):
             return None, refuse(
                 f"point ({pt.x:.3f}, {pt.y:.3f}) is outside the frame: x and y "
                 "are fractions, 0 to 1."
@@ -1928,6 +1929,7 @@ class AutoLamellaAppContext:
         """
         if request_type not in _VALUE_TYPES:
             return None
+        from fibsem.applications.autolamella.proposals import features_to_dict
         from fibsem.applications.autolamella.server.events import to_plain
 
         try:
@@ -1939,15 +1941,8 @@ class AutoLamellaAppContext:
         try:
             if request_type == "ConfirmDetection":
                 # The same shape an answer's value takes.
-                return {
-                    "features": [
-                        {
-                            "name": name,
-                            "px": to_plain(px.to_dict()) if px is not None else None,
-                        }
-                        for name, px in value.items()
-                    ]
-                }
+                features = [{"name": n, "px": px} for n, px in value.items()]
+                return {"features": to_plain(features_to_dict(features))}
             if request_type == "RunSpotBurn":
                 return {"points": [to_plain(pt.to_dict()) for pt in value]}
             return to_plain(value.to_dict())

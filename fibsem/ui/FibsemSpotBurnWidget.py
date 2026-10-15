@@ -20,6 +20,7 @@ from fibsem.imaging.spot import (
     run_spot_burn,
 )
 from fibsem.microscope import FibsemMicroscope
+from fibsem.services.spot_burn import in_frame
 from fibsem.structures import BeamType
 from fibsem.ui import notification_service, stylesheets
 from fibsem.ui.qt.threading import FunctionWorker
@@ -295,19 +296,15 @@ class FibsemSpotBurnWidget(QWidget):
         self.comboBox_beam_current.set_value(settings.milling_current)
         self.doubleSpinBox_exposure_time.setValue(settings.exposure_time)
 
-        self._feed_image_shape()
         # the editor only owns coordinates; current/exposure live on the form
-        self.coord_editor.set_settings(
-            SpotBurnSettings(coordinates=list(settings.coordinates))
-        )
-        self._refresh_info()  # set_settings is programmatic (no settings_changed)
+        self.set_coordinates(settings.coordinates)
 
     def set_coordinates(self, coordinates: list) -> None:
         """Replace the points to burn (0-1 image fractions), as placing them by hand
         would. Current and exposure stay as the form has them."""
         self._feed_image_shape()
         self.coord_editor.set_settings(SpotBurnSettings(coordinates=list(coordinates)))
-        self._refresh_info()
+        self._refresh_info()  # programmatic: the editor emits no settings_changed
 
     def get_settings(self) -> SpotBurnSettings:
         """The run payload — coordinates from the editor, current/exposure from the form."""
@@ -320,7 +317,7 @@ class FibsemSpotBurnWidget(QWidget):
     def get_coordinates(self) -> list:
         """Current spot positions (normalised 0-1), filtered to image bounds."""
         coords = self.coord_editor.get_settings().coordinates
-        return [pt for pt in coords if 0 <= pt.x <= 1 and 0 <= pt.y <= 1]
+        return [pt for pt in coords if in_frame(pt)]
 
     # ------------------------------------------------------------------
     # Info / run

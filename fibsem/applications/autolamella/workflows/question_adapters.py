@@ -43,6 +43,7 @@ __all__ = [
     "adapter_for",
     "answer_from",
     "answered",
+    "apply_feature_px",
     "decided_features",
     "detection_image_file",
     "detection_provenance",
@@ -140,14 +141,21 @@ def decided_features(detection: Any, values: Dict[str, Any]) -> Any:
         if isinstance(f, dict)
     }
     answer = deepcopy(detection)
-    for feature in answer.features:
-        px = decided.get(feature.name)
+    apply_feature_px(answer, decided)
+    return answer
+
+
+def apply_feature_px(detection: Any, px_by_name: Dict[str, Any]) -> None:
+    """Move the named features of ``detection`` to new pixels, in place, and
+    recompute every ``feature_m`` from ``px`` (see :func:`decided_features`).
+    Features not named stay where they are."""
+    for feature in detection.features:
+        px = px_by_name.get(feature.name)
         if px is not None:
             feature.px = px
         feature.feature_m = conversions.image_to_microscope_image_coordinates(
-            feature.px, answer.image.data, answer.pixelsize
+            feature.px, detection.image.data, detection.pixelsize
         )
-    return answer
 
 
 def _detection_answer(request: ReviewDetection, values: Dict[str, Any]) -> Any:

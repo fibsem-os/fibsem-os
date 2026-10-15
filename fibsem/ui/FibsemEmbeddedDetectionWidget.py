@@ -10,6 +10,9 @@ from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import QGridLayout, QLabel, QSizePolicy, QSpacerItem
 
 import fibsem
+from fibsem.applications.autolamella.workflows.question_adapters import (
+    apply_feature_px,
+)
 from fibsem.detection import utils as det_utils
 from fibsem.detection.detection import DetectedFeatures
 from fibsem.segmentation.model import load_model
@@ -132,10 +135,10 @@ class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
         model's points beside the corrected ones, so a correction made here is
         recorded as a correction. Features not named stay where they are.
         """
-        for feature in self.det.features:
-            if feature.name in px_by_name:
-                px = px_by_name[feature.name]
-                feature.px = Point(x=float(px.x), y=float(px.y))
+        apply_feature_px(
+            self.det,
+            {n: Point(x=float(px.x), y=float(px.y)) for n, px in px_by_name.items()},
+        )
         self.has_user_corrected = True
         controller = self._view_controller()
         if controller is not None and self._host_beam is not None:
