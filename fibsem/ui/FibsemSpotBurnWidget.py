@@ -302,6 +302,13 @@ class FibsemSpotBurnWidget(QWidget):
         )
         self._refresh_info()  # set_settings is programmatic (no settings_changed)
 
+    def set_coordinates(self, coordinates: list) -> None:
+        """Replace the points to burn (0-1 image fractions), as placing them by hand
+        would. Current and exposure stay as the form has them."""
+        self._feed_image_shape()
+        self.coord_editor.set_settings(SpotBurnSettings(coordinates=list(coordinates)))
+        self._refresh_info()
+
     def get_settings(self) -> SpotBurnSettings:
         """The run payload — coordinates from the editor, current/exposure from the form."""
         return SpotBurnSettings(

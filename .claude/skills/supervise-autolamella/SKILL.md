@@ -219,7 +219,19 @@ collaborative mode. With the review preference on this is a recorded
 question (rule 5): a `detection` review whose `values.features` are the
 model's points in image pixels, each with a name. Confirm with the features
 as they are to say the model was right; move one only for a correction you
-can state.
+can state. Where it is a prompt rather than a review, the payload's
+`current` is the live features, and an answer may move some:
+`"value": {"features": [{"name", "px": {"x", "y"}}]}` (source-image pixels,
+origin top-left; features you leave out stay). The model's points are kept
+beside your correction, as they are when the operator drags one.
+
+**`RunSpotBurn`** — points to burn on the FIB image. Yes burns the points
+as shown and the question comes back after the burn; no continues. The
+payload's `current` is the live points and `image` the frame they sit on.
+Placing points is a placement: held for the operator unless delegated. When
+it is, an answer may carry them: `"value": {"points": [{"x", "y"}]}`
+(fractions of the frame, origin top-left). Current and exposure stay the
+protocol's.
 
 **A `state` review** — the task's position, "press Continue when ready" on
 the record (rule 5). Confirming carries no values: the task reads the
