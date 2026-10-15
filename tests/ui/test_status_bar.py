@@ -240,6 +240,50 @@ def test_milling_during_the_agents_action_sits_under_the_agent(slot):
     assert slot.text.startswith("Agent Preparing: Rough Mill · stage 2 of 3")
 
 
+def _agent_mill(status=None, **fields):
+    from fibsem.milling.progress import MillingProgress, MillingProgressStatus
+
+    return MillingProgress(
+        status or MillingProgressStatus.STAGE_UPDATE,
+        milling_run_id="agent-run",
+        milling_task_name="agent test mill (long)",
+        **fields,
+    )
+
+
+def test_the_agents_mill_outside_a_task_is_the_agents_to_its_end(slot):
+    # FIB-1401: the agent mills while the run waits on a question. Its mill was
+    # filed under the run's task once the agent let go, and its bar never ended.
+    from fibsem.milling.progress import MillingProgressStatus
+
+    slot.set_run("01-united-imp › Setup Lamella Position", None, "1 of 2")
+    slot.set_agent_action("run")
+    slot._on_milling_progress(_agent_mill(remaining_time=30.0, estimated_time=60.0))
+    assert slot.text == "Agent agent test mill (long) 50% · 30s left"
+    slot.set_agent_action(None)
+    assert slot.text == "Agent agent test mill (long) 50% · 30s left"
+    slot._on_milling_progress(_agent_mill(MillingProgressStatus.TASK_CANCELLED))
+    assert slot.text == "Agent agent test mill (long) cancelled"
+    assert slot.fraction is None
+    _outlast_the_outcome()
+    assert slot.text == "01-united-imp › Setup Lamella Position · 1 of 2"
+
+
+def test_a_task_s_mill_during_the_agents_action_is_not_the_agents_own(slot):
+    from fibsem.milling.progress import MillingProgress, MillingProgressStatus
+
+    slot.set_agent_action("run")
+    slot._on_milling_progress(
+        MillingProgress(MillingProgressStatus.TASK_STARTED, milling_run_id="task-run")
+    )
+    slot._on_milling_progress(_stage_started())
+    assert slot.text.startswith("Agent Preparing: Rough Mill · stage 2 of 3")
+    slot._on_milling_progress(
+        MillingProgress(MillingProgressStatus.TASK_FINISHED, milling_run_id="task-run")
+    )
+    assert slot.text.startswith("Agent Milling · done")
+
+
 def test_a_stage_move_outranks_milling_and_hides_its_bar(slot):
     slot._on_milling_progress(_tick())
     slot.set_stage_activity("Moving the stage…")

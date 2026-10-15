@@ -235,6 +235,11 @@ class FibsemStatusBar(QStatusBar):
         # A delegating strategy names itself once and the backend's ticks carry no
         # words; this keeps the strategy's (FIB-797).
         self._milling_label = MillingMessageTracker()
+        # The milling run the reports belong to, and its name when it is the
+        # agent's own mill outside any task: the line is the agent's, not the run's
+        # current task, to its end (FIB-1401).
+        self._mill_run_id: Optional[str] = None
+        self._agent_mill: Optional[str] = None
         # A tiled run's last count, kept while a state without one (a stage move, the
         # stitch) changes the words: the bar must not snap back to nothing.
         self._tile_count: Optional[Tuple[float, str]] = None
@@ -341,14 +346,16 @@ class FibsemStatusBar(QStatusBar):
         step: Optional[str] = None,
         fraction: Optional[float] = None,
         numbers: Optional[str] = None,
+        standalone: bool = False,
     ) -> None:
         """Measurable progress: *label* with its *step*, and a bar at *fraction* (0-1)
-        beside *numbers* when there is a figure to draw. None when it is over."""
+        beside *numbers* when there is a figure to draw. None when it is over.
+        *standalone* keeps *label* as the subject under a run, as `show_outcome`."""
         self._outcome_timer.stop()
         self._fm_owns_progress = False
         self._fm_stale_timer.stop()
         self._progress = (
-            (label, step, fraction, numbers, False, False) if label else None
+            (label, step, fraction, numbers, False, standalone) if label else None
         )
         self._render()
 
@@ -520,15 +527,18 @@ class FibsemStatusBar(QStatusBar):
         a process abort on PyQt5 (FIB-329), and a plugin strategy may still emit the
         old dict (`from_payload`)."""
         report = MillingProgress.from_payload(payload)
+        agent_mill = self._agent_mill_of(report)
+        what, standalone = ("Agent", True) if agent_mill else ("Milling", False)
+        ended = f"{agent_mill} " if agent_mill else ""
         if report.status is MillingProgressStatus.TASK_FAILED:
             reason = f": {report.error}" if report.error else ""
-            self.show_outcome("Milling", f"failed{reason}", failed=True)
+            self.show_outcome(what, f"{ended}failed{reason}", True, standalone)
             return
         if report.status is MillingProgressStatus.TASK_CANCELLED:
-            self.show_outcome("Milling", "cancelled")
+            self.show_outcome(what, f"{ended}cancelled", standalone=standalone)
             return
         if report.status.is_terminal:
-            self.show_outcome("Milling", "done")
+            self.show_outcome(what, f"{ended}done", standalone=standalone)
             return
         label = self._milling_label.label(report)
         step = None
@@ -550,7 +560,32 @@ class FibsemStatusBar(QStatusBar):
             numbers = (
                 f"{int(fraction * 100)}% · {format_duration_rounded(remaining)} left"
             )
+        if agent_mill:
+            step = " · ".join(p for p in (agent_mill, step) if p)
+            self.set_progress("Agent", step, fraction, numbers, standalone=True)
+            return
         self.set_progress(label, step, fraction, numbers)
+
+    def _agent_mill_of(self, report: MillingProgress) -> Optional[str]:
+        """The name of the agent's own mill *report* is from, or None.
+
+        A run outside any task (the agent's ``prepare`` and ``run``) starts with no
+        task start; one first heard while the agent holds the microscope is the
+        agent's to its end, after the agent has let go, whatever task the run is
+        on. A task's run starts with ``task-started``."""
+        run_id = report.milling_run_id
+        if run_id is None:
+            return None
+        if run_id != self._mill_run_id:
+            self._mill_run_id = run_id
+            agents = (
+                self._agent is not None
+                and report.status is not MillingProgressStatus.TASK_STARTED
+            )
+            self._agent_mill = (
+                (report.milling_task_name or "milling") if agents else None
+            )
+        return self._agent_mill
 
     @staticmethod
     def _set(label: QLabel, text: Optional[str]) -> None:
