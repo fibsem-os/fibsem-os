@@ -24,7 +24,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from fibsem.server.request_text import parse_patterns
 from fibsem.structures import BeamType, Point
-from fibsem.ui.tokens import PURPLE_COLOR, RED_COLOR
+from fibsem.ui.tokens import PURPLE_COLOR, RED_COLOR, WHITE_ICON_COLOR
 
 # What a request places on the sample, by kind.
 TARGET_MARK = "target"
@@ -331,7 +331,7 @@ class _Mark:
 # The picture on the card: its width at most, and how its marks are drawn.
 PICTURE_WIDTH = 1024
 # A config edit's patterns as they are now: solid white, seen on any image.
-_BEFORE = "#ffffff"
+_BEFORE = WHITE_ICON_COLOR
 
 
 class _Layer:
