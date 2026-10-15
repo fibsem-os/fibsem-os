@@ -84,6 +84,7 @@ from fibsem.structures import (
     BeamType,
     FibsemBitmapSettings,
     FibsemCircleSettings,
+    FibsemImage,
     FibsemLineSettings,
     FibsemMillingSettings,
     FibsemPatternSettings,
@@ -181,6 +182,9 @@ class Milling(Service):
         self._drawn: List[FibsemPatternSettings] = []
         # Set by ``stop`` while a run is on, so the run can say it was stopped.
         self._stop_requested = threading.Event()
+        # The stop event of the task ``run_task`` or ``run_stage`` is running,
+        # which ``stop`` sets too.
+        self._task_stop = threading.Event()
         # The name the last setup was given, for a run outside a task to go by.
         self._name: Optional[str] = None
         # Inside ``part_of``: a run there is part of something with its own record.
@@ -383,8 +387,10 @@ class Milling(Service):
 
     @command
     def stop(self) -> None:
-        """Stop milling. A ``run`` in progress ends and answers ``cancelled``."""
+        """Stop milling. A ``run`` in progress ends and answers ``cancelled``, and
+        so does a ``run_task`` or ``run_stage``, with no later stage milled."""
         self._stop_requested.set()
+        self._task_stop.set()
         self._stop()
 
     @command
@@ -417,6 +423,82 @@ class Milling(Service):
             # A task's run, or a spot burn's: that records the whole.
             return self._run(stop_event)
         return self._run_on_the_record(stop_event)
+
+    @command(long=True)
+    def run_task(self, config: Any, path: Optional[str] = None) -> Dict[str, Any]:
+        """Run a milling task, as the app runs a protocol's: each enabled stage
+        in turn with its strategy, aligning to the task's reference image
+        between stages, and the beam put back at the end.
+
+        *config* is a ``FibsemMillingTaskConfig`` (or its dict). The task saves
+        its reference and stage images under ``<path>/Milling/<name>``; with
+        no *path*, under the app's data folder, never under the imaging path
+        the config carries. Answers the task's status (``completed``,
+        ``cancelled``, ``skipped`` when no stage is enabled), the folder it
+        saved into, and how each stage ended, as its ``milling`` event says.
+        A failed task raises its error, after the beam is put back. ``stop``
+        ends it ``cancelled``.
+        """
+        # Imported here: fibsem.milling.tasks imports this module.
+        from fibsem.milling.tasks import FibsemMillingTaskConfig, run_milling_task
+
+        if isinstance(config, dict):
+            config = FibsemMillingTaskConfig.from_dict(config)
+        if not isinstance(config, FibsemMillingTaskConfig):
+            raise TypeError("config must be a FibsemMillingTaskConfig or its dict")
+        # Where it saves is the path argument's to say, so the App Server can
+        # keep it inside the experiment; the config's own path is not checked.
+        config.acquisition.imaging.path = None
+        self._task_stop = threading.Event()
+        task = run_milling_task(
+            self.parent,
+            config,
+            stop_event=self._task_stop,
+            raise_on_failure=True,
+            output_dir=path,
+        )
+        return task.ended()
+
+    @command(long=True)
+    def run_stage(
+        self, stage: FibsemMillingStage, path: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Run one milling stage as a task of its own, named after the stage:
+        ``run_task`` with that one stage, answering the same."""
+        from fibsem.milling.tasks import FibsemMillingTaskConfig
+
+        return self.run_task(
+            FibsemMillingTaskConfig.from_stages([stage], name=stage.name), path=path
+        )
+
+    @query
+    def pattern_preview(
+        self,
+        image_path: str,
+        stages: Optional[List[FibsemMillingStage]] = None,
+    ) -> Any:
+        """*stages* drawn over the saved image at *image_path* (an ion image, to
+        see where they would mill), or with no stages the patterns ``prepare``
+        drew. An RGB image the saved image's shape, scaled down to 1024 px wide;
+        reads the file and moves nothing."""
+        from fibsem.devices.wire import Frame
+        from fibsem.milling.patterning.plotting import render_milling_patterns
+
+        image = FibsemImage.load(image_path)
+        if stages is None:
+            drawn = [_Drawn(self.drawn_patterns)] if self.drawn_patterns else []
+        else:
+            drawn = list(stages)
+        data = render_milling_patterns(image, drawn)
+        return Frame(
+            data,
+            {
+                "image_path": image_path,
+                "stages": [stage.name for stage in drawn],
+                "full_width": int(image.data.shape[1]),
+                "full_height": int(image.data.shape[0]),
+            },
+        )
 
     @contextmanager
     def part_of(self) -> Iterator[None]:
@@ -645,6 +727,19 @@ class Milling(Service):
     def _wait(self, seconds: float) -> None:
         """Wait between looks at the instrument."""
         time.sleep(seconds)
+
+
+class _Drawn:
+    """What ``prepare`` drew, in the shape the pattern drawing reads a stage in."""
+
+    name = "drawn"
+
+    def __init__(self, patterns: Sequence[FibsemPatternSettings]):
+        self._patterns = list(patterns)
+        self.pattern = self
+
+    def define_patterns(self) -> List[FibsemPatternSettings]:
+        return self._patterns
 
 
 def _settable(beam: Optional[Beam], name: str) -> bool:

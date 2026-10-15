@@ -357,6 +357,9 @@ def build_sidecar(client, capabilities):
     def estimate_milling_time():
         return _service_call("estimate_milling_time", {}, "seconds")
 
+    def get_pattern_preview(image_path: str, stages: Optional[list] = None):
+        return _routed("get_pattern_preview", image_path=image_path, stages=stages)
+
     def stop_milling(reason: str):
         data, err = _route("stop_milling", reason=reason)
         return err if err else {"status": "ok"}
@@ -824,6 +827,7 @@ def build_sidecar(client, capabilities):
             get_geometry,
             get_milling_state,
             estimate_milling_time,
+            get_pattern_preview,
             stop_milling,
             acquire_image_preview,
             move_stage_relative,

@@ -151,6 +151,23 @@ CATALOG: Tuple[ToolSpec, ...] = (
         level="watch",
     ),
     ToolSpec(
+        name="get_pattern_preview",
+        description=(
+            "Milling stages drawn over a saved ion image, to see where they would "
+            "mill before running them: an image you can look at, the saved image's "
+            "shape scaled to 1024 px wide. stages is a list of FibsemMillingStage "
+            "dicts (as run_stage takes); left out, the patterns prepare drew. "
+            "image_path must be inside the open experiment. Moves nothing."
+        ),
+        method="POST",
+        path="/microscope/services/milling/queries/pattern_preview",
+        level="watch",
+        params={
+            "image_path": "a saved ion image inside the open experiment",
+            "stages": "FibsemMillingStage dicts; left out, what prepare drew",
+        },
+    ),
+    ToolSpec(
         name="stop_milling",
         description="Stop an in-progress mill, with the reason the operator reads.",
         method="POST",
@@ -392,7 +409,8 @@ CATALOG: Tuple[ToolSpec, ...] = (
         description=(
             "Run a service command listed by list_services, e.g. service=stage_movement "
             "command=move_to_orientation kwargs={'orientation': 'SEM'}. A long command "
-            "(listed with long: true: milling run, spot burn run) answers at once with "
+            "(listed with long: true: milling run, run_stage and run_task, spot burn "
+            "run) answers at once with "
             "its run (run_id, state: running) and runs on, in control of the "
             "microscope; wait_for_run says how it ended. command=stop from "
             "another call stops it: the agent's own run at Assist or Drive, "
@@ -1150,6 +1168,10 @@ _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict
     # A service command or query with no arguments still sends its kwargs.
     "stop_milling": lambda a: ({}, _stop(_kwargs(), a)),
     "estimate_milling_time": lambda a: ({}, _kwargs()),
+    "get_pattern_preview": lambda a: (
+        {},
+        _kwargs(image_path=str(a["image_path"]), stages=a.get("stages")),
+    ),
     "get_stage_orientation": lambda a: ({}, _kwargs()),
     "get_milling_angle": lambda a: ({}, _kwargs()),
     "get_geometry": lambda a: ({}, _kwargs()),
