@@ -4155,7 +4155,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         responder = self.autolamella_ui.ui_responder
         standing = responder.suggestion if suggestion is not None else None
         self.agent_previews.show_suggestion(
-            responder.pending_question(), standing[2] if standing else None
+            responder.pending_question() if standing else None,
+            standing[2] if standing else None,
         )
 
     def _on_accept_agent_suggestion(self) -> None:

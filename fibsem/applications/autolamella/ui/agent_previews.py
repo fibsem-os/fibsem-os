@@ -456,6 +456,33 @@ def draw_picture(frame, layers: List[_Layer]):
     return image
 
 
+def side_by_side(images: List, gap: int = 4):
+    """*images* (QImages) in a row at one height, the shortest's, *gap* apart."""
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtGui import QColor, QImage, QPainter
+
+    height = min(image.height() for image in images)
+    scaled = [
+        image
+        if image.height() == height
+        else image.scaledToHeight(
+            height,
+            Qt.SmoothTransformation,  # type: ignore
+        )
+        for image in images
+    ]
+    width = sum(image.width() for image in scaled) + gap * (len(scaled) - 1)
+    row = QImage(width, height, QImage.Format_RGB32)
+    row.fill(QColor(0, 0, 0))
+    painter = QPainter(row)
+    x = 0
+    for image in scaled:
+        painter.drawImage(x, 0, image)
+        x += image.width() + gap
+    painter.end()
+    return row
+
+
 def _draw_mark(painter, shape: str, centre, arm: float) -> None:
     """One point, *arm* its reach, in the painter's pen: "+", a crosshair (a
     ring, its lines stopping short of the centre), or a dot."""
@@ -811,21 +838,36 @@ class AgentPreviews:
     # --- suggestions ------------------------------------------------------------
 
     def show_suggestion(self, request: object, value: object) -> None:
-        """Draw the agent's suggested value for the pending *request* (a
+        """Draw the agent's suggested answer to the pending *request* (a
         question) on the card, on the image the question shows: an alignment
-        area, detected features, spot-burn points. None, or a question without
-        such a value, takes it down. A suggested point of interest is
+        area, detected features, spot-burn points; for a mill, the task's
+        patterns; for a position question, both beams' views (FIB-1424). A
+        *request* of None takes it down. A suggested point of interest is
         :meth:`show_suggested_point`'s."""
         from fibsem.applications.autolamella.workflows.interaction import (
+            Confirm,
             ConfirmDetection,
             EditAlignmentArea,
+            PickPOI,
+            RunMillingTask,
             RunSpotBurn,
         )
 
         controller = self._view_controller()
-        if controller is None or value is None:
+        if isinstance(request, PickPOI):
+            return
+        if controller is None or request is None:
             if not isinstance(self.suggestion_picture, _PointPicture):
                 self._picture(None, None, [], suggestion=True)
+            return
+        if isinstance(request, RunMillingTask):
+            self._show_mill(controller, request)
+            return
+        if isinstance(request, Confirm):
+            self._show_position(controller)
+            return
+        if value is None:
+            self._picture(None, None, [], suggestion=True)
             return
         mark: Optional[_Mark] = None
         if isinstance(request, EditAlignmentArea):
@@ -867,6 +909,65 @@ class AgentPreviews:
         layer = _Layer(PURPLE_COLOR)
         self._add_marks(frame, [mark], layer)
         self._picture(frame, mark.beam, [layer], suggestion=True)
+
+    def _show_mill(self, controller, request) -> None:
+        """A mill question's task: its stages' patterns on the FIB view, the
+        image the task shows as it asks. What the operator approves by
+        answering Run (FIB-1424)."""
+        config = getattr(request, "config", None)
+        stages = [s for s in getattr(config, "stages", []) or [] if s.enabled]
+        frame = _frame(controller, BeamType.ION)
+        if frame is None or not stages:
+            self._picture(None, None, [], suggestion=True)
+            return
+        aspect = frame.data.shape[0] / frame.data.shape[1]
+        purple, red = _Layer(PURPLE_COLOR, fill=True), _Layer(RED_COLOR)
+        purple.patterns = _stage_patterns(stages)
+        red.patterns = request_outside_field({}, aspect, stages)
+        purple.key(FILL, "patterns", purple.patterns)
+        red.key(OUTLINE, "past the field", red.patterns)
+        self._picture(
+            frame,
+            BeamType.ION,
+            [purple, red],
+            suggestion=True,
+            title=str(getattr(config, "name", "") or ""),
+        )
+
+    def _show_position(self, controller) -> None:
+        """A position question ("is the lamella centred?"): the SEM and FIB
+        views side by side, the centre of each marked, as the agent checked
+        them (FIB-1424)."""
+        frames = [
+            (frame, beam)
+            for beam in (BeamType.ELECTRON, BeamType.ION)
+            if (frame := _frame(controller, beam)) is not None
+        ]
+        if not frames:
+            self._picture(None, None, [], suggestion=True)
+            return
+        layers = []
+        for frame, _beam in frames:
+            layer = _Layer(PURPLE_COLOR)
+            height, width = frame.data.shape[-2:]
+            layer.targets.append((width / 2, height / 2))
+            layer.key(TARGET, "image centre")
+            layers.append(layer)
+        self.suggestion_picture = _PairPicture(
+            (tuple(f for f, _ in frames), tuple(layers))
+        )
+        words = " and ".join(
+            "SEM" if beam is BeamType.ELECTRON else "FIB" for _, beam in frames
+        )
+        caption = picture_caption(frames[-1][0], frames[-1][1]).split(" · ", 1)
+        self._show_picture(
+            side_by_side(
+                [draw_picture(f, [layer]) for (f, _), layer in zip(frames, layers)]
+            ),
+            " · ".join([words, *caption[1:]]),
+            suggestion=True,
+            legend=legend_entries(layers[:1]),
+        )
 
     def show_suggested_point(self, pixel: Optional[Tuple[float, float]]) -> None:
         """Draw the agent's suggested point of interest, in the FIB view's
@@ -927,6 +1028,10 @@ class AgentPreviews:
             suggestion=suggestion,
             legend=legend_entries(layers),
         )
+
+
+class _PairPicture(tuple):
+    """The card's picture of both beams' views: ``(frames, layers)``."""
 
 
 class _PointPicture(tuple):

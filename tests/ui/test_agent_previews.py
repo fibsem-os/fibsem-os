@@ -532,6 +532,55 @@ def test_suggested_features_are_drawn_on_the_image_they_were_found_in():
     assert card.shown[True][1].startswith("SEM")
 
 
+def test_a_suggested_answer_to_the_mill_question_draws_the_task_s_patterns():
+    # FIB-1424: "Run" suggested for RunMillingTask showed nothing, though the
+    # patterns are exactly what the operator approves.
+    from fibsem.applications.autolamella.workflows.interaction import (
+        RunMillingTask,
+    )
+    from fibsem.milling.base import FibsemMillingStage
+    from fibsem.milling.tasks import FibsemMillingTaskConfig
+
+    config = FibsemMillingTaskConfig.from_stages(
+        [
+            FibsemMillingStage(name="Trench"),
+            FibsemMillingStage(name="Off", enabled=False),
+        ],
+        name="Rough Milling",
+    )
+    controller = _Controller()
+    card = _Card()
+    previews = AgentPreviews(lambda: controller, show_picture=card)
+    previews.show_suggestion(RunMillingTask(config=config), None)
+    frame, layer = _layer(previews.suggestion_picture)
+    assert frame is controller.image(BeamType.ION)
+    trench = config.stages[0].define_patterns()
+    assert len(layer.patterns) == len(trench) and layer.fill
+    assert card.shown[True][1].startswith("Rough Milling · FIB")
+    previews.show_suggestion(None, None)
+    assert card.shown[True] is None
+
+
+def test_a_suggested_answer_to_a_position_question_shows_both_beams():
+    # FIB-1424: "Continue" on Setup's position question showed nothing; the
+    # agent checked it on a fresh SEM and FIB pair.
+    from fibsem.applications.autolamella.workflows.interaction import Confirm
+
+    controller = _Controller()  # 200 × 100 px each
+    card = _Card()
+    previews = AgentPreviews(lambda: controller, show_picture=card)
+    previews.show_suggestion(Confirm(message="Is the lamella centred?"), None)
+    frames, layers = previews.suggestion_picture
+    assert frames == (
+        controller.image(BeamType.ELECTRON),
+        controller.image(BeamType.ION),
+    )
+    assert [layer.targets for layer in layers] == [[(100.0, 50.0)], [(100.0, 50.0)]]
+    image, caption = card.shown[True]
+    assert (image.width(), image.height()) == (404, 100)  # side by side
+    assert caption.startswith("SEM and FIB")
+
+
 def test_a_suggested_point_is_on_the_card_until_the_suggestion_goes():
     controller = _Controller()
     card = _Card()
