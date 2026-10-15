@@ -270,7 +270,7 @@ def _not_built(
     logging.warning(message)
     mark = getattr(microscope, "_mark_device_not_built", None)
     if mark is not None:
-        mark(item.name)
+        mark(item.name, reason)
 
 
 class RoleBindingError(ValueError):

@@ -568,18 +568,27 @@ class FibsemMicroscope(ABC):
         if sources is not None:
             sources[name] = "device"
 
-    def _mark_device_not_built(self, name: str) -> None:
-        """Record that *name*'s device failed to build
-        (`fibsem.devices.entries.build_device_entries`). With no device it is not
-        available; this only says why, in `capability_sources`."""
-        if name not in self._FITTED_DEVICES:
-            return
+    def _mark_device_not_built(self, name: str, reason: str = "") -> None:
+        """Record that *name*'s device failed to build, and why
+        (`fibsem.devices.entries.build_device_entries`), for `devices_not_built`.
+        With no device it is not available; for a subsystem the application asks
+        about, this also says why, in `capability_sources`."""
         if not hasattr(self, "_devices_not_built"):
             self._devices_not_built = set()
+            self._not_built_reasons: Dict[str, str] = {}
         self._devices_not_built.add(name)
+        self._not_built_reasons[name] = reason
+        if name not in self._FITTED_DEVICES:
+            return
         sources = getattr(self, "capability_sources", None)
         if sources is not None:
             sources[name] = "not_built"
+
+    @property
+    def devices_not_built(self) -> Dict[str, str]:
+        """The configured devices that failed to build, by name, with why: what the
+        connect warned of, for the application to show."""
+        return dict(getattr(self, "_not_built_reasons", {}))
 
     def _bind_device_roles(self) -> None:
         """Fill the roles the configuration's ``hardware.devices`` entries bind

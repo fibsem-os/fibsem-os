@@ -227,7 +227,7 @@ class _Microscope:
     def __init__(self):
         self.not_built = []
 
-    def _mark_device_not_built(self, name):
+    def _mark_device_not_built(self, name, reason=""):
         self.not_built.append(name)
 
 

@@ -268,16 +268,52 @@ def test_disconnect_closes_the_scanners_connection(tmp_path):
 # -- the application ---------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="GAP: the configuration window's Devices table is a fixed list "
-    "(microscope_configuration_window.devices_rows); a plugin device is not in it",
-)
 def test_the_configuration_window_lists_the_scanner(microscope):
     pytest.importorskip("PyQt5")
     from fibsem.ui.widgets.microscope_configuration_window import devices_rows
 
-    assert any("scanner" in row[0].lower() for row in devices_rows(microscope))
+    rows = {row[0]: row for row in devices_rows(microscope)}
+    assert rows["fake_scanner"][1:] == (True, "FakeScan", "scan_generator")
+    assert rows["Electron column"][3] == "Scans with fake_scanner"
+
+
+def test_a_scanner_that_failed_shows_the_beam_on_the_vendor_scan(tmp_path):
+    pytest.importorskip("PyQt5")
+    from fibsem.ui.widgets.microscope_configuration_window import devices_rows
+
+    broken = {**ENTRY, "required": False, "address": ""}  # the SDK refuses no address
+    microscope = _connect(tmp_path, _config(broken))
+    try:
+        rows = {row[0]: row for row in devices_rows(microscope)}
+        assert rows["fake_scanner"][1] is False
+        assert "no address" in rows["fake_scanner"][3]
+        assert rows["Electron column"][3] == (
+            "Vendor scan: its scanner fake_scanner was not built"
+        )
+    finally:
+        microscope.disconnect()
+
+
+def test_the_devices_tab_drives_the_scanner(microscope):
+    pytest.importorskip("PyQt5")
+    from PyQt5.QtWidgets import QApplication
+
+    from fibsem.ui.widgets.device_panel import DevicesPanel
+
+    _app = QApplication.instance() or QApplication([])
+    devices = DevicesPanel(microscope.devices)
+    panel = devices.show_device("fake_scanner")
+    scanner = microscope.devices["fake_scanner"]
+    assert set(panel.controls) == set(scanner.parameters)
+    assert "self_test" in panel.buttons
+    assert "FS-0001" in panel.facts.toPlainText()
+    # an edit in the panel is written to the device
+    panel.controls["pattern"].write("noise")  # as the user's edit
+    assert scanner.pattern.get_value() == "noise"
+    # and a change made elsewhere shows in the panel
+    scanner.input.set_value("adc1")
+    _app.processEvents()
+    assert panel.controls["input"].read() == "adc1"
 
 
 def test_the_plugins_dialog_lists_the_driver():
@@ -292,8 +328,8 @@ def test_the_plugins_dialog_lists_the_driver():
 
 
 def test_the_form_builder_can_draw_every_parameter(microscope):
-    """No panel in the application shows a plugin device's parameters (see gaps),
-    but the shared form builder can draw each of them from its metadata."""
+    """The shared form builder, which the Devices tab uses, can draw each of its
+    parameters from its metadata."""
     pytest.importorskip("PyQt5")
     from PyQt5.QtWidgets import QApplication
 

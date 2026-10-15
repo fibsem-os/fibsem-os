@@ -638,6 +638,15 @@ driver's own client is closed last. One that raises is logged, and the rest stil
 run. A whole-microscope driver puts its client's close in `_disconnect`, not
 `disconnect`.
 
+The application shows a plugin's device with nothing written for it. The
+configuration window's Instrument tab lists every device the microscope built, with
+its driver, type and the roles it filled, and every configured device that failed to
+build, with why; a beam whose configured scanner failed says it fell back to the
+vendor scan. Its Devices tab draws any device from what it describes about itself
+(`fibsem.ui.widgets.device_panel`): each parameter as a control from its `Display`,
+limits and choices, written on edit and kept current through `changed`; each command
+that needs no arguments as a button, run after the user confirms; and its `facts`.
+
 `fibsem-cli check` (the hardware check) checks every device the microscope built, a plugin's too,
 through `Device.hardware_check(report, level)`. By default that is the `READ` step:
 every parameter read and checked against its own limits and choices. A driver adds

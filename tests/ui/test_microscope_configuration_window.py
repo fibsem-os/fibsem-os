@@ -49,6 +49,7 @@ def test_the_window_has_its_tabs(qapp, microscope):
         "Calibration",
         "Defaults",
         "Session",
+        "Devices",
     ]
 
 
