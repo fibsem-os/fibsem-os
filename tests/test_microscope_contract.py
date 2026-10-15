@@ -844,17 +844,6 @@ def test_home_homes_and_says_so(microscope):
     assert microscope.stage.homed.get_value() is True
 
 
-def test_microscope_home_is_deprecated(microscope):
-    """`microscope.home()` warns, naming `microscope.stage.home()`, at the caller's
-    line, and still homes as it did: None where the stage cannot say."""
-    with pytest.warns(
-        DeprecationWarning, match=r"use microscope\.stage\.home\(\)"
-    ) as record:
-        homed = microscope.home()
-    assert record[0].filename == __file__
-    assert homed is (True if _stage_has("homed")(microscope) else None)
-
-
 def test_link_stage(microscope):
     """`link_stage` returns whether the stage is linked afterwards: the Demo's
     links; a Tescan's z is never linked to the working distance, so it stays False."""

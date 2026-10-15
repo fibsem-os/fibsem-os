@@ -178,7 +178,7 @@ def test_the_autofocus_saves_under_the_task_s_folder_and_records_where(
     )
     task.config.autofocus_settings.channel_name = "GFP"
     events = []
-    fm_microscope.record_signal.connect(
+    fm_microscope.session.record_signal.connect(
         lambda kind, payload: events.append(payload) if kind == "fm_autofocus" else None
     )
 

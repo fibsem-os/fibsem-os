@@ -39,6 +39,8 @@ lists where each key went.
   `clear_available_values_cache` are removed.** A parameter's `choices` is the same
   list: `microscope.beams[BeamType.ION].parameters["current"].choices`. Milling
   settings' choices are `microscope.milling.supported_settings()`.
+- **`microscope.home()` is removed.** Call `microscope.stage.home()`, which returns
+  whether the stage is homed afterwards.
 - **`microscope.move_to_microscope(target)` is removed.** Call
   `microscope.move_to_device(target)`; pass `orientation="SEM"` to land at SEM when
   returning to the beams, as the old method did on a compustage.
