@@ -456,20 +456,20 @@ def test_fibsem_says_the_stage_move_too(qapp):
 
 
 def test_autolamella_shows_milling_from_its_microscope(no_quit, qapp):
-    """Through the microscope's own signal, which the bar subscribes to itself; and a
-    disconnect lets it go."""
+    """Through the microscope's milling service, which the bar subscribes to itself;
+    and a disconnect lets it go."""
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
 
     window = module.AutoLamellaSingleWindowUI()
     window.autolamella_ui.system_widget.connect_to_microscope()
     microscope = window.autolamella_ui.microscope
-    microscope.milling_progress_signal.emit(_tick())
+    microscope.milling.report(_tick())
     assert window.status_bar.fraction == pytest.approx(0.5)
     assert not hasattr(window, "milling_progress_bar"), "one place for it"
     assert not hasattr(window, "progress_widget"), "tiles and spot burn too"
 
     window.status_bar.set_microscope(None)
-    microscope.milling_progress_signal.emit(_tick(remaining=15.0))
+    microscope.milling.report(_tick(remaining=15.0))
     assert window.status_bar.fraction is None
     microscope.disconnect()
     _close(window, qapp)
@@ -480,7 +480,7 @@ def test_fibsem_shows_milling_from_its_microscope(qapp):
 
     window = FibsemUI()
     window.system_widget.connect_to_microscope()
-    window.microscope.milling_progress_signal.emit(_stage_started())
+    window.microscope.milling.report(_stage_started())
     assert window.status_bar.text == "Preparing: Rough Mill stage 2 of 3"
     _close(window, qapp)
 

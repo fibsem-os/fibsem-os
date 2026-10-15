@@ -448,6 +448,7 @@ def build_server(
             auth,
             frozenset(mounted),
             emit=getattr(app_context, "record_event", None),
+            describe=getattr(app_context, "describe_action", None),
             not_allowed=_not_allowed(microscope) if serve_microscope else None,
         )
         app.include_router(build_request_router(app.state.requests))

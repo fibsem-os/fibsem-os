@@ -11,7 +11,7 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from PyQt5.QtWidgets import QMessageBox
+from PyQt5.QtWidgets import QMessageBox  # noqa: E402
 
 
 @pytest.fixture

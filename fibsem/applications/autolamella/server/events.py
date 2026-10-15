@@ -236,8 +236,13 @@ def attach_microscope_taps(buffer: EventBuffer, microscope) -> List[Callable[[],
     microscope.session.record_signal.connect(on_record)
     disposers.append(lambda: microscope.session.record_signal.disconnect(on_record))
 
-    tap(microscope.milling_progress_signal, "milling_progress", to_plain)
-    tap(microscope.spot_burn_progress_signal, "spot_burn_progress", to_plain)
+    # On the services, which a system without an ion beam doesn't have.
+    milling = getattr(microscope, "milling", None)
+    if milling is not None:
+        tap(milling.progress.changed, "milling_progress", to_plain)
+    spot_burn = getattr(microscope, "spot_burn", None)
+    if spot_burn is not None:
+        tap(spot_burn.progress.changed, "spot_burn_progress", to_plain)
     tap(microscope.tiled_acquisition_signal, "tiled_acquisition", to_plain)
     tap(
         microscope.stage_position_changed,

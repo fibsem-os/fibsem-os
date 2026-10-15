@@ -1493,6 +1493,31 @@ class AutoLamellaAppContext:
         document["item_name"] = item_name
         return document
 
+    def describe_action(
+        self, tool: str, arguments: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """A config edit in an agent's request, as the config's form names it
+        (FIB-1403): each setting in display units, old -> new. None for any
+        other action, or a config this experiment doesn't have."""
+        from fibsem.server.request_text import describe_patch
+
+        experiment = self._experiment
+        if experiment is None:
+            return None
+        task_name = arguments.get("task_name")
+        if tool == "update_item_task_config":
+            lamella = experiment.get_lamella_by_name(arguments.get("item_name"))
+            configs = getattr(lamella, "task_config", None) if lamella else None
+        elif tool == "update_protocol_task_config":
+            protocol = getattr(experiment, "task_protocol", None)
+            configs = getattr(protocol, "task_config", None) if protocol else None
+        else:
+            return None
+        config = dict(configs).get(task_name) if configs is not None else None
+        if config is None:
+            return None
+        return describe_patch(config, arguments.get("patch"))
+
     def apply_item_patch(
         self,
         item_name: str,
