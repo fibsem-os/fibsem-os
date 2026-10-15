@@ -35,6 +35,7 @@ from fibsem.server.auth import (
     AgentLevel,
     AuthConfig,
     action_name,
+    adopt_control,
     drive_is_lent,
     require_level,
     require_monitoring,
@@ -43,6 +44,7 @@ from fibsem.server.auth import (
 from fibsem.server.devices import ERROR_STATUS, build_device_router, refusal
 from fibsem.server.models import MicroscopeStateRequest
 from fibsem.server.requests import RequestStore, build_request_router
+from fibsem.server.runs import Runs
 from fibsem.structures import BeamType, MicroscopeState
 
 API_VERSION = "0.3.0"
@@ -94,7 +96,8 @@ _drive = require_level(AgentLevel.DRIVE)
 
 def _refuse(app_context) -> Callable[[Any, str, str, Mapping[str, Any]], Optional[str]]:
     """The App Server's allowlist (`fibsem.server.allowlist`): what the agent may
-    never touch, and a ``path`` it may only give inside the open experiment."""
+    never touch, and a path it may only give inside the open experiment, to a
+    command or a query."""
 
     def experiment_path() -> Optional[str]:
         return getattr(app_context, "experiment_path", None)
@@ -102,7 +105,7 @@ def _refuse(app_context) -> Callable[[Any, str, str, Mapping[str, Any]], Optiona
     def refuse(device, kind: str, name: str, kwargs: Mapping[str, Any]):
         return allowlist.blocked(device, kind, name) or (
             allowlist.path_outside(kwargs, experiment_path)
-            if kind == "command"
+            if kind in ("command", "query")
             else None
         )
 
@@ -374,6 +377,8 @@ def build_server(
                 refuse=refuse,
                 noun="service",
                 on_image=lambda image: _show_in_app(microscope, image),
+                runs=Runs(record=microscope.record_event),
+                adopt_control=adopt_control,
             )
         )
     else:

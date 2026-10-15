@@ -67,10 +67,56 @@ def test_the_dialog_serves_the_microscope_this_session(qapp):
     dialog = AppServerDialog(lambda: hosts[-1], set_microscope=set_microscope)
     assert dialog._chk_microscope.isEnabled() and not dialog._chk_microscope.isChecked()
     dialog._chk_microscope.setChecked(True)
+    assert chosen == []  # waits for the toggle to settle
+    dialog._microscope_timer.timeout.emit()
     assert chosen == [True]
     assert dialog._services_label.text() == "Services: monitoring · microscope on"
     # A refresh that reads the box back sets nothing.
     dialog.refresh()
+    assert chosen == [True]
+    dialog.deleteLater()
+
+
+def test_a_double_click_on_the_microscope_toggle_restarts_once_or_not_at_all(qapp):
+    """FIB-1409: each toggle restarted the server; only the settled state applies."""
+    hosts = [_Host(serve_microscope=False)]
+    chosen = []
+
+    def set_microscope(on):
+        chosen.append(on)
+        hosts.append(_Host(serve_microscope=on))
+
+    dialog = AppServerDialog(lambda: hosts[-1], set_microscope=set_microscope)
+    box = dialog._chk_microscope
+    box.setChecked(True)
+    box.setChecked(False)
+    dialog.refresh()  # the periodic refresh keeps a change still waiting
+    assert not box.isChecked()
+    dialog._microscope_timer.timeout.emit()
+    assert chosen == []  # back where it started: no restart
+
+    box.setChecked(True)
+    box.setChecked(False)
+    box.setChecked(True)
+    dialog.refresh()
+    assert box.isChecked()
+    dialog._microscope_timer.timeout.emit()
+    assert chosen == [True]
+    dialog.deleteLater()
+
+
+def test_closing_the_dialog_applies_a_waiting_change(qapp):
+    hosts = [_Host(serve_microscope=False)]
+    chosen = []
+
+    def set_microscope(on):
+        chosen.append(on)
+        hosts.append(_Host(serve_microscope=on))
+
+    dialog = AppServerDialog(lambda: hosts[-1], set_microscope=set_microscope)
+    dialog.show()
+    dialog._chk_microscope.setChecked(True)
+    dialog.close()
     assert chosen == [True]
     dialog.deleteLater()
 

@@ -29,7 +29,7 @@ from PyQt5.QtWidgets import QVBoxLayout, QWidget
 
 from fibsem.fm.preview import composite_projection
 from fibsem.fm.structures import FluorescenceImage
-from fibsem.geometry.projection import BeamStageProjection, FMStageProjection
+from fibsem.geometry.projection import image_stage_geometry
 from fibsem.structures import FibsemImage, FibsemStagePosition
 from fibsem.ui.tokens import (
     CURRENT_POSITION_COLOUR,
@@ -231,28 +231,16 @@ class StoredOverviewCanvas(QWidget):
     def _record_from(self, image, label: Optional[str]) -> Optional[StoredOverview]:
         self._count += 1
         record_id = f"stored-{self._count}"
-        metadata = getattr(image, "metadata", None)
-        position = getattr(metadata, "stage_position", None)
-        if metadata is None or position is None:
-            logger.debug("A stored overview with no stage position cannot be placed.")
+        geometry = image_stage_geometry(image)
+        if geometry is None:
+            logger.debug("A stored overview with no stage geometry cannot be placed.")
             return None
+        projection, pixel_size, position = geometry
         item_id, item_name = _item_of(image)
         if isinstance(image, FluorescenceImage):
-            projection = FMStageProjection.from_image(image)
-            pixel_size = getattr(metadata, "pixel_size_x", None)
-            if projection is None or not pixel_size:
-                logger.debug(
-                    "A fluorescence overview with no geometry cannot be placed."
-                )
-                return None
             data = composite_projection(image)
             view = VIEW_FM
         else:
-            projection = BeamStageProjection.from_image(image)
-            pixel_size = getattr(getattr(metadata, "pixel_size", None), "x", None)
-            if projection is None or not pixel_size:
-                logger.debug("A beam overview with no geometry cannot be placed.")
-                return None
             data = np.asarray(image.data)
             view = _view_of_beam_image(image, position)
         return StoredOverview(
