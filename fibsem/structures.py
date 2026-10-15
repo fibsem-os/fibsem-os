@@ -6,6 +6,7 @@ import logging
 import math
 import os
 import sys
+import warnings
 import weakref
 from abc import ABC, abstractmethod
 from copy import deepcopy
@@ -305,8 +306,8 @@ FIELD_METADATA_KEYS: Tuple[str, ...] = (
     "display",  # a Display: label, scale, unit, step, decimals, advanced, hidden, format_fn
 )
 
-# An older key -> what replaced it, so a field still declaring one is told what to
-# change rather than rendering without it. Nothing reads these.
+# An older (v0.5) key -> what replaced it, so a field still declaring one is told
+# what to change. Read for now through upgrade_metadata (FIB-1415).
 RENAMED_METADATA_KEYS: Dict[str, str] = {
     "help": "doc",
     "units": "unit",
@@ -330,6 +331,7 @@ RENAMED_METADATA_KEYS: Dict[str, str] = {
 
 
 def field_meta(
+    base: Optional[Mapping[str, Any]] = None,
     *,
     unit: Optional[str] = None,
     limits: Optional[RangeLimit] = None,
@@ -338,6 +340,7 @@ def field_meta(
     device_parameter: Optional[str] = None,
     filepath: Optional[bool] = None,
     display: Optional[Display] = None,
+    **older: Any,
 ) -> Dict[str, Any]:
     """A field's metadata, checked when the module is imported.
 
@@ -361,7 +364,40 @@ def field_meta(
     Every key is a keyword argument, so a misspelling is a TypeError when the
     module is imported rather than a form that silently renders without its
     tooltip or its unit (FIB-384). Arguments left unset are left out.
+
+    The v0.5 form, a base dict and the flat keys (``field_meta(BASE, label=...)``),
+    still works for now, with a DeprecationWarning naming what replaced each key
+    (FIB-1415); any other keyword is a TypeError.
     """
+    if base is not None or older:
+        unknown = sorted(set(older) - set(RENAMED_METADATA_KEYS) - _DROPPED_KEYS)
+        if unknown:
+            raise TypeError(
+                f"field_meta() got an unexpected keyword argument {unknown[0]!r}"
+            )
+        changes = [
+            f"{key}= is now {RENAMED_METADATA_KEYS[key]}"
+            for key in sorted(older)
+            if key in RENAMED_METADATA_KEYS
+        ]
+        if base is not None:
+            changes.insert(0, "a base dict is now its keys as arguments")
+        warnings.warn(
+            "field_meta() in its v0.5 form is deprecated and will be removed in a "
+            "later release: " + "; ".join(changes) + ".",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        current = field_meta(
+            unit=unit,
+            limits=limits,
+            choices=choices,
+            doc=doc,
+            device_parameter=device_parameter,
+            filepath=filepath,
+            display=display,
+        )
+        return {**upgrade_metadata({**(base or {}), **older}), **current}
     if limits is not None and not isinstance(limits, RangeLimit):
         raise TypeError(f"limits must be a RangeLimit, got {limits!r}")
     if display is not None and not isinstance(display, Display):
@@ -381,6 +417,74 @@ def field_meta(
         "display": display,
     }
     return {key: value for key, value in declared.items() if value is not None}
+
+
+# Older keys that carry nothing a form shows now: dropped without a word.
+_DROPPED_KEYS = frozenset({"manufacturer", "format_fn_kwargs"})
+
+# An older ``microscope_parameter`` -> the device parameter it named.
+_OLDER_DEVICE_PARAMETERS: Dict[str, str] = {"scan_direction": "milling.scan_direction"}
+
+
+def upgrade_metadata(declared: Mapping[str, Any]) -> Dict[str, Any]:
+    """A field's metadata with the v0.5 flat keys (``label``, ``tooltip``,
+    ``minimum`` in shown units, ...) said in today's keys, so a plugin written
+    against them keeps its labels, tooltips and limits for now (FIB-1415). A key
+    declared in today's form wins over the older one saying the same thing.
+    Metadata with no older key comes back as it is."""
+    older = {
+        key: value
+        for key, value in declared.items()
+        if key in RENAMED_METADATA_KEYS or key in _DROPPED_KEYS
+    }
+    if not older:
+        return dict(declared)
+    upgraded = {key: value for key, value in declared.items() if key not in older}
+
+    def put(key: str, value: Any) -> None:
+        if value is not None:
+            upgraded.setdefault(key, value)
+
+    scale = older.get("scale")
+    if scale and older.get("dimensions"):
+        scale = scale ** older["dimensions"]
+    put("doc", older.get("tooltip", older.get("help")))
+    put("unit", older.get("units"))
+    items = older.get("items")
+    if isinstance(items, (list, tuple)):
+        put("choices", tuple(items))
+    name = older.get("microscope_parameter")
+    if name:
+        put("device_parameter", _OLDER_DEVICE_PARAMETERS.get(name, f"beam.{name}"))
+    low, high = older.get("minimum"), older.get("maximum")
+    if low is not None and high is not None:
+        put("limits", RangeLimit(*sorted((low / (scale or 1), high / (scale or 1)))))
+    shown = {
+        "label": older.get("label"),
+        "scale": scale,
+        "unit": older.get("display_unit"),
+        "step": older.get("step"),
+        "decimals": older.get("decimals"),
+        "advanced": older.get("advanced"),
+        "hidden": older.get("hidden"),
+        "format_fn": older.get("format_fn"),
+    }
+    shown = {key: value for key, value in shown.items() if value is not None}
+    if shown:
+        display = upgraded.get("display")
+        upgraded["display"] = (
+            Display(**shown)
+            if display is None
+            else replace(
+                display,
+                **{
+                    k: v
+                    for k, v in shown.items()
+                    if getattr(display, k) in (None, False)
+                },
+            )
+        )
+    return upgraded
 
 
 # The range a pattern or strategy length takes unless it says otherwise.
@@ -419,6 +523,7 @@ def field_specs(struct_cls: Type[Any]) -> Dict[str, Parameter]:
     for f in fields(struct_cls):
         declared = dict(f.metadata)
         _warn_unknown_metadata_keys(struct_cls, f.name, declared)
+        declared = upgrade_metadata(declared)
         known = {key: declared[key] for key in FIELD_METADATA_KEYS if key in declared}
         display = known.pop("display", None) or Display()
         bound = declared_device_parameter(known.get("device_parameter"))
@@ -471,7 +576,7 @@ def _warn_unknown_metadata_keys(
     because form metadata is re-read on every rebuild.
     """
     for key in metadata:
-        if key in FIELD_METADATA_KEYS:
+        if key in FIELD_METADATA_KEYS or key in _DROPPED_KEYS:
             continue
         marker = (struct_cls.__qualname__, field_name, key)
         if marker in _warned_metadata_keys:
@@ -481,8 +586,8 @@ def _warn_unknown_metadata_keys(
         if replacement is not None:
             logging.warning(
                 f"{struct_cls.__name__}.{field_name} declares metadata key {key!r}, which "
-                f"is no longer read; declare {replacement} instead. The field will render "
-                f"without it until the declaration is updated."
+                f"is deprecated and will stop being read in a later release; declare "
+                f"{replacement} instead."
             )
         else:
             logging.warning(

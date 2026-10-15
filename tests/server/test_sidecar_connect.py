@@ -67,7 +67,7 @@ def test_retry_succeeds_after_server_appears():
 
 
 def test_retry_times_out_with_guidance():
-    with pytest.raises(SystemExit) as excinfo:
+    with pytest.raises(sidecar.ServerUnreachable) as excinfo:
         sidecar._connect_with_retry(
             lambda url, token: _FakeClient([ConnectionError("refused")]),
             "http://x",
@@ -84,7 +84,7 @@ def test_no_server_at_all_times_out_with_the_setup_message(monkeypatch, tmp_path
     monkeypatch.setattr(
         "fibsem.server.discovery.DISCOVERY_FILE", tmp_path / "absent.json"
     )
-    with pytest.raises(SystemExit) as excinfo:
+    with pytest.raises(sidecar.ServerUnreachable) as excinfo:
         sidecar._connect_with_retry(
             lambda url, token: _FakeClient([]),
             None,
@@ -219,3 +219,61 @@ def test_the_named_user_agent_survives_a_reconnect(monkeypatch):
     client.set_user_agent("fibsem-mcp/0.6 claude-code/2.1.3")
     client.request("GET", "/app/workflow/status")
     assert moved.headers["User-Agent"] == "fibsem-mcp/0.6 claude-code/2.1.3"
+
+
+class _Timed(_FakeClient):
+    """Takes the per-request timeout the start-up probe passes."""
+
+    def request(self, method, path, json=None, timeout=None):
+        return super().request(method, path, json=json)
+
+
+def test_start_up_does_not_wait_for_the_server(monkeypatch):
+    """The MCP client's handshake is answered whether or not a server answers
+    (FIB-1416): the probe gives up at once, every tool is offered, and the
+    first call is where the wait and its guidance happen."""
+    monkeypatch.setattr(sidecar, "_try_resolve", lambda url, token: ("http://x", "t"))
+    assert (
+        sidecar._probe(lambda u, t: _Timed([ConnectionError("refused")]), None, None)
+        is None
+    )
+    connects = []
+
+    def connect():
+        connects.append(True)
+        raise sidecar.ServerUnreachable("fibsem-mcp: no server found.")
+
+    client = sidecar._LazyClient(connect)
+    mcp = sidecar.build_sidecar(client, None)
+    assert connects == []  # nothing reached for until a tool is called
+    names = {tool.name for tool in mcp._tool_manager.list_tools()}
+    assert names == {t.name for t in sidecar.CATALOG}
+    data, err = sidecar._call(client, "GET", "/app/workflow/status")
+    assert data is None and err == "fibsem-mcp: no server found."
+    assert connects == [True]
+
+
+def test_the_first_call_connects_once_and_keeps_the_client(monkeypatch):
+    live = _FakeClient([_FakeResponse(200, {"a": 1}), _FakeResponse(200, {"b": 2})])
+    live.headers = {}
+    made = []
+
+    def connect():
+        made.append(True)
+        client = sidecar._ReconnectingClient(None, None, None, live, ("http://x", "t"))
+        return client, {"level": "watch"}
+
+    client = sidecar._LazyClient(connect)
+    client.set_user_agent("fibsem-mcp/0.6 claude-code/2.1.3")
+    assert sidecar._call(client, "GET", "/a") == ({"a": 1}, None)
+    assert sidecar._call(client, "GET", "/b") == ({"b": 2}, None)
+    assert made == [True]
+    assert live.headers["User-Agent"] == "fibsem-mcp/0.6 claude-code/2.1.3"
+
+
+def test_a_server_that_answers_at_start_up_shapes_the_tools(monkeypatch):
+    monkeypatch.setattr(sidecar, "_try_resolve", lambda url, token: ("http://x", "t"))
+    probe = _Timed([_FakeResponse(200, {"routers": {}, "level": "watch"})])
+    capabilities = sidecar._probe(lambda u, t: probe, None, None)
+    assert capabilities == {"routers": {}, "level": "watch"}
+    assert probe.closed

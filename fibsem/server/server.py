@@ -223,7 +223,8 @@ def _record_refusal(request: Request, exc: StarletteHTTPException) -> None:
             return
         auth: AuthConfig = request.app.state.auth
         payload = {
-            "action": action_name(request),
+            # a request refused at filing names the call it carried
+            "action": detail.get("call") or action_name(request),
             "route": f"{request.method} {request.url.path}",
             "error_type": error_type,
             "level": auth.level.value,

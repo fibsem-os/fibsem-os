@@ -28,18 +28,21 @@ AGENT = {"Authorization": "Bearer agent"}
 STEP = 20e-6  # metres: shows on the mm readout
 
 
-@pytest.fixture
-def window(qapp, tmp_path):
+@pytest.fixture(params=[True, False], ids=["experiment", "no-experiment"])
+def window(qapp, tmp_path, request):
+    """With an experiment open, and without one: the readout follows the
+    microscope, not the experiment (FIB-1421)."""
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
 
     win = module.AutoLamellaSingleWindowUI()
     win.autolamella_ui.system_widget.connect_to_microscope()
     ui = win.autolamella_ui
-    experiment = Experiment(path=tmp_path, name="drive-exp")
-    os.makedirs(experiment.path, exist_ok=True)
-    ui.experiment = experiment
-    ui._setup_experiment_connections()
-    win._on_experiment_update()
+    if request.param:
+        experiment = Experiment(path=tmp_path, name="drive-exp")
+        os.makedirs(experiment.path, exist_ok=True)
+        ui.experiment = experiment
+        ui._setup_experiment_connections()
+        win._on_experiment_update()
 
     yield win
     microscope = ui.microscope

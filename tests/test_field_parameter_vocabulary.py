@@ -92,9 +92,15 @@ def test_an_instrument_report_replaces_the_limits_and_choices():
 
 
 @pytest.mark.parametrize("key", ["tooltip", "label", "minimum", "items", "type"])
-def test_the_older_keys_are_gone(key):
-    with pytest.raises(TypeError):
+def test_the_older_keys_are_deprecated(key):
+    """Read for now, for v0.5 plugins (FIB-1415); see test_field_metadata_keys."""
+    with pytest.warns(DeprecationWarning, match=f"{key}= is now"):
         field_meta(**{key: 1})
+
+
+def test_a_key_that_never_was_is_a_type_error():
+    with pytest.raises(TypeError, match="widht"):
+        field_meta(widht=1)
 
 
 def test_limits_and_display_are_typed():

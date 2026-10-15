@@ -12,7 +12,8 @@ it would block the agent from acting on what it prints.
 
 The lines: ``PROMPT``, ``ANSWERED``, ``PROMPT WITHDRAWN``, ``QUESTION``,
 ``QUESTION RELEASED``, ``REQUEST`` (the agent's request decided, finished or
-cancelled, FIB-1283), task ``EVENT`` lines, ``GAP`` and ``RUN ENDED``.
+cancelled, FIB-1283), task ``EVENT`` lines, ``GAP``, ``RESTARTED`` and
+``RUN ENDED``.
 Exits 0 when the run ends, 1 when the server cannot be watched. A run that
 stops without an end event still ends the watch: ``RUN ENDED (stopped
 without an end event)``, once ``/app/workflow/status`` says nothing is running.
@@ -56,6 +57,11 @@ RETRY_DELAY_S = 5.0
 GAP_LINE = (
     "GAP: events were lost before they could be read -- re-read /app/workflow/prompt "
     "and /app/workflow/status rather than assuming nothing happened."
+)
+# A new event stream: its seqs start again. Nothing was lost, and everything in
+# it is news (FIB-1421).
+RESTARTED_LINE = (
+    "RESTARTED: the app restarted (new session); following its events from the start."
 )
 
 
@@ -251,8 +257,13 @@ def watch(client, out=None, sleep_fn=None, poll_s=POLL_S, clock=None, since=None
     if not snapshot.get("available"):
         out("NO EVENTS: the server has no event stream, so there is nothing to watch.")
         return 1
+    stream = snapshot.get("stream")
     if since is None:
         since = snapshot.get("latest_seq") or 0
+    elif (snapshot.get("latest_seq") or 0) < since:
+        # Resumed with a seq from before the app restarted.
+        out(RESTARTED_LINE)
+        since = 0
     # A run can end without an end event: one that dies outside a task fires
     # none (FIB-1331). So while a run is live, /app/workflow/status is the backstop.
     run_live = _run_is_live(client) is True
@@ -277,11 +288,14 @@ def watch(client, out=None, sleep_fn=None, poll_s=POLL_S, clock=None, since=None
             return 1
 
         latest = payload.get("latest_seq") or 0
-        if latest < since:
+        restarted = payload.get("stream") != stream
+        stream = payload.get("stream")
+        if latest < since or restarted:
             # A new stream (the app restarted with a fresh buffer): its seqs
             # start again, and this cursor would wait past all of them. All
-            # of it is news, since it began after this watch did.
-            out(GAP_LINE)
+            # of it is news, since it began after this watch did. (A server
+            # that names no stream is told by its seqs going back.)
+            out(RESTARTED_LINE)
             since = 0
             continue
         oldest = payload.get("oldest_available")
