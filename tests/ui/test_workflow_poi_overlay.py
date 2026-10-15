@@ -78,6 +78,7 @@ def _poi_spec(initial_poi=None):
     stub = types.SimpleNamespace(
         _view_controller=lambda: controller,
         _park_question=lambda *a, **k: None,
+        _follow_view_frames=lambda: None,
     )
     QtResponder._pick_poi(
         stub, PickPOI(image=_image(), initial=initial_poi), future=None
