@@ -2,6 +2,7 @@
 
 import base64
 import io
+import json
 import os
 
 import numpy as np
@@ -77,6 +78,30 @@ def test_acquire_image_preview_endpoint(armed_client):
     # metres per SOURCE pixel: the scale an agent needs to map coordinates
     # onto the preview without assuming a field of view.
     assert body["pixelsize"]["x"] == pytest.approx(body["hfw"] / body["full_width"])
+    # metres per PREVIEW pixel, for measuring on the preview itself.
+    assert body["preview_pixelsize"] == pytest.approx(
+        body["pixelsize"]["x"] * body["full_width"] / body["width"]
+    )
+    # The summary is the image's metadata block: where and how it was taken.
+    summary = answer["summary"]
+    assert summary["pixel_size"] == pytest.approx(body["pixelsize"]["x"])
+    assert set(summary["stage_position"]) == {
+        "x",
+        "y",
+        "z",
+        "r_deg",
+        "t_deg",
+        "coordinate_system",
+    }
+    assert summary["scan_rotation_deg"] is not None
+    assert set(summary["beam"]) == {
+        "voltage",
+        "current",
+        "working_distance",
+        "dwell_time",
+    }
+    assert set(summary["detector"]) == {"type", "mode"}
+    assert len(json.dumps(summary)) < 1000
 
 
 def test_preview_needs_the_token(armed_client):

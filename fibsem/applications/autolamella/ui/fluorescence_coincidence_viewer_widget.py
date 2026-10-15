@@ -2448,7 +2448,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         if state is not DeviceImagingState.READY:
             logging.info(
                 "Cannot move the stage via the FM image. "
-                + self.microscope.describe_device_imaging_state("FM", state)
+                + self.microscope.explain_imaging_state("FM", state)
             )
             return
         image_shape = self.fm_canvas._img_shape

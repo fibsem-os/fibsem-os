@@ -1816,6 +1816,10 @@ class OverviewParameters:
             every tile. Disabled tiles are skipped but keep their place: the mosaic is
             still the full grid size and acquired tiles land at the same canvas
             coordinates they would have in a dense overview.
+        register_tiles: Experimental. Place each tile where its picture says it is,
+            measured against its neighbours, rather than where the grid planned it.
+            Only when the tiles match the stage steps and at least three pairs match;
+            otherwise the planned mosaic is kept. As `OverviewAcquisitionSettings`.
     """
 
     rows: int = 3
@@ -1826,6 +1830,7 @@ class OverviewParameters:
     tile_order: TileOrderStrategy = TileOrderStrategy.TYPEWRITER
     tile_mask: Optional[List[List[bool]]] = None
     objective_start: ObjectiveStartPosition = ObjectiveStartPosition.CURRENT
+    register_tiles: bool = False
 
     def to_dict(self) -> dict:
         """Convert to dictionary representation."""
@@ -1841,6 +1846,7 @@ class OverviewParameters:
             "tile_mask": None
             if self.tile_mask is None
             else [[bool(v) for v in row] for row in self.tile_mask],
+            "register_tiles": self.register_tiles,
         }
 
     @classmethod
@@ -1866,6 +1872,7 @@ class OverviewParameters:
             objective_start=ObjectiveStartPosition(
                 ddict.get("objective_start", ObjectiveStartPosition.CURRENT.value)
             ),
+            register_tiles=bool(ddict.get("register_tiles", False)),
         )
 
     @property
