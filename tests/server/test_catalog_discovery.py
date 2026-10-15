@@ -90,7 +90,7 @@ def test_catalog_names_unique_and_levels_valid():
     # request; the agent's own mill it stops at any level, which the note says.
     by_name = {t.name: t for t in CATALOG}
     assert by_name["stop_milling"].level == "drive"
-    assert "any level" in by_name["stop_milling"].level_note
+    assert "Assist or Drive, never at Watch" in by_name["stop_milling"].level_note
     assert by_name["stop_workflow"].level == "drive"
     # Only what drives the microscope takes control of it.
     assert all(t.level == "drive" for t in CATALOG if t.hardware)
