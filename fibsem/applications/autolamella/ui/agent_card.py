@@ -5,7 +5,9 @@ The chip in the status bar opens it. It holds, top to bottom:
 * what is waiting for the operator: the agent's request, its actions one plain
   line each as the server wrote them (FIB-1403), "Show details" for every value,
   the agent's reason, and Reject… and Approve; while an approved request runs,
-  each action's progress. With nothing waiting, what the agent is doing now;
+  each action's progress. Or the agent's suggested answer to the run's
+  question, with Accept (FIB-1407). With nothing waiting, what the agent is
+  doing now;
 * the controls: the level (Off, Watch, Assist, Drive), Stop agent, who the agent
   is and when it was last heard from, and the event log.
 
@@ -253,6 +255,7 @@ class AgentCard(QFrame):
     connect_clicked = pyqtSignal()
     approve_clicked = pyqtSignal(str)  # request id
     reject_clicked = pyqtSignal(str, str)  # request id, the operator's reason
+    accept_clicked = pyqtSignal()  # the suggestion shown
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -260,6 +263,8 @@ class AgentCard(QFrame):
         self.setAttribute(Qt.WA_StyledBackground)  # type: ignore
         self.setStyleSheet(_CARD)
         self._request: Optional[Dict[str, Any]] = None
+        self._suggestion: Optional[Dict[str, str]] = None
+        self.accept_button: Optional[QPushButton] = None
         self._now: Optional[str] = None
         self._details_open = False
         self._rejecting = False
@@ -355,12 +360,26 @@ class AgentCard(QFrame):
         self._request = request
         self._render()
 
+    @property
+    def suggestion(self) -> Optional[Dict[str, str]]:
+        return self._suggestion
+
+    def set_suggestion(self, suggestion: Optional[Dict[str, str]]) -> None:
+        """The agent's suggested answer to the run's question -- ``question``
+        (the prompt's text), ``answer`` (the prompt's button it stands for) and
+        ``reason`` -- or None for none. A request, when one waits, shows first."""
+        suggestion = dict(suggestion) if suggestion is not None else None
+        if suggestion == self._suggestion:
+            return
+        self._suggestion = suggestion
+        self._render()
+
     def set_now(self, action: Optional[str]) -> None:
         """What the agent is doing on the microscope, or None."""
         if action == self._now:
             return
         self._now = action
-        if self._request is None:
+        if self._request is None and self._suggestion is None:
             self._render()
 
     def set_last_heard(self, text: Optional[str], heard: bool = False) -> None:
@@ -422,23 +441,32 @@ class AgentCard(QFrame):
             QBoxLayout.LeftToRight if self._wide else QBoxLayout.TopToBottom
         )
         request = self._request
-        if request is None:
+        self.accept_button = self.details_link = None
+        self.approve_button = self.reject_button = None
+        self.confirm_reject_button = self.back_button = None
+        self.reason_edit = None
+        if request is None and self._suggestion is None:
             self._dot.setStyleSheet(f"color: {PURPLE_COLOR};")
             self._title.setText("Agent")
             self._body.addLayout(self._nothing(), 1)
+            self.updateGeometry()
+            return
+        self._dot.setStyleSheet(f"color: {REVIEW_COLOR};")
+        if request is None:
+            self._title.setText("Agent suggests an answer")
+            left, right = self._suggestion_columns(self._suggestion)
         else:
             applying = request.get("status") == "applying"
-            self._dot.setStyleSheet(f"color: {REVIEW_COLOR};")
             self._title.setText(
                 "Agent is doing what you approved" if applying else "Agent wants to"
             )
             left, right = self._request_columns(request, applying)
-            self._body.addLayout(left, 1)
-            holder = QWidget()
-            holder.setLayout(right)
-            if self._wide:
-                holder.setFixedWidth(260)
-            self._body.addWidget(holder)
+        self._body.addLayout(left, 1)
+        holder = QWidget()
+        holder.setLayout(right)
+        if self._wide:
+            holder.setFixedWidth(260)
+        self._body.addWidget(holder)
         self.updateGeometry()
 
     def _nothing(self) -> QVBoxLayout:
@@ -560,6 +588,54 @@ class AgentCard(QFrame):
             buttons.addWidget(self.reject_button)
             buttons.addWidget(self.approve_button)
         right.addLayout(buttons)
+        return left, right
+
+    def _suggestion_columns(self, suggestion: Dict[str, str]):
+        left = QVBoxLayout()
+        left.setSpacing(6)
+        box = QFrame()
+        box.setObjectName("agentActions")
+        rows = QVBoxLayout(box)
+        rows.setContentsMargins(10, 8, 10, 8)
+        rows.setSpacing(1)
+        if suggestion.get("question"):
+            rows.addWidget(
+                _label(suggestion["question"], TEXT_MUTED_COLOR, small=True, wrap=True)
+            )
+        answer = _label(
+            f"Answer: {suggestion.get('answer', '')}", TEXT_STRONG_COLOR, wrap=True
+        )
+        answer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        rows.addWidget(answer)
+        left.addWidget(box)
+        left.addStretch(1)
+
+        right = QVBoxLayout()
+        right.setContentsMargins(0, 0, 0, 0)
+        right.setSpacing(8)
+        right.addWidget(_label("Why", TEXT_MUTED_COLOR, small=True))
+        why = _label(suggestion.get("reason", ""), TEXT_COLOR, wrap=True)
+        why.setTextInteractionFlags(Qt.TextSelectableByMouse)  # type: ignore
+        right.addWidget(why)
+        right.addStretch(1)
+        buttons = QHBoxLayout()
+        buttons.addStretch(1)
+        self.accept_button = _button("Accept", primary=True)
+        self.accept_button.setToolTip(
+            "Answer the question with this, as your answer. The record names the "
+            "agent as the one who suggested it."
+        )
+        self.accept_button.clicked.connect(self.accept_clicked)
+        buttons.addWidget(self.accept_button)
+        right.addLayout(buttons)
+        right.addWidget(
+            _label(
+                "Answering on the prompt yourself drops it.",
+                TEXT_MUTED_COLOR,
+                small=True,
+                wrap=True,
+            )
+        )
         return left, right
 
     def _toggle_details(self) -> None:

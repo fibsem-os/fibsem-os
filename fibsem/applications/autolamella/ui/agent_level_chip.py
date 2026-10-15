@@ -9,7 +9,9 @@ log). No menu and no dialog.
 
 At Assist the agent acts by asking (FIB-1283). While its request waits, the chip
 turns amber, "Agent asks", and the card shows the request. Only one request waits
-at a time, so the chip carries no count.
+at a time, so the chip carries no count. A suggested answer to the run's question
+turns it amber too, "Agent suggests", and the card shows it with Accept
+(FIB-1407).
 
 Like `WorkflowControls`, this only shows what it is told and says what was picked.
 What a pick does -- setting the App Server's level -- is the window's.
@@ -185,6 +187,7 @@ class AgentLevelChip(QPushButton):
     event_log_clicked = pyqtSignal()
     approve_clicked = pyqtSignal(str)  # request id
     reject_clicked = pyqtSignal(str, str)  # request id, the operator's reason
+    accept_clicked = pyqtSignal()  # the suggestion shown
 
     def __init__(
         self,
@@ -197,6 +200,7 @@ class AgentLevelChip(QPushButton):
         self._agent_client = agent_client
         self._level: Optional[AgentLevel] = None
         self._request: Optional[Dict[str, Any]] = None
+        self._suggestion: Optional[Dict[str, str]] = None
         self.setCursor(Qt.PointingHandCursor)  # type: ignore
 
         self.card = AgentCard()
@@ -206,6 +210,7 @@ class AgentLevelChip(QPushButton):
         self.card.connect_clicked.connect(self._closing(self.connect_clicked))
         self.card.approve_clicked.connect(self._on_approve)
         self.card.reject_clicked.connect(self._on_reject)
+        self.card.accept_clicked.connect(self._closing(self.accept_clicked))
         self.popup = _CardPopup(self.card, self)
         self.clicked.connect(self.toggle_card)
 
@@ -216,7 +221,7 @@ class AgentLevelChip(QPushButton):
             self.set_level(level)
             self.ensurePolished()
             widths.append(self.sizeHint().width())
-        for text in ("Agent asks", "Agent: applying 20/20"):
+        for text in ("Agent asks", "Agent suggests", "Agent: applying 20/20"):
             self.setText(text)
             widths.append(self.sizeHint().width())
         self.setFixedWidth(max(widths))
@@ -246,6 +251,18 @@ class AgentLevelChip(QPushButton):
         self._paint()
         self._fit_popup()
 
+    @property
+    def suggestion(self) -> Optional[Dict[str, str]]:
+        return self._suggestion
+
+    def set_suggestion(self, suggestion: Optional[Dict[str, str]]) -> None:
+        """Show the agent's suggested answer (see `AgentCard.set_suggestion`),
+        or None for none. Does not emit: this is the window telling the chip."""
+        self._suggestion = dict(suggestion) if suggestion is not None else None
+        self.card.set_suggestion(self._suggestion)
+        self._paint()
+        self._fit_popup()
+
     def set_now(self, action: Optional[str]) -> None:
         """What the agent is doing on the microscope, for the card."""
         self.card.set_now(action)
@@ -257,6 +274,11 @@ class AgentLevelChip(QPushButton):
         if self._request is not None:
             text, style = chip_request_text(self._request), _REQUEST_CHIP
             tooltip = "The agent is asking: click to see what, and decide"
+        elif self._suggestion is not None:
+            text, style = "Agent suggests", _REQUEST_CHIP
+            tooltip = (
+                "The agent suggests an answer to the run's question: click to see it"
+            )
         self.setText(text)
         self.setStyleSheet(style)
         self.setToolTip(tooltip + _HELP)

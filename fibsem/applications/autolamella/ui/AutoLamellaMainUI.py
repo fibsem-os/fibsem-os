@@ -1592,6 +1592,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.agent_chip.stop_clicked.connect(self._on_stop_agent)
         self.agent_chip.approve_clicked.connect(self._on_approve_agent_request)
         self.agent_chip.reject_clicked.connect(self._on_reject_agent_request)
+        self.agent_chip.accept_clicked.connect(self._on_accept_agent_suggestion)
+        # The suggestion the operator dropped by answering otherwise, until the
+        # answer that dropped it is heard (the responder takes the suggestion
+        # down before it says the question was answered).
+        self._dropped_agent_suggestion: Optional[dict] = None
         self.status_bar.add_action(self.agent_chip)
         # The agent's requests (FIB-1283): the store being watched, and the
         # requests whose outcome a toast has already said (FIB-1404).
@@ -2283,6 +2288,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Question lifecycle refreshes the waiting chrome. GUI thread: the
         # responder emits these where the lifecycle already runs.
         self.autolamella_ui.ui_responder.add_question_observer(self._on_question_event)
+        self.autolamella_ui.suggestion_changed.connect(self._on_agent_suggestion)
         notification_service._get_service().toast.connect(self._on_notification_service)
         notification_service._get_service().toast_action.connect(
             self._on_notification_service_action
@@ -3959,7 +3965,36 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     def _on_question_event(self, kind: str, payload: dict) -> None:
         """GUI thread, from the responder: a question was raised, answered or
         cancelled, so the waiting chrome follows."""
+        dropped, self._dropped_agent_suggestion = self._dropped_agent_suggestion, None
+        if (
+            dropped is not None
+            and kind == "prompt_answered"
+            and payload.get("answered_by") == "operator"
+            and not payload.get("suggested_by")
+        ):
+            notification_service.show(
+                "Agent's suggestion dropped: you answered the question yourself",
+                "info",
+            )
         self._refresh_workflow_indicators()
+
+    def _on_agent_suggestion(self, suggestion: Optional[dict]) -> None:
+        """GUI thread: the agent's suggested answer went up or came down. It
+        shows on the agent's card, not on the prompt (FIB-1407)."""
+        shown = self.agent_chip.suggestion
+        self._dropped_agent_suggestion = shown if suggestion is None else None
+        self.agent_chip.set_suggestion(suggestion)
+
+    def _on_accept_agent_suggestion(self) -> None:
+        """Accept on the agent's card: the operator answers with the agent's
+        suggestion, as theirs."""
+        self._dropped_agent_suggestion = None
+        if not self.autolamella_ui.take_suggestion():
+            notification_service.show(
+                "The agent's suggestion had gone: the question was answered or "
+                "taken down",
+                "info",
+            )
 
     def _refresh_workflow_indicators(self) -> None:
         """Re-read the waiting/supervised/running state into the window chrome."""

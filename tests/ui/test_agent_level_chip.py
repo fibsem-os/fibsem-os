@@ -256,6 +256,50 @@ def test_an_ended_request_leaves_the_card(qapp):
     chip.deleteLater()
 
 
+_SUGGESTION = {
+    "question": "Is the lamella position good?",
+    "answer": "Continue",
+    "reason": "the trench is centred on 01",
+}
+
+
+def test_a_suggestion_turns_the_chip_and_the_card_offers_accept(qapp):
+    chip = AgentLevelChip()
+    chip.set_level(AgentLevel.ASSIST)
+    chip.set_suggestion(_SUGGESTION)
+    assert chip.text() == "Agent suggests"
+    card = chip.card
+    assert card.accept_button is not None and card.approve_button is None
+    assert {
+        "Agent suggests an answer",
+        "Is the lamella position good?",
+        "Answer: Continue",
+        "the trench is centred on 01",
+    } <= set(_labels(card))
+
+    accepted = []
+    chip.accept_clicked.connect(lambda: accepted.append(True))
+    chip.toggle_card()
+    card.accept_button.click()
+    assert accepted == [True]
+    assert not chip.popup.isVisible()
+
+    chip.set_suggestion(None)
+    assert chip.text() == "Agent: Assisting"
+    assert card.accept_button is None
+
+
+def test_a_request_shows_before_a_suggestion(qapp):
+    chip = AgentLevelChip()
+    chip.set_suggestion(_SUGGESTION)
+    chip.set_request(_request())
+    assert chip.text() == "Agent asks"
+    assert chip.card.approve_button is not None
+    assert chip.card.accept_button is None
+    chip.set_request(None)
+    assert chip.text() == "Agent suggests"
+
+
 def test_the_card_stacks_when_narrow(qapp):
     card = AgentCard()
     card.set_request(_request())
@@ -490,3 +534,40 @@ def test_how_a_request_ended_is_a_toast_once_not_the_status_bar(
         )
     ]
     assert main_ui.status_bar.failure is None
+
+
+def test_the_window_shows_a_suggestion_on_the_card_and_says_when_it_is_dropped(
+    main_ui, host, monkeypatch
+):
+    from fibsem.ui import notification_service
+
+    shown = []
+    monkeypatch.setattr(
+        notification_service,
+        "show",
+        lambda message, kind="info", temporary=False, action=None: shown.append(
+            (message, kind)
+        ),
+    )
+    host.auth.set_level(AgentLevel.ASSIST)
+    main_ui._refresh_agent_chip()
+    prompt = main_ui.autolamella_ui
+    prompt.suggestion_changed.emit(_SUGGESTION)
+    assert main_ui.agent_chip.text() == "Agent suggests"
+    assert main_ui.agent_chip.suggestion == _SUGGESTION
+
+    # Taken down by an answer that took it: no toast.
+    prompt.suggestion_changed.emit(None)
+    main_ui._on_question_event(
+        "prompt_answered", {"answered_by": "operator", "suggested_by": "agent"}
+    )
+    assert shown == []
+
+    # Dropped by the operator answering otherwise: a toast says so.
+    prompt.suggestion_changed.emit(_SUGGESTION)
+    prompt.suggestion_changed.emit(None)
+    main_ui._on_question_event("prompt_answered", {"answered_by": "operator"})
+    assert shown == [
+        ("Agent's suggestion dropped: you answered the question yourself", "info")
+    ]
+    assert main_ui.agent_chip.suggestion is None

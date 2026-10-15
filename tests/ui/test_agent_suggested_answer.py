@@ -1,6 +1,6 @@
 """Suggested answers (FIB-1283): at Assist the agent suggests an answer to the
-run's question, the prompt shows it as a button, and the operator's click on it
-answers as theirs. Three threads, like production: the worker asks, the GUI
+run's question, the agent card shows it (FIB-1407; the window says so through
+`suggestion_changed`), and the operator's Accept answers as theirs. Three threads, like production: the worker asks, the GUI
 spins, and the agent speaks HTTP from another thread."""
 
 import os
@@ -119,7 +119,9 @@ def test_the_operator_takes_the_agent_s_suggestion(ui, qapp, client):
     events = _record(ui)
     thread, outcome = _ask_on_worker(ui, qapp)
     question_id = ui.ui_responder.pending_question_and_id()[1]
-    assert not ui.pushButton_suggestion.isVisibleTo(ui)
+    shown = []
+    ui.suggestion_changed.connect(shown.append)
+    assert ui.suggestion_shown is None
 
     # At Assist, answering directly is asking first; suggesting is not.
     refused = _post(
@@ -139,15 +141,20 @@ def test_the_operator_takes_the_agent_s_suggestion(ui, qapp, client):
     assert suggested.json()["suggested"] is True
     assert "answer" not in outcome  # nothing answered yet
 
-    assert ui.pushButton_suggestion.isVisibleTo(ui)
-    assert ui.pushButton_suggestion.text() == "Agent suggests: Continue"
-    assert ui.label_suggestion.text() == "Why: trench is clear"
+    # Not on the prompt: the card shows it.
+    assert ui.suggestion_shown == {
+        "question": "Continue to polishing?",
+        "answer": "Continue",
+        "reason": "trench is clear",
+    }
+    assert shown == [ui.suggestion_shown]
 
-    ui.pushButton_suggestion.click()
+    assert ui.take_suggestion() is True
     _spin_until(qapp, lambda: "answer" in outcome or "error" in outcome)
     thread.join(timeout=5)
     assert outcome.get("answer") is True
-    assert not ui.pushButton_suggestion.isVisibleTo(ui)
+    assert ui.suggestion_shown is None
+    assert shown[-1] is None
 
     kinds = [kind for kind, _ in events]
     assert kinds == ["prompt_raised", "prompt_suggested", "prompt_answered"]
@@ -168,13 +175,13 @@ def test_answering_otherwise_drops_the_suggestion(ui, qapp, client):
         "/app/workflow/prompt/suggest",
         {"response": True, "question_id": question_id, "reason": "looks done"},
     )
-    assert ui.pushButton_suggestion.isVisibleTo(ui)
+    assert ui.suggestion_shown is not None
 
     ui.pushButton_no.click()
     _spin_until(qapp, lambda: "answer" in outcome or "error" in outcome)
     thread.join(timeout=5)
     assert outcome.get("answer") is False
-    assert not ui.pushButton_suggestion.isVisibleTo(ui)
+    assert ui.suggestion_shown is None
     assert ui.ui_responder.suggestion is None
     assert "suggested_by" not in events[-1][1]
 
@@ -210,7 +217,7 @@ def test_a_suggestion_needs_a_live_question_a_reason_and_the_agent_acting(
         {"response": True, "question_id": question_id, "reason": "x"},
     )
     assert watching.status_code == 403
-    assert not ui.pushButton_suggestion.isVisibleTo(ui)
+    assert ui.suggestion_shown is None
 
     ui.pushButton_yes.click()
     _spin_until(qapp, lambda: "answer" in outcome or "error" in outcome)
