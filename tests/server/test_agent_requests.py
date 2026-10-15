@@ -166,6 +166,30 @@ def test_a_malformed_request_is_refused(client, action, reason, error_type):
     assert _detail(refused)["error_type"] == error_type
 
 
+def test_a_request_carries_the_image_its_evidence_is_in(client, tmp_path):
+    # FIB-1411: the agent's own image, shown under Why. Inside the experiment.
+    folder = tmp_path / "exp" / "requests-exp"
+    folder.mkdir(parents=True, exist_ok=True)
+    inside = folder / "ref_trench.tif"
+    inside.write_bytes(b"tif")
+    outside = tmp_path / "elsewhere.tif"
+    outside.write_bytes(b"tif")
+
+    def file(image):
+        return client.post(
+            "/app/agent/requests",
+            headers=AGENT,
+            json={"actions": [NUDGE], "reason": "the trench", "image": image},
+        )
+
+    assert _detail(file(str(outside)))["error_type"] == "not_allowed"
+    missing = file(str(folder / "none.tif"))
+    assert missing.status_code == 422 and _detail(missing)["error_type"] == "invalid"
+    filed = file(str(inside))
+    assert filed.status_code == 202, filed.text
+    assert filed.json()["image"] == str(inside)
+
+
 def test_hardware_needs_the_devices_service(microscope, context, auth):
     app = build_server(
         microscope, app_context=context, auth=auth, serve_microscope=False
@@ -406,6 +430,9 @@ _SAMPLE_ARGUMENTS = {
         "path": "experiment",
     },
     "beam_acquire_focus_stack": {"image_settings": {"hfw": 1e-4}, "path": "experiment"},
+    "fm_acquire_image": {"channels": [{"name": "GFP"}], "path": "experiment"},
+    "milling_run_stage": {"stage": {"name": "Rough"}},
+    "milling_run_task": {"config": {"name": "Mill"}, "path": "experiment"},
     "fm_acquire_overview": {
         "channels": [{"name": "GFP"}],
         "parameters": {"rows": 1, "cols": 2},
@@ -690,7 +717,25 @@ def test_a_run_task_reads_by_its_stages_with_whose_estimate_it_is():
             {"item_name": "01-full-magpie", "patch": {"poi.x": 2e-6}, "version": "v"},
             {"/x": {"poi": {"x": 1e-6, "y": 0.0}}},
             "01-full-magpie",
-            "POI x: 1 µm → 2 µm",
+            "Point of interest: (1, 0) µm → (2, 0) µm",
+        ),
+        (
+            "experiment_load",
+            {"path": "C:\\data\\AutoLamella-2026-10-15\\experiment.yaml"},
+            {
+                "/app/workflow/status": {
+                    "experiment": {"name": "AutoLamella-2026-10-14"}
+                }
+            },
+            "Experiment",
+            "Open 'AutoLamella-2026-10-15' in place of 'AutoLamella-2026-10-14'",
+        ),
+        (
+            "experiment_load",
+            {"path": "/data/AutoLamella-2026-10-15/"},
+            {},
+            "Experiment",
+            "Open 'AutoLamella-2026-10-15'",
         ),
         (
             "review_decide",

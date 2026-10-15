@@ -1,6 +1,6 @@
 """Milling a protocol's stages through the App Server (map 8b): ``run_stage`` and
 ``run_task`` mill as the app does and run on as long commands, saving only
-inside the open experiment; ``pattern_preview`` draws stages over a saved image
+inside the open experiment; ``preview_patterns`` draws stages over a saved image
 the agent can look at.
 """
 
@@ -158,7 +158,7 @@ def test_pattern_preview_draws_the_stages_over_a_saved_image(
 ):
     path = _saved_ion_image(microscope, experiment)
     resp = client.post(
-        f"{MILLING}/queries/pattern_preview",
+        f"{MILLING}/queries/preview_patterns",
         json={"kwargs": {"image_path": path, "stages": [_stage().to_dict()]}},
     )
     assert resp.status_code == 200, resp.text
@@ -173,7 +173,7 @@ def test_pattern_preview_draws_the_stages_over_a_saved_image(
 def test_pattern_preview_reads_only_inside_the_experiment(client, microscope, tmp_path):
     path = _saved_ion_image(microscope, tmp_path)
     resp = client.post(
-        f"{MILLING}/queries/pattern_preview", json={"kwargs": {"image_path": path}}
+        f"{MILLING}/queries/preview_patterns", json={"kwargs": {"image_path": path}}
     )
     assert resp.status_code == 403
     assert resp.json()["detail"]["error_type"] == "not_allowed"

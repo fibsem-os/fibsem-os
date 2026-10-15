@@ -1121,7 +1121,7 @@ class FibsemMicroscope(ABC):
         return self.milling.state.get_value()
 
     def estimate_milling_time(self) -> float:
-        return self._milling_service().estimate()
+        return self._milling_service().estimate_time()
 
     def draw_patterns(self, patterns: List[FibsemPatternSettings]) -> None:
         """Draw milling patterns on the microscope from the list of settings. All

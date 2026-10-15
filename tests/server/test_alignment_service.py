@@ -1,5 +1,5 @@
 """Aligning to a saved reference image through the App Server (map 8c): the
-alignment service's ``align`` runs on as a long command and saves beside the
+alignment service's ``align_to_reference`` runs on as a long command and saves beside the
 reference; ``measure_shift`` measures between two saved images and moves
 nothing. Both read only inside the open experiment.
 """
@@ -80,7 +80,7 @@ def test_measure_shift_between_an_image_and_itself_is_none(
 def test_align_runs_on_and_saves_beside_the_reference(client, microscope, experiment):
     path = _saved(microscope, experiment)
     resp = client.post(
-        f"{ALIGNMENT}/commands/align",
+        f"{ALIGNMENT}/commands/align_to_reference",
         json={"kwargs": {"reference_path": path, "steps": 1}},
     )
     assert resp.status_code == 200, resp.text
@@ -100,7 +100,7 @@ def test_align_runs_on_and_saves_beside_the_reference(client, microscope, experi
 def test_a_reference_outside_the_experiment_is_refused(client, microscope, tmp_path):
     path = _saved(microscope, tmp_path, "elsewhere")
     for route, kwargs in (
-        ("commands/align", {"reference_path": path}),
+        ("commands/align_to_reference", {"reference_path": path}),
         ("queries/measure_shift", {"reference_path": path, "image_path": path}),
     ):
         resp = client.post(f"{ALIGNMENT}/{route}", json={"kwargs": kwargs})
@@ -110,5 +110,5 @@ def test_a_reference_outside_the_experiment_is_refused(client, microscope, tmp_p
 
 def test_the_listing_has_the_alignment_service(client):
     alignment = client.get("/microscope/services").json()["alignment"]
-    assert alignment["commands"]["align"]["long"] is True
+    assert alignment["commands"]["align_to_reference"]["long"] is True
     assert "measure_shift" in alignment["queries"]

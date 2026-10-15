@@ -483,6 +483,58 @@ def _item_value(path: str, value: Any) -> str:
     return _short(value)
 
 
+# An item's places, each one line however many of its fields the edit sets:
+# (field, words, the fields in the order they read).
+_ITEM_PLACES = (
+    ("poi", "Point of interest", ("x", "y")),
+    ("alignment_area", "Alignment area", ("left", "top", "width", "height")),
+)
+
+
+def _item_patch_lines(patch: Any, document: Optional[Dict[str, Any]]) -> str:
+    """An item edit as lines: its point of interest and its alignment area one
+    line each ("Point of interest: (1, 0) µm → (2, 0) µm"), however the edit
+    sets them; anything else a line per setting."""
+    if not isinstance(patch, dict) or not patch:
+        return "No changes"
+    flat: Dict[str, Any] = {}
+    for path, new in patch.items():
+        if isinstance(new, dict) and any(path == f for f, _, _ in _ITEM_PLACES):
+            flat.update({f"{path}.{k}": v for k, v in new.items()})
+        else:
+            flat[str(path)] = new
+    lines: List[str] = []
+    for field, words, parts in _ITEM_PLACES:
+        if not any(f"{field}.{p}" in flat for p in parts):
+            continue
+        old = {p: _walk(document or {}, f"{field}.{p}") for p in parts}
+        new = {p: flat.pop(f"{field}.{p}", old[p]) for p in parts}
+        line = f"{words}: {_item_place(field, new)}"
+        if all(v is not _MISSING for v in old.values()):
+            line = f"{words}: {_item_place(field, old)} → {_item_place(field, new)}"
+        lines.append(line)
+    rest = _patch_lines(flat, document, _item_setting, _item_value) if flat else ""
+    return "\n".join(lines + ([rest] if rest else []))
+
+
+def _item_place(field: str, values: Dict[str, Any]) -> str:
+    """A point of interest as "(1, -3) µm"; an alignment area as "30 × 20% at
+    (25, 50)%". A value not known reads "?"."""
+
+    def number(value: Any, scale: float) -> str:
+        try:
+            return _number(float(value) * scale)
+        except (TypeError, ValueError):
+            return "?"
+
+    if field == "poi":
+        return f"({number(values['x'], 1e6)}, {number(values['y'], 1e6)}) µm"
+    return (
+        f"{number(values['width'], 100)} × {number(values['height'], 100)}% at "
+        f"({number(values['left'], 100)}, {number(values['top'], 100)})%"
+    )
+
+
 def _patch_lines(
     patch: Any,
     document: Optional[Dict[str, Any]],
@@ -758,6 +810,22 @@ def _add_item(a: Dict[str, Any], stage_now: Optional[Dict[str, Any]]) -> Dict[st
     return line
 
 
+def _open_experiment(get) -> Optional[str]:
+    """The name of the experiment open now, or None."""
+    status = get("/app/workflow/status")
+    current = (status or {}).get("experiment") if isinstance(status, dict) else None
+    return (current or {}).get("name") if isinstance(current, dict) else None
+
+
+def _experiment_name(path: str) -> str:
+    """An experiment's name from its path: the folder, not experiment.yaml."""
+    path = path.rstrip("/\\")
+    name = os.path.basename(path.replace("\\", "/"))
+    if os.path.splitext(name)[1].lower() in (".yaml", ".yml"):
+        name = os.path.basename(os.path.dirname(path.replace("\\", "/")))
+    return name or "an experiment"
+
+
 def _review_item(reviews: Any, item_id: Any) -> Optional[str]:
     if not isinstance(reviews, dict):
         return None
@@ -973,9 +1041,7 @@ def _line(
     if tool == "item_update":
         return {
             "what": str(item),
-            "change": _patch_lines(
-                a.get("patch"), document(None), _item_setting, _item_value
-            ),
+            "change": _item_patch_lines(a.get("patch"), document(None)),
         }
     if tool == "item_add":
         return _add_item(a, None if a.get("stage_position") else stage_now())
@@ -1097,9 +1163,7 @@ def _line(
         return {"what": "The run's question", "change": change}
     if tool == "experiment_create":
         protocol = a.get("protocol")
-        status = get("/app/workflow/status")
-        current = (status or {}).get("experiment") if isinstance(status, dict) else None
-        replaces = (current or {}).get("name") if isinstance(current, dict) else None
+        replaces = _open_experiment(get)
         return {
             "what": "Experiment",
             "change": f"Create and open '{a.get('name')}', with "
@@ -1115,12 +1179,15 @@ def _line(
             ),
         }
     if tool == "experiment_load":
-        opened = (
-            os.path.basename(str(a.get("path") or "").rstrip("/\\")) or "an experiment"
-        )
+        path = str(a.get("path") or "")
+        replaces = _open_experiment(get)
         return {
             "what": "Experiment",
-            "change": f"Open '{opened}' in place of the one open now",
+            "change": f"Open '{_experiment_name(path)}'"
+            + (f" in place of '{replaces}'" if replaces else ""),
+            "details": _table(
+                ("", ""), [("Path", path), ("Replaces", replaces or "none open")]
+            ),
         }
     if tool == "protocol_load":
         return {

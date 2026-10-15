@@ -89,8 +89,9 @@ def test_a_waiting_request_is_drawn_on_the_card_only_and_comes_down_when_decided
     frame, layer = _layer(previews.request_picture)
     assert frame is controller.image(BeamType.ION)
     assert len(layer.patterns) == 2
-    # 0.5 µm a pixel, centre (100, 50).
-    assert layer.crosses == [pytest.approx((120.0, 60.0)), pytest.approx((100.0, 46.0))]
+    # 0.5 µm a pixel, centre (100, 50). A move target is a crosshair.
+    assert layer.targets == [pytest.approx((120.0, 60.0)), pytest.approx((100.0, 46.0))]
+    assert layer.crosses == [] and ("target", "move target") in layer.keys
     assert controller.overlays == {}
     assert card.shown[False] is not None
 
@@ -145,7 +146,7 @@ class _Card:
     def __init__(self):
         self.shown = {}
 
-    def __call__(self, image, caption, suggestion=False):
+    def __call__(self, image, caption, suggestion=False, legend=()):
         self.shown[suggestion] = (image, caption) if image is not None else None
 
 
@@ -473,7 +474,9 @@ def test_a_suggested_area_and_spot_burn_points_are_drawn_on_the_card():
     previews.show_suggestion(RunSpotBurn(settings=None), points)
     _, layer = _layer(previews.suggestion_picture)
     assert layer.areas == []
-    assert layer.crosses == [pytest.approx((100.0, 50.0)), pytest.approx((150.0, 25.0))]
+    # Spot burn points are dots.
+    assert layer.dots == [pytest.approx((100.0, 50.0)), pytest.approx((150.0, 25.0))]
+    assert layer.keys == [("dot", "spot burn points")]
     assert controller.overlays == {}
     previews.show_suggestion(None, None)
     assert previews.suggestion_picture is None and card.shown[True] is None
@@ -509,3 +512,121 @@ def test_a_suggested_point_is_on_the_card_until_the_suggestion_goes():
     assert card.shown[True] is not None
     previews.show_suggested_point(None)
     assert card.shown[True] is None
+
+
+def test_the_legend_is_drawn_on_the_picture_at_its_own_size(qapp):
+    # Patrick, 2026-10-15: the key goes on the image, the same size however
+    # wide the image shows.
+    from PyQt5.QtGui import QColor, QImage, QPainter
+
+    from fibsem.applications.autolamella.ui.agent_previews import draw_legend
+
+    sizes = []
+    for width in (300, 900):
+        image = QImage(width, 200, QImage.Format_RGB32)
+        image.fill(QColor("#ffffff"))
+        painter = QPainter(image)
+        draw_legend(painter, [(PURPLE_COLOR, False, "dot", "spot burn points")], 12)
+        painter.end()
+        # The box's darkened corner, and how far right it reaches.
+        assert image.pixelColor(10, 10).lightness() < 128
+        sizes.append(
+            max(x for x in range(width) if image.pixelColor(x, 10).lightness() < 128)
+        )
+    assert sizes[0] == sizes[1]
+
+
+def _one(tool, arguments):
+    return {
+        "request_id": f"{tool}-{sorted(arguments)}",
+        "status": "pending",
+        "actions": [{"tool": tool, "arguments": arguments}],
+    }
+
+
+def test_a_new_lamella_is_marked_where_it_would_go():
+    # FIB-1411: item_add drew nothing.
+    controller = _Controller()  # 200 × 100 px
+    overview = FibsemImage.generate_blank_image(resolution=(400, 300), hfw=1e-3)
+    asked = []
+
+    def overview_image(grid, filename):
+        asked.append((grid, filename))
+        return overview
+
+    previews = AgentPreviews(lambda: controller, overview_image=overview_image)
+    # Where the stage is: the centre of the FIB view.
+    previews.show_request(_one("item_add", {}))
+    frame, layer = _layer(previews.request_picture)
+    assert frame is controller.image(BeamType.ION)
+    assert layer.crosses == [pytest.approx((100.0, 50.0))]
+    assert layer.keys == [("cross", "new lamella")]
+    # On a grid's overview: on that overview.
+    point = {"grid_name": "G1", "filename": "overview.tif", "fraction": [0.25, 0.5]}
+    previews.show_request(_one("item_add", {"overview": point}))
+    frame, layer = _layer(previews.request_picture)
+    assert asked == [("G1", "overview.tif")] and frame is overview
+    assert layer.crosses == [pytest.approx((100.0, 150.0))]
+
+
+def test_a_pose_move_and_a_pose_set_are_marked_through_the_stage(monkeypatch):
+    # FIB-1411: item_move_to_pose and item_set_pose drew nothing.
+    from fibsem.geometry import projection
+    from fibsem.structures import FibsemStagePosition
+
+    pose = FibsemStagePosition(x=1e-6)
+    placed = []
+
+    def stage_to_pixel(frame, position):
+        placed.append(position)
+        return (30.0, 20.0)
+
+    monkeypatch.setattr(projection, "stage_to_pixel", stage_to_pixel)
+    controller = _Controller()
+    previews = AgentPreviews(
+        lambda: controller,
+        item_pose=lambda item, name: (
+            pose if (item, name) == ("01", "MILLING") else None
+        ),
+    )
+    previews.show_request(
+        _one("item_move_to_pose", {"item_name": "01", "pose": "MILLING"})
+    )
+    _, layer = _layer(previews.request_picture)
+    assert placed == [pose]
+    assert layer.targets == [(30.0, 20.0)]
+    assert layer.keys == [("target", "01 MILLING pose")]
+    # Set: the new pose where the stage is, the pose as it is now in white.
+    previews.show_request(
+        _one("item_set_pose", {"item_name": "01", "pose_name": "MILLING"})
+    )
+    _, purple = _layer(previews.request_picture)
+    _, white = _layer(previews.request_picture, "#ffffff")
+    assert purple.targets == [pytest.approx((100.0, 50.0))]
+    assert white.targets == [(30.0, 20.0)]
+    assert white.keys == [("target", "MILLING pose now")]
+
+
+def test_the_agent_s_own_image_is_the_picture_with_the_values_on_it():
+    # FIB-1411: the agent names the image its evidence is in; the card shows it
+    # under Why, the request's values drawn on it, even with none to draw.
+    evidence = FibsemImage.generate_blank_image(resolution=(400, 200), hfw=100e-6)
+    evidence.metadata.image_settings.beam_type = BeamType.ELECTRON
+    controller = _Controller()
+    card = _Card()
+    previews = AgentPreviews(
+        lambda: controller, show_picture=card, load_image=lambda path: evidence
+    )
+    move = {"dx": 10e-6, "dy": 0.0, "beam_type": "ELECTRON"}
+    request = _one("stage_stable_move", move)
+    request["image"] = "/exp/ref_trench.tif"
+    previews.show_request(request)
+    frame, layer = _layer(previews.request_picture)
+    assert frame is evidence
+    # 0.25 µm a pixel: 10 µm right of the centre (200, 100).
+    assert layer.targets == [pytest.approx((240.0, 100.0))]
+    assert card.shown[False][1].startswith("The agent's image · SEM")
+    stop = _one("workflow_stop", {"reason": "the trench is off"})
+    stop["image"] = "/exp/ref_trench.tif"
+    previews.show_request(stop)
+    assert previews.request_picture[0] is evidence

@@ -1626,6 +1626,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             reference_image=self._agent_review_image,
             task_config=self._agent_task_config,
             show_picture=self.agent_chip.card.set_image,
+            item_pose=self._agent_item_pose,
+            overview_image=self._agent_overview_image,
         )
         self._agent_chip_timer = QTimer(self)
         self._agent_chip_timer.setInterval(1000)
@@ -4059,6 +4061,38 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if refusal:
             return None
         return dict(lamella.task_config).get(task_name)
+
+    def _agent_item_pose(self, item_name: str, pose_name: str):
+        """Where an item's pose puts the stage, for a waiting pose request's
+        preview; None when there is no such item or pose."""
+        from fibsem.applications.autolamella.server.context import find_item
+
+        experiment = self.autolamella_ui.experiment
+        if experiment is None:
+            return None
+        lamella, refusal = find_item(experiment, item_name)
+        if refusal:
+            return None
+        pose = dict(lamella.poses).get(pose_name)
+        return getattr(pose, "stage_position", None)
+
+    def _agent_overview_image(self, grid_name: str, filename: str):
+        """A grid's recorded overview, for a waiting item_add's preview; None
+        when there is none, or it is not a beam image."""
+        from fibsem.applications.autolamella.server.context import (
+            AutoLamellaAppContext,
+        )
+        from fibsem.structures import FibsemImage
+
+        experiment = self.autolamella_ui.experiment
+        grid = experiment.get_grid_by_name(grid_name) if experiment else None
+        if grid is None:
+            return None
+        path = AutoLamellaAppContext.recorded_grid_file(experiment, grid, filename)
+        try:
+            return FibsemImage.load(path) if path else None
+        except Exception:  # noqa: BLE001 - a fluorescence or broken file
+            return None
 
     def _agent_review_image(self, arguments: dict):
         """The image a waiting ``review_decide``'s values sit on: its proposal's
