@@ -104,8 +104,10 @@ class DevicePanel(QWidget):
         layout.addWidget(self.facts)
         layout.addStretch()
 
+        # psygnal holds a bound method weakly, so a closed panel drops out on its
+        # own. Not undone on `destroyed`: a slot that reaches the panel while Qt
+        # tears it down crashes the interpreter.
         device.changed.connect(self._on_changed)
-        self.destroyed.connect(lambda *_: _disconnect(device, self._on_changed))
 
     # -- parameters
 
