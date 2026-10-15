@@ -2,6 +2,7 @@ from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import QCheckBox, QGridLayout, QLabel, QWidget
 
 from fibsem.milling.tasks import MillingTaskAcquisitionSettings
+from fibsem.structures import field_specs
 from fibsem.ui.widgets.custom_widgets import align_form
 from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
 
@@ -45,18 +46,11 @@ class FibsemMillingTaskAcquisitionSettingsWidget(QWidget):
         # boolean in the editor has.
         self.acquire_sem_checkbox = QCheckBox()
         self.acquire_sem_checkbox.setChecked(True)
-        self.acquire_sem_checkbox.setToolTip(
-            self._settings.__dataclass_fields__["acquire_sem"].metadata.get(
-                "tooltip", ""
-            )
-        )
+        specs = field_specs(type(self._settings))
+        self.acquire_sem_checkbox.setToolTip(specs["acquire_sem"].doc or "")
         self.acquire_fib_checkbox = QCheckBox()
         self.acquire_fib_checkbox.setChecked(True)
-        self.acquire_fib_checkbox.setToolTip(
-            self._settings.__dataclass_fields__["acquire_fib"].metadata.get(
-                "tooltip", ""
-            )
-        )
+        self.acquire_fib_checkbox.setToolTip(specs["acquire_fib"].doc or "")
 
         # Image settings widget
         self.image_settings_widget = ImageSettingsWidget(show_advanced=show_advanced)

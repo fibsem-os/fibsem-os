@@ -35,7 +35,14 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskConfig,
 )
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
-from fibsem.structures import FibsemRectangle, InsertableDeviceState, Point, field_meta
+from fibsem.display import Display
+from fibsem.structures import (
+    FibsemRectangle,
+    InsertableDeviceState,
+    Point,
+    RangeLimit,
+    field_meta,
+)
 
 SETUP_COINCIDENCE_MILLING_KEY = "SETUP_COINCIDENCE_MILLING"
 
@@ -62,28 +69,26 @@ class SetupCoincidenceMillingTaskConfig(AutoLamellaTaskConfig):
     field_of_view: float = field(
         default=80e-6,
         metadata=field_meta(
-            label="Field of View",
             unit="m",
-            scale=1e6,
-            tooltip="FIB field of view for the setup image; the mill task reuses it",
+            doc="FIB field of view for the setup image; the mill task reuses it",
+            display=Display("Field of View", scale=1e6),
         ),
     )
     intensity_drop_fraction: float = field(
         default=0.4,
         metadata=field_meta(
-            label="Drop Fraction",
-            minimum=0.05,
-            maximum=0.95,
-            tooltip="Stop when the rolling mean drops by this fraction below its peak "
+            limits=RangeLimit(0.05, 0.95),
+            doc="Stop when the rolling mean drops by this fraction below its peak "
             "(e.g. 0.4 = 40% drop). Seeds every coincidence stage of the mill.",
+            display=Display("Drop Fraction"),
         ),
     )
     align_coincidence: bool = field(
         default=False,
         metadata=field_meta(
-            label="Align Coincidence",
-            tooltip="Run the SEM/FIB coincidence alignment at the milling pose before "
+            doc="Run the SEM/FIB coincidence alignment at the milling pose before "
             "inserting the objective. Off until the bench data is in (FIB-872).",
+            display=Display("Align Coincidence"),
         ),
     )
     # --- written by the task -------------------------------------------------
@@ -91,19 +96,19 @@ class SetupCoincidenceMillingTaskConfig(AutoLamellaTaskConfig):
     objective_position: Optional[float] = field(
         default=None,
         metadata=field_meta(
-            label="Objective Position",
             unit="m",
-            scale=1e6,
-            tooltip="Objective height that focuses the sample at the milling tilt",
+            doc="Objective height that focuses the sample at the milling tilt",
+            display=Display("Objective Position", scale=1e6),
         ),
     )
     # fraction of the FM camera frame (left, top, width, height); None = whole frame
     fm_roi: Optional[FibsemRectangle] = field(
-        default=None, metadata=field_meta(hidden=True)
+        default=None, metadata=field_meta(display=Display(hidden=True))
     )
     # metres from the FIB image centre, applied to every enabled milling stage
     pattern_offset: Point = field(
-        default_factory=lambda: Point(0.0, 0.0), metadata=field_meta(hidden=True)
+        default_factory=lambda: Point(0.0, 0.0),
+        metadata=field_meta(display=Display(hidden=True)),
     )
 
     @property

@@ -27,8 +27,9 @@ from fibsem.devices.core import (
     Role,
     command,
 )
-from fibsem.devices.display import Display
 from fibsem.devices.scanner import Scanner, resolution_within
+from fibsem.devices.wire import to_wire
+from fibsem.display import Display
 from fibsem.structures import (
     BeamType,
     FibsemImage,
@@ -186,10 +187,18 @@ class Beam(Device):
     live_frame = Signal(object)
     """Each image live view acquires (a FibsemImage), from the live view's thread."""
 
+    image_acquired = Signal(object)
+    """Every image this beam produces (a FibsemImage): each `acquire` and each live
+    frame, once, from the thread that acquired it. Nothing in the app listens yet;
+    the viewers still show what is sent to them."""
+
     def __init__(self, beam_type: BeamType, parent: Any = None, **kwargs: Any):
         super().__init__(name=beam_type.name.lower(), parent=parent, **kwargs)
         self.beam_type = beam_type
         self._live_lock = threading.Lock()
+        # Live frames are images too. A driver's live view may acquire each frame
+        # through `acquire`, which then leaves the frame to this.
+        self.live_frame.connect(self._live_frame_acquired)
         self._live_stop = threading.Event()
         self._live_thread: Optional[threading.Thread] = None
         # The settings this beam last acquired with, when it was given some: where
@@ -419,10 +428,25 @@ class Beam(Device):
             and not metadata.acquisition_datetime
         ):
             metadata.acquisition_datetime = started
+        self._stamp_roles(image)
         if image_settings is not None:
             self._last_image_settings = image_settings
         self.session.stamp(image)
+        if threading.current_thread() is not getattr(self, "_live_thread", None):
+            self.image_acquired.emit(image)
         return image
+
+    def _stamp_roles(self, image: Any) -> None:
+        """Record on *image* the device in each role this beam has filled, such as
+        the external scanner that made the frame (``FibsemImageMetadata.roles``)."""
+        metadata = getattr(image, "metadata", None)
+        if self._roles and hasattr(metadata, "roles"):
+            metadata.roles = {
+                name: _role_record(device) for name, device in self._roles.items()
+            }
+
+    def _live_frame_acquired(self, image: Any) -> None:
+        self.image_acquired.emit(image)
 
     def image_settings(self) -> ImageSettings:
         """The settings this beam would image with now: its resolution, dwell time and
@@ -585,6 +609,7 @@ class Beam(Device):
     def _live_with_scanner(self, stop: threading.Event) -> None:
         while not stop.is_set():
             image = self._acquire_with_scanner(None)
+            self._stamp_roles(image)
             if not stop.is_set():
                 self.live_frame.emit(image)
 
@@ -592,3 +617,33 @@ class Beam(Device):
 def implements(beam: Beam, hook: str) -> bool:
     """Whether the beam's driver overrides *hook*."""
     return getattr(type(beam), hook) is not getattr(Beam, hook)
+
+
+def _role_record(device: Device) -> Dict[str, Any]:
+    """What an image records of the device in one of its beam's roles
+    (``FibsemImageMetadata.roles``): its name, class and driver, its parameters'
+    cached values and its facts. A value is read from the device only the first
+    time, before anything was cached; one that can't be read is None."""
+    try:
+        facts = device.facts()
+    except Exception as error:
+        logging.debug(f"{device.name}: facts: {error}")
+        facts = {}
+    return {
+        "name": device.name,
+        "class": type(device).__name__,
+        "driver": device.driver,
+        "values": {
+            name: to_wire(_cached_or_none(param))
+            for name, param in device.parameters.items()
+        },
+        "facts": facts,
+    }
+
+
+def _cached_or_none(param: BoundParameter) -> Any:
+    try:
+        return param.cached
+    except Exception as error:
+        logging.debug(f"{param.device.name}.{param.name}: {error}")
+        return param.last_known

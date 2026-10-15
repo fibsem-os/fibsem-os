@@ -65,9 +65,9 @@ def test_sections_cannot_be_replaced_wholesale(config):
         apply_patch(config, {"milling.mill_rough.stages.0.pattern": {}})
 
 
-def test_bounds_are_checked_in_display_units(config):
-    # depth metadata: minimum 0.01, maximum 1000 — µm (scale 1e6), not metres.
-    # 2 µm (2e-6 m) is valid; 2 mm (2e-3 m -> 2000 µm) is above the maximum.
+def test_bounds_are_checked_in_si(config):
+    # depth limits: 0.01 µm to 1 mm, declared in metres.
+    # 2 µm (2e-6 m) is valid; 2 mm (2e-3 m) is above the maximum.
     apply_patch(config, {"milling.mill_rough.stages.0.pattern.depth": 2e-6})
     with pytest.raises(PatchError, match="above the maximum"):
         apply_patch(config, {"milling.mill_rough.stages.0.pattern.depth": 2e-3})
@@ -87,9 +87,9 @@ def test_a_failing_entry_applies_nothing(config):
     assert stage.pattern.depth == depth_before
 
 
-def test_a_beam_bound_field_is_bounded_in_the_beams_display_units(config):
-    # the milling field of view takes its scale (µm) from the beam, and keeps its
-    # own 20 to 950 µm bounds
+def test_a_beam_bound_field_keeps_its_own_limits(config):
+    # the milling field of view takes its display from the beam, and keeps its
+    # own 20 to 950 µm limits
     apply_patch(config, {"milling.mill_rough.stages.0.milling.hfw": 400e-6})
     with pytest.raises(PatchError, match="above the maximum"):
         apply_patch(config, {"milling.mill_rough.stages.0.milling.hfw": 2e-3})

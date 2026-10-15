@@ -13,13 +13,14 @@ from typing import (
 import numpy as np
 from numpy.typing import NDArray
 
+from fibsem.display import Display
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.milling.properties import (
-    DEFAULT_ANGLE_METADATA,
-    DEFAULT_CROSS_SECTION_METADATA,
-    DEFAULT_DISTANCE_METADATA,
-    DEFAULT_DURATION_METADATA,
-    DEFAULT_PASSES_METADATA,
+    angle_metadata,
+    cross_section_metadata,
+    distance_metadata,
+    duration_metadata,
+    passes_metadata,
 )
 from fibsem.structures import (
     CrossSectionPattern,
@@ -27,6 +28,8 @@ from fibsem.structures import (
     FibsemCircleSettings,
     FibsemPolygonSettings,
     FibsemRectangleSettings,
+    RangeLimit,
+    field_meta,
 )
 
 
@@ -34,61 +37,46 @@ from fibsem.structures import (
 class TrenchPattern(BasePattern[Union[FibsemRectangleSettings, FibsemCircleSettings]]):
     width: float = field(
         default=10.0e-6,
-        metadata={
-            "label": "Width",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Width of the trench pattern.",
-        },
+        metadata=distance_metadata("Width", "Width of the trench pattern."),
     )
     depth: float = field(
         default=1.0e-6,
-        metadata={
-            "label": "Depth",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Depth of the trench pattern.",
-        },
+        metadata=distance_metadata("Depth", "Depth of the trench pattern."),
     )
     spacing: float = field(
         default=5.0e-6,
-        metadata={
-            "label": "Spacing",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Spacing between the upper and lower trenches.",
-        },
+        metadata=distance_metadata(
+            "Spacing", "Spacing between the upper and lower trenches."
+        ),
     )
     upper_trench_height: float = field(
         default=5.0e-6,
-        metadata={
-            "label": "Upper Trench Height",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Height of the upper trench.",
-        },
+        metadata=distance_metadata(
+            "Upper Trench Height", "Height of the upper trench."
+        ),
     )
     lower_trench_height: float = field(
         default=5.0e-6,
-        metadata={
-            "label": "Lower Trench Height",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Height of the lower trench.",
-        },
+        metadata=distance_metadata(
+            "Lower Trench Height", "Height of the lower trench."
+        ),
     )
     passes: int = field(
         default=0,
-        metadata=DEFAULT_PASSES_METADATA,
+        metadata=passes_metadata(),
     )
     cross_section: CrossSectionPattern = field(
-        default=CrossSectionPattern.Rectangle, metadata=DEFAULT_CROSS_SECTION_METADATA
+        default=CrossSectionPattern.Rectangle, metadata=cross_section_metadata()
     )
-    time: float = field(default=0.0, metadata=DEFAULT_DURATION_METADATA)
+    time: float = field(default=0.0, metadata=duration_metadata())
     fillet: float = field(
         default=0.0,
-        metadata={
-            "label": "Fillet Radius",
-            **DEFAULT_DISTANCE_METADATA,
-            "minimum": 0.0,
-            "advanced": True,
-            "tooltip": "Fillet radius for the trench corners.",
-        },
+        metadata=distance_metadata(
+            "Fillet Radius",
+            "Fillet radius for the trench corners.",
+            limits=RangeLimit(0.0e-6, 1000.0e-6),
+            advanced=True,
+        ),
     )
 
     name: ClassVar[str] = "Trench"
@@ -259,82 +247,70 @@ class TrenchPattern(BasePattern[Union[FibsemRectangleSettings, FibsemCircleSetti
 class TrenchBitmapPattern(BasePattern[FibsemBitmapSettings]):
     width: float = field(
         default=10.0e-6,
-        metadata={
-            "label": "Width",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Width of the trench bitmap pattern.",
-        },
+        metadata=distance_metadata("Width", "Width of the trench bitmap pattern."),
     )
     depth: float = field(
         default=10.0e-6,
-        metadata={
-            "label": "Depth",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Depth of the trench bitmap pattern.",
-        },
+        metadata=distance_metadata("Depth", "Depth of the trench bitmap pattern."),
     )
     spacing: float = field(
         default=1.0e-6,
-        metadata={
-            "label": "Spacing",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Spacing between the upper and lower trenches.",
-        },
+        metadata=distance_metadata(
+            "Spacing", "Spacing between the upper and lower trenches."
+        ),
     )
     upper_trench_height: float = field(
         default=5.0e-6,
-        metadata={
-            "label": "Upper Trench Height",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Height of the upper trench.",
-        },
+        metadata=distance_metadata(
+            "Upper Trench Height", "Height of the upper trench."
+        ),
     )
     lower_trench_height: float = field(
         default=5.0e-6,
-        metadata={
-            "label": "Lower Trench Height",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Height of the lower trench.",
-        },
+        metadata=distance_metadata(
+            "Lower Trench Height", "Height of the lower trench."
+        ),
     )
     passes: int = field(
         default=0,
-        metadata=DEFAULT_PASSES_METADATA,
+        metadata=passes_metadata(),
     )
     time: float = field(
         default=0,
-        metadata={
-            "label": "Time",
-            **DEFAULT_DURATION_METADATA,
-            "tooltip": "Time to mill the trench bitmap pattern. Set to 0 for automatic calculation.",
-        },
+        metadata=duration_metadata(
+            "Time to mill the trench bitmap pattern. Set to 0 for automatic calculation.",
+            label="Time",
+        ),
     )
     path: str = field(
         default="",
-        metadata={
-            "label": "File Path",
-            "filepath": True,
-            "tooltip": "Path to the upper trench bitmap image file.",
-        },
+        metadata=field_meta(
+            doc="Path to the upper trench bitmap image file.",
+            filepath=True,
+            display=Display("File Path"),
+        ),
     )
     path_lower: str = field(
         default="",
-        metadata={
-            "label": "File Path Lower",
-            "filepath": True,
-            "tooltip": "Path to the lower trench bitmap image file. If not provided, the upper trench bitmap will be flipped and used.",
-        },
+        metadata=field_meta(
+            doc="Path to the lower trench bitmap image file. If not provided, the upper trench bitmap will be flipped and used.",
+            filepath=True,
+            display=Display("File Path Lower"),
+        ),
     )
-    array: Optional[NDArray[Any]] = field(default=None, metadata={"hidden": True})
-    array_lower: Optional[NDArray[Any]] = field(default=None, metadata={"hidden": True})
+    array: Optional[NDArray[Any]] = field(
+        default=None, metadata=field_meta(display=Display(hidden=True))
+    )
+    array_lower: Optional[NDArray[Any]] = field(
+        default=None, metadata=field_meta(display=Display(hidden=True))
+    )
     interpolation: Optional[Literal["nearest", "bicubic", "bilinear"]] = field(
         default=None,
-        metadata={
-            "label": "Interpolation",
-            "advanced": True,
-            "items": [None, "nearest", "bilinear", "bicubic"],
-            "tooltip": "Interpolation method for resizing the bitmap image.",
-        },
+        metadata=field_meta(
+            choices=[None, "nearest", "bilinear", "bicubic"],
+            doc="Interpolation method for resizing the bitmap image.",
+            display=Display("Interpolation", advanced=True),
+        ),
     )
     name: ClassVar[str] = "TrenchBitmap"
 
@@ -410,43 +386,23 @@ class TrenchBitmapPattern(BasePattern[FibsemBitmapSettings]):
 class TrenchTrapezoidPattern(BasePattern):
     trench_width: float = field(
         default=10e-6,
-        metadata={
-            "label": "Trench Width",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Width of the trench at the top.",
-        },
+        metadata=distance_metadata("Trench Width", "Width of the trench at the top."),
     )
     trench_height: float = field(
         default=5e-6,
-        metadata={
-            "label": "Trench Height",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Height of the trench.",
-        },
+        metadata=distance_metadata("Trench Height", "Height of the trench."),
     )
     spacing: float = field(
         default=5.0e-6,
-        metadata={
-            "label": "Spacing",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Spacing between trenches.",
-        },
+        metadata=distance_metadata("Spacing", "Spacing between trenches."),
     )
     depth: float = field(
         default=1.0e-6,
-        metadata={
-            "label": "Depth",
-            **DEFAULT_DISTANCE_METADATA,
-            "tooltip": "Depth of the trench.",
-        },
+        metadata=distance_metadata("Depth", "Depth of the trench."),
     )
     angle: float = field(
         default=60,
-        metadata={
-            "label": "Angle",
-            **DEFAULT_ANGLE_METADATA,
-            "tooltip": "Angle of the trench in degrees.",
-        },
+        metadata=angle_metadata("Angle", "Angle of the trench in degrees."),
     )
     name: ClassVar[str] = "TrapezoidTrench"
 

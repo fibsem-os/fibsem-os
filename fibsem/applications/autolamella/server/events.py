@@ -41,7 +41,7 @@ from collections import deque
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 
-from fibsem.structures import InsertableDeviceState
+from fibsem.structures import BeamType, InsertableDeviceState
 from fibsem.util.timestamps import iso_from_posix
 
 __all__ = [
@@ -246,6 +246,12 @@ def attach_microscope_taps(buffer: EventBuffer, microscope) -> List[Callable[[],
     )
     tap(microscope.sem_acquisition_signal, "sem_acquisition", _image_metadata)
     tap(microscope.fib_acquisition_signal, "fib_acquisition", _image_metadata)
+    # Live frames come from the beams themselves, under the same kinds.
+    for beam_type, beam in getattr(microscope, "beams", {}).items():
+        kind = (
+            "sem_acquisition" if beam_type is BeamType.ELECTRON else "fib_acquisition"
+        )
+        tap(beam.live_frame, kind, _image_metadata)
 
     fm = getattr(microscope, "fm", None)
     if fm is not None:

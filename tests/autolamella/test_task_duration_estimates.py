@@ -327,7 +327,7 @@ def test_opening_flags_are_not_serialised(config_cls):
     assert flags.isdisjoint(serialised.get("parameters", {}))
     assert flags.isdisjoint({f.name for f in dataclass_fields(cfg)})
     assert flags.isdisjoint(cfg.parameters)
-    assert flags.isdisjoint(cfg.field_metadata)
+    assert flags.isdisjoint(cfg.field_specs)
 
 
 def test_opening_flags_survive_a_round_trip():

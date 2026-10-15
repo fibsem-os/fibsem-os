@@ -12,16 +12,17 @@ Anything this module imports that reaches ``fibsem.milling.base`` -- including
 ``fibsem.milling.tasks`` and everything under ``fibsem.applications`` -- raises
 ImportError, the plugin loader catches it, and the pattern never registers.
 
-So: patterns import from ``fibsem.milling.patterning.base`` and ``fibsem.structures``, and nothing
-else. That is also why a plugin's pattern, strategy and task have to live in
+So: patterns import from ``fibsem.milling.patterning.base``, ``fibsem.structures`` and
+``fibsem.display`` (which imports nothing from fibsem), and nothing else. That is also why a plugin's pattern, strategy and task have to live in
 separate modules rather than one.
 """
 
 from dataclasses import dataclass, field
 from typing import ClassVar, List
 
+from fibsem.display import Display
 from fibsem.milling.patterning.base import BasePattern
-from fibsem.structures import FibsemRectangleSettings
+from fibsem.structures import FibsemRectangleSettings, field_meta
 from fibsem_test_plugin import CLASHING_PATTERN_NAME, PATTERN_NAME
 
 
@@ -29,8 +30,12 @@ from fibsem_test_plugin import CLASHING_PATTERN_NAME, PATTERN_NAME
 class FixturePattern(BasePattern[FibsemRectangleSettings]):
     name: ClassVar[str] = PATTERN_NAME
 
-    width: float = field(default=10.0e-6, metadata={"label": "Width", "unit": "m"})
-    depth: float = field(default=1.0e-6, metadata={"label": "Depth", "unit": "m"})
+    width: float = field(
+        default=10.0e-6, metadata=field_meta(unit="m", display=Display("Width"))
+    )
+    depth: float = field(
+        default=1.0e-6, metadata=field_meta(unit="m", display=Display("Depth"))
+    )
 
     def define(self) -> List[FibsemRectangleSettings]:
         self.shapes = [
