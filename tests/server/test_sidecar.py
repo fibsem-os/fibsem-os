@@ -287,3 +287,48 @@ def test_the_milling_state_is_answered_by_name(armed_sidecar):
     result = asyncio.run(armed_sidecar.call_tool("milling_get_state", {}))
     text = "".join(getattr(c, "text", "") for c in _contents(result))
     assert json.loads(text) == {"state": "IDLE"}
+
+
+def test_the_milling_angle_move_keeps_the_current_rotation(armed_sidecar):
+    """With no rotation_deg the stage tilts and stays turned where it is; it
+    used to swing back to the rotation reference."""
+    _call_json(
+        armed_sidecar,
+        "stage_move_to_milling_angle",
+        {"milling_angle_deg": 15.0, "rotation_deg": 10.0},
+    )
+    moved = _call_json(
+        armed_sidecar, "stage_move_to_milling_angle", {"milling_angle_deg": 18.0}
+    )
+    assert moved == {"success": True}
+    position = _call_json(armed_sidecar, "stage_get_position", {})["position"]
+    assert math.degrees(position["r"]) == pytest.approx(10.0, abs=0.1)
+
+
+def test_a_tool_taking_a_name_passes_it_on(armed_sidecar):
+    """An overview's file name is `name`; it reached the route's arguments
+    rather than clashing with the tool's own name (a TypeError every call)."""
+    result = asyncio.run(
+        armed_sidecar.call_tool(
+            "beam_acquire_overview",
+            {"settings": {}, "path": "/tmp/elsewhere", "name": "ov"},
+        )
+    )
+    text = "".join(getattr(c, "text", "") for c in _contents(result))
+    assert "not_allowed" in text  # the server's answer: it got as far as the route
+
+
+def test_a_server_error_is_flagged_and_says_failed():
+    """A 5xx may have done part of its work (a move that failed partway has
+    moved), so it is an error that says "failed", not a "refused" answer."""
+    import httpx
+    from mcp.server.mcpserver.exceptions import ToolError
+
+    def answer(request):
+        return httpx.Response(500, json={"detail": "the stage stopped"})
+
+    client = httpx.Client(transport=httpx.MockTransport(answer), base_url="http://x")
+    shape = {"routers": {"microscope": True, "app": False}, "level": "drive"}
+    sidecar = build_sidecar(client, shape)
+    with pytest.raises(ToolError, match=r"failed \(500\).*the stage stopped"):
+        asyncio.run(sidecar.call_tool("stage_move_relative", {"dx": 1e-6}))
