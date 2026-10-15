@@ -25,16 +25,16 @@ _A = TypeVar("_A", bound="Alignment")
 
 
 class Alignment(Service):
-    """Alignment to saved reference images: ``align`` corrects the view onto
+    """Alignment to saved reference images: ``align_to_reference`` corrects the view onto
     one, ``measure_shift`` measures the shift between two, ``stop`` ends an
-    ``align`` between steps."""
+    ``align_to_reference`` between steps."""
 
     def __init__(self, name: str = "alignment", **kwargs: Any):
         super().__init__(name, **kwargs)
         self._stop_requested = threading.Event()
 
     @command(long=True)
-    def align(
+    def align_to_reference(
         self,
         reference_path: str,
         steps: int = 3,
@@ -78,7 +78,7 @@ class Alignment(Service):
 
     @command
     def stop(self) -> None:
-        """Stop an ``align`` after the step it is on."""
+        """Stop an ``align_to_reference`` after the step it is on."""
         self._stop_requested.set()
 
     @query
@@ -89,7 +89,7 @@ class Alignment(Service):
         method: str = "cross-correlation",
     ) -> Dict[str, Any]:
         """The shift of the saved image at *image_path* from the one at
-        *reference_path*, as ``align`` measures it: in metres and pixels, with
+        *reference_path*, as ``align_to_reference`` measures it: in metres and pixels, with
         the score (higher is better) and whether it cleared the minimum.
         Reads the files and moves nothing. *method* is ``cross-correlation``,
         ``phase-correlation`` or ``skimage-phase-correlation``."""

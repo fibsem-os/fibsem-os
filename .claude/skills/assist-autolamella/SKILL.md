@@ -121,6 +121,11 @@ saw, where you saw it (an image, a value, an event), and what the actions
 will do. Two sentences is usually right. The reason is kept on the record
 with the request, so you don't need a separate note for it.
 
+**Show the image you mean.** When your evidence is in an image, pass its
+path as `image` (the path the image tools answered, inside the experiment).
+The card shows it under Why with your actions' points, areas and patterns
+drawn on it. Without it, the card shows the image the values were measured on.
+
 **Read just before you ask.** Read the config (`item_get_task_config`) or
 the stage position before filing, and pass the `version` you read. Until
 the operator approves, nothing is checked against the live state. A stale

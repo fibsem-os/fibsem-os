@@ -457,13 +457,27 @@ def reproject_pixel(source, target, x: float, y: float) -> Tuple[float, float]:
 
     if source is target:
         return (x, y)
+    if image_stage_geometry(source) is not None:
+        pixel = stage_to_pixel(target, image_point_to_stage(source, x, y))
+        if pixel is not None:
+            return pixel
     sh, sw = np.asarray(source.data).shape[-2:]
     th, tw = np.asarray(target.data).shape[-2:]
-    to = image_stage_geometry(target)
-    if to is not None and image_stage_geometry(source) is not None:
-        projection, size, base = to
-        dx, dy = projection.to_plane(image_point_to_stage(source, x, y), base)
-    else:
-        size, scale = pixel_size(target), pixel_size(source)
-        dx, dy = (x - sw / 2) * scale, (y - sh / 2) * scale
+    size, scale = pixel_size(target), pixel_size(source)
+    dx, dy = (x - sw / 2) * scale, (y - sh / 2) * scale
     return (dx / size + tw / 2, dy / size + th / 2)
+
+
+def stage_to_pixel(
+    image, position: FibsemStagePosition
+) -> Optional[Tuple[float, float]]:
+    """Where stage *position* falls on a saved *image*, as its source pixel
+    (origin top-left, +y down): the inverse of :func:`image_point_to_stage`.
+    None when the image has no stage geometry."""
+    geometry = image_stage_geometry(image)
+    if geometry is None:
+        return None
+    projection, size, base = geometry
+    height, width = np.asarray(image.data).shape[-2:]
+    dx, dy = projection.to_plane(position, base)
+    return (dx / size + width / 2, dy / size + height / 2)

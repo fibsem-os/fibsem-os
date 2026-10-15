@@ -94,13 +94,14 @@ class Imaging(Service):
     """Imaging over the beams: the beam commands by ``beam_type`` (``acquire``,
     ``autocontrast``, ``start_live``, ``stop_live``); a saved, recorded image
     (``acquire_image``) and reference images of both beams (``reference_images``,
-    ``reference_image_sets``) and a focus stacked one (``focus_stack``); tiled
-    overviews (``tiled_overview``, ``estimate_tiled_overview``) and fluorescence
-    ones (``fm_tiled_overview``, ``estimate_fm_tiled_overview``); ``auto_focus``
+    ``reference_image_sets``) and a focus stacked one (``acquire_focus_stack``); tiled
+    overviews (``acquire_overview``, ``estimate_overview``) and fluorescence
+    ones (``fm_acquire_overview``, ``fm_estimate_overview``); ``auto_focus``
     (the instrument's own where the beam has one, else the sweep),
     ``focus_sweep``, ``auto_brightness_contrast`` (from the image, not the
-    instrument's routine), the fluorescence microscope's ``fm_focus_sweep``,
-    and ``stop``, which ends any of them."""
+    instrument's routine), the fluorescence microscope's ``fm_auto_focus``
+    and ``fm_acquire_image`` (an image or a z-stack), and ``stop``, which ends
+    any of them."""
 
     electron = Role(Beam, required=False, doc="The electron beam.")
     ion = Role(Beam, required=False, doc="The ion beam.")
@@ -237,7 +238,7 @@ class Imaging(Service):
 
         A ``stop_event`` set raises `OperationCancelledError` before the next
         strip. The beam goes back to full frame scanning however it ends. The
-        settings given are not changed. `focus_stack` is this as a command; a
+        settings given are not changed. `acquire_focus_stack` is this as a command; a
         tiled overview with a focus stack calls it per tile.
         """
         import numpy as np
@@ -274,7 +275,7 @@ class Imaging(Service):
         return stacked
 
     @command(long=True)
-    def focus_stack(
+    def acquire_focus_stack(
         self,
         image_settings: ImageSettings,
         path: str,
@@ -300,7 +301,7 @@ class Imaging(Service):
     # -- overviews -----------------------------------------------------------------
 
     @command(long=True)
-    def tiled_overview(
+    def acquire_overview(
         self,
         settings: OverviewAcquisitionSettings,
         path: str,
@@ -338,10 +339,10 @@ class Imaging(Service):
         }
 
     @query
-    def estimate_tiled_overview(
+    def estimate_overview(
         self, settings: OverviewAcquisitionSettings
     ) -> Dict[str, Any]:
-        """What a `tiled_overview` with ``settings`` covers and scans: the tiles
+        """What a `acquire_overview` with ``settings`` covers and scans: the tiles
         it would acquire, the beam-on time in seconds, and the field of view in
         metres. Not how long it takes: the stage moves between tiles are not in
         it (`OverviewAcquisitionSettings.scan_time`)."""
@@ -429,7 +430,7 @@ class Imaging(Service):
             )
 
     @command(long=True, available=_has_fm)
-    def fm_focus_sweep(
+    def fm_auto_focus(
         self,
         settings: Optional[AutoFocusSettings] = None,
         path: Optional[str] = None,
@@ -471,7 +472,45 @@ class Imaging(Service):
         return {"status": "completed", **result.to_dict()}
 
     @command(long=True, available=_has_fm)
-    def fm_tiled_overview(
+    def fm_acquire_image(
+        self,
+        channels: List[ChannelSettings],
+        path: str,
+        name: str = "image",
+        zparams: Optional[ZParameters] = None,
+    ) -> Dict[str, Any]:
+        """A fluorescence image in ``channels`` where the stage and objective
+        are, a z-stack about the objective's position when ``zparams`` is given
+        (`fibsem.fm.acquisition.acquire_image`), and the objective back after.
+        Saved under ``path`` as ``<name>-<time>.ome.tiff``.
+
+        Refused while the FM is in use or can't see the sample from this pose.
+        ``stop`` ends it ``cancelled`` before the next frame, saving nothing.
+        Answers the image's path and a summary of it.
+        """
+        from fibsem.fm.acquisition import acquire_image
+        from fibsem.imaging.tiled import stamped_overview_name
+
+        fm = self.parent.fm
+        self._refuse_while_fm_live("acquisition")
+        filename = os.path.join(path, f"{stamped_overview_name(name)}.ome.tiff")
+        with self._routine(), fm.acquiring("acquisition"):
+            os.makedirs(path, exist_ok=True)
+            image = acquire_image(
+                fm,
+                list(channels),
+                zparams=zparams,
+                stop_event=self._stop_requested,
+                filename=filename,
+            )
+        if image is None:
+            return {"status": "cancelled", "image": None}
+        saved = filename if os.path.isfile(filename) else None
+        answer = {"summary": _fm_image_summary(image), "path": saved}
+        return {"status": "completed", "image": answer}
+
+    @command(long=True, available=_has_fm)
+    def fm_acquire_overview(
         self,
         channels: List[ChannelSettings],
         parameters: OverviewParameters,
@@ -530,14 +569,14 @@ class Imaging(Service):
         }
 
     @query
-    def estimate_fm_tiled_overview(
+    def fm_estimate_overview(
         self,
         channels: List[ChannelSettings],
         parameters: OverviewParameters,
         zparams: Optional[ZParameters] = None,
         autofocus_settings: Optional[AutoFocusSettings] = None,
     ) -> Dict[str, Any]:
-        """What an `fm_tiled_overview` with these arguments would do: the tiles,
+        """What an `fm_acquire_overview` with these arguments would do: the tiles,
         the images it takes (channels x z planes per tile), and how long it runs
         in seconds, the stage and objective moves and focus sweeps counted
         (`fibsem.fm.timing.estimate_fm_overview_time`)."""

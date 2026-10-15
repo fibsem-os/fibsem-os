@@ -9,7 +9,11 @@ import os
 import pytest
 
 from fibsem import utils
-from fibsem.geometry.projection import image_point_to_stage, reproject_pixel
+from fibsem.geometry.projection import (
+    image_point_to_stage,
+    reproject_pixel,
+    stage_to_pixel,
+)
 from fibsem.structures import BeamType, FibsemImage, FibsemStagePosition, ImageSettings
 
 SHAPE = (1024, 1536)
@@ -83,3 +87,13 @@ def test_a_beam_point_onto_the_other_beam(scope):
     assert (seen.x, seen.y, seen.z) == pytest.approx(
         (there.x, there.y, there.z), abs=1e-9
     )
+
+
+def test_a_stage_position_onto_a_frame_is_the_inverse_of_a_click(scope):
+    """Where an item's pose falls on a view (FIB-1411): the pixel a click there
+    would resolve to that position. None for a frame that does not say where
+    it was taken."""
+    frame = _frame(scope, 150e-6, dx=10e-6)
+    there = image_point_to_stage(frame, 900.0, 300.0)
+    assert stage_to_pixel(frame, there) == pytest.approx((900.0, 300.0), abs=1e-6)
+    assert stage_to_pixel(_frame(scope, 150e-6, geometry=False), there) is None

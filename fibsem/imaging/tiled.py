@@ -818,7 +818,7 @@ def acquire_tiled_overview(
     ``<path>/<name>/`` and the stitched image as ``<path>/<name>``.
 
     The one entry point to `TiledAcquisitionRunner`, for the Overview tab, the
-    beam overview grid task and the imaging service's ``tiled_overview``. The
+    beam overview grid task and the imaging service's ``acquire_overview``. The
     beam is ``settings.image_settings.beam_type``. ``name`` is used as given;
     `stamped_overview_name` makes one that two runs cannot share. A copy of
     ``settings`` is used, so the caller's object is not rewritten with the

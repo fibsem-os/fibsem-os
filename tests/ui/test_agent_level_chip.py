@@ -163,19 +163,31 @@ def test_now_shows_under_the_title_while_a_request_waits_too(qapp):
     card.deleteLater()
 
 
-def test_the_image_the_values_were_measured_on_shows_under_why(qapp):
+def test_the_image_shows_beside_the_steps_and_follows_the_card_s_width(qapp):
+    # Patrick, 2026-10-15 (layout E): the steps and Why left, the image right,
+    # wider as the card is; stacked under them with details open.
     from PyQt5.QtGui import QImage
 
-    from fibsem.applications.autolamella.ui.agent_card import WHY_WIDTH
+    from fibsem.applications.autolamella.ui.agent_card import PICTURE_MIN
 
     card = AgentCard()
     card.resize(780, 400)
+    card.show()
     card.set_request(_request())
     assert card.image_label is None
-    image = QImage(400, 300, QImage.Format_RGB32)
-    card.set_image(image, "FIB · 07:41")
-    assert card.image_label.pixmap().width() == WHY_WIDTH
+    image = QImage(1024, 683, QImage.Format_RGB32)
+    legend = [("#8b5cf6", True, "target", "move target")]
+    card.set_image(image, "FIB · 07:41", legend=legend)
+    narrow = card.image_label.pixmap().width()
+    assert narrow >= PICTURE_MIN
     assert card.image_label.toolTip() == "FIB · 07:41 · click to enlarge"
+    # Wider: the image takes the width the steps don't need.
+    card.resize(1000, 400)
+    assert card.image_label.pixmap().width() == narrow + 220
+    # Details open: stacked, the image the card's width.
+    card.details_link.click()
+    margins = card.layout().contentsMargins()
+    assert card.image_label.pixmap().width() == 1000 - margins.left() - margins.right()
     card.image_label.enlarge()
     assert card.image_label.window_.isVisible()
     card.image_label.window_.close()

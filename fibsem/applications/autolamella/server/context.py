@@ -882,7 +882,7 @@ class AutoLamellaAppContext:
         grid = experiment.get_grid_by_name(grid_name)
         if grid is None:
             return dict(self._no_such_grid(experiment, grid_name), jpeg=None)
-        match = self._recorded_grid_file(experiment, grid, filename)
+        match = self.recorded_grid_file(experiment, grid, filename)
         if match is None:
             return {
                 "available": True,
@@ -918,7 +918,7 @@ class AutoLamellaAppContext:
         grid = experiment.get_grid_by_name(grid_name)
         if grid is None:
             return dict(self._no_such_grid(experiment, grid_name), markers=[])
-        match = self._recorded_grid_file(experiment, grid, filename)
+        match = self.recorded_grid_file(experiment, grid, filename)
         if match is None:
             return {
                 "available": True,
@@ -1037,7 +1037,7 @@ class AutoLamellaAppContext:
         return [os.path.basename(p) for p in cls._recorded_grid_paths(experiment, grid)]
 
     @classmethod
-    def _recorded_grid_file(cls, experiment, grid, filename: str) -> Optional[str]:
+    def recorded_grid_file(cls, experiment, grid, filename: str) -> Optional[str]:
         import os
 
         return next(
@@ -1247,7 +1247,7 @@ class AutoLamellaAppContext:
         if grid is None:
             refusal = self._no_such_grid(experiment, grid_name)
             return {"error_type": "not_found", **refusal}
-        path = self._recorded_grid_file(experiment, grid, filename)
+        path = self.recorded_grid_file(experiment, grid, filename)
         if path is None:
             return {
                 "error_type": "not_found",
