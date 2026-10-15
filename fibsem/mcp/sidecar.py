@@ -538,6 +538,17 @@ def build_sidecar(client, capabilities):
     def get_task_outputs(item_name: str):
         return _app_get(f"/app/experiment/items/{item_name}/outputs")
 
+    def _image_header(resp):
+        # The image's scale and state ride on the JPEG answer as a header
+        # (app_routes.IMAGE_METADATA_HEADER); absent for a non-fibsem image.
+        raw = resp.headers.get("X-Image-Metadata")
+        if not raw:
+            return {}
+        try:
+            return {"metadata": json.loads(raw)}
+        except ValueError:
+            return {}
+
     def get_item_output_image(item_name: str, filename: str):
         # The route answers image/jpeg for the dashboard's <img>, so this reads
         # the bytes itself rather than through _call. Basenames carry spaces.
@@ -545,8 +556,11 @@ def build_sidecar(client, capabilities):
         resp = client.request("GET", path)
         if resp.status_code >= 400:
             return _refusal(resp)
-        meta = {"item_name": item_name, "filename": filename}
+        meta = {"item_name": item_name, "filename": filename, **_image_header(resp)}
         return [json.dumps(meta), Image(data=resp.content, format="jpeg")]
+
+    def get_image_metadata(path: str):
+        return _app_get("/app/experiment/images/metadata?" + urlencode({"path": path}))
 
     def get_item_detail(item_name: str):
         return _app_get(f"/app/experiment/items/{item_name}")
@@ -563,7 +577,7 @@ def build_sidecar(client, capabilities):
         resp = client.request("GET", path)
         if resp.status_code >= 400:
             return _refusal(resp)
-        meta = {"grid_name": grid_name, "filename": filename}
+        meta = {"grid_name": grid_name, "filename": filename, **_image_header(resp)}
         return [json.dumps(meta), Image(data=resp.content, format="jpeg")]
 
     def get_grid_markers(grid_name: str, filename: str):
@@ -838,6 +852,7 @@ def build_sidecar(client, capabilities):
             get_protocol,
             get_task_outputs,
             get_item_output_image,
+            get_image_metadata,
             get_item_detail,
             get_grids,
             get_grid_detail,

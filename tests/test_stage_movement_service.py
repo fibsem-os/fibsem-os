@@ -65,7 +65,7 @@ def test_its_plain_moves_check_the_stage_limits(microscope):
 
 def test_a_move_called_on_it_is_recorded_once_under_its_name(microscope):
     moves = []
-    microscope.record_signal.connect(
+    microscope.session.record_signal.connect(
         lambda kind, payload: moves.append(payload) if kind == "stage_moved" else None
     )
 

@@ -25,6 +25,7 @@ import math
 import threading
 import time
 from contextlib import contextmanager
+from copy import deepcopy
 from dataclasses import dataclass, replace
 from enum import Enum
 from typing import (
@@ -550,38 +551,57 @@ def resources_of(owner: Any) -> Resources:
 
 
 class Session:
-    """What a device or service reports to the experiment it runs in: events for the
-    experiment's record, and the stamp on each image (who, which run, which instrument).
+    """The experiment a device or service runs in: who is running it, which run it is,
+    and the record of what happened.
+
+    Devices and services report here, never to their microscope: `record` puts an
+    event on ``record_signal`` (the App Server writes it to the run's events.jsonl),
+    and `stamp` writes the user and experiment onto each image, then hands it to
+    ``instrument`` for the instrument's own part (its identity and geometry).
 
     The microscope builds one (`FibsemMicroscope.session`) and every device and service
     it builds reports through it, as they claim its `Resources`. A device with no
     microscope (standalone, in a test, or a device server's own) gets an empty one,
-    which records and stamps nothing.
+    which has no listeners and stamps nothing.
     """
+
+    #: (kind, payload): a fact for the experiment's record -- an image acquired, a
+    #: stage move, a task step. Progress for a UI belongs on typed signals, not here.
+    record_signal = Signal(str, object)
 
     def __init__(
         self,
-        record: Optional[Callable[[str, Dict[str, Any]], None]] = None,
-        stamp: Optional[Callable[[Any], None]] = None,
+        instrument: Optional[Callable[[Any], None]] = None,
+        user: Any = None,
+        experiment: Any = None,
     ):
-        self._record = record
-        self._stamp = stamp
+        self._instrument = instrument
+        #: Who is running the experiment (`FibsemUser`); set by `utils.setup_session`.
+        self.user = user
+        #: Which run this is (`FibsemExperimentRef`); set by `utils.setup_session`.
+        self.experiment = experiment
         self._open = threading.local()
 
     def record(self, kind: str, payload: Dict[str, Any]) -> None:
-        """Put one event on the record. Never raises: a failure to record must cost
-        the record, never the work."""
-        if self._record is None:
-            return
+        """Put one event on the record. Never raises: psygnal hands a listener's
+        exception back to whoever emitted, and a failure to record must cost the
+        record, never the work."""
         try:
-            self._record(kind, payload)
+            self.record_signal.emit(kind, payload)
         except Exception:  # noqa: BLE001 - recording must not matter
             logging.debug(f"could not record a {kind} event", exc_info=True)
 
     def stamp(self, image: Any) -> None:
-        """Stamp the experiment's metadata onto an image."""
-        if self._stamp is not None:
-            self._stamp(image)
+        """Stamp who and which run onto an image, then the instrument's part."""
+        if self.user is not None:
+            image.metadata.user = self.user
+        if self.experiment is not None:
+            # Copied, not referenced. It carries the item and task as well as the
+            # experiment (FIB-466), and those change as the run progresses -- sharing
+            # one object would rewrite the item on every image already acquired.
+            image.metadata.experiment = deepcopy(self.experiment)
+        if self._instrument is not None:
+            self._instrument(image)
 
     @contextmanager
     def recording(self, kind: str, **payload: Any) -> Iterator[Dict[str, Any]]:

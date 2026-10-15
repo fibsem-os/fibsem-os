@@ -103,7 +103,7 @@ def _task(ui, parent_ui, milling_enabled=True):
 
 def _milling_events(microscope):
     events = []
-    microscope.record_signal.connect(
+    microscope.session.record_signal.connect(
         lambda kind, payload: events.append(payload) if kind == "milling" else None
     )
     return events

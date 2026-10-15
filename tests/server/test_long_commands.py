@@ -91,7 +91,7 @@ def test_a_long_command_answers_at_once_and_runs_on_in_control(
     def seen(kind, payload):
         events.append(kind)
 
-    microscope.record_signal.connect(seen)
+    microscope.session.record_signal.connect(seen)
     try:
         run = _start(client)
         assert run["state"] == "running" and run["command"] == "run"
@@ -113,7 +113,7 @@ def test_a_long_command_answers_at_once_and_runs_on_in_control(
         # Control was given up before the run said it had ended.
         assert microscope.control.current is None
     finally:
-        microscope.record_signal.disconnect(seen)
+        microscope.session.record_signal.disconnect(seen)
     assert events.count("command_started") == 1
     assert events.count("command_ended") == 1
 

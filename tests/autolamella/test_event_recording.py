@@ -593,7 +593,7 @@ def test_a_failing_subscriber_costs_the_record_not_the_acquisition(
     def broken(kind, payload):
         raise RuntimeError("a broken subscriber")
 
-    microscope.record_signal.connect(broken)
+    microscope.session.record_signal.connect(broken)
     try:
         image = acquire.acquire_image(
             microscope,
@@ -602,7 +602,7 @@ def test_a_failing_subscriber_costs_the_record_not_the_acquisition(
             ),
         )
     finally:
-        microscope.record_signal.disconnect(broken)
+        microscope.session.record_signal.disconnect(broken)
     assert os.path.exists(image.filepath)
 
 
