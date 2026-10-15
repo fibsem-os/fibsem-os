@@ -606,3 +606,53 @@ def test_the_window_draws_a_waiting_request_s_mill_and_takes_it_down(main_ui, ho
     host.requests.requests = [dict(waiting, status="rejected")]
     main_ui._refresh_agent_chip()
     assert main_ui.agent_previews.drawn == []
+
+
+def test_the_card_floats_in_its_own_window_and_goes_back_on_the_chip(qapp):
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtWidgets import QMainWindow
+
+    window = QMainWindow()
+    chip = AgentLevelChip()
+    window.statusBar().addPermanentWidget(chip)
+    window.show()
+    chip.set_level(AgentLevel.ASSIST)
+    chip.toggle_card()
+    assert chip.popup.isVisible()
+
+    chip.card.float_button.click()
+    assert chip.floating and not chip.popup.isVisible()
+    panel = chip.panel
+    assert chip.card.parent() is panel
+    # Over the app's window only, not over other apps.
+    assert panel.windowFlags() & Qt.Tool and panel.parent() is window
+    assert chip.card.float_button.toolTip() == "Put the card back on the chip"
+
+    # The card works the same floating: a request shows, Approve says so, and
+    # the window stays open.
+    approved = []
+    chip.approve_clicked.connect(approved.append)
+    chip.set_request(_request())
+    chip.card.approve_button.click()
+    assert approved == ["ab12"] and chip.floating
+
+    # Narrow, it stacks.
+    panel.resize(420, 600)
+    qapp.processEvents()
+    assert not chip.card.wide
+    narrow = panel.width()  # no narrower than the stacked card's minimum
+    assert narrow < 600
+
+    # Closing the window puts the card back; the chip opens it there again.
+    panel.move(40, 50)
+    panel.close()
+    assert not chip.floating and chip.card.parent() is chip.popup
+    chip.toggle_card()
+    assert chip.popup.isVisible()
+
+    # Floated again, it is where it was left.
+    chip.card.float_button.click()
+    assert chip.floating and panel.width() == narrow
+    chip.card.float_button.click()  # the button puts it back too
+    assert not chip.floating and chip.card.parent() is chip.popup
+    window.close()
