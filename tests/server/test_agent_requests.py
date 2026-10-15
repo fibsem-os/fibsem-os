@@ -2,6 +2,7 @@
 in the app, and the approved actions run through the App Server's own routes."""
 
 import gc
+import json
 import os
 
 import pytest
@@ -429,3 +430,30 @@ def test_an_approved_request_is_refused_what_the_agent_may_never_touch(client, a
     done = store.wait(filed.json()["request_id"], timeout=10)
     assert done.status == "failed"
     assert done.results[0]["status_code"] == 403
+
+
+def test_the_sidecar_shows_an_approved_image_as_an_image(client, app):
+    """get_request answers an applied image action's preview as an image the
+    agent can look at, not ~200k characters of base64 in the JSON."""
+    pytest.importorskip("mcp")
+    import asyncio
+
+    from fibsem.mcp.sidecar import build_sidecar
+
+    image = {"tool": "acquire_image_preview", "arguments": {"beam_type": "ION"}}
+    request_id = _file(client, image).json()["request_id"]
+    store = app.state.requests
+    store.approve(request_id)
+    assert store.wait(request_id, timeout=10).status == "applied"
+
+    client.headers.update(AGENT)
+    sidecar = build_sidecar(client, client.get("/capabilities").json())
+    result = asyncio.run(sidecar.call_tool("get_request", {"request_id": request_id}))
+    if isinstance(result, tuple):
+        result = result[0]
+    contents = list(getattr(result, "content", result))
+    assert [getattr(c, "type", None) for c in contents] == ["text", "image"]
+    assert "image_b64_jpeg" not in contents[0].text
+    answer = json.loads(contents[0].text)
+    preview = answer["results"][0]["result"]["result"]["preview"]
+    assert preview["image_index"] == 0

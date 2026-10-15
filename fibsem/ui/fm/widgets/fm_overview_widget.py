@@ -1875,7 +1875,7 @@ class FMOverviewWidget(QWidget):
             self,
             "Confirm Movement",
             f"Move the stage to the fluorescence microscope?\n\n"
-            f"{self.microscope.describe_device_imaging_state('FM')}",
+            f"{self.microscope.explain_imaging_state('FM')}",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
@@ -2722,7 +2722,12 @@ class FMOverviewWidget(QWidget):
             TiledProgress(status=status, modality=MODALITY_FLUORESCENCE)
         )
 
-    def _emit_terminal(self, status: TiledStatus, error: Optional[str] = None) -> None:
+    def _emit_terminal(
+        self,
+        status: TiledStatus,
+        error: Optional[str] = None,
+        warning: Optional[str] = None,
+    ) -> None:
         """Say how the run ended.
 
         One vocabulary now. This used to send two -- its own `state` strings for its own
@@ -2732,7 +2737,12 @@ class FMOverviewWidget(QWidget):
         a second phrasing of the fact.
         """
         self.microscope.tiled_acquisition_signal.emit(
-            TiledProgress(status=status, modality=MODALITY_FLUORESCENCE, error=error)
+            TiledProgress(
+                status=status,
+                modality=MODALITY_FLUORESCENCE,
+                error=error,
+                warning=warning,
+            )
         )
 
     def _acquire_worker(self) -> None:
@@ -2759,7 +2769,9 @@ class FMOverviewWidget(QWidget):
                 overview=getattr(runner, "overview_parameters", None),
             )
             self.overview_acquired.emit(mosaic)
-            self._emit_terminal(TiledStatus.FINISHED)
+            self._emit_terminal(
+                TiledStatus.FINISHED, warning=getattr(runner, "layout_warning", None)
+            )
         except OperationCancelledError:
             logging.info("Overview acquisition cancelled")
             self._emit_terminal(TiledStatus.CANCELLED)
@@ -2907,6 +2919,10 @@ class FMOverviewWidget(QWidget):
             return
 
         if event.status.is_terminal:
+            if event.status is TiledStatus.FINISHED and event.warning:
+                # Kept in the notification history: it is about the instrument's
+                # calibration, not this one image, and outlives the toast.
+                notification_service.show(event.warning, "warning")
             self._finish(event.status, event.error)
             return
 

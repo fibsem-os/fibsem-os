@@ -286,7 +286,7 @@ def test_acquire_image_with_settings_stamps_the_shared_metadata(microscope):
     assert isinstance(image, FibsemImage)
     assert image.data.shape == FRAME_SHAPE
     assert image.metadata.pixel_size.x == pytest.approx(100e-6 / 1536)
-    # what _set_additional_metadata adds, as on every other backend
+    # what Session.stamp adds, as on every other backend
     assert image.metadata.system_info is not None
     assert image.metadata.hardware_geometry is not None
     assert image.metadata.experiment is not microscope.experiment

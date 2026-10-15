@@ -219,7 +219,7 @@ class TestExchange:
         microscope = _compustage_demo()
         loader = _with_magazine(microscope)
         recorded = []
-        microscope.record_signal.connect(lambda k, p: recorded.append((k, p)))
+        microscope.session.record_signal.connect(lambda k, p: recorded.append((k, p)))
         loader.load_grid("Slot-01")
         loader.load_grid("Slot-05")  # an exchange: unload Grid-01, load Grid-05
         loader.load_grid("Slot-05")  # already loaded: nothing to record

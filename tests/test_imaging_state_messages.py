@@ -31,7 +31,7 @@ def test_a_wrong_place_says_travel():
     microscope = _microscope()
     microscope.move_to_orientation("FIB")
 
-    message = microscope.describe_device_imaging_state("FM")
+    message = microscope.explain_imaging_state("FM")
 
     assert "travel" in message
     assert "move_to_device('FM')" in message
@@ -42,7 +42,7 @@ def test_a_wrong_pose_says_re_pose():
     microscope = _microscope(ARCTIS_CONFIG)
     microscope.move_to_orientation("SEM")
 
-    message = microscope.describe_device_imaging_state("FM")
+    message = microscope.explain_imaging_state("FM")
 
     assert "Re-pose" in message
     assert "held in the SEM orientation" in message
@@ -53,7 +53,7 @@ def test_wrong_on_both_axes_says_both_in_the_bracketing_order():
     microscope = _microscope()
     microscope.move_to_orientation("SEM")
 
-    message = microscope.describe_device_imaging_state("FM")
+    message = microscope.explain_imaging_state("FM")
 
     assert message.index("Re-pose") < message.index("travel")
 
@@ -61,7 +61,7 @@ def test_wrong_on_both_axes_says_both_in_the_bracketing_order():
 def test_no_device_is_terminal_and_says_so():
     microscope = _microscope(cfg.MICROSCOPE_CONFIGURATION_PATH)
 
-    message = microscope.describe_device_imaging_state("FM")
+    message = microscope.explain_imaging_state("FM")
 
     assert message == "This system has no fluorescence microscope."
 
@@ -75,7 +75,7 @@ def test_an_unrecognised_pose_is_not_called_the_none_orientation():
     position.t = position.t + 0.5  # ~29 degrees: nothing classifies this
     microscope.move_stage_absolute(position)
 
-    message = microscope.describe_device_imaging_state("FM")
+    message = microscope.explain_imaging_state("FM")
 
     assert "NONE" not in message
     assert "unrecognised" in message
@@ -87,9 +87,7 @@ def test_a_passed_state_is_the_one_described():
     microscope = _microscope()
     microscope.move_to_orientation("FIB")
 
-    message = microscope.describe_device_imaging_state(
-        "FM", DeviceImagingState.NEEDS_REPOSE
-    )
+    message = microscope.explain_imaging_state("FM", DeviceImagingState.NEEDS_REPOSE)
 
     assert "Re-pose" in message
 

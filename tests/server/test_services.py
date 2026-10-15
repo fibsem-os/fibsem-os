@@ -77,13 +77,15 @@ def test_microscope_off_still_needs_the_token(microscope):
     assert client.get("/microscope/devices/stage/position").status_code == 401
 
 
-def test_the_agent_is_offered_no_instrument_tool_with_the_microscope_off(microscope):
+def test_the_instrument_tools_are_offered_with_the_microscope_off(microscope):
+    """The operator can turn the microscope routes on mid-session, so the agent
+    has their tools from the start; until then each answers microscope_off."""
     client = _client(microscope, serve_microscope=False)
     capabilities = client.get("/capabilities", headers=AUTH).json()
-    capabilities["level"] = "drive"
-    assert not [
-        t.path for t in tools_for_capabilities(capabilities) if t.router == "microscope"
-    ]
+    names = {t.name for t in tools_for_capabilities(capabilities)}
+    assert {"get_stage_position", "stable_move", "list_devices"} <= names
+    # An app tool still needs a server that hosts an application.
+    assert "get_app_status" not in names
 
 
 def test_get_capabilities_is_offered_with_the_microscope_off(microscope):
