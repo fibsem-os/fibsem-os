@@ -27,15 +27,15 @@ def calibrate_manipulator(
     microscope: FibsemMicroscope, settings: MicroscopeSettings
 ) -> None:
     """Centre the needle in both beams, asking at the terminal before each move."""
+    from fibsem.ai.models import load_checkpoint
     from fibsem.detection import detection
-    from fibsem.segmentation.model import load_model
 
     input(
         "Please complete the EasyLift alignment procedure in the xT UI until Step 5. "
         "Press Enter to proceed."
     )
 
-    model = load_model(settings.protocol["options"]["checkpoint"])
+    model = load_checkpoint(settings.protocol["options"]["checkpoint"])
     settings.image.autocontrast = True
 
     working_distance = microscope.get_working_distance(BeamType.ELECTRON)

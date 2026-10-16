@@ -219,3 +219,9 @@ def test_a_checkpoint_a_protocol_names_loads_once(monkeypatch):
     assert first.card.classes[1].name == "lamella"
     assert first.segment(np.zeros((8, 8)), pixel_size=1e-6).fraction("lamella") == 1
     assert manager.registry.resolve("autolamella-mega-20240107.pt")[0].agent is False
+    # The app's callers ask for the framework model itself, from the same load.
+    from fibsem.ai import models
+
+    monkeypatch.setattr(models, "default_manager", lambda: manager)
+    assert models.load_checkpoint("autolamella-mega-20240107.pt") is first.backend.model
+    assert loads == ["autolamella-mega-20240107.pt"]

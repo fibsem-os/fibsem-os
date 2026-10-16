@@ -931,7 +931,7 @@ def take_image_and_detect_features(
 ) -> DetectedFeatures:
 
     from fibsem import acquire, utils
-    from fibsem.ai.models import default_manager
+    from fibsem.ai.models import load_checkpoint
 
     if image_settings.reduced_area is not None:
         logging.info(
@@ -946,7 +946,7 @@ def take_image_and_detect_features(
     image = acquire.acquire_image(microscope, image_settings)
 
     # The model, loaded once for the session rather than on every detection.
-    model = default_manager().for_checkpoint(checkpoint).backend.model
+    model = load_checkpoint(checkpoint)
 
     if isinstance(point, FibsemStagePosition):
         logging.debug(f"Reprojecting point {point} to image coordinates...")
