@@ -13,10 +13,6 @@ from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (
     MinimapShapesOverlay,
     ShapeSpec,
 )
-from fibsem.ui.widgets.canvas.overlays.pattern_overlay import (
-    PatternOverlay,
-    ScanDirectionArrowOverlay,
-)
 from fibsem.ui.widgets.canvas.overlays.point_overlay import (
     FieldOfViewOverlay,
     PointOverlay,
@@ -24,6 +20,9 @@ from fibsem.ui.widgets.canvas.overlays.point_overlay import (
 )
 from fibsem.ui.widgets.canvas.overlays.rect_overlay import RectOverlay
 from fibsem.ui.widgets.canvas.overlays.ruler_overlay import RulerOverlay
+from fibsem.ui.widgets.canvas.overlays.scan_direction_overlay import (
+    ScanDirectionArrowOverlay,
+)
 
 __all__ = [
     "CanvasOverlay",
@@ -32,7 +31,6 @@ __all__ = [
     "PointOverlay",
     "RectOverlay",
     "RulerOverlay",
-    "PatternOverlay",
     "ScanDirectionArrowOverlay",
     "AlignmentAreaOverlay",
     "MaskOverlay",

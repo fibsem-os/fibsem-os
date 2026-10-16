@@ -177,10 +177,9 @@ class OverviewGridSettingsWidget(QWidget):
 
         **Resizing remaps the mask** -- tiles that still exist keep their state, tiles
         that come into existence start enabled. That is the fluorescence tab's answer.
-        The FIB/SEM tab's `OverviewAcquisitionSettingsWidget` answered the opposite,
-        deliberately: it *drops* a mask whose shape no longer matches, on the grounds
-        that growing has to invent whether the new tiles are in or out, and shrinking
-        throws away a choice.
+        The old napari FIB/SEM tab answered the opposite: it *dropped* a mask whose
+        shape no longer matched, on the grounds that growing has to invent whether the
+        new tiles are in or out, and shrinking throws away a choice.
 
         Remapping wins here because of what resizing now is. Dragging a grid edge on the
         canvas resizes it on **every motion event**, so "drop the mask on any resize"

@@ -507,34 +507,6 @@ class ContextMenu(QMenu):
                 pass
 
 
-def show_context_menu(
-    actions: list[tuple[str, Callable]],
-    parent: Optional[QWidget] = None,
-) -> Optional[str]:
-    """Convenience function to show a simple context menu.
-
-    Args:
-        actions: List of (label, callback) tuples.
-        parent: Parent widget for the menu.
-
-    Returns:
-        The label of the selected action, or None if cancelled.
-
-    Usage:
-        result = show_context_menu([
-            ("Set Point of Interest", self.set_poi),
-            ("Move Patterns", self.move_patterns),
-        ], parent=self)
-    """
-    config = ContextMenuConfig()
-    for label, callback in actions:
-        config.add_action(label, callback=callback)
-
-    menu = ContextMenu(config, parent=parent)
-    selected = menu.show_at_cursor()
-    return selected.label if selected else None
-
-
 def scrollable(widget: QWidget) -> QScrollArea:
     """*widget* inside a vertical-only QScrollArea that resizes it to the viewport.
 

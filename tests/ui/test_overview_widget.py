@@ -816,8 +816,8 @@ class TestTheRunOwnsItsSettings:
 
     Reported from a real run: tile (0,0) acquired, then tile (0,1) died in
     `os.path.join(None, filename)`. The cause was not the acquisition at all --
-    `OverviewAcquisitionSettingsWidget.get_settings()` mutates and returns the settings
-    widget's *own* `ImageSettings`, resetting `path` from its text box. The stage moving
+    the old settings widget's `get_settings()` mutated and returned its *own*
+    `ImageSettings`, resetting `path` from its text box. The stage moving
     between tiles refreshed the overlays, which read the beam type through that call,
     which set the run's output path back to None.
     """
@@ -1015,85 +1015,45 @@ class TestTheRunOwnsItsSettings:
         assert (settings.nrows, settings.ncols) == (3, 3)
 
 
-class TestTheDefaultsAreNotShared:
-    """The defaults are a factory, and the one thing a factory must not do is hand back
-    the same object twice.
+class TestTheOverviewDefaults:
+    """A new `OverviewAcquisitionSettings` starts from the house overview defaults,
+    and each one is its own: a default an experiment path is written into must not
+    carry that path into the next experiment."""
 
-    What it replaced was a module-level `DEFAULT_OVERVIEW_ACQUISITION_SETTINGS`, and the
-    minimap assigned an experiment path straight into it. That edits the default: open a
-    second experiment and the "default" carries the first one's path. Worse in this
-    widget, where `ImageSettingsWidget.update_from_settings` keeps the object it is
-    handed and `get_settings` mutates and returns that same one -- so a shared default
-    would be rewritten by every keystroke in the tab.
-    """
+    def test_an_overview_opens_at_the_standard_resolution(self):
+        """Pinned twice on purpose. The literal is the decision; the comparison with
+        `ImageSettings()` is where the number came from. `hfw` is the horizontal
+        field, so a square tile of the same field covers different ground."""
+        from fibsem.structures import ImageSettings, OverviewAcquisitionSettings
 
-    def test_both_overview_tabs_open_at_the_shipped_resolution(self):
-        """One shape for both tabs, and it is the one the shipped tab acquires at.
-
-        The minimap named no `resolution`, so it inherited `ImageSettings`' non-square
-        default -- and that is what every overview taken from that tab has been. The
-        factory opened square instead (FIB-619), so for a while the two tabs disagreed
-        and the minimap pinned its own value on top. They agree now: the factory names
-        the standard shape, and the minimap sets nothing.
-
-        Not cosmetic. `hfw` is the *horizontal* field, so the same 500 um tile at
-        1024x1024 is 0.49 um/px against 0.33 and half again as tall -- overviews from
-        the two tabs would cover different ground under the same nominal field, which
-        is no way to compare them across the swap.
-
-        Pinned twice on purpose. The literal is the decision; the comparison with
-        `ImageSettings()` is where the number came from. If that default ever moves,
-        the literal fires and asks whether the overview default follows -- which is the
-        question, not the number.
-        """
-        from fibsem.structures import ImageSettings
-        from fibsem.ui.widgets.overview_acquisition_settings_widget import (
-            default_overview_acquisition_settings,
-        )
-
-        resolution = tuple(
-            default_overview_acquisition_settings().image_settings.resolution
-        )
+        resolution = tuple(OverviewAcquisitionSettings().image_settings.resolution)
         assert resolution == (1536, 1024)
         assert resolution == tuple(ImageSettings().resolution)
 
-    def test_each_call_hands_back_its_own_settings(self):
-        from fibsem.ui.widgets.overview_acquisition_settings_widget import (
-            default_overview_acquisition_settings,
-        )
+    def test_each_one_has_its_own_settings(self):
+        from fibsem.structures import OverviewAcquisitionSettings
 
-        first = default_overview_acquisition_settings()
+        first = OverviewAcquisitionSettings()
         first.image_settings.path = "/experiments/one"
         first.image_settings.hfw = 1e-3
         first.nrows = 7
 
-        second = default_overview_acquisition_settings()
+        second = OverviewAcquisitionSettings()
         assert second.image_settings.path is None
         assert second.image_settings.hfw == pytest.approx(500e-6)
         assert second.nrows == 3
 
-    def test_the_widget_does_not_hold_the_defaults(self, qapp):
-        """Seeding a widget must not leave it editing the shared object either.
-
-        Constructing two and typing into one is the cheapest way to catch a factory
-        that returns a cached instance.
-        """
-        from fibsem.ui.widgets.overview_acquisition_settings_widget import (
-            OverviewAcquisitionSettingsWidget,
+    def test_a_file_without_image_settings_loads_as_before(self):
+        """The house defaults are for new overviews; a saved one keeps what it said."""
+        from fibsem.structures import (
+            AutoContrastMode,
+            ImageSettings,
+            OverviewAcquisitionSettings,
         )
 
-        first = OverviewAcquisitionSettingsWidget()
-        second = OverviewAcquisitionSettingsWidget()
-        try:
-            first.image_settings_widget.hfw_spinbox.setValue(42.0)
-            first.set_grid_size(5, 4)
-
-            settings = second.get_settings()
-            assert settings.image_settings.hfw == pytest.approx(500e-6)
-            assert (settings.nrows, settings.ncols) == (3, 3)
-        finally:
-            first.close()
-            second.close()
+        loaded = OverviewAcquisitionSettings.from_dict({"nrows": 2})
+        assert loaded.image_settings.hfw == ImageSettings().hfw
+        assert loaded.autocontrast_mode is AutoContrastMode.NONE
 
 
 class TestViews:
