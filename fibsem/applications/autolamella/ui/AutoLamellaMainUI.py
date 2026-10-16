@@ -6,6 +6,7 @@ import logging
 import os
 import sys
 import time
+import uuid
 from dataclasses import replace
 from typing import Callable, List, Optional, Tuple
 
@@ -1606,6 +1607,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.agent_chip.reject_clicked.connect(self._on_reject_agent_request)
         self.agent_chip.accept_clicked.connect(self._on_accept_agent_suggestion)
         self.agent_chip.dismiss_clicked.connect(self._on_dismiss_agent_suggestion)
+        self.agent_chip.message_sent.connect(self._on_operator_message)
         # The suggestion the operator dropped by answering otherwise, until the
         # answer that dropped it is heard (the responder takes the suggestion
         # down before it says the question was answered).
@@ -4031,6 +4033,20 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if recorder is None:
             return
         recorder.buffer.append("workflow_stop", {"stopped": stopped, "by": by, **extra})
+
+    def _on_operator_message(self, text: str) -> None:
+        """GUI thread, from the card: put the operator's message to the agent on
+        the session's record, where the agent's watch hears it as a ``MESSAGE``
+        line and the agent answers with a note naming its id (FIB-1423)."""
+        recorder = getattr(self.autolamella_ui, "_event_recorder", None)
+        if recorder is None:
+            notification_service.show_toast(
+                "No experiment is recording: the agent can't hear messages", "warning"
+            )
+            return
+        message_id = uuid.uuid4().hex[:8]
+        logging.info("Operator message to the agent (%s): %s", message_id, text)
+        recorder.buffer.append("operator_message", {"id": message_id, "text": text})
 
     def _record_agent_event(self, kind: str, previous, level, **extra) -> None:
         """Put a level change on the session's record (events.jsonl). Emitted
