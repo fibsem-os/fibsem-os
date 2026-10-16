@@ -5370,6 +5370,11 @@ class MillingAlignment:
     use_autofocus: bool = False
     steps: int = 3
     imaging: ImageSettings = field(default_factory=ImageSettings)
+    # Align on the whole frame, not ``rect``, when the current the column reads
+    # back at the stage's milling current is at or below this (amps); 0 is off.
+    # At polishing currents a full frame costs about the dose of an ordinary
+    # image and gives the match far more to lock onto than a small area does.
+    full_frame_below: float = 0.0
 
     def to_dict(self):
         return {
@@ -5381,6 +5386,7 @@ class MillingAlignment:
             "use_autofocus": self.use_autofocus,
             "steps": self.steps,
             "imaging": self.imaging.to_dict(),
+            "full_frame_below": self.full_frame_below,
         }
 
     @staticmethod
@@ -5396,6 +5402,7 @@ class MillingAlignment:
             use_autofocus=d.get("use_autofocus", False),
             steps=d.get("steps", 3),
             imaging=ImageSettings.from_dict(d.get("imaging", {})),
+            full_frame_below=float(d.get("full_frame_below", 0.0)),
         )
 
 
