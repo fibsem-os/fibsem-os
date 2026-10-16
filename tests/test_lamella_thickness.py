@@ -93,8 +93,11 @@ def test_a_wedge_reads_its_slope():
 def test_a_hole_is_dropped_and_named():
     measurement = measure_lamella_band(band_image(235, hole=(700, 719)), Point(0, 0))
     answer = measurement.to_dict()
-    assert answer["continuity"]["dropped"] == 20
-    assert answer["continuity"]["gaps_px"] == [[700, 719]]
+    # Averaging along the band (100 nm, 10 px here) blurs a hole's ends by a
+    # column or so; it is still one gap where the hole is.
+    assert answer["continuity"]["dropped"] == pytest.approx(20, abs=2)
+    ((first, last),) = answer["continuity"]["gaps_px"]
+    assert first == pytest.approx(700, abs=1) and last == pytest.approx(719, abs=1)
     assert answer["thickness_nm"]["mean"] == pytest.approx(235, abs=10)
 
     preview = draw_band_edges(band_image(235, hole=(700, 719)), measurement)

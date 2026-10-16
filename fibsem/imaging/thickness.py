@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
+from scipy.ndimage import uniform_filter1d
 
 from fibsem.conversions import microscope_image_to_image_coordinates
 from fibsem.structures import FibsemImage, FibsemRectangle, Point
@@ -32,6 +33,11 @@ DEFAULT_WINDOW = (10e-6, 4e-6)
 # A column whose band is fainter than this fraction of the typical contrast has
 # no band: a hole or a break.
 MIN_CONTRAST_FRACTION = 0.5
+# Each column is averaged with its neighbours over this length along the band
+# before it is measured: a single column of a real FIB image is too noisy for
+# its own half-maximum (on the 2026-10-15 final image, single columns ranged
+# 43-368 nm around a 233 nm mean). A hole narrower than this is smeared.
+DEFAULT_AVERAGE_ALONG = 100e-9
 
 Region = Union[FibsemRectangle, Point, None]
 
@@ -279,6 +285,7 @@ def measure_lamella_band(
     image: FibsemImage,
     region: Region = None,
     window: Tuple[float, float] = DEFAULT_WINDOW,
+    average_along: float = DEFAULT_AVERAGE_ALONG,
 ) -> LamellaBandMeasurement:
     """Measure the bright lamella band of a FIB image, column by column.
 
@@ -287,6 +294,8 @@ def measure_lamella_band(
     are), a :class:`Point` in the microscope's image coordinates (metres from the
     centre, +y up, as an item's POI is) with ``window`` (width along the band,
     height across it, in metres) around it, or None for the whole image.
+    ``average_along`` (metres) is how far along the band each column is averaged
+    with its neighbours before it is measured.
 
     Raises ValueError for an image without a pixel size or a region off the image.
     """
@@ -298,6 +307,9 @@ def measure_lamella_band(
         raise ValueError("Only a single-channel 2-D image can be measured.")
     (x0, y0, x1, y1), reference = _region_px(region, data.shape, pixel_size, window)
     crop = data[y0:y1, x0:x1]
+    along = int(round(average_along / pixel_size))
+    if along > 1:
+        crop = uniform_filter1d(crop, along, axis=1, mode="nearest")
     rows, n = crop.shape
 
     # First pass: every column searched near the brightest row of the mean
