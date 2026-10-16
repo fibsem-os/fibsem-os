@@ -40,7 +40,7 @@ def test_closing_the_window_twice(no_quit, qapp):
         window.close()
 
         assert not window.isVisible()
-        assert window.autolamella_ui._event_recorder is None
+        assert window.autolamella_ui.session.recorder is None
     finally:
         microscope.disconnect()
         window.deleteLater()

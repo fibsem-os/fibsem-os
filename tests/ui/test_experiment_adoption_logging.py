@@ -22,6 +22,7 @@ pytest.importorskip("PyQt5")
 
 from fibsem.applications.autolamella.structures import Experiment  # noqa: E402
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI  # noqa: E402
+from fibsem.workflows.session import AppSession  # noqa: E402
 
 
 class _Signal:
@@ -36,10 +37,14 @@ class _StubUI:
     """The parts of AutoLamellaUI that _adopt_experiment touches."""
 
     def __init__(self):
-        self.experiment = None
+        self.session = AppSession()
         self.disconnected = 0
         self.connected = 0
         self.experiment_update_signal = _Signal()
+
+    @property
+    def experiment(self):
+        return self.session.experiment
 
     def _disconnect_experiment_events(self):
         self.disconnected += 1
@@ -60,7 +65,9 @@ def quiet_root_logger():
     root.handlers = saved
 
 
-def test_adopting_an_experiment_points_logging_at_its_logfile(tmp_path, quiet_root_logger):
+def test_adopting_an_experiment_points_logging_at_its_logfile(
+    tmp_path, quiet_root_logger
+):
     experiment = Experiment.create(path=tmp_path, name="exp")
     ui = _StubUI()
 
@@ -78,7 +85,9 @@ def test_adopting_an_experiment_points_logging_at_its_logfile(tmp_path, quiet_ro
     assert "after adoption" in logfile.read_text(encoding="utf-8")
 
 
-def test_adopting_an_experiment_still_does_the_rest_of_the_wiring(tmp_path, quiet_root_logger):
+def test_adopting_an_experiment_still_does_the_rest_of_the_wiring(
+    tmp_path, quiet_root_logger
+):
     """The logging call was added to an existing sequence, not in place of it."""
     experiment = Experiment.create(path=tmp_path, name="exp")
     ui = _StubUI()
@@ -91,7 +100,9 @@ def test_adopting_an_experiment_still_does_the_rest_of_the_wiring(tmp_path, quie
     assert ui.experiment_update_signal.emitted == 1
 
 
-def test_a_second_adoption_moves_logging_to_the_new_experiment(tmp_path, quiet_root_logger):
+def test_a_second_adoption_moves_logging_to_the_new_experiment(
+    tmp_path, quiet_root_logger
+):
     """Switching experiments mid-session has to follow, not accumulate."""
     first = Experiment.create(path=tmp_path / "a", name="exp")
     second = Experiment.create(path=tmp_path / "b", name="exp")

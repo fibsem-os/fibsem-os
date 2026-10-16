@@ -36,11 +36,11 @@ def recorder(main_ui):
     os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
     microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
     ui = main_ui.autolamella_ui
-    previous = ui._event_recorder
+    previous = ui.session.recorder
     recorder = EventRecorder(microscope, default_actor="operator")
-    ui._event_recorder = recorder
+    ui.session.recorder = recorder
     yield recorder
-    ui._event_recorder = previous
+    ui.session.recorder = previous
     recorder.close()
     microscope.disconnect()
 
