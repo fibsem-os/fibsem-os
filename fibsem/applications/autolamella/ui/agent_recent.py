@@ -53,6 +53,20 @@ _RUN_ENDED = {
 # A mill started and left running: its mill's row says how it went.
 _MILL_START = "/services/milling/commands/start"
 
+# A call the agent's level doesn't take, by the level it was at.
+_LEVEL_REFUSED = {
+    "watch": "Watch is read-only",
+    "assist": "not allowed at Assist",
+    "drive": "at Drive the agent acts itself",
+    "off": "the agent is off",
+}
+
+
+def _first_line(text: Any) -> str:
+    """A route's message as a reason: its first line, cut for a row."""
+    return _cut(str(text or "").strip().split("\n", 1)[0], 120)
+
+
 # Why a direct call was refused, beyond the agent's permissions (agent_called).
 _CALL_REFUSED = {
     "microscope_busy": "busy",
@@ -222,7 +236,9 @@ class RecentActions:
 
     def _on_request_cancelled(self, record, p, agent):
         self._applying.discard(p.get("request_id"))
-        return self._end(("request", p.get("request_id")), "cancelled", MUTED)
+        # The agent taking it back says who ended it (sim session 2026-10-16).
+        outcome = "withdrawn" if p.get("withdrawn") else "cancelled"
+        return self._end(("request", p.get("request_id")), outcome, MUTED)
 
     # --- the run's questions -----------------------------------------------------
 
@@ -306,7 +322,12 @@ class RecentActions:
             outcome, tone = "failed", ERROR
         else:
             error = p.get("error_type")
-            why = _CALL_REFUSED.get(error) or _words(error) or f"error {status}"
+            why = (
+                _CALL_REFUSED.get(error)
+                or _first_line(p.get("message"))
+                or _words(error)
+                or f"error {status}"
+            )
             outcome, tone = f"refused: {why}", ERROR
         text = str(p.get("action") or "").strip() or "Acted"
         return self._put(
@@ -364,7 +385,9 @@ class RecentActions:
 
     def _on_agent_refused(self, record, p, agent):
         error = p.get("error_type")
-        why = _REFUSED.get(error) or f"not at {p.get('level')}"
+        why = _REFUSED.get(error) or _LEVEL_REFUSED.get(
+            str(p.get("level")), f"not at {p.get('level')}"
+        )
         text = p.get("line") or f"Tried to {_words(p.get('action'))}"
         return self._put(
             ("refused", record.get("seq")),

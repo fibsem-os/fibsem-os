@@ -978,6 +978,14 @@ def _set_parameter(
     a: Dict[str, Any], owner_key: str, path: str, get: Callable[[str], Any]
 ) -> Dict[str, Any]:
     owner, parameter = a.get(owner_key), str(a.get("parameter"))
+    if parameter == "on" and isinstance(a.get("value"), bool):
+        # "Electron · Set on to off" said nothing (sim session 2026-10-16).
+        name = _words(owner) + (" beam" if owner in ("electron", "ion") else "")
+        state = "on" if a["value"] else "off"
+        return {
+            "what": _words(owner).capitalize(),
+            "change": f"Turn the {name} {state}",
+        }
     spec = None
     listing = get(path.rsplit("/", 1)[0]) if "/" in path else None
     if isinstance(listing, dict):
@@ -1416,6 +1424,19 @@ def _line(
             "what": "Alignment",
             "change": "Take an SEM and a FIB image to measure coincidence (moves nothing)",
         }
+    if tool == "request_create":
+        actions = [x for x in a.get("actions") or [] if isinstance(x, dict)]
+        change = "Ask you to approve " + _plural(len(actions), "action")
+        if actions:
+            first = actions[0]
+            line = describe_action(
+                str(first.get("tool")), first.get("arguments") or {}, ""
+            )
+            said = str(line.get("change") or "").split("\n", 1)[0]
+            change += (
+                f": {line.get('what')} · {said}" if line.get("what") else f": {said}"
+            )
+        return {"what": "Request", "change": change}
     if tool == "device_set_parameter":
         return _set_parameter(a, "device", path, get)
     if tool == "service_set_parameter":

@@ -956,7 +956,9 @@ def test_the_agent_withdraws_its_waiting_request_with_a_reason(client, app, cont
     assert withdrawn.json()["status"] == "cancelled"
     assert withdrawn.json()["cancel_reason"] == why
     cancelled = [p for kind, p, _ in context.recorded if kind == "request_cancelled"]
-    assert cancelled == [{"request_id": filed["request_id"], "why": why}]
+    assert cancelled == [
+        {"request_id": filed["request_id"], "why": why, "withdrawn": True}
+    ]
     # A new one can be filed; a decided one can't be withdrawn.
     again = _file(client, NUDGE).json()
     app.state.requests.reject(again["request_id"])
@@ -1119,3 +1121,24 @@ def test_fluorescence_channel_settings_read_in_the_fm_panel_s_units():
             "power 5%, exposure 100 ms",
         ]
     ]
+
+
+def test_a_filed_request_and_a_beam_switched_off_read_as_words():
+    """Sim session 2026-10-16: "Request create · Run", "Electron · Set on to off"."""
+    from fibsem.server.request_text import describe_action
+
+    filed = describe_action(
+        "request_create",
+        {"actions": [{"tool": "stage_move_relative", "arguments": {"dx": 1e-6}}]},
+        "",
+    )
+    assert filed == {
+        "what": "Request",
+        "change": "Ask you to approve 1 action: Stage · Move by x 1 µm",
+    }
+    off = describe_action(
+        "device_set_parameter",
+        {"device": "electron", "parameter": "on", "value": False},
+        "",
+    )
+    assert off == {"what": "Electron", "change": "Turn the electron beam off"}

@@ -405,6 +405,10 @@ class _AgentActs:
                     detail = None
                 if isinstance(detail, dict) and detail.get("error_type"):
                     payload["error_type"] = detail["error_type"]
+                # Why, in the route's words: an exception's name is not a reason.
+                message = detail.get("message") if isinstance(detail, dict) else detail
+                if isinstance(message, str) and message.strip():
+                    payload["message"] = message.strip()
             scope["app"].state.microscope.record_event("agent_called", payload)
         except Exception:  # noqa: BLE001 - recording must not change the answer
             logging.debug("could not record an agent call", exc_info=True)

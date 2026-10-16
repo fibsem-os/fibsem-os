@@ -253,3 +253,48 @@ def test_an_answer_says_what_it_decided_and_for_which_lamella():
     assert _rows(recent)[0][0] == (
         "02-tough-shiner · Point of interest at (+5.0, −2.0) µm"
     )
+
+
+def test_a_refusal_gives_its_reason_not_an_exception_s_name():
+    """Sim session 2026-10-16: "refused: StageLimitError", "refused: not at
+    drive"."""
+    recent = RecentActions()
+    recent.add(
+        _called(
+            "Stage · Move to x 500 mm",
+            422,
+            error_type="StageLimitError",
+            message="x 500 mm is outside the stage limits\nlimits: ...",
+        )
+    )
+    recent.add(
+        _record(
+            "agent_refused",
+            {"action": "request create", "error_type": "level", "level": "drive"},
+        )
+    )
+    recent.add(
+        _record(
+            "agent_refused",
+            {"action": "stage move", "error_type": "level", "level": "watch"},
+        )
+    )
+    assert [row[1] for row in _rows(recent)] == [
+        "refused: Watch is read-only",
+        "refused: at Drive the agent acts itself",
+        "refused: x 500 mm is outside the stage limits",
+    ]
+
+
+def test_a_request_the_agent_took_back_reads_withdrawn():
+    recent = RecentActions()
+    actions = [{"tool": "stage_move_relative", "arguments": {"dx": 5e-6}}]
+    for request_id, withdrawn in (("r1", True), ("r2", False)):
+        recent.add(
+            _record("request_raised", {"request_id": request_id, "actions": actions})
+        )
+        payload = {"request_id": request_id, "why": "..."}
+        if withdrawn:
+            payload["withdrawn"] = True
+        recent.add(_record("request_cancelled", payload))
+    assert [row[1] for row in _rows(recent)] == ["cancelled", "withdrawn"]

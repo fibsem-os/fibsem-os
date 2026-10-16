@@ -513,7 +513,9 @@ class RequestStore:
         with self._lock:
             request = self._pending_or_refuse(request_id)
             self._finish_locked(request, CANCELLED)
-        self._cancelled(request, f"withdrawn by the agent: {reason.strip()}")
+        self._cancelled(
+            request, f"withdrawn by the agent: {reason.strip()}", withdrawn=True
+        )
         return request
 
     def cancel(self, why: str) -> Optional[AgentRequest]:
@@ -699,9 +701,14 @@ class RequestStore:
         ]:
             del self._requests[request.id]
 
-    def _cancelled(self, request: AgentRequest, why: str) -> None:
+    def _cancelled(
+        self, request: AgentRequest, why: str, withdrawn: bool = False
+    ) -> None:
         request.cancel_reason = why
-        self._emit("request_cancelled", {"request_id": request.id, "why": why})
+        payload = {"request_id": request.id, "why": why}
+        if withdrawn:
+            payload["withdrawn"] = True
+        self._emit("request_cancelled", payload)
         self._changed(request)
 
     def _emit(self, kind: str, payload: Dict[str, Any]) -> None:
