@@ -942,6 +942,23 @@ def _called(action, status=200, level="drive"):
     return {"action": action, "status": status, "ok": status < 400, "level": level}
 
 
+def test_a_long_recent_line_wraps_rather_than_being_cut(qapp):
+    # Patrick 2026-10-16: at Drive the card stays narrow and a long line wraps.
+    from fibsem.applications.autolamella.ui.agent_level_chip import NARROW_WIDTH
+
+    long = "Imaging · Acquire FIB image: field of view 150 → 80 µm, " * 3
+    card = AgentCard()
+    card.set_level(AgentLevel.DRIVE)
+    card.set_recent([_row(long)])
+    (line,) = card.recent_buttons
+    assert line.wordWrap() and line.text() == long
+    assert card.minimumSizeHint().width() < NARROW_WIDTH
+    card.setFixedWidth(NARROW_WIDTH)
+    card.adjustSize()
+    assert line.heightForWidth(line.width()) > line.fontMetrics().height() * 2
+    card.deleteLater()
+
+
 def test_recent_shows_at_drive_and_is_hidden_below_it_until_asked_for(qapp):
     card = AgentCard()
     logs = []

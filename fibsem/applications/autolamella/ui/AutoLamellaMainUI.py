@@ -1630,6 +1630,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             item_pose=self._agent_item_pose,
             item_image=self._agent_item_image,
             overview_image=self._agent_overview_image,
+            item_overview=self._agent_item_overview,
         )
         self._agent_chip_timer = QTimer(self)
         self._agent_chip_timer.setInterval(1000)
@@ -4119,6 +4120,30 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return FibsemImage.load(path) if path else None
         except Exception:  # noqa: BLE001 - a fluorescence or broken file
             return None
+
+    def _agent_item_overview(self, item_name: str):
+        """The latest overview of an item's grid, SEM before FIB: where a pose
+        off the live view is drawn instead. None when there is none."""
+        from fibsem.applications.autolamella.server.context import find_item
+        from fibsem.applications.autolamella.task_outputs import latest_grid_output
+        from fibsem.structures import FibsemImage
+
+        experiment = self.autolamella_ui.experiment
+        if experiment is None:
+            return None
+        lamella, refusal = find_item(experiment, item_name)
+        grid = None if refusal else experiment.get_grid_for_lamella(lamella)
+        if grid is None:
+            return None
+        for role in ("overview_sem", "overview_fib"):
+            path = latest_grid_output(experiment, grid, role)
+            if path is None:
+                continue
+            try:
+                return FibsemImage.load(path)
+            except Exception:  # noqa: BLE001 - a broken file: try the next
+                continue
+        return None
 
     def _agent_review_image(self, arguments: dict):
         """The image a waiting ``review_decide``'s values sit on: its proposal's
