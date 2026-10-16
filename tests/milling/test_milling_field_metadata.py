@@ -9,8 +9,7 @@ from fibsem.structures import RangeLimit, field_specs
 
 
 def test_a_distance_is_metres_shown_in_microns():
-    declared = distance_param("Width", "The width.", limits=RangeLimit(1e-6, 1e-4))
-    parameter = declared["parameter"]
+    parameter = distance_param("Width", "The width.", limits=RangeLimit(1e-6, 1e-4))
     assert parameter.unit == "m"
     assert parameter.limits == RangeLimit(1e-6, 1e-4)
     assert parameter.display.scale == 1e6
