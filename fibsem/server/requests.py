@@ -193,6 +193,22 @@ def _call_named(spec: ToolSpec, tool: str, arguments: Dict[str, Any]) -> str:
     return f"{tool} {target}" if target else tool
 
 
+def _argument_problem(spec: ToolSpec, unknown: List[str], missing: List[str]) -> str:
+    """What is wrong with a request's arguments for *spec*, in the agent's terms:
+    the names it does not take, the ones it needs, and what it takes (FIB-1425).
+    Checked at filing, so the operator never reads an action with a value left
+    out ("Load 'None'")."""
+    parts = []
+    if unknown:
+        parts.append(f"{spec.name} takes no {', '.join(unknown)}")
+    if missing:
+        parts.append(f"{spec.name} needs {', '.join(missing)}")
+    takes = ", ".join(
+        f"{name} (optional)" if name in spec.optional else name for name in spec.params
+    )
+    return f"{'; '.join(parts)}. It takes: {takes or 'no arguments'}."
+
+
 def _cut_short(answer: Any) -> bool:
     """Whether an action ran but was stopped part way: a mill answers
     ``cancelled`` rather than failing (FIB-1377). Applied, but the operator and
@@ -394,6 +410,22 @@ class RequestStore:
                     422,
                     "invalid_arguments",
                     f"Action {index + 1}: arguments must be an object.",
+                )
+            unknown = sorted(set(arguments) - set(spec.params))
+            missing = [
+                name
+                for name in spec.params
+                if name not in spec.optional and arguments.get(name) is None
+            ]
+            if unknown or missing:
+                raise RequestRefused(
+                    422,
+                    "invalid_arguments",
+                    f"Action {index + 1}: {_argument_problem(spec, unknown, missing)}",
+                    tool=tool,
+                    unknown=unknown,
+                    missing=missing,
+                    takes=list(spec.params),
                 )
             try:
                 method, path, body = route_call(spec, arguments)
@@ -603,9 +635,14 @@ class RequestStore:
             action.details = line.get("details")
 
     def _read(self, path: str) -> Optional[Dict[str, Any]]:
-        """GET a route in this process: the document a config edit patches."""
+        """Read a route in this process: the document a config edit patches, or
+        a service query's answer (a query moves nothing), such as which grid an
+        exchange unloads."""
+        method, body = (
+            ("POST", {"kwargs": {}}) if "/queries/" in path else ("GET", None)
+        )
         code, answer = asyncio.run(
-            _asgi_call(self._app, "GET", path, None, self._auth.token)
+            _asgi_call(self._app, method, path, body, self._auth.token)
         )
         return answer if code < 400 and isinstance(answer, dict) else None
 

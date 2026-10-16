@@ -80,6 +80,7 @@ and stop.
 | One lamella | `item_get`, `item_list_outputs`, `item_get_output_image` |
 | The plan | `protocol_get`, `item_get_task_config`, `protocol_get_task_config` |
 | Grids | `grid_list`, `grid_get`, `grid_get_markers` |
+| Grids on the hardware now | `grid_get_inventory` (magazine or holder: which grid is loaded), `grid_get_current` |
 
 `app_get_status` also gives the experiment's folder (`experiment.path`). On the
 microscope PC you can read the record from there with the offline reader
@@ -112,8 +113,9 @@ fibsem-mcp watch
 
 Its `PROMPT` and `QUESTION` lines mean the run is waiting on a person. You
 don't answer them. Read the question, say what it is asking and what you'd
-answer and why, and remind the operator it is waiting on them. `RUN ENDED`
-means summarise (below) and stop watching. When it says
+answer and why, and remind the operator it is waiting on them. `WORKFLOW ENDED`
+means summarise (below), then keep watching: the next workflow may start
+from the app at any time. Stop when the operator says they're done. When it says
 `workflow_failed: <error>` or `stopped without an end event`, the run died:
 read `app_get_log` with the run's `task_id` and `level=WARNING` first and say
 why. If your harness can't keep a

@@ -25,6 +25,7 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
 from fibsem.mcp import watch as watch_mod  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
 from fibsem.server.discovery import write_discovery_file  # noqa: E402
+from fibsem.server.levels import AgentLevel  # noqa: E402
 from fibsem.structures import MicroscopeState  # noqa: E402
 
 TOKEN = "test-token"
@@ -120,22 +121,43 @@ class _Steered(watch_mod._UrllibClient):
         return super().request(method, path, json=json, timeout=timeout)
 
 
-def _watch(steps, sleeps=None, since=None):
-    """Watch the discovered server, running ``steps[n]`` before request n."""
+class _Seen(Exception):
+    """The test has seen what it waited for; the watch itself never stops on it."""
+
+
+def _ended(lines):
+    return lines[-1].startswith(watch_mod.ENDED)
+
+
+def _watch(steps, sleeps=None, since=None, until=_ended):
+    """Watch the discovered server, running ``steps[n]`` before request n, until
+    ``until(lines)`` (by default, a workflow's end).
+
+    The watch runs for the whole session (FIB-1431), so the test stops it.
+    ``code`` is None when it did, or what the watch returned when it gave up."""
     client_type = type("Steered", (_Steered,), {"steps": steps, "requests": 0})
     client = watch_mod.connect(client_factory=client_type)
     assert client is not None
     lines = []
+
+    def out(line):
+        lines.append(line)
+        if until(lines):
+            raise _Seen
+
     sleep_fn = sleeps.append if sleeps is not None else (lambda s: None)
-    code = watch_mod.watch(
-        client, out=lines.append, sleep_fn=sleep_fn, poll_s=POLL_S, since=since
-    )
+    try:
+        code = watch_mod.watch(
+            client, out=out, sleep_fn=sleep_fn, poll_s=POLL_S, since=since
+        )
+    except _Seen:
+        code = None
     return code, lines
 
 
-def test_seeds_at_the_tail_and_ends_with_the_run(app):
+def test_seeds_at_the_tail(app):
     # History from before the watch: replaying it would raise a stale PROMPT
-    # and end the watch on the earlier run's completion.
+    # and report the earlier workflow's end as news.
     app.buffer.append("prompt_raised", {"question_id": 1, "type": "Confirm"})
     app.buffer.append("workflow_completed", {})
 
@@ -150,12 +172,12 @@ def test_seeds_at_the_tail_and_ends_with_the_run(app):
 
     code, lines = _watch({2: run})
 
-    assert code == 0
+    assert code is None
     assert lines == [
         "EVENT task_started lamella-01",
         "PROMPT question=2 type=Confirm",
         "ANSWERED question=2 by=operator response=None",
-        "RUN ENDED (workflow_completed)",
+        "WORKFLOW ENDED (workflow_completed)",
     ]
 
 
@@ -168,8 +190,8 @@ def test_since_resumes_where_the_last_watch_left_off(app):
 
     code, lines = _watch({}, since=1)
 
-    assert code == 0
-    assert lines == ["REQUEST ab12 approved", "RUN ENDED (workflow_completed)"]
+    assert code is None
+    assert lines == ["REQUEST ab12 approved", "WORKFLOW ENDED (workflow_completed)"]
 
 
 def test_an_answer_says_when_it_took_the_agent_s_suggestion(app):
@@ -270,7 +292,7 @@ def test_task_lines_name_the_task(app):
 
     code, lines = _watch({2: run})
 
-    assert code == 0
+    assert code is None
     assert lines[0] == "EVENT task_started 01-alive-dory Rough Milling"
 
 
@@ -293,7 +315,7 @@ def test_a_skip_line_says_why_and_which_requirement(app):
 
     code, lines = _watch({2: run})
 
-    assert code == 0
+    assert code is None
     assert lines[:2] == [
         "EVENT task_skipped 01-alive-dory Rough Milling"
         " (missing_prereqs: Mill Fiducial)",
@@ -318,38 +340,38 @@ def test_watch_is_found_after_the_shared_options():
 
 def test_quiet_polls_keep_watching(app):
     code, lines = _watch({4: lambda: app.buffer.append("workflow_cancelled", {})})
-    assert code == 0
-    assert lines == ["RUN ENDED (workflow_cancelled)"]
+    assert code is None
+    assert lines == ["WORKFLOW ENDED (workflow_cancelled)"]
 
 
 @pytest.mark.parametrize(
     "kind, payload, line",
     [
-        ("workflow_stalled", {}, "RUN ENDED (workflow_stalled)"),
+        ("workflow_stalled", {}, "WORKFLOW ENDED (workflow_stalled)"),
         (
             "workflow_failed",
             {"error": "cannot represent an object"},
-            "RUN ENDED (workflow_failed: cannot represent an object)",
+            "WORKFLOW ENDED (workflow_failed: cannot represent an object)",
         ),
         (
             "workflow_completed",
             {"task_counts": {"completed": 0, "failed": 0, "skipped": 1}},
-            "RUN ENDED (workflow_completed: nothing ran, 1 skipped)",
+            "WORKFLOW ENDED (workflow_completed: nothing ran, 1 skipped)",
         ),
         (
             "workflow_completed",
             {"task_counts": {"completed": 3, "failed": 1, "skipped": 0}},
-            "RUN ENDED (workflow_completed: 3 completed, 1 failed)",
+            "WORKFLOW ENDED (workflow_completed: 3 completed, 1 failed)",
         ),
     ],
 )
-def test_a_stalled_or_failed_run_ends_the_watch(app, kind, payload, line):
+def test_a_workflow_s_end_says_how_it_ended(app, kind, payload, line):
     code, lines = _watch({3: lambda: app.buffer.append(kind, payload)})
-    assert code == 0
+    assert code is None
     assert lines == [line]
 
 
-def test_a_run_that_stops_without_an_end_event_ends_the_watch(app):
+def test_a_workflow_that_stops_without_an_end_event_is_reported(app):
     # FIB-1331: the run died outside a task, so no end event was recorded;
     # only /app/workflow/status knows it is over.
     app.set_running(True)
@@ -360,16 +382,16 @@ def test_a_run_that_stops_without_an_end_event_ends_the_watch(app):
 
     code, lines = _watch({3: crash})
 
-    assert code == 0
+    assert code is None
     assert lines == [
         "EVENT task_completed 03-stable-owl",
-        "RUN ENDED (stopped without an end event)",
+        "WORKFLOW ENDED (stopped without an end event)",
     ]
 
 
-def test_a_watch_started_before_the_run_waits_for_it(app):
+def test_a_watch_started_before_the_workflow_waits_for_it(app):
     # Nothing running at the start is not an end: the agent starts the
-    # watch, then the run.
+    # watch, then the workflow.
     def start():
         app.set_running(True)
         app.buffer.append("workflow_started", {})
@@ -379,10 +401,62 @@ def test_a_watch_started_before_the_run_waits_for_it(app):
 
     code, lines = _watch({4: start, 7: crash})
 
-    assert code == 0
+    assert code is None
     assert lines == [
-        "EVENT workflow_started ",
-        "RUN ENDED (stopped without an end event)",
+        "WORKFLOW STARTED",
+        "WORKFLOW ENDED (stopped without an end event)",
+    ]
+
+
+def test_a_workflow_s_end_does_not_end_the_watch(app):
+    # FIB-1431: the agent starts the next workflow itself, and between the two
+    # it still has to hear the app.
+    def first():
+        app.buffer.append("workflow_started", {})
+        app.buffer.append("workflow_completed", {})
+
+    def between():
+        app.buffer.append("prompt_raised", {"question_id": 4, "type": "Confirm"})
+
+    def second():
+        app.buffer.append("workflow_started", {})
+        app.buffer.append("workflow_cancelled", {})
+
+    code, lines = _watch(
+        {2: first, 4: between, 6: second},
+        until=lambda lines: len(lines) == 5,
+    )
+
+    assert code is None
+    assert lines == [
+        "WORKFLOW STARTED",
+        "WORKFLOW ENDED (workflow_completed)",
+        "PROMPT question=4 type=Confirm",
+        "WORKFLOW STARTED",
+        "WORKFLOW ENDED (workflow_cancelled)",
+    ]
+
+
+def test_after_a_workflow_stops_without_an_end_event_the_watch_carries_on(app):
+    # The fallback is reported once, and the next workflow is followed as the
+    # first was.
+    app.set_running(True)
+
+    def crash():
+        app.set_running(False)
+
+    def next_one():
+        app.set_running(True)
+        app.buffer.append("workflow_started", {})
+        app.buffer.append("workflow_completed", {})
+
+    code, lines = _watch({3: crash, 8: next_one}, until=lambda lines: len(lines) == 3)
+
+    assert code is None
+    assert lines == [
+        "WORKFLOW ENDED (stopped without an end event)",
+        "WORKFLOW STARTED",
+        "WORKFLOW ENDED (workflow_completed)",
     ]
 
 
@@ -396,8 +470,8 @@ def test_an_end_event_beats_the_fallback(app):
         app.buffer.append("workflow_completed", {})
 
     code, lines = _watch({4: finish})
-    assert code == 0
-    assert lines == ["RUN ENDED (workflow_completed)"]
+    assert code is None
+    assert lines == ["WORKFLOW ENDED (workflow_completed)"]
 
 
 def test_evicted_events_print_a_gap_then_carry_on(microscope, tmp_path, discovery):
@@ -416,10 +490,10 @@ def test_evicted_events_print_a_gap_then_carry_on(microscope, tmp_path, discover
         server.should_exit = True
         thread.join(timeout=5)
 
-    assert code == 0
+    assert code is None
     assert lines[0].startswith("GAP:")
     assert lines[1].startswith("QUESTION item=l1 task=Mill")
-    assert lines[2] == "RUN ENDED (workflow_completed)"
+    assert lines[2] == "WORKFLOW ENDED (workflow_completed)"
 
 
 def test_a_new_stream_says_the_app_restarted_and_reads_it_from_the_start(app):
@@ -437,11 +511,11 @@ def test_a_new_stream_says_the_app_restarted_and_reads_it_from_the_start(app):
 
     code, lines = _watch({2: restart})
 
-    assert code == 0
+    assert code is None
     assert lines == [
         watch_mod.RESTARTED_LINE,
         "EVENT task_started l2",
-        "RUN ENDED (workflow_completed)",
+        "WORKFLOW ENDED (workflow_completed)",
     ]
 
 
@@ -458,11 +532,11 @@ def test_a_new_stream_past_the_cursor_is_still_a_restart(app):
 
     code, lines = _watch({2: restart})
 
-    assert code == 0
+    assert code is None
     assert lines == [
         watch_mod.RESTARTED_LINE,
         "EVENT task_started l2",
-        "RUN ENDED (workflow_completed)",
+        "WORKFLOW ENDED (workflow_completed)",
     ]
 
 
@@ -473,11 +547,11 @@ def test_resuming_with_a_seq_from_before_a_restart_says_so(app):
 
     code, lines = _watch({}, since=40)
 
-    assert code == 0
+    assert code is None
     assert lines == [
         watch_mod.RESTARTED_LINE,
         "EVENT task_started l3",
-        "RUN ENDED (workflow_completed)",
+        "WORKFLOW ENDED (workflow_completed)",
     ]
 
 
@@ -490,8 +564,8 @@ def test_a_401_rereads_discovery_and_carries_on(app, discovery):
 
     code, lines = _watch({2: rotate})
 
-    assert code == 0
-    assert lines == ["RUN ENDED (workflow_completed)"]
+    assert code is None
+    assert lines == ["WORKFLOW ENDED (workflow_completed)"]
 
 
 def test_a_server_that_stays_gone_ends_the_watch(app):
@@ -504,6 +578,52 @@ def test_a_server_that_stays_gone_ends_the_watch(app):
     assert code == 1
     assert lines[-1].startswith("SERVER GONE")
     assert len(sleeps) == watch_mod.FAILURES_BEFORE_GIVING_UP - 1
+
+
+def test_agent_off_is_not_the_app_stopping(app):
+    """The operator set the level to Off: the app still runs, and refuses the
+    agent until the level comes back (FIB-1429). Events wait in the buffer."""
+
+    def off():
+        app.auth.set_level(AgentLevel.OFF)
+        app.buffer.append("task_started", {"item_name": "lamella-01"})
+
+    def back():
+        app.auth.set_level(AgentLevel.WATCH)
+        app.buffer.append("workflow_completed", {})
+
+    sleeps = []
+    # request 2 is the status check, then four refused polls
+    code, lines = _watch({2: off, 7: back}, sleeps=sleeps)
+
+    assert code is None
+    assert lines == [
+        watch_mod.AGENT_OFF_LINE,
+        watch_mod.AGENT_BACK_LINE,
+        "EVENT task_started lamella-01",
+        "WORKFLOW ENDED (workflow_completed)",
+    ]
+    # as many refusals as end a watch on a gone server: these never count
+    assert len(sleeps) == watch_mod.FAILURES_BEFORE_GIVING_UP
+
+
+def test_a_watch_started_while_the_agent_is_off_waits_for_it(app):
+    app.auth.set_level(AgentLevel.OFF)
+
+    def back():
+        app.auth.set_level(AgentLevel.WATCH)
+
+    def finish():
+        app.buffer.append("workflow_completed", {})
+
+    code, lines = _watch({3: back, 4: finish})
+
+    assert code is None
+    assert lines == [
+        watch_mod.AGENT_OFF_LINE,
+        watch_mod.AGENT_BACK_LINE,
+        "WORKFLOW ENDED (workflow_completed)",
+    ]
 
 
 def test_a_refused_token_ends_the_watch_at_once(app, discovery, monkeypatch):

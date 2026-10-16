@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 from fibsem import config as fcfg
+from fibsem.cancellation import raise_if_cancelled
 from fibsem.milling import FibsemMillingStage
 from fibsem.structures import (
     FibsemImage,
@@ -39,6 +40,7 @@ def setup_milling(
 
     # acquire reference image for drift correction
     if milling_stage.alignment.enabled:
+        raise_if_cancelled(stop_event)  # no beam after a stop (FIB-1430)
         reference_image = get_stage_reference_image(
             microscope=microscope, milling_stage=milling_stage
         )

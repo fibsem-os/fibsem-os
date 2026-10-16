@@ -29,6 +29,26 @@ DISCOVERY_FILE = DISCOVERY_DIR / "app-server.json"
 LEGACY_DISCOVERY_FILE = DISCOVERY_DIR / "agent-server.json"
 
 
+def fibsem_folder() -> str:
+    """The folder the running ``fibsem`` package was imported from: the App
+    Server reports it, and the sidecar compares its own (FIB-1429)."""
+    import fibsem
+
+    return str(Path(fibsem.__file__).resolve().parent)
+
+
+def dev_checkout(environ: Optional[dict] = None) -> Optional[str]:
+    """The checkout holding the running ``fibsem`` when it came from
+    ``PYTHONPATH`` (a development worktree), else None: a sidecar started
+    without it imports the environment's installed ``fibsem`` instead."""
+    environ = os.environ if environ is None else environ
+    checkout = Path(fibsem_folder()).parent
+    for entry in environ.get("PYTHONPATH", "").split(os.pathsep):
+        if entry and Path(entry).resolve() == checkout:
+            return str(checkout)
+    return None
+
+
 def _client_host(bind_host: str) -> str:
     # A 0.0.0.0 bind is not a connectable address; local clients use loopback.
     return "127.0.0.1" if bind_host in ("0.0.0.0", "::", "") else bind_host

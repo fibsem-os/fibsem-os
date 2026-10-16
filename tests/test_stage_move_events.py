@@ -104,21 +104,22 @@ def test_a_move_to_an_orientation_is_one_event_named_for_the_orientation(
     assert move["end"]["r"] != move["start"]["r"]
 
 
-def test_a_move_that_returns_nothing_ends_where_it_was_last_read(microscope, recorded):
+def test_the_safe_move_ends_where_it_was_last_read(microscope, recorded):
     target = FibsemStagePosition(x=20e-6, y=0, z=0, r=0, t=np.radians(10))
-    assert microscope.safe_absolute_stage_movement(target) is None
+    # it answers where it is, as every move does (FIB-1430)
+    returned = microscope.safe_absolute_stage_movement(target)
 
     (move,) = recorded("stage_moved")
     assert move["move"] == "safe_absolute_stage_movement"
     assert move["request"]["stage_position"]["x"] == pytest.approx(20e-6)
     assert move["end"] == microscope.get_stage_position().to_dict()
+    assert move["end"] == returned.to_dict()
 
 
 def test_a_move_to_where_the_stage_already_is_ends_there(microscope, recorded):
-    # It returns nothing, and the position it reads is unchanged: the end is the
-    # start, not unknown.
+    # The position it reads is unchanged: the end is the start, not unknown.
     here = microscope.get_stage_position()
-    assert microscope.safe_absolute_stage_movement(here) is None
+    assert microscope.safe_absolute_stage_movement(here).to_dict() == here.to_dict()
 
     (move,) = recorded("stage_moved")
     assert move["end"] == move["start"] == here.to_dict()
