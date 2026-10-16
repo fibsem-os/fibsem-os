@@ -335,6 +335,7 @@ def make_lifecycle_hook(buffer: EventBuffer):
                 "item_name": context.item_name,
                 "item_id": context.item_id,
                 "task_id": context.task_id,
+                "round": context.round,
                 "experiment_id": context.experiment_id,
                 "experiment_name": context.experiment_name,
                 "tasks_remaining": context.tasks_remaining,

@@ -44,7 +44,6 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskConfig,
     Lamella,
 )
-from fibsem.applications.autolamella.task_outputs import run_folder
 from fibsem.applications.autolamella.workflows._default_milling_config import (
     DEFAULT_MILLING_CONFIG,
 )
@@ -124,7 +123,7 @@ from fibsem.workflows.proposals import (
     human_author,
 )
 from fibsem.workflows.status import TaskState, TaskStatus
-from fibsem.workflows.task import BaseTask
+from fibsem.workflows.task import BaseTask, run_folder
 
 if TYPE_CHECKING:
     from fibsem.alignment import AlignmentResult
@@ -190,7 +189,9 @@ class AutoLamellaTask(BaseTask):
             microscope, config, lamella, parent_ui=parent_ui, task_manager=task_manager
         )
         # This task object is one run: its folder is fixed as it starts (FIB-1275).
-        self._output_dir = run_folder(lamella, config.task_name, now())
+        self._output_dir = run_folder(
+            lamella.path, config.task_name, now(), round=self.round
+        )
         # Every task's reference images are acquired with its config's imaging
         # settings; they are saved under its output folder. Set here, once, for
         # the run this task object is, rather than by hand at the top of each

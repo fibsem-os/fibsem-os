@@ -385,6 +385,7 @@ class _HookRef:
         self.item_name = payload.get("item_name")
         self.task_id = payload.get("task_id")
         self.task_name = payload.get("task_name")
+        self.round = payload.get("round")
 
 
 class EventRecorder:
@@ -504,6 +505,8 @@ class EventRecorder:
                 item = {"id": ref.item_id, "name": ref.item_name}
             if getattr(ref, "task_id", None) or getattr(ref, "task_name", None):
                 task = {"id": ref.task_id, "name": ref.task_name}
+                if getattr(ref, "round", None) is not None:
+                    task["round"] = ref.round
         if (
             kind == "agent_note"
             and isinstance(payload, dict)

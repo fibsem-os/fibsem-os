@@ -13,9 +13,12 @@ grid tasks are two. The item is anything with a ``name``, an ``id``, a
 from __future__ import annotations
 
 import logging
+import os
+import re
 import uuid
 from abc import ABC, abstractmethod
 from copy import deepcopy
+from datetime import datetime
 from typing import Any, ClassVar, Dict, Optional
 
 from fibsem.acting import TASK, acting
@@ -24,6 +27,35 @@ from fibsem.util.timestamps import now, now_iso
 from fibsem.workflows.proposals import Decision, Proposer, TaskResultProposer
 from fibsem.workflows.proposing import settle
 from fibsem.workflows.status import TaskStatus, take_back_finish
+
+# Characters a folder name cannot hold on Windows (and ``/`` anywhere).
+_UNSAFE_IN_FOLDER_NAMES = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+
+def run_folder(
+    item_dir: Any, task_name: str, started: datetime, round: Optional[int] = None
+) -> str:
+    """Where one run of ``task_name`` on an item saves what it makes:
+    ``<item>/<task name>/<YYYYMMDD-HHMMSS>/`` (FIB-1275), so a re-run
+    overwrites nothing; ``<item>/<task name>/<round:04d>/`` for an item that
+    runs in rounds, one folder per round. The item's shared state
+    (``ref_alignment``, the coincidence setup reference) is not a run's, and
+    stays in the item's folder (FIB-1258).
+
+    The task name is made safe for a folder name; a second run of the same
+    second, or the same round, as one already saved gets ``-2``. Not created
+    here: a run that saves nothing leaves no folder. Readers find a run's files
+    from its record (``outputs``), not from this name.
+    """
+    task_folder = _UNSAFE_IN_FOLDER_NAMES.sub("-", task_name).strip().rstrip(".")
+    leaf = f"{round:04d}" if round is not None else f"{started:%Y%m%d-%H%M%S}"
+    base = os.path.join(str(item_dir), task_folder or "task", leaf)
+    folder, n = base, 1
+    while os.path.exists(folder):
+        n += 1
+        folder = f"{base}-{n}"
+    return folder
+
 
 # Steps recorded as the task's own lifecycle events (task_started,
 # task_completed), not as task_step.
@@ -66,6 +98,9 @@ class BaseTask(ABC):
         self.parent_ui = parent_ui
         self.task_manager = task_manager
         self.task_id = str(uuid.uuid4())
+        # The round of the item's tasks this run is, when the item runs in
+        # rounds: the queue entry the manager is running.
+        self.round: Optional[int] = getattr(task_manager, "active_round", None)
         # The manager's token, not its raw event: what counts as "cancelled" is
         # the manager's to decide, and a task should not have to know.
         self._stop_event = task_manager.abort_token if task_manager else None
@@ -183,6 +218,7 @@ class BaseTask(ABC):
         state.end_timestamp = None
         state.task_id = self.task_id
         state.task_type = self.task_type
+        state.round = self.round
         state.status = TaskStatus.InProgress
         state.status_message = ""
         state.outputs = {}
@@ -287,6 +323,7 @@ class BaseTask(ABC):
                 item_name=self.item.name,
                 task_id=self.task_id,
                 task_name=self.task_name,
+                round=self.round,
             )
 
     def _clear_workflow_metadata(self) -> None:
