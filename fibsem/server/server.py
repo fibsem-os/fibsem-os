@@ -293,7 +293,12 @@ def _record_refusal(request: Request, exc: StarletteHTTPException) -> None:
 # Routes that put the agent's call on the record themselves: its requests, its
 # notes, its answers and suggestions to the workflow's questions. A stop says
 # so as it stops (`_stop_reason`).
-_RECORDS_ITSELF = ("/app/agent/", "/app/experiment/notes", "/app/workflow/prompt/")
+_RECORDS_ITSELF = (
+    "/app/agent/",
+    "/app/experiment/notes",
+    "/app/experiment/evidence",
+    "/app/workflow/prompt/",
+)
 # POST routes that only read: a query, and the grid run's plan. Not the agent
 # acting, and the request store reads them to describe each request.
 _POSTED_READS = ("/queries/", "/app/workflow/grids/plan")
@@ -395,6 +400,8 @@ class _AgentActs:
             }
             if call.tool:
                 payload["tool"] = call.tool
+            if call.evidence:
+                payload["evidence"] = call.evidence
             if call.arguments:
                 payload["arguments"] = call.arguments
             if status >= 400:

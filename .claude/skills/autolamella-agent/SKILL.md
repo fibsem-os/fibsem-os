@@ -212,6 +212,25 @@ something you looked at is not a reason: look first, or ask. Don't note what
 is already on the record: a request's reason and a suggestion's reason are
 kept with them.
 
+**Attach the image as evidence.** Every acting tool, `request_create`,
+`prompt_suggest_answer` and `experiment_add_note` take an optional
+`evidence`: `{text, image or file, marks?, source?, item_name?}`. It is kept
+in the experiment and shown with the call: on the card under Why, on its row
+in Recent, and in the event log. Attach it whenever an image decided what you
+do; leave it off routine calls (an image, your own mill's stop, a move the
+protocol sets).
+
+- `image`: an image of the experiment's, as the image tools answered its path.
+- `file`: an image you made on your machine, such as an overlay your code drew
+  or a plot. PNG or JPEG, at most 4 MB; it is saved into the experiment at
+  most 2048 px. Name the experiment image you drew it on as `source`.
+- `marks`: what you mean, in the image's pixels from its top left:
+  `{"points": [{"x": 412, "y": 300, "label": "edge"}], "areas": [{"x": 380,
+  "y": 260, "width": 90, "height": 60, "label": "trench"}]}`.
+- `text`: what you saw in it, in a sentence or two.
+
+One evidence covers a whole request. A call with none shows "No evidence".
+
 Where a site came from (grid, square, rank, why it was chosen) belongs on the
 lamella, not in a note: `item_update` with `{"patch": {"description":
 "..."}}`. When you add a lamella (`item_add`), leave `name` out so it gets the

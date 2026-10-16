@@ -647,6 +647,15 @@ def test_a_suggested_answer_to_a_position_question_shows_both_beams():
     assert caption.startswith("SEM and FIB")
 
 
+# The agent's evidence: a beam image of the experiment's (fibsem.server.evidence).
+_EVIDENCE = {
+    "evidence_id": "ab12cd34",
+    "text": "trench off centre",
+    "image": "/exp/ref_trench.tif",
+    "uploaded": False,
+}
+
+
 def test_a_suggestion_shows_the_agent_s_own_image():
     # FIB-1424: the agent judged a position on its own image; the card shows
     # that image, not the live views, and a mill on its own FIB image.
@@ -664,14 +673,14 @@ def test_a_suggestion_shows_the_agent_s_own_image():
     previews = AgentPreviews(
         lambda: controller, show_picture=card, load_image=lambda path: evidence
     )
-    previews.show_suggestion(Confirm(message="Centred?"), None, image="/exp/a.tif")
+    previews.show_suggestion(Confirm(message="Centred?"), None, evidence=_EVIDENCE)
     frame, layer = _layer(previews.suggestion_picture)
     assert frame is evidence and layer.targets == [(200.0, 100.0)]
     assert card.shown[True][1].startswith("The agent's image · FIB")
     config = FibsemMillingTaskConfig.from_stages(
         [FibsemMillingStage(name="Trench")], name="Rough Milling"
     )
-    previews.show_suggestion(RunMillingTask(config=config), None, image="/exp/a.tif")
+    previews.show_suggestion(RunMillingTask(config=config), None, evidence=_EVIDENCE)
     frame, layer = _layer(previews.suggestion_picture)
     assert frame is evidence and layer.patterns
 
@@ -914,8 +923,8 @@ def test_past_the_field_off_the_picture_says_so():
 
 
 def test_the_agent_s_own_image_is_the_picture_with_the_values_on_it():
-    # FIB-1411: the agent names the image its evidence is in; the card shows it
-    # under Why, the request's values drawn on it, even with none to draw.
+    # FIB-1411: the beam image of the agent's evidence is the picture, the
+    # request's values drawn on it, even with none to draw.
     evidence = FibsemImage.generate_blank_image(resolution=(400, 200), hfw=100e-6)
     evidence.metadata.image_settings.beam_type = BeamType.ELECTRON
     controller = _Controller()
@@ -925,7 +934,7 @@ def test_the_agent_s_own_image_is_the_picture_with_the_values_on_it():
     )
     move = {"dx": 10e-6, "dy": 0.0, "beam_type": "ELECTRON"}
     request = _one("stage_stable_move", move)
-    request["image"] = "/exp/ref_trench.tif"
+    request["evidence"] = _EVIDENCE
     previews.show_request(request)
     frame, layer = _layer(previews.request_picture)
     assert frame is evidence
@@ -933,7 +942,7 @@ def test_the_agent_s_own_image_is_the_picture_with_the_values_on_it():
     assert layer.targets == [pytest.approx((240.0, 100.0))]
     assert card.shown[False][1].startswith("The agent's image · SEM")
     stop = _one("workflow_stop", {"reason": "the trench is off"})
-    stop["image"] = "/exp/ref_trench.tif"
+    stop["evidence"] = _EVIDENCE
     previews.show_request(stop)
     assert previews.request_picture[0] is evidence
 

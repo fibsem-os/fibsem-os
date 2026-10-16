@@ -166,8 +166,9 @@ def test_a_malformed_request_is_refused(client, action, reason, error_type):
     assert _detail(refused)["error_type"] == error_type
 
 
-def test_a_request_carries_the_image_its_evidence_is_in(client, tmp_path):
-    # FIB-1411: the agent's own image, shown under Why. Inside the experiment.
+def test_a_request_cites_the_evidence_its_reason_rests_on(client, tmp_path):
+    # The agent's evidence, kept in the experiment first, is cited by id
+    # (X-Agent-Evidence) and shown under Why.
     folder = tmp_path / "exp" / "requests-exp"
     folder.mkdir(parents=True, exist_ok=True)
     inside = folder / "ref_trench.tif"
@@ -175,19 +176,41 @@ def test_a_request_carries_the_image_its_evidence_is_in(client, tmp_path):
     outside = tmp_path / "elsewhere.tif"
     outside.write_bytes(b"tif")
 
-    def file(image):
+    def keep(image):
         return client.post(
-            "/app/agent/requests",
+            "/app/experiment/evidence",
             headers=AGENT,
-            json={"actions": [NUDGE], "reason": "the trench", "image": image},
+            json={"text": "trench off centre", "image": image},
         )
 
-    assert _detail(file(str(outside)))["error_type"] == "not_allowed"
-    missing = file(str(folder / "none.tif"))
+    assert _detail(keep(str(outside)))["error_type"] == "not_allowed"
+    missing = keep(str(folder / "none.tif"))
     assert missing.status_code == 422 and _detail(missing)["error_type"] == "invalid"
-    filed = file(str(inside))
+    kept = keep(str(inside))
+    assert kept.status_code == 200, kept.text
+    evidence_id = kept.json()["evidence_id"]
+
+    def file(evidence_id):
+        return client.post(
+            "/app/agent/requests",
+            headers={**AGENT, "X-Agent-Evidence": evidence_id},
+            json={"actions": [NUDGE], "reason": "the trench"},
+        )
+
+    unknown = file("00000000")
+    assert unknown.status_code == 404, unknown.text
+    filed = file(evidence_id)
     assert filed.status_code == 202, filed.text
-    assert filed.json()["image"] == str(inside)
+    cited = filed.json()["evidence"]
+    assert cited["evidence_id"] == evidence_id
+    assert cited["image"] == os.path.realpath(inside)
+    assert cited["text"] == "trench off centre"
+
+
+def test_a_request_without_evidence_cites_none(client):
+    filed = _file(client, NUDGE)
+    assert filed.status_code == 202, filed.text
+    assert filed.json()["evidence"] is None
 
 
 @pytest.mark.parametrize(

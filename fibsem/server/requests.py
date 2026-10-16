@@ -31,10 +31,11 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from fibsem.acting import AGENT, acting
-from fibsem.server.allowlist import image_refusal
 from fibsem.server.auth import AgentLevel, AuthConfig, lending_drive, require_level
-from fibsem.server.calls import AgentCall, calling, join_line
+from fibsem.server.calls import AgentCall, calling, current_call, join_line
 from fibsem.server.catalog import CATALOG, ToolSpec, route_call
+from fibsem.server.evidence import EvidenceRefused
+from fibsem.server.evidence import load as load_evidence
 from fibsem.server.request_text import Describer, describe_action, describe_actions
 
 PENDING = "pending"
@@ -105,9 +106,9 @@ class AgentRequest:
     # For Drive's countdown (FIB-1267): when it lapses, and what lapsing does.
     expires_at: Optional[float] = None
     on_expiry: str = "reject"
-    # The image the agent's evidence is in (a path inside the experiment): the
-    # card shows it under Why, the actions' values drawn on it (FIB-1411).
-    image: Optional[str] = None
+    # What the agent judged from (`fibsem.server.evidence`, its record): the
+    # card shows it under Why, the actions' values drawn on its image (FIB-1411).
+    evidence: Optional[Dict[str, Any]] = None
     # Set when the level changes or the operator stops the agent mid-batch: the
     # actions not yet run are not run.
     _abort: Optional[str] = field(default=None, repr=False)
@@ -127,7 +128,7 @@ class AgentRequest:
             "results": list(self.results),
             "expires_at": self.expires_at,
             "on_expiry": self.on_expiry if self.expires_at is not None else None,
-            "image": self.image,
+            "evidence": self.evidence,
         }
 
 
@@ -270,8 +271,7 @@ class RequestStore:
         experiment_path: Optional[Callable[[], Optional[str]]] = None,
     ) -> None:
         self._app = app
-        # Why a request's image path is refused (outside the experiment), or None.
-        # The open experiment's folder: an image the agent shows is inside it.
+        # The open experiment's folder, where the evidence a request cites is.
         self._experiment_path = experiment_path or (lambda: None)
         self._describe = describe
         self._auth = auth
@@ -318,15 +318,18 @@ class RequestStore:
 
     # --- the agent files one ---
 
-    def _check_image(self, image: Any) -> Optional[str]:
-        """A request's image: None, or the path of an image file inside the
-        open experiment."""
-        if image is None or image == "":
+    def _evidence(self, evidence_id: Any) -> Optional[Dict[str, Any]]:
+        """The record of the evidence a request cites, or None for none."""
+        if not evidence_id:
             return None
-        refusal = image_refusal(image, self._experiment_path)
-        if refusal is not None:
-            raise RequestRefused(*refusal)
-        return image
+        try:
+            return load_evidence(self._experiment_path, evidence_id)
+        except EvidenceRefused as refusal:
+            raise RequestRefused(
+                refusal.status_code,
+                refusal.detail["error_type"],
+                refusal.detail["message"],
+            )
 
     def create(
         self,
@@ -334,10 +337,10 @@ class RequestStore:
         reason: Any,
         expires_at: Optional[float] = None,
         on_expiry: str = "reject",
-        image: Any = None,
+        evidence: Any = None,
     ) -> AgentRequest:
         resolved = self._resolve(actions)
-        image = self._check_image(image)
+        cited = self._evidence(evidence)
         if (
             not isinstance(reason, str)
             or not reason.strip()
@@ -368,7 +371,7 @@ class RequestStore:
                 reason=reason.strip(),
                 expires_at=expires_at,
                 on_expiry=on_expiry,
-                image=image,
+                evidence=cited,
             )
             self._requests[request.id] = request
             self._trim_locked()
@@ -388,7 +391,7 @@ class RequestStore:
                     }
                     for a in resolved
                 ],
-                **({"image": image} if image else {}),
+                **({"evidence": cited["evidence_id"]} if cited else {}),
             },
         )
         self._changed(request)
@@ -778,8 +781,11 @@ def build_request_router(store: RequestStore) -> APIRouter:
                 },
             )
         try:
+            call = current_call()
             created = store.create(
-                body.get("actions"), body.get("reason"), image=body.get("image")
+                body.get("actions"),
+                body.get("reason"),
+                evidence=call.evidence if call is not None else None,
             )
         except RequestRefused as refusal:
             raise _refused(refusal)

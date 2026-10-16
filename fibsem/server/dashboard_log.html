@@ -108,6 +108,12 @@ function esc(s) {
   }[c]));
 }
 
+// The evidence an agent's call, request, suggestion or note cites, by id: its
+// own row says what it is.
+function cites(p) {
+  return p.evidence ? ` <span class="muted">· evidence ${esc(p.evidence)}</span>` : "";
+}
+
 function takeToken() {
   const m = location.hash.match(/token=([A-Za-z0-9._~-]+)/);
   if (m) {
@@ -144,7 +150,8 @@ function gate(message) {
 const GROUPS = [
   ["questions", "questions", k => k.startsWith("prompt_") || k.startsWith("question_")
     || k.startsWith("proposal_") || k === "review_decided"],
-  ["notes", "messages, agent's calls, notes & stops", k => k === "agent_note"
+  ["notes", "messages, agent's calls, notes, evidence & stops", k => k === "agent_note"
+    || k === "agent_evidence"
     || k === "agent_stop" || k === "agent_refused" || k === "agent_called"
     || k === "operator_message"],
   ["requests", "requests", k => k.startsWith("request_")],
@@ -260,7 +267,7 @@ function describe(e) {
       return ["answered", d];
     }
     case "prompt_suggested":
-      return ["suggested", `${esc(p.type)} · <b>${p.response ? "yes" : "no"}</b>${p.reason ? ` <span class="muted">${esc(p.reason)}</span>` : ""}`];
+      return ["suggested", `${esc(p.type)} · <b>${p.response ? "yes" : "no"}</b>${p.reason ? ` <span class="muted">${esc(p.reason)}</span>` : ""}${cites(p)}`];
     case "prompt_cancelled": return ["withdrawn", esc(p.type)];
     case "prompt_suggestion_dismissed":
       return ["suggestion dismissed", `${esc(p.type)}${p.reason ? ` <span class="muted">${esc(p.reason)}</span>` : ""}`];
@@ -269,18 +276,22 @@ function describe(e) {
     case "proposal_asked": return ["proposed", esc(p.field || p.kind || p.type || "")];
     case "proposal_decided": return ["decided", esc([p.field || p.kind, p.outcome].filter(Boolean).join(" · "))];
     case "review_decided": return ["reviewed", esc([p.field, p.outcome || p.decision].filter(Boolean).join(" · "))];
-    case "agent_note": return [p.reply_to ? "reply" : "note", esc(p.text)];
+    case "agent_note": return [p.reply_to ? "reply" : "note", esc(p.text) + cites(p)];
+    case "agent_evidence": {
+      const file = String(p.image || "").split(/[\\/]/).pop();
+      return ["evidence", `${esc(p.text)} <span class="muted">${esc(p.evidence_id)} · ${esc(file)}${p.uploaded ? " (the agent's own)" : ""}</span>`];
+    }
     case "operator_message": return ["message", esc(p.text)];
     case "agent_stop":
       return ["stopped", `${esc(p.what || p.action)}${p.own ? " (its own)" : ""} <span class="muted">${esc(p.reason)}</span>`];
     case "agent_called":
       return [p.ok ? "called" : "call failed",
-        `${esc(p.action)} <span class="${p.ok ? "muted" : "err"}">${p.ok ? "" : esc(p.error_type || p.status) + " · "}at ${esc(p.level)}</span>`];
+        `${esc(p.action)} <span class="${p.ok ? "muted" : "err"}">${p.ok ? "" : esc(p.error_type || p.status) + " · "}at ${esc(p.level)}</span>${cites(p)}`];
     case "agent_refused":
       return ["refused", `${esc(p.action)} <span class="muted">${esc(p.error_type)} at ${esc(p.level)}</span>`];
     case "request_raised": {
       const tools = (p.actions || []).map(a => a.tool).join(", ");
-      return ["requested", `${esc(tools)}${p.reason ? ` <span class="muted">${esc(p.reason)}</span>` : ""}`];
+      return ["requested", `${esc(tools)}${p.reason ? ` <span class="muted">${esc(p.reason)}</span>` : ""}${cites(p)}`];
     }
     case "request_decided":
       return [p.outcome === "rejected" ? "rejected" : "approved",

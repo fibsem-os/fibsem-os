@@ -5,10 +5,11 @@ The chip in the status bar opens it. It holds, top to bottom:
 * what the agent is doing on the microscope now, at every level (FIB-1414);
 * what is waiting for the operator: the agent's request, its actions one plain
   line each as the server wrote them (FIB-1403), "Show details" for every value,
-  the agent's reason, under it the image the reason's values were measured on
-  with them drawn on it (FIB-1411), and Reject… and Approve; while an approved
-  request runs, each action's progress. Or the agent's suggested answer to the
-  run's question, with Accept (FIB-1407);
+  the agent's reason and its evidence ("No evidence" when it gave none), under
+  it the image the reason's values were measured on with them drawn on it
+  (FIB-1411), and Reject… and Approve; while an approved request runs, each
+  action's progress. Or the agent's suggested answer to the run's question,
+  with Accept (FIB-1407);
 * what the agent did lately, Recent: open at first at Drive, where it acts
   without asking, folded to its last line below it (FIB-1414); the event log
   at its right;
@@ -93,6 +94,7 @@ STEPS_MIN = 300
 LEGEND_PX = 11
 # The image, clicked: at most this wide.
 ENLARGED_WIDTH = 1024
+EVIDENCE_WIDTH = 360
 
 # How a Recent row ended (agent_recent's tones), as a colour.
 _TONES = {
@@ -500,6 +502,12 @@ class AgentCard(QFrame):
         self._recent: List[Any] = []
         # The operator's choice to show Recent, per level, for the session.
         self._recent_choice: Dict[AgentLevel, bool] = {}
+        # The agent's evidence images by id, as drawn (`agent_previews`).
+        self._evidence_images: Dict[Any, Optional[QImage]] = {}
+        self.evidence_label: Optional[QLabel] = None
+        self.evidence_picture: Optional[QLabel] = None
+        self.evidence_window: Optional[QDialog] = None
+        self.recent_evidence: List[QPushButton] = []
 
         layout = QVBoxLayout(self)
         # The wide layout's minimum must not stop the card narrowing to stack:
@@ -918,6 +926,7 @@ class AgentCard(QFrame):
         left.addWidget(box)
         left.addSpacing(4)
         self._add_reason(left, request.get("reason", ""))
+        self._add_evidence(left, request.get("evidence"))
         left.addStretch(1)
 
         right = QVBoxLayout()
@@ -988,6 +997,7 @@ class AgentCard(QFrame):
         left.addWidget(box)
         left.addSpacing(4)
         self._add_reason(left, suggestion.get("reason", ""))
+        self._add_evidence(left, suggestion.get("evidence"))
         left.addStretch(1)
 
         right = QVBoxLayout()
@@ -1110,6 +1120,62 @@ class AgentCard(QFrame):
         self.why_link.clicked.connect(self._toggle_why)
         column.addWidget(self.why_link, 0, Qt.AlignLeft)  # type: ignore
 
+    def _add_evidence(
+        self, column: QVBoxLayout, evidence: Optional[Dict[str, Any]]
+    ) -> None:
+        """What the agent judged from: what it saw, and the image it made or
+        marked; "No evidence" when it gave none. An image of the experiment's
+        with nothing marked on it is the picture already."""
+        column.addSpacing(4)
+        column.addWidget(_label("Evidence", TEXT_MUTED_COLOR, small=True))
+        self.evidence_picture = None
+        if not evidence:
+            self.evidence_label = _label("No evidence", TEXT_MUTED_COLOR, small=True)
+            column.addWidget(self.evidence_label)
+            return
+        self.evidence_label = _label(evidence.get("text", ""), TEXT_COLOR, wrap=True)
+        self.evidence_label.setTextInteractionFlags(Qt.TextSelectableByMouse)  # type: ignore
+        column.addWidget(self.evidence_label)
+        if not (evidence.get("uploaded") or evidence.get("marks")):
+            return
+        image = self._evidence_image(evidence)
+        if image is not None:
+            # A thumbnail beside the reason: a click shows it at full size.
+            self.evidence_picture = _Picture(
+                image, min(self._why_width(), EVIDENCE_WIDTH), "Agent's evidence"
+            )
+            column.addWidget(self.evidence_picture)
+
+    def _evidence_image(self, evidence: Dict[str, Any]) -> Optional[QImage]:
+        """*evidence*'s image with its marks, read once per piece of evidence."""
+        from fibsem.applications.autolamella.ui.agent_previews import evidence_picture
+
+        key = evidence.get("evidence_id")
+        if key not in self._evidence_images:
+            self._evidence_images[key] = evidence_picture(evidence)
+        return self._evidence_images[key]
+
+    def open_evidence(self, evidence: Dict[str, Any]) -> QDialog:
+        """*evidence* in a window of its own: its image, then what the agent saw."""
+        dialog = QDialog(self.window())
+        dialog.setWindowTitle("Agent's evidence")
+        dialog.setAttribute(Qt.WA_DeleteOnClose)  # type: ignore
+        layout = QVBoxLayout(dialog)
+        image = self._evidence_image(evidence)
+        if image is not None:
+            full = QLabel()
+            pixmap = QPixmap.fromImage(image)
+            if pixmap.width() > ENLARGED_WIDTH:
+                pixmap = pixmap.scaledToWidth(ENLARGED_WIDTH, Qt.SmoothTransformation)  # type: ignore
+            full.setPixmap(pixmap)
+            layout.addWidget(full)
+        text = _label(evidence.get("text", ""), TEXT_COLOR, wrap=True)
+        text.setTextInteractionFlags(Qt.TextSelectableByMouse)  # type: ignore
+        layout.addWidget(text)
+        dialog.show()
+        self.evidence_window = dialog
+        return dialog
+
     def _toggle_why(self) -> None:
         self._why_open = not self._why_open
         self._render()
@@ -1133,6 +1199,7 @@ class AgentCard(QFrame):
             last = f"last: {last}"
         self.recent_last.setText(last)
         self.recent_buttons = []
+        self.recent_evidence: List[QPushButton] = []
         if not shown:
             self.updateGeometry()
             return
@@ -1153,6 +1220,13 @@ class AgentCard(QFrame):
             button.setToolTip("Open the event log")
             button.clicked.connect(self.event_log_clicked)
             line.addWidget(button, 1)
+            evidence = getattr(row, "evidence", None)
+            if evidence:
+                link = _link("evidence")
+                link.setToolTip(evidence.get("text", ""))
+                link.clicked.connect(lambda _=False, e=evidence: self.open_evidence(e))
+                line.addWidget(link, 0, top)
+                self.recent_evidence.append(link)
             line.addWidget(
                 _label(row.outcome, _TONES.get(row.tone, TEXT_MUTED_COLOR), small=True),
                 0,
