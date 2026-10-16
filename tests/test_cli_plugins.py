@@ -37,7 +37,7 @@ def test_plugins_prints_the_report(capsys):
     out = capsys.readouterr().out
 
     assert exit_code == 0
-    for group in ("fibsem.patterns", "fibsem.strategies", "fibsem.tasks"):
+    for group in ("fibsem.patterns", "fibsem.strategies", "fibsem.autolamella.tasks"):
         assert group in out
     assert out.rstrip().endswith(cli_environment_line())
 

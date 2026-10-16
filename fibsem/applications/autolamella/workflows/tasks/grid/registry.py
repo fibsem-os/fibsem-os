@@ -10,38 +10,61 @@ from fibsem.applications.autolamella.workflows.tasks.grid.base import (
     GridTask,
     GridTaskConfig,
 )
+from fibsem.applications.autolamella.workflows.tasks.grid.fluorescence import (
+    FluorescenceOverviewGridTask,
+)
+from fibsem.applications.autolamella.workflows.tasks.grid.imaging import (
+    BeamOverviewGridTask,
+)
+from fibsem.plugins.loader import PluginRegistry, subclass_of
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment, GridRecord
     from fibsem.microscope import FibsemMicroscope
 
-# task_type -> task class. Filled by `register_grid_task`; the built-in tasks
-# register themselves on import.
-GRID_TASK_REGISTRY: Dict[str, Type[GridTask]] = {}
+BUILTIN_GRID_TASKS: Dict[str, Type[GridTask]] = {
+    cls.config_cls.task_type: cls
+    for cls in (BeamOverviewGridTask, FluorescenceOverviewGridTask)
+}
+
+GRID_TASK_ENTRY_POINT_GROUP = "fibsem.grid_tasks"
+
+# Built-ins, runtime registrations and the fibsem.grid_tasks entry points. To
+# add a plugin grid task, add to your package's pyproject.toml:
+#
+#     [project.entry-points.'fibsem.grid_tasks']
+#     my_task = "my_package.tasks:MyGridTask"
+GRID_TASK_PLUGINS: PluginRegistry[Type[GridTask]] = PluginRegistry(
+    group=GRID_TASK_ENTRY_POINT_GROUP,
+    kind="grid task",
+    resolve=subclass_of(GridTask, lambda cls: cls.config_cls.task_type),
+    builtins=BUILTIN_GRID_TASKS,
+)
 
 
 def register_grid_task(task_cls: Type[GridTask]) -> Type[GridTask]:
     """Class decorator: make a task available by its config's `task_type`."""
     task_type = task_cls.config_cls.task_type
-    if (
-        task_type in GRID_TASK_REGISTRY
-        and GRID_TASK_REGISTRY[task_type] is not task_cls
-    ):
+    registered = GRID_TASK_PLUGINS.registered.get(task_type)
+    if registered is not None and registered is not task_cls:
         logging.warning(f"Grid task type '{task_type}' registered twice; replacing.")
-    GRID_TASK_REGISTRY[task_type] = task_cls
+    GRID_TASK_PLUGINS.register(task_type, task_cls)
     return task_cls
 
 
 def get_grid_tasks() -> Dict[str, Type[GridTask]]:
-    return dict(GRID_TASK_REGISTRY)
+    """Every grid task, by task_type: built-ins, then runtime registrations,
+    then plugins."""
+    return GRID_TASK_PLUGINS.all()
 
 
 def load_grid_task_config(data: Dict[str, Any]) -> GridTaskConfig:
     """A typed config from its saved form, via the registry."""
     task_type = data.get("task_type")
-    if task_type not in GRID_TASK_REGISTRY:
+    task_cls = GRID_TASK_PLUGINS.get(task_type)
+    if task_cls is None:
         raise KeyError(f"Grid task type '{task_type}' is not registered.")
-    return GRID_TASK_REGISTRY[task_type].config_cls.from_dict(data)
+    return task_cls.config_cls.from_dict(data)
 
 
 def load_grid_task_configs(
@@ -76,7 +99,7 @@ def run_grid_task(
     saved = experiment.grid_protocol.task_config.get(task_name)
     if saved is None:
         raise KeyError(f"Task '{task_name}' is not in the grid protocol.")
-    task_cls = GRID_TASK_REGISTRY.get(saved.task_type)
+    task_cls = GRID_TASK_PLUGINS.get(saved.task_type)
     if task_cls is None:
         raise KeyError(f"Grid task type '{saved.task_type}' is not registered.")
     task = task_cls(

@@ -45,14 +45,14 @@ SHADOWED = Extension(
     problem="name taken by a built-in - the built-in is used, this is inactive",
 )
 SCRIPT = Extension(
-    group="fibsem.tasks",
+    group="fibsem.autolamella.tasks",
     name="MY_POLISH",
     source=ExtensionSource.SCRIPT,
     target="custom_polish.MyPolishTask",
     path="~/.autolamella/scripts/custom_polish.py",
 )
 FAILED = Extension(
-    group="fibsem.tasks",
+    group="fibsem.autolamella.tasks",
     name=None,
     source=ExtensionSource.FAILED,
     target="lab_patterns.tasks:BadTask",
@@ -64,7 +64,7 @@ FAILED = Extension(
 GROUPS = (
     ExtensionGroup("fibsem.patterns", "Milling patterns", (PLUGIN, BUILTIN)),
     ExtensionGroup("fibsem.strategies", "Milling strategies", (SHADOWED,)),
-    ExtensionGroup("fibsem.tasks", "AutoLamella tasks", (SCRIPT, FAILED)),
+    ExtensionGroup("fibsem.autolamella.tasks", "AutoLamella tasks", (SCRIPT, FAILED)),
 )
 
 
@@ -109,8 +109,8 @@ def test_every_extension_gets_a_row_in_group_order(dialog):
     assert [e.group for e in dialog.rows] == [
         "fibsem.patterns",
         "fibsem.strategies",
-        "fibsem.tasks",
-        "fibsem.tasks",
+        "fibsem.autolamella.tasks",
+        "fibsem.autolamella.tasks",
     ]
 
 
@@ -122,7 +122,11 @@ def test_the_entry_point_group_column_shows_the_literal_string(dialog):
     can find that mistake.
     """
     groups = {_cell_text(dialog, row, 2) for row in range(dialog.table.rowCount())}
-    assert groups == {"fibsem.patterns", "fibsem.strategies", "fibsem.tasks"}
+    assert groups == {
+        "fibsem.patterns",
+        "fibsem.strategies",
+        "fibsem.autolamella.tasks",
+    }
 
 
 def test_failed_row_leads_with_what_was_declared_and_why_it_failed(dialog):
@@ -242,7 +246,7 @@ def test_open_folder_is_absent_when_nothing_has_a_file(qapp):
         widget.deleteLater()
 
     with_a_script = packaged_only + (
-        ExtensionGroup("fibsem.tasks", "AutoLamella tasks", (SCRIPT,)),
+        ExtensionGroup("fibsem.autolamella.tasks", "AutoLamella tasks", (SCRIPT,)),
     )
     widget = PluginsDialog(groups=with_a_script)
     try:
