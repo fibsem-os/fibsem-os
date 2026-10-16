@@ -4116,7 +4116,7 @@ class FibsemOverviewWidget(QWidget):
                 settings.image_settings.filename,
                 centre_position=centre_position,
                 stop_event=self._stop_event,
-            )
+            ).image
             self.overview_acquired.emit(self._mosaic)
         except OperationCancelledError:
             logger.info("Overview acquisition cancelled")

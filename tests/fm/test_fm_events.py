@@ -92,12 +92,12 @@ def test_an_overview_is_one_event_not_one_per_tile(microscope, tmp_path):
     )
     recorder = EventRecorder(microscope, experiment_path=tmp_path)
     try:
-        _, path = acquire_fm_tiled_overview(
+        path = acquire_fm_tiled_overview(
             microscope,
             [CHANNEL],
             parameters,
             OverviewDestination.create(str(tmp_path)),
-        )
+        ).mosaic_path
     finally:
         recorder.close()
     (event,) = _recorded(tmp_path, "fm_image_acquired")  # not the four tiles
@@ -224,7 +224,7 @@ def test_report_v2_reads_each_acquisition_once(microscope, tmp_path):
             zparams=ZParameters(zmin=-2e-6, zmax=2e-6, zstep=1e-6),
             filename=str(tmp_path / "01-lamella-zstack.ome.tiff"),
         )
-        _, overview = acquire_fm_tiled_overview(
+        overview = acquire_fm_tiled_overview(
             microscope,
             [CHANNEL],
             OverviewParameters(
@@ -235,7 +235,7 @@ def test_report_v2_reads_each_acquisition_once(microscope, tmp_path):
                 autofocus_mode=AutoFocusMode.NONE,
             ),
             OverviewDestination.create(str(tmp_path)),
-        )
+        ).mosaic_path
     finally:
         recorder.close()
 

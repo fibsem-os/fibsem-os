@@ -352,3 +352,17 @@ def test_a_relative_shift_is_clipped_to_the_limits_xt_reports(recording):
     assert facts["limits"] == {"x": [-10e-6, 10e-6], "y": [-20e-6, 20e-6]}
     assert facts["shift"] == pytest.approx([10e-6, -2e-7 + 1e-6])
     assert len(facts["writes"]) == 1
+
+
+def test_a_size_off_the_list_is_scanned_at_the_nearest_listed_one():
+    """What the overview runner asks before laying tiles out: an Arctis scanned a
+    2048 x 2048 request as 2048 x 1768."""
+    from types import SimpleNamespace
+
+    from fibsem.drivers.autoscript.devices import AutoscriptBeam
+
+    beam = SimpleNamespace(
+        resolution=SimpleNamespace(choices=[(1536, 1024), (2048, 1768)])
+    )
+    assert AutoscriptBeam.scan_resolution(beam, (2048, 2048)) == (2048, 1768)
+    assert AutoscriptBeam.scan_resolution(beam, (1536, 1024)) == (1536, 1024)

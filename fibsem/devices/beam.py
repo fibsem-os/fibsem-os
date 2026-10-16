@@ -68,6 +68,17 @@ def nearest_resolution(
     )
 
 
+def scanned_resolution(
+    microscope: Any, beam_type: BeamType, resolution: Tuple[int, int]
+) -> Tuple[int, int]:
+    """The resolution *microscope*'s *beam_type* beam scans an image asked for at
+    *resolution* (`Beam.scan_resolution`); as asked when it has no such beam."""
+    beam = getattr(microscope, "beams", {}).get(beam_type)
+    return (
+        tuple(resolution) if beam is None else tuple(beam.scan_resolution(resolution))
+    )
+
+
 # Field of view and dwell time limits for a driver that can't report its instrument's:
 # wide enough not to refuse a real setting. A driver reports its own in metadata.
 DEFAULT_HFW_LIMITS = RangeLimit(min=1e-9, max=1e-2)
@@ -438,6 +449,14 @@ class Beam(Device):
         if threading.current_thread() is not getattr(self, "_live_thread", None):
             self.image_acquired.emit(image)
         return image
+
+    def scan_resolution(self, resolution: Tuple[int, int]) -> Tuple[int, int]:
+        """The resolution an image asked for at *resolution* comes back at.
+
+        As asked, unless the driver can only scan the sizes it lists and snaps to the
+        nearest (AutoScript). Asked before acquiring by what lays images out from the
+        size, so an overview's grid and stitch use the tiles' real size."""
+        return tuple(resolution)
 
     def _stamp_roles(self, image: Any) -> None:
         """Record on *image* the device in each role this beam has filled, such as

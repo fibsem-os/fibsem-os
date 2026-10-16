@@ -24,6 +24,7 @@ import os
 import threading
 from contextlib import contextmanager
 from typing import (
+    TYPE_CHECKING,
     Any,
     Dict,
     Iterator,
@@ -34,6 +35,9 @@ from typing import (
     TypeVar,
     Union,
 )
+
+if TYPE_CHECKING:
+    from fibsem.imaging.tiling.result import OverviewResult
 
 # At import, not under TYPE_CHECKING: the App Server decodes a command's arguments
 # from its type hints (an AutoFocusSettings sent as a dict).
@@ -54,7 +58,7 @@ from fibsem.cancellation import (
     OperationCancelledError,
     raise_if_cancelled,
 )
-from fibsem.devices.beam import Beam, nearest_resolution
+from fibsem.devices.beam import Beam, nearest_resolution, scanned_resolution
 from fibsem.devices.core import Role, RoleUnfilled, command, query
 from fibsem.devices.fm import FM
 from fibsem.fm.microscope import AcquisitionRefused
@@ -305,30 +309,26 @@ class Imaging(Service):
         the stitched image as ``<name>-<time>``, its tiles in a folder of that
         name. ``stop`` ends it before the next tile, ``cancelled``, keeping the
         tiles acquired. Answers the stitched image, the tiles' paths, and the
-        layout: the layout check's warning and what ``register_tiles`` did."""
+        overview: the run's `OverviewResult.summary` (the settings as used, the
+        layout check, the registration, the timing and the record's path)."""
         from fibsem.imaging.tiled import acquire_tiled_overview, stamped_overview_name
+        from fibsem.imaging.tiling.progress import MODALITY_BEAM
+        from fibsem.imaging.tiling.result import OverviewResult
 
-        tile_paths: List[str] = []
-        layout: Dict[str, Any] = {}
+        result = OverviewResult(MODALITY_BEAM)
         try:
             with self._routine():
-                image = acquire_tiled_overview(
+                acquire_tiled_overview(
                     self.parent,
                     settings,
                     path,
                     stamped_overview_name(name),
                     stop_event=self._stop_requested,
-                    tile_paths=tile_paths,
-                    layout=layout,
+                    result=result,
                 )
         except OperationCancelledError:
-            return {"status": "cancelled", "image": None, "tile_paths": tile_paths}
-        return {
-            "status": "completed",
-            "image": image,
-            "tile_paths": tile_paths,
-            "layout": layout,
-        }
+            return _overview_answer(result, image=None)
+        return _overview_answer(result, image=result.image)
 
     @query
     def estimate_overview(
@@ -337,14 +337,36 @@ class Imaging(Service):
         """What a `acquire_overview` with ``settings`` covers and scans: the tiles
         it would acquire, the beam-on time in seconds, and the field of view in
         metres. Not how long it takes: the stage moves between tiles are not in
-        it (`OverviewAcquisitionSettings.scan_time`)."""
-        return {
+        it (`OverviewAcquisitionSettings.scan_time`).
+
+        Also the ``resolution`` the beam scans the tiles at, with the
+        ``requested_resolution`` when that is another (the instrument only scans
+        the sizes it lists), and the tiles the stage can't reach from where it is
+        now, ``unreachable`` as [row, col]: a run with any is refused until they
+        are turned off in ``tile_mask``."""
+        from fibsem.imaging.tiling.reach import reachable_overview
+
+        settings = copy.deepcopy(settings)
+        image_settings = settings.image_settings
+        asked = tuple(image_settings.resolution)
+        image_settings.resolution = scanned_resolution(
+            self.parent, image_settings.beam_type, asked
+        )
+        _, unreachable = reachable_overview(
+            self.parent, settings, self.parent.get_stage_position()
+        )
+        answer = {
             "tiles": settings.n_enabled_tiles,
             "nrows": settings.nrows,
             "ncols": settings.ncols,
             "scan_time": settings.scan_time,
             "fov": [settings.total_fov_x, settings.total_fov_y],
+            "resolution": list(image_settings.resolution),
+            "unreachable": [list(tile) for tile in unreachable],
         }
+        if tuple(image_settings.resolution) != asked:
+            answer["requested_resolution"] = list(asked)
+        return answer
 
     # -- routines ------------------------------------------------------------------
 
@@ -530,16 +552,17 @@ class Imaging(Service):
             acquire_fm_tiled_overview,
         )
         from fibsem.imaging.tiled import stamped_overview_name
+        from fibsem.imaging.tiling.progress import MODALITY_FLUORESCENCE
+        from fibsem.imaging.tiling.result import OverviewResult
 
         autofocus_settings = _fm_overview_focus(parameters, autofocus_settings)
         fm = self.parent.fm
         self._refuse_while_fm_live("overview acquisition")
-        tile_paths: List[str] = []
-        layout: Dict[str, Any] = {}
+        result = OverviewResult(MODALITY_FLUORESCENCE)
         try:
             with self._routine(), fm.acquiring("overview acquisition"):
                 os.makedirs(path, exist_ok=True)
-                mosaic, saved = acquire_fm_tiled_overview(
+                acquire_fm_tiled_overview(
                     self.parent,
                     channels,
                     parameters,
@@ -547,18 +570,12 @@ class Imaging(Service):
                     zparams=zparams if parameters.use_zstack else None,
                     autofocus_settings=autofocus_settings,
                     stop_event=self._stop_requested,
-                    tile_paths=tile_paths,
-                    layout=layout,
+                    result=result,
                 )
         except OperationCancelledError:
-            return {"status": "cancelled", "image": None, "tile_paths": tile_paths}
-        image = {"summary": _fm_image_summary(mosaic), "path": saved}
-        return {
-            "status": "completed",
-            "image": image,
-            "tile_paths": tile_paths,
-            "layout": layout,
-        }
+            return _overview_answer(result, image=None)
+        image = {"summary": _fm_image_summary(result.image), "path": result.mosaic_path}
+        return _overview_answer(result, image=image)
 
     @query
     def fm_estimate_overview(
@@ -800,6 +817,17 @@ class Imaging(Service):
         self._stop_requested.set()
         if self._has_fm():
             self.fm.cancel()
+
+
+def _overview_answer(result: "OverviewResult", image: Any) -> Dict[str, Any]:
+    """What an overview command answers: its status, the mosaic (None when it was
+    stopped), the tiles' paths, and the run's short record."""
+    return {
+        "status": result.status,
+        "image": image,
+        "tile_paths": result.tile_paths,
+        "overview": result.summary(),
+    }
 
 
 def _save_path(image_settings: ImageSettings) -> str:

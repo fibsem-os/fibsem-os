@@ -678,11 +678,11 @@ def _stitched(microscope, channel_settings, overview_parameters, zparams=None):
     """The mosaic of an unsaved `acquire_fm_tiled_overview`."""
     if not isinstance(channel_settings, list):
         channel_settings = [channel_settings]
-    mosaic, path = acquire_fm_tiled_overview(
+    result = acquire_fm_tiled_overview(
         microscope, channel_settings, overview_parameters, None, zparams=zparams
     )
-    assert path is None
-    return mosaic
+    assert result.mosaic_path is None
+    return result.image
 
 
 @pytest.mark.slow
@@ -797,19 +797,19 @@ def test_an_overview_saves_its_tiles_and_mosaic_and_reports_the_save(
     beside it; the save announced before the run says it finished."""
     microscope = fm_microscope
     destination = OverviewDestination.create(str(tmp_path), "run")
-    tile_paths, reports, acquired = [], [], []
+    reports, acquired = [], []
     microscope.tiled_acquisition_signal.connect(reports.append)
     try:
-        mosaic, path = acquire_fm_tiled_overview(
+        result = acquire_fm_tiled_overview(
             microscope,
             [ChannelSettings(name="DAPI", exposure_time=0.001)],
             OverviewParameters(rows=1, cols=2, overlap=0.1),
             destination,
-            tile_paths=tile_paths,
             on_acquired=lambda image, saved: acquired.append((image, saved)),
         )
     finally:
         microscope.tiled_acquisition_signal.disconnect(reports.append)
+    mosaic, path, tile_paths = result.image, result.mosaic_path, result.tile_paths
 
     assert path == destination.mosaic_path and os.path.isfile(path)
     assert tile_paths == [
@@ -2482,11 +2482,13 @@ def test_a_run_writes_its_tile_layout_beside_the_tiles(fm_microscope, tmp_path):
     )
     runner.run()
 
-    record = (tmp_path / "tile-layout.json").read_text()
-    assert '"pairs"' in record
+    record = json.loads((tmp_path / "tile-layout.json").read_text())
     # Four tiles in a 2x2 are four neighbour pairs, matched or not.
-    assert len(json.loads(record)["pairs"]) == 4
-    assert runner.layout_warning == json.loads(record)["warning"]
+    assert len(record["layout"]["pairs"]) == 4
+    assert runner.layout_warning == record["warning"]
+    assert record["modality"] == "fluorescence"
+    assert [t["acquired"] for t in record["tiles"]] == [True] * 4
+    assert all(t["planned"] and t["position"] for t in record["tiles"])
 
 
 # ── experimental tile alignment (FIB-1385) ──────────────────────────────

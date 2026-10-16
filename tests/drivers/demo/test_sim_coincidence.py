@@ -180,7 +180,7 @@ def test_stitched_overview_matches_single_wide_shot(microscope, beam_type, tmp_p
         ),
         str(tmp_path),
         "ov",
-    )
+    ).image
     # the 2x2 grid of 150um tiles covers ~300um; one wide shot of the same area
     single = microscope.acquire_image(
         image_settings=_image_settings(beam_type, hfw=300e-6, resolution=(512, 512))

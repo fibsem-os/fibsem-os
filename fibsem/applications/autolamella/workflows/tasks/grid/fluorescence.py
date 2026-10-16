@@ -19,9 +19,6 @@ from fibsem.applications.autolamella.workflows.tasks.grid.base import (
     GridTask,
     GridTaskConfig,
 )
-from fibsem.applications.autolamella.workflows.tasks.grid.imaging import (
-    disable_tiles,
-)
 from fibsem.applications.autolamella.workflows.tasks.grid.registry import (
     register_grid_task,
 )
@@ -30,70 +27,14 @@ from fibsem.fm.acquisition import OverviewDestination, acquire_fm_tiled_overview
 from fibsem.fm.preview import composite_projection
 from fibsem.fm.structures import ChannelSettings, OverviewParameters, ZParameters
 from fibsem.fm.timing import estimate_fm_overview_time
-from fibsem.geometry.projection import FMStageProjection
 from fibsem.imaging.thumbnail import write_thumbnail
 from fibsem.imaging.tiled import stamped_overview_name
-from fibsem.imaging.tiling.geometry import (
-    compute_tile_grid_from_fov,
-    unreachable_tiles,
-)
+from fibsem.imaging.tiling.reach import reachable_fluorescence_overview
 from fibsem.services.sample_handling import uncalibrated_message
 from fibsem.structures import FibsemStagePosition, InsertableDeviceState
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
-
-# ---------------------------------------------------------------------------
-
-
-def reachable_fluorescence_overview(
-    microscope: "FibsemMicroscope",
-    parameters: OverviewParameters,
-    centre: FibsemStagePosition,
-    projection: Optional[FMStageProjection] = None,
-) -> Tuple[OverviewParameters, List[Tuple[int, int]]]:
-    """*parameters* with the tiles the stage cannot reach from *centre* turned off,
-    and which tiles they were: `reachable_overview` for the fluorescence tiler.
-
-    The tiles are laid out as `FMTiledAcquisitionRunner` lays them out, from the
-    camera's field of view, and judged through the projection the FM Overview tab
-    draws unreachable tiles with. Read after the move to the FM, with the objective
-    in, when the camera's pixel size is the one the run will use.
-
-    *projection* is one already built, by a caller asking repeatedly (the Grid
-    page, on every edit). It carries the camera's pixel size and shape, so the
-    camera is not read again; building one reads it, which is slow on hardware.
-    """
-    stage = microscope.stage
-    limits = stage.position.limits if stage is not None else None
-    if projection is None:
-        projection = FMStageProjection.from_microscope(microscope)
-    if not limits or projection is None:
-        return parameters, []
-    height, width = projection.shape
-    tiles = compute_tile_grid_from_fov(
-        nrows=parameters.rows,
-        ncols=parameters.cols,
-        fov_x=width * projection.pixel_size,
-        fov_y=height * projection.pixel_size,
-        image_width=width,
-        image_height=height,
-        overlap=parameters.overlap,
-        mask=parameters.tile_mask,
-    )
-    skipped = unreachable_tiles(
-        tiles,
-        parameters.tile_order,
-        lambda dx, dy: projection.from_plane(dx, dy, centre),
-        limits,
-    )
-    if not skipped:
-        return parameters, []
-    parameters = deepcopy(parameters)
-    parameters.tile_mask = disable_tiles(
-        parameters.tile_mask, parameters.rows, parameters.cols, skipped
-    )
-    return parameters, skipped
 
 
 @dataclass
@@ -201,7 +142,7 @@ class FluorescenceOverviewGridTask(GridTask):
                 f"{len(self.config.channels)} channel(s)",
             )
             self.output_dir.mkdir(parents=True, exist_ok=True)
-            mosaic, saved = acquire_fm_tiled_overview(
+            overview_result = acquire_fm_tiled_overview(
                 self.microscope,
                 self.config.channels,
                 overview,
@@ -213,6 +154,7 @@ class FluorescenceOverviewGridTask(GridTask):
                 centre_position=centre,
                 stop_event=self._stop_event,
             )
+            mosaic, saved = overview_result.image, overview_result.mosaic_path
             if saved is None:
                 raise RuntimeError("The fluorescence overview could not be saved.")
             self.record_output(self.config.role, saved)
