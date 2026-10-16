@@ -131,7 +131,7 @@ def test_assist_files_a_request_and_reads_it_back(client):
     assert body["status"] == "pending"
     assert [a["path"] for a in body["actions"]] == [
         MOVE_RELATIVE,
-        "/app/agent/supervision",
+        "/app/experiment/protocol/supervision",
     ]
     read = client.get(f"/app/agent/requests/{body['request_id']}", headers=AGENT)
     assert read.json() == body

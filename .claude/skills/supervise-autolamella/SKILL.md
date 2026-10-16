@@ -367,7 +367,7 @@ The argument selects a variation on the same loop:
   Escalate when you cannot state the correction, when you cannot evaluate a
   criterion, or when a question type the exemplar never showed appears.
 - **batch-review**: supervision is off or minimal; let the run complete, then
-  present the outputs (`/app/workflow/run_summary`, `/app/experiment/items/{item}/outputs`,
+  present the outputs (`/app/workflow/summary`, `/app/experiment/items/{item}/outputs`,
   `/app/experiment/items/{item}`, final images) and act on the verdicts —
   `workflow_requeue` for items in a running workflow, `workflow_start` for a
   fresh round. Whose verdicts is a **policy question you settle up front**,
@@ -416,7 +416,7 @@ The argument selects a variation on the same loop:
   Assist, file it as a request (the assist skill). At Watch you cannot stop
   it: tell the operator at once, plainly, what you see and that they should
   press Stop.
-- `POST /app/agent/supervision {"task_name", "supervise"}` — takes effect at the
+- `POST /app/experiment/protocol/supervision {"task_name", "supervise"}` — takes effect at the
   next decision point. A supervised task's questions go to the operator and
   to you alike; the first answer wins, and the operator can always answer
   first.
@@ -711,7 +711,7 @@ every run. Before you start runs yourself, turn it off with
 `workflow_set_options(show_run_summary=false)` so no dialog is left over
 the operator's window, and tell them you did. Each run's end still shows a
 toast with a Show summary link, and it stays in the notification bell.
-Read `/app/workflow/run_summary` for the outcome yourself. If the operator turns it
+Read `/app/workflow/summary` for the outcome yourself. If the operator turns it
 back on, leave it on.
 
 Etiquette:
@@ -731,7 +731,7 @@ Etiquette:
 Keep the operator oriented without flooding them: say what you answered and
 why when it was a judgment call (the note already records it); stay quiet
 for laddered repeats; always report task completions/failures, escalations,
-and the end-of-run summary (items, durations, outcomes — `/app/workflow/run_summary`
+and the end-of-run summary (items, durations, outcomes — `/app/workflow/summary`
 survives the run's end).
 Every answer you give is attributed on the timeline in the app; write nothing
 the timeline would contradict.

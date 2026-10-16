@@ -178,7 +178,7 @@ def test_a_workflow_the_operator_starts_is_still_the_operator_s(ui, recorder, qa
 def test_the_agent_s_other_recorded_verbs_are_the_agent_s(ui, recorder, qapp):
     with _client(ui, recorder) as client:
         assert _post(
-            qapp, client, "/app/agent/notes", {"text": "fiducial looks clean"}
+            qapp, client, "/app/experiment/notes", {"text": "fiducial looks clean"}
         ).json()["recorded"]
         assert _post(
             qapp,
