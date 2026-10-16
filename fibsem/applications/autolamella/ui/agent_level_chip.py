@@ -203,6 +203,7 @@ class AgentLevelChip(QPushButton):
     reject_clicked = pyqtSignal(str, str)  # request id, the operator's reason
     accept_clicked = pyqtSignal()  # the suggestion shown
     dismiss_clicked = pyqtSignal(str)  # the suggestion shown, the operator's why
+    message_sent = pyqtSignal(str)  # the operator's message to the agent
 
     def __init__(
         self,
@@ -232,6 +233,8 @@ class AgentLevelChip(QPushButton):
         self.card.reject_clicked.connect(self._on_reject)
         self.card.accept_clicked.connect(self._closing(self.accept_clicked))
         self.card.dismiss_clicked.connect(self._on_dismiss)
+        # The card stays open: the operator may write again.
+        self.card.message_sent.connect(self.message_sent)
         self.card.float_clicked.connect(self._on_float_clicked)
         self.card.keep_on_top_toggled.connect(self.set_keep_on_top)
         self._keep_on_top = False

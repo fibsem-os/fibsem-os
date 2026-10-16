@@ -238,7 +238,10 @@ class AppContext(Protocol):
     ) -> Dict[str, Any]: ...
 
     def add_note(
-        self, text: str, item_name: Optional[str] = None
+        self,
+        text: str,
+        item_name: Optional[str] = None,
+        reply_to: Optional[str] = None,
     ) -> Dict[str, Any]: ...
 
     def stop_workflow(self) -> Dict[str, Any]: ...
@@ -627,17 +630,19 @@ def build_app_router(context: AppContext) -> APIRouter:
         # notes what it sees (FIB-1035), and a note changes nothing.
         text = body.get("text")
         item_name = body.get("item_name")
+        reply_to = body.get("reply_to")
         if (
             not isinstance(text, str)
             or not text.strip()
             or len(text) > 4000
             or (item_name is not None and not isinstance(item_name, str))
+            or (reply_to is not None and not isinstance(reply_to, str))
         ):
             raise _missing_field(
-                "Pass text (a non-empty string, at most 4000 "
-                "characters); item_name (string) is optional."
+                "Pass text (a non-empty string, at most 4000 characters); "
+                "item_name and reply_to (strings) are optional."
             )
-        result = context.add_note(text, item_name)
+        result = context.add_note(text, item_name, reply_to)
         if not result.get("recorded") and result.get("error"):
             raise HTTPException(
                 status_code=404,

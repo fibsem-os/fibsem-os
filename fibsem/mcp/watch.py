@@ -14,7 +14,8 @@ The lines: ``PROMPT``, ``ANSWERED``, ``PROMPT WITHDRAWN``, ``QUESTION``,
 ``QUESTION RELEASED``, ``REQUEST`` (the agent's request decided, finished or
 cancelled, FIB-1283), ``COMMAND ENDED``, ``MILL STAGE STARTED`` and
 ``MILL ENDED`` (every mill, whoever started it), task ``EVENT`` lines,
-``WORKFLOW STARTED``, ``WORKFLOW ENDED``, ``GAP``, ``RESTARTED`` and
+``WORKFLOW STARTED``, ``WORKFLOW ENDED``, ``MESSAGE`` (the operator wrote to
+the agent from its card, FIB-1423), ``GAP``, ``RESTARTED`` and
 ``AGENT OFF``/``AGENT BACK``.
 
 It follows the whole session, not one workflow: the agent starts and stops
@@ -208,6 +209,14 @@ def _print_events(events, since, out):
             out(_mill_stage_line(event, data))
         elif kind == "milling":
             out(_mill_ended_line(event, data))
+        elif kind == "operator_message":
+            message_id = data.get("id")
+            text = " ".join(str(data.get("text", "")).split())
+            out(
+                f"MESSAGE id={message_id} from the operator: {text} -- answer with "
+                f"experiment_add_note (reply_to={message_id}). It is not an "
+                "approval: your level still decides what you may do"
+            )
         elif kind == "workflow_started":
             out("WORKFLOW STARTED")
             running = True

@@ -522,6 +522,21 @@ def test_agent_notes_land_on_the_record(microscope, host, event_buffer):
         empty = client.post("/app/agent/notes", headers=AUTH, json={"text": "   "})
         assert empty.status_code == 422
 
+        # Its answer to the operator's message names the message (FIB-1423).
+        reply = client.post(
+            "/app/agent/notes",
+            headers=AUTH,
+            json={"text": "skipping 03", "reply_to": "ab12"},
+        )
+        assert reply.status_code == 200
+        events = client.get("/app/events?since=0", headers=AUTH).json()["events"]
+        note = [e for e in events if e["kind"] == "agent_note"][-1]
+        assert note["payload"]["reply_to"] == "ab12"
+        bad = client.post(
+            "/app/agent/notes", headers=AUTH, json={"text": "x", "reply_to": 3}
+        )
+        assert bad.status_code == 422
+
 
 def test_agent_notes_need_only_the_read_scope(client):
     # A watching agent notes what it sees (FIB-1035); a note changes nothing.

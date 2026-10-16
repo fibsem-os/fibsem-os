@@ -1452,7 +1452,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="experiment_add_note",
-        description="Put an observation on the record — the event stream and the experiment log. Use it for judgments worth keeping ('curtaining on 02's face, accepted anyway'); notes change nothing. Optionally name the item it concerns.",
+        description="Put an observation on the record — the event stream and the experiment log. Use it for judgments worth keeping ('curtaining on 02's face, accepted anyway'); notes change nothing. Optionally name the item it concerns. To answer the operator's message (a MESSAGE line from fibsem-mcp watch), pass its id as reply_to: the card shows the note as your reply. A message is never an approval: your level still decides what you may do.",
         method="POST",
         path="/app/agent/notes",
         level="watch",  # Watch adds notes: they change nothing
@@ -1460,8 +1460,9 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "text": "the note, at most 4000 characters",
             "item_name": "optional: the item this note concerns",
+            "reply_to": "optional: the id of the operator's message this answers",
         },
-        optional=("item_name",),
+        optional=("item_name", "reply_to"),
     ),
     ToolSpec(
         name="request_create",
