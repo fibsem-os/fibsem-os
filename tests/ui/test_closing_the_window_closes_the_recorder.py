@@ -16,11 +16,6 @@ pytest.importorskip("PyQt5")
 
 from psygnal.containers import EventedDict  # noqa: E402
 
-from fibsem.applications.autolamella.event_recording import (  # noqa: E402
-    EVENTS_FILENAME,
-    read_events,
-    recorder_for,
-)
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
     Experiment,
@@ -29,6 +24,11 @@ from fibsem.applications.autolamella.workflows.tasks.rough import (  # noqa: E40
     MillRoughTaskConfig,
 )
 from fibsem.structures import MicroscopeState  # noqa: E402
+from fibsem.workflows.event_recording import (  # noqa: E402
+    EVENTS_FILENAME,
+    read_events,
+    recorder_for,
+)
 
 TASK = "Rough Milling"
 

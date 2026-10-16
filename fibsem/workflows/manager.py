@@ -16,6 +16,7 @@ from fibsem.cancellation import AnyStopEvent, OperationCancelledError
 from fibsem.hooks import HookEvent, HookManager, fire_event
 from fibsem.microscope import FibsemMicroscope
 from fibsem.util.durations import format_duration_precise
+from fibsem.workflows.event_recording import run_recorder
 from fibsem.workflows.queue import TaskQueue, WorkItem
 from fibsem.workflows.status import (
     Hold,
@@ -158,7 +159,7 @@ class BaseTaskManager:
         experiment, and closed after it however the run ends. Its lifecycle hook
         is on this run's hook manager for the run, once. Recording never costs
         the run: a recorder that cannot be made is a run without one."""
-        recorder, made = self._run_recorder()
+        recorder, made = run_recorder(self.microscope, self.experiment)
         hook = recorder.lifecycle_hook if recorder is not None else None
         if hook is not None:
             if self.hook_manager is None:
@@ -171,12 +172,6 @@ class BaseTaskManager:
                 self.hook_manager.unregister(hook)
             if made is not None:
                 made.close()
-
-    def _run_recorder(self) -> Tuple[Optional[Any], Optional[Any]]:
-        """The recorder this run records through, and the one it made for itself
-        (closed after the run), or None for either. An application that records
-        its runs supplies this; a workflow without one runs unrecorded."""
-        return None, None
 
     def _review_wait(self) -> Optional[float]:
         protocol = self.experiment.task_protocol

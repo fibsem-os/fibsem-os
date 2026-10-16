@@ -55,7 +55,7 @@ def host(tmp_path, microscope):
 
 @pytest.fixture
 def event_buffer():
-    from fibsem.applications.autolamella.server.events import EventBuffer
+    from fibsem.workflows.events import EventBuffer
 
     return EventBuffer()
 
@@ -351,7 +351,7 @@ def test_event_history_reads_the_record_before_the_live_buffer(
     import json
     from pathlib import Path
 
-    from fibsem.applications.autolamella.event_recording import EVENTS_FILENAME
+    from fibsem.workflows.event_recording import EVENTS_FILENAME
 
     event_buffer.append("task_started", {"task_name": "Polishing"})
     held = event_buffer.events_since(0)["events"][0]

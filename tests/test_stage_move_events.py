@@ -23,16 +23,16 @@ import pytest
 import fibsem.config as cfg
 import fibsem.drivers
 from fibsem import utils
-from fibsem.applications.autolamella.event_recording import (
-    EVENTS_FILENAME,
-    EventRecorder,
-    read_events,
-)
 from fibsem.devices import stage as stage_module
 from fibsem.devices.core import Session
 from fibsem.devices.stage import recording_move
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, FibsemStagePosition, Point
+from fibsem.workflows.event_recording import (
+    EVENTS_FILENAME,
+    EventRecorder,
+    read_events,
+)
 
 
 @pytest.fixture

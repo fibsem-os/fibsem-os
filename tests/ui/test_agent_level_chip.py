@@ -595,7 +595,7 @@ def test_the_chip_shows_the_running_server_s_level_and_sets_it(main_ui, host):
 
 def test_stop_agent_drops_to_watch_and_is_the_operator_s_on_the_record(main_ui, host):
     from fibsem import utils
-    from fibsem.applications.autolamella.event_recording import EventRecorder
+    from fibsem.workflows.event_recording import EventRecorder
 
     os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
     microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
@@ -1077,10 +1077,10 @@ def test_at_drive_what_the_agent_does_shows_in_the_card_now_then_recent(qapp):
     from types import SimpleNamespace
 
     from fibsem.acting import AGENT, acting
-    from fibsem.applications.autolamella.server.events import EventBuffer
     from fibsem.applications.autolamella.ui.agent_activity import AgentActivity
     from fibsem.control import Control
     from fibsem.ui.widgets.status_bar import FibsemStatusBar
+    from fibsem.workflows.events import EventBuffer
 
     bar = FibsemStatusBar()
     activity = AgentActivity(bar)
@@ -1122,10 +1122,10 @@ def test_at_drive_each_direct_call_shows_in_now_then_recent_with_its_level(qapp)
     from types import SimpleNamespace
 
     from fibsem.acting import AGENT, acting
-    from fibsem.applications.autolamella.server.events import EventBuffer
     from fibsem.applications.autolamella.ui.agent_activity import AgentActivity
     from fibsem.control import Control
     from fibsem.ui.widgets.status_bar import FibsemStatusBar
+    from fibsem.workflows.events import EventBuffer
 
     bar = FibsemStatusBar()
     activity = AgentActivity(bar)

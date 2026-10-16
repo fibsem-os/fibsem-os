@@ -2148,6 +2148,11 @@ class Experiment:
                 return lamella
         return None
 
+    def items(self) -> List[Union["Lamella", GridRecord]]:
+        """The lamellae and grids: the items a task runs on and a proposal can
+        sit on."""
+        return list(self.positions) + list(self.grids or [])
+
     def get_item_by_id(self, item_id: str) -> Optional[Union["Lamella", GridRecord]]:
         """A lamella or a grid: the two kinds of item a task runs on, and the
         two things a proposal can sit on. By id -- names change."""

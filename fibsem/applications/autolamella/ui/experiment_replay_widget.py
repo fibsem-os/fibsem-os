@@ -45,7 +45,6 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem import conversions
-from fibsem.applications.autolamella.event_recording import EVENTS_FILENAME
 from fibsem.applications.autolamella.structures import find_overviews
 from fibsem.applications.autolamella.tools.replay import (
     EventKind,
@@ -95,6 +94,7 @@ from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (
 from fibsem.ui.widgets.canvas.overlays.point_overlay import PointsOverlay
 from fibsem.ui.widgets.custom_widgets import ElidedLabel, chip
 from fibsem.ui.widgets.stored_overview_canvas import StoredOverviewCanvas
+from fibsem.workflows.event_recording import EVENTS_FILENAME
 
 logger = logging.getLogger(__name__)
 

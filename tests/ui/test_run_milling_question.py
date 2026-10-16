@@ -478,7 +478,7 @@ def test_a_mill_run_by_hand_is_not_the_task_s(ui, qapp, monkeypatch):
 
 def test_the_question_is_the_task_s_and_the_answer_the_operator_s(ui, qapp, tmp_path):
     from fibsem.acting import OPERATOR
-    from fibsem.applications.autolamella.event_recording import (
+    from fibsem.workflows.event_recording import (
         EVENTS_FILENAME,
         EventRecorder,
         read_events,

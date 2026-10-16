@@ -13,9 +13,9 @@ pytest.importorskip("fastapi")
 httpx = pytest.importorskip("httpx")
 
 from fibsem import config as fibsem_cfg
-from fibsem.applications.autolamella.event_recording import recorder_for
 from fibsem.applications.autolamella.server import hosting
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
+from fibsem.workflows.event_recording import recorder_for
 
 
 def _free_port() -> int:

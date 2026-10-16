@@ -31,7 +31,7 @@ def main_ui(qapp):
 @pytest.fixture
 def recorder(main_ui):
     from fibsem import utils
-    from fibsem.applications.autolamella.event_recording import EventRecorder
+    from fibsem.workflows.event_recording import EventRecorder
 
     os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
     microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
