@@ -738,13 +738,11 @@ def test_a_pose_move_and_a_pose_set_are_marked_through_the_stage(monkeypatch):
         _one("item_move_to_pose", {"item_name": "01", "pose": "MILLING"})
     )
     _, layer = _layer(previews.request_picture)
-    assert placed == [pose]
+    assert placed and all(position is pose for position in placed)
     assert layer.targets == [(30.0, 20.0)]
     assert layer.keys == [("target", "01 MILLING pose")]
     # Set: the new pose where the stage is, the pose as it is now in white.
-    previews.show_request(
-        _one("item_set_pose", {"item_name": "01", "pose_name": "MILLING"})
-    )
+    previews.show_request(_one("item_set_pose", {"item_name": "01", "pose": "MILLING"}))
     _, purple = _layer(previews.request_picture)
     _, white = _layer(previews.request_picture, "#ffffff")
     assert purple.targets == [pytest.approx((100.0, 50.0))]
@@ -762,12 +760,75 @@ def test_a_mark_off_the_picture_is_not_drawn_and_its_key_says_so(monkeypatch):
     previews = AgentPreviews(
         lambda: controller, item_pose=lambda item, name: FibsemStagePosition(x=0.0)
     )
-    previews.show_request(
-        _one("item_set_pose", {"item_name": "01", "pose_name": "MILLING"})
-    )
+    previews.show_request(_one("item_set_pose", {"item_name": "01", "pose": "MILLING"}))
     _, white = _layer(previews.request_picture, "#ffffff")
     assert white.targets == []
     assert white.keys == [("target", "MILLING pose now, off the picture")]
+
+
+def test_a_pose_off_the_view_is_drawn_on_its_grid_overview(monkeypatch):
+    # A pose the FIB view does not show is drawn on the item's grid overview.
+    from fibsem.geometry import projection
+    from fibsem.structures import FibsemStagePosition
+
+    controller = _Controller()  # 200 × 100 px
+    overview = FibsemImage.generate_blank_image(resolution=(400, 300), hfw=1e-3)
+    pose = FibsemStagePosition(x=1e-3)
+    monkeypatch.setattr(
+        projection,
+        "stage_to_pixel",
+        lambda frame, position: (120.0, 80.0) if frame is overview else (-900, 40),
+    )
+    asked = []
+    previews = AgentPreviews(
+        lambda: controller,
+        item_pose=lambda item, name: pose,
+        item_overview=lambda item: asked.append(item) or overview,
+    )
+    previews.show_request(
+        _one("item_move_to_pose", {"item_name": "01", "pose": "MILLING"})
+    )
+    frame, layer = _layer(previews.request_picture)
+    assert asked == ["01"] and frame is overview
+    assert layer.targets == [(120.0, 80.0)]
+    assert layer.keys == [("target", "01 MILLING pose, on the grid overview")]
+
+
+def test_a_pose_on_the_view_stays_on_the_view(monkeypatch):
+    from fibsem.geometry import projection
+    from fibsem.structures import FibsemStagePosition
+
+    controller = _Controller()
+    monkeypatch.setattr(projection, "stage_to_pixel", lambda frame, pose: (30, 20))
+    asked = []
+    previews = AgentPreviews(
+        lambda: controller,
+        item_pose=lambda item, name: FibsemStagePosition(x=0.0),
+        item_overview=lambda item: asked.append(item),
+    )
+    previews.show_request(
+        _one("item_move_to_pose", {"item_name": "01", "pose": "MILLING"})
+    )
+    frame, _ = _layer(previews.request_picture)
+    assert frame is controller.image(BeamType.ION) and asked == []
+
+
+def test_a_pose_off_the_view_with_no_overview_draws_no_picture(monkeypatch):
+    from fibsem.geometry import projection
+    from fibsem.structures import FibsemStagePosition
+
+    controller = _Controller()
+    monkeypatch.setattr(projection, "stage_to_pixel", lambda frame, pose: (-900, 40))
+    previews = AgentPreviews(
+        lambda: controller,
+        item_pose=lambda item, name: FibsemStagePosition(x=0.0),
+        item_overview=lambda item: None,
+    )
+    previews.show_request(
+        _one("item_move_to_pose", {"item_name": "01", "pose": "MILLING"})
+    )
+    # Nothing to see on the view: no picture, as before.
+    assert previews.request_picture is None
 
 
 def test_past_the_field_off_the_picture_says_so():

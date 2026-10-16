@@ -122,10 +122,7 @@ _CARD = f"""
         padding: 0px; text-align: left;
     }}
     #agentLink:hover {{ color: #7bc0ff; }}
-    #agentRecent {{
-        background: transparent; color: {TEXT_COLOR}; border: none;
-        padding: 1px 0px; text-align: left; font-weight: normal;
-    }}
+    #agentRecent {{ color: {TEXT_COLOR}; padding: 1px 0px; }}
     #agentRecent:hover {{ color: {TEXT_STRONG_COLOR}; }}
     #agentRecentRows {{ background: {PANEL_COLOR}; border-radius: 3px; }}
 """
@@ -146,6 +143,35 @@ def _label(
         label.setFont(font)
     label.setWordWrap(wrap)
     return label
+
+
+class _RecentLine(QLabel):
+    """One Recent action: wraps rather than being cut by the card, and opens
+    the event log when clicked."""
+
+    clicked = pyqtSignal()
+
+    def __init__(self, text: str) -> None:
+        super().__init__(text)
+        self.setObjectName("agentRecent")
+        self.setWordWrap(True)
+        self.setCursor(Qt.PointingHandCursor)  # type: ignore
+
+    def resizeEvent(self, event) -> None:
+        # The card is sized from its hints, which ignore wrapping: hold the
+        # height the wrapped text needs at this width.
+        super().resizeEvent(event)
+        height = self.heightForWidth(self.width())
+        if height > 0 and height != self.minimumHeight():
+            self.setMinimumHeight(height)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.LeftButton:  # type: ignore
+            self.click()
+        super().mouseReleaseEvent(event)
+
+    def click(self) -> None:
+        self.clicked.emit()
 
 
 def _section(text: str) -> QLabel:
@@ -1029,8 +1055,8 @@ class AgentCard(QFrame):
 
     def _render_recent(self) -> None:
         """Recent, under what waits: folded, its newest line beside the link;
-        open, one line per action, how it ended at the right, a click away from
-        the event log."""
+        open, one row per action (a long one wraps), how it ended at the right,
+        a click away from the event log."""
         _clear(self._recent_rows)
         shown = self.recent_shown
         self.recent_link.setText("Recent ▾" if shown else "Recent ▸")
@@ -1054,24 +1080,24 @@ class AgentCard(QFrame):
         for row in self._recent:
             line = QHBoxLayout()
             line.setSpacing(12)
-            line.addWidget(_label(row.when, TEXT_MUTED_COLOR, small=True))
-            button = QPushButton(row.text)
-            button.setObjectName("agentRecent")
-            button.setCursor(Qt.PointingHandCursor)  # type: ignore
-            button.setToolTip(f"{row.text}\n\nOpen the event log")
-            # A long line is cut by the card, not allowed to widen it.
-            button.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+            top = Qt.AlignTop  # type: ignore
+            line.addWidget(_label(row.when, TEXT_MUTED_COLOR, small=True), 0, top)
+            # A long line wraps under itself, not allowed to widen the card.
+            button = _RecentLine(row.text)
+            button.setToolTip("Open the event log")
             button.clicked.connect(self.event_log_clicked)
             line.addWidget(button, 1)
             line.addWidget(
-                _label(row.outcome, _TONES.get(row.tone, TEXT_MUTED_COLOR), small=True)
+                _label(row.outcome, _TONES.get(row.tone, TEXT_MUTED_COLOR), small=True),
+                0,
+                top,
             )
             # At which level it was done (FIB-1426): Assist's were approved.
             level = str(getattr(row, "level", "") or "")
             tag = _label(level.title(), TEXT_MUTED_COLOR, small=True)
             tag.setObjectName("agentLevelTag")
             tag.setVisible(bool(level))
-            line.addWidget(tag)
+            line.addWidget(tag, 0, top)
             rows.addLayout(line)
             self.recent_buttons.append(button)
         self._recent_rows.addWidget(box)

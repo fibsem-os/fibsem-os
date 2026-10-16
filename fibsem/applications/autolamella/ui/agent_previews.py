@@ -317,6 +317,8 @@ class _Mark:
         shape: str = CROSS,
         before: bool = False,
         title: str = "",
+        item: str = "",
+        stage: Optional[object] = None,
     ):
         self.beam = beam
         self.legend = legend
@@ -328,6 +330,10 @@ class _Mark:
         # Whose image the places were measured on ("05-pale-lark"), for the
         # picture's caption.
         self.title = title
+        # A pose's stage position and its item: drawn on the item's grid
+        # overview when the view does not show it.
+        self.item = item
+        self.stage = stage
 
     def pixels(self, frame) -> List[Tuple[float, float]]:
         """The places as *frame*'s pixels; one the frame cannot place (None) is
@@ -636,6 +642,7 @@ class AgentPreviews:
         item_image: Optional[Callable[[str], object]] = None,
         overview_image: Optional[Callable[[str, str], object]] = None,
         load_image: Optional[Callable[[str], object]] = None,
+        item_overview: Optional[Callable[[str], object]] = None,
     ) -> None:
         # Asked when there is something to draw: the views are built after this.
         self._view_controller = view_controller
@@ -654,6 +661,9 @@ class AgentPreviews:
         # A grid's recorded overview (grid name, file name), for an item added
         # on it; None when there is none.
         self._overview_image = overview_image or (lambda grid, filename: None)
+        # The latest overview of an item's grid (item name), for a pose the
+        # view does not show; None when there is none.
+        self._item_overview = item_overview or (lambda item: None)
         # A request's own image, by path (the agent's evidence).
         self._load_image = load_image or _load_beam_image
         # The card's picture: (QImage or None, caption, suggestion=bool,
@@ -698,6 +708,8 @@ class AgentPreviews:
             frame, beam = self._measured_on(
                 controller, marks, bool(patterns or milled or before)
             )
+            if not (patterns or milled or before):
+                frame, beam = self._pose_overview(marks, frame, beam)
         # The card: the image the values were measured on, every value on it.
         if frame is None:
             if missing:
@@ -747,6 +759,34 @@ class AgentPreviews:
         if beams:
             return _frame(controller, beams[0]), beams[0]
         return None, None
+
+    def _pose_overview(self, marks: Dict[str, "_Mark"], frame, beam):
+        """*frame* and *beam*; or, when *marks* are all poses and the view does
+        not show them, the item's grid overview that does, the poses placed on
+        it. A view or overview without stage geometry places nothing."""
+        from fibsem.geometry.projection import stage_to_pixel
+
+        posed = list(marks.values())
+        if not posed or any(m.stage is None for m in posed):
+            return frame, beam
+
+        def shows(image) -> bool:
+            for mark in posed:
+                pixel = stage_to_pixel(image, mark.stage)
+                if pixel is None or not _on_frame(image, [pixel, pixel]):
+                    return False
+            return True
+
+        if frame is not None and shows(frame):
+            return frame, beam
+        overview = self._item_overview(posed[0].item)
+        if overview is None or not shows(overview):
+            return frame, beam
+        for mark in posed:
+            mark.places = [(overview, stage_to_pixel(overview, mark.stage))]
+            mark.legend = f"{mark.legend}, on the grid overview"
+        settings = getattr(overview.metadata, "image_settings", None)
+        return overview, getattr(settings, "beam_type", None) or BeamType.ELECTRON
 
     def _request_marks(
         self, request: Dict[str, Any], missing: List[str]
@@ -860,9 +900,11 @@ class AgentPreviews:
                     f"{item} {pose} pose",
                     [(None, at(stage))],
                     shape=TARGET,
+                    item=item,
+                    stage=stage,
                 )
         elif tool == "item_set_pose":
-            pose = arguments.get("pose_name")
+            pose = arguments.get("pose")
             add(
                 POSE_MARK,
                 BeamType.ION,
