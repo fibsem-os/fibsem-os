@@ -25,13 +25,14 @@ class NnunetConfig:
 
 
 class NnunetModel:
-    """The ``nnunet`` backend."""
+    """The ``nnunet`` backend. ``model`` is the loaded model itself, for the
+    detection code that calls it directly."""
 
     name: ClassVar[str] = "nnunet"
     Config: ClassVar[type] = NnunetConfig
 
     def __init__(self) -> None:
-        self._model: Any = None
+        self.model: Any = None
         self.device = "cpu"
 
     @staticmethod
@@ -42,12 +43,12 @@ class NnunetModel:
         from fibsem.segmentation.nnunet_model_v2 import SegmentationModelNNUnetV2
 
         checkpoint = os.path.join(source, config.checkpoint)
-        self._model = SegmentationModelNNUnetV2(checkpoint=checkpoint)
-        self.device = str(self._model.device)
+        self.model = SegmentationModelNNUnetV2(checkpoint=checkpoint)
+        self.device = str(self.model.device)
 
     def predict(self, image: np.ndarray) -> np.ndarray:
         """A class id per pixel."""
-        return np.asarray(self._model.inference(image, rgb=False))
+        return np.asarray(self.model.inference(image, rgb=False))
 
     def unload(self) -> None:
-        self._model = None
+        self.model = None

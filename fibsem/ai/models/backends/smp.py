@@ -24,13 +24,14 @@ class SmpConfig:
 
 
 class SmpModel:
-    """The ``smp`` backend."""
+    """The ``smp`` backend. ``model`` is the loaded model itself, for the
+    detection code that calls it directly."""
 
     name: ClassVar[str] = "smp"
     Config: ClassVar[type] = SmpConfig
 
     def __init__(self) -> None:
-        self._model: Any = None
+        self.model: Any = None
         self.device = "cpu"
 
     @staticmethod
@@ -40,13 +41,13 @@ class SmpModel:
     def load(self, source: str, card: ModelCard, config: Any, device: str) -> None:
         from fibsem.segmentation.model import SegmentationModel
 
-        self._model = SegmentationModel(checkpoint=config.checkpoint or source)
-        self.device = str(self._model.device)
+        self.model = SegmentationModel(checkpoint=config.checkpoint or source)
+        self.device = str(self.model.device)
 
     def predict(self, image: np.ndarray) -> np.ndarray:
         """A class id per pixel."""
-        mask = self._model.inference(image, rgb=False)
+        mask = self.model.inference(image, rgb=False)
         return np.asarray(mask)[0] if np.ndim(mask) == 3 else np.asarray(mask)
 
     def unload(self) -> None:
-        self._model = None
+        self.model = None

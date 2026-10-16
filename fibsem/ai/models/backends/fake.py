@@ -34,7 +34,7 @@ class FakeSegmentationModel:
         self.config = FakeConfig()
 
     @staticmethod
-    def default_card() -> ModelCard:
+    def default_card(entry: Any = None) -> ModelCard:
         return ModelCard(
             id="fake-segmentation",
             version="0.1.0",
