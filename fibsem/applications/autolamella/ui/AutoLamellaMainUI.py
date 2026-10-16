@@ -43,7 +43,6 @@ from PyQt5.QtWidgets import (
 
 import fibsem
 import fibsem.config as fibsem_cfg
-from fibsem.applications.autolamella.proposals import STATE
 from fibsem.applications.autolamella.structures import (
     Attention,
     Experiment,
@@ -148,6 +147,7 @@ from fibsem.ui.widgets.status_bar import FibsemStatusBar
 from fibsem.util.durations import format_duration_rounded
 from fibsem.util.timestamps import format_time, now
 from fibsem.versioning import get_version_string
+from fibsem.workflows.proposals import STATE
 from fibsem.workflows.queue import (
     QUEUE_ACTIONS,
     QueueOp,

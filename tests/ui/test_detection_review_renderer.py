@@ -21,7 +21,6 @@ from psygnal.containers import EventedDict
 pytest.importorskip("PyQt5")
 
 import fibsem.applications.autolamella.ui.review_tab_widget as R
-from fibsem.applications.autolamella.proposals import DETECTION
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     AutoLamellaTaskState,
@@ -36,7 +35,7 @@ from fibsem.structures import (
     MicroscopeState,
     Point,
 )
-from fibsem.workflows.proposals import Decision, DecisionOutcome, Proposal
+from fibsem.workflows.proposals import DETECTION, Decision, DecisionOutcome, Proposal
 from fibsem.workflows.status import TaskStatus
 
 TASK = "Mill Rough"

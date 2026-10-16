@@ -54,11 +54,8 @@ from PyQt5.QtWidgets import (
 
 from fibsem import conversions
 from fibsem.applications.autolamella.proposals import (
-    ALIGNMENT_AREA,
-    DETECTION,
     OVERVIEW_POSITIONS,
     POINT_OF_INTEREST,
-    STATE,
 )
 from fibsem.applications.autolamella.structures import (
     Attention,
@@ -92,6 +89,9 @@ from fibsem.ui.widgets.overview_widget import MODALITY_CHIP_STYLE
 from fibsem.util.durations import format_duration_in_words, format_time_ago
 from fibsem.util.timestamps import format_time, from_posix, now, to_aware, to_datetime
 from fibsem.workflows.proposals import (
+    ALIGNMENT_AREA,
+    DETECTION,
+    STATE,
     TASK_RESULT,
     Author,
     AuthorKind,

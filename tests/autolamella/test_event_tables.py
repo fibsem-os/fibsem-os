@@ -19,12 +19,7 @@ from psygnal.containers import EventedDict
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.applications.autolamella.proposals import (
-    ALIGNMENT_AREA,
-    DETECTION,
-    POINT_OF_INTEREST,
-    STATE,
-)
+from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
@@ -53,6 +48,7 @@ from fibsem.workflows.event_recording import (
     EVENTS_FILENAME,
     read_events,
 )
+from fibsem.workflows.proposals import ALIGNMENT_AREA, DETECTION, STATE
 
 SETUP = "Setup Lamella Position"
 ROUGH = "Rough Milling"

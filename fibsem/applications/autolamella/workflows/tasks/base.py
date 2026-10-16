@@ -33,7 +33,6 @@ import numpy as np
 from fibsem import acquire, alignment, constants, utils
 from fibsem import config as fcfg
 from fibsem.acting import AGENT, TASK, acting
-from fibsem.applications.autolamella.proposals import ALIGNMENT_AREA, DETECTION
 from fibsem.applications.autolamella.protocol.constants import (
     FIDUCIAL_KEY,
     MILL_POLISHING_KEY,
@@ -59,13 +58,6 @@ from fibsem.applications.autolamella.workflows.core import (
     update_detection_ui,
     update_status_ui,
 )
-from fibsem.applications.autolamella.workflows.question_adapters import (
-    decided_features,
-    detection_image_file,
-    detection_provenance,
-    detection_values,
-    record_training_data,
-)
 from fibsem.applications.autolamella.workflows.tasks.proposing import (
     LAMELLA_RESULT_IMAGES,
     settle,
@@ -86,6 +78,13 @@ from fibsem.detection.detection import (
     LamellaCentre,
     LamellaTopEdge,
     VolumeBlockCentre,
+)
+from fibsem.detection.review import (
+    decided_features,
+    detection_image_file,
+    detection_provenance,
+    detection_values,
+    record_training_data,
 )
 from fibsem.devices.beam import nearest_resolution
 from fibsem.fm.structures import ChannelSettings
@@ -120,6 +119,8 @@ from fibsem.workflows.interaction import (
     ask,
 )
 from fibsem.workflows.proposals import (
+    ALIGNMENT_AREA,
+    DETECTION,
     PROPOSAL_KINDS,
     TASK_RESULT,
     Author,

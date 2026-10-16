@@ -23,11 +23,7 @@ pytest.importorskip("PyQt5")
 from psygnal.containers import EventedDict
 from PyQt5.QtCore import QCoreApplication, QEvent
 
-from fibsem.applications.autolamella.proposals import (
-    ALIGNMENT_AREA,
-    POINT_OF_INTEREST,
-    STATE,
-)
+from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
 from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskDescription,
@@ -42,7 +38,12 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
     SelectMillingPositionTaskConfig,
 )
 from fibsem.structures import FibsemRectangle, FibsemStagePosition
-from fibsem.workflows.proposals import AuthorKind, DecisionOutcome
+from fibsem.workflows.proposals import (
+    ALIGNMENT_AREA,
+    STATE,
+    AuthorKind,
+    DecisionOutcome,
+)
 from fibsem.workflows.status import HoldKind, TaskStatus
 
 SETUP = "Setup Lamella Position"

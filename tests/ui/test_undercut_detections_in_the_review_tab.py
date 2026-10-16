@@ -30,7 +30,6 @@ from PyQt5.QtCore import QCoreApplication, QEvent
 
 import fibsem.config as fibsem_config
 from fibsem import conversions
-from fibsem.applications.autolamella.proposals import DETECTION
 from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskDescription,
@@ -44,7 +43,7 @@ from fibsem.applications.autolamella.workflows.tasks.undercut import (
     MillUndercutTaskConfig,
 )
 from fibsem.structures import FibsemImage, Point
-from fibsem.workflows.proposals import AuthorKind, Decision, DecisionOutcome
+from fibsem.workflows.proposals import DETECTION, AuthorKind, Decision, DecisionOutcome
 from fibsem.workflows.status import HoldKind, TaskStatus
 
 UNDERCUT = "Mill Undercut"

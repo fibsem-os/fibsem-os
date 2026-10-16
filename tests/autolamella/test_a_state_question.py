@@ -16,7 +16,6 @@ from psygnal.containers import EventedDict
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.applications.autolamella.proposals import STATE
 from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskDescription,
@@ -31,6 +30,7 @@ from fibsem.applications.autolamella.workflows.tasks.reference_image import (
 )
 from fibsem.structures import FibsemStagePosition
 from fibsem.workflows.proposals import (
+    STATE,
     TASK_RESULT,
     Decision,
     DecisionOutcome,

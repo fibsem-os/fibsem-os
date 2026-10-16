@@ -17,7 +17,6 @@ from psygnal.containers import EventedDict
 pytest.importorskip("PyQt5")
 
 import fibsem.applications.autolamella.ui.review_tab_widget as R
-from fibsem.applications.autolamella.proposals import ALIGNMENT_AREA
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
@@ -32,7 +31,12 @@ from fibsem.structures import (
     MicroscopeState,
     Point,
 )
-from fibsem.workflows.proposals import Decision, DecisionOutcome, Proposal
+from fibsem.workflows.proposals import (
+    ALIGNMENT_AREA,
+    Decision,
+    DecisionOutcome,
+    Proposal,
+)
 from fibsem.workflows.status import TaskStatus
 
 TASK = "Setup Lamella Position"
