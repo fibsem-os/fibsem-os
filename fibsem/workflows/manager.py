@@ -537,14 +537,20 @@ class BaseTaskManager:
         the pending set on every path, skips included.
         """
         pending, total = self.queue.counts
-        active = self.queue.active
         return {
             "experiment_id": self.experiment.id,
             "experiment_name": self.experiment.name,
             "tasks_remaining": pending,
             "tasks_total": total,
-            "round": active.round if active is not None else None,
+            "round": self.active_round,
         }
+
+    @property
+    def active_round(self) -> Optional[int]:
+        """The round of the queue entry running now; None outside one, or for
+        an item that does not run in rounds."""
+        active = self.queue.active
+        return active.round if active is not None else None
 
     def _fire_workflow_hook(self, event: HookEvent, **fields) -> None:
         # Workflow events used to carry nothing at all, so workflow_completed reached a
