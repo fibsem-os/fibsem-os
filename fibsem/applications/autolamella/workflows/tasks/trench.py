@@ -76,7 +76,7 @@ class MillTrenchTask(AutoLamellaTask):
 
         # log the task configuration
         self.log_status_message("MILL_TRENCH", "Milling Trench...")
-        msg = f"Press Run Milling to mill the Trench for {self.lamella.name}. Press Continue when done."
+        msg = f"Mill the Trench for {self.lamella.name}."
         milling_task_config = self.update_milling_config_ui(
             milling_task_config,
             msg=msg,

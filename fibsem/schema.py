@@ -97,6 +97,8 @@ def parameter_schema(parameter: Parameter, defs: Dict[str, Schema]) -> Schema:
             schema["maximum"] = limits.max
     if parameter.choices is not None:
         schema["enum"] = [_plain(choice) for choice in parameter.choices]
+    if parameter.not_used:
+        schema["not_used"] = parameter.not_used
     if parameter.device_parameter:
         # its live limits and choices are that device parameter's (list_devices)
         schema["device_parameter"] = parameter.device_parameter

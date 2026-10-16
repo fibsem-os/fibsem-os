@@ -123,3 +123,13 @@ def test_a_device_parameter_reads_the_same_way():
 def test_a_parameter_with_choices_is_an_enum():
     schema = parameter_schema(Parameter(type=str, choices=("a", "b")), {})
     assert schema == {"type": "string", "enum": ["a", "b"]}
+
+
+def test_a_field_nothing_reads_says_so():
+    from fibsem.structures import MillingAlignment
+
+    defs = {}
+    value_schema(MillingAlignment, defs)
+    properties = defs["MillingAlignment"]["properties"]
+    assert properties["interval"]["not_used"]
+    assert "not_used" not in properties["enabled"]

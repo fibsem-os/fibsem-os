@@ -173,17 +173,17 @@ the question, check image freshness, and separate reading from acting. Then
 **suggest** the answer:
 
 ```json
-{"question_id": 7, "response": false,
+{"question_id": 7, "response": false, "value": {"action": "accept"},
  "reason": "Face is clean in the 02:14 image, taken after the last pass; curtaining stops below the trench. Accept."}
 ```
 
 The prompt shows "Agent suggests: <the button>" with your reason under it.
 The operator's click answers, as theirs, and the watcher's `ANSWERED` line
 shows `suggested_by=agent`. If they answer some other way, your suggestion
-is dropped. That's their call, not an error. For `EditAlignmentArea`,
-`PickPOI`, `ConfirmDetection` and `RunSpotBurn` a suggestion may carry a
-`value`, as `prompt_answer` would. It is placed on screen only if the
-operator takes the suggestion.
+is dropped. That's their call, not an error. A suggestion
+carries a `value` when the prompt has a `value` field, as `prompt_answer`
+would (for the milling question, the action and any edits). It is placed
+on screen only if the operator takes the suggestion.
 
 Two playbook rules hold at Assist too. Before you suggest a Setup position
 or a POI, check coincidence as *Before a position or a POI* says: the fresh

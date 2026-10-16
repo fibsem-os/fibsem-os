@@ -79,145 +79,27 @@ def _preview_payload(image) -> Optional[Dict[str, Any]]:
 
 
 def serialize_request(request) -> Dict[str, Any]:
-    from fibsem.applications.autolamella.workflows.interaction import (
-        Confirm,
-        ConfirmDetection,
-        EditAlignmentArea,
-        PickPOI,
-        RunMillingTask,
-        RunSpotBurn,
-    )
-
+    """A pending question as plain data: its type, what it says
+    (``Request.describe``), and, when an answer may carry an edit, the shape of
+    one as ``value``. An ``image`` becomes the standard preview payload; a
+    question with no ``describe`` (not a ``Request``) still names its type."""
     payload: Dict[str, Any] = {"type": type(request).__name__}
-
-    if isinstance(request, Confirm):
-        payload.update(
-            {
-                "message": request.message,
-                "positive": request.positive,
-                "negative": request.negative,
-            }
-        )
+    describe = getattr(request, "describe", None)
+    if describe is None:
         return payload
-
-    if isinstance(request, ConfirmDetection):
-        detection = request.detection
-        payload.update(
-            {
-                "message": "Confirm the detected features (answering yes accepts "
-                "the positions as currently shown; a value "
-                '{"features": [{"name", "px": {"x", "y"}}]} moves the named '
-                "ones first).",
-                "features": [
-                    {"name": f.name, "px": to_plain(f.px.to_dict())}
-                    for f in getattr(detection, "features", [])
-                ],
-                "pixelsize": to_plain(getattr(detection, "pixelsize", None)),
-                "coordinates": "feature px are source-image pixels (origin "
-                "top-left, +y down); pixelsize is metres per source pixel",
-                "image": _preview_payload(getattr(detection, "image", None)),
-            }
-        )
-        return payload
-
-    if isinstance(request, EditAlignmentArea):
-        payload.update(
-            {
-                "message": "Confirm the alignment area (answering yes accepts "
-                "the area as currently shown).",
-                "initial": to_plain(request.initial.to_dict())
-                if request.initial is not None
-                else None,
-                "coordinates": "areas are fractions of the frame (origin "
-                "top-left), so they need no rescaling against the preview",
-                # The frame is display state the request doesn't carry;
-                # AutoLamellaAppContext.pending_prompt fills it from the FIB display
-                # cache — the same source /app/experiment/images serves.
-                "image": None,
-            }
-        )
-        return payload
-
-    if isinstance(request, PickPOI):
-        payload.update(
-            {
-                "message": "Pick the point of interest on the image.",
-                "initial": to_plain(request.initial.to_dict())
-                if request.initial is not None
-                else None,
-                "coordinates": "points are microscope image coordinates: "
-                "metres, origin at the image centre, +x right, +y UP",
-                "image": _preview_payload(request.image),
-            }
-        )
-        return payload
-
-    if isinstance(request, RunSpotBurn):
-        settings = request.settings
-        payload.update(
-            {
-                "message": f"{request.message}. Answering yes burns the points "
-                "as currently shown and asks again; answering no continues. A "
-                'value {"points": [{"x", "y"}]} replaces the points first.',
-                "positive": "Run Spot Burn",
-                "negative": "Continue",
-                "points": [
-                    to_plain(pt.to_dict())
-                    for pt in getattr(settings, "coordinates", [])
-                ],
-                "milling_current": to_plain(getattr(settings, "milling_current", None)),
-                "exposure_time": to_plain(getattr(settings, "exposure_time", None)),
-                "coordinates": "points are fractions of the frame (origin "
-                "top-left, +y down), so they need no rescaling against the "
-                "preview; current and exposure are the protocol's",
-                # The FIB frame the points sit on is display state;
-                # AutoLamellaAppContext.pending_prompt attaches it.
-                "image": None,
-            }
-        )
-        return payload
-
-    if isinstance(request, RunMillingTask):
-        config = request.config
-        if not request.enabled:
-            message = (
-                "Confirm this milling task (answering yes accepts the "
-                "configuration as currently shown; nothing is milled)."
-            )
-        elif request.passes == 0:
-            message = (
-                "Run this milling task? Answering yes runs the mill with the "
-                "configuration as currently shown; answering no continues "
-                "without milling."
-            )
-        else:
-            message = (
-                f"The mill has run {request.passes} time(s). Answering yes "
-                "mills again with the configuration as currently shown; "
-                "answering no accepts what was milled."
-            )
-        payload.update(
-            {
-                "message": message,
-                # 0 at the first ask, the runs so far at a re-ask (FIB-1329).
-                "passes": request.passes,
-                "enabled": request.enabled,
-                "task_name": to_plain(getattr(config, "name", None)),
-                "num_stages": len(getattr(config, "stages", []) or []),
-            }
-        )
-        return payload
-
-    # Unknown/newer request types: name + whatever serializes cleanly.
     try:
-        import dataclasses
-
-        if dataclasses.is_dataclass(request):
-            for f in dataclasses.fields(request):
-                value = getattr(request, f.name)
-                if hasattr(value, "data") or type(value).__name__ == "ndarray":
-                    continue  # images only travel as previews, never raw
-                payload[f.name] = to_plain(value)
+        described = describe()
     except Exception:
-        pass
+        # A question that cannot describe itself must still be seen standing.
+        return payload
+    for key, value in described.items():
+        if key == "image":
+            payload[key] = _preview_payload(value)
+        else:
+            payload[key] = to_plain(value)
+    shape = getattr(request, "value_shape", None)
+    if shape is not None:
+        payload["value"] = shape
+    if getattr(request, "requires_value", False):
+        payload["value_required"] = True
     return payload

@@ -175,6 +175,9 @@ class Parameter:
     name: str = ""
     device_parameter: Optional[str] = None
     filepath: bool = False
+    # Why setting it does nothing, when it doesn't: nothing reads it yet. A patch to
+    # it is refused with this, and a description says it beside the field.
+    not_used: Optional[str] = None
 
     # -- how it is shown: one Display (a composite's are per field) ----------------
 
@@ -303,6 +306,7 @@ FIELD_METADATA_KEYS: Tuple[str, ...] = (
     "device_parameter",  # the device parameter it sets ("beam.current"), for its live limits and choices
     "filepath",  # a string field that names a file
     "display",  # a Display: label, scale, unit, step, decimals, advanced, hidden, format_fn
+    "not_used",  # why setting it does nothing (nothing reads it yet)
 )
 
 # An older key -> what replaced it, so a field still declaring one is told what to
@@ -338,6 +342,7 @@ def field_meta(
     device_parameter: Optional[str] = None,
     filepath: Optional[bool] = None,
     display: Optional[Display] = None,
+    not_used: Optional[str] = None,
 ) -> Dict[str, Any]:
     """A field's metadata, checked when the module is imported.
 
@@ -356,7 +361,8 @@ def field_meta(
 
     ``device_parameter`` binds the field to a device parameter, as
     ``"beam.current"``: the device's live limits and choices then apply, and its
-    display fills what the field's leaves out.
+    display fills what the field's leaves out. ``not_used`` says why setting the
+    field does nothing, while nothing reads it.
 
     Every key is a keyword argument, so a misspelling is a TypeError when the
     module is imported rather than a form that silently renders without its
@@ -379,6 +385,7 @@ def field_meta(
         "device_parameter": device_parameter,
         "filepath": filepath,
         "display": display,
+        "not_used": not_used,
     }
     return {key: value for key, value in declared.items() if value is not None}
 
@@ -5361,8 +5368,20 @@ class MillingAlignment:
     """Drift correction settings for milling"""
 
     enabled: bool = True
-    interval_enabled: bool = False
-    interval: int = 30  # seconds
+    interval_enabled: bool = field(
+        default=False,
+        metadata=field_meta(
+            not_used="drift correction during a mill is not built yet (FIB-13); "
+            "the task aligns before each stage only",
+        ),
+    )
+    interval: int = field(
+        default=30,
+        metadata=field_meta(
+            unit="s",
+            not_used="drift correction during a mill is not built yet (FIB-13)",
+        ),
+    )
     rect: FibsemRectangle = field(
         default_factory=lambda: FibsemRectangle.from_dict(DEFAULT_ALIGNMENT_AREA)
     )

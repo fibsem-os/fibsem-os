@@ -209,15 +209,29 @@ message; it may be a position instruction ("double click to move… press
 Continue") — for an already-placed item, Continue is safe; for a *new*
 placement, that is the operator's decision (see the ladder).
 
-**`RunMillingTask`** — two distinct moments share this type; `passes` in
-the payload tells them apart:
-- *Start* (`passes: 0`): yes runs the mill with the config as shown; check
-  `task_name` and `num_stages` look right first. **No continues without
-  milling.** That is the operator's call; escalate rather than answer no
-  here.
-- *Inspect re-ask* (`passes` ≥ 1, after a mill pass): **yes mills AGAIN, no
-  accepts.** Pull the fresh post-mill image (rules 2–3), judge it, and answer
-  no to accept. Do not re-mill without a reason you can state.
+**`RunMillingTask`** — the milling question. Answer with an action in
+`value` (required): `run`, `edit`, `skip` or `accept`; the payload's
+`actions` lists the ones allowed now, and `passes` says how many times the
+mill has run for this question.
+- *Before a pass* (`passes: 0`): `run` mills the config as shown; check
+  `task_name` and the stages look right first, on `image` (the FIB view
+  with the patterns drawn). **`skip` goes on without milling.** That is
+  the operator's call; escalate rather than skip.
+- *After a pass* (`passes` ≥ 1): **`run` mills AGAIN, `accept` goes on.**
+  Pull a fresh image (rules 2–3), judge it, and accept. Do not re-mill
+  without a reason you can state. `last_error` says why the last run
+  failed, if it did.
+- *Edits*: `config` is the task's milling config, and `fields` explains
+  every option, with `unit` and `not_used` for one nothing reads (a patch
+  to it is refused, with why). Change it by `patch` (dotted paths, SI
+  units, a stage by name or index: `{"action": "run", "patch":
+  {"stages.Polish 1.milling.milling_current": 1e-11}}`) or by a whole
+  `config` (add, remove, reorder stages, change a pattern type). `edit`
+  applies the change and asks again without milling, so you can see it
+  land on the drawn patterns first. Edits are the operator's call unless
+  delegated, like any placement.
+- Between passes the question lends control, as any other does: image,
+  move or re-align before the next `run`. Never during a mill.
 
 **`EditAlignmentArea`** — the payload's `current` is the live rectangle
 (fractions of the frame), and `image` is the frame it sits on (the post-mill

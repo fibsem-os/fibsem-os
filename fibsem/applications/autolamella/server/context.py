@@ -89,22 +89,6 @@ def item_fields_version(lamella) -> str:
     return _content_hash(fields)
 
 
-def _answer_value_to_wire(value) -> Any:
-    """An answer value (what ``_parse_answer_value`` parses) back in the shape
-    ``answer_prompt`` takes it: a rectangle or point as itself, detection
-    features as ``{"features": [{name, px}]}``, spot-burn points as
-    ``{"points": [...]}``."""
-    if isinstance(value, dict):
-        return {
-            "features": [
-                {"name": name, "px": px.to_dict()} for name, px in value.items()
-            ]
-        }
-    if isinstance(value, (list, tuple)):
-        return {"points": [point.to_dict() for point in value]}
-    return value.to_dict()
-
-
 def config_version(config) -> str:
     """A content hash naming exactly this state of a task config.
 
@@ -360,83 +344,13 @@ def _attendance_line(task_protocol: Any, task_name: str) -> str:
     return att.line if att is not None else ""
 
 
-# The questions an answer may carry a value for (see ``answer_prompt``).
-_VALUE_TYPES = ("PickPOI", "EditAlignmentArea", "ConfirmDetection", "RunSpotBurn")
-
-
-def _parse_detection_value(request, value: Dict[str, Any], refuse):
-    """A ConfirmDetection value as ``{name: Point}`` in source-image pixels.
-
-    Only features the detection has may move, each inside the image. Returns
-    ``(parsed, None)`` or ``(None, refusal)``.
-    """
-    from fibsem.structures import Point
-
-    detection = getattr(request, "detection", None)
-    names = [f.name for f in getattr(detection, "features", [])]
-    features = value.get("features")
-    if not isinstance(features, list) or not features:
-        return None, refuse(
-            'a ConfirmDetection value needs "features": [{"name", "px": {"x", "y"}}], '
-            "source-image pixels, origin top-left, +y down."
-        )
-    image = getattr(detection, "image", None)
-    shape = getattr(getattr(image, "data", image), "shape", None)
-    moved: Dict[str, Point] = {}
-    for entry in features:
-        name = entry.get("name") if isinstance(entry, dict) else None
-        if name not in names:
-            return None, refuse(
-                f"no detected feature named {name!r}; the features are {names}."
-            )
-        if name in moved:
-            return None, refuse(f"feature {name!r} is given twice.")
-        try:
-            px = Point.from_dict(entry["px"])
-        except Exception:
-            return None, refuse(
-                f"feature {name!r} needs px: {{x, y}}, numbers in source-image pixels."
-            )
-        if shape is not None and len(shape) >= 2:
-            height, width = shape[0], shape[1]
-            if not (0 <= px.x < width and 0 <= px.y < height):
-                return None, refuse(
-                    f"feature {name!r} at ({px.x:.1f}, {px.y:.1f}) px is outside "
-                    f"the {width} x {height} px image."
-                )
-        moved[name] = px
-    return moved, None
-
-
-def _parse_spot_burn_value(value: Dict[str, Any], refuse):
-    """A RunSpotBurn value as a list of Points, 0-1 fractions of the frame.
-
-    Returns ``(parsed, None)`` or ``(None, refusal)``.
-    """
-    from fibsem.services.spot_burn import in_frame
-    from fibsem.structures import Point
-
-    points = value.get("points")
-    if not isinstance(points, list):
-        return None, refuse(
-            'a RunSpotBurn value needs "points": [{"x", "y"}], fractions of '
-            "the frame, origin top-left, +y down."
-        )
-    parsed: List[Point] = []
-    for entry in points:
-        try:
-            pt = Point.from_dict(entry)
-        except Exception:
-            return None, refuse(
-                "each spot burn point needs numeric x, y: fractions of the frame."
-            )
-        if not in_frame(pt):
-            return None, refuse(
-                f"point ({pt.x:.3f}, {pt.y:.3f}) is outside the frame: x and y "
-                "are fractions, 0 to 1."
-            )
-        parsed.append(pt)
-    return parsed, None
+def _response_for(request, parsed, response: bool) -> bool:
+    """The yes/no an answer stands for: the value's, when its action says (the
+    milling question), else the answer's own."""
+    if parsed is None:
+        return bool(response)
+    said = request.response_for(parsed)
+    return bool(response) if said is None else said
 
 
 class AutoLamellaAppContext:
@@ -2547,6 +2461,7 @@ class AutoLamellaAppContext:
         request, question_id = responder.pending_question_and_id()
         if request is None:
             return {"available": True, "pending": None}
+        from fibsem.applications.autolamella.server.events import to_plain
         from fibsem.applications.autolamella.server.prompts import serialize_request
 
         payload = serialize_request(request)
@@ -2562,26 +2477,51 @@ class AutoLamellaAppContext:
                 "task_name": recorded[1],
                 "proposal_id": recorded[2],
             }
-        current = self._peek_current(responder, payload["type"], question_id)
-        if current is not None:
-            payload["current"] = current
-        if (
-            payload["type"] in ("EditAlignmentArea", "RunSpotBurn")
-            and payload.get("image") is None
-        ):
-            # The frame the area sits on is display state, not workflow state:
-            # attach it here, where the display cache already lives, rather
-            # than having the workflow reach into the widget to build the
-            # request. Same whole-reference grab as display_images.
-            payload["image"] = self._display_frame("ib_image")
-        if payload["type"] == "PickPOI":
-            # The marker sits on the frame the FIB view shows, which is newer
-            # than the request's when anything moved since the task took it (an
-            # agent's approved moves, FIB-1399): serve that one.
-            shown = self._display_frame("ib_image")
-            if shown is not None:
-                payload["image"] = shown
+        live = self._peek_live(responder, request, question_id)
+        if live is not None:
+            try:
+                payload["current"] = to_plain(request.value_to_wire(live))
+            except Exception:  # noqa: BLE001 - the question must still show
+                pass
+        view = getattr(request, "view_frame", None)
+        if view is not None:
+            # The frame the question's widget draws on is display state, not
+            # workflow state: attach it here, where the display cache already
+            # lives (the same grab as display_images). Where the view may have
+            # moved on since the question was asked (an agent's approved moves,
+            # FIB-1399), the view's frame wins over the question's own.
+            if view == "prefer" or payload.get("image") is None:
+                shown = self._view_picture(request, live)
+                if shown is not None:
+                    payload["image"] = shown
         return {"available": True, "pending": payload}
+
+    def _view_picture(self, request, live) -> Optional[Dict[str, Any]]:
+        """The FIB view's frame as a preview, with the question drawn over it
+        when it draws (the milling question's patterns), or None."""
+        widget = getattr(self._host, "image_widget", None)
+        image = getattr(widget, "ib_image", None)
+        if image is None:
+            return None
+        from fibsem.applications.autolamella.server.prompts import _preview_payload
+
+        drawn = None
+        try:
+            drawn = request.draw(image, live)
+        except Exception:  # noqa: BLE001 - the plain frame is still worth showing
+            logging.debug("could not draw the question over the frame", exc_info=True)
+        entry = _preview_payload(image if drawn is None else drawn)
+        if entry is None:
+            return None
+        if drawn is not None:
+            # The drawing has the frame's shape; its scale is the frame's.
+            frame = _preview_payload(image) or {}
+            for key in ("hfw", "beam_type", "pixelsize", "full_width", "full_height"):
+                if key in frame:
+                    entry[key] = frame[key]
+            entry["drawn"] = True
+        entry["acquired_at"] = self._acquired_at(image)
+        return entry
 
     def _display_frame(self, attr: str) -> Optional[Dict[str, Any]]:
         """One display-cache image as the standard preview payload, or None."""
@@ -2596,40 +2536,25 @@ class AutoLamellaAppContext:
             entry["acquired_at"] = self._acquired_at(image)
         return entry
 
-    def _peek_current(
-        self, responder, request_type: str, question_id: int
-    ) -> Optional[Dict[str, Any]]:
-        """The live half of the question — where the marker IS, not where it
-        started.
+    @staticmethod
+    def _peek_live(responder, request, question_id: int):
+        """The live half of the question: what the widget it is asked on holds
+        now (where the marker IS, the config as edited), not where it started.
 
-        PickPOI, EditAlignmentArea, ConfirmDetection and RunSpotBurn are
-        answered from widget state the operator may still be adjusting; the
-        frozen request only shows the starting value. The peek marshals to the GUI thread, so it is skipped
-        entirely for question types with no live half, and degrades to absent
-        (never an error — the question itself must still be visible) if the GUI
-        is too busy to answer within 2 s or the prompt changed mid-peek.
+        Only for a question that takes a value: the peek marshals to the GUI
+        thread, and degrades to None (never an error: the question itself must
+        still be visible) if the GUI is too busy to answer within 2 s or the
+        prompt changed mid-peek.
         """
-        if request_type not in _VALUE_TYPES:
+        if getattr(request, "value_shape", None) is None:
             return None
-        from fibsem.applications.autolamella.proposals import features_to_dict
-        from fibsem.applications.autolamella.server.events import to_plain
-
         try:
             peeked_question_id, value = responder.peek_live_answer().result(timeout=2.0)
         except Exception:
             return None
-        if peeked_question_id != question_id or value is None:
+        if peeked_question_id != question_id:
             return None
-        try:
-            if request_type == "ConfirmDetection":
-                # The same shape an answer's value takes.
-                features = [{"name": n, "px": px} for n, px in value.items()]
-                return {"features": to_plain(features_to_dict(features))}
-            if request_type == "RunSpotBurn":
-                return {"points": [to_plain(pt.to_dict()) for pt in value]}
-            return to_plain(value.to_dict())
-        except Exception:
-            return None
+        return value
 
     def answer_prompt(
         self,
@@ -2667,6 +2592,7 @@ class AutoLamellaAppContext:
         if responder is None:
             return {"available": False, "applied": False, "stale": False}
         from fibsem.applications.autolamella.workflows.interaction import (
+            InvalidAnswerValue,
             StalePromptError,
         )
 
@@ -2685,14 +2611,12 @@ class AutoLamellaAppContext:
                 "proposal_id": recorded[2],
             }
 
-        parsed = None
-        if value is not None:
-            parsed, refusal = self._parse_answer_value(
-                responder, int(question_id), value
-            )
-            if refusal is not None:
-                return refusal
-
+        request, parsed, refusal = self._parse_answer_value(
+            responder, int(question_id), value
+        )
+        if refusal is not None:
+            return refusal
+        response = _response_for(request, parsed, response)
         outcome = responder.submit_answer(
             bool(response), question_id=int(question_id), value=parsed
         )
@@ -2700,6 +2624,14 @@ class AutoLamellaAppContext:
             applied = bool(outcome.result(timeout=timeout))
         except StalePromptError:
             return {"available": True, "applied": False, "stale": True}
+        except InvalidAnswerValue as exc:
+            # The value could not be made on the config as it now stands.
+            return {
+                "available": True,
+                "applied": False,
+                "stale": False,
+                "invalid_value": str(exc),
+            }
         result = {"available": True, "applied": applied, "stale": False}
         moved_from = getattr(outcome, "moved_from", None)
         if moved_from is not None:
@@ -2707,7 +2639,7 @@ class AutoLamellaAppContext:
             # shape. Absent when the widget already showed it (FIB-1420).
             from fibsem.applications.autolamella.server.events import to_plain
 
-            result["moved_from"] = to_plain(_answer_value_to_wire(moved_from))
+            result["moved_from"] = to_plain(request.value_to_wire(moved_from))
         return result
 
     def suggest_answer(
@@ -2734,13 +2666,12 @@ class AutoLamellaAppContext:
             StalePromptError,
         )
 
-        parsed = None
-        if value is not None:
-            parsed, refusal = self._parse_answer_value(
-                responder, int(question_id), value
-            )
-            if refusal is not None:
-                return refusal
+        request, parsed, refusal = self._parse_answer_value(
+            responder, int(question_id), value
+        )
+        if refusal is not None:
+            return {**refusal, "suggested": False}
+        response = _response_for(request, parsed, response)
         outcome = responder.submit_suggestion(
             bool(response), int(question_id), value=parsed, reason=str(reason)
         )
@@ -2759,14 +2690,20 @@ class AutoLamellaAppContext:
 
     @staticmethod
     def _parse_answer_value(responder, question_id: int, value: Any):
-        """Turn a wire ``value`` into the domain object for the pending question.
+        """The pending question, and a wire ``value`` as the edit it stands for.
 
-        Returns ``(parsed, None)`` on success or ``(None, refusal)`` — the
-        refusal already shaped for :meth:`answer_prompt` to return. Validation
-        happens against the frozen pending request; the responder's own question id
-        check on the GUI thread still guards the actual apply, so a question
-        swap between here and there is refused as stale, never mis-applied.
+        Returns ``(request, parsed, None)``, or ``(request, None, refusal)`` with
+        the refusal already shaped for :meth:`answer_prompt` to return. The
+        question checks the value itself (``Request.parse_value``), against the
+        frozen pending request; the responder's own question id check on the GUI
+        thread still guards the actual apply, so a question swap between here
+        and there is refused as stale, never mis-applied. A question whose
+        answer must carry a value (the milling question's action) is refused
+        without one.
         """
+        from fibsem.applications.autolamella.workflows.interaction import (
+            InvalidAnswerValue,
+        )
 
         def _refuse(message: str) -> Dict[str, Any]:
             return {
@@ -2778,65 +2715,24 @@ class AutoLamellaAppContext:
 
         request, pending_question_id = responder.pending_question_and_id()
         if request is None or pending_question_id != question_id:
-            return None, {"available": True, "applied": False, "stale": True}
-        type_name = type(request).__name__
+            return request, None, {"available": True, "applied": False, "stale": True}
+        shape = getattr(request, "value_shape", None)
+        if value is None:
+            if getattr(request, "requires_value", False):
+                return (
+                    request,
+                    None,
+                    _refuse(
+                        f"a {type(request).__name__} answer carries a value: {shape}"
+                    ),
+                )
+            return request, None, None
         if not isinstance(value, dict):
-            return None, _refuse("value must be a JSON object.")
-
-        if type_name == "EditAlignmentArea":
-            from fibsem.structures import FibsemRectangle
-
-            try:
-                rect = FibsemRectangle.from_dict(value)
-            except Exception:
-                return None, _refuse(
-                    "an EditAlignmentArea value needs numeric left, top, "
-                    "width, height — fractions of the frame, origin top-left."
-                )
-            if not rect.is_valid_reduced_area:
-                return None, _refuse(
-                    "alignment area out of bounds: left/top must be >= 0, "
-                    "width/height > 0, and the rectangle must fit inside "
-                    "the frame (left+width <= 1, top+height <= 1)."
-                )
-            return rect, None
-
-        if type_name == "PickPOI":
-            from fibsem.structures import Point
-
-            try:
-                point = Point.from_dict(value)
-            except Exception:
-                return None, _refuse(
-                    "a PickPOI value needs numeric x, y — metres in "
-                    "microscope image coordinates, origin centre, +y up."
-                )
-            image = getattr(request, "image", None)
-            try:
-                half_width = image.data.shape[1] / 2 * image.metadata.pixel_size.x
-                half_height = image.data.shape[0] / 2 * image.metadata.pixel_size.x
-            except Exception:
-                return None, _refuse(
-                    "the pending question's image is missing its scale; "
-                    "the point cannot be validated."
-                )
-            if abs(point.x) > half_width or abs(point.y) > half_height:
-                return None, _refuse(
-                    f"point ({point.x:.3e}, {point.y:.3e}) m is outside the "
-                    f"image: |x| <= {half_width:.3e}, |y| <= {half_height:.3e}."
-                )
-            return point, None
-
-        if type_name == "ConfirmDetection":
-            return _parse_detection_value(request, value, _refuse)
-
-        if type_name == "RunSpotBurn":
-            return _parse_spot_burn_value(value, _refuse)
-
-        return None, _refuse(
-            f"{type_name} answers cannot carry a value; only EditAlignmentArea, "
-            "PickPOI, ConfirmDetection and RunSpotBurn can."
-        )
+            return request, None, _refuse("value must be a JSON object.")
+        try:
+            return request, request.parse_value(value), None
+        except InvalidAnswerValue as exc:
+            return request, None, _refuse(str(exc))
 
     # --- events -----------------------------------------------------------------
 
