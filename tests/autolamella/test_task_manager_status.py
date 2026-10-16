@@ -401,11 +401,7 @@ def test_an_old_success_does_not_satisfy_a_requirement_whose_rerun_failed(tmp_pa
 def test_an_old_success_does_not_satisfy_a_requirement_whose_rerun_was_rejected(
     tmp_path,
 ):
-    from fibsem.applications.autolamella.proposals import (
-        Decision,
-        DecisionOutcome,
-        Proposal,
-    )
+    from fibsem.workflows.proposals import Decision, DecisionOutcome, Proposal
 
     m, lamella = _one_lamella_manager(tmp_path)
     m.queue.build_from_matrix(["Undercut"], ["L1"])
@@ -460,11 +456,7 @@ def test_a_task_awaiting_a_decision_defers_its_consumer(tmp_path):
     """Trench ran and waits on a decision: it is not finished, so Undercut waits.
     It stays pending -- not Skipped -- and runs once the decision lands, which
     finishes Trench."""
-    from fibsem.applications.autolamella.proposals import (
-        Decision,
-        DecisionOutcome,
-        Proposal,
-    )
+    from fibsem.workflows.proposals import Decision, DecisionOutcome, Proposal
 
     experiment = make_experiment(
         tmp_path, requirements={"Undercut": ["Trench"]}, lamella_names=["L1", "L2"]
@@ -541,11 +533,7 @@ def test_a_rejected_task_is_failed_so_its_consumer_is_skipped(tmp_path):
     """Reject finishes the waiting task as Failed. Its consumer is then Skipped
     for a missing prerequisite, the ordinary rule; the lamella itself is not
     marked defective -- that stays a person's call."""
-    from fibsem.applications.autolamella.proposals import (
-        Decision,
-        DecisionOutcome,
-        Proposal,
-    )
+    from fibsem.workflows.proposals import Decision, DecisionOutcome, Proposal
 
     experiment = make_experiment(
         tmp_path, requirements={"Undercut": ["Trench"]}, lamella_names=["L1"]
@@ -585,7 +573,7 @@ def test_a_rejected_task_is_failed_so_its_consumer_is_skipped(tmp_path):
 
 def _review_manager(tmp_path, review_wait, hook_manager=None):
     """L1 has Trench awaiting a decision; Undercut requires it."""
-    from fibsem.applications.autolamella.proposals import Proposal
+    from fibsem.workflows.proposals import Proposal
 
     experiment = make_experiment(
         tmp_path, requirements={"Undercut": ["Trench"]}, lamella_names=["L1"]
@@ -631,7 +619,7 @@ def test_a_decision_during_the_wait_wakes_the_run(tmp_path, caplog):
     import logging
     import threading
 
-    from fibsem.applications.autolamella.proposals import Decision, DecisionOutcome
+    from fibsem.workflows.proposals import Decision, DecisionOutcome
 
     m, l1 = _review_manager(tmp_path, review_wait=10.0)
     caplog.set_level(logging.INFO)

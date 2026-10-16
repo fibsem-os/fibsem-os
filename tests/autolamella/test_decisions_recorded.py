@@ -20,9 +20,6 @@ from fibsem.applications.autolamella.proposals import (
     DETECTION,
     POINT_OF_INTEREST,
     STATE,
-    Decision,
-    DecisionOutcome,
-    Proposal,
 )
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
@@ -34,6 +31,7 @@ from fibsem.applications.autolamella.workflows.question_adapters import (
 )
 from fibsem.detection.detection import DetectedFeatures, LamellaCentre
 from fibsem.structures import FibsemStagePosition, MicroscopeState, Point
+from fibsem.workflows.proposals import Decision, DecisionOutcome, Proposal
 from fibsem.workflows.status import TaskStatus
 
 TASK = "Setup Lamella Position"

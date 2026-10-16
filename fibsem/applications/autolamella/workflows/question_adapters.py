@@ -29,11 +29,12 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Type
 
 from fibsem import conversions
-from fibsem.applications.autolamella.proposals import DETECTION, Proposal
+from fibsem.applications.autolamella.proposals import DETECTION
 from fibsem.workflows.interaction import (
     Request,
     ReviewDetection,
 )
+from fibsem.workflows.proposals import Proposal
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment

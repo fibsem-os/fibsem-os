@@ -24,11 +24,7 @@ from typing import (
 )
 
 from fibsem import timing
-from fibsem.applications.autolamella.proposals import (
-    OVERVIEW_POSITIONS,
-    Proposal,
-    Proposer,
-)
+from fibsem.applications.autolamella.proposals import OVERVIEW_POSITIONS
 from fibsem.applications.autolamella.workflows.tasks.grid.base import (
     GridTask,
     GridTaskConfig,
@@ -45,6 +41,7 @@ from fibsem.structures import (
     FibsemStagePosition,
     OverviewAcquisitionSettings,
 )
+from fibsem.workflows.proposals import Proposal, Proposer
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope

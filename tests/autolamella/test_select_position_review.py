@@ -20,9 +20,6 @@ from fibsem.applications.autolamella.proposals import (
     ALIGNMENT_AREA,
     POINT_OF_INTEREST,
     STATE,
-    AuthorKind,
-    Decision,
-    DecisionOutcome,
 )
 from fibsem.applications.autolamella.structures import (
     Attention,
@@ -40,6 +37,7 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
     consumed_values,
 )
 from fibsem.structures import Point
+from fibsem.workflows.proposals import AuthorKind, Decision, DecisionOutcome
 from fibsem.workflows.status import TaskStatus
 
 SETUP = "Setup Lamella Position"

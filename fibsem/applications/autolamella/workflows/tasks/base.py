@@ -33,20 +33,7 @@ import numpy as np
 from fibsem import acquire, alignment, constants, utils
 from fibsem import config as fcfg
 from fibsem.acting import AGENT, TASK, acting
-from fibsem.applications.autolamella.proposals import (
-    ALIGNMENT_AREA,
-    DETECTION,
-    PROPOSAL_KINDS,
-    TASK_RESULT,
-    Author,
-    Decision,
-    DecisionOutcome,
-    Proposal,
-    Proposer,
-    TaskResultProposer,
-    agent_author,
-    human_author,
-)
+from fibsem.applications.autolamella.proposals import ALIGNMENT_AREA, DETECTION
 from fibsem.applications.autolamella.protocol.constants import (
     FIDUCIAL_KEY,
     MILL_POLISHING_KEY,
@@ -131,6 +118,18 @@ from fibsem.workflows.interaction import (
     SetMillingConfig,
     answered_by,
     ask,
+)
+from fibsem.workflows.proposals import (
+    PROPOSAL_KINDS,
+    TASK_RESULT,
+    Author,
+    Decision,
+    DecisionOutcome,
+    Proposal,
+    Proposer,
+    TaskResultProposer,
+    agent_author,
+    human_author,
 )
 from fibsem.workflows.status import TaskStatus, take_back_finish
 
