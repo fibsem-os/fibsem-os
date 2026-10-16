@@ -175,9 +175,7 @@ def main() -> int:
     lamella.path.mkdir(parents=True, exist_ok=True)
     # The task is mid-flight: what makes this an in-run question rather than a
     # result left for later, and what the decision has to name.
-    lamella.task_history.append(
-        TaskState(name=TASK, status=TaskStatus.InProgress)
-    )
+    lamella.task_history.append(TaskState(name=TASK, status=TaskStatus.InProgress))
     lamella.task_state.name = TASK
     lamella.task_state.task_id = RUN
     lamella.task_state.status = TaskStatus.InProgress
