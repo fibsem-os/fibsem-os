@@ -21,7 +21,7 @@ from fibsem.ui.widgets.custom_widgets import (
 from fibsem.ui.widgets.form_builder import configure_spinbox
 
 # How each value is shown, and its bounds: ZParameters' field metadata.
-_SPECS = field_specs(ZParameters)
+_SPECS = ZParameters.params
 
 
 class ZParametersWidget(QWidget):

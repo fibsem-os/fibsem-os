@@ -130,7 +130,7 @@ class FibsemStrategySettingsWidget(QWidget):
         while self._config_form.rowCount():
             self._config_form.removeRow(0)
 
-        for field_name, spec in strategy.config.field_specs.items():
+        for field_name, spec in strategy.config.params.items():
             if spec.hidden:
                 continue
 

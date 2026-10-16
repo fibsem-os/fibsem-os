@@ -60,7 +60,7 @@ def _range(spinbox):
     return spinbox.minimum(), spinbox.maximum()
 
 
-IMAGE = field_specs(ImageSettings)
+IMAGE = ImageSettings.params
 
 
 def test_a_bound_field_takes_the_beams_limits():

@@ -293,7 +293,7 @@ def test_to_from_dict_preserves_coordinates_as_points():
 @requires_ui
 def test_future_annotations_resolve_to_concrete_types():
     """`from __future__ import annotations` string types resolve to concrete types."""
-    specs = SpotBurnFiducialTaskConfig(task_name="Spot Burn Fiducial").field_specs
+    specs = SpotBurnFiducialTaskConfig(task_name="Spot Burn Fiducial").params
 
     assert specs["milling_current"].type is float
     assert specs["exposure_time"].type is int

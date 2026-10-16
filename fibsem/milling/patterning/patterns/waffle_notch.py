@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import (
     ClassVar,
     List,
@@ -8,59 +8,46 @@ from typing import (
 
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.milling.properties import (
-    cross_section_metadata,
-    distance_metadata,
+    cross_section_param,
+    distance_param,
 )
 from fibsem.structures import (
     CrossSectionPattern,
     Display,
     FibsemRectangleSettings,
-    field_meta,
+    param,
 )
 
 
 @dataclass
 class WaffleNotchPattern(BasePattern[FibsemRectangleSettings]):
-    vheight: float = field(
-        default=2.0e-6,
-        metadata=distance_metadata(
-            "Vertical Height", "Height of the vertical notch sections."
-        ),
+    vheight: float = param(
+        2.0e-6,
+        distance_param("Vertical Height", "Height of the vertical notch sections."),
     )
-    vwidth: float = field(
-        default=0.5e-6,
-        metadata=distance_metadata(
-            "Vertical Width", "Width of the vertical notch sections."
-        ),
+    vwidth: float = param(
+        0.5e-6,
+        distance_param("Vertical Width", "Width of the vertical notch sections."),
     )
-    hheight: float = field(
-        default=0.5e-6,
-        metadata=distance_metadata(
-            "Horizontal Height", "Height of the horizontal notch sections."
-        ),
+    hheight: float = param(
+        0.5e-6,
+        distance_param("Horizontal Height", "Height of the horizontal notch sections."),
     )
-    hwidth: float = field(
-        default=2.0e-6,
-        metadata=distance_metadata(
-            "Horizontal Width", "Width of the horizontal notch sections."
-        ),
+    hwidth: float = param(
+        2.0e-6,
+        distance_param("Horizontal Width", "Width of the horizontal notch sections."),
     )
-    depth: float = field(
-        default=1.0e-6,
-        metadata=distance_metadata("Depth", "Depth of the notch sections."),
+    depth: float = param(
+        1.0e-6, distance_param("Depth", "Depth of the notch sections.")
     )
-    distance: float = field(
-        default=2.0e-6,
-        metadata=distance_metadata("Distance", "Distance between notch sections."),
+    distance: float = param(
+        2.0e-6, distance_param("Distance", "Distance between notch sections.")
     )
-    inverted: bool = field(
-        default=False,
-        metadata=field_meta(
-            doc="Invert the notch pattern.", display=Display("Inverted")
-        ),
+    inverted: bool = param(
+        False, doc="Invert the notch pattern.", display=Display("Inverted")
     )
-    cross_section: CrossSectionPattern = field(
-        default=CrossSectionPattern.Rectangle, metadata=cross_section_metadata()
+    cross_section: CrossSectionPattern = param(
+        CrossSectionPattern.Rectangle, cross_section_param()
     )
 
     name: ClassVar[str] = "WaffleNotch"

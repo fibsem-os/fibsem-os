@@ -40,7 +40,7 @@ from fibsem.ui.widgets.form_builder import (
 
 # How each control is shown: ImageSettings' field metadata, which takes the beam's
 # display hint for the fields bound to a beam parameter.
-_SPECS = field_specs(ImageSettings)
+_SPECS = ImageSettings.params
 
 
 def _field(

@@ -92,7 +92,7 @@ class FibsemPatternSettingsWidget(QWidget):
         while self._fields_form.rowCount():
             self._fields_form.removeRow(0)
 
-        for field_name, spec in pattern.field_specs.items():
+        for field_name, spec in pattern.params.items():
             if spec.hidden:
                 continue
 

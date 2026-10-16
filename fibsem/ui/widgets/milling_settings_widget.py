@@ -27,7 +27,7 @@ class _Row:
     advanced: bool
 
 
-_SPECS = FibsemMillingSettings().field_specs
+_SPECS = FibsemMillingSettings.params
 
 # Fields hidden from UI — derived from their display (hidden=True), not hardcoded
 _HIDDEN_FIELDS = {name for name, spec in _SPECS.items() if spec.hidden}

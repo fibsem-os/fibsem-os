@@ -79,7 +79,7 @@ class AutoLamellaGlobalTaskEditDialog(QDialog):
         self.spinbox_milling_fov = ValueSpinBox()
         configure_spinbox(
             self.spinbox_milling_fov,
-            beam_spec(field_specs(FibsemMillingSettings)["hfw"]),
+            beam_spec(FibsemMillingSettings.params["hfw"]),
         )
         self.spinbox_milling_fov.setValue(150.0)
         self.spinbox_milling_fov.setToolTip(

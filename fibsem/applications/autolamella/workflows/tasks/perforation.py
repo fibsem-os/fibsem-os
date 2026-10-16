@@ -1,7 +1,7 @@
 ######## PERFORATION TASK DEFINITIONS ########
 
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import ClassVar, Literal, Type
 
 from fibsem.applications.autolamella.protocol.constants import PERFORATION_KEY
@@ -10,19 +10,17 @@ from fibsem.applications.autolamella.workflows._default_milling_config import (
     DEFAULT_MILLING_CONFIG,
 )
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
-from fibsem.structures import field_meta
+from fibsem.structures import param
 
 
 @dataclass
 class MillPerforationTaskConfig(AutoLamellaTaskConfig):
     """Configuration for the MillPerforationTask."""
 
-    orientation: Literal["SEM", "FIB", "MILLING"] = field(
-        default="SEM",
-        metadata=field_meta(
-            choices=("SEM", "FIB", "MILLING"),
-            doc="The orientation to perform perforation milling in",
-        ),
+    orientation: Literal["SEM", "FIB", "MILLING"] = param(
+        "SEM",
+        choices=("SEM", "FIB", "MILLING"),
+        doc="The orientation to perform perforation milling in",
     )
     task_type: ClassVar[str] = "MILL_PERFORATION"
     display_name: ClassVar[str] = "Perforation Milling"

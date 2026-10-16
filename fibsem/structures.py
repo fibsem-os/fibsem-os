@@ -9,7 +9,7 @@ import sys
 import weakref
 from abc import ABC, abstractmethod
 from copy import deepcopy
-from dataclasses import InitVar, asdict, dataclass, field, fields, replace
+from dataclasses import MISSING, InitVar, asdict, dataclass, field, fields, replace
 from datetime import datetime, tzinfo
 from enum import Enum, auto
 from pathlib import Path
@@ -19,6 +19,7 @@ from typing import (
     Callable,
     ClassVar,
     Dict,
+    Iterator,
     List,
     Literal,
     Mapping,
@@ -157,7 +158,7 @@ class Parameter:
 
     One shape for both places a value is declared: a device's parameter
     (``fibsem.devices.core.DeviceParameter`` is one, bound to the hardware) and a
-    dataclass field (``field_specs`` reads one off each field's ``field_meta``). A form,
+    dataclass field (declared with ``param(...)``, read by ``.params``). A form,
     a description or a JSON schema reads either the same way.
 
     For a field, ``type`` is its annotation (Optional and List left on).
@@ -178,6 +179,29 @@ class Parameter:
     # Why setting it does nothing, when it doesn't: nothing reads it yet. A patch to
     # it is refused with this, and a description says it beside the field.
     not_used: Optional[str] = None
+
+    def _checked(self) -> "Parameter":
+        """This Parameter, checked as a field's: the field gives the name and the
+        type (its annotation), so neither is set here. Checked when the module is
+        imported, so a wrong declaration fails there rather than in a form that
+        renders without it."""
+        if self.name or self.type is not None:
+            raise ValueError(
+                "a field's Parameter takes its name and type from the field; "
+                f"got name={self.name!r}, type={self.type!r}"
+            )
+        if self.limits is not None and not isinstance(self.limits, RangeLimit):
+            raise TypeError(f"limits must be a RangeLimit, got {self.limits!r}")
+        if self.display is not None and not isinstance(self.display, Display):
+            raise TypeError(f"display must be a Display, got {self.display!r}")
+        if self.device_parameter is not None and "." not in self.device_parameter:
+            raise ValueError(
+                f"device_parameter names the device and the parameter, as "
+                f'"beam.current"; got {self.device_parameter!r}'
+            )
+        if self.choices is not None:
+            return replace(self, choices=tuple(self.choices))
+        return self
 
     # -- how it is shown: one Display (a composite's are per field) ----------------
 
@@ -297,104 +321,15 @@ def display_to_dict(hint: Optional[DisplayHint]) -> Optional[Dict[str, Any]]:
     return hint.to_dict()
 
 
-# What a dataclass field may declare in its metadata: a Parameter's vocabulary.
-FIELD_METADATA_KEYS: Tuple[str, ...] = (
-    "unit",  # the value's SI unit ("m", "s", "A"); shown with the scale's prefix (m + 1e6 -> µm)
-    "limits",  # a RangeLimit, in the SI unit
-    "choices",  # the values it may take
-    "doc",  # what the value is, for a tooltip or an agent
-    "device_parameter",  # the device parameter it sets ("beam.current"), for its live limits and choices
-    "filepath",  # a string field that names a file
-    "display",  # a Display: label, scale, unit, step, decimals, advanced, hidden, format_fn
-    "not_used",  # why setting it does nothing (nothing reads it yet)
-)
-
-# An older key -> what replaced it, so a field still declaring one is told what to
-# change rather than rendering without it. Nothing reads these.
-RENAMED_METADATA_KEYS: Dict[str, str] = {
-    "help": "doc",
-    "units": "unit",
-    "tooltip": "doc",
-    "items": "choices (or device_parameter, for the instrument's)",
-    "minimum": "limits, in SI",
-    "maximum": "limits, in SI",
-    "label": "display=Display(label=...)",
-    "scale": "display=Display(scale=...)",
-    "display_unit": "display=Display(unit=...)",
-    "dimensions": "display=Display(scale=...), the whole factor",
-    "step": "display=Display(step=...)",
-    "decimals": "display=Display(decimals=...)",
-    "advanced": "display=Display(advanced=True)",
-    "hidden": "display=Display(hidden=True)",
-    "format_fn": "display=Display(format_fn=...)",
-    "microscope_parameter": 'device_parameter="beam.<name>"',
-    "type": "the field's annotation",
-    "default": "the field's default",
-}
-
-
-def field_meta(
-    *,
-    unit: Optional[str] = None,
-    limits: Optional[RangeLimit] = None,
-    choices: Optional[Sequence[Any]] = None,
-    doc: Optional[str] = None,
-    device_parameter: Optional[str] = None,
-    filepath: Optional[bool] = None,
-    display: Optional[Display] = None,
-    not_used: Optional[str] = None,
-) -> Dict[str, Any]:
-    """A field's metadata, checked when the module is imported.
-
-    A field says what a ``Parameter`` says: what the value means (its SI unit, its
-    limits in SI, its choices, a doc) and how a form shows it (a ``Display``)::
-
-        width: float = field(
-            default=10e-6,
-            metadata=field_meta(
-                unit="m",
-                limits=RangeLimit(0.0, 1e-3),
-                doc="The width of the pattern.",
-                display=Display("Width", scale=1e6, step=0.1, decimals=2),
-            ),
-        )
-
-    ``device_parameter`` binds the field to a device parameter, as
-    ``"beam.current"``: the device's live limits and choices then apply, and its
-    display fills what the field's leaves out. ``not_used`` says why setting the
-    field does nothing, while nothing reads it.
-
-    Every key is a keyword argument, so a misspelling is a TypeError when the
-    module is imported rather than a form that silently renders without its
-    tooltip or its unit (FIB-384). Arguments left unset are left out.
-    """
-    if limits is not None and not isinstance(limits, RangeLimit):
-        raise TypeError(f"limits must be a RangeLimit, got {limits!r}")
-    if display is not None and not isinstance(display, Display):
-        raise TypeError(f"display must be a Display, got {display!r}")
-    if device_parameter is not None and "." not in device_parameter:
-        raise ValueError(
-            f"device_parameter names the device and the parameter, as "
-            f'"beam.current"; got {device_parameter!r}'
-        )
-    declared = {
-        "unit": unit,
-        "limits": limits,
-        "choices": None if choices is None else tuple(choices),
-        "doc": doc,
-        "device_parameter": device_parameter,
-        "filepath": filepath,
-        "display": display,
-        "not_used": not_used,
-    }
-    return {key: value for key, value in declared.items() if value is not None}
+# The key a dataclass field's metadata keeps its Parameter under (param()).
+PARAMETER_KEY = "parameter"
 
 
 # The range a pattern or strategy length takes unless it says otherwise.
 DISTANCE_LIMITS = RangeLimit(0.01e-6, 1000e-6)
 
 
-def distance_metadata(
+def distance_param(
     label: str,
     doc: str,
     *,
@@ -402,9 +337,9 @@ def distance_metadata(
     step: float = 0.1,
     decimals: int = 2,
     advanced: bool = False,
-) -> Dict[str, Any]:
+) -> Parameter:
     """A length in metres, shown in µm."""
-    return field_meta(
+    return Parameter(
         unit="m",
         limits=limits,
         doc=doc,
@@ -414,8 +349,48 @@ def distance_metadata(
     )
 
 
+def param(
+    default: Any = MISSING,
+    parameter: Optional[Parameter] = None,
+    *,
+    default_factory: Any = MISSING,
+    init: bool = True,
+    repr: bool = True,
+    compare: bool = True,
+    **declared: Any,
+) -> Any:
+    """A dataclass field that declares its ``Parameter``::
+
+        width: float = param(10e-6, distance_param("Width", "Width of the pattern."))
+        rotation: float = param(
+            0.0,
+            unit="°",
+            limits=RangeLimit(0.0, 360.0),
+            doc="Rotation of the pattern.",
+            display=Display("Rotation", step=1.0, decimals=2),
+        )
+
+    The Parameter is ``parameter`` (a shared one, from a helper) with the keywords
+    on top, or just the keywords. The field gives the name and the type. The value
+    stays plain (``pattern.width`` is the float); the Parameter is read with
+    ``.params`` (``pattern.params.width.limits``) or ``field_specs``.
+    """
+    base = parameter if parameter is not None else Parameter()
+    checked = (replace(base, **declared) if declared else base)._checked()
+    return field(
+        default=default,
+        default_factory=default_factory,
+        init=init,
+        repr=repr,
+        compare=compare,
+        metadata={PARAMETER_KEY: checked},
+    )
+
+
 def field_specs(struct_cls: Type[Any]) -> Dict[str, Parameter]:
-    """Each field of a dataclass as a ``Parameter``, in declaration order.
+    """Each field of a dataclass as a ``Parameter``, in declaration order: the one it
+    declares (``param(...)``), with its name and annotation filled in, or
+    an empty one for a field that declares none.
 
     A field bound to a device parameter (``device_parameter``) takes the device's
     unit and display for what it leaves out, keeping its own label and placement,
@@ -424,20 +399,22 @@ def field_specs(struct_cls: Type[Any]) -> Dict[str, Parameter]:
     types = _field_types(struct_cls)
     specs: Dict[str, Parameter] = {}
     for f in fields(struct_cls):
-        declared = dict(f.metadata)
-        _warn_unknown_metadata_keys(struct_cls, f.name, declared)
-        known = {key: declared[key] for key in FIELD_METADATA_KEYS if key in declared}
-        display = known.pop("display", None) or Display()
-        bound = declared_device_parameter(known.get("device_parameter"))
+        _warn_unknown_metadata_keys(struct_cls, f.name, f.metadata)
+        declared = f.metadata.get(PARAMETER_KEY) or Parameter()
+        unit = declared.unit
+        display = declared.display or Display()
+        bound = declared_device_parameter(declared.device_parameter)
         if bound is not None:
-            known.setdefault("unit", bound.unit)
+            if unit is None:
+                unit = bound.unit
             display = _fill_display(display, bound.display)
-        if known.get("choices") is not None:
-            known["choices"] = tuple(known["choices"])
-        if known.get("doc") is None:
-            known.pop("doc", None)
-        specs[f.name] = Parameter(
-            name=f.name, type=types.get(f.name), display=display, **known
+        specs[f.name] = replace(
+            declared,
+            name=f.name,
+            type=types.get(f.name),
+            unit=unit,
+            doc=declared.doc or "",
+            display=display,
         )
     return specs
 
@@ -448,6 +425,66 @@ def flagged_fields(struct_cls: Type[Any], flag: str) -> Tuple[str, ...]:
     return tuple(
         name for name, spec in field_specs(struct_cls).items() if getattr(spec, flag)
     )
+
+
+class Params(Mapping[str, Parameter]):
+    """A dataclass's Parameters: by attribute (``params.width``), by name
+    (``params["width"]``), and in declaration order (``params.items()``)."""
+
+    def __init__(self, specs: Mapping[str, Parameter]):
+        self._specs = dict(specs)
+
+    def __getitem__(self, name: str) -> Parameter:
+        return self._specs[name]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._specs)
+
+    def __len__(self) -> int:
+        return len(self._specs)
+
+    def __getattr__(self, name: str) -> Parameter:
+        try:
+            return self.__dict__["_specs"][name]
+        except KeyError:
+            raise AttributeError(f"no field {name!r}") from None
+
+    def __repr__(self) -> str:
+        return f"Params({', '.join(self._specs)})"
+
+
+_params_cache: "weakref.WeakKeyDictionary[type, Params]" = weakref.WeakKeyDictionary()
+
+
+class _ParamsAccessor:
+    """``cls.params`` and ``instance.params``: the class's ``Params``, built once."""
+
+    def __get__(self, obj: Any, cls: type) -> Params:
+        found = _params_cache.get(cls)
+        if found is None:
+            found = _params_cache[cls] = Params(field_specs(cls))
+        return found
+
+
+class Configurable:
+    """A dataclass that describes itself: ``params`` reads each field's Parameter
+    (``RectanglePattern.params.width.limits``) and ``describe()`` gives the whole
+    class as a JSON Schema. The values stay plain dataclass fields."""
+
+    params = _ParamsAccessor()
+
+    @classmethod
+    def describe(cls) -> Dict[str, Any]:
+        """This class as a JSON Schema object; the dataclasses its fields hold are
+        under ``$defs``."""
+        from fibsem.schema import dataclass_schema
+
+        defs: Dict[str, Any] = {}
+        dataclass_schema(cls, defs)
+        schema = dict(defs.pop(cls.__name__))
+        if defs:
+            schema["$defs"] = defs
+        return schema
 
 
 def _fill_display(own: Display, device: Optional[DisplayHint]) -> Display:
@@ -478,24 +515,17 @@ def _warn_unknown_metadata_keys(
     because form metadata is re-read on every rebuild.
     """
     for key in metadata:
-        if key in FIELD_METADATA_KEYS:
+        if key == PARAMETER_KEY:
             continue
         marker = (struct_cls.__qualname__, field_name, key)
         if marker in _warned_metadata_keys:
             continue
         _warned_metadata_keys.add(marker)
-        replacement = RENAMED_METADATA_KEYS.get(key)
-        if replacement is not None:
-            logging.warning(
-                f"{struct_cls.__name__}.{field_name} declares metadata key {key!r}, which "
-                f"is no longer read; declare {replacement} instead. The field will render "
-                f"without it until the declaration is updated."
-            )
-        else:
-            logging.warning(
-                f"{struct_cls.__name__}.{field_name} declares metadata key {key!r}, which no "
-                f"form reads. Known keys: {', '.join(sorted(FIELD_METADATA_KEYS))}."
-            )
+        logging.warning(
+            f"{struct_cls.__name__}.{field_name} declares metadata key {key!r}, which no "
+            f"form reads. A field declares its unit, limits, doc and display as a "
+            f"Parameter: name: float = param(default, unit=..., doc=...)."
+        )
 
 
 def _field_types(struct_cls: Type[Any]) -> Dict[str, Any]:
@@ -1258,7 +1288,7 @@ def _is_valid_reduced_area(reduced_area: FibsemRectangle) -> bool:
 
 
 @dataclass
-class ImageSettings:
+class ImageSettings(Configurable):
     """A data class representing the settings for an image acquisition.
 
     Attributes:
@@ -1287,23 +1317,14 @@ class ImageSettings:
     # display time instead, where it is adjustable and reversible.
     # The beam-bound fields take their unit, limits, choices, scale, step and decimals
     # from the beam's parameter, and an instrument's limits win over these.
-    resolution: Tuple[int, int] = field(
-        default=(1536, 1024),
-        metadata=field_meta(
-            device_parameter="beam.resolution", display=Display("Resolution")
-        ),
+    resolution: Tuple[int, int] = param(
+        (1536, 1024), device_parameter="beam.resolution", display=Display("Resolution")
     )
-    dwell_time: float = field(
-        default=1e-6,
-        metadata=field_meta(
-            device_parameter="beam.dwell_time", display=Display("Dwell Time")
-        ),
+    dwell_time: float = param(
+        1e-6, device_parameter="beam.dwell_time", display=Display("Dwell Time")
     )
-    hfw: float = field(
-        default=150e-6,
-        metadata=field_meta(
-            device_parameter="beam.hfw", display=Display("Field of View")
-        ),
+    hfw: float = param(
+        150e-6, device_parameter="beam.hfw", display=Display("Field of View")
     )
     autocontrast: bool = False
     beam_type: BeamType = BeamType.ELECTRON
@@ -1312,23 +1333,14 @@ class ImageSettings:
     path: Optional[Union[Path, str]] = None
     reduced_area: Optional[FibsemRectangle] = None
     # None is off; a form shows it as 1.
-    line_integration: Optional[int] = field(
-        default=None,
-        metadata=field_meta(
-            limits=RangeLimit(1, 255), display=Display("Line Integration")
-        ),
+    line_integration: Optional[int] = param(
+        None, limits=RangeLimit(1, 255), display=Display("Line Integration")
     )
-    scan_interlacing: Optional[int] = field(
-        default=None,
-        metadata=field_meta(
-            limits=RangeLimit(1, 8), display=Display("Scan Interlacing")
-        ),
+    scan_interlacing: Optional[int] = param(
+        None, limits=RangeLimit(1, 8), display=Display("Scan Interlacing")
     )
-    frame_integration: Optional[int] = field(
-        default=None,
-        metadata=field_meta(
-            limits=RangeLimit(1, 512), display=Display("Frame Integration")
-        ),
+    frame_integration: Optional[int] = param(
+        None, limits=RangeLimit(1, 512), display=Display("Frame Integration")
     )
     drift_correction: bool = False  # (bool) # requires frame_integration > 1
 
@@ -2201,7 +2213,7 @@ class FibsemPolygonSettings(FibsemPatternSettings):
 
 
 @dataclass
-class FibsemMillingSettings:
+class FibsemMillingSettings(Configurable):
     """
     This class is used to store and retrieve settings for FIBSEM milling.
 
@@ -2219,113 +2231,86 @@ class FibsemMillingSettings:
 
     # The fields bound to a microscope parameter take its unit, limits, choices and
     # display from the milling beam, and an instrument's own win over these.
-    milling_current: float = field(
-        default=20.0e-12,
-        metadata=field_meta(
-            device_parameter="beam.current",
-            doc="The current used for milling. Higher currents mill faster but with less precision and more damage.",
-            display=Display("Milling Current"),
-        ),
+    milling_current: float = param(
+        20.0e-12,
+        device_parameter="beam.current",
+        doc="The current used for milling. Higher currents mill faster but with less precision and more damage.",
+        display=Display("Milling Current"),
     )
-    milling_voltage: float = field(
-        default=30e3,
-        metadata=field_meta(
-            device_parameter="beam.voltage",
-            doc="The voltage used for milling. Higher voltages provide higher energy ions for milling.",
-            display=Display("Milling Voltage", advanced=True),
-        ),
+    milling_voltage: float = param(
+        30e3,
+        device_parameter="beam.voltage",
+        doc="The voltage used for milling. Higher voltages provide higher energy ions for milling.",
+        display=Display("Milling Voltage", advanced=True),
     )
-    application_file: str = field(
-        default="Si",
-        metadata=field_meta(
-            device_parameter="beam.application_file",
-            doc="The application file used for milling. Note: this can be changed at runtime depending on the pattern and other parameters.",
-            display=Display("Application File", advanced=True),
-        ),
+    application_file: str = param(
+        "Si",
+        device_parameter="beam.application_file",
+        doc="The application file used for milling. Note: this can be changed at runtime depending on the pattern and other parameters.",
+        display=Display("Application File", advanced=True),
     )
-    patterning_mode: str = field(
-        default="Serial",
-        metadata=field_meta(
-            choices=["Serial", "Parallel"],
-            doc="The patterning mode used for milling. 'Serial' mills the entire pattern in one pass, 'Parallel' mills multiple pattern simultaneously.",
-            display=Display("Patterning Mode", advanced=True),
-        ),
+    patterning_mode: str = param(
+        "Serial",
+        choices=["Serial", "Parallel"],
+        doc="The patterning mode used for milling. 'Serial' mills the entire pattern in one pass, 'Parallel' mills multiple pattern simultaneously.",
+        display=Display("Patterning Mode", advanced=True),
     )
-    hfw: float = field(
-        default=150e-6,
-        metadata=field_meta(
-            limits=RangeLimit(20e-6, 950e-6),
-            device_parameter="beam.hfw",
-            doc="The horizontal field width used for milling. Patterns must fit within this field of view.",
-            display=Display("Field of View", hidden=True),
-        ),
+    hfw: float = param(
+        150e-6,
+        limits=RangeLimit(20e-6, 950e-6),
+        device_parameter="beam.hfw",
+        doc="The horizontal field width used for milling. Patterns must fit within this field of view.",
+        display=Display("Field of View", hidden=True),
     )
-    preset: str = field(
-        default="30 keV; 2nA",
-        metadata=field_meta(
-            device_parameter="beam.preset",
-            doc="The preset used for milling. Presets define the beam settings for different milling conditions.",
-            display=Display("Preset"),
-        ),
+    preset: str = param(
+        "30 keV; 2nA",
+        device_parameter="beam.preset",
+        doc="The preset used for milling. Presets define the beam settings for different milling conditions.",
+        display=Display("Preset"),
     )
     # 1 µm is the value the cryo lamella milling was validated at on hardware
     # (2026-07-22). Protocols do not set spot_size, so this default is what every
     # milling stage actually uses -- the `milling:` block in the system config is
     # not consulted for it (only milling_current is read from there).
-    spot_size: float = field(
-        default=1.0e-6,
-        metadata=field_meta(
-            unit="m",
-            # Real spot sizes are tens of nm -- the TESCAN default is 50 nm -- so a
-            # 1 µm minimum would clamp every real value up to 1 µm.
-            limits=RangeLimit(1e-9, 1e-4),
-            doc="The spot size for the ion beam during milling.",
-            display=Display("Spot Size", scale=1e6, step=0.01, decimals=3),
-        ),
+    spot_size: float = param(
+        1.0e-6,
+        unit="m",
+        limits=RangeLimit(1e-9, 1e-4),
+        doc="The spot size for the ion beam during milling.",
+        display=Display("Spot Size", scale=1e6, step=0.01, decimals=3),
     )
-    rate: float = field(
-        default=1.3e-8,
-        metadata=field_meta(
-            # mm³/A/s and TESCAN's own µm³/nA/s are numerically identical.
-            unit="m³/A/s",
-            doc="Ion etching rate — how much material one amp removes per "
-            "second. Equivalently µm³/nA/s, which is how TESCAN quotes "
-            "it. Default is the cryo lamella value; silicon is 0.3.",
-            display=Display("Rate", scale=1e9, unit="mm³/A/s"),
-        ),
+    rate: float = param(
+        1.3e-8,
+        unit="m³/A/s",
+        doc="Ion etching rate — how much material one amp removes per "
+        "second. Equivalently µm³/nA/s, which is how TESCAN quotes "
+        "it. Default is the cryo lamella value; silicon is 0.3.",
+        display=Display("Rate", scale=1e9, unit="mm³/A/s"),
     )
-    dwell_time: float = field(
-        default=1.0e-6,
-        metadata=field_meta(
-            unit="s",
-            doc="The dwell time for the ion beam during milling (µs).",
-            display=Display("Dwell Time", scale=1e6),
-        ),
+    dwell_time: float = param(
+        1.0e-6,
+        unit="s",
+        doc="The dwell time for the ion beam during milling (µs).",
+        display=Display("Dwell Time", scale=1e6),
     )
-    spacing: float = field(
-        default=0.005,
-        metadata=field_meta(
-            limits=RangeLimit(0.0, 100.0),
-            doc="Exposition mesh spacing — how finely the pattern is filled "
-            "with exposure points. Dimensionless; the TESCAN default is "
-            "1.0 and smaller values mill more finely and take longer.",
-            display=Display("Spacing", step=0.001, decimals=4),
-        ),
+    spacing: float = param(
+        0.005,
+        limits=RangeLimit(0.0, 100.0),
+        doc="Exposition mesh spacing — how finely the pattern is filled "
+        "with exposure points. Dimensionless; the TESCAN default is "
+        "1.0 and smaller values mill more finely and take longer.",
+        display=Display("Spacing", step=0.001, decimals=4),
     )
-    milling_channel: BeamType = field(
-        default=BeamType.ION,
-        metadata=field_meta(
-            choices=[BeamType.ION, BeamType.ELECTRON],
-            doc="The beam channel used for milling.",
-            display=Display("Milling Channel", hidden=True),
-        ),
+    milling_channel: BeamType = param(
+        BeamType.ION,
+        choices=[BeamType.ION, BeamType.ELECTRON],
+        doc="The beam channel used for milling.",
+        display=Display("Milling Channel", hidden=True),
     )
-    acquire_images: bool = field(
-        default=False,
-        metadata=field_meta(
-            doc="Whether to acquire images after milling.",
-            display=Display("Acquire Images", hidden=True),
-        ),
+    acquire_images: bool = param(
+        False,
+        doc="Whether to acquire images after milling.",
+        display=Display("Acquire Images", hidden=True),
     )
 
     def __post_init__(self):
@@ -2398,11 +2383,6 @@ class FibsemMillingSettings:
         )
 
         return milling_settings
-
-    @property
-    def field_specs(self) -> Dict[str, Parameter]:
-        """Each field as a form reads it."""
-        return field_specs(self.__class__)
 
     @property
     def advanced_attributes(self) -> Set[str]:
@@ -5368,23 +5348,19 @@ DEFAULT_ALIGNMENT_AREA = {"left": 0.7, "top": 0.3, "width": 0.25, "height": 0.4}
 
 
 @dataclass
-class MillingAlignment:
+class MillingAlignment(Configurable):
     """Drift correction settings for milling"""
 
     enabled: bool = True
-    interval_enabled: bool = field(
-        default=False,
-        metadata=field_meta(
-            not_used="drift correction during a mill is not built yet (FIB-13); "
-            "the task aligns before each stage only",
-        ),
+    interval_enabled: bool = param(
+        False,
+        not_used="drift correction during a mill is not built yet (FIB-13); "
+        "the task aligns before each stage only",
     )
-    interval: int = field(
-        default=30,
-        metadata=field_meta(
-            unit="s",
-            not_used="drift correction during a mill is not built yet (FIB-13)",
-        ),
+    interval: int = param(
+        30,
+        unit="s",
+        not_used="drift correction during a mill is not built yet (FIB-13)",
     )
     rect: FibsemRectangle = field(
         default_factory=lambda: FibsemRectangle.from_dict(DEFAULT_ALIGNMENT_AREA)
@@ -5430,30 +5406,16 @@ class MillingAlignment:
 
 
 @dataclass
-class ReferenceImageParameters:
+class ReferenceImageParameters(Configurable):
     imaging: ImageSettings = field(default_factory=ImageSettings)
-    field_of_view1: float = field(
-        default=100e-6,
-        metadata=field_meta(doc="Field of view for first reference image"),
+    field_of_view1: float = param(100e-6, doc="Field of view for first reference image")
+    field_of_view2: float = param(
+        150e-6, doc="Field of view for second reference image"
     )
-    field_of_view2: float = field(
-        default=150e-6,
-        metadata=field_meta(doc="Field of view for second reference image"),
-    )
-    acquire_sem: bool = field(
-        default=True, metadata=field_meta(doc="Whether to acquire SEM reference images")
-    )
-    acquire_fib: bool = field(
-        default=True, metadata=field_meta(doc="Whether to acquire FIB reference images")
-    )
-    acquire_image1: bool = field(
-        default=True,
-        metadata=field_meta(doc="Whether to acquire first reference image"),
-    )
-    acquire_image2: bool = field(
-        default=True,
-        metadata=field_meta(doc="Whether to acquire second reference image"),
-    )
+    acquire_sem: bool = param(True, doc="Whether to acquire SEM reference images")
+    acquire_fib: bool = param(True, doc="Whether to acquire FIB reference images")
+    acquire_image1: bool = param(True, doc="Whether to acquire first reference image")
+    acquire_image2: bool = param(True, doc="Whether to acquire second reference image")
 
     def to_dict(self) -> dict:
         return {
@@ -5509,16 +5471,16 @@ GRID_RADIUS = 1e-3  # 1mm
 
 
 @dataclass
-class SampleGrid:
+class SampleGrid(Configurable):
     """A physical TEM grid or sample that can be loaded into a GridSlot."""
 
     name: str
     description: str = ""
-    radius: float = field(
-        default=GRID_RADIUS,
-        metadata=field_meta(
-            unit="m", doc="Radius of the sample grid", display=Display(scale=1e3)
-        ),
+    radius: float = param(
+        GRID_RADIUS,
+        unit="m",
+        doc="Radius of the sample grid",
+        display=Display(scale=1e3),
     )
 
     def to_dict(self) -> dict:
@@ -5672,7 +5634,7 @@ class GridSlot:
 
 
 @dataclass
-class SampleHolder:
+class SampleHolder(Configurable):
     # First, and with no default, so it cannot be left out. The pre-tilt is a property
     # of *this holder* -- swap a 35 degree shuttle for a flat one and it changes with
     # the shuttle, which is why it stopped being a field on the stage.
@@ -5693,20 +5655,11 @@ class SampleHolder:
     # `_parent.system.stage.shuttle_pre_tilt`. That direction is now reversed, and
     # both cannot exist: the stage reads the holder, so a holder that read the stage
     # would recurse until the interpreter gave up.
-    pre_tilt: float = field(
-        metadata=field_meta(unit="°", doc="Pre-tilt of this holder, in degrees")
-    )
-    name: str = field(
-        default="Sample Holder", metadata=field_meta(doc="Name of the sample holder")
-    )
-    description: str = field(
-        default="", metadata=field_meta(doc="Description of the sample holder")
-    )
-    capacity: int = field(
-        default=2,
-        metadata=field_meta(
-            limits=RangeLimit(1, 12), doc="Number of grid slots on this holder"
-        ),
+    pre_tilt: float = param(unit="°", doc="Pre-tilt of this holder, in degrees")
+    name: str = param("Sample Holder", doc="Name of the sample holder")
+    description: str = param("", doc="Description of the sample holder")
+    capacity: int = param(
+        2, limits=RangeLimit(1, 12), doc="Number of grid slots on this holder"
     )
     slots: dict[str, GridSlot] = field(default_factory=dict)
 

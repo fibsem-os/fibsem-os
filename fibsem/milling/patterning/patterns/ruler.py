@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import (
     ClassVar,
     List,
@@ -8,17 +8,17 @@ from typing import (
 
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.milling.properties import (
-    cross_section_metadata,
-    distance_metadata,
-    passes_metadata,
-    scan_direction_metadata,
+    cross_section_param,
+    distance_param,
+    passes_param,
+    scan_direction_param,
 )
 from fibsem.structures import (
     CrossSectionPattern,
     Display,
     FibsemRectangleSettings,
     RangeLimit,
-    field_meta,
+    param,
 )
 
 
@@ -39,60 +39,51 @@ class RulerPattern(BasePattern[FibsemRectangleSettings]):
     ion-beam pattern would reach for something finer.
     """
 
-    n_ticks: int = field(
-        default=20,
-        metadata=field_meta(
-            limits=RangeLimit(1, 500),
-            doc="Number of notches, counted down from the origin.",
-            display=Display("Number of Ticks", step=1, decimals=0),
-        ),
+    n_ticks: int = param(
+        20,
+        limits=RangeLimit(1, 500),
+        doc="Number of notches, counted down from the origin.",
+        display=Display("Number of Ticks", step=1, decimals=0),
     )
-    pitch: float = field(
-        default=2.0e-6,
-        metadata=distance_metadata(
+    pitch: float = param(
+        2.0e-6,
+        distance_param(
             "Pitch",
             "Spacing between notches. Must stay above the fluorescence "
             "resolution, or neighbouring notches cannot be told apart.",
         ),
     )
-    tick_length: float = field(
-        default=2.0e-6,
-        metadata=distance_metadata("Tick Length", "Length of a minor notch."),
+    tick_length: float = param(
+        2.0e-6, distance_param("Tick Length", "Length of a minor notch.")
     )
-    major_length: float = field(
-        default=4.0e-6,
-        metadata=distance_metadata(
+    major_length: float = param(
+        4.0e-6,
+        distance_param(
             "Major Tick Length",
             "Length of a major notch, so position can be counted at a glance.",
         ),
     )
-    major_every: int = field(
-        default=5,
-        metadata=field_meta(
-            limits=RangeLimit(0, 100),
-            doc="Draw every Nth notch at the major length. 0 for a uniform comb.",
-            display=Display("Major Tick Every", step=1, decimals=0),
-        ),
+    major_every: int = param(
+        5,
+        limits=RangeLimit(0, 100),
+        doc="Draw every Nth notch at the major length. 0 for a uniform comb.",
+        display=Display("Major Tick Every", step=1, decimals=0),
     )
-    tick_thickness: float = field(
-        default=0.5e-6,
-        metadata=distance_metadata(
-            "Tick Thickness", "Thickness of each notch, across the ruler."
-        ),
+    tick_thickness: float = param(
+        0.5e-6,
+        distance_param("Tick Thickness", "Thickness of each notch, across the ruler."),
     )
-    depth: float = field(
-        default=1.0e-6,
-        metadata=distance_metadata(
+    depth: float = param(
+        1.0e-6,
+        distance_param(
             "Depth", "Milling depth. Deep enough to show up in fluorescence."
         ),
     )
-    scan_direction: str = field(
-        default="TopToBottom", metadata=scan_direction_metadata()
+    scan_direction: str = param("TopToBottom", scan_direction_param())
+    cross_section: CrossSectionPattern = param(
+        CrossSectionPattern.Rectangle, cross_section_param()
     )
-    cross_section: CrossSectionPattern = field(
-        default=CrossSectionPattern.Rectangle, metadata=cross_section_metadata()
-    )
-    passes: int = field(default=0, metadata=passes_metadata())
+    passes: int = param(0, passes_param())
 
     name: ClassVar[str] = "Ruler"
 

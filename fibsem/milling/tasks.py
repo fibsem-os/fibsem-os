@@ -7,7 +7,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from fibsem import acquire
 from fibsem import config as fcfg
@@ -28,44 +28,39 @@ from fibsem.services.milling import report_progress
 from fibsem.services.milling import task_running as _task_running
 from fibsem.structures import (
     BeamType,
+    Configurable,
     Display,
     FibsemImage,
     FibsemRectangle,
     ImageSettings,
     MillingAlignment,
     Point,
-    field_meta,
+    param,
 )
 from fibsem.util.timestamps import now_iso
 from fibsem.utils import current_timestamp_v3
 
 
 @dataclass
-class MillingTaskAcquisitionSettings:
+class MillingTaskAcquisitionSettings(Configurable):
     """Settings for the acquisition of images during a milling task."""
 
-    acquire_sem: bool = field(
-        default=False,
-        metadata=field_meta(
-            doc="Whether to acquire SEM images between the milling task stages.",
-            display=Display("Acquire SEM Image"),
-        ),
+    acquire_sem: bool = param(
+        False,
+        doc="Whether to acquire SEM images between the milling task stages.",
+        display=Display("Acquire SEM Image"),
     )
-    acquire_fib: bool = field(
-        default=False,
-        metadata=field_meta(
-            doc="Whether to acquire FIB images between the milling task stages.",
-            display=Display("Acquire FIB Image"),
-        ),
+    acquire_fib: bool = param(
+        False,
+        doc="Whether to acquire FIB images between the milling task stages.",
+        display=Display("Acquire FIB Image"),
     )
-    acquire_final_image: bool = field(
-        default=True,
-        metadata=field_meta(
-            doc="Refresh the FIB view with a single image once the task finishes. "
-            "Disable for low-kV polishing, where imaging the lamella with a "
-            "higher-voltage beam undoes the polish.",
-            display=Display("Acquire Final Image"),
-        ),
+    acquire_final_image: bool = param(
+        True,
+        doc="Refresh the FIB view with a single image once the task finishes. "
+        "Disable for low-kV polishing, where imaging the lamella with a "
+        "higher-voltage beam undoes the polish.",
+        display=Display("Acquire Final Image"),
     )
     imaging: ImageSettings = field(default_factory=ImageSettings)
 
@@ -206,7 +201,7 @@ def describe_config_fields(config: "FibsemMillingTaskConfig") -> Dict[str, Any]:
 
 
 @dataclass
-class FibsemMillingTaskConfig:
+class FibsemMillingTaskConfig(Configurable):
     """Configuration for a milling task."""
 
     name: str = "Milling Task"

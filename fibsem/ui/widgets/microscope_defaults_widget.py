@@ -54,7 +54,7 @@ from fibsem.ui.widgets.form_builder import configure_spinbox, parameter_spec
 
 # How the field of view and dwell time are shown: as the Image tab shows them, from
 # ImageSettings' field metadata, which takes the beam's display hint and limits.
-_IMAGE = field_specs(ImageSettings)
+_IMAGE = ImageSettings.params
 
 
 def _beam_box(name: str) -> ValueSpinBox:

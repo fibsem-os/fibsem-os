@@ -16,7 +16,7 @@ from fibsem.structures import (
     Parameter,
     Point,
     RangeLimit,
-    field_meta,
+    param,
 )
 
 
@@ -29,14 +29,12 @@ class Mode(Enum):
 class Recipe:
     """A probe recipe."""
 
-    width: float = field(
-        default=10e-6,
-        metadata=field_meta(
-            unit="m",
-            limits=RangeLimit(1e-6, 1e-3),
-            doc="The width.",
-            display=Display("Width", scale=1e6),
-        ),
+    width: float = param(
+        10e-6,
+        unit="m",
+        limits=RangeLimit(1e-6, 1e-3),
+        doc="The width.",
+        display=Display("Width", scale=1e6),
     )
     mode: Mode = Mode.FAST
     centre: Point = field(default_factory=Point)

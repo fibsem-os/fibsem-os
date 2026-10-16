@@ -19,40 +19,41 @@ from typing import (
 
 import numpy as np
 
-from fibsem.milling.properties import distance_metadata
+from fibsem.milling.properties import distance_param
 from fibsem.structures import (
+    Configurable,
     CrossSectionPattern,
     Display,
     Parameter,
     Point,
     RangeLimit,
     TFibsemPatternSettings,
-    field_meta,
     field_specs,
     flagged_fields,
+    param,
 )
 
 TPattern = TypeVar("TPattern", bound="BasePattern")
 
 
 @dataclass
-class BasePattern(ABC, Generic[TFibsemPatternSettings]):
+class BasePattern(Configurable, ABC, Generic[TFibsemPatternSettings]):
     name: ClassVar[str] = field(init=False)
     # Its type, Point, comes from the annotation: the form dispatches the
     # two-spinbox row on it. An offset from the image centre, so signed.
-    point: Point = field(
-        default_factory=Point,
-        metadata=distance_metadata(
+    point: Point = param(
+        parameter=distance_param(
             "Point",
             "Point coordinates for the milling pattern.",
             limits=RangeLimit(-1e-3, 1e-3),
             advanced=True,
         ),
+        default_factory=Point,
     )
     # Computed by define(), never edited: the form skips it on `hidden` rather
     # than on a hardcoded field name, so a plugin can hide its own fields too.
-    shapes: Optional[List[TFibsemPatternSettings]] = field(
-        default=None, init=False, metadata=field_meta(display=Display(hidden=True))
+    shapes: Optional[List[TFibsemPatternSettings]] = param(
+        None, display=Display(hidden=True), init=False
     )
 
     @abstractmethod
@@ -115,11 +116,6 @@ class BasePattern(ABC, Generic[TFibsemPatternSettings]):
         # calculate the total volume of the milling pattern (sum of all shapes)
         return sum([shape.volume for shape in self.define()])
 
-    @property
-    def field_specs(self) -> Dict[str, Parameter]:
-        """Each field as a form reads it."""
-        return field_specs(self.__class__)
-
     def summary(self) -> str:
         """Return a multi-line human-readable summary of key pattern parameters."""
         from fibsem.utils import format_value
@@ -129,7 +125,7 @@ class BasePattern(ABC, Generic[TFibsemPatternSettings]):
             if attr in self.advanced_attributes:
                 continue
             val = getattr(self, attr)
-            spec = self.field_specs.get(attr)
+            spec = self.params.get(attr)
             unit = spec.unit if spec else None
             label = (spec and spec.label) or attr.replace("_", " ").title()
             if isinstance(val, float) and unit:

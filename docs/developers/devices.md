@@ -722,7 +722,8 @@ device server's `GET /devices`), so an agent shows it as a form does.
 
 A `DeviceParameter` is a `fibsem.structures.Parameter` (type, SI unit, SI limits,
 choices, doc, `Display`) with the binding to the hardware added. A dataclass field
-declares the same `Parameter` through `field_meta`, so a form, a description and the
+declares the same `Parameter` with `param(default, ...)` and reads it back as
+`Config.params.name`, so a form, a description and the
 JSON Schema of a command's arguments (`fibsem.schema`, the `arguments` of each command
 in `GET /devices`) read a device parameter and a recipe field the same way. A field
 bound to a device parameter names it as `device_parameter="beam.current"`.
