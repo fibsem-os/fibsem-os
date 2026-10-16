@@ -879,6 +879,39 @@ def _auto_focus(a: Dict[str, Any]) -> Dict[str, Any]:
     return {"what": _beam(a), "change": change}
 
 
+def _channel_setting(key: str, value: Any) -> str:
+    """One ChannelSettings field as the FM panel shows it: wavelengths in nm
+    (as stored), exposure in ms, power and gain as % of full."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return f"{_words(key)} {_short(value)}"
+    if key.endswith("wavelength"):
+        shown = f"{_number(number)} nm"
+    elif key == "exposure_time":
+        shown = f"{_number(number * 1e3)} ms"
+    elif key in ("power", "gain"):
+        shown = f"{_number(number * 100)}%"
+    else:
+        shown = _short(value)
+    return f"{_words(key).replace('time', '').strip()} {shown}"
+
+
+def _z_range(z: Dict[str, Any]) -> str:
+    """A z-stack's range about the objective, "−10 µm to +10 µm in 1 µm steps
+    (21 planes)"; "" when the call doesn't say."""
+    try:
+        zmin, zmax, zstep = float(z["zmin"]), float(z["zmax"]), float(z["zstep"])
+    except (KeyError, TypeError, ValueError):
+        return ""
+    sign = "" if zmax < 0 else "+"
+    text = f"{_minus(_distance(zmin))} to {sign}{_minus(_distance(zmax))}"
+    text += f" in {_distance(zstep)} steps"
+    if zstep > 0 and zmax > zmin:
+        text += f" ({int(round((zmax - zmin) / zstep)) + 1} planes)"
+    return text
+
+
 def _fm_channels(a: Dict[str, Any], change: str) -> Dict[str, Any]:
     """*change* in the channels the call names, with their settings as details."""
     channels = [c for c in a.get("channels") or [] if isinstance(c, dict)]
@@ -890,7 +923,7 @@ def _fm_channels(a: Dict[str, Any], change: str) -> Dict[str, Any]:
     table = [
         (
             str(c.get("name") or ""),
-            ", ".join(f"{_words(k)} {_short(v)}" for k, v in c.items() if k != "name"),
+            ", ".join(_channel_setting(k, v) for k, v in c.items() if k != "name"),
         )
         for c in channels
     ]
@@ -910,7 +943,10 @@ def _fm_overview(a: Dict[str, Any]) -> Dict[str, Any]:
 
 def _fm_image(a: Dict[str, Any]) -> Dict[str, Any]:
     zparams = a.get("zparams") if isinstance(a.get("zparams"), dict) else None
-    return _fm_channels(a, "Take a z-stack" if zparams else "Take an image")
+    if not zparams:
+        return _fm_channels(a, "Take an image")
+    z = _z_range(zparams)
+    return _fm_channels(a, f"Take a z-stack, {z}," if z else "Take a z-stack")
 
 
 _ALIGN_WITH = {

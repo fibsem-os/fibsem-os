@@ -771,6 +771,24 @@ def test_a_run_task_reads_by_its_stages_with_whose_estimate_it_is():
             "Point of interest: (+1, 0) → (+2, 0) µm",
         ),
         (
+            "fm_acquire_image",
+            {
+                "channels": [
+                    {
+                        "name": "GFP",
+                        "excitation_wavelength": 488,
+                        "power": 0.05,
+                        "exposure_time": 0.1,
+                    }
+                ],
+                "zparams": {"zmin": -10e-6, "zmax": 10e-6, "zstep": 1e-6},
+            },
+            {},
+            "Fluorescence",
+            "Take a z-stack, −10 µm to +10 µm in 1 µm steps (21 planes), "
+            "in 1 channel (GFP), here",
+        ),
+        (
             "experiment_load",
             {"path": "C:\\data\\AutoLamella-2026-10-15\\experiment.yaml"},
             {
@@ -1080,3 +1098,24 @@ def test_no_details_table_has_blank_headers():
     ):
         details = describe_action(tool, arguments, "").get("details")
         assert details is None or all(details["columns"]), tool
+
+
+def test_fluorescence_channel_settings_read_in_the_fm_panel_s_units():
+    """Sim session 2026-10-16 F5: "power 0.05, exposure time 0.1"."""
+    from fibsem.server.request_text import describe_action
+
+    channel = {
+        "name": "GFP",
+        "excitation_wavelength": 488,
+        "emission_wavelength": 520,
+        "power": 0.05,
+        "exposure_time": 0.1,
+    }
+    line = describe_action("fm_acquire_image", {"channels": [channel]}, "")
+    assert line["details"]["rows"] == [
+        [
+            "GFP",
+            "excitation wavelength 488 nm, emission wavelength 520 nm, "
+            "power 5%, exposure 100 ms",
+        ]
+    ]
