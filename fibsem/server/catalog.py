@@ -471,13 +471,14 @@ CATALOG: Tuple[ToolSpec, ...] = (
         name="inference_segment",
         description=(
             "Segment a saved image (inside the open experiment) with a registered "
-            "model: each class's share of the image, area in um2 and region count, "
-            "which model made it (name, version, backend, settings, seconds) and "
+            "model: each class's share of the image, area in um2, region count and "
+            "largest regions' centres in pixels (experiment_get_image_stage_position "
+            "turns one into a stage position), which model made it (name, version, backend, settings, seconds) and "
             "warnings. Refused 422 for an image the model was not trained on (the "
             "wrong beam, a pixel size outside its range), 404 for a model not "
             "registered. Saves the mask, an overlay you can look at (overlay_path, "
             "experiment_read_file) and the result in an inference folder beside the "
-            "image. Moves nothing."
+            "image. A stitched overview runs a tile at a time. Moves nothing."
         ),
         method="POST",
         path="/microscope/services/inference/queries/segment",
