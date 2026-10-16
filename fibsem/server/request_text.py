@@ -702,6 +702,29 @@ def _focus_stack(a: Dict[str, Any]) -> Dict[str, Any]:
     return {"what": _beam(image), "change": change}
 
 
+def _auto_focus(a: Dict[str, Any]) -> Dict[str, Any]:
+    """The sweep's passes, as the operator reads them: "50 µm in 5 µm steps"."""
+    if str(a.get("method") or "sweep").lower() == "instrument":
+        return {"what": _beam(a), "change": "Autofocus with the instrument's routine"}
+    settings = a.get("settings") if isinstance(a.get("settings"), dict) else {}
+    passes = settings.get("passes")
+    if not isinstance(passes, list) or not passes:
+        from fibsem.autofunctions.autofocus import AutoFocusSettings
+
+        passes = [vars(p) for p in AutoFocusSettings().passes]
+    steps = [
+        f"{_distance(p.get('search_range'))} in {_distance(p.get('step_size'))} steps"
+        for p in passes
+        if isinstance(p, dict) and p.get("enabled", True)
+    ]
+    change = "Focus by sweeping the working distance"
+    if steps:
+        change += ": " + ", then ".join(steps)
+    if a.get("hfw") is not None:
+        change += f", images {_distance(a['hfw'])} wide"
+    return {"what": _beam(a), "change": change}
+
+
 def _fm_channels(a: Dict[str, Any], change: str) -> Dict[str, Any]:
     """*change* in the channels the call names, with their settings as details."""
     channels = [c for c in a.get("channels") or [] if isinstance(c, dict)]
@@ -1122,7 +1145,7 @@ def _line(
     if tool == "beam_auto_brightness_contrast":
         return {"what": _beam(a), "change": "Auto brightness and contrast"}
     if tool == "beam_auto_focus":
-        return {"what": _beam(a), "change": "Autofocus"}
+        return _auto_focus(a)
     if tool == "beam_acquire_overview":
         return _overview(a)
     if tool == "beam_acquire_focus_stack":

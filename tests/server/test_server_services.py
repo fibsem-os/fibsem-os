@@ -527,3 +527,57 @@ def test_what_a_structure_writes_it_reads_back(read_client):
     resp = read_client.post(path, json={"kwargs": {"settings": settings}})
     assert resp.status_code == 200, resp.text
     assert resp.json()["result"]["nrows"] == 2
+
+
+def _tool(client, name, arguments):
+    from fibsem.server.catalog import CATALOG, route_call
+
+    spec = next(spec for spec in CATALOG if spec.name == name)
+    method, path, body = route_call(spec, arguments)
+    return path, client.request(method, path, json=body)
+
+
+def test_beam_auto_focus_sweeps_and_answers_each_step(armed_client, microscope):
+    settings = {
+        "passes": [{"search_range": 20e-6, "step_size": 10e-6}],
+        "probe_resolution": [64, 64],
+        "use_autocontrast": False,
+    }
+    path, resp = _tool(
+        armed_client, "beam_auto_focus", {"beam_type": "ELECTRON", "settings": settings}
+    )
+    assert path.endswith("/imaging/commands/focus_sweep")
+    assert resp.status_code == 200, resp.text
+    result = resp.json()["result"]
+    steps = result["iterations"]
+    assert len(steps) == 3
+    assert all({"working_distance", "focus_score"} <= set(step) for step in steps)
+    tried = [step["working_distance"] for step in steps]
+    best = result["working_distance"]
+    assert result["at_edge"] is (best in (min(tried), max(tried)))
+    beam = microscope.beams[BeamType.ELECTRON]
+    assert beam.working_distance.get_value() == pytest.approx(best)
+
+
+def test_beam_auto_focus_asks_the_instrument_with_method_instrument(armed_client):
+    path, resp = _tool(armed_client, "beam_auto_focus", {"method": "instrument"})
+    assert path.endswith("/imaging/commands/auto_focus")
+    assert resp.status_code == 200, resp.text
+    with pytest.raises(ValueError, match="method sweep"):
+        _tool(armed_client, "beam_auto_focus", {"method": "instrument", "hfw": 1e-4})
+
+
+def test_a_sweep_that_cannot_set_the_working_distance_asks_the_instrument(
+    armed_client, microscope, monkeypatch
+):
+    """Tescan's ion beam: nothing to sweep, so its own autofocus, and it says so."""
+    monkeypatch.setattr(
+        microscope, "is_working_distance_settable", lambda beam_type: False
+    )
+    _, resp = _tool(armed_client, "beam_auto_focus", {"beam_type": "ION"})
+    assert resp.status_code == 200, resp.text
+    result = resp.json()["result"]
+    assert result["focused_with"] == "instrument"
+    assert "ION beam's working distance can't be set" in result["reason"]
+    beam = microscope.beams[BeamType.ION]
+    assert result["working_distance"] == pytest.approx(beam.working_distance.cached)
