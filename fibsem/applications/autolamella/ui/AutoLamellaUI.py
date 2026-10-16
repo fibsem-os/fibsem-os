@@ -190,7 +190,7 @@ class AutoLamellaUI(QMainWindow):
     # Everything the workflow says without needing an answer, as a
     # WorkflowStatusEvent. Questions and instructions do not travel on a signal
     # at all: they are typed requests to the QtResponder, each on its own
-    # future (workflows/interaction.py) — the dict workflow_update_signal that
+    # future (fibsem/workflows/interaction.py) — the dict workflow_update_signal that
     # once carried all three kinds of traffic is gone.
     workflow_status_signal = pyqtSignal(object)
     # Its own signal: a queue edit is not a step in the task lifecycle and must
@@ -279,7 +279,7 @@ class AutoLamellaUI(QMainWindow):
         # border, status bar and timeline pause read it. The cross-thread
         # flag-poll it used to be -- USER_RESPONSE, WAITING_FOR_UI_UPDATE -- is
         # gone: every workflow interaction is a typed request on its own future
-        # (workflows/interaction.py).
+        # (fibsem/workflows/interaction.py).
         self.hold: Optional[Hold] = None
         # A state question a task asked (``AutoLamellaTask.ask`` with the
         # ``state`` kind), shown on the prompt bar: (item_id, task_name,
