@@ -10,6 +10,7 @@ from __future__ import annotations
 import collections.abc
 import dataclasses
 import difflib
+import inspect
 import logging
 import types
 import typing
@@ -172,7 +173,9 @@ def type_hints(func: Callable[..., Any]) -> Dict[str, Any]:
         return typing.get_type_hints(func)
     except Exception:
         pass
-    target = getattr(func, "__func__", func)  # a bound method's function
+    # A bound method's function, and under a wrapper (a long command's) the
+    # function it wraps, whose module the hints name things in.
+    target = inspect.unwrap(getattr(func, "__func__", func))
     globalns = getattr(target, "__globals__", {})
     hints: Dict[str, Any] = {}
     for name, annotation in getattr(target, "__annotations__", {}).items():

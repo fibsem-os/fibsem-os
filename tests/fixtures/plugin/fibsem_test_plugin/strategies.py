@@ -1,7 +1,7 @@
 """Fixture milling strategy."""
 
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 from fibsem.microscope import FibsemMicroscope
@@ -10,13 +10,13 @@ from fibsem.milling.base import (
     MillingStrategy,
     MillingStrategyConfig,
 )
-from fibsem.structures import Display
+from fibsem.structures import Display, param
 from fibsem_test_plugin import STRATEGY_NAME
 
 
 @dataclass
 class FixtureMillingStrategyConfig(MillingStrategyConfig):
-    passes: int = field(default=1, metadata={"display": Display("Passes")})
+    passes: int = param(1, display=Display("Passes"))
 
 
 class FixtureMillingStrategy(MillingStrategy[FixtureMillingStrategyConfig]):

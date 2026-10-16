@@ -10,8 +10,12 @@ log). No menu and no dialog.
 At Assist the agent acts by asking (FIB-1283). While its request waits, the chip
 turns amber, "Agent asks", and the card shows the request. Only one request waits
 at a time, so the chip carries no count. A suggested answer to the run's question
-turns it amber too, "Agent suggests", and the card shows it with Accept
-(FIB-1407).
+says "Agent suggests" in its level's look, not amber (the run's Attention
+Required already is), and the card shows it with Accept
+(FIB-1407). Either one opens the card on its own, floating, so it is seen without
+a click (`show_card`).
+
+While the agent acts on the microscope (the card's Now line), the chip pulses.
 
 The card can float (FIB-1404): its button moves it into a window of its own, a
 tool window over the app (never over other apps) that the operator moves and
@@ -26,9 +30,10 @@ What a pick does -- setting the App Server's level -- is the window's.
 
 from __future__ import annotations
 
+import math
 from typing import Any, Callable, Dict, Optional
 
-from PyQt5.QtCore import QPoint, QRect, Qt, pyqtSignal
+from PyQt5.QtCore import QPoint, QRect, Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import QFrame, QPushButton, QVBoxLayout, QWidget
 
 from fibsem.applications.autolamella.ui.agent_card import (
@@ -40,6 +45,7 @@ from fibsem.applications.autolamella.ui.agent_style import (
     LEVEL_TIPS,
     LEVEL_WORDS,
     REQUEST_CHIP,
+    pulse_chip,
 )
 from fibsem.server.levels import AgentLevel
 from fibsem.ui.tokens import (
@@ -58,6 +64,12 @@ __all__ = [
     "last_heard_text",
     "request_outcome",
 ]
+
+# While the agent acts on the microscope the chip pulses: its fill fades and
+# comes back once per cycle, and a cycle always runs to its end, so a quick
+# action (an image) is one whole pulse rather than a flicker.
+PULSE_MS = 1600
+PULSE_STEP_MS = 50
 
 # The card's width on the chip: wide while something waits for the operator (the
 # actions beside the reason and the decision), narrow otherwise.
@@ -153,6 +165,9 @@ class FloatingPanel(QWidget):
         super().__init__(parent, _OVER_APP)
         self.setWindowTitle("Agent")
         self.setObjectName("agentPanel")
+        # Opened by a request arriving, not only by a click: it never takes the
+        # keyboard from what the operator is typing in.
+        self.setAttribute(Qt.WA_ShowWithoutActivating)  # type: ignore
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
 
@@ -202,6 +217,11 @@ class AgentLevelChip(QPushButton):
         self._request: Optional[Dict[str, Any]] = None
         self._suggestion: Optional[Dict[str, str]] = None
         self.setCursor(Qt.PointingHandCursor)  # type: ignore
+        self._acting = False
+        self._pulse_ms = 0
+        self._pulse = QTimer(self)
+        self._pulse.setInterval(PULSE_STEP_MS)
+        self._pulse.timeout.connect(self._on_pulse)
 
         self.card = AgentCard()
         self.card.level_chosen.connect(self._on_chosen)
@@ -254,10 +274,16 @@ class AgentLevelChip(QPushButton):
     def set_request(self, request: Optional[Dict[str, Any]]) -> None:
         """Show the agent's request waiting or being applied, or None for none.
         Does not emit: this is the window telling the chip."""
+        shown = (self._request or {}).get("request_id")
+        arrived = (request or {}).get("status") == "pending" and (request or {}).get(
+            "request_id"
+        ) != shown
         self._request = dict(request) if request is not None else None
         self.card.set_request(self._request)
         self._paint()
         self._fit_popup()
+        if arrived:
+            self.show_card()
 
     @property
     def suggestion(self) -> Optional[Dict[str, str]]:
@@ -266,15 +292,35 @@ class AgentLevelChip(QPushButton):
     def set_suggestion(self, suggestion: Optional[Dict[str, str]]) -> None:
         """Show the agent's suggested answer (see `AgentCard.set_suggestion`),
         or None for none. Does not emit: this is the window telling the chip."""
+        arrived = suggestion is not None and dict(suggestion) != self._suggestion
         self._suggestion = dict(suggestion) if suggestion is not None else None
         self.card.set_suggestion(self._suggestion)
         self._paint()
         self._fit_popup()
+        if arrived:
+            self.show_card()
 
     def set_now(self, action: Optional[str]) -> None:
-        """What the agent is doing on the microscope, for the card."""
+        """What the agent is doing on the microscope, for the card; the chip
+        pulses while it does something."""
         self.card.set_now(action)
         self._fit_popup()
+        self._acting = action is not None
+        if self._acting and not self._pulse.isActive():
+            self._pulse_ms = 0
+            self._pulse.start()
+
+    @property
+    def pulsing(self) -> bool:
+        return self._pulse.isActive()
+
+    def _on_pulse(self) -> None:
+        self._pulse_ms += PULSE_STEP_MS
+        if self._pulse_ms >= PULSE_MS:
+            self._pulse_ms = 0
+            if not self._acting:
+                self._pulse.stop()
+        self._paint()
 
     def set_recent(self, rows) -> None:
         """What the agent did lately, for the card's Recent."""
@@ -300,10 +346,16 @@ class AgentLevelChip(QPushButton):
             text, style = chip_request_text(self._request), REQUEST_CHIP
             tooltip = "The agent is asking: click to see what, and decide"
         elif self._suggestion is not None:
-            text, style = "Agent suggests", REQUEST_CHIP
+            # Not amber: the run's Attention Required already is, for the same
+            # question, and the card opens itself with the suggestion.
+            text = "Agent suggests"
             tooltip = (
                 "The agent suggests an answer to the run's question: click to see it"
             )
+        elif self._pulse.isActive():
+            # Full at the start and end of a cycle, faintest halfway.
+            phase = 2 * math.pi * self._pulse_ms / PULSE_MS
+            style = pulse_chip(0.5 + 0.5 * math.cos(phase))
         self.setText(text)
         self.setStyleSheet(style)
         self.setToolTip(tooltip + _HELP)
@@ -326,6 +378,16 @@ class AgentLevelChip(QPushButton):
         self._fit_popup()
         self.popup.show()
         self._fit_popup()
+
+    def show_card(self) -> None:
+        """The card, floating, for something new waiting for the operator: a
+        request or a suggestion. Its own window rather than the popup, which
+        takes the mouse and closes on the next click elsewhere; closed, it
+        stays closed until the next one. Already open, it stays where it is."""
+        if not self.isVisible() or self.popup.isVisible():
+            return
+        self.float_card()
+        self.panel.raise_()
 
     def _on_float_clicked(self) -> None:
         if self.floating:
@@ -351,8 +413,9 @@ class AgentLevelChip(QPushButton):
             self.panel.setGeometry(self._panel_geometry)
         else:
             self.panel.resize(self._card_width(), self.card.sizeHint().height())
-            if start is not None:
-                self.panel.move(start.topLeft())
+            self.panel.move(
+                start.topLeft() if start is not None else self._above_chip(self.panel)
+            )
         self.panel.show()
         self.panel.raise_()
 
@@ -383,14 +446,19 @@ class AgentLevelChip(QPushButton):
         popup.adjustSize()
         if not popup.isVisible():
             return
+        popup.move(self._above_chip(popup))
+
+    def _above_chip(self, window: QWidget) -> QPoint:
+        """Where *window* stands above the chip, its right edge on the chip's,
+        inside the screen."""
         corner = self.mapToGlobal(QPoint(self.width(), 0))
-        x = corner.x() - popup.width()
-        y = corner.y() - popup.height() - 4
+        x = corner.x() - window.width()
+        y = corner.y() - window.height() - 4
         screen = self.screen().availableGeometry() if self.screen() else None
         if screen is not None:
-            x = max(screen.left(), min(x, screen.right() - popup.width()))
+            x = max(screen.left(), min(x, screen.right() - window.width()))
             y = max(screen.top(), y)
-        popup.move(x, y)
+        return QPoint(x, y)
 
     def _closing(self, signal):
         def emit() -> None:

@@ -58,6 +58,7 @@ def test_a_blocked_entry_is_refused_at_drive_and_stays_readable(client):
     for device, command in (
         ("stage", "home"),
         ("stage", "link"),
+        ("stage", "move_absolute"),
         ("manipulator", "insert"),
     ):
         refused = client.post(
@@ -84,7 +85,7 @@ def test_the_listings_mark_what_the_agent_may_not_use(client):
     assert electron["parameters"]["on"]["agent"] is False
     assert electron["parameters"]["voltage"]["agent"] is True
     assert devices["stage"]["commands"]["home"]["agent"] is False
-    assert devices["stage"]["commands"]["move_absolute"]["agent"] is True
+    assert devices["stage"]["commands"]["move_absolute"]["agent"] is False
     assert all(
         not info["agent"] for info in devices["manipulator"]["commands"].values()
     )
@@ -92,6 +93,10 @@ def test_the_listings_mark_what_the_agent_may_not_use(client):
     assert devices["chamber"]["parameters"]["state"]["agent"] is True
     services = client.get("/microscope/services").json()
     assert services["stage_movement"]["commands"]["move_to_device"]["agent"] is True
+    # The raw absolute move is blocked; the safe one is the agent's.
+    commands = services["stage_movement"]["commands"]
+    assert commands["move_absolute"]["agent"] is False
+    assert commands["safe_absolute_stage_movement"]["agent"] is True
 
 
 def test_a_path_is_refused_outside_the_open_experiment(client, tmp_path):

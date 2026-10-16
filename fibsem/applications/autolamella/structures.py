@@ -65,6 +65,7 @@ from fibsem.correlation.config import CorrelationConfig
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.structures import (
     DEFAULT_ALIGNMENT_AREA,
+    Configurable,
     FibsemImage,
     FibsemRectangle,
     FibsemStagePosition,
@@ -215,7 +216,7 @@ class AutoLamellaTaskState:
 
 @evented
 @dataclass
-class AutoLamellaTaskConfig(ABC):
+class AutoLamellaTaskConfig(Configurable, ABC):
     """Configuration for AutoLamella tasks."""
 
     task_type: ClassVar[str]
@@ -235,11 +236,6 @@ class AutoLamellaTaskConfig(ABC):
     def parameters(self) -> Tuple[str, ...]:
         core_params = [f.name for f in fields(AutoLamellaTaskConfig)]
         return tuple(f.name for f in fields(self) if f.name not in core_params)
-
-    @property
-    def field_specs(self) -> Dict[str, Parameter]:
-        """Each field as a form reads it, as patterns and milling strategies expose."""
-        return field_specs(self.__class__)
 
     def to_dict(self) -> dict:
         """Convert configuration to a dictionary."""
@@ -3146,6 +3142,32 @@ class Experiment:
             logging.info(f"Updated base protocol tasks: {task_names}")
 
         return updated_count
+
+    def add_task(self, task_type: str, task_name: str) -> AutoLamellaTaskConfig:
+        """Add a new task of a registered *task_type*, named *task_name*: its
+        default config in the protocol, at the end of the workflow (required,
+        supervised), and a copy on every lamella. The protocol editor's Add
+        Task, and an agent's. Raises ValueError for an unknown type or a name
+        the protocol already has."""
+        from fibsem.applications.autolamella.workflows.tasks import get_tasks
+
+        task_name = task_name.strip()
+        registry = get_tasks()
+        if task_type not in registry:
+            raise ValueError(f"No task type {task_type!r}.")
+        if not task_name:
+            raise ValueError("A task needs a name.")
+        if task_name in self.task_protocol.task_config:
+            raise ValueError(f"There is already a task named {task_name!r}.")
+        config = registry[task_type].config_cls()  # type: ignore[attr-defined]
+        config.task_name = task_name
+        self.task_protocol.task_config[task_name] = config
+        self.task_protocol.workflow_config.add_task(config)
+        for lamella in self.positions:
+            lamella.task_config[task_name] = deepcopy(config)
+            lamella._sync_imaging_paths()
+        logging.info(f"Added task {task_name} ({task_type}) to experiment {self.name}")
+        return config
 
     def remove_task(self, task_name: str) -> None:
         """Remove a task from the experiment: from the protocol, from the

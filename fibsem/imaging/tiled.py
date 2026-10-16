@@ -16,6 +16,7 @@ from fibsem.cancellation import (
     OperationCancelledError,
     raise_if_cancelled,
 )
+from fibsem.devices.beam import scanned_resolution
 
 # Moved to the `tiling` package (FIB-390); re-exported so existing importers and the
 # public API are unaffected. `fibsem/imaging/__init__.py` star-imports this module.
@@ -28,7 +29,7 @@ from fibsem.imaging.tiling.geometry import (  # noqa: E402,F401
     raise_if_outside_stage_limits,
     validate_tile_stage_positions,
 )
-from fibsem.imaging.tiling.layout_check import LAYOUT_FILE, TileLayoutCheck
+from fibsem.imaging.tiling.layout_check import TileLayoutCheck
 from fibsem.imaging.tiling.plotting import (  # noqa: E402,F401
     POSITION_COLOURS,
     plot_minimap,
@@ -42,9 +43,9 @@ from fibsem.imaging.tiling.progress import (
     report_tiled_progress,
 )
 from fibsem.imaging.tiling.registration import (
+    Registration,
     compose_mosaic,
-    layout_summary,
-    registered_positions,
+    measure_registration,
 )
 from fibsem.imaging.tiling.reprojection import (  # noqa: E402,F401
     _inverse_y_corrected_stage_movement,
@@ -54,10 +55,12 @@ from fibsem.imaging.tiling.reprojection import (  # noqa: E402,F401
     reproject_stage_positions_onto_image,
     reproject_stage_positions_onto_image2,
 )
+from fibsem.imaging.tiling.result import OverviewResult
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
     AutoContrastMode,
     AutoFocusMode,
+    BeamType,
     FibsemImage,
     FibsemImageMetadata,
     FibsemRectangle,
@@ -127,6 +130,7 @@ class TiledAcquisitionRunner:
         settings: OverviewAcquisitionSettings,
         stop_event: Optional[Union[threading.Event, AnyStopEvent]] = None,
         centre_position: Optional[FibsemStagePosition] = None,
+        result: Optional[OverviewResult] = None,
     ):
         self.microscope = microscope
         self.settings = settings
@@ -137,6 +141,11 @@ class TiledAcquisitionRunner:
         # afterwards: this is the grid's centre, not a new home. Matches
         # `FMTiledAcquisitionRunner`, which has taken one since FIB-393.
         self.centre_position = centre_position
+        self._layout_check: Optional[TileLayoutCheck] = None
+        # What the run did, filled in as it goes and kept whatever its end: the
+        # settings as used, each tile's planned and read-back position, the layout
+        # check, the registration, the timing and the files (`OverviewResult`).
+        self.result = result if result is not None else OverviewResult(MODALITY_BEAM)
         # _setup()        → _image_settings, _prev_path, _prev_label,
         #                   _focus_stack_settings, _af_mode
         # _compute_grid() → _tiles, _ordered, _centre_position, _start_state,
@@ -163,6 +172,7 @@ class TiledAcquisitionRunner:
                 "No tiles are selected, so there is nothing to acquire. "
                 "Enable at least one tile in the grid."
             )
+        self.result.start()
         self._setup()
         self._compute_grid()
         status, error = TiledStatus.FINISHED, None
@@ -173,6 +183,7 @@ class TiledAcquisitionRunner:
         except OperationCancelledError:
             status, error = TiledStatus.CANCELLED, None
             logging.info("Tiled acquisition cancelled")
+            self._end("cancelled")
             raise
         except Exception as e:
             # The reason travels with the report now. It was caught, logged and
@@ -180,6 +191,7 @@ class TiledAcquisitionRunner:
             # about why -- and a stage-limits rejection names every offending tile.
             status, error = TiledStatus.FAILED, str(e)
             logging.error(f"Tiled acquisition failed: {e}")
+            self._end("failed", str(e))
             raise
         finally:
             logging.info(
@@ -189,6 +201,12 @@ class TiledAcquisitionRunner:
             self.microscope.set_microscope_state(self._start_state)
             self._emit_terminal(status, error)
         self._image_settings.path = self._prev_path
+
+    @property
+    def tile_paths(self) -> List[str]:
+        """Each tile as saved, in the order acquired. The stitched image is what is
+        shown; the tiles are what a model trained on single frames reads."""
+        return self.result.tile_paths
 
     def _emit_terminal(self, status: TiledStatus, error: Optional[str]) -> None:
         """Report how the acquisition ended.
@@ -213,13 +231,26 @@ class TiledAcquisitionRunner:
     def run_and_stitch(self) -> FibsemImage:
         """Acquire all tiles and return the stitched FibsemImage."""
         self.run()
-        return self._stitch()
+        try:
+            image = self._stitch()
+        except Exception as e:
+            self._end("failed", str(e))
+            raise
+        self._end("completed")
+        return image
+
+    def _end(self, status: str, error: Optional[str] = None) -> None:
+        """Close the run's record and write it beside the tiles. A stopped or failed
+        run is recorded too: which tiles it took, and why it ended."""
+        self.result.end(status, error)
+        self.result.save(self.result.tiles_directory, self._layout_check)
 
     # ── phases ───────────────────────────────────────────────────────────
 
     def _setup(self) -> None:
         """Prepare image settings and paths; emit initial progress signal."""
         image_settings = self.settings.image_settings
+        self._snap_resolution(image_settings)
         self._focus_stack_settings = self.settings.focus_stack_settings
         self._af_mode = self.settings.autofocus_mode
         # The sweep scores the centred half-frame unless the settings name an area,
@@ -264,6 +295,12 @@ class TiledAcquisitionRunner:
         image_settings.filename = self._prev_label
 
         self._image_settings = image_settings
+        self.result.tiles_directory = image_settings.path
+        self.result.mosaic_path = os.path.join(self._prev_path, self._prev_label)  # type: ignore
+        self.result.beam_type = image_settings.beam_type.name
+        self.result.estimate = self.settings.scan_time
+        # As used: the snapped resolution, and the tile folder and name of this run.
+        self.result.settings = self.settings.to_dict()
 
         # notify the UI immediately so the progress bar appears before the first move
         report_tiled_progress(
@@ -350,6 +387,7 @@ class TiledAcquisitionRunner:
         ]
         for tile, sp in zip(self._ordered, self._tile_stage_positions):
             logging.debug(f"Tile ({tile.row}, {tile.col}) projected: {sp.pretty}")
+        self._record_grid()
 
         stage = self.microscope.stage
         raise_if_outside_stage_limits(
@@ -368,6 +406,40 @@ class TiledAcquisitionRunner:
             logging.info(
                 "EACH_ROW autofocus upgraded to EACH_TILE for SPIRAL tile order"
             )
+
+    def _snap_resolution(self, image_settings) -> None:
+        """Lay the tiles out at the size the instrument scans them. A driver that
+        only scans the sizes it lists snaps to the nearest (AutoScript), and a grid
+        and stitch laid out at the asked-for size then break: 2048 x 2048 tiles came
+        back 2048 x 1768 on an Arctis and the stitch crashed."""
+        asked = tuple(image_settings.resolution)
+        scanned = scanned_resolution(self.microscope, image_settings.beam_type, asked)
+        if scanned == asked:
+            return
+        logging.warning(
+            f"The {image_settings.beam_type.name} beam scans {asked[0]} x {asked[1]} "
+            f"as {scanned[0]} x {scanned[1]}; the overview's tiles are laid out at that."
+        )
+        self.result.requested_resolution = asked
+        image_settings.resolution = scanned
+
+    def _record_grid(self) -> None:
+        """The run's record of its grid: every tile, in the order visited and then
+        the ones turned off, each visited one with where the stage is sent."""
+        result = self.result
+        for tile, position in zip(self._ordered, self._tile_stage_positions):
+            result.tile(tile.row, tile.col).planned = position
+        for tile in self._tiles:
+            result.tile(tile.row, tile.col)
+        result.centre = deepcopy(self._centre_position)
+        beam = (
+            self._start_state.electron_beam
+            if self._image_settings.beam_type is BeamType.ELECTRON
+            else self._start_state.ion_beam
+        )
+        result.scan_rotation = getattr(beam, "scan_rotation", None)
+        result.pixel_size = self._mosaic_metadata.pixel_size.x
+        result.fov = (self.settings.total_fov_x, self.settings.total_fov_y)
 
     def _build_mosaic_metadata(self, full_w: int, full_h: int) -> FibsemImageMetadata:
         """The mosaic's metadata, built before the first tile rather than after the last.
@@ -433,6 +505,7 @@ class TiledAcquisitionRunner:
         if actual is None or not actual.x:
             return
         self._mosaic_metadata.pixel_size = deepcopy(actual)
+        self.result.pixel_size = actual.x
 
     def _init_preview(self, full_w: int, full_h: int) -> None:
         """A decimated copy of the mosaic, for a display to show as it fills.
@@ -485,16 +558,11 @@ class TiledAcquisitionRunner:
         total_tiles = self.settings.n_enabled_tiles
         self._first_image: Optional[FibsemImage] = None
         self._n_tiles_acquired: int = 0
-        # Each tile as saved, in the order acquired. The stitched image is what is
-        # shown; the tiles are what a model trained on single frames reads.
-        self.tile_paths: List[str] = []
-        # What the layout check found and what `register_tiles` did, once
-        # stitched (`layout_summary`).
+        # What the layout check found, and what `register_tiles` did, once stitched.
         self.layout_warning: Optional[str] = None
-        self.registration: Optional[dict] = None
         # Measures how far apart neighbouring tiles really are, from the pictures, as
-        # they arrive. It only reports (`_report_layout`); the canvas is painted from
-        # the plan either way.
+        # they arrive. It only reports (`OverviewResult.report_layout`); the
+        # canvas is painted from the plan either way.
         self._layout_check: Optional[TileLayoutCheck] = TileLayoutCheck(
             {(t.row, t.col): (t.canvas_y, t.canvas_x) for t in self._ordered}
         )
@@ -512,8 +580,10 @@ class TiledAcquisitionRunner:
 
             logging.debug(f"Tile ({tile.row}, {tile.col}) — target: {stage_pos.pretty}")
             self.microscope.safe_absolute_stage_movement(stage_pos)
+            record = self.result.tile(tile.row, tile.col)
+            record.position = self.microscope.get_stage_position()
             logging.debug(
-                f"Tile ({tile.row}, {tile.col}) — actual: {self.microscope.get_stage_position().pretty}"
+                f"Tile ({tile.row}, {tile.col}) — actual: {record.position.pretty}"
             )
 
             # check after moving in case cancel was requested during the move
@@ -530,8 +600,8 @@ class TiledAcquisitionRunner:
 
             logging.info(f"Acquiring Tile ({tile.row}, {tile.col})")
             image = self._acquire_tile(tile)
-            if image.filepath:
-                self.tile_paths.append(image.filepath)
+            record.acquired = True
+            record.path = image.filepath or None
 
             if self._first_image is None:
                 self._first_image = image
@@ -607,10 +677,10 @@ class TiledAcquisitionRunner:
         # `_start_state`, where the stage began, which was the same thing until a run
         # could be planned somewhere else -- a grid dragged 500 um away recorded 0, and
         # the saved overview reloaded half a millimetre out.
-        data, registration = self._canvas, None
-        if self.settings.register_tiles:
-            data, registration = self._registered_canvas()
-        self.registration = registration
+        registration = self._register()
+        data = self._canvas
+        if registration.applied:
+            data = self._registered_canvas(registration)
         image = FibsemImage(data=data, metadata=deepcopy(self._mosaic_metadata))
         # The path is a per-run detail of the request, and the mosaic goes in the parent
         # of the tile folder, so it is taken from the live settings rather than the
@@ -621,9 +691,9 @@ class TiledAcquisitionRunner:
         filename = os.path.join(image.metadata.image_settings.path, self._prev_label)  # type: ignore
         image.save(filename)
 
-        self.layout_warning = self._report_layout(
-            tile_dir=filename, registration=registration
-        )
+        self.result.image = image
+        self.result.mosaic_path = image.filepath or filename
+        self.layout_warning = self.result.report_layout(self._layout_check)
         report_tiled_progress(
             self.microscope,
             TiledProgress(
@@ -647,71 +717,38 @@ class TiledAcquisitionRunner:
             logging.warning(f"Tile layout check stopped: {e}")
             self._layout_check = None
 
-    def _registered_canvas(self) -> Tuple[np.ndarray, dict]:
-        """The mosaic with each tile where its picture says it is (`register_tiles`),
-        or the planned canvas when the layout check says not to, and a record of which.
-
-        Refused when the check warns: then the stage model is out of scale, and a
-        registered mosaic would put positions out by that scale times their distance
-        from the centre, where the planned one is out by half a seam at most.
-        """
-        tiles, self._kept_tiles = self._kept_tiles, {}
-        if self._layout_check is None:
-            note = "Tiles were left as planned: the layout check did not run."
-            logging.info(note)
-            return self._canvas, {"applied": False, "note": note}
-        try:
-            planned = {
+    def _register(self) -> Registration:
+        """Where the tiles' pictures say they are, and whether the mosaic uses it
+        (`register_tiles`, within `MAX_SHIFT`). Measured whether or not it was asked
+        for, so the record says how far the tiles were off either way."""
+        registration = measure_registration(
+            self._layout_check,
+            {
                 (t.row, t.col): (float(t.canvas_y), float(t.canvas_x))
                 for t in self._ordered
-                if (t.row, t.col) in tiles
-            }
-            positions, note = registered_positions(
-                planned,
-                self._layout_check.pairs,
-                self._layout_check.summary(),
-                tile_size=max(self._image_settings.resolution),
-            )
-            logging.info(note)
-            if positions is None:
-                return self._canvas, {"applied": False, "note": note}
-            data = compose_mosaic(tiles, positions, self._canvas.shape, np.uint8)
-            shifts = {
-                f"{r},{c}": [y - planned[(r, c)][0], x - planned[(r, c)][1]]
-                for (r, c), (y, x) in positions.items()
-            }
-            return data, {"applied": True, "note": note, "shifts": shifts}
-        except Exception as e:
-            note = f"Tiles were left as planned: aligning them failed ({e})."
-            logging.warning(note)
-            return self._canvas, {"applied": False, "note": note}
+                if self.result.tile(t.row, t.col).acquired
+            },
+            tile_size=max(self._image_settings.resolution),
+            pixel_size=self._mosaic_metadata.pixel_size.x,
+            requested=self.settings.register_tiles,
+        )
+        self.result.apply_registration(registration)
+        return registration
 
-    def _report_layout(
-        self, tile_dir: str, registration: Optional[dict] = None
-    ) -> Optional[str]:
-        """Log the layout check, write it into the run's tile folder, and return its
-        warning. The folder is the mosaic's path without the extension, and is named
-        for the run, so one run's record never lands on another's."""
-        if self._layout_check is None:
-            return None
+    def _registered_canvas(self, registration: Registration) -> np.ndarray:
+        """The mosaic with each tile where its picture says it is."""
+        tiles, self._kept_tiles = self._kept_tiles, {}
         try:
-            summary = self._layout_check.summary()
-            logging.info(summary.describe())
-            if summary.warning:
-                logging.warning(summary.warning)
-            self._layout_check.save(
-                os.path.join(tile_dir, LAYOUT_FILE),
-                pixel_size=self._mosaic_metadata.pixel_size.x,
-                registration=registration,
+            return compose_mosaic(
+                tiles, registration.positions, self._canvas.shape, np.uint8
             )
-            if summary.warning and registration is not None:
-                # Asked to align and did not: say so, or the operator would take the
-                # mosaic for an aligned one.
-                return f"{summary.warning} {registration['note']}"
-            return summary.warning
-        except Exception as e:
-            logging.warning(f"Could not report the tile layout check: {e}")
-            return None
+        except Exception as e:  # noqa: BLE001 - the planned mosaic is still good
+            registration.applied = False
+            registration.note = (
+                f"Tiles were left as planned: composing them failed ({e})."
+            )
+            logging.warning(registration.note)
+            return self._canvas
 
     # ── helpers ──────────────────────────────────────────────────────────
 
@@ -765,6 +802,8 @@ class TiledAcquisitionRunner:
             settings=self._af_settings,
             stop_event=self.stop_event,
         )
+        if result is not None:
+            self.result.autofocus.append({"mode": mode.value, **result.to_dict()})
 
         # None means the backend cannot set the working distance for this beam, so the
         # sweep declined to run rather than scoring images against a focus that never
@@ -811,9 +850,8 @@ def acquire_tiled_overview(
     name: str,
     centre_position: Optional[FibsemStagePosition] = None,
     stop_event: Optional[Union[threading.Event, AnyStopEvent]] = None,
-    tile_paths: Optional[List[str]] = None,
-    layout: Optional[Dict[str, Any]] = None,
-) -> FibsemImage:
+    result: Optional[OverviewResult] = None,
+) -> OverviewResult:
     """Acquire a tiled SEM or FIB overview and stitch it: the tiles in
     ``<path>/<name>/`` and the stitched image as ``<path>/<name>``.
 
@@ -826,10 +864,12 @@ def acquire_tiled_overview(
 
     ``centre_position`` is the grid's centre, None for wherever the stage is;
     the stage returns to where it started either way. A ``stop_event`` set
-    while it runs raises `OperationCancelledError`. A ``tile_paths`` list is
-    extended with each saved tile's path, in the order acquired, also when the
-    run is stopped or fails part way. A ``layout`` dict is filled with the
-    finished run's `layout_summary`.
+    while it runs raises `OperationCancelledError`.
+
+    Returns the run's `OverviewResult`, the stitched image as its ``image``; its
+    record is also written beside the tiles. A caller that needs the record of a
+    run that is stopped or fails (which tiles it took) passes its own ``result``,
+    which is filled in either way.
     """
     settings = deepcopy(settings)
     settings.image_settings.save = True
@@ -837,16 +877,14 @@ def acquire_tiled_overview(
     settings.image_settings.filename = name
     os.makedirs(path, exist_ok=True)
     runner = TiledAcquisitionRunner(
-        microscope, settings, stop_event=stop_event, centre_position=centre_position
+        microscope,
+        settings,
+        stop_event=stop_event,
+        centre_position=centre_position,
+        result=result,
     )
-    try:
-        image = runner.run_and_stitch()
-    finally:
-        if tile_paths is not None:
-            tile_paths.extend(getattr(runner, "tile_paths", []))
-    if layout is not None:
-        layout.update(layout_summary(runner))
-    return image
+    runner.run_and_stitch()
+    return runner.result
 
 
 ##### REPROJECTION

@@ -173,7 +173,7 @@ the question, check image freshness, and separate reading from acting. Then
 **suggest** the answer:
 
 ```json
-{"question_id": 7, "response": false,
+{"question_id": 7, "response": false, "value": {"action": "accept"},
  "reason": "Face is clean in the 02:14 image, taken after the last pass; curtaining stops below the trench. Accept."}
 ```
 
@@ -182,12 +182,13 @@ The operator's click answers, as theirs, and the watcher's `ANSWERED` line
 shows `suggested_by=agent`. If they answer some other way, your suggestion
 is dropped. That's their call, not an error. They may also dismiss it,
 with or without a why: the watcher's `SUGGESTION DISMISSED` line carries
-their reason. Read it before you suggest again. For `EditAlignmentArea`,
-`PickPOI`, `ConfirmDetection` and `RunSpotBurn` a suggestion may carry a
-`value`, as `prompt_answer` would. It is placed on screen only if the
-operator takes the suggestion. When you judged on an image (the fresh SEM and
-FIB pair for a position, the start image for a mill), pass its path as
-`image`, as for a request: the card shows it with your value drawn on it.
+their reason. Read it before you suggest again. A suggestion carries a
+`value` when the prompt has a `value` field, as `prompt_answer` would (for
+the milling question, the action and any edits). It is placed on screen
+only if the operator takes the suggestion. When you judged on an image (the
+fresh SEM and FIB pair for a position, the start image for a mill), pass its
+path as `image`, as for a request: the card shows it with your value drawn
+on it.
 
 Two playbook rules hold at Assist too. Before you suggest a Setup position
 or a POI, check coincidence as *Before a position or a POI* says: the fresh
@@ -237,7 +238,9 @@ commands) go in requests like any other action. They need the devices
 setting (`routers.microscope` true). Without it they are refused when you
 file them (`not_available`). Follow the supervise skill's *Using the
 microscope* rules: read the stage before each move, take a fresh image
-before judging, and treat `409 microscope_busy` as someone else working. If
+before judging, treat `409 microscope_busy` as someone else working, and
+work through a blank image in the order it gives (reads first, then a
+request for each change). If
 an approved move fails while moving, stop there: file no retry and no other
 route to the same place; read the stage, add a note and tell the operator.
 An image costs dose on a real sample, so a fresh one is an action at
@@ -260,6 +263,11 @@ grid.
 keeping that you're not acting on ("02: fiducial out of frame in the start
 image; left for the operator"). A request's reason and a suggestion's
 reason are already on the record. Don't repeat them in a note.
+
+Where a site came from (grid, square, rank, why it was chosen) belongs on the
+lamella, not in a note: ask for `item_update` with
+`{"patch": {"description": "..."}}`. When you ask for `item_add`, leave
+`name` out so the lamella gets the app's usual name.
 
 ## How you report
 

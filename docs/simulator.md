@@ -1,7 +1,8 @@
 # The simulator
 
 `manufacturer: Demo` in a microscope configuration connects to `DemoMicroscope`: a full
-microscope in software. It has both beams, a fluorescence microscope, a stage with the
+microscope in software. It has both beams, a fluorescence microscope where configured
+(`sim.has_fm`, on by default for a compustage), a stage with the
 same geometry model as the hardware drivers (pre-tilted shuttle or compustage), a sample
 holder with slots and, when configured, an autoloader magazine. Every workflow, task and
 UI runs against it unchanged, which is how most of fibsem-os is developed and tested.

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import (
     ClassVar,
     List,
@@ -10,31 +10,21 @@ import numpy as np
 
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.milling.properties import (
-    distance_metadata,
+    distance_param,
 )
-from fibsem.structures import (
-    Display,
-    FibsemPolygonSettings,
-    field_meta,
-)
+from fibsem.structures import Display, FibsemPolygonSettings, param
 
 
 @dataclass
 class PolygonPattern(BasePattern):
-    vertices: np.ndarray[float] = field(
-        default_factory=lambda: np.array([]),
-        metadata=field_meta(display=Display(hidden=True)),
+    vertices: np.ndarray[float] = param(
+        display=Display(hidden=True), default_factory=lambda: np.array([])
     )  # type: ignore[type-arg]
-    depth: float = field(
-        default=1.0e-6,
-        metadata=distance_metadata("Depth", "Depth of the polygon."),
-    )
-    is_exclusion: bool = field(
-        default=False,
-        metadata=field_meta(
-            doc="If true, the polygon will be an exclusion area.",
-            display=Display("Is Exclusion"),
-        ),
+    depth: float = param(1.0e-6, distance_param("Depth", "Depth of the polygon."))
+    is_exclusion: bool = param(
+        False,
+        doc="If true, the polygon will be an exclusion area.",
+        display=Display("Is Exclusion"),
     )
     name: ClassVar[str] = "PolygonPattern"
 

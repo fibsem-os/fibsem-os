@@ -83,23 +83,85 @@ def test_confirm_detection_bare_array_reports_source_dimensions():
     json.dumps(payload)
 
 
-def test_run_milling_payload_tells_the_first_ask_from_a_re_ask():
-    """At the first ask no goes on without milling; after a pass no accepts
-    the mill. The payload says which, so an agent need not infer it from
-    history (FIB-1329)."""
+def _milling_config():
     from fibsem.milling import FibsemMillingStage
     from fibsem.milling.tasks import FibsemMillingTaskConfig
 
-    config = FibsemMillingTaskConfig(name="Rough Mill", stages=[FibsemMillingStage()])
+    return FibsemMillingTaskConfig(
+        name="Rough Mill",
+        stages=[FibsemMillingStage(name="Rough 1"), FibsemMillingStage(name="Rough 2")],
+    )
+
+
+def test_run_milling_payload_tells_the_first_ask_from_a_re_ask():
+    """Before a pass the actions are run/edit/skip; after one, run mills
+    again and accept goes on. The payload says which, so an agent need not
+    infer it from history (FIB-1329)."""
+    config = _milling_config()
     first = serialize_request(RunMillingTask(config=config))
     again = serialize_request(RunMillingTask(config=config, passes=1))
 
-    assert first["passes"] == 0
-    assert "without milling" in first["message"]
-    assert again["passes"] == 1
-    assert "accepts what was milled" in again["message"]
+    assert first["passes"] == 0 and first["actions"] == ["run", "edit", "skip"]
+    assert (first["positive"], first["negative"]) == ("Run Milling", "Skip")
+    assert again["passes"] == 1 and again["actions"] == ["run", "edit", "accept"]
+    assert (again["positive"], again["negative"]) == ("Mill Again", "Accept")
+    assert first["value_required"] is True and "action" in first["value"]
     json.dumps(first)
     json.dumps(again)
+
+
+def test_run_milling_payload_explains_every_field():
+    """The config and what each of its options does, with the ones nothing
+    reads marked (Patrick 2026-10-16)."""
+    payload = serialize_request(RunMillingTask(config=_milling_config()))
+
+    assert payload["config"]["stages"][0]["name"] == "Rough 1"
+    fields = payload["fields"]
+    assert fields["task"]["alignment.interval"]["not_used"]
+    assert fields["stage"]["alignment"]["not_used"]
+    assert "milling_current" in json.dumps(fields["stage"])
+
+
+def test_a_milling_answer_is_an_action_with_its_edits():
+    from fibsem.applications.autolamella.workflows.interaction import (
+        InvalidAnswerValue,
+        apply_milling_edit,
+    )
+
+    request = RunMillingTask(config=_milling_config())
+    edit = request.parse_value(
+        {"action": "edit", "patch": {"stages.Rough 2.pattern.depth": 2e-6}}
+    )
+    assert edit.action == "edit"
+    edited = apply_milling_edit(request.config, edit)
+    assert edited.stages[1].pattern.depth == pytest.approx(2e-6)
+    assert request.config.stages[1].pattern.depth != pytest.approx(2e-6)
+
+    for bad in (
+        {},
+        {"action": "mill"},
+        {"action": "accept"},  # only after a pass
+        {"action": "run", "patch": {"stages.Nope.pattern.depth": 1e-6}},
+        {"action": "run", "patch": {"stages.0.alignment.enabled": True}},
+        {"action": "run", "patch": {"alignment.interval": 5}},
+        {"action": "run", "extra": 1},
+    ):
+        with pytest.raises(InvalidAnswerValue):
+            request.parse_value(bad)
+
+
+def test_a_whole_config_reorders_and_removes_stages():
+    request = RunMillingTask(config=_milling_config())
+    document = request.config.to_dict()
+    document["stages"] = [document["stages"][1]]
+    edit = request.parse_value({"action": "run", "config": document})
+
+    from fibsem.applications.autolamella.workflows.interaction import (
+        apply_milling_edit,
+    )
+
+    edited = apply_milling_edit(request.config, edit)
+    assert [stage.name for stage in edited.stages] == ["Rough 2"]
 
 
 def test_spot_burn_payload_carries_points_and_settings():
@@ -112,12 +174,12 @@ def test_spot_burn_payload_carries_points_and_settings():
     assert payload["milling_current"] == pytest.approx(60e-12)
     assert payload["exposure_time"] == 5.0
     assert payload["positive"] == "Run Spot Burn"
+    assert payload["negative"] == "Skip"
+    assert payload["actions"] == ["run", "edit", "skip"]
+    assert payload["passes"] == 0
+    assert payload["exposure_limits"] == [0.1, 60.0]
     assert "fractions of the frame" in payload["coordinates"]
     json.dumps(payload)
-
-
-def _refuse(message):
-    return {"invalid_value": message}
 
 
 def _detection():
@@ -133,18 +195,16 @@ def _detection():
 
 
 def test_a_detection_value_moves_named_features_inside_the_image():
-    from fibsem.applications.autolamella.server.context import _parse_detection_value
     from fibsem.applications.autolamella.workflows.interaction import (
         ConfirmDetection,
+        InvalidAnswerValue,
     )
 
     request = ConfirmDetection(detection=_detection())
     name = request.detection.features[0].name
 
-    moved, refusal = _parse_detection_value(
-        request, {"features": [{"name": name, "px": {"x": 9, "y": 7}}]}, _refuse
-    )
-    assert refusal is None and moved == {name: Point(9.0, 7.0)}
+    moved = request.parse_value({"features": [{"name": name, "px": {"x": 9, "y": 7}}]})
+    assert moved == {name: Point(9.0, 7.0)}
 
     for bad in (
         {"features": []},
@@ -153,23 +213,61 @@ def test_a_detection_value_moves_named_features_inside_the_image():
         {"features": [{"name": name, "px": {"x": 1}}]},
         {"features": [{"name": name, "px": {"x": 1, "y": 1}}] * 2},
     ):
-        parsed, refusal = _parse_detection_value(request, bad, _refuse)
-        assert parsed is None and "invalid_value" in refusal, bad
+        with pytest.raises(InvalidAnswerValue):
+            request.parse_value(bad)
 
 
-def test_a_spot_burn_value_is_points_inside_the_frame():
-    from fibsem.applications.autolamella.server.context import _parse_spot_burn_value
-
-    points, refusal = _parse_spot_burn_value(
-        {"points": [{"x": 0, "y": 1}, {"x": 0.5, "y": 0.25}]}, _refuse
+def test_a_spot_burn_value_is_an_action_and_its_edits():
+    from fibsem.applications.autolamella.workflows.interaction import (
+        InvalidAnswerValue,
+        SpotBurnEdit,
+        apply_spot_burn_edit,
     )
-    assert refusal is None and points == [Point(0.0, 1.0), Point(0.5, 0.25)]
+
+    settings = SpotBurnSettings(
+        coordinates=[Point(0.5, 0.5)], milling_current=60e-12, exposure_time=5.0
+    )
+    request = RunSpotBurn(settings=settings)
+    edit = request.parse_value(
+        {
+            "action": "edit",
+            "points": [{"x": 0, "y": 1}, {"x": 0.5, "y": 0.25}],
+            "milling_current": 1e-10,
+            "exposure_time": 2,
+        }
+    )
+    assert edit == SpotBurnEdit(
+        action="edit",
+        points=[Point(0.0, 1.0), Point(0.5, 0.25)],
+        milling_current=1e-10,
+        exposure_time=2.0,
+    )
+    edited = apply_spot_burn_edit(settings, edit)
+    assert edited.coordinates == [Point(0.0, 1.0), Point(0.5, 0.25)]
+    assert (edited.milling_current, edited.exposure_time) == (1e-10, 2.0)
+    assert settings.coordinates == [Point(0.5, 0.5)]  # a new settings
+
+    # Only the action: everything stays as it stands.
+    assert request.parse_value({"action": "run"}) == SpotBurnEdit(action="run")
+    assert request.same_value(settings, SpotBurnEdit(action="run"))
 
     for bad in (
         {},
-        {"points": [{"x": 1.2, "y": 0.5}]},
-        {"points": [{"x": "a", "y": 0.5}]},
-        {"points": [{"x": float("nan"), "y": 0.5}]},
+        {"points": []},  # no action
+        {"action": "accept"},  # not before a burn
+        {"action": "run", "points": [{"x": 1.2, "y": 0.5}]},
+        {"action": "run", "points": [{"x": "a", "y": 0.5}]},
+        {"action": "run", "points": [{"x": float("nan"), "y": 0.5}]},
+        {"action": "run", "exposure_time": 0},
+        {"action": "run", "exposure_time": 600},
+        {"action": "run", "milling_current": True},
+        {"action": "run", "milling_current": -1e-10},
+        {"action": "run", "dwell": 1},
     ):
-        parsed, refusal = _parse_spot_burn_value(bad, _refuse)
-        assert parsed is None and "invalid_value" in refusal, bad
+        with pytest.raises(InvalidAnswerValue):
+            request.parse_value(bad)
+
+    after = RunSpotBurn(settings=settings, passes=1)
+    assert after.parse_value({"action": "accept"}).action == "accept"
+    with pytest.raises(InvalidAnswerValue):
+        after.parse_value({"action": "skip"})

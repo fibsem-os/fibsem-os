@@ -226,6 +226,27 @@ def test_the_image_shows_beside_the_steps_and_follows_the_card_s_width(qapp):
     card.deleteLater()
 
 
+def test_resizing_after_a_suggestion_with_a_picture_goes_does_not_abort(qapp):
+    # Found in the 2026-10-16 card session: with nothing left waiting, the card
+    # kept its deleted picture, and the next resize aborted the app.
+    from PyQt5.QtCore import QEvent
+    from PyQt5.QtGui import QImage
+
+    card = AgentCard()
+    card.resize(1000, 600)
+    card.show()
+    card.set_suggestion(_SUGGESTION)
+    image = QImage(300, 200, QImage.Format_RGB32)
+    card.set_image(image, "FIB · 05:17", suggestion=True)
+    assert card.image_label is not None
+    card.set_suggestion(None)
+    assert card.image_label is None
+    qapp.sendPostedEvents(None, QEvent.DeferredDelete)
+    card.resize(980, 600)
+    qapp.processEvents()
+    card.deleteLater()
+
+
 # --- the agent's request (FIB-1283, FIB-1404) -----------------------------------
 
 
@@ -347,6 +368,10 @@ def test_a_suggestion_turns_the_chip_and_the_card_offers_accept(qapp):
     chip.set_level(AgentLevel.ASSIST)
     chip.set_suggestion(_SUGGESTION)
     assert chip.text() == "Agent suggests"
+    # In the level's look, not amber: the run's Attention Required is.
+    from fibsem.applications.autolamella.ui.agent_style import LEVEL_STYLES
+
+    assert chip.styleSheet() == LEVEL_STYLES[AgentLevel.ASSIST]
     card = chip.card
     assert card.accept_button is not None and card.approve_button is None
     assert {
@@ -942,6 +967,23 @@ def _called(action, status=200, level="drive"):
     return {"action": action, "status": status, "ok": status < 400, "level": level}
 
 
+def test_a_long_recent_line_wraps_rather_than_being_cut(qapp):
+    # Patrick 2026-10-16: at Drive the card stays narrow and a long line wraps.
+    from fibsem.applications.autolamella.ui.agent_level_chip import NARROW_WIDTH
+
+    long = "Imaging · Acquire FIB image: field of view 150 → 80 µm, " * 3
+    card = AgentCard()
+    card.set_level(AgentLevel.DRIVE)
+    card.set_recent([_row(long)])
+    (line,) = card.recent_buttons
+    assert line.wordWrap() and line.text() == long
+    assert card.minimumSizeHint().width() < NARROW_WIDTH
+    card.setFixedWidth(NARROW_WIDTH)
+    card.adjustSize()
+    assert line.heightForWidth(line.width()) > line.fontMetrics().height() * 2
+    card.deleteLater()
+
+
 def test_recent_shows_at_drive_and_is_hidden_below_it_until_asked_for(qapp):
     card = AgentCard()
     logs = []
@@ -1131,3 +1173,130 @@ def test_a_card_with_no_picture_keeps_no_empty_column(qapp):
     card.set_image(image, "FIB")
     assert not card._stacked()
     card.deleteLater()
+
+
+def test_a_new_request_or_suggestion_opens_the_card_floating(qapp):
+    """The card opens itself for something new waiting for the operator, in its
+    own window; closed, it stays closed until the next one."""
+    from PyQt5.QtWidgets import QMainWindow
+
+    window = QMainWindow()
+    chip = AgentLevelChip()
+    window.statusBar().addPermanentWidget(chip)
+    window.show()
+    chip.set_level(AgentLevel.ASSIST)
+    assert not chip.floating
+
+    chip.set_request(_request())
+    assert chip.floating and not chip.popup.isVisible()
+    chip.panel.close()
+    # The same request again (the window refreshes it) leaves it closed.
+    chip.set_request(_request())
+    chip.set_request(_request(status="applying"))
+    assert not chip.floating
+
+    chip.set_request(None)
+    chip.set_suggestion(_SUGGESTION)
+    assert chip.floating
+    chip.panel.close()
+    chip.set_suggestion(_SUGGESTION)
+    assert not chip.floating
+    chip.set_suggestion({**_SUGGESTION, "answer": "Repeat"})
+    assert chip.floating
+
+    chip.panel.close()
+    chip.set_request(_request(request_id="cd34"))
+    assert chip.floating
+    window.close()
+
+
+def test_a_hidden_chip_opens_no_card(qapp):
+    chip = AgentLevelChip()
+    chip.set_level(AgentLevel.ASSIST)
+    chip.set_request(_request())
+    chip.set_suggestion(_SUGGESTION)
+    assert not chip.floating and not chip.popup.isVisible()
+    chip.deleteLater()
+
+
+def test_the_border_is_the_agent_s_purple_while_it_drives(main_ui, host):
+    def shown():
+        return main_ui._border_frame.property("borderState")
+
+    main_ui._set_border_state("supervised")
+    main_ui.agent_chip.level_chosen.emit(AgentLevel.DRIVE)
+    assert shown() == "agent"
+    for state in ("idle", "automated", "pending", "waiting"):
+        main_ui._set_border_state(state)
+        assert shown() == "agent"
+    # Stopping is the one state shown over the agent's.
+    main_ui._set_border_state("stopping")
+    assert shown() == "stopping"
+
+    main_ui._set_border_state("supervised")
+    main_ui.agent_chip.level_chosen.emit(AgentLevel.ASSIST)
+    assert shown() == "supervised"
+
+    # The border's switch turns the purple off too.
+    main_ui.agent_chip.level_chosen.emit(AgentLevel.DRIVE)
+    enabled = main_ui._border_enabled
+    main_ui._border_enabled = False
+    main_ui._apply_border()
+    assert shown() == "idle"
+    main_ui._border_enabled = enabled
+    main_ui._apply_border()
+    assert shown() == "agent"
+
+    # No App Server, no agent: the run's own colour.
+    host.running = False
+    main_ui._refresh_agent_chip()
+    assert shown() == "supervised"
+    main_ui._set_border_state("idle")
+
+
+def test_the_chip_pulses_while_the_agent_acts_and_ends_a_whole_cycle(qapp):
+    from fibsem.applications.autolamella.ui.agent_level_chip import (
+        PULSE_MS,
+        PULSE_STEP_MS,
+    )
+    from fibsem.applications.autolamella.ui.agent_style import LEVEL_STYLES
+
+    chip = AgentLevelChip()
+    chip.set_level(AgentLevel.DRIVE)
+    assert not chip.pulsing
+    chip.set_now("focus sweep")
+    assert chip.pulsing
+
+    steps = PULSE_MS // PULSE_STEP_MS
+    for _ in range(steps // 2):
+        chip._on_pulse()
+    # Halfway, the fill is at its faintest.
+    assert chip.styleSheet() != LEVEL_STYLES[AgentLevel.DRIVE]
+    assert chip.text() == "Agent: Driving"
+
+    # The action ends: the cycle runs out, then the chip is still.
+    chip.set_now(None)
+    assert chip.pulsing
+    for _ in range(steps - steps // 2):
+        chip._on_pulse()
+    assert not chip.pulsing
+    assert chip.styleSheet() == LEVEL_STYLES[AgentLevel.DRIVE]
+
+    # A request waiting shows over the pulse.
+    chip.set_now("move stage relative")
+    chip.set_request(_request())
+    chip._on_pulse()
+    assert chip.text() == "Agent asks"
+    chip.deleteLater()
+
+
+def test_attention_required_brings_up_the_card_with_a_suggestion(main_ui, monkeypatch):
+    shown = []
+    monkeypatch.setattr(main_ui.agent_chip, "show_card", lambda: shown.append(True))
+    main_ui._on_user_attention_clicked()
+    assert shown == []
+    main_ui.agent_chip.set_suggestion(_SUGGESTION)
+    shown.clear()
+    main_ui._on_user_attention_clicked()
+    assert shown == [True]
+    main_ui.agent_chip.set_suggestion(None)

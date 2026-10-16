@@ -122,7 +122,12 @@ def test_an_overview_runs_on_and_saves_inside_the_experiment(
     assert abs(end.x - start.x) < 1e-9 and abs(end.y - start.y) < 1e-9
     assert microscope.fm.objective.position == pytest.approx(objective)
     assert not microscope.fm.is_acquiring
-    assert result["layout"]["registration"] is None
+    # Not asked to register: the tiles stay as planned, and the record says so.
+    overview = result["overview"]
+    assert overview["registration"]["requested"] is False
+    assert overview["registration"]["applied"] is False
+    assert overview["tiles_acquired"] == overview["tiles_total"]
+    assert os.path.isfile(overview["paths"]["record"])
 
 
 def test_an_overview_says_what_tile_registration_did(client, experiment):
@@ -141,7 +146,8 @@ def test_an_overview_says_what_tile_registration_did(client, experiment):
         f"{IMAGING}/run", params={"run_id": resp.json()["result"]["run_id"], "wait": 60}
     ).json()["run"]
     assert ended["state"] == "done", ended
-    registration = ended["result"]["layout"]["registration"]
+    registration = ended["result"]["overview"]["registration"]
+    assert registration["requested"] is True
     assert isinstance(registration["applied"], bool)
     assert registration["note"]
 

@@ -81,6 +81,7 @@ from fibsem.cancellation import (
 )
 from fibsem.devices.beam import Beam
 from fibsem.devices.core import DeviceParameter, ParameterMetadata, Role, command, query
+from fibsem.devices.runs import current_run_id
 from fibsem.milling.base import FibsemMillingStage, estimate_milling_time
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.services.core import Service, save_beam_conditions
@@ -88,6 +89,7 @@ from fibsem.structures import (
     ACTIVE_MILLING_STATES,
     DRIVER_MILLING_SETTINGS,
     BeamType,
+    Configurable,
     FibsemBitmapSettings,
     FibsemCircleSettings,
     FibsemImage,
@@ -138,7 +140,7 @@ DRAW_HOOKS: Dict[Type[FibsemPatternSettings], str] = {
 
 
 @dataclass
-class DriverMillingSettings:
+class DriverMillingSettings(Configurable):
     """The settings every driver mills with: the channel and the field of view.
 
     A driver's settings class (`Milling.settings_class`) extends it with the shared
@@ -378,7 +380,7 @@ class Milling(Service):
             return {}
         beam = self.beam(channel)
         available: Dict[str, ParameterMetadata] = {}
-        specs = field_specs(self.settings_class)
+        specs = self.settings_class.params
         for name in self.setting_names:
             beam_parameter = specs[name].bound_name
             if beam_parameter not in beam.parameters:
@@ -396,7 +398,7 @@ class Milling(Service):
         from fibsem.schema import parameter_schema
 
         supported = self.supported_settings(BeamType.ION)
-        specs = field_specs(self.settings_class)
+        specs = self.settings_class.params
         defs: Dict[str, Any] = {}
         properties: Dict[str, Any] = {}
         own: Dict[str, Any] = {}
@@ -415,7 +417,7 @@ class Milling(Service):
                     self.settings_prefix: {"type": "object", "properties": own}
                 },
             }
-        acquire = field_specs(FibsemMillingSettings)["acquire_images"]
+        acquire = FibsemMillingSettings.params.acquire_images
         properties["acquire_images"] = parameter_schema(acquire, defs)
         defs["FibsemMillingSettings"] = {
             "type": "object",
@@ -731,6 +733,49 @@ class Milling(Service):
             },
         )
 
+    @query
+    def check_stages(
+        self, stages: List[FibsemMillingStage], aspect: float = 2 / 3
+    ) -> List[Dict[str, Any]]:
+        """Each of *stages* checked before anything is drawn: how long it would
+        mill, in seconds (``estimate_stage``), and its patterns that reach past
+        the field, its milling hfw wide and *aspect* of that high (an image's
+        height over width), which a real instrument refuses to mill. A stage
+        that cannot define its patterns answers why. Moves nothing."""
+        from fibsem.milling.patterning.utils import pattern_extent, stage_outside_field
+
+        checked = []
+        for stage in stages:
+            try:
+                outside = stage_outside_field(stage, aspect)
+                seconds = self.estimate_stage(stage)
+            except Exception as exc:  # noqa: BLE001 - a stage's own trouble
+                checked.append({"name": stage.name, "error": str(exc)})
+                continue
+            checked.append(
+                {
+                    "name": stage.name,
+                    "estimated_seconds": float(seconds),
+                    "field_m": [stage.milling.hfw, stage.milling.hfw * aspect],
+                    "outside_field": [
+                        {
+                            "pattern": type(pattern).__name__,
+                            "extent_m": list(pattern_extent(pattern) or ()),
+                        }
+                        for pattern in outside
+                    ],
+                }
+            )
+        return checked
+
+    @query
+    def list_options(self) -> Dict[str, List[str]]:
+        """The names a stage's ``pattern.name`` and ``strategy.name`` take."""
+        from fibsem.milling.patterning import get_pattern_names
+        from fibsem.milling.strategy import get_strategy_names
+
+        return {"patterns": get_pattern_names(), "strategies": get_strategy_names()}
+
     @contextmanager
     def part_of(
         self, report: Optional[Callable[[MillingProgress], None]] = None
@@ -758,7 +803,9 @@ class Milling(Service):
         records one ``milling`` event with how it ended, as a task's run does
         (FIB-1257, FIB-1377)."""
         payload: Dict[str, Any] = {
-            "milling_run_id": str(uuid.uuid4()),
+            # The id of its run on this service (`fibsem.devices.runs`), so
+            # its events and its run share one id.
+            "milling_run_id": current_run_id(self.name) or str(uuid.uuid4()),
             "milling_task_name": self._name,
             "started_at": now_iso(),
         }

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import (
     ClassVar,
     List,
@@ -8,54 +8,40 @@ from typing import (
 
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.milling.properties import (
-    distance_metadata,
+    distance_param,
 )
-from fibsem.structures import (
-    Display,
-    FibsemLineSettings,
-    field_meta,
-)
+from fibsem.structures import Display, FibsemLineSettings, param
 
 
 @dataclass
 class SerialSectionPattern(BasePattern[FibsemLineSettings]):
-    section_thickness: float = field(
-        default=4.0e-6,
-        metadata=distance_metadata("Section Thickness", "Thickness of the section."),
+    section_thickness: float = param(
+        4.0e-6, distance_param("Section Thickness", "Thickness of the section.")
     )
-    section_width: float = field(
-        default=50.0e-6,
-        metadata=distance_metadata("Section Width", "Width of the section."),
+    section_width: float = param(
+        50.0e-6, distance_param("Section Width", "Width of the section.")
     )
-    section_depth: float = field(
-        default=20.0e-6,
-        metadata=distance_metadata("Section Depth", "Depth of the section."),
+    section_depth: float = param(
+        20.0e-6, distance_param("Section Depth", "Depth of the section.")
     )
-    side_width: float = field(
-        default=10.0e-6,
-        metadata=distance_metadata("Side Width", "Width of the side cleaning area."),
+    side_width: float = param(
+        10.0e-6, distance_param("Side Width", "Width of the side cleaning area.")
     )
-    side_height: float = field(
-        default=10.0e-6,
-        metadata=distance_metadata("Side Height", "Height of the side cleaning area."),
+    side_height: float = param(
+        10.0e-6, distance_param("Side Height", "Height of the side cleaning area.")
     )
-    side_depth: float = field(
-        default=40.0e-6,
-        metadata=distance_metadata("Side Depth", "Depth of the side cleaning area."),
+    side_depth: float = param(
+        40.0e-6, distance_param("Side Depth", "Depth of the side cleaning area.")
     )
-    inverted: bool = field(
-        default=False,
-        metadata=field_meta(
-            doc="If true, the section will be milled inverted.",
-            display=Display("Inverted"),
-        ),
+    inverted: bool = param(
+        False,
+        doc="If true, the section will be milled inverted.",
+        display=Display("Inverted"),
     )
-    use_side_patterns: bool = field(
-        default=True,
-        metadata=field_meta(
-            doc="If true, side cleaning patterns will be used.",
-            display=Display("Use Side Patterns"),
-        ),
+    use_side_patterns: bool = param(
+        True,
+        doc="If true, side cleaning patterns will be used.",
+        display=Display("Use Side Patterns"),
     )
 
     name: ClassVar[str] = "SerialSection"

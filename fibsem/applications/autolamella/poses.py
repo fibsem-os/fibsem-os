@@ -346,3 +346,18 @@ def current_objective_position(fm) -> Optional[float]:
     if objective.state is InsertableDeviceState.INSERTED:
         return objective.position
     return objective.focus_position
+
+
+def stored_objective_position(fm, lamella) -> float:
+    """The objective position stored on *lamella*'s fluorescence pose, to move
+    the objective back to. Raises ValueError saying why not: no pose, nothing
+    stored, or the objective not inserted (a stored position is an inserted
+    one)."""
+    pose = lamella.fluorescence_pose
+    if pose is None:
+        raise ValueError(f"{lamella.name} has no fluorescence pose.")
+    if pose.objective_position is None:
+        raise ValueError(f"{lamella.name} has no stored objective position.")
+    if fm.objective.state is not InsertableDeviceState.INSERTED:
+        raise ValueError("Insert the objective before moving to a stored position.")
+    return pose.objective_position

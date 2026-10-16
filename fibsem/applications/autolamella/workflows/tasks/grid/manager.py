@@ -279,6 +279,22 @@ class GridTaskManager(BaseTaskManager):
 
     # --- The run loop ---
 
+    def pairs_to_queue(
+        self, task_names: List[str], grid_names: List[str]
+    ) -> List[Tuple[str, str]]:
+        """The ``(grid, step)`` pairs adding *task_names* for *grid_names* to the
+        running queue would add: the run plan, less what is already waiting."""
+        pending = {(i.item_name, i.task_name) for i in self.queue.pending}
+        return [p for p in plan_grid_run(task_names, grid_names) if p not in pending]
+
+    def queue_pairs(self, pairs: List[Tuple[str, str]]) -> List[WorkItem]:
+        """Add *pairs* to the end of the running queue, the only place a grid's
+        block goes: "run next" would put an exchange in front of the grid that
+        is loaded, then exchange back. Answers the items added."""
+        added = [self.queue.add(grid, step) for grid, step in pairs]
+        self.notify_queue_changed()
+        return [item for item in added if item is not None]
+
     def _awaiting_decision(self, grid_name: str, task_name: str) -> bool:
         grid = self.experiment.get_grid_by_name(grid_name)
         return grid is not None and grid.is_awaiting_decision(task_name)

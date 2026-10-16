@@ -275,7 +275,7 @@ def test_the_milling_angle_tools_speak_degrees(armed_sidecar):
         armed_sidecar, "stage_move_to_milling_angle", {"milling_angle_deg": 15.0}
     )
     assert moved == {"success": True}
-    angle = _call_json(armed_sidecar, "stage_get_milling_angle", {})
+    angle = _call_json(armed_sidecar, "stage_get_current_milling_angle", {})
     assert angle["milling_angle_deg"] == pytest.approx(15.0, abs=0.5)
     orientation = _call_json(armed_sidecar, "stage_get_orientation", {})
     assert orientation == {"orientation": "MILLING"}

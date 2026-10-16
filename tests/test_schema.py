@@ -16,7 +16,7 @@ from fibsem.structures import (
     Parameter,
     Point,
     RangeLimit,
-    field_meta,
+    param,
 )
 
 
@@ -29,14 +29,12 @@ class Mode(Enum):
 class Recipe:
     """A probe recipe."""
 
-    width: float = field(
-        default=10e-6,
-        metadata=field_meta(
-            unit="m",
-            limits=RangeLimit(1e-6, 1e-3),
-            doc="The width.",
-            display=Display("Width", scale=1e6),
-        ),
+    width: float = param(
+        10e-6,
+        unit="m",
+        limits=RangeLimit(1e-6, 1e-3),
+        doc="The width.",
+        display=Display("Width", scale=1e6),
     )
     mode: Mode = Mode.FAST
     centre: Point = field(default_factory=Point)
@@ -123,3 +121,13 @@ def test_a_device_parameter_reads_the_same_way():
 def test_a_parameter_with_choices_is_an_enum():
     schema = parameter_schema(Parameter(type=str, choices=("a", "b")), {})
     assert schema == {"type": "string", "enum": ["a", "b"]}
+
+
+def test_a_field_nothing_reads_says_so():
+    from fibsem.structures import MillingAlignment
+
+    defs = {}
+    value_schema(MillingAlignment, defs)
+    properties = defs["MillingAlignment"]["properties"]
+    assert properties["interval"]["not_used"]
+    assert "not_used" not in properties["enabled"]

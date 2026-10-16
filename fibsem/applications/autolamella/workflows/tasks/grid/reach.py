@@ -18,13 +18,15 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Tuple
 from fibsem.applications.autolamella.workflows.tasks.grid.base import GridTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.grid.fluorescence import (
     FluorescenceOverviewGridTaskConfig,
-    reachable_fluorescence_overview,
 )
 from fibsem.applications.autolamella.workflows.tasks.grid.imaging import (
     BeamOverviewGridTaskConfig,
-    reachable_overview,
 )
 from fibsem.geometry.projection import BeamStageProjection, FMStageProjection
+from fibsem.imaging.tiling.reach import (
+    reachable_fluorescence_overview,
+    reachable_overview,
+)
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope

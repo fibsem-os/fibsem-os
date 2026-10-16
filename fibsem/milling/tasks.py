@@ -7,7 +7,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from fibsem import acquire
 from fibsem import config as fcfg
@@ -21,6 +21,7 @@ from fibsem.cancellation import (
     ended_by,
     raise_if_cancelled,
 )
+from fibsem.devices.runs import Runs, current_run_id
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.base import FibsemMillingStage, MillingStrategyResult
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
@@ -28,44 +29,39 @@ from fibsem.services.milling import report_progress
 from fibsem.services.milling import task_running as _task_running
 from fibsem.structures import (
     BeamType,
+    Configurable,
     Display,
     FibsemImage,
     FibsemRectangle,
     ImageSettings,
     MillingAlignment,
     Point,
-    field_meta,
+    param,
 )
 from fibsem.util.timestamps import now_iso
 from fibsem.utils import current_timestamp_v3
 
 
 @dataclass
-class MillingTaskAcquisitionSettings:
+class MillingTaskAcquisitionSettings(Configurable):
     """Settings for the acquisition of images during a milling task."""
 
-    acquire_sem: bool = field(
-        default=False,
-        metadata=field_meta(
-            doc="Whether to acquire SEM images between the milling task stages.",
-            display=Display("Acquire SEM Image"),
-        ),
+    acquire_sem: bool = param(
+        False,
+        doc="Whether to acquire SEM images between the milling task stages.",
+        display=Display("Acquire SEM Image"),
     )
-    acquire_fib: bool = field(
-        default=False,
-        metadata=field_meta(
-            doc="Whether to acquire FIB images between the milling task stages.",
-            display=Display("Acquire FIB Image"),
-        ),
+    acquire_fib: bool = param(
+        False,
+        doc="Whether to acquire FIB images between the milling task stages.",
+        display=Display("Acquire FIB Image"),
     )
-    acquire_final_image: bool = field(
-        default=True,
-        metadata=field_meta(
-            doc="Refresh the FIB view with a single image once the task finishes. "
-            "Disable for low-kV polishing, where imaging the lamella with a "
-            "higher-voltage beam undoes the polish.",
-            display=Display("Acquire Final Image"),
-        ),
+    acquire_final_image: bool = param(
+        True,
+        doc="Refresh the FIB view with a single image once the task finishes. "
+        "Disable for low-kV polishing, where imaging the lamella with a "
+        "higher-voltage beam undoes the polish.",
+        display=Display("Acquire Final Image"),
     )
     imaging: ImageSettings = field(default_factory=ImageSettings)
 
@@ -103,8 +99,110 @@ class MillingTaskAcquisitionSettings:
         )
 
 
+# What a milling task sets on each stage before the stage runs, as stage path: task
+# path. A stage's own value there is never used inside a task, so an edit to it at
+# the milling question is refused, naming the task's field to set instead.
+TASK_SETS_ON_STAGE: Dict[str, str] = {
+    "milling.hfw": "field_of_view",
+    "milling.milling_channel": "channel",
+    "milling.acquire_images": "acquisition.enabled",
+    "imaging": "acquisition.imaging",
+    "alignment": "alignment",
+}
+
+
+def _get_path(obj: Any, path: str) -> Any:
+    for part in path.split("."):
+        obj = getattr(obj, part)
+    return obj
+
+
+def _set_path(obj: Any, path: str, value: Any) -> None:
+    *parents, leaf = path.split(".")
+    for part in parents:
+        obj = getattr(obj, part)
+    setattr(obj, leaf, value)
+
+
+def task_overridden_path(path: str) -> Optional[str]:
+    """Why a dotted path into a milling task config sets nothing, when it is a
+    stage field the task sets itself (``stages.0.milling.hfw``); else None."""
+    parts = path.split(".")
+    if len(parts) < 3 or parts[0] != "stages":
+        return None
+    within = ".".join(parts[2:])
+    for stage_path, task_path in TASK_SETS_ON_STAGE.items():
+        if within == stage_path or within.startswith(stage_path + "."):
+            return (
+                f"the task sets the stage's {stage_path} from its own "
+                f"{task_path}; set {task_path} instead"
+            )
+    return None
+
+
+def describe_config_fields(config: "FibsemMillingTaskConfig") -> Dict[str, Any]:
+    """What each field of ``config`` means, for an agent editing it: the task's
+    fields and the stage's by dotted path, and each pattern's and strategy's
+    fields by its name. Each entry has the field's doc, its SI unit, and
+    ``not_used`` (why setting it does nothing) where that applies; the stage
+    fields the task sets itself say so. Only fields that say something."""
+
+    def walk(cls: type, prefix: str, out: Dict[str, Any], seen: tuple) -> None:
+        from dataclasses import is_dataclass
+
+        from fibsem.structures import field_specs
+
+        if cls in seen:
+            return
+        for name, spec in field_specs(cls).items():
+            path = f"{prefix}{name}"
+            entry = {
+                key: value
+                for key, value in (
+                    ("doc", spec.doc),
+                    ("unit", spec.unit),
+                    ("not_used", spec.not_used),
+                )
+                if value
+            }
+            if entry:
+                out[path] = entry
+            hint = spec.type
+            if isinstance(hint, type) and is_dataclass(hint) and not spec.not_used:
+                walk(hint, f"{path}.", out, seen + (cls,))
+
+    from fibsem.milling.base import FibsemMillingStage
+
+    task: Dict[str, Any] = {}
+    walk(type(config), "", task, ())
+    task.pop("stages", None)
+    stage: Dict[str, Any] = {}
+    walk(FibsemMillingStage, "", stage, ())
+    for path in list(stage):
+        # Inside a section the task sets: the section says so, below.
+        if path not in TASK_SETS_ON_STAGE and task_overridden_path(f"stages.0.{path}"):
+            del stage[path]
+    for path in TASK_SETS_ON_STAGE:
+        note = task_overridden_path(f"stages.0.{path}")
+        stage[path] = {**stage.get(path, {}), "not_used": note}
+    patterns: Dict[str, Any] = {}
+    strategies: Dict[str, Any] = {}
+    for each in config.stages:
+        pattern, strategy = each.pattern, getattr(each.strategy, "config", None)
+        if pattern.name not in patterns:
+            walk(type(pattern), "", patterns.setdefault(pattern.name, {}), ())
+        if strategy is not None and each.strategy.name not in strategies:
+            walk(type(strategy), "", strategies.setdefault(each.strategy.name, {}), ())
+    return {
+        "task": task,
+        "stage": stage,
+        "pattern": patterns,
+        "strategy": strategies,
+    }
+
+
 @dataclass
-class FibsemMillingTaskConfig:
+class FibsemMillingTaskConfig(Configurable):
     """Configuration for a milling task."""
 
     name: str = "Milling Task"
@@ -318,8 +416,28 @@ class FibsemMillingTask:
         self.config.acquisition.imaging.path = self.output_dir
 
     def run(self) -> None:
-        """Run a list of milling stages, with a progress bar and notifications."""
+        """Run a list of milling stages, with a progress bar and notifications.
 
+        The task is one run on the milling service (``microscope.milling.runs``)
+        under its own id, whoever runs it: a workflow task, the operator, the
+        agent. Inside a run already going on there (the App Server's, the
+        service's ``run_task``) it is part of that run, and takes its id.
+        """
+        milling = getattr(self.microscope, "milling", None)
+        runs = getattr(milling, "runs", None)
+        if not isinstance(runs, Runs):
+            self._run()
+            return
+        with runs.tracking("run_task", run_id=self.task_id) as run:
+            self.task_id = current_run_id(milling.name) or self.task_id
+            try:
+                self._run()
+            finally:
+                if run is not None:
+                    # The task catches its own failure: its run says it.
+                    run.result, run.exception = self.ended(), self.error
+
+    def _run(self) -> None:
         logging.info(f"Running milling task: {self.name} with ID: {self.task_id}")
 
         # Read by the `finally` below, which runs whichever way the task ends. Seeded
@@ -471,12 +589,8 @@ class FibsemMillingTask:
         stage.reference_image = self.reference_image
         stage.reference_image_full_frame = self.reference_image_full_frame
         stage.output_dir = self.output_dir
-        stage.milling.hfw = self.config.field_of_view
-        stage.milling.milling_channel = self.config.channel
-        stage.milling.acquire_images = self.config.acquisition.enabled
-        stage.imaging.path = self.config.acquisition.imaging.path
-        stage.imaging = self.config.acquisition.imaging
-        stage.alignment = self.config.alignment
+        for stage_path, task_path in TASK_SETS_ON_STAGE.items():
+            _set_path(stage, stage_path, _get_path(self.config, task_path))
         self._record_stage_started(stage, idx)
         result = stage.strategy.run(
             microscope=self.microscope,

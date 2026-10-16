@@ -5,7 +5,7 @@ Its meaning -- SI unit, limits in SI, choices, a doc -- and its look, a ``Displa
 what every form reads.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 import pytest
@@ -13,34 +13,27 @@ import pytest
 from fibsem.structures import (
     Display,
     FibsemMillingSettings,
+    Parameter,
     RangeLimit,
-    field_meta,
     field_specs,
+    param,
 )
 
 
 @dataclass
 class Probe:
-    width: float = field(
-        default=10e-6,
-        metadata=field_meta(
-            unit="m",
-            limits=RangeLimit(1e-6, 1e-3),
-            doc="The width.",
-            display=Display("Width", scale=1e6, step=0.1, decimals=2),
-        ),
+    width: float = param(
+        10e-6,
+        unit="m",
+        limits=RangeLimit(1e-6, 1e-3),
+        doc="The width.",
+        display=Display("Width", scale=1e6, step=0.1, decimals=2),
     )
-    mode: str = field(
-        default="a", metadata=field_meta(choices=["a", "b"], display=Display("Mode"))
-    )
-    count: Optional[int] = field(default=None, metadata=field_meta(doc="How many."))
-    shapes: list = field(
-        default_factory=list, metadata=field_meta(display=Display(hidden=True))
-    )
-    current: float = field(
-        default=1e-9, metadata=field_meta(device_parameter="beam.current")
-    )
-    hfw: float = field(default=150e-6, metadata=field_meta(device_parameter="beam.hfw"))
+    mode: str = param("a", choices=["a", "b"], display=Display("Mode"))
+    count: Optional[int] = param(None, doc="How many.")
+    shapes: list = param(display=Display(hidden=True), default_factory=list)
+    current: float = param(1e-9, device_parameter="beam.current")
+    hfw: float = param(150e-6, device_parameter="beam.hfw")
 
 
 def test_si_limits_are_shown_through_the_scale():
@@ -91,17 +84,23 @@ def test_an_instrument_report_replaces_the_limits_and_choices():
     assert width.with_reported(unbounded).limits == width.limits
 
 
-@pytest.mark.parametrize("key", ["tooltip", "label", "minimum", "items", "type"])
+@pytest.mark.parametrize("key", ["tooltip", "label", "minimum", "items"])
 def test_the_older_keys_are_gone(key):
     with pytest.raises(TypeError):
-        field_meta(**{key: 1})
+        Parameter(**{key: 1})
+
+
+@pytest.mark.parametrize("key", ["name", "type"])
+def test_a_field_gives_its_own_name_and_type(key):
+    with pytest.raises(ValueError, match="from the field"):
+        param(0.0, **{key: "x" if key == "name" else float})
 
 
 def test_limits_and_display_are_typed():
     with pytest.raises(TypeError, match="RangeLimit"):
-        field_meta(limits=(0, 1))
+        param(0.0, limits=(0, 1))
     with pytest.raises(TypeError, match="Display"):
-        field_meta(display={"label": "A"})
+        param(0.0, display={"label": "A"})
 
 
 def test_no_gui_default_in_the_milling_settings():
@@ -138,7 +137,7 @@ def test_a_device_declaring_a_plain_parameter_is_refused():
 
 def test_a_device_parameter_names_its_device():
     with pytest.raises(ValueError, match="beam.current"):
-        field_meta(device_parameter="current")
+        param(0.0, device_parameter="current")
 
 
 def test_a_bound_field_reports_its_device_parameter_name():

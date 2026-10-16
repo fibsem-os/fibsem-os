@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import (
     ClassVar,
     List,
@@ -9,23 +9,22 @@ from typing import (
 
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.milling.properties import (
-    distance_metadata,
+    distance_param,
 )
 from fibsem.structures import (
     FibsemCircleSettings,
     FibsemRectangleSettings,
+    param,
 )
 
 
 @dataclass
 class CloverPattern(BasePattern[Union[FibsemCircleSettings, FibsemRectangleSettings]]):
-    radius: float = field(
-        default=10.0e-6,
-        metadata=distance_metadata("Radius", "Radius of the clover leaves."),
+    radius: float = param(
+        10.0e-6, distance_param("Radius", "Radius of the clover leaves.")
     )
-    depth: float = field(
-        default=5.0e-6,
-        metadata=distance_metadata("Depth", "Depth of the clover pattern."),
+    depth: float = param(
+        5.0e-6, distance_param("Depth", "Depth of the clover pattern.")
     )
 
     name: ClassVar[str] = "Clover"

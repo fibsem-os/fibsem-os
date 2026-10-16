@@ -10,7 +10,8 @@ from fibsem.imaging.tiled import (
     validate_tile_stage_positions,
 )
 from fibsem.imaging.tiling import grid_centre_offset, unreachable_tiles
-from fibsem.imaging.tiling.progress import TiledStatus
+from fibsem.imaging.tiling.progress import MODALITY_BEAM, TiledStatus
+from fibsem.imaging.tiling.result import OverviewResult
 from fibsem.structures import (
     FibsemStagePosition,
     ImageSettings,
@@ -328,7 +329,10 @@ def _runner_with_recorded_signal(monkeypatch, settings=None):
     microscope.imaging.tiled_progress.emit = emitted.append
 
     runner = TiledAcquisitionRunner.__new__(TiledAcquisitionRunner)
+    runner.result = OverviewResult(MODALITY_BEAM)
+    runner._layout_check = None
     runner.microscope = microscope
+    microscope.beams = {}
     runner.settings = settings if settings is not None else _make_settings(2, 3)
     runner.stop_event = None
     runner._setup = lambda: None
@@ -856,7 +860,7 @@ def test_the_centring_counts_disabled_tiles_too():
 # ---------------------------------------------------------------------------
 
 
-def _autofocus_runner(mode, settings=None, af_result="sentinel"):
+def _autofocus_runner(mode, settings=None, af_result=MagicMock(to_dict=dict)):
     """A runner stubbed down to the autofocus path, recording what the sweep was asked.
 
     Real `OverviewAcquisitionSettings` again, for the reason above: the sweep is read off
@@ -872,7 +876,9 @@ def _autofocus_runner(mode, settings=None, af_result="sentinel"):
     s.autofocus_mode = mode
 
     runner = TiledAcquisitionRunner.__new__(TiledAcquisitionRunner)
-    runner.microscope = MagicMock()
+    runner.result = OverviewResult(MODALITY_BEAM)
+    runner._layout_check = None
+    runner.microscope = MagicMock(beams={})
     runner.settings = s
     runner.stop_event = None
     runner._af_mode = mode
@@ -998,7 +1004,9 @@ def test_a_sweep_with_no_enabled_passes_is_refused_before_the_first_tile():
         p.enabled = False
 
     runner = TiledAcquisitionRunner.__new__(TiledAcquisitionRunner)
-    runner.microscope = MagicMock()
+    runner.result = OverviewResult(MODALITY_BEAM)
+    runner._layout_check = None
+    runner.microscope = MagicMock(beams={})
     runner.settings = s
     with pytest.raises(ValueError, match="every sweep pass is disabled"):
         runner._setup()
@@ -1026,7 +1034,9 @@ def test_an_all_disabled_sweep_is_fine_when_autofocus_is_off(tmp_path):
         p.enabled = False
 
     runner = TiledAcquisitionRunner.__new__(TiledAcquisitionRunner)
-    runner.microscope = MagicMock()
+    runner.result = OverviewResult(MODALITY_BEAM)
+    runner._layout_check = None
+    runner.microscope = MagicMock(beams={})
     runner.settings = s
     runner._setup()  # must not raise
 
@@ -1054,7 +1064,7 @@ def test_a_stitched_overview_records_when_its_first_tile_was_acquired(tmp_path):
         return image
 
     microscope.imaging.acquire = recording
-    stitched = acquire_tiled_overview(microscope, settings, str(tmp_path), "ov")
+    stitched = acquire_tiled_overview(microscope, settings, str(tmp_path), "ov").image
 
     assert zone_known(stitched.metadata.acquisition_datetime)
     assert stitched.metadata.acquisition_datetime == tiles[0]
@@ -1062,3 +1072,68 @@ def test_a_stitched_overview_records_when_its_first_tile_was_acquired(tmp_path):
     assert saved, "the stitched overview was not saved"
     loaded = FibsemImage.load(str(saved[-1]))
     assert loaded.metadata.acquisition_datetime == tiles[0]
+
+
+def test_an_overview_is_laid_out_at_the_size_the_beam_scans(tmp_path, monkeypatch):
+    """A driver that snaps a size it doesn't list (AutoScript) scans every tile at
+    the snapped size: the grid, the stitch and the record use that one, and the
+    record keeps the size asked for. A 2048 x 2048 that came back 2048 x 1768
+    crashed the stitch on an Arctis."""
+    from fibsem import utils
+    from fibsem.imaging.tiled import acquire_tiled_overview
+    from fibsem.structures import BeamType, FibsemImage
+
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    beam = microscope.beams[BeamType.ELECTRON]
+    monkeypatch.setattr(beam, "scan_resolution", lambda resolution: (64, 48))
+    settings = _make_settings(2, 2, resolution=(64, 64), overlap=0.1)
+    settings.image_settings.dwell_time = 1e-9
+
+    result = acquire_tiled_overview(microscope, settings, str(tmp_path), "ov")
+
+    assert result.requested_resolution == (64, 64)
+    assert result.settings["image_settings"]["resolution"] == [64, 48]
+    assert all(
+        FibsemImage.load(path).data.shape == (48, 64) for path in result.tile_paths
+    )
+    rows = 48 - int(round(48 * 0.1)) + 48
+    assert result.image.data.shape[0] == rows
+
+
+def test_an_overview_writes_its_record_beside_the_tiles(tmp_path):
+    """One record of the run: every tile's planned and read-back position, the
+    layout check with its pairs, the registration (measured even when not asked
+    for), the timing and the files."""
+    import json
+    import os
+
+    from fibsem import utils
+    from fibsem.imaging.tiled import acquire_tiled_overview
+    from fibsem.imaging.tiling.layout_check import LAYOUT_FILE
+
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    settings = _make_settings(2, 2, resolution=(64, 64), overlap=0.1)
+    settings.image_settings.dwell_time = 1e-9
+    settings.tile_mask = [[True, True], [True, False]]
+
+    result = acquire_tiled_overview(microscope, settings, str(tmp_path), "ov")
+
+    assert result.status == "completed" and result.duration >= 0
+    assert result.record_path == os.path.join(result.tiles_directory, LAYOUT_FILE)
+    with open(result.record_path) as f:
+        record = json.load(f)
+    assert record["status"] == "completed"
+    assert record["modality"] == "beam" and record["beam_type"] == "ELECTRON"
+    assert record["tiles_acquired"] == 3 and record["tiles_total"] == 4
+    tiles = {(t["row"], t["col"]): t for t in record["tiles"]}
+    assert tiles[(1, 1)]["acquired"] is False and tiles[(1, 1)]["planned"] is None
+    for key in ((0, 0), (0, 1), (1, 0)):
+        assert tiles[key]["acquired"] and tiles[key]["path"]
+        assert tiles[key]["planned"] and tiles[key]["position"]
+    assert len(record["layout"]["pairs"]) == 2
+    assert record["registration"]["requested"] is False
+    assert record["paths"]["mosaic"] == result.mosaic_path
+    assert record["estimate"] == pytest.approx(settings.scan_time)
+    summary = result.summary()
+    assert summary["tiles_skipped"] == [[1, 1]]
+    assert "tiles" not in summary and "pairs" not in (summary["layout"] or {})

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import (
     ClassVar,
     List,
@@ -8,27 +8,26 @@ from typing import (
 
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.milling.properties import (
-    distance_metadata,
+    distance_param,
 )
 from fibsem.structures import (
     FibsemCircleSettings,
     RangeLimit,
+    param,
 )
 
 
 @dataclass
 class CirclePattern(BasePattern[FibsemCircleSettings]):
-    radius: float = field(
-        default=5.0e-6,
-        metadata=distance_metadata("Radius", "Radius of the circle pattern."),
+    radius: float = param(
+        5.0e-6, distance_param("Radius", "Radius of the circle pattern.")
     )
-    depth: float = field(
-        default=1.0e-6,
-        metadata=distance_metadata("Depth", "Depth of the circle pattern."),
+    depth: float = param(
+        1.0e-6, distance_param("Depth", "Depth of the circle pattern.")
     )
-    thickness: float = field(
-        default=0,
-        metadata=distance_metadata(
+    thickness: float = param(
+        0,
+        distance_param(
             "Thickness",
             "Thickness of the circle pattern. 0 means solid.",
             limits=RangeLimit(0.0e-6, 1000.0e-6),

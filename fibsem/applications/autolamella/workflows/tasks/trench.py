@@ -1,7 +1,7 @@
 ######## TRENCH TASK DEFINITIONS ########
 
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import ClassVar, Literal, Optional, Type
 
 from fibsem.applications.autolamella.protocol.constants import TRENCH_KEY
@@ -10,12 +10,10 @@ from fibsem.applications.autolamella.workflows._default_milling_config import (
     DEFAULT_MILLING_CONFIG,
 )
 from fibsem.applications.autolamella.workflows.tasks.base import (
-    ALIGNMENT_REFERENCE_IMAGE_FILENAME,
-    MAX_ALIGNMENT_ATTEMPTS,
     AutoLamellaTask,
 )
 from fibsem.autofunctions.charge_neutralisation import auto_charge_neutralisation
-from fibsem.structures import BeamType, field_meta
+from fibsem.structures import BeamType, param
 
 
 @dataclass
@@ -25,16 +23,13 @@ class MillTrenchTaskConfig(AutoLamellaTaskConfig):
     # align_reference aligned to ref_PositionReady.tif, which only the legacy
     # workflow wrote.
     retired_parameters: ClassVar[frozenset] = frozenset({"align_reference"})
-    charge_neutralisation: bool = field(
-        default=True,  # whether to perform charge neutralisation
-        metadata=field_meta(doc="Whether to perform charge neutralisation"),
+    charge_neutralisation: bool = param(
+        True, doc="Whether to perform charge neutralisation"
     )
-    orientation: Optional[Literal["SEM", "FIB", "MILLING"]] = field(
-        default=None,
-        metadata=field_meta(
-            choices=("SEM", "FIB", "MILLING", None),
-            doc="The orientation to perform trench milling in",
-        ),
+    orientation: Optional[Literal["SEM", "FIB", "MILLING"]] = param(
+        None,
+        choices=("SEM", "FIB", "MILLING", None),
+        doc="The orientation to perform trench milling in",
     )
     task_type: ClassVar[str] = "MILL_TRENCH"
     display_name: ClassVar[str] = "Trench Milling"
@@ -76,7 +71,7 @@ class MillTrenchTask(AutoLamellaTask):
 
         # log the task configuration
         self.log_status_message("MILL_TRENCH", "Milling Trench...")
-        msg = f"Press Run Milling to mill the Trench for {self.lamella.name}. Press Continue when done."
+        msg = f"Mill the Trench for {self.lamella.name}."
         milling_task_config = self.update_milling_config_ui(
             milling_task_config,
             msg=msg,

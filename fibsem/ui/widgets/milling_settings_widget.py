@@ -60,7 +60,7 @@ class FibsemMillingSettingsWidget(QWidget):
         milling = microscope.milling
         self._milling = milling
         self._specs: Dict[str, Parameter] = (
-            field_specs(milling.settings_class) if milling is not None else {}
+            milling.settings_class.params if milling is not None else {}
         )
         self._setup_ui()
         self._connect_signals()

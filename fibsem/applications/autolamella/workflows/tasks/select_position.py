@@ -2,7 +2,7 @@
 
 import logging
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Optional, Tuple, Type
 
 import numpy as np
@@ -24,94 +24,75 @@ from fibsem.applications.autolamella.workflows.tasks.fiducial import (
     sync_fiducial_to_alignment_area,
 )
 from fibsem.applications.autolamella.workflows.ui import ask_user, select_poi_ui
-from fibsem.structures import BeamType, Display, ImageSettings, Point, field_meta
+from fibsem.structures import BeamType, Display, ImageSettings, Point, param
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Lamella
-    from fibsem.structures import FibsemImage
 
 
 @dataclass
 class SelectMillingPositionTaskConfig(AutoLamellaTaskConfig):
     """Configuration for the SelectMillingPositionTask."""
 
-    milling_angle: float = field(
-        default=15,
-        metadata=field_meta(
-            unit=constants.DEGREE_SYMBOL,
-            doc="The angle between the FIB and sample used for milling",
-        ),
+    milling_angle: float = param(
+        15,
+        unit=constants.DEGREE_SYMBOL,
+        doc="The angle between the FIB and sample used for milling",
     )
-    auto_milling_alignment: bool = field(
-        default=False,
-        metadata=field_meta(
-            doc="Align SEM/FIB coincidence at the current pose, then tilt "
-            "to the milling angle while keeping it (from the SEM orientation "
-            "or the milling angle; other start poses are not validated)",
-            display=Display("Auto Coincidence Alignment"),
-        ),
+    auto_milling_alignment: bool = param(
+        False,
+        doc="Align SEM/FIB coincidence at the current pose, then tilt "
+        "to the milling angle while keeping it (from the SEM orientation "
+        "or the milling angle; other start poses are not validated)",
+        display=Display("Auto Coincidence Alignment"),
     )
-    use_autofocus: bool = field(
-        default=True,
-        metadata=field_meta(
-            doc="Whether to autofocus before moving to the milling position",
-            display=Display("Use Autofocus"),
-        ),
+    use_autofocus: bool = param(
+        True,
+        doc="Whether to autofocus before moving to the milling position",
+        display=Display("Use Autofocus"),
     )
 
-    select_poi: bool = field(
-        default=True,
-        metadata=field_meta(
-            doc="Whether to ask the user to select a point of interest in the FIB image",
-            display=Display("Select Point of Interest"),
-        ),
+    select_poi: bool = param(
+        True,
+        doc="Whether to ask the user to select a point of interest in the FIB image",
+        display=Display("Select Point of Interest"),
     )
-    confirm_position: bool = field(
-        default=True,
-        metadata=field_meta(
-            doc="Ask you to confirm the milling position before the point "
-            "of interest is picked. Off, the position is used as arrived at, "
-            "so it is only as safe as the automatic positioning "
-            "(Auto Coincidence Alignment) that put the stage there.",
-            display=Display("Confirm Position"),
-        ),
+    confirm_position: bool = param(
+        True,
+        doc="Ask you to confirm the milling position before the point "
+        "of interest is picked. Off, the position is used as arrived at, "
+        "so it is only as safe as the automatic positioning "
+        "(Auto Coincidence Alignment) that put the stage there.",
+        display=Display("Confirm Position"),
     )
-    confirm_tilt: bool = field(
-        default=True,
-        metadata=field_meta(
-            doc="Ask you before tilting to the milling angle when the "
-            "stage is not already there. Off, the task tilts on its own.",
-            display=Display("Confirm Tilt"),
-        ),
+    confirm_tilt: bool = param(
+        True,
+        doc="Ask you before tilting to the milling angle when the "
+        "stage is not already there. Off, the task tilts on its own.",
+        display=Display("Confirm Tilt"),
     )
-    confirm_alignment_area: bool = field(
-        default=True,
-        metadata=field_meta(
-            doc="Ask you to check the alignment area on the last FIB image "
-            "before the alignment reference is taken in it. Off, the area is "
-            "used as it stands.",
-            display=Display("Confirm Alignment Area"),
-        ),
+    confirm_alignment_area: bool = param(
+        True,
+        doc="Ask you to check the alignment area on the last FIB image "
+        "before the alignment reference is taken in it. Off, the area is "
+        "used as it stands.",
+        display=Display("Confirm Alignment Area"),
     )
-    sync_fluorescence_pose: bool = field(
-        default=False,
-        metadata=field_meta(
-            doc="Move the lamella's fluorescence pose to follow the milling "
-            "position recorded here, so a fluorescence task images the site as "
-            "set up rather than where the lamella was first marked. Off (the "
-            "default) leaves the fluorescence pose as it was.",
-            display=Display("Sync Fluorescence Pose"),
-        ),
+    sync_fluorescence_pose: bool = param(
+        False,
+        doc="Move the lamella's fluorescence pose to follow the milling "
+        "position recorded here, so a fluorescence task images the site as "
+        "set up rather than where the lamella was first marked. Off (the "
+        "default) leaves the fluorescence pose as it was.",
+        display=Display("Sync Fluorescence Pose"),
     )
-    sync_fiducial_position: bool = field(
-        default=True,
-        metadata=field_meta(
-            doc="Start the fiducial at the centre of the alignment area "
-            "chosen here, so it clears the milling site. When the fiducial "
-            "does not fit in the area, it keeps its configured position. You "
-            "can still move it when the fiducial is milled.",
-            display=Display("Sync Fiducial Position"),
-        ),
+    sync_fiducial_position: bool = param(
+        True,
+        doc="Start the fiducial at the centre of the alignment area "
+        "chosen here, so it clears the milling site. When the fiducial "
+        "does not fit in the area, it keeps its configured position. You "
+        "can still move it when the fiducial is milled.",
+        display=Display("Sync Fiducial Position"),
     )
     task_type: ClassVar[str] = "SELECT_MILLING_POSITION"
     display_name: ClassVar[str] = "Select Milling Position"
@@ -373,7 +354,6 @@ class SelectMillingPositionTask(AutoLamellaTask):
         reliable correction put it and the refusal is logged (policy for
         escalation - ask, spot burn - is deliberately not decided here).
         """
-        import os
 
         from fibsem.alignment import ALIGNMENT_SUBDIR
         from fibsem.alignment.coincidence import ensure_coincident, tilt_coincident

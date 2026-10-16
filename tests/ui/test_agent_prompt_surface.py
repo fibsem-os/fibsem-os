@@ -261,8 +261,8 @@ def test_alignment_prompt_carries_the_fib_display_frame(ui, qapp):
 
 
 def test_a_value_on_a_valueless_question_is_refused(ui, qapp):
-    """Only EditAlignmentArea, PickPOI, ConfirmDetection and RunSpotBurn answers
-    can carry a value; a value on anything else — or a value that is not an object — is a 422 refusal that
+    """Only the questions with a value field (EditAlignmentArea, PickPOI,
+    ConfirmDetection, RunMillingTask, RunSpotBurn) take a value; a value on anything else — or a value that is not an object — is a 422 refusal that
     clicks nothing, and the question stands."""
     with _client(ui, arm_control=True) as client:
         thread, outcome = _ask_on_worker(ui, qapp)

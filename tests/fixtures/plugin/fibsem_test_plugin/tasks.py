@@ -1,10 +1,11 @@
 """Fixture AutoLamella task."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import ClassVar, Type
 
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
+from fibsem.structures import param
 from fibsem_test_plugin import TASK_TYPE
 
 
@@ -13,7 +14,7 @@ class FixtureTaskConfig(AutoLamellaTaskConfig):
     task_type: ClassVar[str] = TASK_TYPE
     display_name: ClassVar[str] = "Fixture Task"
 
-    number: int = field(default=7, metadata={"doc": "A round-trippable parameter"})
+    number: int = param(7, doc="A round-trippable parameter")
 
 
 class FixtureTask(AutoLamellaTask):

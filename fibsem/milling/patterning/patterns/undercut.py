@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import (
     ClassVar,
     List,
@@ -8,49 +8,45 @@ from typing import (
 
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.milling.properties import (
-    cross_section_metadata,
-    distance_metadata,
+    cross_section_param,
+    distance_param,
 )
 from fibsem.structures import (
     CrossSectionPattern,
     FibsemRectangleSettings,
+    param,
 )
 
 
 @dataclass
 class UndercutPattern(BasePattern[FibsemRectangleSettings]):
-    width: float = field(
-        default=5.0e-6,
-        metadata=distance_metadata("Width", "Width of the undercut pattern."),
+    width: float = param(
+        5.0e-6, distance_param("Width", "Width of the undercut pattern.")
     )
-    height: float = field(
-        default=10.0e-6,
-        metadata=distance_metadata("Height", "Height of the undercut pattern."),
+    height: float = param(
+        10.0e-6, distance_param("Height", "Height of the undercut pattern.")
     )
-    depth: float = field(
-        default=10.0e-6,
-        metadata=distance_metadata("Depth", "Depth of the undercut pattern."),
+    depth: float = param(
+        10.0e-6, distance_param("Depth", "Depth of the undercut pattern.")
     )
-    trench_width: float = field(
-        default=2.0e-6,
-        metadata=distance_metadata(
-            "Trench Width", "Width of the trench in the undercut pattern."
-        ),
+    trench_width: float = param(
+        2.0e-6,
+        distance_param("Trench Width", "Width of the trench in the undercut pattern."),
     )
-    rhs_height: float = field(
-        default=10.0e-6,
-        metadata=distance_metadata(
+    rhs_height: float = param(
+        10.0e-6,
+        distance_param(
             "RHS Height", "Height of the right-hand side of the undercut pattern."
         ),
     )
-    h_offset: float = field(
-        default=5.0e-6,
-        metadata=distance_metadata(
+    h_offset: float = param(
+        5.0e-6,
+        distance_param(
             "Horizontal Offset", "Horizontal offset of the undercut pattern."
         ),
     )
-    cross_section: CrossSectionPattern = field(
-        default=CrossSectionPattern.Rectangle, metadata=cross_section_metadata()
+    cross_section: CrossSectionPattern = param(
+        CrossSectionPattern.Rectangle, cross_section_param()
     )
 
     name: ClassVar[str] = "Undercut"

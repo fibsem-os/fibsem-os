@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 
@@ -61,14 +61,11 @@ __all__ = [
     "calculate_focus_quality",
     "run_autofocus",
     "run_coarse_fine_autofocus",
-    "run_multi_position_autofocus",
 ]
 
 if TYPE_CHECKING:
     from fibsem.fm.microscope import FluorescenceMicroscope
     from fibsem.fm.structures import ChannelSettings, ZParameters
-    from fibsem.microscope import FibsemMicroscope
-    from fibsem.structures import FibsemStagePosition
 
 
 def run_autofocus(
@@ -384,105 +381,3 @@ def _record_fm_autofocus(microscope: "FluorescenceMicroscope", payload: dict) ->
     record = getattr(microscope.parent, "record_event", None)
     if record is not None:
         record("fm_autofocus", payload)
-
-
-def run_multi_position_autofocus(
-    fibsem_microscope: "FibsemMicroscope",
-    positions: List["FibsemStagePosition"],
-    channel_settings: Optional["ChannelSettings"] = None,
-    z_parameters: Optional["ZParameters"] = None,
-    method: str = "tenengrad",
-    return_to_start: bool = True,
-) -> Dict[str, float]:
-    """Run autofocus at multiple stage positions and return focus map.
-
-    NOTE: This function requires the main FIBSEM microscope for stage movement
-    and uses its fluorescence microscope (fm) for autofocus.
-
-    Useful for characterizing sample tilt or mapping optimal focus across
-    a large field of view before starting acquisition.
-
-    Args:
-        fibsem_microscope: The main FIBSEM microscope instance (has stage control)
-        positions: List of stage positions to test
-        channel_settings: Channel settings for autofocus
-        z_parameters: Z-stack parameters for search
-        method: Focus measure method
-        return_to_start: Whether to return to initial position when done
-
-    Returns:
-        Dictionary mapping position names to dict with 'focus_z' and 'stage_position'
-
-    Example:
-        >>> # Create test positions
-        >>> positions = [
-        ...     FibsemStagePosition(x=0, y=0, z=0, name="center"),
-        ...     FibsemStagePosition(x=100e-6, y=0, z=0, name="right"),
-        ...     FibsemStagePosition(x=0, y=100e-6, z=0, name="top")
-        ... ]
-        >>> focus_map = run_multi_position_autofocus(fibsem_microscope, positions)
-        >>> for pos_name, data in focus_map.items():
-        ...     print(f"{pos_name}: {data['focus_z']*1e6:.1f} μm at {data['stage_position']}")
-    """
-    if not positions:
-        raise ValueError("At least one position must be provided")
-
-    # Check that fluorescence microscope is available
-    if not hasattr(fibsem_microscope, "fm") or fibsem_microscope.fm is None:
-        raise ValueError(
-            "FIBSEM microscope must have fluorescence microscope (fm) available"
-        )
-
-    # Store initial state
-    initial_position = fibsem_microscope.get_stage_position()
-    initial_objective_position = fibsem_microscope.fm.objective.position
-
-    focus_map = {}
-
-    try:
-        logging.info(f"Multi-position autofocus: {len(positions)} positions")
-
-        for i, position in enumerate(positions):
-            logging.info(f"Position {i + 1}/{len(positions)}: {position.name}")
-
-            # Move to test position using FIBSEM stage
-            fibsem_microscope.safe_absolute_stage_movement(position)
-
-            # Run autofocus using fluorescence microscope
-            result = run_autofocus(
-                microscope=fibsem_microscope.fm,
-                channel_settings=channel_settings,
-                z_parameters=z_parameters,
-                method=method,
-            )
-
-            # Get actual stage position after movement (for verification)
-            actual_position = fibsem_microscope.get_stage_position()
-
-            focus_map[position.name] = {
-                "focus_z": result.working_distance if result is not None else None,
-                "stage_position": actual_position,
-            }
-
-        logging.info("Multi-position autofocus complete")
-
-        # Log results summary
-        for pos_name, data in focus_map.items():
-            focus_z = data["focus_z"]
-            stage_pos = data["stage_position"]
-            focus_z_str = (
-                f"{focus_z * 1e6:.1f} μm" if focus_z is not None else "cancelled"
-            )
-            logging.info(
-                f"  {pos_name}: {focus_z_str} at ({stage_pos.x * 1e6:.1f}, {stage_pos.y * 1e6:.1f}) μm"
-            )
-
-    finally:
-        if return_to_start:
-            logging.info("Restoring initial objective and stage positions")
-            # First restore objective to initial position to avoid stage movement issues
-            fibsem_microscope.fm.objective.move_absolute(initial_objective_position)
-            # Then move stage back to initial position
-            fibsem_microscope.safe_absolute_stage_movement(initial_position)
-
-    return focus_map

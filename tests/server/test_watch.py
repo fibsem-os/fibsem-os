@@ -696,3 +696,72 @@ def test_the_subcommand_runs_without_the_mcp_extra(tmp_path):
     )
     assert result.returncode == 1, result.stderr
     assert result.stdout.startswith("SERVER UNAVAILABLE"), result.stdout
+
+
+def test_every_mill_is_followed_by_its_stage_and_end_lines(app, microscope, tmp_path):
+    """A mill run as a workflow task runs it, through the service and not the
+    App Server: its recorded events print a line per stage and one at the end."""
+    from fibsem import config as fcfg
+    from fibsem.applications.autolamella.server.events import attach_microscope_taps
+    from fibsem.milling.base import FibsemMillingStage
+    from fibsem.milling.tasks import FibsemMillingTaskConfig, run_milling_task
+
+    stages = [FibsemMillingStage(name=name) for name in ("Rough", "Polish")]
+    stages[1].enabled = False
+    config = FibsemMillingTaskConfig.from_stages(stages, name="Trench")
+    config.alignment.enabled = False
+    config.acquisition.acquire_sem = config.acquisition.acquire_fib = False
+    disposers = attach_microscope_taps(app.buffer, microscope)
+    data_path = fcfg.DATA_CC_PATH
+    fcfg.DATA_CC_PATH = str(tmp_path / "data")
+    try:
+        task = run_milling_task(microscope, config)
+    finally:
+        fcfg.DATA_CC_PATH = data_path
+        for dispose in disposers:
+            dispose()
+    rough = stages[0]
+    run = task.task_id
+
+    code, lines = _watch(
+        {},
+        since=0,
+        until=lambda lines: lines[-1].startswith("COMMAND ENDED"),
+    )
+
+    mill = [line for line in lines if line.startswith("MILL")]
+    assert mill == [
+        f"MILL STAGE STARTED 1/1 'Rough' task='Trench' "
+        f"current={rough.milling.milling_current:g}A "
+        f"depth={rough.pattern.depth:g}m run={run}",
+        f"MILL ENDED 'Trench' status=completed run={run} stages: "
+        "Rough=completed, Polish=skipped (turned off in the protocol)",
+    ]
+    # The command's own end stays its line.
+    assert f"COMMAND ENDED milling.run_task run={run} state=done" in lines
+
+
+def test_a_mill_line_names_the_item_and_a_failure():
+    lines = []
+    watch_mod._print_events(
+        [
+            {
+                "seq": 1,
+                "kind": "milling",
+                "item": {"id": "a", "name": "01-alive-dory"},
+                "payload": {
+                    "milling_run_id": "r1",
+                    "milling_task_name": "Mill Rough",
+                    "status": "failed",
+                    "error": "RuntimeError: the beam would not blank",
+                    "stages": [{"name": "Rough", "status": "failed"}],
+                },
+            }
+        ],
+        0,
+        lines.append,
+    )
+    assert lines == [
+        "MILL ENDED 'Mill Rough' item=01-alive-dory status=failed run=r1 "
+        "stages: Rough=failed (RuntimeError: the beam would not blank)"
+    ]

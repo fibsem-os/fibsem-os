@@ -19,10 +19,9 @@ much of the planned step the picture actually moved, and in which direction.
 
 from __future__ import annotations
 
-import json
 import logging
 from dataclasses import asdict, dataclass
-from typing import Dict, List, Mapping, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -377,24 +376,16 @@ class TileLayoutCheck:
             pairs_total=len(self.pairs),
         )
 
-    def save(
-        self,
-        path: str,
-        pixel_size: Optional[float] = None,
-        registration: Optional[dict] = None,
-    ) -> None:
-        """Write the summary and every pair to `path` as JSON, for looking back at a
-        run's calibration without the tiles."""
+    def record(self) -> Dict[str, Any]:
+        """The summary, its thresholds and every pair, for looking back at a run's
+        calibration without the tiles (the ``layout`` of `OverviewResult`)."""
         summary = self.summary()
-        record = {
+        return {
             "summary": asdict(summary),
             "warning": summary.warning,
             "warn_step_fraction": WARN_STEP_FRACTION,
             "warn_angle_deg": WARN_ANGLE_DEG,
             "min_score": DEFAULT_MIN_SCORE,
-            "pixel_size": pixel_size,
-            # What `register_tiles` did with the measurements, when it was asked to.
-            "registration": registration,
             "pairs": [
                 {
                     **asdict(p),
@@ -405,8 +396,6 @@ class TileLayoutCheck:
                 for p in self.pairs
             ],
         }
-        with open(path, "w") as f:
-            json.dump(record, f, indent=2)
 
 
 def _single_channel(image: np.ndarray) -> np.ndarray:

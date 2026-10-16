@@ -50,7 +50,6 @@ from fibsem.server.devices import ERROR_STATUS, build_device_router, refusal
 from fibsem.server.discovery import fibsem_folder
 from fibsem.server.models import MicroscopeStateRequest
 from fibsem.server.requests import RequestStore, build_request_router
-from fibsem.server.runs import Runs
 from fibsem.structures import BeamType, MicroscopeState
 
 API_VERSION = "0.3.0"
@@ -176,6 +175,10 @@ def _stop_gate(request: Request) -> None:
         _drive(request)
 
 
+# The app's stop routes and what each stops, as the operator's own stops record it.
+_APP_STOPS = {"/app/workflow/stop": "workflow", "/app/workflow/stop_task": "task"}
+
+
 async def _stop_reason(request: Request):
     """Every agent stop carries a reason: refused without one, and recorded as
     ``agent_stop`` (what was stopped, why, whether it was the agent's own) once
@@ -200,7 +203,10 @@ async def _stop_reason(request: Request):
         )
     own = _agents_own_action(request)
     yield
-    action = action_name(request) if command is not None else "workflow"
+    if command is not None:
+        action = action_name(request)
+    else:
+        action = _APP_STOPS.get(request.url.path, "workflow")
     call = current_call()
     if call is not None:
         call.recorded = True
@@ -531,7 +537,7 @@ def build_server(
                 refuse=refuse,
                 noun="service",
                 on_image=lambda image: _show_in_app(microscope, image),
-                runs=Runs(record=microscope.record_event),
+                long_commands=True,
                 adopt_control=adopt_control,
             )
         )

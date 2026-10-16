@@ -40,11 +40,7 @@ from fibsem.applications.autolamella.ui.autolamella_task_config_widget import ( 
     TASK_FORM_DEFAULTS,
     AutoLamellaTaskParametersConfigWidget,
 )
-from fibsem.structures import (  # noqa: E402
-    Display,  # noqa: E402
-    RangeLimit,
-    field_meta,
-)
+from fibsem.structures import Display, RangeLimit, param
 from fibsem.ui.widgets.custom_widgets import (  # noqa: E402
     IntegerValueSpinBox,
     ValueComboBox,
@@ -89,7 +85,7 @@ class SampleTaskConfig(AutoLamellaTaskConfig):
     a_scalar_list: List[str] = field(default_factory=lambda: ["x", "y"])
     a_literal: Literal["cells", "hpf", "other"] = "hpf"
     an_optional_float: Optional[float] = 1.0
-    with_items: str = field(default="b", metadata=field_meta(choices=["a", "b", "c"]))
+    with_items: str = param("b", choices=["a", "b", "c"])
     # The two that used to be silently destroyed.
     nested: NestedSettings = field(default_factory=NestedSettings)
     nested_list: List[NestedSettings] = field(
@@ -318,22 +314,13 @@ class VocabularyTaskConfig(AutoLamellaTaskConfig):
     task_type: ClassVar[str] = "VOCABULARY_TEST"
     display_name: ClassVar[str] = "Vocabulary Test"
 
-    bounded: float = field(
-        default=5.0,
-        metadata=field_meta(
-            limits=RangeLimit(-20.0, 20.0), display=Display(step=0.5, decimals=4)
-        ),
+    bounded: float = param(
+        5.0, limits=RangeLimit(-20.0, 20.0), display=Display(step=0.5, decimals=4)
     )
-    bounded_int: int = field(default=3, metadata=field_meta(limits=RangeLimit(1, 9)))
-    tucked_away: bool = field(
-        default=True, metadata=field_meta(display=Display(advanced=True))
-    )
-    not_shown: bool = field(
-        default=True, metadata=field_meta(display=Display(hidden=True))
-    )
-    labelled: float = field(
-        default=1.0, metadata=field_meta(display=Display("Custom Label"))
-    )
+    bounded_int: int = param(3, limits=RangeLimit(1, 9))
+    tucked_away: bool = param(True, display=Display(advanced=True))
+    not_shown: bool = param(True, display=Display(hidden=True))
+    labelled: float = param(1.0, display=Display("Custom Label"))
     maybe_text: Optional[str] = None
 
 

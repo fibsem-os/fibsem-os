@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import (
     ClassVar,
     List,
@@ -10,11 +10,11 @@ from typing import (
 from fibsem import constants
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.milling.properties import (
-    angle_metadata,
-    cross_section_metadata,
-    distance_metadata,
-    passes_metadata,
-    scan_direction_metadata,
+    angle_param,
+    cross_section_param,
+    distance_param,
+    passes_param,
+    scan_direction_param,
 )
 from fibsem.structures import (
     CrossSectionPattern,
@@ -23,75 +23,54 @@ from fibsem.structures import (
     FibsemRectangleSettings,
     Point,
     RangeLimit,
-    field_meta,
+    param,
 )
 
 
 @dataclass
 class ArrayPattern(BasePattern[Union[FibsemRectangleSettings, FibsemCircleSettings]]):
-    width: float = field(
-        default=2.0e-6,
-        metadata=distance_metadata("Width", "Width of the array pattern."),
+    width: float = param(2.0e-6, distance_param("Width", "Width of the array pattern."))
+    height: float = param(
+        2.0e-6, distance_param("Height", "Height of the array pattern.")
     )
-    height: float = field(
-        default=2.0e-6,
-        metadata=distance_metadata("Height", "Height of the array pattern."),
+    depth: float = param(5.0e-6, distance_param("Depth", "Depth of the array pattern."))
+    n_columns: int = param(
+        5,
+        limits=RangeLimit(1, 100),
+        doc="Number of columns in the array pattern.",
+        display=Display("Number of Columns", step=1, decimals=0),
     )
-    depth: float = field(
-        default=5.0e-6,
-        metadata=distance_metadata("Depth", "Depth of the array pattern."),
+    n_rows: int = param(
+        5,
+        limits=RangeLimit(1, 100),
+        doc="Number of rows in the array pattern.",
+        display=Display("Number of Rows", step=1, decimals=0),
     )
-    n_columns: int = field(
-        default=5,
-        metadata=field_meta(
-            limits=RangeLimit(1, 100),
-            doc="Number of columns in the array pattern.",
-            display=Display("Number of Columns", step=1, decimals=0),
-        ),
-    )
-    n_rows: int = field(
-        default=5,
-        metadata=field_meta(
-            limits=RangeLimit(1, 100),
-            doc="Number of rows in the array pattern.",
-            display=Display("Number of Rows", step=1, decimals=0),
-        ),
-    )
-    pitch_vertical: float = field(
-        default=5.0e-6,
-        metadata=distance_metadata(
+    pitch_vertical: float = param(
+        5.0e-6,
+        distance_param(
             "Vertical Pitch", "Vertical pitch between elements in the array pattern."
         ),
     )
-    pitch_horizontal: float = field(
-        default=5.0e-6,
-        metadata=distance_metadata(
+    pitch_horizontal: float = param(
+        5.0e-6,
+        distance_param(
             "Horizontal Pitch",
             "Horizontal pitch between elements in the array pattern.",
         ),
     )
-    passes: int = field(
-        default=0,
-        metadata=passes_metadata(),
+    passes: int = param(0, passes_param())
+    rotation: float = param(
+        0, angle_param("Rotation", "Rotation angle of the array pattern in degrees.")
     )
-    rotation: float = field(
-        default=0,
-        metadata=angle_metadata(
-            "Rotation", "Rotation angle of the array pattern in degrees."
-        ),
+    scan_direction: str = param("TopToBottom", scan_direction_param())
+    cross_section: CrossSectionPattern = param(
+        CrossSectionPattern.Rectangle, cross_section_param()
     )
-    scan_direction: str = field(
-        default="TopToBottom", metadata=scan_direction_metadata()
-    )
-    cross_section: CrossSectionPattern = field(
-        default=CrossSectionPattern.Rectangle, metadata=cross_section_metadata()
-    )
-    use_circle: bool = field(
-        default=False,
-        metadata=field_meta(
-            doc="If true, use circular patterns instead of rectangular.",
-            display=Display("Use Circle"),
-        ),
+    use_circle: bool = param(
+        False,
+        doc="If true, use circular patterns instead of rectangular.",
+        display=Display("Use Circle"),
     )
 
     name: ClassVar[str] = "ArrayPattern"

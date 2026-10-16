@@ -145,10 +145,10 @@ def request_outside_field(
     The Demo mills them; a real instrument refuses (FIB-1411). *stages* in
     place of the request's own run_stage and run_task stages."""
     from fibsem.milling.base import FibsemMillingStage
-    from fibsem.milling.patterning.utils import outside_field
+    from fibsem.milling.patterning.utils import outside_field, stage_outside_field
     from fibsem.structures import FibsemMillingSettings
 
-    fields = []  # (hfw, patterns)
+    outside = []
     for command, kwargs in _milling_commands(request):
         if command != "prepare":
             continue
@@ -156,19 +156,18 @@ def request_outside_field(
             hfw = FibsemMillingSettings.from_dict(dict(kwargs["settings"])).hfw
         except Exception:  # noqa: BLE001 - no field to check against
             continue
-        fields.append((hfw, parse_patterns(kwargs.get("patterns"))))
+        outside.extend(
+            pattern
+            for pattern in parse_patterns(kwargs.get("patterns"))
+            if outside_field(pattern, hfw, hfw * aspect)
+        )
     for stage in request_stages(request) if stages is None else stages:
         if isinstance(stage, FibsemMillingStage):
             try:
-                fields.append((stage.milling.hfw, stage.define_patterns()))
+                outside.extend(stage_outside_field(stage, aspect))
             except Exception:  # noqa: BLE001 - a stage that cannot define them
                 continue
-    return [
-        pattern
-        for hfw, patterns in fields
-        for pattern in patterns
-        if outside_field(pattern, hfw, hfw * aspect)
-    ]
+    return outside
 
 
 def request_targets(request: Dict[str, Any]) -> List[Tuple[BeamType, Point]]:
@@ -317,6 +316,8 @@ class _Mark:
         shape: str = CROSS,
         before: bool = False,
         title: str = "",
+        item: str = "",
+        stage: Optional[object] = None,
     ):
         self.beam = beam
         self.legend = legend
@@ -328,6 +329,10 @@ class _Mark:
         # Whose image the places were measured on ("05-pale-lark"), for the
         # picture's caption.
         self.title = title
+        # A pose's stage position and its item: drawn on the item's grid
+        # overview when the view does not show it.
+        self.item = item
+        self.stage = stage
 
     def pixels(self, frame) -> List[Tuple[float, float]]:
         """The places as *frame*'s pixels; one the frame cannot place (None) is
@@ -636,6 +641,7 @@ class AgentPreviews:
         item_image: Optional[Callable[[str], object]] = None,
         overview_image: Optional[Callable[[str, str], object]] = None,
         load_image: Optional[Callable[[str], object]] = None,
+        item_overview: Optional[Callable[[str], object]] = None,
     ) -> None:
         # Asked when there is something to draw: the views are built after this.
         self._view_controller = view_controller
@@ -654,6 +660,9 @@ class AgentPreviews:
         # A grid's recorded overview (grid name, file name), for an item added
         # on it; None when there is none.
         self._overview_image = overview_image or (lambda grid, filename: None)
+        # The latest overview of an item's grid (item name), for a pose the
+        # view does not show; None when there is none.
+        self._item_overview = item_overview or (lambda item: None)
         # A request's own image, by path (the agent's evidence).
         self._load_image = load_image or _load_beam_image
         # The card's picture: (QImage or None, caption, suggestion=bool,
@@ -698,6 +707,8 @@ class AgentPreviews:
             frame, beam = self._measured_on(
                 controller, marks, bool(patterns or milled or before)
             )
+            if not (patterns or milled or before):
+                frame, beam = self._pose_overview(marks, frame, beam)
         # The card: the image the values were measured on, every value on it.
         if frame is None:
             if missing:
@@ -747,6 +758,34 @@ class AgentPreviews:
         if beams:
             return _frame(controller, beams[0]), beams[0]
         return None, None
+
+    def _pose_overview(self, marks: Dict[str, "_Mark"], frame, beam):
+        """*frame* and *beam*; or, when *marks* are all poses and the view does
+        not show them, the item's grid overview that does, the poses placed on
+        it. A view or overview without stage geometry places nothing."""
+        from fibsem.geometry.projection import stage_to_pixel
+
+        posed = list(marks.values())
+        if not posed or any(m.stage is None for m in posed):
+            return frame, beam
+
+        def shows(image) -> bool:
+            for mark in posed:
+                pixel = stage_to_pixel(image, mark.stage)
+                if pixel is None or not _on_frame(image, [pixel, pixel]):
+                    return False
+            return True
+
+        if frame is not None and shows(frame):
+            return frame, beam
+        overview = self._item_overview(posed[0].item)
+        if overview is None or not shows(overview):
+            return frame, beam
+        for mark in posed:
+            mark.places = [(overview, stage_to_pixel(overview, mark.stage))]
+            mark.legend = f"{mark.legend}, on the grid overview"
+        settings = getattr(overview.metadata, "image_settings", None)
+        return overview, getattr(settings, "beam_type", None) or BeamType.ELECTRON
 
     def _request_marks(
         self, request: Dict[str, Any], missing: List[str]
@@ -860,9 +899,11 @@ class AgentPreviews:
                     f"{item} {pose} pose",
                     [(None, at(stage))],
                     shape=TARGET,
+                    item=item,
+                    stage=stage,
                 )
         elif tool == "item_set_pose":
-            pose = arguments.get("pose_name")
+            pose = arguments.get("pose")
             add(
                 POSE_MARK,
                 BeamType.ION,
@@ -946,12 +987,16 @@ class AgentPreviews:
                 area=True,
             )
         elif isinstance(request, RunSpotBurn):
+            # The edit's points, or the question's when it moves none.
+            points = getattr(value, "points", None)
+            if points is None:
+                points = request.settings.coordinates
             mark = _Mark(
                 BeamType.ION,
                 "spot burn points",
                 [
                     (None, lambda frame, p=p: _fraction_pixel(frame, (p.x, p.y)))
-                    for p in value
+                    for p in points
                 ],
                 shape=DOT,
             )

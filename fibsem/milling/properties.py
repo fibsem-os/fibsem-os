@@ -1,32 +1,30 @@
-from typing import Any, Dict
-
 from fibsem import constants
-from fibsem.structures import (  # noqa: F401  (distance_metadata, DISTANCE_LIMITS: re-exported)
+from fibsem.structures import (  # noqa: F401  (distance_param, DISTANCE_LIMITS: re-exported)
     DISTANCE_LIMITS,
     CrossSectionPattern,
     Display,
+    Parameter,
     RangeLimit,
-    distance_metadata,
-    field_meta,
+    distance_param,
 )
 from fibsem.utils import format_resolution_as_str
 
 # Shared metadata for the parameters that recur across patterns and strategies,
-# in the device Parameter's vocabulary (fibsem.structures.field_meta): SI limits
+# as a field's Parameter (for fibsem.structures.param): SI limits
 # and a Display. Each is a function of what differs between the fields that use it
 # (the label and the doc, sometimes the range), so a field says it in one call.
 
 
-def angle_metadata(
+def angle_param(
     label: str,
     doc: str,
     *,
     limits: RangeLimit = RangeLimit(0.0, 360.0),
     step: float = 1.0,
     advanced: bool = False,
-) -> Dict[str, Any]:
+) -> Parameter:
     """An angle in degrees, not radians: a pattern's rotation is kept in degrees."""
-    return field_meta(
+    return Parameter(
         unit=constants.DEGREE_SYMBOL,
         limits=limits,
         doc=doc,
@@ -34,11 +32,11 @@ def angle_metadata(
     )
 
 
-def duration_metadata(
+def duration_param(
     doc: str = "Specify the duration of the milling pattern in seconds. Set to 0 for automatic calculation.",
     label: str = "Time",
-) -> Dict[str, Any]:
-    return field_meta(
+) -> Parameter:
+    return Parameter(
         unit="s",
         limits=RangeLimit(0.0, 10000.0),
         doc=doc,
@@ -46,42 +44,42 @@ def duration_metadata(
     )
 
 
-def passes_metadata(
+def passes_param(
     doc: str = "Number of passes for the pattern. Set to 0 for automatic calculation.",
-) -> Dict[str, Any]:
-    return field_meta(
+) -> Parameter:
+    return Parameter(
         limits=RangeLimit(0, 100000000),
         doc=doc,
         display=Display("Passes", step=1, advanced=True),
     )
 
 
-def scan_direction_metadata(
+def scan_direction_param(
     doc: str = "Direction of the scan for the pattern.",
-) -> Dict[str, Any]:
+) -> Parameter:
     """The milling service's scan directions, which the instrument decides."""
-    return field_meta(
+    return Parameter(
         device_parameter="milling.scan_direction",
         doc=doc,
         display=Display("Scan Direction"),
     )
 
 
-def cross_section_metadata(
+def cross_section_param(
     doc: str = "The type of cross section for the milling pattern.",
-) -> Dict[str, Any]:
-    return field_meta(
+) -> Parameter:
+    return Parameter(
         choices=list(CrossSectionPattern),
         doc=doc,
         display=Display("Cross Section"),
     )
 
 
-def image_resolution_metadata(
+def image_resolution_param(
     doc: str = "The imaging resolution in pixels (Width x Height).",
-) -> Dict[str, Any]:
+) -> Parameter:
     """The beam's resolutions, which the instrument decides."""
-    return field_meta(
+    return Parameter(
         device_parameter="beam.resolution",
         doc=doc,
         display=Display("Image Resolution", format_fn=format_resolution_as_str),

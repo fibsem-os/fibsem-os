@@ -20,6 +20,7 @@ from fibsem.devices.core import Device
 from fibsem.devices.fm import FM, Objective
 from fibsem.devices.manipulator import Manipulator
 from fibsem.devices.stage import Stage
+from fibsem.services.stage_movement import StageMovement
 
 # Blocked by the kind of device, not its name: every beam, whatever it is called.
 # "write" names parameters the agent may not set, "command" commands it may not
@@ -32,12 +33,16 @@ _BLOCKED: Tuple[Tuple[type, Dict[str, Any]], ...] = (
     # Pumping and venting: the operator's, at the microscope. State and pressure
     # stay readable.
     (Chamber, {"write": ALL, "command": ALL}),
-    # Homing, not for now; the stage link.
-    (Stage, {"command": {"home", "link"}}),
+    # Homing, not for now; the stage link; the raw absolute move, which the
+    # safe one (safe_absolute_stage_movement) covers.
+    (Stage, {"command": {"home", "link", "move_absolute"}}),
     # Every move and the insert, stop included: blocked for now, to revisit.
     (Manipulator, {"write": ALL, "command": ALL}),
     # The safety limit the objective's moves are checked against.
     (Objective, {"write": {"limit_position"}}),
+    # The raw absolute move: the safe one tilts flat for a large rotation and
+    # rotates first (Patrick, 2026-10-16).
+    (StageMovement, {"command": {"move_absolute"}}),
     # A z-stack's cancel: the agent stops the FM through imaging.stop, under
     # the stop rule like every other stop.
     (FM, {"command": {"cancel"}}),
@@ -46,10 +51,11 @@ _BLOCKED: Tuple[Tuple[type, Dict[str, Any]], ...] = (
 _WHY = {
     Beam: "a column setting the operator keeps",
     Chamber: "pumping and venting are the operator's, at the microscope",
-    Stage: "the operator's, at the microscope",
+    Stage: "homing and the stage link are the operator's; move with stage_move_absolute",
     Manipulator: "the manipulator is the operator's for now",
     Objective: "the objective's safety limit",
     FM: "stop the FM with the imaging service's stop",
+    StageMovement: "move with safe_absolute_stage_movement (stage_move_absolute)",
 }
 
 

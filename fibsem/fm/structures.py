@@ -10,12 +10,10 @@ from typing import (
     Any,
     Dict,
     List,
-    Literal,
     Optional,
     Sequence,
     Tuple,
     Union,
-    get_args,
 )
 
 import numpy as np
@@ -71,6 +69,7 @@ from fibsem.autofunctions.autofocus import (  # noqa: E402,F401
 from fibsem.structures import (  # noqa: F401
     AutoFocusMode,
     CameraImageTransform,
+    Configurable,
     FibsemExperimentRef,
     FibsemHardwareGeometry,
     FibsemRectangle,
@@ -79,7 +78,8 @@ from fibsem.structures import (  # noqa: F401
     RangeLimit,
     TileOrderStrategy,
     _parse_image_transform,
-    distance_metadata,
+    distance_param,
+    param,
 )
 from fibsem.util.timestamps import (
     acquisition_datetime_of,
@@ -398,27 +398,27 @@ class ChannelSettings:
 
 
 @dataclass
-class ZParameters:
+class ZParameters(Configurable):
     # Relative to the objective's position when the stack starts.
-    zmin: float = field(
-        default=-10e-6,
-        metadata=distance_metadata(
+    zmin: float = param(
+        -10e-6,
+        distance_param(
             "Z Min",
             "Minimum Z position relative to current position",
             limits=RangeLimit(-100e-6, -0.25e-6),
         ),
     )
-    zmax: float = field(
-        default=10e-6,
-        metadata=distance_metadata(
+    zmax: float = param(
+        10e-6,
+        distance_param(
             "Z Max",
             "Maximum Z position relative to current position",
             limits=RangeLimit(0.25e-6, 100e-6),
         ),
     )
-    zstep: float = field(
-        default=1e-6,
-        metadata=distance_metadata(
+    zstep: float = param(
+        1e-6,
+        distance_param(
             "Z Step", "Step size between Z positions", limits=RangeLimit(0.1e-6, 10e-6)
         ),
     )

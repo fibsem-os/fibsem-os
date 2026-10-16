@@ -65,7 +65,7 @@ from fibsem.ui.widgets.overview_grid_settings_widget import OverviewGridSettings
 
 # How a tile's imaging controls are shown: ImageSettings' field metadata, as the
 # Image tab shows them, with the selected beam's limits and resolutions laid over.
-_SPECS = field_specs(ImageSettings)
+_SPECS = ImageSettings.params
 
 
 def _scale(name: str) -> float:

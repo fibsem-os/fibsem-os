@@ -4,6 +4,7 @@ mounted into the server, reached over HTTP and through MCP tools."""
 import asyncio
 import json
 import os
+from pathlib import Path
 
 import pytest
 
@@ -1159,3 +1160,252 @@ def test_position_edits_need_drive(client, host):
         ).status_code
         == 403
     )
+
+
+# --- the experiment's files (D3) ----------------------------------------------
+
+OVERVIEW = "grids/grid-aspen/overview_sem/overview.tif"
+
+
+def test_experiment_files_list_one_folder_at_watch(client, host, grid_with_overview):
+    (Path(host.experiment.path) / "notes.md").write_text("# notes\n")
+    top = client.get("/app/experiment/files", headers=AUTH)
+    assert top.status_code == 200
+    entries = {e["name"]: e for e in top.json()["entries"]}
+    assert entries["grids"]["kind"] == "folder"
+    notes = entries["notes.md"]
+    assert (notes["kind"], notes["size"], notes["path"]) == ("text", 8, "notes.md")
+    assert notes["modified"]
+    below = client.get(
+        "/app/experiment/files",
+        params={"dir": "grids/grid-aspen/overview_sem"},
+        headers=AUTH,
+    ).json()
+    assert below["dir"] == "grids/grid-aspen/overview_sem"
+    assert [(e["path"], e["kind"]) for e in below["entries"]] == [(OVERVIEW, "image")]
+    file = client.get("/app/experiment/files", params={"dir": OVERVIEW}, headers=AUTH)
+    assert file.status_code == 422
+
+
+def test_experiment_files_read_text_and_image_previews(
+    client, host, grid_with_overview
+):
+    (Path(host.experiment.path) / "notes.md").write_text("# notes\n")
+    text = client.get("/app/experiment/files/notes.md", headers=AUTH).json()
+    assert text["text"] == "# notes\n"
+    assert text["truncated"] is False
+
+    image = client.get(f"/app/experiment/files/{OVERVIEW}", headers=AUTH).json()
+    assert image["summary"]["kind"] == "image"
+    assert image["summary"]["beam_type"] == "ELECTRON"
+    assert image["summary"]["pixel_size"] == pytest.approx(200e-6 / 128)
+    preview = image["preview"]
+    assert (preview["width"], preview["full_width"]) == (128, 128)
+    assert preview["image_b64_jpeg"]
+    assert preview["preview_pixelsize"] == pytest.approx(200e-6 / 128)
+    # An absolute path inside the experiment, as an image answer gives it, too.
+    absolute = os.path.join(str(host.experiment.path), OVERVIEW)
+    served = client.get("/app/experiment/files/" + absolute, headers=AUTH)
+    assert served.json()["path"] == os.path.realpath(absolute)
+
+
+def test_experiment_files_crop_at_native_resolution(client, grid_with_overview):
+    url = f"/app/experiment/files/{OVERVIEW}"
+    box = client.get(url, params={"box": "32,16,20,10"}, headers=AUTH).json()
+    preview = box["preview"]
+    assert preview["region"] == {"x": 32, "y": 16, "width": 20, "height": 10}
+    assert (preview["width"], preview["height"]) == (20, 10)
+    # Native resolution: a preview pixel is a source pixel; the field is the region's.
+    assert preview["preview_pixelsize"] == pytest.approx(200e-6 / 128)
+    assert preview["hfw"] == pytest.approx(20 * 200e-6 / 128)
+    assert box["summary"]["shape"] == [128, 128]
+
+    fraction = client.get(
+        url, params={"fraction": "0.5,0.25,0.25,0.5"}, headers=AUTH
+    ).json()
+    assert fraction["preview"]["region"] == {
+        "x": 64,
+        "y": 32,
+        "width": 32,
+        "height": 64,
+    }
+
+    for params in (
+        {"box": "500,500,10,10"},  # misses the image
+        {"fraction": "0.5,0.5,2,1"},  # not a fraction
+        {"box": "1,2,3"},
+        {"box": "a,b,c,d"},
+        {"box": "0,0,8,8", "fraction": "0,0,0.5,0.5"},
+    ):
+        refused = client.get(url, params=params, headers=AUTH)
+        assert refused.status_code == 422, params
+
+
+def test_experiment_files_stay_inside_the_experiment(client, host, tmp_path):
+    outside = tmp_path / "elsewhere.md"
+    outside.write_text("secret")
+    (Path(host.experiment.path) / "link.md").symlink_to(outside)
+    (Path(host.experiment.path) / "notes.md").write_text("# notes\n")
+    for path in ("..%2Felsewhere.md", "link.md", str(outside)):
+        refused = client.get(f"/app/experiment/files/{path}", headers=AUTH)
+        assert refused.status_code == 403, path
+        assert refused.json()["detail"]["error_type"] == "not_allowed"
+    escape = client.get("/app/experiment/files", params={"dir": ".."}, headers=AUTH)
+    assert escape.status_code == 403
+    assert client.get("/app/experiment/files/nope.md", headers=AUTH).status_code == 404
+    # Only an image crops.
+    text = client.get(
+        "/app/experiment/files/notes.md", params={"box": "0,0,1,1"}, headers=AUTH
+    )
+    assert text.status_code == 422
+
+
+def test_experiment_files_need_an_open_experiment(client, host):
+    host.experiment = None
+    for url in ("/app/experiment/files", "/app/experiment/files/notes.md"):
+        refused = client.get(url, headers=AUTH)
+        assert refused.status_code == 409
+        assert refused.json()["detail"]["error_type"] == "no_experiment"
+
+
+def test_sidecar_reads_experiment_files_as_tools_and_resources(
+    client, host, grid_with_overview
+):
+    pytest.importorskip("mcp")
+    from fibsem.mcp.sidecar import build_sidecar
+
+    (Path(host.experiment.path) / "notes.md").write_text("# notes\n")
+    client.headers["Authorization"] = f"Bearer {TOKEN}"
+    sidecar = build_sidecar(client, client.get("/capabilities").json())
+
+    result = asyncio.run(
+        sidecar.call_tool(
+            "experiment_crop_image", {"path": OVERVIEW, "box": [0, 0, 16, 16]}
+        )
+    )
+    if isinstance(result, tuple):
+        result = result[0]
+    contents = list(getattr(result, "content", result))
+    image = next(c for c in contents if getattr(c, "type", None) == "image")
+    assert image.mime_type == "image/jpeg"
+    answer = json.loads(contents[0].text)
+    assert answer["preview"]["region"]["width"] == 16
+    assert answer["preview"]["image_index"] == 0
+
+    # resources/list: the experiment's top level only, not every file below it.
+    listed = {str(r.uri) for r in asyncio.run(sidecar.list_resources())}
+    assert {"experiment://grids", "experiment://notes.md"} <= listed
+    assert not any(OVERVIEW in uri for uri in listed)
+    templates = asyncio.run(sidecar.list_resource_templates())
+    assert [t.uri_template for t in templates] == ["experiment://{+path}"]
+
+    text = list(asyncio.run(sidecar.read_resource("experiment://notes.md")))
+    assert json.loads(text[0].content)["text"] == "# notes\n"
+    read = list(asyncio.run(sidecar.read_resource(f"experiment://{OVERVIEW}")))
+    assert [c.mime_type for c in read] == ["application/json", "image/jpeg"]
+    assert read[1].content[:2] == b"\xff\xd8"
+    assert json.loads(read[0].content)["summary"]["beam_type"] == "ELECTRON"
+    folder = list(asyncio.run(sidecar.read_resource("experiment://grids")))
+    assert [e["name"] for e in json.loads(folder[0].content)["entries"]] == [
+        "grid-aspen"
+    ]
+
+
+def test_thickness_reads_a_saved_fib_image_over_http_and_mcp(client, host):
+    """FIB-1434: the band measured off an item's saved FIB image, around its
+    POI, by the route and by the Watch tool, with the result's plot."""
+    pytest.importorskip("mcp")
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+    from fibsem.mcp.sidecar import build_sidecar
+    from fibsem.structures import BeamType
+    from tests.test_lamella_thickness import band_image
+
+    lamella = host.experiment.positions[0]
+    os.makedirs(lamella.path, exist_ok=True)
+    fname = "ref_Polishing_final_high_res_ib.tif"
+    image = band_image(235, angle_deg=0.6)
+    image.metadata.microscope_state = MicroscopeState()  # a saved image has one
+    image.metadata.image_settings.beam_type = BeamType.ION
+    image.save(os.path.join(lamella.path, fname))
+    sem = "ref_Polishing_final_high_res_eb.tif"
+    image.metadata.image_settings.beam_type = BeamType.ELECTRON
+    image.save(os.path.join(lamella.path, sem))
+    lamella.task_history.append(
+        AutoLamellaTaskState(
+            name="Polishing", outputs={"final_fib": [fname], "final_sem": [sem]}
+        )
+    )
+    route = f"/app/experiment/items/{lamella.name}/outputs/{fname}/thickness"
+
+    answer = client.post(route, headers=AUTH).json()
+    assert answer["thickness_nm"]["mean"] == pytest.approx(235, abs=10)
+    assert answer["angle_deg"] == pytest.approx(0.6, abs=0.05)
+    # This item has no trench patterns, so the window is the default.
+    assert answer["window_um"] == [10.0, 4.0]
+    assert answer["window_from"] == "default"
+    assert answer["plot"]["image_b64_jpeg"]
+    # Saved beside the image, as an autofocus run is.
+    saved = answer["saved_to"]
+    assert saved == os.path.join(lamella.path, "thickness", fname[: -len(".tif")])
+    assert sorted(os.listdir(saved)) == ["data.json", "plot.png", "window.tif"]
+
+    narrow = client.post(route, json={"width_um": "5"}, headers=AUTH).json()
+    assert narrow["continuity"]["columns"] == 512
+    assert narrow["window_from"] == "given"
+
+    unknown = client.post(
+        f"/app/experiment/items/{lamella.name}/outputs/nope.tif/thickness",
+        headers=AUTH,
+    )
+    assert unknown.status_code == 404
+    assert fname in unknown.json()["detail"]["filenames"]
+    refused = client.post(
+        f"/app/experiment/items/{lamella.name}/outputs/{sem}/thickness", headers=AUTH
+    )
+    assert refused.status_code == 422
+    bad = client.post(route, json={"height_um": "tall"}, headers=AUTH)
+    assert bad.status_code == 422
+
+    client.headers["Authorization"] = f"Bearer {TOKEN}"
+    sidecar = build_sidecar(client, client.get("/capabilities").json())
+    result = asyncio.run(
+        sidecar.call_tool(
+            "item_measure_thickness", {"item_name": lamella.name, "filename": fname}
+        )
+    )
+    if isinstance(result, tuple):
+        result = result[0]
+    contents = list(getattr(result, "content", result))
+    assert any(getattr(c, "type", None) == "image" for c in contents)
+    text = json.loads(contents[0].text)
+    assert text["thickness_nm"]["mean"] == pytest.approx(235, abs=10)
+    assert text["plot"]["image_index"] == 0
+
+
+def test_the_thickness_window_comes_from_the_trench_patterns():
+    """Along: nine tenths of the narrowest trench pattern; across: the widest
+    gap (the rough slab) and half a micron into each trench."""
+    from types import SimpleNamespace
+
+    from fibsem.applications.autolamella.server.context import _trench_window
+    from fibsem.milling.patterning.patterns.trench import TrenchPattern
+
+    def task(sync, *patterns):
+        stages = [SimpleNamespace(pattern=p) for p in patterns]
+        return SimpleNamespace(
+            sync_to_poi=sync, milling={"mill": SimpleNamespace(stages=stages)}
+        )
+
+    rough = TrenchPattern(width=12e-6, spacing=2e-6)
+    polish = TrenchPattern(width=10e-6, spacing=0.25e-6)
+    lamella = SimpleNamespace(
+        task_config={
+            "Rough Milling": task(True, rough),
+            "Polishing": task(True, polish),
+            "Elsewhere": task(False, TrenchPattern(width=1e-6, spacing=9e-6)),
+        }
+    )
+    width, height = _trench_window(lamella)
+    assert width == pytest.approx(9e-6)
+    assert height == pytest.approx(3e-6)
+    assert _trench_window(SimpleNamespace(task_config={})) is None

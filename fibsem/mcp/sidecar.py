@@ -227,6 +227,11 @@ class _LazyClient:
                 self._client = client
             return self._client
 
+    @property
+    def connected(self) -> bool:
+        """Whether a server was found yet, so a call would not wait for one."""
+        return self._client is not None
+
     def request(self, method, path, **kwargs):
         return self._connected().request(method, path, **kwargs)
 
@@ -296,6 +301,45 @@ class _Failure(str):
     """The server's own error (5xx), as text: unlike a refusal, the call may have
     done part of its work (a stage move that failed partway has moved). A tool
     that answers one is flagged an error (`_flag_failures`)."""
+
+
+def _pop_previews(data) -> List[bytes]:
+    """Take every base64 preview out of *data*, in place, and answer the JPEGs.
+
+    Each preview's place in the JSON keeps ``image_index``, its position among
+    the JPEGs answered.
+    """
+    images = []
+
+    def walk(node):
+        if isinstance(node, dict):
+            b64 = node.pop("image_b64_jpeg", None)
+            if isinstance(b64, str):
+                node["image_index"] = len(images)
+                images.append(base64.b64decode(b64))
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    walk(data)
+    return images
+
+
+EXPERIMENT_URI = "experiment://"
+
+
+def _with_blobs(content):
+    """An experiment resource's JSON *content*, its previews moved out into
+    image/jpeg contents after it (as :func:`_pop_previews` places them)."""
+    from mcp.server.lowlevel.helper_types import ReadResourceContents
+
+    data = json.loads(content.content)
+    images = _pop_previews(data)
+    yield ReadResourceContents(content=json.dumps(data), mime_type=content.mime_type)
+    for jpeg in images:
+        yield ReadResourceContents(content=jpeg, mime_type="image/jpeg")
 
 
 def _refusal(resp):
@@ -373,8 +417,6 @@ def build_sidecar(client, capabilities):
     from mcp.server.mcpserver import Image, MCPServer
     from mcp.types import ToolAnnotations
 
-    mcp = MCPServer("fibsem")
-    _name_the_client(mcp, client)
     offered = {
         t.name
         for t in (
@@ -382,6 +424,29 @@ def build_sidecar(client, capabilities):
         )
     }
     by_name = {t.name: t for t in CATALOG}
+    # The open experiment's files as resources, beside the tools that read them.
+    files_offered = "experiment_read_file" in offered
+
+    class Sidecar(MCPServer):
+        """The MCP server: resources/list adds the experiment's top level, and
+        an experiment resource's previews are read as images."""
+
+        async def list_resources(self):
+            listed = await super().list_resources()
+            if not files_offered:
+                return listed
+            import anyio
+
+            return listed + await anyio.to_thread.run_sync(_experiment_resources)
+
+        async def read_resource(self, uri, context=None):
+            contents = await super().read_resource(uri, context)
+            if not str(uri).startswith(EXPERIMENT_URI):
+                return contents
+            return [part for content in contents for part in _with_blobs(content)]
+
+    mcp = Sidecar("fibsem")
+    _name_the_client(mcp, client)
 
     def _json_tool(name, payload_fn=None):
         spec = by_name[name]
@@ -419,21 +484,7 @@ def build_sidecar(client, capabilities):
         characters). Each preview's place in the JSON keeps ``image_index``,
         its position among the images that follow.
         """
-        images = []
-
-        def walk(node):
-            if isinstance(node, dict):
-                b64 = node.pop("image_b64_jpeg", None)
-                if isinstance(b64, str):
-                    node["image_index"] = len(images)
-                    images.append(Image(data=base64.b64decode(b64), format="jpeg"))
-                for value in node.values():
-                    walk(value)
-            elif isinstance(node, list):
-                for value in node:
-                    walk(value)
-
-        walk(data)
+        images = [Image(data=jpeg, format="jpeg") for jpeg in _pop_previews(data)]
         if not images:
             return data
         return [json.dumps(data), *images]
@@ -460,8 +511,8 @@ def build_sidecar(client, capabilities):
     def microscope_get_state():
         return _json_tool("microscope_get_state")[1]()
 
-    def stage_get_milling_angle():
-        return _service_call("stage_get_milling_angle", {}, "milling_angle_deg")
+    def stage_get_current_milling_angle():
+        return _service_call("stage_get_current_milling_angle", {}, "milling_angle_deg")
 
     def stage_get_geometry():
         return _service_call("stage_get_geometry", {}, "geometry")
@@ -490,7 +541,12 @@ def build_sidecar(client, capabilities):
         return _routed("milling_preview_patterns", image_path=image_path, stages=stages)
 
     def alignment_align_to_reference(
-        reference_path: str, steps: int = 3, subsystem: str = "beam-shift"
+        reference_path: str,
+        steps: int = 3,
+        subsystem: str = "beam-shift",
+        use_autofocus: bool = False,
+        method: str = "cross-correlation",
+        validate: bool = True,
     ):
         return _routed(
             "alignment_align_to_reference",
@@ -498,7 +554,27 @@ def build_sidecar(client, capabilities):
             reference_path=reference_path,
             steps=steps,
             subsystem=subsystem,
+            use_autofocus=use_autofocus,
+            method=method,
+            validate=validate,
         )
+
+    def alignment_compare_methods(
+        reference_path: str, image_path: str, agreement_px: float = 2.0
+    ):
+        return _routed(
+            "alignment_compare_methods",
+            "comparison",
+            reference_path=reference_path,
+            image_path=image_path,
+            agreement_px=agreement_px,
+        )
+
+    def milling_check_stages(stages: list, aspect: float = 2 / 3):
+        return _routed("milling_check_stages", "stages", stages=stages, aspect=aspect)
+
+    def milling_list_options():
+        return _routed("milling_list_options", "options")
 
     def alignment_measure_shift(reference_path: str, image_path: str):
         return _routed(
@@ -506,6 +582,42 @@ def build_sidecar(client, capabilities):
             "shift",
             reference_path=reference_path,
             image_path=image_path,
+        )
+
+    def alignment_check_coincidence(
+        x: float = 0.0,
+        y: float = 0.0,
+        hfw: float = 150e-6,
+        autocontrast: bool = True,
+        path: Optional[str] = None,
+        beam: str = "ELECTRON",
+    ):
+        return _routed(
+            "alignment_check_coincidence",
+            "coincidence",
+            x=x,
+            y=y,
+            hfw=hfw,
+            autocontrast=autocontrast,
+            path=path,
+            beam=beam,
+        )
+
+    def alignment_measure_coincidence(
+        sem_path: str,
+        fib_path: str,
+        x: float = 0.0,
+        y: float = 0.0,
+        beam: str = "ELECTRON",
+    ):
+        return _routed(
+            "alignment_measure_coincidence",
+            "coincidence",
+            sem_path=sem_path,
+            fib_path=fib_path,
+            x=x,
+            y=y,
+            beam=beam,
         )
 
     def milling_stop(reason: str):
@@ -583,6 +695,12 @@ def build_sidecar(client, capabilities):
             kwargs=kwargs,
             reason=reason,
         )
+
+    def device_call_query(device: str, query: str, kwargs: Optional[dict] = None):
+        return _routed("device_call_query", device=device, query=query, kwargs=kwargs)
+
+    def microscope_set_state(microscope_state: dict):
+        return _routed("microscope_set_state", microscope_state=dict(microscope_state))
 
     def service_list():
         return _json_tool("service_list")[1]()
@@ -810,8 +928,109 @@ def build_sidecar(client, capabilities):
         meta = {"item_name": item_name, "filename": filename, **_image_header(resp)}
         return [json.dumps(meta), Image(data=resp.content, format="jpeg")]
 
+    def item_measure_thickness(
+        item_name: str,
+        filename: str,
+        width_um: Optional[float] = None,
+        height_um: Optional[float] = None,
+    ):
+        body = {"width_um": width_um, "height_um": height_um}
+        data, err = _call(
+            client,
+            "POST",
+            f"/app/experiment/items/{quote(item_name, safe='')}/outputs/"
+            f"{quote(filename, safe='')}/thickness",
+            {k: v for k, v in body.items() if v is not None},
+        )
+        return err if err else _with_images(data)
+
     def experiment_get_image_metadata(path: str):
         return _app_get("/app/experiment/images/metadata?" + urlencode({"path": path}))
+
+    def experiment_get_image_stage_position(
+        path: str,
+        x: Optional[float] = None,
+        y: Optional[float] = None,
+        fx: Optional[float] = None,
+        fy: Optional[float] = None,
+    ):
+        query = {"path": path, "x": x, "y": y, "fx": fx, "fy": fy}
+        return _app_get(
+            "/app/experiment/images/stage_position?"
+            + urlencode({k: v for k, v in query.items() if v is not None})
+        )
+
+    def experiment_get_image_pixels(path: str, stage_positions: list):
+        return _app_post(
+            "/app/experiment/images/pixels",
+            {"path": path, "stage_positions": [dict(p) for p in stage_positions]},
+        )
+
+    def _region(values):
+        return None if values is None else ",".join(str(float(v)) for v in values)
+
+    def _read_file(path, box=None, fraction=None):
+        """The file route's answer for *path*: (data, err)."""
+        query = _query(box=_region(box), fraction=_region(fraction))
+        # Every character quoted, so an absolute path an image answer gave
+        # reaches the route whole.
+        url = "/app/experiment/files/" + quote(str(path), safe="")
+        return _call(client, "GET", url + ("?" + query if query else ""))
+
+    def experiment_list_files(dir: Optional[str] = None):
+        return _app_get("/app/experiment/files?" + _query(dir=dir))
+
+    def experiment_read_file(path: str):
+        data, err = _read_file(path)
+        return err if err else _with_images(data)
+
+    def experiment_crop_image(
+        path: str, box: Optional[list] = None, fraction: Optional[list] = None
+    ):
+        data, err = _read_file(path, box=box, fraction=fraction)
+        return err if err else _with_images(data)
+
+    def _experiment_resources():
+        """The experiment's top-level files and folders, as resources: not every
+        tile under them, which a read of a folder lists."""
+        from mcp.types import Resource
+
+        if capabilities is None and not getattr(client, "connected", True):
+            # No server answered at start-up: never wait for one here; the
+            # first tool call does.
+            return []
+        try:
+            data, err = _call(client, "GET", "/app/experiment/files")
+        except Exception:  # noqa: BLE001 - no server: a listing with no files
+            return []
+        if err:
+            return []  # no experiment open, or no app
+        return [
+            Resource(
+                uri=EXPERIMENT_URI + quote(entry["path"]),
+                name=entry["name"],
+                description=f"{entry['kind']} in the open experiment",
+                mime_type="application/json",
+                size=entry["size"],
+            )
+            for entry in data["entries"]
+        ]
+
+    if files_offered:
+        from mcp.server.mcpserver.exceptions import ResourceError
+
+        @mcp.resource(
+            EXPERIMENT_URI + "{+path}",
+            name="experiment_file",
+            title="Experiment file",
+            description=by_name["experiment_read_file"].description,
+            mime_type="application/json",
+        )
+        def experiment_file(path: str):
+            data, err = _read_file(path)
+            if err:
+                raise ResourceError(err)
+            return data
 
     def item_get(item_name: str):
         return _app_get(f"/app/experiment/items/{item_name}")
@@ -900,6 +1119,11 @@ def build_sidecar(client, capabilities):
         )
         return err if err else data
 
+    def item_move_to_objective_position(item_name: str):
+        return _app_post(
+            f"/app/experiment/items/{quote(item_name, safe='')}/objective/move_to"
+        )
+
     def item_move_to_pose(item_name: str, pose: str):
         return _app_post(
             f"/app/experiment/items/{quote(item_name, safe='')}/move_to", {"pose": pose}
@@ -986,6 +1210,101 @@ def build_sidecar(client, capabilities):
             f"/app/experiment/grids/{quote(grid_name, safe='')}/rename", {"name": name}
         )
 
+    def grid_set_quality(grid_name: str, verdict: str, reason: str = ""):
+        return _app_post(
+            f"/app/experiment/grids/{quote(grid_name, safe='')}/quality",
+            {"verdict": verdict, "reason": reason},
+        )
+
+    def grid_set_note(grid_name: str, note: str):
+        return _app_post(
+            f"/app/experiment/grids/{quote(grid_name, safe='')}/note", {"note": note}
+        )
+
+    def grid_remove(grid_name: str):
+        data, err = _call(
+            client, "DELETE", f"/app/experiment/grids/{quote(grid_name, safe='')}"
+        )
+        return err if err else data
+
+    def protocol_add_task(task_type: str, task_name: str):
+        return _app_post(
+            "/app/experiment/protocol/tasks",
+            {"task_type": task_type, "task_name": task_name},
+        )
+
+    def protocol_remove_task(task_name: str):
+        data, err = _call(
+            client,
+            "DELETE",
+            f"/app/experiment/protocol/tasks/{quote(task_name, safe='')}",
+        )
+        return err if err else data
+
+    def protocol_reorder_tasks(order: list):
+        return _app_post(
+            "/app/experiment/protocol/tasks/reorder", {"order": list(order)}
+        )
+
+    def protocol_set_task_requirements(
+        task_name: str, requires: Optional[list] = None, required: Optional[bool] = None
+    ):
+        body: dict = {}
+        if requires is not None:
+            body["requires"] = list(requires)
+        if required is not None:
+            body["required"] = bool(required)
+        return _app_post(
+            f"/app/experiment/protocol/tasks/{quote(task_name, safe='')}/requirements",
+            body,
+        )
+
+    def protocol_set_lamella_defaults(
+        use_petname: Optional[bool] = None,
+        name_prefix: Optional[str] = None,
+        poi: Optional[dict] = None,
+        alignment_area: Optional[dict] = None,
+    ):
+        given = {
+            "use_petname": use_petname,
+            "name_prefix": name_prefix,
+            "poi": poi,
+            "alignment_area": alignment_area,
+        }
+        return _app_post(
+            "/app/experiment/protocol/lamella_defaults",
+            {k: v for k, v in given.items() if v is not None},
+        )
+
+    def protocol_save(name: str, overwrite: bool = False):
+        return _app_post(
+            "/app/experiment/protocol/save",
+            {"name": name, "overwrite": bool(overwrite)},
+        )
+
+    def protocol_get_grid_task_config(task_name: str):
+        return _app_get(
+            f"/app/experiment/grid_protocol/task_config/{quote(task_name, safe='')}"
+        )
+
+    def protocol_update_grid_task_config(task_name: str, patch: dict, version: str):
+        return _app_post(
+            f"/app/experiment/grid_protocol/task_config/{quote(task_name, safe='')}",
+            {"patch": patch, "version": version},
+        )
+
+    def protocol_reorder_grid_tasks(order: list):
+        return _app_post(
+            "/app/experiment/grid_protocol/tasks/reorder", {"order": list(order)}
+        )
+
+    def protocol_set_grid_task_requirements(task_name: str, requires: list):
+        return _app_post(
+            f"/app/experiment/grid_protocol/tasks/{quote(task_name, safe='')}"
+            "/requirements",
+            {"requires": list(requires)},
+        )
+
     def experiment_load(path: str):
         return _app_post("/app/experiment/load", {"path": path})
 
@@ -997,6 +1316,18 @@ def build_sidecar(client, capabilities):
 
     def workflow_stop(reason: str):
         return _app_post("/app/workflow/stop", {"reason": reason})
+
+    def workflow_stop_task(item_name: str, task_name: str, reason: str):
+        return _app_post(
+            "/app/workflow/stop_task",
+            {"item_name": item_name, "task_name": task_name, "reason": reason},
+        )
+
+    def workflow_queue_grids(task_names: list, grid_names: list):
+        return _app_post(
+            "/app/workflow/queue/grids",
+            {"task_names": list(task_names), "grid_names": list(grid_names)},
+        )
 
     def workflow_start(task_names: list, item_names: list = None):  # noqa: RUF013
         payload = {"task_names": list(task_names)}
@@ -1013,15 +1344,34 @@ def build_sidecar(client, capabilities):
         return _app_post("/app/workflow/grids/plan", payload)
 
     def workflow_start_grids(
-        task_names: list, grid_names: list = None, screen_all: bool = False
-    ):  # noqa: RUF013
-        payload = {"task_names": list(task_names), "screen_all": bool(screen_all)}
+        task_names: list,
+        grid_names: list = None,  # noqa: RUF013
+        screen_all: bool = False,
+        unload_at_end: bool = False,
+        report_at_end: bool = False,
+    ):
+        payload = {
+            "task_names": list(task_names),
+            "screen_all": bool(screen_all),
+            "unload_at_end": bool(unload_at_end),
+            "report_at_end": bool(report_at_end),
+        }
         if grid_names is not None:
             payload["grid_names"] = list(grid_names)
         return _app_post("/app/workflow/grids/start", payload)
 
-    def workflow_set_options(show_run_summary: bool):
-        payload = {"show_run_summary": bool(show_run_summary)}
+    def workflow_set_options(
+        show_run_summary: Optional[bool] = None,
+        turn_beams_off: Optional[bool] = None,
+        review_wait: Optional[float] = None,
+    ):
+        payload: dict = {}
+        if show_run_summary is not None:
+            payload["show_run_summary"] = bool(show_run_summary)
+        if turn_beams_off is not None:
+            payload["turn_beams_off"] = bool(turn_beams_off)
+        if review_wait is not None:
+            payload["review_wait"] = review_wait
         return _app_post("/app/workflow/options", payload)
 
     def protocol_set_supervision(task_name: str, supervise: bool):
@@ -1123,13 +1473,38 @@ def build_sidecar(client, capabilities):
             stage_get_position,
             stage_get_orientation,
             microscope_get_state,
-            stage_get_milling_angle,
+            stage_get_current_milling_angle,
             stage_get_geometry,
             milling_get_state,
             milling_estimate_time,
             milling_preview_patterns,
             alignment_align_to_reference,
             alignment_measure_shift,
+            alignment_compare_methods,
+            milling_check_stages,
+            milling_list_options,
+            device_call_query,
+            microscope_set_state,
+            experiment_get_image_stage_position,
+            experiment_get_image_pixels,
+            grid_set_quality,
+            grid_set_note,
+            grid_remove,
+            protocol_add_task,
+            protocol_remove_task,
+            protocol_reorder_tasks,
+            protocol_set_task_requirements,
+            protocol_set_lamella_defaults,
+            protocol_save,
+            protocol_get_grid_task_config,
+            protocol_update_grid_task_config,
+            protocol_reorder_grid_tasks,
+            protocol_set_grid_task_requirements,
+            workflow_stop_task,
+            workflow_queue_grids,
+            item_move_to_objective_position,
+            alignment_check_coincidence,
+            alignment_measure_coincidence,
             milling_stop,
             beam_acquire_image,
             stage_move_relative,
@@ -1169,7 +1544,11 @@ def build_sidecar(client, capabilities):
             protocol_get,
             item_list_outputs,
             item_get_output_image,
+            item_measure_thickness,
             experiment_get_image_metadata,
+            experiment_list_files,
+            experiment_read_file,
+            experiment_crop_image,
             item_get,
             grid_list,
             grid_get,

@@ -1,7 +1,7 @@
 """JSON schemas from what a value declares: its type and its ``Parameter``.
 
 One description serves the forms and the agent. A dataclass field's ``Parameter``
-(``fibsem.structures.field_specs``) and a device parameter carry the same SI unit,
+(``fibsem.structures.field_specs``, a class's ``.params``) and a device parameter carry the same SI unit,
 SI limits, choices, doc and ``Display``; this module writes them as JSON Schema, so a
 client with no copy of the classes (an agent) knows what a command's arguments are.
 
@@ -98,6 +98,8 @@ def parameter_schema(parameter: Parameter, defs: Dict[str, Schema]) -> Schema:
             schema["maximum"] = limits.max
     if parameter.choices is not None:
         schema["enum"] = [_plain(choice) for choice in parameter.choices]
+    if parameter.not_used:
+        schema["not_used"] = parameter.not_used
     if parameter.device_parameter:
         # its live limits and choices are that device parameter's (list_devices)
         schema["device_parameter"] = parameter.device_parameter

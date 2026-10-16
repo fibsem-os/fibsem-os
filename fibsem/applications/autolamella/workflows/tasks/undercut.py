@@ -1,7 +1,7 @@
 ######## UNDERCUT TASK DEFINITIONS ########
 
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import ClassVar, List, Literal, Optional, Type
 
 import numpy as np
@@ -17,25 +17,22 @@ from fibsem.applications.autolamella.workflows._default_milling_config import (
 from fibsem.applications.autolamella.workflows.core import align_feature_coincident
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 from fibsem.detection.detection import LamellaBottomEdge, LamellaCentre, LamellaTopEdge
-from fibsem.structures import BeamType, field_meta
+from fibsem.structures import BeamType, param
 
 
 @dataclass
 class MillUndercutTaskConfig(AutoLamellaTaskConfig):
     """Configuration for the MillUndercutTask."""
 
-    orientation: Optional[Literal["SEM", "FIB", "MILLING"]] = field(
-        default="SEM",
-        metadata=field_meta(
-            choices=("SEM", "FIB", "MILLING", None),
-            doc="The orientation to perform undercut milling in",
-        ),
+    orientation: Optional[Literal["SEM", "FIB", "MILLING"]] = param(
+        "SEM",
+        choices=("SEM", "FIB", "MILLING", None),
+        doc="The orientation to perform undercut milling in",
     )
-    milling_angles: List[float] = field(
-        default_factory=lambda: [25, 20],  # in degrees
-        metadata=field_meta(
-            unit=constants.DEGREE_SYMBOL, doc="The angles to mill the undercuts at"
-        ),
+    milling_angles: List[float] = param(
+        unit=constants.DEGREE_SYMBOL,
+        doc="The angles to mill the undercuts at",
+        default_factory=lambda: [25, 20],
     )
     task_type: ClassVar[str] = "MILL_UNDERCUT"
     display_name: ClassVar[str] = "Undercut Milling"
@@ -139,7 +136,7 @@ class MillUndercutTask(AutoLamellaTask):
 
             # mill undercut
             self.log_status_message(f"MILL_UNDERCUT_{nid}")
-            msg = f"Press Run Milling to mill the Undercut for {self.lamella.name}. Press Continue when done."
+            msg = f"Mill the Undercut for {self.lamella.name}."
             milling_task_config = self.update_milling_config_ui(
                 milling_task_config, msg=msg
             )

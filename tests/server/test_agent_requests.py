@@ -782,6 +782,23 @@ def test_a_run_task_reads_by_its_stages_with_whose_estimate_it_is():
         ),
         (
             "experiment_load",
+            {"path": "/data/AutoLamella-2026-10-15/experiment.yaml"},
+            {
+                "/app/experiment/recent": {
+                    "items": [
+                        {
+                            "path": "/data/AutoLamella-2026-10-15/experiment.yaml",
+                            "num_items": 5,
+                            "created_at": "2026-10-15T09:12:00",
+                        }
+                    ]
+                }
+            },
+            "Experiment",
+            "Open 'AutoLamella-2026-10-15' (5 lamellae, created 15 Oct)",
+        ),
+        (
+            "experiment_load",
             {"path": "/data/AutoLamella-2026-10-15/"},
             {},
             "Experiment",

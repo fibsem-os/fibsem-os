@@ -134,7 +134,7 @@ def _run_that_announces_itself(ui, recorder, seen):
     """A start that does what the real one does first: start the run's worker
     from the GUI thread, and the worker reports the run started."""
 
-    def start(*_args):
+    def start(*_args, **_kwargs):
         seen.append(current_actor())
         worker = FunctionWorker(lambda: recorder.buffer.append("workflow_started", {}))
         worker.start()

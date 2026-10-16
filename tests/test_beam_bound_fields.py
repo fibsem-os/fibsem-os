@@ -10,7 +10,7 @@ from fibsem.structures import (
 
 
 def test_the_milling_field_of_view_is_shown_as_the_beams():
-    hfw = field_specs(FibsemMillingSettings)["hfw"]
+    hfw = FibsemMillingSettings.params["hfw"]
 
     assert (hfw.unit, hfw.scale) == ("m", 1e6)
     assert (hfw.display.step, hfw.display.decimals) == (
@@ -22,7 +22,7 @@ def test_the_milling_field_of_view_is_shown_as_the_beams():
 
 
 def test_the_milling_current_takes_the_beams_unit_and_keeps_its_label():
-    current = field_specs(FibsemMillingSettings)["milling_current"]
+    current = FibsemMillingSettings.params["milling_current"]
 
     assert current.unit == "A"
     assert current.label == "Milling Current"
@@ -31,17 +31,17 @@ def test_the_milling_current_takes_the_beams_unit_and_keeps_its_label():
 def test_the_beams_advanced_flag_stays_with_the_beam_panel():
     # Beam.voltage is advanced in the beam panel; the recipe field says for itself
     assert Beam.voltage.display.advanced
-    assert field_specs(ImageSettings)["hfw"].advanced is False
+    assert ImageSettings.params["hfw"].advanced is False
 
 
 def test_a_field_bound_to_something_the_beam_does_not_declare_is_unchanged():
-    application_file = field_specs(FibsemMillingSettings)["application_file"]
+    application_file = FibsemMillingSettings.params["application_file"]
 
     assert application_file.unit is None
     assert application_file.scale is None
 
 
 def test_image_settings_show_dwell_time_in_microseconds():
-    dwell = field_specs(ImageSettings)["dwell_time"]
+    dwell = ImageSettings.params["dwell_time"]
 
     assert (dwell.label, dwell.unit, dwell.scale) == ("Dwell Time", "s", 1e6)

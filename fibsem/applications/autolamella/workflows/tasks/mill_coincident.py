@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 import os
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import ClassVar, Optional, Type
 
 import fibsem.utils as utils
@@ -49,7 +49,7 @@ from fibsem.structures import (
     CrossSectionPattern,
     Display,
     InsertableDeviceState,
-    field_meta,
+    param,
 )
 
 MILL_COINCIDENT_KEY = "mill_coincident"
@@ -80,29 +80,26 @@ DEFAULT_MILLING_CONFIG[MILL_COINCIDENT_KEY] = FibsemMillingTaskConfig(
 class MillCoincidentTaskConfig(AutoLamellaTaskConfig):
     """Configuration for the MillCoincidentTask."""
 
-    setup_task: str = field(
-        default=DEFAULT_SETUP_TASK_NAME,
-        metadata=field_meta(
-            doc="The Setup Coincidence Milling task whose per-site record "
-            "(objective height, FM region, pattern position, channel, drop "
-            "fraction) this mill runs from",
-            display=Display("Setup Task"),
-        ),
+    setup_task: str = param(
+        DEFAULT_SETUP_TASK_NAME,
+        doc="The Setup Coincidence Milling task whose per-site record "
+        "(objective height, FM region, pattern position, channel, drop "
+        "fraction) this mill runs from",
+        display=Display("Setup Task"),
     )
-    acquire_fluorescence_images: bool = field(
-        default=True,
-        metadata=field_meta(
-            doc="Acquire a fluorescence image after coincident milling, with the "
-            "lamella's fluorescence task settings",
-            display=Display("Acquire Fluorescence Images"),
-        ),
+    acquire_fluorescence_images: bool = param(
+        True,
+        doc="Acquire a fluorescence image after coincident milling, with the "
+        "lamella's fluorescence task settings",
+        display=Display("Acquire Fluorescence Images"),
     )
     # The channel the strategy monitors while milling. Its own settings, not a
     # name looked up in the fluorescence task: monitoring wants a short exposure
     # at low power for many minutes of continuous frames, where a z-stack wants a
     # long exposure at full power once. Protocol-level, shared by every site; the
     # setup step tunes it against the live frame.
-    monitoring_channel: ChannelSettings = field(
+    monitoring_channel: ChannelSettings = param(
+        display=Display(hidden=True),
         default_factory=lambda: ChannelSettings(
             name="Monitoring",
             excitation_wavelength=550,
@@ -110,9 +107,6 @@ class MillCoincidentTaskConfig(AutoLamellaTaskConfig):
             power=0.1,
             exposure_time=0.1,
         ),
-        metadata=field_meta(
-            display=Display(hidden=True)
-        ),  # its own controls, not a form row
     )
     task_type: ClassVar[str] = "MILL_COINCIDENT"
     display_name: ClassVar[str] = "Coincident Milling"
@@ -203,13 +197,9 @@ class MillCoincidentTask(AutoLamellaTask):
             # 4. the per-site setup onto the milling config
             milling_task_config = self._apply_setup(setup)
 
-            # 5. the mill. Headless it runs right here with our abort token; with a
-            # UI the milling widget runs it (Run Milling gate when supervised).
+            # 5. the mill, on this thread (asked first when supervised).
             self.log_status_message("MILL_COINCIDENT", "Milling Coincident Lamella...")
-            msg = (
-                f"Press Run Milling to coincidence mill {self.lamella.name}. "
-                "Press Continue when done."
-            )
+            msg = f"Coincidence mill {self.lamella.name}."
             milling_task_config = self.update_milling_config_ui(
                 milling_task_config, msg=msg
             )

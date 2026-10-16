@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import (
     ClassVar,
     List,
@@ -8,38 +8,27 @@ from typing import (
 
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.milling.properties import (
-    distance_metadata,
+    distance_param,
 )
 from fibsem.structures import (
     FibsemRectangleSettings,
+    param,
 )
 
 
 @dataclass
 class MicroExpansionPattern(BasePattern[FibsemRectangleSettings]):
-    width: float = field(
-        default=0.5e-6,
-        metadata=distance_metadata(
-            "Width", "Width of the microexpansion joint pattern."
-        ),
+    width: float = param(
+        0.5e-6, distance_param("Width", "Width of the microexpansion joint pattern.")
     )
-    height: float = field(
-        default=15.0e-6,
-        metadata=distance_metadata(
-            "Height", "Height of the microexpansion joint pattern."
-        ),
+    height: float = param(
+        15.0e-6, distance_param("Height", "Height of the microexpansion joint pattern.")
     )
-    depth: float = field(
-        default=1.0e-6,
-        metadata=distance_metadata(
-            "Depth", "Depth of the microexpansion joint pattern."
-        ),
+    depth: float = param(
+        1.0e-6, distance_param("Depth", "Depth of the microexpansion joint pattern.")
     )
-    distance: float = field(
-        default=10.0e-6,
-        metadata=distance_metadata(
-            "Distance", "Distance between microexpansion joints."
-        ),
+    distance: float = param(
+        10.0e-6, distance_param("Distance", "Distance between microexpansion joints.")
     )
 
     name: ClassVar[str] = "MicroExpansion"

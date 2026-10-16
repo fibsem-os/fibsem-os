@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import (
     ClassVar,
     List,
@@ -10,28 +10,20 @@ import numpy as np
 
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.milling.properties import (
-    distance_metadata,
+    distance_param,
 )
 from fibsem.structures import (
     FibsemRectangleSettings,
     Point,
+    param,
 )
 
 
 @dataclass
 class TriForcePattern(BasePattern[FibsemRectangleSettings]):
-    width: float = field(
-        default=1.0e-6,
-        metadata=distance_metadata("Width", "Width of the triangles."),
-    )
-    height: float = field(
-        default=10.0e-6,
-        metadata=distance_metadata("Height", "Height of the triangles."),
-    )
-    depth: float = field(
-        default=5.0e-6,
-        metadata=distance_metadata("Depth", "Depth of the triangles."),
-    )
+    width: float = param(1.0e-6, distance_param("Width", "Width of the triangles."))
+    height: float = param(10.0e-6, distance_param("Height", "Height of the triangles."))
+    depth: float = param(5.0e-6, distance_param("Depth", "Depth of the triangles."))
 
     name: ClassVar[str] = "TriForce"
 

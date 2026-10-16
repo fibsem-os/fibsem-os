@@ -408,6 +408,13 @@ BORDER_STATE_COLOURS = {
 BORDER_WIDTH_PX = 4
 
 
+def shown_border_state(state: str, agent_driving: bool) -> str:
+    """The border to show for a run in *state*. While the agent drives it is the
+    agent's purple, in place of every state but stopping: the agent is the one
+    in charge of the run, idle, waiting on a question or not."""
+    return "agent" if agent_driving and state != "stopping" else state
+
+
 def border_stylesheet(object_name: str) -> str:
     """QSS border rules for the frame whose ``objectName`` is *object_name*.
 
