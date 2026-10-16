@@ -989,6 +989,43 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         },
     ),
     ToolSpec(
+        name="experiment_list_files",
+        description="One folder of the open experiment: its folders, then its files, each with name, path (relative to the experiment), kind (folder, text, image, other), size and modified time. Start at the top (no dir) and go down one folder at a time.",
+        method="GET",
+        path="/app/experiment/files",
+        level="watch",
+        router="app",
+        params={
+            "dir": "a folder path from an earlier listing, relative to the experiment (default: the top)"
+        },
+        optional=("dir",),
+    ),
+    ToolSpec(
+        name="experiment_read_file",
+        description="One file of the open experiment: text (yaml, json, log, md, csv) as text, up to 512 KB; an image (tif, png, jpg) as a 768 px preview you can look at, with its metadata block; a folder as its listing. Previews and metadata only, never the raw file. For detail in part of an image, experiment_crop_image. Paths outside the experiment are refused.",
+        method="GET",
+        path="/app/experiment/files/{path}",
+        level="watch",
+        router="app",
+        params={
+            "path": "a path from experiment_list_files, or an image path an image answer gave"
+        },
+    ),
+    ToolSpec(
+        name="experiment_crop_image",
+        description="One region of an image in the open experiment, at native resolution (downscaled only when wider than 768 px): full detail where it matters, without the whole file. Give box in source pixels or fraction (0 to 1, as read off a preview), each [x, y, width, height]. The answer's preview carries the region and its own scale.",
+        method="GET",
+        path="/app/experiment/files/{path}",
+        level="watch",
+        router="app",
+        params={
+            "path": "an image path from experiment_list_files, or one an image answer gave",
+            "box": "[x, y, width, height] in source pixels (instead of fraction)",
+            "fraction": "[left, top, width, height] as fractions of the image, 0 to 1 (instead of box)",
+        },
+        optional=("box", "fraction"),
+    ),
+    ToolSpec(
         name="grid_list",
         description="Every grid the experiment records: quality verdict, task status, completed tasks, linked item count, and the basename of its latest SEM/FIB/FM overview by role. Records only — not the live slot inventory (grid_get_inventory).",
         method="GET",
