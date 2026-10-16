@@ -342,9 +342,8 @@ class FibsemOverviewSettingsWidget(QWidget):
         of state worth seeing when the panel is folded away."""
         self.check_focus_stack = QCheckBox()
         self.check_focus_stack.setToolTip("Acquire a focus stack at each tile")
-        self.spin_focus_steps = self._field(
-            ValueSpinBox(minimum=1, maximum=10, step=1, decimals=0)
-        )
+        self.spin_focus_steps = self._field(ValueSpinBox(step=1, decimals=0))
+        configure_spinbox(self.spin_focus_steps, FocusStackSettings.params["n_steps"])
         self.check_focus_autofocus = QCheckBox()
 
         form = self._form()

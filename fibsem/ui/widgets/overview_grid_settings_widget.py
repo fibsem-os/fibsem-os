@@ -15,6 +15,7 @@ being invisible everywhere else in the column, so hiding it behind a disclosure 
 make the thing that is already easy to forget harder to see. Folded away, the header
 carries the count instead.
 """
+
 from typing import List, Optional, Tuple
 
 from PyQt5.QtCore import Qt, pyqtSignal
@@ -28,10 +29,12 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem import constants
+from fibsem.fm.structures import OverviewParameters
 from fibsem.structures import TileOrderStrategy
 from fibsem.ui.tokens import TEXT_MUTED_COLOR
 from fibsem.ui.utils import install_wheel_blocker
 from fibsem.ui.widgets.custom_widgets import TitledPanel, ValueComboBox, ValueSpinBox
+from fibsem.ui.widgets.form_builder import configure_spinbox
 from fibsem.ui.widgets.tile_mask_widget import TileMaskWidget
 
 _MUTED = f"color: {TEXT_MUTED_COLOR}; font-size: 11px;"
@@ -52,10 +55,15 @@ TILE_ORDER_LABELS = {
 TILE_ORDER_TOOLTIPS = {
     TileOrderStrategy.TYPEWRITER: "Every row runs left to right.",
     TileOrderStrategy.SERPENTINE: "Rows alternate direction, so the stage does not "
-                                  "travel back across the grid between them.",
+    "travel back across the grid between them.",
     TileOrderStrategy.SPIRAL: "Outward from the centre tile, so the tiles nearest "
-                              "the starting position are acquired first.",
+    "the starting position are acquired first.",
 }
+
+
+# The grid's bounds and how its boxes show them. Both tabs edit the same three values;
+# OverviewParameters (FM) and OverviewAcquisitionSettings (beam) declare them alike.
+_GRID = OverviewParameters.params
 
 
 class OverviewGridSettingsWidget(QWidget):
@@ -73,25 +81,24 @@ class OverviewGridSettingsWidget(QWidget):
     # ── construction ─────────────────────────────────────────────────────
 
     def _build(self) -> None:
-        self.spin_rows = self._field(
-            ValueSpinBox(minimum=1, maximum=100, step=1, decimals=0)
-        )
+        self.spin_rows = self._field(ValueSpinBox(step=1, decimals=0))
+        configure_spinbox(self.spin_rows, _GRID["rows"])
         self.spin_rows.setValue(3)
-        self.spin_cols = self._field(
-            ValueSpinBox(minimum=1, maximum=100, step=1, decimals=0)
-        )
+        self.spin_cols = self._field(ValueSpinBox(step=1, decimals=0))
+        configure_spinbox(self.spin_cols, _GRID["cols"])
         self.spin_cols.setValue(3)
 
         # Percent, not the stored fraction. `0.10` reads as a coefficient; `10 %` reads
         # as what it is. The two tabs disagreed about this, of one stored number.
-        self.spin_overlap = self._field(
-            ValueSpinBox(suffix=" %", minimum=0.0, maximum=90.0, step=5.0, decimals=0)
-        )
+        self.spin_overlap = self._field(ValueSpinBox())
+        configure_spinbox(self.spin_overlap, _GRID["overlap"])
 
-        self.combo_tile_order = self._field(ValueComboBox(
-            items=list(TileOrderStrategy),
-            format_fn=lambda s: TILE_ORDER_LABELS.get(s, s.value.title()),
-        ))
+        self.combo_tile_order = self._field(
+            ValueComboBox(
+                items=list(TileOrderStrategy),
+                format_fn=lambda s: TILE_ORDER_LABELS.get(s, s.value.title()),
+            )
+        )
         # What each strategy does belongs in a tooltip, not the label: the label is read
         # on every glance and the explanation once.
         for index in range(self.combo_tile_order.count()):
@@ -214,7 +221,7 @@ class OverviewGridSettingsWidget(QWidget):
     @property
     def overlap(self) -> float:
         """The stored fraction, not the percent shown."""
-        return self.spin_overlap.value() / 100.0
+        return self.spin_overlap.value() / _GRID["overlap"].scale
 
     @property
     def tile_order(self) -> TileOrderStrategy:
@@ -290,14 +297,18 @@ class OverviewGridSettingsWidget(QWidget):
         mask: Optional[List[List[bool]]],
     ) -> None:
         """Load every value at once, without emitting on the way through."""
-        widgets = (self.spin_rows, self.spin_cols, self.spin_overlap,
-                   self.combo_tile_order)
+        widgets = (
+            self.spin_rows,
+            self.spin_cols,
+            self.spin_overlap,
+            self.combo_tile_order,
+        )
         for widget in widgets:
             widget.blockSignals(True)
         try:
             self.spin_rows.setValue(int(rows))
             self.spin_cols.setValue(int(cols))
-            self.spin_overlap.setValue(overlap * 100.0)
+            self.spin_overlap.setValue(overlap * _GRID["overlap"].scale)
             self.combo_tile_order.set_value(tile_order)
         finally:
             for widget in widgets:

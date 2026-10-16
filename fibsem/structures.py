@@ -1607,7 +1607,7 @@ class FocusStackSettings(Configurable):
     )
     n_steps: int = param(
         3,
-        limits=RangeLimit(1, 50),
+        limits=RangeLimit(1, 10),
         doc="The number of vertical strips each tile is divided into.",
         display=Display("Strips"),
     )
@@ -1704,7 +1704,7 @@ class OverviewAcquisitionSettings(Configurable):
         0.1,
         limits=RangeLimit(0.0, 0.9),
         doc="How much neighbouring tiles overlap, as a fraction of a tile.",
-        display=Display("Overlap", scale=100, unit="%", step=1.0, decimals=0),
+        display=Display("Overlap", scale=100, unit="%", step=5.0, decimals=0),
     )
     focus_stack_settings: FocusStackSettings = param(
         doc="Focus stacking within each tile.", default_factory=FocusStackSettings
