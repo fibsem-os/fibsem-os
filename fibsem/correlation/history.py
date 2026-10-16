@@ -14,10 +14,14 @@ import glob
 import logging
 import os
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from fibsem.constants import DATETIME_FILE
-from fibsem.correlation.structures import CorrelationState, load_correlation_file
+from fibsem.correlation.structures import (
+    CorrelationResult,
+    CorrelationState,
+    load_correlation_file,
+)
 
 CORRELATION_DIRNAME = "Correlation"
 CORRELATION_FILENAME = "correlation.json"
@@ -114,3 +118,48 @@ class LamellaCorrelation:
     def latest(self) -> Optional[CorrelationRun]:
         """The most recent run, or None if there are none."""
         return self.runs[-1] if self.runs else None
+
+
+def correlation_record(
+    result: CorrelationResult, lamella: Any, run_folder: Optional[str], root: Any
+) -> Dict[str, Any]:
+    """An accepted correlation, for the experiment's record (FIB-1068): what it
+    gave, how well it fits, and the run folder that holds the rest. Whoever
+    moves an item's point of interest to a run's answer records this."""
+    data = result.input_data
+    pixel_size = data.fib_image_pixel_size if data is not None else None
+    folder = run_folder
+    if run_folder and root:
+        try:
+            folder = os.path.relpath(run_folder, str(root))
+        except ValueError:  # another drive
+            pass
+    ri = result.refractive_index_correction_mode
+    return {
+        "item": {"id": lamella.id, "name": lamella.name},
+        "poi": result.poi[0].px_m.to_dict(),
+        "rms_px": result.rms_error,
+        "rms_nm": result.rms_error * pixel_size * 1e9 if pixel_size else None,
+        "fiducials": len(result.delta_2d),
+        "refractive_index": (
+            {"mode": ri, "factor": result.refractive_index_correction_factor}
+            if ri
+            else None
+        ),
+        "verdict": _verdict_tier(result.diagnostics),
+        "seeded": result.seed is not None,
+        "folder": folder,
+    }
+
+
+def _verdict_tier(diagnostics: Optional[dict]) -> Optional[str]:
+    """The fit verdict's tier, as the dialog showed it; None for an unseeded fit."""
+    if not diagnostics:
+        return None
+    from fibsem.correlation.verdict import FitDiagnostics, verdict
+
+    try:
+        return verdict(FitDiagnostics.from_dict(diagnostics)).tier
+    except Exception:  # noqa: BLE001 - the tier is a detail of the record
+        logging.debug("could not read the fit verdict", exc_info=True)
+        return None

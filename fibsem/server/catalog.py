@@ -1641,6 +1641,18 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         params={"item_name": "the item (lamella) name", "pose": "the pose name"},
     ),
     ToolSpec(
+        name="item_apply_correlation",
+        description="Move a lamella's point of interest to a saved correlation's target, as the correlation tab's Continue does: run_path is a run folder in the lamella's Correlation folder, as correlation_correlate saves it with lamella_path. The patterns that follow the point move with it; the correlation is recorded with its run. Saved; answers with the changes.",
+        method="POST",
+        path="/app/experiment/items/{item_name}/correlation",
+        level="drive",
+        router="app",
+        params={
+            "item_name": "the item (lamella) name",
+            "run_path": "the run folder correlation_correlate answered",
+        },
+    ),
+    ToolSpec(
         name="item_set_objective_position",
         description="Store the FM objective's position now on a lamella's fluorescence pose, as the tab's Use current does: where it is when inserted, else its focus position. Saved.",
         method="POST",
