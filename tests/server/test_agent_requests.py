@@ -1160,3 +1160,17 @@ def test_a_protocol_s_re_alignment_reads_as_the_milling_panel_says_it():
     assert line["change"] == (
         "Re-align during milling: off → on\nRe-align every 30 s → 60 s"
     )
+
+
+def test_a_lamella_added_on_an_overview_names_the_overview_not_its_file():
+    """Sim session 2026-10-16: "Add on overview-04-58-45.tif of Grid-01, at 60%
+    across, 62% down"."""
+    from fibsem.server.request_text import describe_action
+
+    overview = {
+        "grid_name": "Grid-01",
+        "filename": "overview-04-58-45.tif",
+        "fraction": [0.6, 0.62],
+    }
+    line = describe_action("item_add", {"overview": overview}, "")
+    assert line["change"] == "Add on the Grid-01 overview (04:58), 60% across, 62% down"

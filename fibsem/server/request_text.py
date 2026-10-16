@@ -1026,20 +1026,33 @@ def _pose_of(detail: Any, pose: Any) -> Optional[Dict[str, Any]]:
     return position if isinstance(position, dict) else None
 
 
+def _overview_name(overview: Dict[str, Any]) -> str:
+    """ "the Grid-01 overview (04:58)": whose, and when it was taken, which the
+    file's stamp says; the file name only when it has no stamp."""
+    import re
+
+    grid = overview.get("grid_name")
+    filename = str(overview.get("filename") or "")
+    stamp = re.search(r"(\d{2})-(\d{2})-\d{2}", os.path.basename(filename))
+    if stamp:
+        name = f"the {grid} overview" if grid else "the overview"
+        return f"{name} ({stamp.group(1)}:{stamp.group(2)})"
+    name = filename or "the overview"
+    return f"{name} of {grid}" if grid else name
+
+
 def _add_item(a: Dict[str, Any], stage_now: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     named = f" '{a['name']}'" if a.get("name") else ""
     overview = a.get("overview")
     position = a.get("stage_position")
     if isinstance(overview, dict):
-        where = overview.get("filename") or "the overview"
-        if overview.get("grid_name"):
-            where += f" of {overview['grid_name']}"
+        where = _overview_name(overview)
         if overview.get("fraction") is not None:
             fx, fy = (list(overview["fraction"]) + [None, None])[:2]
             at = f"{_number(float(fx) * 100)}% across, {_number(float(fy) * 100)}% down"
         else:
             at = f"pixel {_short(overview.get('px'))}"
-        change = f"Add{named} on {where}, at {at}"
+        change = f"Add{named} on {where}, {at}"
     elif isinstance(position, dict):
         change = f"Add{named} at {_position(position)}"
     else:
