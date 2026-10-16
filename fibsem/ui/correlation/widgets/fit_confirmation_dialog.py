@@ -147,9 +147,8 @@ def humanize_fit_error(exc: Exception) -> str:
     # the fit's answer left its window (FIB-1219), or found no burn (FIB-1216)
     if "fell outside the" in msg or "no burn-shaped" in msg:
         return (
-            "No clear burn here: the fit's answer fell outside the region it "
-            "searched, so the point stays where you placed it. Check the "
-            "channel, or place it on the burn by hand."
+            "No clear burn here, so the point stays where you placed it. "
+            "Change the window or the channel, or place it on the burn by hand."
         )
     if "plane(s) around z" in msg:  # the reflection fit's own refusal (FIB-980)
         return (
