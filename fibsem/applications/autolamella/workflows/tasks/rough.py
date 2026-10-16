@@ -96,7 +96,7 @@ class MillRoughTask(AutoLamellaTask):
         milling_task_config = self.config.milling[MILL_ROUGH_KEY]
         milling_task_config.alignment.rect = self.lamella.alignment_area
 
-        msg = f"Press Run Milling to mill the lamella for {self.lamella.name}. Press Continue when done."
+        msg = f"Mill the lamella for {self.lamella.name}."
         milling_task_config = self.update_milling_config_ui(
             milling_task_config, msg=msg
         )

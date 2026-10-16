@@ -187,9 +187,9 @@ def test_an_instruction_does_not_lend_the_runs_control():
     assert responder.outcome == "refused"
 
 
-def test_the_mill_does_not_lend_the_runs_control():
-    # The responder runs the mill itself, and the mill takes no control of its
-    # own yet: lending would let a command in beside it.
+def test_the_milling_question_lends_the_runs_control():
+    # The mill runs on the asking thread (FIB-1236), so the question is an
+    # ordinary wait between passes: whoever answers may act first.
     from fibsem.applications.autolamella.workflows.interaction import RunMillingTask
     from fibsem.control import Control
 
@@ -197,4 +197,17 @@ def test_the_mill_does_not_lend_the_runs_control():
     responder = _TryToActResponder(control)
     with control.take("workflow", "a lamella run"):
         ask(responder, RunMillingTask(config=None), timeout=5)
+    assert responder.outcome == "acted"
+
+
+def test_the_spot_burn_question_does_not_lend_the_runs_control():
+    # The responder runs the burn itself, and the burn takes no control of its
+    # own yet: lending would let a command in beside it.
+    from fibsem.applications.autolamella.workflows.interaction import RunSpotBurn
+    from fibsem.control import Control
+
+    control = Control()
+    responder = _TryToActResponder(control)
+    with control.take("workflow", "a lamella run"):
+        ask(responder, RunSpotBurn(settings=None), timeout=5)
     assert responder.outcome == "refused"

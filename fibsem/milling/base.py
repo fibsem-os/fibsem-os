@@ -34,6 +34,7 @@ from fibsem.structures import (
     ImageSettings,
     MillingAlignment,
     Parameter,
+    field_meta,
     field_specs,
     flagged_fields,
 )
@@ -200,7 +201,12 @@ class FibsemMillingStage:
     enabled: bool = True
     milling: FibsemMillingSettings = field(default_factory=FibsemMillingSettings)
     pattern: BasePattern = field(default_factory=DEFAULT_MILLING_PATTERN)
-    patterns: Optional[List[BasePattern]] = None  # unused
+    patterns: Optional[List[BasePattern]] = field(
+        default=None,
+        metadata=field_meta(
+            not_used="a stage mills its one pattern; nothing reads patterns",
+        ),
+    )
     strategy: MillingStrategy[Any] = field(default_factory=get_strategy)
     alignment: MillingAlignment = field(default_factory=MillingAlignment)
     imaging: ImageSettings = field(

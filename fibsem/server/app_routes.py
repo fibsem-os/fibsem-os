@@ -552,10 +552,8 @@ def build_app_control_router(context: AppContext) -> APIRouter:
                 status_code=422,
                 detail={
                     "error_type": "invalid_value",
-                    "message": "value, when given, must be a JSON object: "
-                    "{left, top, width, height} for EditAlignmentArea, "
-                    "{x, y} for PickPOI, {features: [...]} for "
-                    "ConfirmDetection, {points: [...]} for RunSpotBurn.",
+                    "message": "value, when given, must be a JSON object, in "
+                    "the shape the prompt's value field gives.",
                 },
             )
         result = context.answer_prompt(
@@ -745,10 +743,8 @@ def build_app_suggest_router(context: AppContext) -> APIRouter:
                 status_code=422,
                 detail={
                     "error_type": "invalid_value",
-                    "message": "value, when given, must be a JSON object: "
-                    "{left, top, width, height} for EditAlignmentArea, "
-                    "{x, y} for PickPOI, {features: [...]} for "
-                    "ConfirmDetection, {points: [...]} for RunSpotBurn.",
+                    "message": "value, when given, must be a JSON object, in "
+                    "the shape the prompt's value field gives.",
                 },
             )
         image = body.get("image") or None

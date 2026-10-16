@@ -49,12 +49,16 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import (
     TYPE_CHECKING,
+    Any,
     Callable,
     ClassVar,
+    Dict,
     Generic,
+    List,
     Optional,
     Protocol,
     Sequence,
+    Tuple,
     TypeVar,
 )
 
@@ -75,13 +79,21 @@ __all__ = [
     "EditAlignmentArea",
     "PickPOI",
     "RunMillingTask",
+    "MillingDecision",
+    "MillingEdit",
+    "MILL_RUN",
+    "MILL_EDIT",
+    "MILL_SKIP",
+    "MILL_ACCEPT",
     "RunSpotBurn",
     "SetImages",
     "SetMillingConfig",
     "ClearMillingConfig",
     "SetFluorescenceChannels",
     "Responder",
+    "InvalidAnswerValue",
     "StalePromptError",
+    "apply_milling_edit",
     "answered_by",
     "ask",
     "mark_answered_by",
@@ -105,6 +117,18 @@ R = TypeVar("R")
 _POLL_INTERVAL_S = 0.1
 
 
+class InvalidAnswerValue(ValueError):
+    """A remote answer's value does not fit the question; nothing was answered."""
+
+
+# Which displayed frame a remote answerer needs beside the question: the FIB view's
+# frame, where the widget the question is asked on draws. "fallback" when the
+# question carries no image of its own; "prefer" when the view's frame wins over the
+# question's, because the view may have moved on since it was asked.
+VIEW_FRAME_FALLBACK = "fallback"
+VIEW_FRAME_PREFER = "prefer"
+
+
 class Request(Generic[R]):
     """A single interaction with the supervisor; ``R`` is the type of the answer.
 
@@ -114,12 +138,65 @@ class Request(Generic[R]):
 
     ``lends_control``: while it stands, the run lends its control of the
     microscope (FIB-1270), so whoever answers may act on the instrument first,
-    one action at a time. Only questions a person answers by looking -- never
-    an instruction, and not the mill or spot burn, which the responder runs
-    itself and which take no control of their own yet.
+    one action at a time. Only questions -- never an instruction, and not the
+    spot burn, which the responder runs itself and which takes no control of
+    its own yet.
+
+    A question also says everything a remote answerer (an agent over the App
+    Server) needs, so the server reads every question the same way:
+    :meth:`describe` is what it is told, ``value_shape`` the edit an answer may
+    carry (None: none), :meth:`parse_value` checks one, :meth:`value_to_wire`
+    writes one back, and ``view_frame`` and :meth:`draw` say which picture goes
+    with it. Qt-free: the widget side of each question is the responder's.
     """
 
     lends_control: ClassVar[bool] = False
+    value_shape: ClassVar[Optional[str]] = None
+    # A remote answer must carry a value: its action says what the answer means.
+    requires_value: ClassVar[bool] = False
+    view_frame: ClassVar[Optional[str]] = None
+
+    def describe(self) -> Dict[str, Any]:
+        """What a remote answerer is told: the message, the options and the
+        context, as plain values. An ``image`` is left an image (a FibsemImage
+        or an array); the server makes a preview of it. A question that says
+        nothing more is described by its fields, images left out."""
+        import dataclasses
+
+        described: Dict[str, Any] = {}
+        if dataclasses.is_dataclass(self):
+            for f in dataclasses.fields(self):
+                value = getattr(self, f.name)
+                if hasattr(value, "data") or type(value).__name__ == "ndarray":
+                    continue  # images only travel as previews, never raw
+                described[f.name] = value
+        return described
+
+    def parse_value(self, value: Dict[str, Any]) -> Any:
+        """A remote answer's value as the edit it stands for, checked against
+        this question. Raises :class:`InvalidAnswerValue` saying what is wrong."""
+        raise InvalidAnswerValue(f"{type(self).__name__} answers carry no value.")
+
+    def value_to_wire(self, value: Any) -> Dict[str, Any]:
+        """A value (as :meth:`parse_value` makes one, or the widget holds one)
+        in the shape an answer gives it."""
+        return value.to_dict()
+
+    def same_value(self, live: Any, value: Any, frame: Any = None) -> bool:
+        """Whether ``value`` is what the widget already shows (``live``), so
+        answering with it changes nothing. ``frame`` is the image a point is
+        placed on, where that matters."""
+        return False
+
+    def response_for(self, value: Any) -> Optional[bool]:
+        """The button a value's answer stands for, when the value says (an
+        action); None when the answer's own yes/no does."""
+        return None
+
+    def draw(self, frame: "FibsemImage", live: Any) -> Any:
+        """The question drawn over ``frame`` (the view's), as an RGB array, or
+        None to show the frame as it is. ``live`` is the widget's value now."""
+        return None
 
 
 # --- questions: the workflow needs a value back -----------------------------------
@@ -135,14 +212,96 @@ class Confirm(Request[bool]):
     positive: str = "Continue"
     negative: Optional[str] = None
 
+    def describe(self) -> Dict[str, Any]:
+        return {
+            "message": self.message,
+            "positive": self.positive,
+            "negative": self.negative,
+        }
+
 
 @dataclass(frozen=True)
 class ConfirmDetection(Request["DetectedFeatures"]):
     """Show detected features for correction; answer with the (possibly moved) set."""
 
     lends_control = True
+    value_shape = (
+        '{"features": [{"name", "px": {"x", "y"}}]}: source-image pixels, origin '
+        "top-left, +y down; only the named features move"
+    )
 
     detection: "DetectedFeatures"
+
+    def describe(self) -> Dict[str, Any]:
+        detection = self.detection
+        return {
+            "message": "Confirm the detected features (answering yes accepts "
+            "the positions as currently shown; a value moves the named ones "
+            "first).",
+            "features": [
+                {"name": f.name, "px": f.px.to_dict()}
+                for f in getattr(detection, "features", [])
+            ],
+            "pixelsize": getattr(detection, "pixelsize", None),
+            "coordinates": "feature px are source-image pixels (origin "
+            "top-left, +y down); pixelsize is metres per source pixel",
+            "image": getattr(detection, "image", None),
+        }
+
+    def parse_value(self, value: Dict[str, Any]) -> Dict[str, "Point"]:
+        """``{name: Point}`` in source-image pixels: only features the detection
+        has, each inside the image."""
+        from fibsem.structures import Point
+
+        names = [f.name for f in getattr(self.detection, "features", [])]
+        features = value.get("features")
+        if not isinstance(features, list) or not features:
+            raise InvalidAnswerValue(
+                f"a {type(self).__name__} value is {self.value_shape}."
+            )
+        image = getattr(self.detection, "image", None)
+        shape = getattr(getattr(image, "data", image), "shape", None)
+        moved: Dict[str, Point] = {}
+        for entry in features:
+            name = entry.get("name") if isinstance(entry, dict) else None
+            if name not in names:
+                raise InvalidAnswerValue(
+                    f"no detected feature named {name!r}; the features are {names}."
+                )
+            if name in moved:
+                raise InvalidAnswerValue(f"feature {name!r} is given twice.")
+            try:
+                px = Point.from_dict(entry["px"])
+            except Exception:
+                raise InvalidAnswerValue(
+                    f"feature {name!r} needs px: {{x, y}}, numbers in "
+                    "source-image pixels."
+                ) from None
+            if shape is not None and len(shape) >= 2:
+                height, width = shape[0], shape[1]
+                if not (0 <= px.x < width and 0 <= px.y < height):
+                    raise InvalidAnswerValue(
+                        f"feature {name!r} at ({px.x:.1f}, {px.y:.1f}) px is "
+                        f"outside the {width} x {height} px image."
+                    )
+            moved[name] = px
+        return moved
+
+    def value_to_wire(self, value: Dict[str, "Point"]) -> Dict[str, Any]:
+        return {
+            "features": [
+                {"name": name, "px": px.to_dict()} for name, px in value.items()
+            ]
+        }
+
+    def same_value(self, live: Any, value: Any, frame: Any = None) -> bool:
+        # Features are in image pixels: half a pixel, as for a point.
+        return live is not None and all(
+            live.get(name) is not None
+            and abs(live[name].x - px.x) <= 0.5
+            and abs(live[name].y - px.y) <= 0.5
+            for name, px in value.items()
+        )
 
 
 @dataclass(frozen=True)
@@ -177,9 +336,47 @@ class EditAlignmentArea(Request["FibsemRectangle"]):
     """
 
     lends_control = True
+    value_shape = (
+        "{left, top, width, height}: fractions of the frame, origin top-left, "
+        "inside the frame"
+    )
+    view_frame = VIEW_FRAME_FALLBACK
 
     initial: "FibsemRectangle"
     message: str = "Edit Alignment Area"
+
+    def describe(self) -> Dict[str, Any]:
+        return {
+            "message": "Confirm the alignment area (answering yes accepts "
+            "the area as currently shown).",
+            "initial": self.initial.to_dict() if self.initial is not None else None,
+            "coordinates": "areas are fractions of the frame (origin "
+            "top-left), so they need no rescaling against the preview",
+            "image": None,
+        }
+
+    def parse_value(self, value: Dict[str, Any]) -> "FibsemRectangle":
+        from fibsem.structures import FibsemRectangle
+
+        try:
+            rect = FibsemRectangle.from_dict(value)
+        except Exception:
+            raise InvalidAnswerValue(
+                f"an EditAlignmentArea value is {self.value_shape}."
+            ) from None
+        if not rect.is_valid_reduced_area:
+            raise InvalidAnswerValue(
+                "alignment area out of bounds: left/top must be >= 0, "
+                "width/height > 0, and the rectangle must fit inside "
+                "the frame (left+width <= 1, top+height <= 1)."
+            )
+        return rect
+
+    def same_value(self, live: Any, value: Any, frame: Any = None) -> bool:
+        return live is not None and all(
+            abs(getattr(live, f) - getattr(value, f)) <= 1e-6
+            for f in ("left", "top", "width", "height")
+        )
 
 
 @dataclass(frozen=True)
@@ -193,47 +390,343 @@ class PickPOI(Request[Optional["Point"]]):
     """
 
     lends_control = True
+    value_shape = "{x, y}: metres in microscope image coordinates, origin centre, +y up"
+    view_frame = VIEW_FRAME_PREFER
 
     image: "FibsemImage"
     initial: Optional["Point"] = None
     message: str = "Select Point of Interest"
 
+    def describe(self) -> Dict[str, Any]:
+        return {
+            "message": "Pick the point of interest on the image.",
+            "initial": self.initial.to_dict() if self.initial is not None else None,
+            "coordinates": "points are microscope image coordinates: "
+            "metres, origin at the image centre, +x right, +y UP",
+            "image": self.image,
+        }
 
-def _always_confirm() -> bool:
-    return True
+    def parse_value(self, value: Dict[str, Any]) -> "Point":
+        from fibsem.structures import Point
+
+        try:
+            point = Point.from_dict(value)
+        except Exception:
+            raise InvalidAnswerValue(
+                f"a PickPOI value is {self.value_shape}."
+            ) from None
+        try:
+            pixel_size = self.image.metadata.pixel_size.x
+            half_width = self.image.data.shape[1] / 2 * pixel_size
+            half_height = self.image.data.shape[0] / 2 * pixel_size
+        except Exception:
+            raise InvalidAnswerValue(
+                "the pending question's image is missing its scale; "
+                "the point cannot be validated."
+            ) from None
+        if abs(point.x) > half_width or abs(point.y) > half_height:
+            raise InvalidAnswerValue(
+                f"point ({point.x:.3e}, {point.y:.3e}) m is outside the "
+                f"image: |x| <= {half_width:.3e}, |y| <= {half_height:.3e}."
+            )
+        return point
+
+    def same_value(self, live: Any, value: Any, frame: Any = None) -> bool:
+        # A point within half a pixel of the frame the marker sits on is the
+        # same point: the marker cannot sit any closer.
+        if live is None:
+            return False
+        frame = frame if frame is not None else self.image
+        tolerance = frame.metadata.pixel_size.x / 2
+        return abs(live.x - value.x) <= tolerance and abs(live.y - value.y) <= tolerance
+
+
+# What can be decided at a milling question (FIB-1297). Each has one meaning,
+# whenever it is asked: the yes/no it replaced meant "mill" at the first ask and
+# "mill again" after a pass, and an answerer reading one for the other milled twice.
+MILL_RUN = "run"  # mill the config as it then stands, then ask again
+MILL_EDIT = "edit"  # take the config as it then stands and ask again; nothing mills
+MILL_SKIP = "skip"  # go on without milling (before any pass)
+MILL_ACCEPT = "accept"  # go on with what was milled (after a pass)
+MILL_ACTIONS = (MILL_RUN, MILL_EDIT, MILL_SKIP, MILL_ACCEPT)
 
 
 @dataclass(frozen=True)
-class RunMillingTask(Request["FibsemMillingTaskConfig"]):
-    """Hand over a milling config to edit and (if ``enabled``) run; answer with the
-    config as actually used. Absorbs today's ``start_milling_signal`` sibling poll:
-    running the mill is the responder's job, not a second channel's.
+class MillingDecision:
+    """The answer to a milling question: what to do, and the config as it stood
+    when it was decided. The asker owns the loop: it mills on ``run``, asks
+    again on ``run`` and ``edit``, and ends on ``skip`` or ``accept``."""
 
-    ``confirm`` is the supervision mode, and — like ``abort`` — a predicate rather
-    than a snapshot: the old loop re-read ``self.validate`` on every iteration, so
-    flipping supervision mid-mill took effect when the mill finished, in both
-    directions (supervised→auto continued without re-asking; auto→supervised
-    dropped the operator into the loop). The responder consults it at each
-    decision point — at entry (prompt or run immediately) and when a run finishes
-    (re-ask or complete) — to keep exactly that behaviour.
+    action: str
+    config: "FibsemMillingTaskConfig"
 
-    ``output_dir`` is the asking task's folder, which every run of the mill
-    writes under -- the operator's re-runs included. None for a mill nobody
-    gave one, which falls back to the config's imaging path.
 
-    ``passes`` is how many times the mill has run for this question, failed
-    runs included. The asker always sends 0; the responder re-asks with the
-    count after each run. It is what tells the first ask from a re-ask, for
-    whoever answers: at 0 Continue goes on without milling, after a pass it
-    accepts what was milled (FIB-1329).
+@dataclass(frozen=True)
+class MillingEdit:
+    """A remote answer's value at a milling question: the action, and the edits
+    to make first. ``config`` (a whole config document) replaces the shown one,
+    for structure: stages added, removed, reordered, a pattern type changed.
+    ``patch`` then sets fields by dotted path, as ``item_update_task_config``'s
+    patch does, with a stage named by its name or its index
+    (``stages.Polish 1.pattern.depth``)."""
+
+    action: str
+    config: Optional[Dict[str, Any]] = None
+    patch: Optional[Dict[str, Any]] = None
+
+    @property
+    def changes(self) -> bool:
+        return bool(self.config) or bool(self.patch)
+
+
+def resolve_stage_names(config: "FibsemMillingTaskConfig", patch: Dict[str, Any]):
+    """``patch`` with each ``stages.<name>.`` segment as the stage's index, which
+    is what :func:`fibsem.server.config_patch.apply_patch` resolves.
+
+    A stage is named by its name or its index. A name no stage has, or more
+    than one has, is refused with the names there are."""
+    names = [stage.name for stage in config.stages]
+    resolved: Dict[str, Any] = {}
+    for path, value in patch.items():
+        head, sep, rest = str(path).partition(".")
+        if head != "stages" or not sep:
+            resolved[path] = value
+            continue
+        segment, sep, tail = rest.partition(".")
+        if segment.isdigit():
+            resolved[path] = value
+            continue
+        # A stage name may hold dots: match the longest name the path starts with.
+        matches = [
+            name for name in names if rest == name or rest.startswith(name + ".")
+        ]
+        if not matches:
+            raise InvalidAnswerValue(
+                f"{path!r}: no stage named {segment!r}; the stages are {names}."
+            )
+        name = max(matches, key=len)
+        if names.count(name) > 1:
+            raise InvalidAnswerValue(
+                f"{path!r}: more than one stage is named {name!r}; name it by "
+                "its index instead."
+            )
+        tail = rest[len(name) :]
+        resolved[f"stages.{names.index(name)}{tail}"] = value
+    return resolved
+
+
+def apply_milling_edit(
+    config: "FibsemMillingTaskConfig", edit: MillingEdit
+) -> "FibsemMillingTaskConfig":
+    """``config`` with ``edit``'s changes made: its whole config first, then its
+    patch. A new config; ``config`` itself is not touched. Raises
+    :class:`InvalidAnswerValue` naming what is wrong, with nothing changed."""
+    from copy import deepcopy
+
+    from fibsem.milling.tasks import FibsemMillingTaskConfig, task_overridden_path
+    from fibsem.server.config_patch import PatchError, apply_patch
+
+    if edit.config:
+        try:
+            edited = FibsemMillingTaskConfig.from_dict(deepcopy(edit.config))
+        except Exception as exc:  # noqa: BLE001 - any bad document is refused
+            raise InvalidAnswerValue(f"config could not be read: {exc}") from None
+    else:
+        edited = deepcopy(config)
+    if edit.patch:
+        patch = resolve_stage_names(edited, edit.patch)
+        for path in patch:
+            note = task_overridden_path(path)
+            if note is not None:
+                raise InvalidAnswerValue(f"{path!r}: {note}")
+        try:
+            apply_patch(edited, patch)
+        except PatchError as exc:
+            raise InvalidAnswerValue(f"{exc.path!r}: {exc}") from None
+    return edited
+
+
+@dataclass(frozen=True)
+class RunMillingTask(Request[MillingDecision]):
+    """Ask what to do with a milling config: run it, change it, or go on.
+
+    The asker owns the mill and the loop (FIB-1236): it mills on the workflow
+    thread when the answer is ``run``, and asks again with the pass counted and
+    the run's error, if it failed. The responder only shows the config, takes
+    the edits, and answers with a :class:`MillingDecision` -- the action and
+    the config as it then stood. So what is milled is always the asker's, and
+    whoever answers (the operator in the editor, an agent over the App Server)
+    changes it the same way: by answering with it.
+
+    ``passes`` is how many times the mill has run for this question, failed runs
+    included: 0 at the first ask. ``last_error`` is the last run's error, if it
+    failed. ``enabled`` False is a config to confirm without milling it.
+
+    While the question stands, the run lends its control of the microscope, as
+    any other question does: whoever answers may image, move and re-align
+    between passes. The mill itself is not under the question.
+
+    ``output_dir`` is the asking task's folder, which every run writes under.
     """
+
+    lends_control = True
+    value_shape = (
+        '{"action": "run" | "edit" | "skip" | "accept", "config": {...}, '
+        '"patch": {"<dotted path>": value}}: action is required. run mills the '
+        "config as it then stands and asks again; edit makes the changes and asks "
+        "again, nothing mills; skip goes on without milling (only before a "
+        "pass); accept goes on with what was milled (only after a pass, or when "
+        "milling is off). config (optional) is a whole config document, as "
+        "served in config, replacing the shown one: for adding, removing or "
+        "reordering stages, or changing a pattern type. patch (optional) then "
+        "sets fields by dotted path, SI units, as item_update_task_config "
+        "does; a stage is named by its name or index, e.g. "
+        '"stages.Polish 1.pattern.depth". A field marked not_used in fields '
+        "is refused."
+    )
+    requires_value = True
+    view_frame = VIEW_FRAME_PREFER
 
     config: "FibsemMillingTaskConfig"
     enabled: bool = True
-    confirm: Callable[[], bool] = _always_confirm
-    message: str = "Run Milling"
+    message: str = "Mill the task."
     output_dir: Optional[str] = None
     passes: int = 0
+    last_error: Optional[str] = None
+
+    @property
+    def actions(self) -> Tuple[str, ...]:
+        """What may be decided now."""
+        if not self.enabled:
+            return (MILL_EDIT, MILL_ACCEPT)
+        if self.passes == 0:
+            return (MILL_RUN, MILL_EDIT, MILL_SKIP)
+        return (MILL_RUN, MILL_EDIT, MILL_ACCEPT)
+
+    @property
+    def positive(self) -> str:
+        if not self.enabled:
+            return "Continue"
+        return "Run Milling" if self.passes == 0 else "Mill Again"
+
+    @property
+    def negative(self) -> Optional[str]:
+        if not self.enabled:
+            return None
+        return "Skip" if self.passes == 0 else "Accept"
+
+    def label_for(self, action: str) -> str:
+        """The button, or what it does, for ``action``: a suggestion's label."""
+        if action == MILL_EDIT:
+            return "Apply Edits"
+        if action == MILL_RUN:
+            return self.positive
+        return self.negative or self.positive
+
+    def action_for(self, clicked_yes: bool) -> str:
+        """What a button means here."""
+        if not self.enabled:
+            return MILL_ACCEPT
+        if clicked_yes:
+            return MILL_RUN
+        return MILL_SKIP if self.passes == 0 else MILL_ACCEPT
+
+    @property
+    def prompt(self) -> str:
+        """The prompt's text: the asker's message, what the buttons do now, and
+        the last run's error."""
+        if not self.enabled:
+            hint = "Press Continue when the config is right."
+        elif self.passes == 0:
+            hint = "Press Run Milling to mill, or Skip to go on without milling."
+        else:
+            hint = "Press Mill Again to mill again, or Accept to go on."
+        text = f"{self.message} {hint}"
+        if self.last_error:
+            return f"Milling failed: {self.last_error}\n\n{text}"
+        return text
+
+    def describe(self) -> Dict[str, Any]:
+        from fibsem.milling.tasks import describe_config_fields
+
+        if not self.enabled:
+            state = "Milling is off for this task: confirm the config; nothing mills."
+        elif self.passes == 0:
+            state = "Nothing has been milled yet."
+        else:
+            state = f"The mill has run {self.passes} time(s)."
+            if self.last_error:
+                state += f" The last run failed: {self.last_error}"
+        return {
+            "message": f"{self.message}\n\n{state}",
+            "passes": self.passes,
+            "enabled": self.enabled,
+            "last_error": self.last_error,
+            "actions": list(self.actions),
+            "positive": self.positive,
+            "negative": self.negative,
+            "task_name": self.config.name,
+            "config": self.config.to_dict(),
+            "fields": describe_config_fields(self.config),
+            "coordinates": "pattern points are metres from the image centre, "
+            "+x right, +y up; the image shows the patterns as the config "
+            "stands",
+            "image": None,
+        }
+
+    def parse_value(self, value: Dict[str, Any]) -> MillingEdit:
+        action = value.get("action")
+        if action not in MILL_ACTIONS:
+            raise InvalidAnswerValue(
+                f"action is required: one of {list(self.actions)} now."
+            )
+        if action not in self.actions:
+            raise InvalidAnswerValue(
+                f"{action!r} can't be decided now: one of {list(self.actions)}."
+            )
+        config, patch = value.get("config"), value.get("patch")
+        if config is not None and not isinstance(config, dict):
+            raise InvalidAnswerValue("config is a whole config document (an object).")
+        if patch is not None and not isinstance(patch, dict):
+            raise InvalidAnswerValue('patch is {"<dotted path>": value}.')
+        unknown = sorted(set(value) - {"action", "config", "patch"})
+        if unknown:
+            raise InvalidAnswerValue(
+                f"unknown keys {unknown}: a value has action, config and patch."
+            )
+        edit = MillingEdit(action=action, config=config, patch=patch)
+        # Checked against the config as asked; the responder makes the same
+        # changes to the config as it stands when the answer lands.
+        apply_milling_edit(self.config, edit)
+        return edit
+
+    def value_to_wire(self, value: Any) -> Dict[str, Any]:
+        # The live half: the config as the editor holds it.
+        return {"config": value.to_dict()}
+
+    def same_value(self, live: Any, value: Any, frame: Any = None) -> bool:
+        if not value.changes:
+            return True
+        if live is None:
+            return False
+        try:
+            return apply_milling_edit(live, value).to_dict() == live.to_dict()
+        except InvalidAnswerValue:
+            return False
+
+    def response_for(self, value: MillingEdit) -> bool:
+        """The button the action stands for: yes for the positive one."""
+        if not self.enabled:
+            return True
+        return value.action in (MILL_RUN, MILL_EDIT)
+
+    def draw(self, frame: "FibsemImage", live: Any) -> Any:
+        """The config's patterns over ``frame``, as the milling editor draws
+        them: ``live`` is the config as it now stands, else the one asked."""
+        from fibsem.milling.patterning.plotting import render_milling_patterns
+
+        config = live if live is not None else self.config
+        return render_milling_patterns(frame, config.enabled_stages)
 
 
 @dataclass(frozen=True)
@@ -242,13 +735,77 @@ class RunSpotBurn(Request[Optional["SpotBurnSettings"]]):
     settings as actually used — or None without a spot-burn widget (optional
     hardware must not fail a workflow).
 
-    Mirrors :class:`RunMillingTask`: Run Spot Burn runs the widget's current
-    points, the widget's finished signal re-raises the prompt, and Continue
-    answers with ``get_settings()`` and clears the widget.
+    Run Spot Burn runs the widget's current points, the widget's finished
+    signal re-raises the prompt, and Continue answers with ``get_settings()``
+    and clears the widget.
+
+    It does not lend control: the responder runs the burn itself, so a burn
+    could start under a borrower. It moves to the asker's loop, as
+    :class:`RunMillingTask` did (FIB-1236), in its own change.
     """
+
+    value_shape = (
+        '{"points": [{"x", "y"}]}: fractions of the frame, origin top-left, '
+        "+y down; current and exposure stay the protocol's"
+    )
+    view_frame = VIEW_FRAME_FALLBACK
 
     settings: "SpotBurnSettings"
     message: str = "Run Spot Burn"
+
+    def describe(self) -> Dict[str, Any]:
+        settings = self.settings
+        return {
+            "message": f"{self.message}. Answering yes burns the points "
+            "as currently shown and asks again; answering no continues. A "
+            "value replaces the points first.",
+            "positive": "Run Spot Burn",
+            "negative": "Continue",
+            "points": [pt.to_dict() for pt in getattr(settings, "coordinates", [])],
+            "milling_current": getattr(settings, "milling_current", None),
+            "exposure_time": getattr(settings, "exposure_time", None),
+            "coordinates": "points are fractions of the frame (origin "
+            "top-left, +y down), so they need no rescaling against the "
+            "preview; current and exposure are the protocol's",
+            "image": None,
+        }
+
+    def parse_value(self, value: Dict[str, Any]) -> List["Point"]:
+        from fibsem.services.spot_burn import in_frame
+        from fibsem.structures import Point
+
+        points = value.get("points")
+        if not isinstance(points, list):
+            raise InvalidAnswerValue(f"a RunSpotBurn value is {self.value_shape}.")
+        parsed: List[Point] = []
+        for entry in points:
+            try:
+                pt = Point.from_dict(entry)
+            except Exception:
+                raise InvalidAnswerValue(
+                    "each spot burn point needs numeric x, y: fractions of the frame."
+                ) from None
+            if not in_frame(pt):
+                raise InvalidAnswerValue(
+                    f"point ({pt.x:.3f}, {pt.y:.3f}) is outside the frame: x and y "
+                    "are fractions, 0 to 1."
+                )
+            parsed.append(pt)
+        return parsed
+
+    def value_to_wire(self, value: List["Point"]) -> Dict[str, Any]:
+        return {"points": [point.to_dict() for point in value]}
+
+    def same_value(self, live: Any, value: Any, frame: Any = None) -> bool:
+        # Points are 0-1 fractions of the frame.
+        return (
+            live is not None
+            and len(live) == len(value)
+            and all(
+                abs(a.x - b.x) <= 1e-6 and abs(a.y - b.y) <= 1e-6
+                for a, b in zip(live, value)
+            )
+        )
 
 
 # --- instructions: one-way, answered with a bare acknowledgement ------------------

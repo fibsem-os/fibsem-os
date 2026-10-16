@@ -65,10 +65,7 @@ class MillPerforationTask(AutoLamellaTask):
             image_settings, field_of_view=milling_task_config.field_of_view
         )
 
-        msg = (
-            f"Press Run Milling to mill the perforations for {self.lamella.name}. "
-            "Press Continue when done."
-        )
+        msg = f"Mill the perforations for {self.lamella.name}."
         milling_task_config = self.update_milling_config_ui(
             milling_task_config, msg=msg
         )
