@@ -169,6 +169,22 @@ class Beam(Device):
         doc="Beam shift.",
         display=Display("Shift", scale=1e6, step=0.01, decimals=3, advanced=True),
     )
+    source_tilt = DeviceParameter(
+        Point,
+        unit="rad",
+        doc="Electron source tilt: the angle the beam enters the column from the gun "
+        "at. Corrects an illumination drop.",
+        display=Display("Source Tilt", scale=1e3, step=0.01, decimals=3, advanced=True),
+    )
+    lens_alignment = DeviceParameter(
+        Point,
+        unit="m",
+        doc="Objective lens alignment: the beam's position relative to the final lens "
+        "aperture. Minimises the image shift while focusing.",
+        display=Display(
+            "Lens Alignment", scale=1e6, step=0.01, decimals=3, advanced=True
+        ),
+    )
     on = DeviceParameter(bool, doc="The beam is switched on.")
     scanning_mode = DeviceParameter(
         ScanMode, doc="What the beam scans; the scan commands set it."
