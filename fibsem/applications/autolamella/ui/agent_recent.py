@@ -83,7 +83,7 @@ def _words(name: Any) -> str:
     return str(name or "").replace("_", " ")
 
 
-def _cut(text: str, limit: int = 90) -> str:
+def _cut(text: str, limit: int = 300) -> str:
     text = " ".join(str(text).split())
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
@@ -94,7 +94,10 @@ def _request_text(actions: Any) -> str:
     if not actions:
         return "Asked"
     first = actions[0]
-    line = describe_action(str(first.get("tool")), first.get("arguments") or {}, "")
+    if first.get("what") or first.get("change"):
+        line = first
+    else:
+        line = describe_action(str(first.get("tool")), first.get("arguments") or {}, "")
     change = str(line.get("change") or "").split("\n", 1)[0]
     text = f"Asked: {line.get('what')} · {change}" if line.get("what") else change
     if len(actions) > 1:

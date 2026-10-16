@@ -35,7 +35,7 @@ from fibsem.server.allowlist import image_refusal
 from fibsem.server.auth import AgentLevel, AuthConfig, lending_drive, require_level
 from fibsem.server.calls import AgentCall, calling, join_line
 from fibsem.server.catalog import CATALOG, ToolSpec, route_call
-from fibsem.server.request_text import Describer, describe_actions
+from fibsem.server.request_text import Describer, describe_action, describe_actions
 
 PENDING = "pending"
 APPLYING = "applying"
@@ -350,8 +350,16 @@ class RequestStore:
             {
                 "request_id": request.id,
                 "reason": request.reason,
+                # With the card's own words, so a line about it later (the
+                # app's Recent list) reads as the card did.
                 "actions": [
-                    {"tool": a.tool, "arguments": a.arguments} for a in resolved
+                    {
+                        "tool": a.tool,
+                        "arguments": a.arguments,
+                        "what": a.what,
+                        "change": a.change,
+                    }
+                    for a in resolved
                 ],
                 **({"image": image} if image else {}),
             },
@@ -635,6 +643,17 @@ class RequestStore:
         for action, line in zip(actions, lines):
             action.what, action.change = line["what"], line["change"]
             action.details = line.get("details")
+
+    def describe_call(
+        self, tool: str, arguments: Dict[str, Any], path: str
+    ) -> Optional[str]:
+        """A direct call as its request's card would say it, ``what · change``,
+        reading the state it changes: "Set Field of View 150 µm → 300 µm", not
+        the bare "Set hfw to 0.0003" a line without a reader falls back to."""
+        line = describe_action(
+            tool, arguments, path, read=self._read, describe=self._describe
+        )
+        return join_line(line.get("what"), line.get("change"))
 
     def _read(self, path: str) -> Optional[Dict[str, Any]]:
         """Read a route in this process: the document a config edit patches, or

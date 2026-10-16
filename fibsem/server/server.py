@@ -21,6 +21,7 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import JSONResponse, Response
 from fastapi.routing import APIRoute
+from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import Headers
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -340,12 +341,29 @@ class _AgentActs:
                 answer["body"] += message.get("body", b"")[:65536]
             await send(message)
 
-        with acting(AGENT), calling(from_headers(headers)) as call:
+        call = from_headers(headers)
+        call.action = await self._described(scope, call) or call.action
+        with acting(AGENT), calling(call):
             call.level = self._level(scope)
             try:
                 await self.app(scope, receive, sending)
             finally:
                 self._record(scope, call, answer["status"], answer["body"])
+
+    @staticmethod
+    async def _described(scope, call) -> Optional[str]:
+        """*call* in the card's words, read from the state it changes; None
+        without a named tool or a request store, or when describing fails."""
+        requests = getattr(getattr(scope.get("app"), "state", None), "requests", None)
+        if not call.tool or requests is None:
+            return None
+        try:
+            return await run_in_threadpool(
+                requests.describe_call, call.tool, call.arguments, scope.get("path", "")
+            )
+        except Exception:  # noqa: BLE001 - the plain line stands in
+            logging.debug("could not describe an agent call", exc_info=True)
+            return None
 
     @staticmethod
     def _level(scope) -> Optional[str]:

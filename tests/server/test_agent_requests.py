@@ -266,7 +266,8 @@ def test_every_step_is_on_the_record_with_who_acted(client, app, context):
     ]
     raised = context.recorded[0][1]
     assert raised["reason"] == "checking the trenches"
-    assert raised["actions"] == [NUDGE]
+    # With the card's words, for the app's Recent list (sim session 2026-10-16 F7).
+    assert raised["actions"] == [{**NUDGE, "what": "Stage", "change": "Move by x 1 µm"}]
     decided = context.recorded[1][1]
     assert decided["outcome"] == "approved"
     assert decided["decided_by"] == "operator"

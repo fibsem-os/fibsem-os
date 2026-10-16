@@ -210,3 +210,26 @@ def test_it_keeps_the_last_ten():
         recent.add(_record("agent_note", {"text": f"note {index}"}))
     assert len(recent.rows) == 10
     assert recent.rows[0].text == "Note: note 11"
+
+
+def test_a_request_row_reads_as_its_card_did():
+    """Sim session 2026-10-16 F7: "Set hfw to 0.0003" where the card said the
+    field of view in µm, old -> new."""
+    recent = RecentActions()
+    actions = [
+        {
+            "tool": "device_set_parameter",
+            "arguments": {"device": "ion", "parameter": "hfw", "value": 3e-4},
+            "what": "Ion",
+            "change": "Set Field of View 150 µm → 300 µm",
+        }
+    ]
+    recent.add(_record("request_raised", {"request_id": "r1", "actions": actions}))
+    assert _rows(recent)[0][0] == "Asked: Ion · Set Field of View 150 µm → 300 µm"
+
+
+def test_a_long_line_is_kept_whole_for_the_card_to_wrap():
+    recent = RecentActions()
+    reason = "the trench is through the lamella and the next pass would cut the top"
+    recent.add(_called(f"Workflow · Stop the run: {reason}"))
+    assert _rows(recent)[0][0].endswith(reason)
