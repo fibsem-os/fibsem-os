@@ -12,18 +12,14 @@ from fibsem.milling.patterning.base import BasePattern
 from fibsem.milling.properties import (
     distance_metadata,
 )
-from fibsem.structures import (
-    Display,
-    FibsemPolygonSettings,
-    field_meta,
-)
+from fibsem.structures import Display, FibsemPolygonSettings, Parameter
 
 
 @dataclass
 class PolygonPattern(BasePattern):
     vertices: np.ndarray[float] = field(
         default_factory=lambda: np.array([]),
-        metadata=field_meta(display=Display(hidden=True)),
+        metadata=Parameter(display=Display(hidden=True)).meta(),
     )  # type: ignore[type-arg]
     depth: float = field(
         default=1.0e-6,
@@ -31,10 +27,10 @@ class PolygonPattern(BasePattern):
     )
     is_exclusion: bool = field(
         default=False,
-        metadata=field_meta(
+        metadata=Parameter(
             doc="If true, the polygon will be an exclusion area.",
             display=Display("Is Exclusion"),
-        ),
+        ).meta(),
     )
     name: ClassVar[str] = "PolygonPattern"
 

@@ -16,7 +16,6 @@ from fibsem.structures import (
     Parameter,
     Point,
     RangeLimit,
-    field_meta,
 )
 
 
@@ -31,12 +30,12 @@ class Recipe:
 
     width: float = field(
         default=10e-6,
-        metadata=field_meta(
+        metadata=Parameter(
             unit="m",
             limits=RangeLimit(1e-6, 1e-3),
             doc="The width.",
             display=Display("Width", scale=1e6),
-        ),
+        ).meta(),
     )
     mode: Mode = Mode.FAST
     centre: Point = field(default_factory=Point)

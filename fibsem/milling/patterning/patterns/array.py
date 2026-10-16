@@ -21,9 +21,9 @@ from fibsem.structures import (
     Display,
     FibsemCircleSettings,
     FibsemRectangleSettings,
+    Parameter,
     Point,
     RangeLimit,
-    field_meta,
 )
 
 
@@ -43,19 +43,19 @@ class ArrayPattern(BasePattern[Union[FibsemRectangleSettings, FibsemCircleSettin
     )
     n_columns: int = field(
         default=5,
-        metadata=field_meta(
+        metadata=Parameter(
             limits=RangeLimit(1, 100),
             doc="Number of columns in the array pattern.",
             display=Display("Number of Columns", step=1, decimals=0),
-        ),
+        ).meta(),
     )
     n_rows: int = field(
         default=5,
-        metadata=field_meta(
+        metadata=Parameter(
             limits=RangeLimit(1, 100),
             doc="Number of rows in the array pattern.",
             display=Display("Number of Rows", step=1, decimals=0),
-        ),
+        ).meta(),
     )
     pitch_vertical: float = field(
         default=5.0e-6,
@@ -88,10 +88,10 @@ class ArrayPattern(BasePattern[Union[FibsemRectangleSettings, FibsemCircleSettin
     )
     use_circle: bool = field(
         default=False,
-        metadata=field_meta(
+        metadata=Parameter(
             doc="If true, use circular patterns instead of rectangular.",
             display=Display("Use Circle"),
-        ),
+        ).meta(),
     )
 
     name: ClassVar[str] = "ArrayPattern"

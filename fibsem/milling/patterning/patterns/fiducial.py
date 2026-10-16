@@ -19,7 +19,7 @@ from fibsem.structures import (
     CrossSectionPattern,
     Display,
     FibsemRectangleSettings,
-    field_meta,
+    Parameter,
 )
 
 
@@ -46,10 +46,10 @@ class FiducialPattern(BasePattern[FibsemRectangleSettings]):
     )
     asymmetric: bool = field(
         default=False,
-        metadata=field_meta(
+        metadata=Parameter(
             doc="If true, make the fiducial mark y-shaped.",
             display=Display("Asymmetric", advanced=True),
-        ),
+        ).meta(),
     )
     name: ClassVar[str] = "Fiducial"
 

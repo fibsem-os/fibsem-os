@@ -16,7 +16,7 @@ from fibsem.structures import (
     CrossSectionPattern,
     Display,
     FibsemRectangleSettings,
-    field_meta,
+    Parameter,
 )
 
 
@@ -52,10 +52,10 @@ class HorseshoePattern(BasePattern[FibsemRectangleSettings]):
     )
     inverted: bool = field(
         default=False,
-        metadata=field_meta(
+        metadata=Parameter(
             doc="If true, the side trench will be milled on the opposite side",
             display=Display("Inverted"),
-        ),
+        ).meta(),
     )
     scan_direction: str = field(
         default="TopToBottom", metadata=scan_direction_metadata()
@@ -155,10 +155,10 @@ class HorseshoePatternVertical(BasePattern):
     )
     inverted: bool = field(
         default=False,
-        metadata=field_meta(
+        metadata=Parameter(
             doc="If true, the top trench will be milled below the point.",
             display=Display("Inverted"),
-        ),
+        ).meta(),
     )
     cross_section: CrossSectionPattern = field(
         default=CrossSectionPattern.Rectangle, metadata=cross_section_metadata()

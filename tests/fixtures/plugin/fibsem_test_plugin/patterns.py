@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from typing import ClassVar, List
 
 from fibsem.milling.patterning.base import BasePattern
-from fibsem.structures import Display, FibsemRectangleSettings, field_meta
+from fibsem.structures import Display, FibsemRectangleSettings, Parameter
 from fibsem_test_plugin import CLASHING_PATTERN_NAME, PATTERN_NAME
 
 
@@ -30,10 +30,10 @@ class FixturePattern(BasePattern[FibsemRectangleSettings]):
     name: ClassVar[str] = PATTERN_NAME
 
     width: float = field(
-        default=10.0e-6, metadata=field_meta(unit="m", display=Display("Width"))
+        default=10.0e-6, metadata=Parameter(unit="m", display=Display("Width")).meta()
     )
     depth: float = field(
-        default=1.0e-6, metadata=field_meta(unit="m", display=Display("Depth"))
+        default=1.0e-6, metadata=Parameter(unit="m", display=Display("Depth")).meta()
     )
 
     def define(self) -> List[FibsemRectangleSettings]:

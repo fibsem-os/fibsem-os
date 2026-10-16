@@ -20,11 +20,7 @@ from fibsem.milling.properties import (
     passes_metadata,
     scan_direction_metadata,
 )
-from fibsem.structures import (
-    Display,
-    FibsemBitmapSettings,
-    field_meta,
-)
+from fibsem.structures import Display, FibsemBitmapSettings, Parameter
 
 
 @dataclass
@@ -54,22 +50,22 @@ class BitmapPattern(BasePattern[FibsemBitmapSettings]):
     )
     path: str = field(
         default="",
-        metadata=field_meta(
+        metadata=Parameter(
             doc="Path to the bitmap image file.",
             filepath=True,
             display=Display("File Path"),
-        ),
+        ).meta(),
     )
     array: Optional[NDArray[Any]] = field(
-        default=None, metadata=field_meta(display=Display(hidden=True))
+        default=None, metadata=Parameter(display=Display(hidden=True)).meta()
     )
     interpolation: Optional[Literal["nearest", "bilinear", "bicubic"]] = field(
         default=None,
-        metadata=field_meta(
+        metadata=Parameter(
             choices=[None, "nearest", "bilinear", "bicubic"],
             doc="Interpolation method for resizing the bitmap image.",
             display=Display("Interpolation", advanced=True),
-        ),
+        ).meta(),
     )
 
     name: ClassVar[str] = "Bitmap"

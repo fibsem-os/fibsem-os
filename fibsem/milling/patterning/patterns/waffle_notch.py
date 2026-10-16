@@ -15,7 +15,7 @@ from fibsem.structures import (
     CrossSectionPattern,
     Display,
     FibsemRectangleSettings,
-    field_meta,
+    Parameter,
 )
 
 
@@ -55,9 +55,9 @@ class WaffleNotchPattern(BasePattern[FibsemRectangleSettings]):
     )
     inverted: bool = field(
         default=False,
-        metadata=field_meta(
+        metadata=Parameter(
             doc="Invert the notch pattern.", display=Display("Inverted")
-        ),
+        ).meta(),
     )
     cross_section: CrossSectionPattern = field(
         default=CrossSectionPattern.Rectangle, metadata=cross_section_metadata()

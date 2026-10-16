@@ -23,8 +23,8 @@ from fibsem.structures import (
     Display,
     FibsemStagePosition,
     ImageSettings,
+    Parameter,
     RangeLimit,
-    field_meta,
 )
 
 
@@ -47,18 +47,18 @@ class OvertiltTrenchMillingConfig(MillingStrategyConfig):
     )
     secret_parameter: bool = field(
         default=False,
-        metadata=field_meta(
+        metadata=Parameter(
             doc="A secret parameter for internal use (testing).",
             display=Display("Secret Parameter", advanced=True),
-        ),
+        ).meta(),
     )
     area_parameter: float = field(
         default=1e-6,
-        metadata=field_meta(
+        metadata=Parameter(
             unit="m²",
             doc="An area parameter for internal use (testing).",
             display=Display("Area Parameter", scale=1e12, unit="µm²"),
-        ),
+        ).meta(),
     )
 
     def __post_init__(self) -> None:

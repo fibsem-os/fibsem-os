@@ -22,7 +22,7 @@ from fibsem.fm.acquisition import acquire_image
 from fibsem.fm.calibration import AutoFocusResult, run_coarse_fine_autofocus
 from fibsem.fm.structures import AutoFocusSettings, ChannelSettings, ZParameters
 from fibsem.fm.timing import estimate_acquisition_time, estimate_autofocus_time
-from fibsem.structures import Display, InsertableDeviceState, field_meta
+from fibsem.structures import Display, InsertableDeviceState, Parameter
 
 
 @dataclass
@@ -33,37 +33,37 @@ class AcquireFluorescenceImageConfig(AutoLamellaTaskConfig):
     display_name: ClassVar[str] = "Acquire Fluorescence Image"
     channel_settings: list[ChannelSettings] = field(
         default_factory=list,
-        metadata=field_meta(
+        metadata=Parameter(
             doc="Settings for each fluorescence channel",
             display=Display("Channel Settings"),
-        ),
+        ).meta(),
     )
     zparams: ZParameters = field(
         default_factory=ZParameters,
-        metadata=field_meta(
+        metadata=Parameter(
             doc="Z-stack acquisition parameters", display=Display("Z-Stack Parameters")
-        ),
+        ).meta(),
     )
     autofocus_settings: AutoFocusSettings = field(
         default_factory=AutoFocusSettings,
-        metadata=field_meta(
+        metadata=Parameter(
             doc="Settings for autofocus before acquiring fluorescence images",
             display=Display("Autofocus Settings"),
-        ),
+        ).meta(),
     )
     orientation: Optional[str] = field(
         default=None,
-        metadata=field_meta(
+        metadata=Parameter(
             doc="Orientation for acquisition. 'FM' or 'SEM'. None = use fluorescence_pose as-is.",
             display=Display("Orientation"),
-        ),
+        ).meta(),
     )
     retract_objective: bool = field(
         default=True,
-        metadata=field_meta(
+        metadata=Parameter(
             doc="Retract the objective when the task finishes, so it is clear of the stage for subsequent moves. Disable for back-to-back fluorescence tasks.",
             display=Display("Retract Objective"),
-        ),
+        ).meta(),
     )
 
     def to_dict(self) -> dict:

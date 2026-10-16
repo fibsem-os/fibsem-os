@@ -28,8 +28,8 @@ from fibsem.structures import (
     FibsemCircleSettings,
     FibsemPolygonSettings,
     FibsemRectangleSettings,
+    Parameter,
     RangeLimit,
-    field_meta,
 )
 
 
@@ -284,33 +284,33 @@ class TrenchBitmapPattern(BasePattern[FibsemBitmapSettings]):
     )
     path: str = field(
         default="",
-        metadata=field_meta(
+        metadata=Parameter(
             doc="Path to the upper trench bitmap image file.",
             filepath=True,
             display=Display("File Path"),
-        ),
+        ).meta(),
     )
     path_lower: str = field(
         default="",
-        metadata=field_meta(
+        metadata=Parameter(
             doc="Path to the lower trench bitmap image file. If not provided, the upper trench bitmap will be flipped and used.",
             filepath=True,
             display=Display("File Path Lower"),
-        ),
+        ).meta(),
     )
     array: Optional[NDArray[Any]] = field(
-        default=None, metadata=field_meta(display=Display(hidden=True))
+        default=None, metadata=Parameter(display=Display(hidden=True)).meta()
     )
     array_lower: Optional[NDArray[Any]] = field(
-        default=None, metadata=field_meta(display=Display(hidden=True))
+        default=None, metadata=Parameter(display=Display(hidden=True)).meta()
     )
     interpolation: Optional[Literal["nearest", "bicubic", "bilinear"]] = field(
         default=None,
-        metadata=field_meta(
+        metadata=Parameter(
             choices=[None, "nearest", "bilinear", "bicubic"],
             doc="Interpolation method for resizing the bitmap image.",
             display=Display("Interpolation", advanced=True),
-        ),
+        ).meta(),
     )
     name: ClassVar[str] = "TrenchBitmap"
 

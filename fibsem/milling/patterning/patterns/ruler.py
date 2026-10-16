@@ -17,8 +17,8 @@ from fibsem.structures import (
     CrossSectionPattern,
     Display,
     FibsemRectangleSettings,
+    Parameter,
     RangeLimit,
-    field_meta,
 )
 
 
@@ -41,11 +41,11 @@ class RulerPattern(BasePattern[FibsemRectangleSettings]):
 
     n_ticks: int = field(
         default=20,
-        metadata=field_meta(
+        metadata=Parameter(
             limits=RangeLimit(1, 500),
             doc="Number of notches, counted down from the origin.",
             display=Display("Number of Ticks", step=1, decimals=0),
-        ),
+        ).meta(),
     )
     pitch: float = field(
         default=2.0e-6,
@@ -68,11 +68,11 @@ class RulerPattern(BasePattern[FibsemRectangleSettings]):
     )
     major_every: int = field(
         default=5,
-        metadata=field_meta(
+        metadata=Parameter(
             limits=RangeLimit(0, 100),
             doc="Draw every Nth notch at the major length. 0 for a uniform comb.",
             display=Display("Major Tick Every", step=1, decimals=0),
-        ),
+        ).meta(),
     )
     tick_thickness: float = field(
         default=0.5e-6,

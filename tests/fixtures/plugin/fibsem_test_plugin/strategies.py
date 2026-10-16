@@ -10,13 +10,13 @@ from fibsem.milling.base import (
     MillingStrategy,
     MillingStrategyConfig,
 )
-from fibsem.structures import Display
+from fibsem.structures import Display, Parameter
 from fibsem_test_plugin import STRATEGY_NAME
 
 
 @dataclass
 class FixtureMillingStrategyConfig(MillingStrategyConfig):
-    passes: int = field(default=1, metadata={"display": Display("Passes")})
+    passes: int = field(default=1, metadata=Parameter(display=Display("Passes")).meta())
 
 
 class FixtureMillingStrategy(MillingStrategy[FixtureMillingStrategyConfig]):

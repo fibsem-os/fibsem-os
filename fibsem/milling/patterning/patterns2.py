@@ -13,16 +13,16 @@ from fibsem.milling.patterning.patterns import *  # noqa: F403
 from fibsem.milling.patterning.patterns import __all__ as _patterns_all
 from fibsem.milling.patterning.patterns.rectangle import RectanglePattern
 from fibsem.milling.patterning.patterns.triforce import create_triangle_patterns
-from fibsem.structures import (  # noqa: F401
+from fibsem.structures import (
     CrossSectionPattern,
     FibsemBitmapSettings,
     FibsemCircleSettings,
     FibsemLineSettings,
     FibsemPolygonSettings,
     FibsemRectangleSettings,
+    Parameter,
     Point,
     TFibsemPatternSettings,
-    field_meta,
 )
 
 DEFAULT_MILLING_PATTERN = RectanglePattern

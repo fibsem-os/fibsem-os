@@ -39,9 +39,9 @@ from fibsem.structures import (
     Display,
     FibsemRectangle,
     InsertableDeviceState,
+    Parameter,
     Point,
     RangeLimit,
-    field_meta,
 )
 
 SETUP_COINCIDENCE_MILLING_KEY = "SETUP_COINCIDENCE_MILLING"
@@ -68,47 +68,47 @@ class SetupCoincidenceMillingTaskConfig(AutoLamellaTaskConfig):
 
     field_of_view: float = field(
         default=80e-6,
-        metadata=field_meta(
+        metadata=Parameter(
             unit="m",
             doc="FIB field of view for the setup image; the mill task reuses it",
             display=Display("Field of View", scale=1e6),
-        ),
+        ).meta(),
     )
     intensity_drop_fraction: float = field(
         default=0.4,
-        metadata=field_meta(
+        metadata=Parameter(
             limits=RangeLimit(0.05, 0.95),
             doc="Stop when the rolling mean drops by this fraction below its peak "
             "(e.g. 0.4 = 40% drop). Seeds every coincidence stage of the mill.",
             display=Display("Drop Fraction"),
-        ),
+        ).meta(),
     )
     align_coincidence: bool = field(
         default=False,
-        metadata=field_meta(
+        metadata=Parameter(
             doc="Run the SEM/FIB coincidence alignment at the milling pose before "
             "inserting the objective. Off until the bench data is in (FIB-872).",
             display=Display("Align Coincidence"),
-        ),
+        ).meta(),
     )
     # --- written by the task -------------------------------------------------
     # metres; None until the task or the operator has set it
     objective_position: Optional[float] = field(
         default=None,
-        metadata=field_meta(
+        metadata=Parameter(
             unit="m",
             doc="Objective height that focuses the sample at the milling tilt",
             display=Display("Objective Position", scale=1e6),
-        ),
+        ).meta(),
     )
     # fraction of the FM camera frame (left, top, width, height); None = whole frame
     fm_roi: Optional[FibsemRectangle] = field(
-        default=None, metadata=field_meta(display=Display(hidden=True))
+        default=None, metadata=Parameter(display=Display(hidden=True)).meta()
     )
     # metres from the FIB image centre, applied to every enabled milling stage
     pattern_offset: Point = field(
         default_factory=lambda: Point(0.0, 0.0),
-        metadata=field_meta(display=Display(hidden=True)),
+        metadata=Parameter(display=Display(hidden=True)).meta(),
     )
 
     @property

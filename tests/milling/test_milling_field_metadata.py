@@ -9,11 +9,12 @@ from fibsem.structures import RangeLimit, field_specs
 
 
 def test_a_distance_is_metres_shown_in_microns():
-    metadata = distance_metadata("Width", "The width.", limits=RangeLimit(1e-6, 1e-4))
-    assert metadata["unit"] == "m"
-    assert metadata["limits"] == RangeLimit(1e-6, 1e-4)
-    assert metadata["display"].scale == 1e6
-    assert metadata["display"].label == "Width"
+    declared = distance_metadata("Width", "The width.", limits=RangeLimit(1e-6, 1e-4))
+    parameter = declared["parameter"]
+    assert parameter.unit == "m"
+    assert parameter.limits == RangeLimit(1e-6, 1e-4)
+    assert parameter.display.scale == 1e6
+    assert parameter.display.label == "Width"
 
 
 def test_hidden_and_advanced_come_from_the_display():

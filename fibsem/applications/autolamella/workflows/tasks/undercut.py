@@ -17,7 +17,7 @@ from fibsem.applications.autolamella.workflows._default_milling_config import (
 from fibsem.applications.autolamella.workflows.core import align_feature_coincident
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 from fibsem.detection.detection import LamellaBottomEdge, LamellaCentre, LamellaTopEdge
-from fibsem.structures import BeamType, field_meta
+from fibsem.structures import BeamType, Parameter
 
 
 @dataclass
@@ -26,16 +26,16 @@ class MillUndercutTaskConfig(AutoLamellaTaskConfig):
 
     orientation: Optional[Literal["SEM", "FIB", "MILLING"]] = field(
         default="SEM",
-        metadata=field_meta(
+        metadata=Parameter(
             choices=("SEM", "FIB", "MILLING", None),
             doc="The orientation to perform undercut milling in",
-        ),
+        ).meta(),
     )
     milling_angles: List[float] = field(
         default_factory=lambda: [25, 20],  # in degrees
-        metadata=field_meta(
+        metadata=Parameter(
             unit=constants.DEGREE_SYMBOL, doc="The angles to mill the undercuts at"
-        ),
+        ).meta(),
     )
     task_type: ClassVar[str] = "MILL_UNDERCUT"
     display_name: ClassVar[str] = "Undercut Milling"

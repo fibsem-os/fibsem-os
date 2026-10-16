@@ -15,7 +15,7 @@ from fibsem.applications.autolamella.workflows.tasks.base import (
     AutoLamellaTask,
 )
 from fibsem.autofunctions.charge_neutralisation import auto_charge_neutralisation
-from fibsem.structures import BeamType, field_meta
+from fibsem.structures import BeamType, Parameter
 
 
 @dataclass
@@ -27,14 +27,14 @@ class MillTrenchTaskConfig(AutoLamellaTaskConfig):
     retired_parameters: ClassVar[frozenset] = frozenset({"align_reference"})
     charge_neutralisation: bool = field(
         default=True,  # whether to perform charge neutralisation
-        metadata=field_meta(doc="Whether to perform charge neutralisation"),
+        metadata=Parameter(doc="Whether to perform charge neutralisation").meta(),
     )
     orientation: Optional[Literal["SEM", "FIB", "MILLING"]] = field(
         default=None,
-        metadata=field_meta(
+        metadata=Parameter(
             choices=("SEM", "FIB", "MILLING", None),
             doc="The orientation to perform trench milling in",
-        ),
+        ).meta(),
     )
     task_type: ClassVar[str] = "MILL_TRENCH"
     display_name: ClassVar[str] = "Trench Milling"

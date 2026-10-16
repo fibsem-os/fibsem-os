@@ -8,7 +8,7 @@ from fibsem.applications.autolamella.proposals import STATE
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 from fibsem.applications.autolamella.workflows.ui import ask_user
-from fibsem.structures import field_meta
+from fibsem.structures import Parameter
 
 
 @dataclass
@@ -19,16 +19,16 @@ class AcquireReferenceImageConfig(AutoLamellaTaskConfig):
     display_name: ClassVar[str] = "Acquire Reference Image"
     orientation: Literal["SEM", "FIB", "MILLING"] = field(
         default="MILLING",
-        metadata=field_meta(
+        metadata=Parameter(
             choices=("SEM", "FIB", "MILLING"),
             doc="The orientation to acquire reference images in (SEM, FIB, MILLING)",
-        ),
+        ).meta(),
     )  # change to pose?
     filename: Optional[str] = field(
         default=None,
-        metadata=field_meta(
+        metadata=Parameter(
             doc="Custom filename for reference images. If None, auto-generates from last completed task name and timestamp."
-        ),
+        ).meta(),
     )
 
 

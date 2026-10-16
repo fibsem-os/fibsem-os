@@ -29,8 +29,8 @@ from fibsem.structures import (
     FibsemImage,
     FibsemRectangle,
     MillingState,
+    Parameter,
     RangeLimit,
-    field_meta,
 )
 from fibsem.utils import save_json
 
@@ -48,74 +48,74 @@ class CoincidenceMillingStrategyConfig(MillingStrategyConfig):
     # zparams: ZParameters = field(default_factory=lambda: ZParameters(-5e-6, 5e-6, 0.5e-6))
     timeout: int = field(
         default=1800,
-        metadata=field_meta(
+        metadata=Parameter(
             unit="s",
             limits=RangeLimit(30, 9000),
             doc="Milling will timeout after this duration in seconds, without user intervention",
             display=Display("Timeout"),
-        ),
+        ).meta(),
     )  # seconds, default timeout for milling
     save_fm_images: bool = field(
         default=True,
-        metadata=field_meta(
+        metadata=Parameter(
             doc="Save FM images during milling", display=Display("Save FM Images")
-        ),
+        ).meta(),
     )  # save FM images during milling
     save_rate_limit: int = field(
         default=2,
-        metadata=field_meta(
+        metadata=Parameter(
             doc="Save one image every n seconds", display=Display("Save Rate Limit")
-        ),
+        ).meta(),
     )  # save one image every n seconds
     # acquire_z_stack: bool = False  # acquire a z-stack after milling
     acquire_fib_image: bool = field(
         default=True,
-        metadata=field_meta(
+        metadata=Parameter(
             doc="Acquire a FIB image after milling",
             display=Display("Acquire FIB Image"),
-        ),
+        ).meta(),
     )  # acquire a FIB image after milling
     intensity_drop_fraction: float = field(
         default=0.4,
-        metadata=field_meta(
+        metadata=Parameter(
             limits=RangeLimit(0.05, 0.95),
             doc="Trigger when the rolling mean drops by this fraction below its peak (e.g. 0.4 = 40% drop)",
             display=Display("Drop Fraction"),
-        ),
+        ).meta(),
     )
     rolling_window: int = field(
         default=10,
-        metadata=field_meta(
+        metadata=Parameter(
             doc="Number of frames for rolling mean calculation",
             display=Display("Rolling Window"),
-        ),
+        ).meta(),
     )
     warmup_duration: float = field(
         default=30.0,
-        metadata=field_meta(
+        metadata=Parameter(
             unit="s",
             doc="Seconds to ignore at start before tracking the peak",
             display=Display("Warmup Duration"),
-        ),
+        ).meta(),
     )
     consecutive_triggers: int = field(
         default=10,
-        metadata=field_meta(
+        metadata=Parameter(
             doc="Number of consecutive frames below threshold required to fire the signal",
             display=Display("Consecutive Triggers"),
-        ),
+        ).meta(),
     )
     supervised: bool = field(
         default=True,
-        metadata=field_meta(
+        metadata=Parameter(
             doc="Supervised: operator stops milling manually. Unsupervised (False): automatically stop when an intensity drop is detected.",
             display=Display("Supervised"),
-        ),
+        ).meta(),
     )
     bbox: Optional[FibsemRectangle] = field(
         default=None,
         # set interactively via the FM ROI, not a form control
-        metadata=field_meta(display=Display(hidden=True)),
+        metadata=Parameter(display=Display(hidden=True)).meta(),
     )  # reduced area for intensity monitoring
     # oscillation parameters
 

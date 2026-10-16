@@ -10,11 +10,7 @@ from fibsem.milling.patterning.base import BasePattern
 from fibsem.milling.properties import (
     distance_metadata,
 )
-from fibsem.structures import (
-    Display,
-    FibsemLineSettings,
-    field_meta,
-)
+from fibsem.structures import Display, FibsemLineSettings, Parameter
 
 
 @dataclass
@@ -45,17 +41,17 @@ class SerialSectionPattern(BasePattern[FibsemLineSettings]):
     )
     inverted: bool = field(
         default=False,
-        metadata=field_meta(
+        metadata=Parameter(
             doc="If true, the section will be milled inverted.",
             display=Display("Inverted"),
-        ),
+        ).meta(),
     )
     use_side_patterns: bool = field(
         default=True,
-        metadata=field_meta(
+        metadata=Parameter(
             doc="If true, side cleaning patterns will be used.",
             display=Display("Use Side Patterns"),
-        ),
+        ).meta(),
     )
 
     name: ClassVar[str] = "SerialSection"

@@ -27,7 +27,6 @@ from fibsem.structures import (
     Point,
     RangeLimit,
     TFibsemPatternSettings,
-    field_meta,
     field_specs,
     flagged_fields,
 )
@@ -52,7 +51,9 @@ class BasePattern(ABC, Generic[TFibsemPatternSettings]):
     # Computed by define(), never edited: the form skips it on `hidden` rather
     # than on a hardcoded field name, so a plugin can hide its own fields too.
     shapes: Optional[List[TFibsemPatternSettings]] = field(
-        default=None, init=False, metadata=field_meta(display=Display(hidden=True))
+        default=None,
+        init=False,
+        metadata=Parameter(display=Display(hidden=True)).meta(),
     )
 
     @abstractmethod

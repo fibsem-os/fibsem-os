@@ -49,7 +49,7 @@ from fibsem.structures import (
     CrossSectionPattern,
     Display,
     InsertableDeviceState,
-    field_meta,
+    Parameter,
 )
 
 MILL_COINCIDENT_KEY = "mill_coincident"
@@ -82,20 +82,20 @@ class MillCoincidentTaskConfig(AutoLamellaTaskConfig):
 
     setup_task: str = field(
         default=DEFAULT_SETUP_TASK_NAME,
-        metadata=field_meta(
+        metadata=Parameter(
             doc="The Setup Coincidence Milling task whose per-site record "
             "(objective height, FM region, pattern position, channel, drop "
             "fraction) this mill runs from",
             display=Display("Setup Task"),
-        ),
+        ).meta(),
     )
     acquire_fluorescence_images: bool = field(
         default=True,
-        metadata=field_meta(
+        metadata=Parameter(
             doc="Acquire a fluorescence image after coincident milling, with the "
             "lamella's fluorescence task settings",
             display=Display("Acquire Fluorescence Images"),
-        ),
+        ).meta(),
     )
     # The channel the strategy monitors while milling. Its own settings, not a
     # name looked up in the fluorescence task: monitoring wants a short exposure
@@ -110,9 +110,9 @@ class MillCoincidentTaskConfig(AutoLamellaTaskConfig):
             power=0.1,
             exposure_time=0.1,
         ),
-        metadata=field_meta(
+        metadata=Parameter(
             display=Display(hidden=True)
-        ),  # its own controls, not a form row
+        ).meta(),  # its own controls, not a form row
     )
     task_type: ClassVar[str] = "MILL_COINCIDENT"
     display_name: ClassVar[str] = "Coincident Milling"

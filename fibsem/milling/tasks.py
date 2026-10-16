@@ -32,8 +32,8 @@ from fibsem.structures import (
     FibsemImage,
     ImageSettings,
     MillingAlignment,
+    Parameter,
     Point,
-    field_meta,
 )
 from fibsem.util.timestamps import now_iso
 from fibsem.utils import current_timestamp_v3
@@ -45,26 +45,26 @@ class MillingTaskAcquisitionSettings:
 
     acquire_sem: bool = field(
         default=False,
-        metadata=field_meta(
+        metadata=Parameter(
             doc="Whether to acquire SEM images between the milling task stages.",
             display=Display("Acquire SEM Image"),
-        ),
+        ).meta(),
     )
     acquire_fib: bool = field(
         default=False,
-        metadata=field_meta(
+        metadata=Parameter(
             doc="Whether to acquire FIB images between the milling task stages.",
             display=Display("Acquire FIB Image"),
-        ),
+        ).meta(),
     )
     acquire_final_image: bool = field(
         default=True,
-        metadata=field_meta(
+        metadata=Parameter(
             doc="Refresh the FIB view with a single image once the task finishes. "
             "Disable for low-kV polishing, where imaging the lamella with a "
             "higher-voltage beam undoes the polish.",
             display=Display("Acquire Final Image"),
-        ),
+        ).meta(),
     )
     imaging: ImageSettings = field(default_factory=ImageSettings)
 
