@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from typing import (
     ClassVar,
@@ -22,7 +22,7 @@ from fibsem.fm.acquisition import acquire_image
 from fibsem.fm.calibration import AutoFocusResult, run_coarse_fine_autofocus
 from fibsem.fm.structures import AutoFocusSettings, ChannelSettings, ZParameters
 from fibsem.fm.timing import estimate_acquisition_time, estimate_autofocus_time
-from fibsem.structures import Display, InsertableDeviceState, Parameter
+from fibsem.structures import Display, InsertableDeviceState, param
 
 
 @dataclass
@@ -31,39 +31,30 @@ class AcquireFluorescenceImageConfig(AutoLamellaTaskConfig):
 
     task_type: ClassVar[str] = "ACQUIRE_FLUORESCENCE_IMAGE"
     display_name: ClassVar[str] = "Acquire Fluorescence Image"
-    channel_settings: list[ChannelSettings] = field(
+    channel_settings: list[ChannelSettings] = param(
+        doc="Settings for each fluorescence channel",
+        display=Display("Channel Settings"),
         default_factory=list,
-        metadata=Parameter(
-            doc="Settings for each fluorescence channel",
-            display=Display("Channel Settings"),
-        ).meta(),
     )
-    zparams: ZParameters = field(
+    zparams: ZParameters = param(
+        doc="Z-stack acquisition parameters",
+        display=Display("Z-Stack Parameters"),
         default_factory=ZParameters,
-        metadata=Parameter(
-            doc="Z-stack acquisition parameters", display=Display("Z-Stack Parameters")
-        ).meta(),
     )
-    autofocus_settings: AutoFocusSettings = field(
+    autofocus_settings: AutoFocusSettings = param(
+        doc="Settings for autofocus before acquiring fluorescence images",
+        display=Display("Autofocus Settings"),
         default_factory=AutoFocusSettings,
-        metadata=Parameter(
-            doc="Settings for autofocus before acquiring fluorescence images",
-            display=Display("Autofocus Settings"),
-        ).meta(),
     )
-    orientation: Optional[str] = field(
-        default=None,
-        metadata=Parameter(
-            doc="Orientation for acquisition. 'FM' or 'SEM'. None = use fluorescence_pose as-is.",
-            display=Display("Orientation"),
-        ).meta(),
+    orientation: Optional[str] = param(
+        None,
+        doc="Orientation for acquisition. 'FM' or 'SEM'. None = use fluorescence_pose as-is.",
+        display=Display("Orientation"),
     )
-    retract_objective: bool = field(
-        default=True,
-        metadata=Parameter(
-            doc="Retract the objective when the task finishes, so it is clear of the stage for subsequent moves. Disable for back-to-back fluorescence tasks.",
-            display=Display("Retract Objective"),
-        ).meta(),
+    retract_objective: bool = param(
+        True,
+        doc="Retract the objective when the task finishes, so it is clear of the stage for subsequent moves. Disable for back-to-back fluorescence tasks.",
+        display=Display("Retract Objective"),
     )
 
     def to_dict(self) -> dict:

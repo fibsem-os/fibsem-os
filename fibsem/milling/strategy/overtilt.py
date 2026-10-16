@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np
@@ -18,47 +18,43 @@ from fibsem.milling.base import (
     MillingStrategyConfig,
 )
 from fibsem.milling.patterning.patterns import TrenchPattern
-from fibsem.milling.properties import angle_metadata, image_resolution_metadata
+from fibsem.milling.properties import angle_param, image_resolution_param
 from fibsem.structures import (
     Display,
     FibsemStagePosition,
     ImageSettings,
-    Parameter,
     RangeLimit,
+    param,
 )
 
 
 @dataclass
 class OvertiltTrenchMillingConfig(MillingStrategyConfig):
-    overtilt: float = field(
-        default=1.0,
-        metadata=angle_metadata(
+    overtilt: float = param(
+        1.0,
+        angle_param(
             "Overtilt",
             "The overtilt angle for the milling strategy.",
             limits=RangeLimit(0.1, 10.0),
             step=0.5,
         ),
     )
-    image_resolution: tuple[int, int] = field(
-        default_factory=lambda: (1536, 1024),
-        metadata=image_resolution_metadata(
+    image_resolution: tuple[int, int] = param(
+        parameter=image_resolution_param(
             "The imaging resolution for the milling strategy."
         ),
+        default_factory=lambda: (1536, 1024),
     )
-    secret_parameter: bool = field(
-        default=False,
-        metadata=Parameter(
-            doc="A secret parameter for internal use (testing).",
-            display=Display("Secret Parameter", advanced=True),
-        ).meta(),
+    secret_parameter: bool = param(
+        False,
+        doc="A secret parameter for internal use (testing).",
+        display=Display("Secret Parameter", advanced=True),
     )
-    area_parameter: float = field(
-        default=1e-6,
-        metadata=Parameter(
-            unit="m²",
-            doc="An area parameter for internal use (testing).",
-            display=Display("Area Parameter", scale=1e12, unit="µm²"),
-        ).meta(),
+    area_parameter: float = param(
+        1e-6,
+        unit="m²",
+        doc="An area parameter for internal use (testing).",
+        display=Display("Area Parameter", scale=1e12, unit="µm²"),
     )
 
     def __post_init__(self) -> None:

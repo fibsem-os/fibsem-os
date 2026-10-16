@@ -2,10 +2,9 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
-from typing import ClassVar, Optional, Type
+from dataclasses import dataclass
+from typing import ClassVar, Type
 
-from fibsem import config as fcfg
 from fibsem import timing
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows.interaction import RunSpotBurn, ask
@@ -15,7 +14,7 @@ from fibsem.applications.autolamella.workflows.tasks.base import (
 )
 from fibsem.applications.autolamella.workflows.ui import _abort_requested
 from fibsem.imaging.spot import SpotBurnSettings, run_spot_burn
-from fibsem.structures import BeamType, Display, Parameter, Point
+from fibsem.structures import BeamType, Display, Point, param
 
 
 @dataclass
@@ -24,29 +23,22 @@ class SpotBurnFiducialTaskConfig(AutoLamellaTaskConfig):
 
     task_type: ClassVar[str] = "SPOT_BURN_FIDUCIAL"
     display_name: ClassVar[str] = "Spot Burn Fiducial"
-    milling_current: float = field(
-        default=100.0e-12,  # in Amperes; below this the marks are too faint to find
-        metadata=Parameter(
-            unit="A", doc="Milling current in Amperes", display=Display(scale=1e12)
-        ).meta(),
+    milling_current: float = param(
+        100.0e-12,
+        unit="A",
+        doc="Milling current in Amperes",
+        display=Display(scale=1e12),
     )
-    exposure_time: int = field(
-        default=10,
-        metadata=Parameter(unit="s", doc="Exposure time in seconds").meta(),
+    exposure_time: int = param(10, unit="s", doc="Exposure time in seconds")
+    autofocus: bool = param(
+        False,
+        doc="Run a FIB autofocus before acquiring the reference image, so the "
+        "points are placed on (and burned into) a focused image",
+        display=Display("Autofocus"),
     )
-    autofocus: bool = field(
-        default=False,
-        metadata=Parameter(
-            doc="Run a FIB autofocus before acquiring the reference image, so the "
-            "points are placed on (and burned into) a focused image",
-            display=Display("Autofocus"),
-        ).meta(),
-    )
-    coordinates: list[Point] = field(
+    coordinates: list[Point] = param(
+        doc="Spot burn positions in normalised image coordinates (0-1)",
         default_factory=list,
-        metadata=Parameter(
-            doc="Spot burn positions in normalised image coordinates (0-1)"
-        ).meta(),
     )
 
     @property

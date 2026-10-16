@@ -143,12 +143,14 @@ example's tests check them:
 
 A field declares a `Parameter` (from `fibsem.structures`), the same shape a
 device parameter is: its SI `unit`, its `limits` in SI, its `choices`, a `doc`,
-and a `Display` for how a form shows it (label, scale, step, decimals). Write it
-as `metadata=Parameter(...).meta()`; a misspelled key is refused when the module
-is imported.
+and a `Display` for how a form shows it (label, scale, step, decimals). Declare
+the field as `width: float = param(10e-6, unit="m", doc=...)`; a misspelled key
+is refused when the module is imported. The value stays plain (`config.width` is
+the float); `config.params.width` is its Parameter, and `Config.describe()` is the
+whole config as a JSON Schema.
 Distances are stored in metres and shown in µm: a distance field without a
 display scale renders as `0.000 m`. Declare distance fields with
-`distance_metadata(label, doc)` from `fibsem.milling.properties`, as the built-in
+`distance_param(label, doc)` from `fibsem.milling.properties`, as the built-in
 patterns do; the example's tests check this as well.
 
 ## Workflow tasks

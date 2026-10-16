@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import (
     ClassVar,
     List,
@@ -11,45 +11,35 @@ import numpy as np
 from fibsem import constants
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.milling.properties import (
-    angle_metadata,
-    cross_section_metadata,
-    distance_metadata,
+    angle_param,
+    cross_section_param,
+    distance_param,
 )
 from fibsem.structures import (
     CrossSectionPattern,
     Display,
     FibsemRectangleSettings,
-    Parameter,
+    param,
 )
 
 
 @dataclass
 class FiducialPattern(BasePattern[FibsemRectangleSettings]):
-    width: float = field(
-        default=1.0e-6,
-        metadata=distance_metadata("Width", "Width of the fiducial mark."),
+    width: float = param(1.0e-6, distance_param("Width", "Width of the fiducial mark."))
+    height: float = param(
+        10.0e-6, distance_param("Height", "Height of the fiducial mark.")
     )
-    height: float = field(
-        default=10.0e-6,
-        metadata=distance_metadata("Height", "Height of the fiducial mark."),
+    depth: float = param(1.0e-6, distance_param("Depth", "Depth of the fiducial mark."))
+    rotation: float = param(
+        45.0, angle_param("Rotation", "Rotation angle of the fiducial mark.")
     )
-    depth: float = field(
-        default=1.0e-6,
-        metadata=distance_metadata("Depth", "Depth of the fiducial mark."),
+    cross_section: CrossSectionPattern = param(
+        CrossSectionPattern.Rectangle, cross_section_param()
     )
-    rotation: float = field(
-        default=45.0,
-        metadata=angle_metadata("Rotation", "Rotation angle of the fiducial mark."),
-    )
-    cross_section: CrossSectionPattern = field(
-        default=CrossSectionPattern.Rectangle, metadata=cross_section_metadata()
-    )
-    asymmetric: bool = field(
-        default=False,
-        metadata=Parameter(
-            doc="If true, make the fiducial mark y-shaped.",
-            display=Display("Asymmetric", advanced=True),
-        ).meta(),
+    asymmetric: bool = param(
+        False,
+        doc="If true, make the fiducial mark y-shaped.",
+        display=Display("Asymmetric", advanced=True),
     )
     name: ClassVar[str] = "Fiducial"
 

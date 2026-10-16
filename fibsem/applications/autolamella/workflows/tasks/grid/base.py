@@ -36,6 +36,7 @@ from fibsem.applications.autolamella.proposals import Proposer, TaskResultPropos
 from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskStatus,
+    Configurable,
     GridRecord,
     Parameter,
     attention_from,
@@ -56,7 +57,7 @@ _LIFECYCLE_STEPS = {"STARTED", "FINISHED"}
 
 
 @dataclass
-class GridTaskConfig(ABC):
+class GridTaskConfig(Configurable, ABC):
     """Configuration for one grid task. Lean and flat.
 
     No `milling` or `reference_imaging` inherited from the lamella side: no grid
@@ -99,10 +100,6 @@ class GridTaskConfig(ABC):
     def parameters(self) -> Tuple[str, ...]:
         """The task-specific fields, in declaration order: what a form shows."""
         return tuple(f.name for f in fields(self) if f.name not in _WORKFLOW_FIELDS)
-
-    @property
-    def field_specs(self) -> Dict[str, Parameter]:
-        return field_specs(self.__class__)
 
     def to_dict(self) -> Dict[str, Any]:
         data: Dict[str, Any] = {

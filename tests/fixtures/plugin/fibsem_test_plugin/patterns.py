@@ -17,11 +17,11 @@ and nothing else. That is also why a plugin's pattern, strategy and task have to
 in separate modules rather than one.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import ClassVar, List
 
 from fibsem.milling.patterning.base import BasePattern
-from fibsem.structures import Display, FibsemRectangleSettings, Parameter
+from fibsem.structures import Display, FibsemRectangleSettings, param
 from fibsem_test_plugin import CLASHING_PATTERN_NAME, PATTERN_NAME
 
 
@@ -29,12 +29,8 @@ from fibsem_test_plugin import CLASHING_PATTERN_NAME, PATTERN_NAME
 class FixturePattern(BasePattern[FibsemRectangleSettings]):
     name: ClassVar[str] = PATTERN_NAME
 
-    width: float = field(
-        default=10.0e-6, metadata=Parameter(unit="m", display=Display("Width")).meta()
-    )
-    depth: float = field(
-        default=1.0e-6, metadata=Parameter(unit="m", display=Display("Depth")).meta()
-    )
+    width: float = param(10.0e-6, unit="m", display=Display("Width"))
+    depth: float = param(1.0e-6, unit="m", display=Display("Depth"))
 
     def define(self) -> List[FibsemRectangleSettings]:
         self.shapes = [

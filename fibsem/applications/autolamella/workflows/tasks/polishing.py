@@ -1,7 +1,7 @@
 ######## POLISHING TASK DEFINITIONS ########
 
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import ClassVar, Type
 
 from fibsem.applications.autolamella.protocol.constants import MILL_POLISHING_KEY
@@ -13,19 +13,17 @@ from fibsem.applications.autolamella.workflows.tasks.base import (
     ALIGNMENT_REFERENCE_IMAGE_FILENAME,
     AutoLamellaTask,
 )
-from fibsem.structures import Display, Parameter
+from fibsem.structures import Display, param
 
 
 @dataclass
 class MillPolishingTaskConfig(AutoLamellaTaskConfig):
     """Configuration for the MillPolishingTask."""
 
-    sync_to_poi: bool = field(
-        default=True,
-        metadata=Parameter(
-            doc="Link the milling pattern positions to the point of interest. Pattern positions will update when the POI is updated.",
-            display=Display("Link to Point of Interest"),
-        ).meta(),
+    sync_to_poi: bool = param(
+        True,
+        doc="Link the milling pattern positions to the point of interest. Pattern positions will update when the POI is updated.",
+        display=Display("Link to Point of Interest"),
     )
     task_type: ClassVar[str] = "MILL_POLISHING"
 

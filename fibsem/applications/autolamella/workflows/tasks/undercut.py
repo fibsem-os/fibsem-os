@@ -1,7 +1,7 @@
 ######## UNDERCUT TASK DEFINITIONS ########
 
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import ClassVar, List, Literal, Optional, Type
 
 import numpy as np
@@ -17,25 +17,22 @@ from fibsem.applications.autolamella.workflows._default_milling_config import (
 from fibsem.applications.autolamella.workflows.core import align_feature_coincident
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 from fibsem.detection.detection import LamellaBottomEdge, LamellaCentre, LamellaTopEdge
-from fibsem.structures import BeamType, Parameter
+from fibsem.structures import BeamType, param
 
 
 @dataclass
 class MillUndercutTaskConfig(AutoLamellaTaskConfig):
     """Configuration for the MillUndercutTask."""
 
-    orientation: Optional[Literal["SEM", "FIB", "MILLING"]] = field(
-        default="SEM",
-        metadata=Parameter(
-            choices=("SEM", "FIB", "MILLING", None),
-            doc="The orientation to perform undercut milling in",
-        ).meta(),
+    orientation: Optional[Literal["SEM", "FIB", "MILLING"]] = param(
+        "SEM",
+        choices=("SEM", "FIB", "MILLING", None),
+        doc="The orientation to perform undercut milling in",
     )
-    milling_angles: List[float] = field(
-        default_factory=lambda: [25, 20],  # in degrees
-        metadata=Parameter(
-            unit=constants.DEGREE_SYMBOL, doc="The angles to mill the undercuts at"
-        ).meta(),
+    milling_angles: List[float] = param(
+        unit=constants.DEGREE_SYMBOL,
+        doc="The angles to mill the undercuts at",
+        default_factory=lambda: [25, 20],
     )
     task_type: ClassVar[str] = "MILL_UNDERCUT"
     display_name: ClassVar[str] = "Undercut Milling"

@@ -2,13 +2,12 @@
 
 import logging
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import ClassVar, Optional, Type
 
 from fibsem.applications.autolamella.protocol.constants import (
     MILL_POLISHING_KEY,
     MILL_ROUGH_KEY,
-    STRESS_RELIEF_KEY,
 )
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows._default_milling_config import (
@@ -19,33 +18,27 @@ from fibsem.applications.autolamella.workflows.tasks.base import (
     AutoLamellaTask,
 )
 from fibsem.milling.tasks import FibsemMillingTaskConfig
-from fibsem.structures import Display, Parameter, Point
+from fibsem.structures import Display, Point, param
 
 
 @dataclass
 class MillRoughTaskConfig(AutoLamellaTaskConfig):
     """Configuration for the MillRoughTask."""
 
-    sync_polishing_position: bool = field(
-        default=True,
-        metadata=Parameter(
-            doc="Whether to synchronize the polishing position with the rough milling position (recommended.)",
-            display=Display("Synchronize Polishing Position"),
-        ).meta(),
+    sync_polishing_position: bool = param(
+        True,
+        doc="Whether to synchronize the polishing position with the rough milling position (recommended.)",
+        display=Display("Synchronize Polishing Position"),
     )
-    sync_to_poi: bool = field(
-        default=True,
-        metadata=Parameter(
-            doc="Link the milling pattern positions to the point of interest. Pattern positions will update when the POI is updated.",
-            display=Display("Link to Point of Interest"),
-        ).meta(),
+    sync_to_poi: bool = param(
+        True,
+        doc="Link the milling pattern positions to the point of interest. Pattern positions will update when the POI is updated.",
+        display=Display("Link to Point of Interest"),
     )
-    reacquire_alignment_reference: bool = field(
-        default=False,
-        metadata=Parameter(
-            doc="Whether to reacquire the alignment reference after milling",
-            display=Display("Reacquire Alignment Reference"),
-        ).meta(),
+    reacquire_alignment_reference: bool = param(
+        False,
+        doc="Whether to reacquire the alignment reference after milling",
+        display=Display("Reacquire Alignment Reference"),
     )
     task_type: ClassVar[str] = "MILL_ROUGH"
 

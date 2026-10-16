@@ -295,7 +295,7 @@ class Milling(Service):
             return {}
         beam = self.beam(channel)
         available: Dict[str, ParameterMetadata] = {}
-        specs = field_specs(FibsemMillingSettings)
+        specs = FibsemMillingSettings.params
         for name in self.setting_names:
             beam_parameter = specs[name].bound_name
             if beam_parameter not in beam.parameters:

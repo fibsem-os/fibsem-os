@@ -65,6 +65,7 @@ from fibsem.correlation.config import CorrelationConfig
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.structures import (
     DEFAULT_ALIGNMENT_AREA,
+    Configurable,
     FibsemImage,
     FibsemRectangle,
     FibsemStagePosition,
@@ -215,7 +216,7 @@ class AutoLamellaTaskState:
 
 @evented
 @dataclass
-class AutoLamellaTaskConfig(ABC):
+class AutoLamellaTaskConfig(Configurable, ABC):
     """Configuration for AutoLamella tasks."""
 
     task_type: ClassVar[str]
@@ -235,11 +236,6 @@ class AutoLamellaTaskConfig(ABC):
     def parameters(self) -> Tuple[str, ...]:
         core_params = [f.name for f in fields(AutoLamellaTaskConfig)]
         return tuple(f.name for f in fields(self) if f.name not in core_params)
-
-    @property
-    def field_specs(self) -> Dict[str, Parameter]:
-        """Each field as a form reads it, as patterns and milling strategies expose."""
-        return field_specs(self.__class__)
 
     def to_dict(self) -> dict:
         """Convert configuration to a dictionary."""

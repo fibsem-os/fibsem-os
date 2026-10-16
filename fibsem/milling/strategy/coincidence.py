@@ -5,7 +5,7 @@ import logging
 import os
 import time
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional
 
 import numpy as np
@@ -29,15 +29,13 @@ from fibsem.structures import (
     FibsemImage,
     FibsemRectangle,
     MillingState,
-    Parameter,
     RangeLimit,
+    param,
 )
 from fibsem.utils import save_json
 
 if TYPE_CHECKING:
     import threading
-
-    from fibsem.ui.widgets.milling_widget import FibsemMillingWidget2
 
 
 @dataclass
@@ -46,76 +44,54 @@ class CoincidenceMillingStrategyConfig(MillingStrategyConfig):
 
     # channel_settings: ChannelSettings = field(default_factory=lambda: channel_settings)
     # zparams: ZParameters = field(default_factory=lambda: ZParameters(-5e-6, 5e-6, 0.5e-6))
-    timeout: int = field(
-        default=1800,
-        metadata=Parameter(
-            unit="s",
-            limits=RangeLimit(30, 9000),
-            doc="Milling will timeout after this duration in seconds, without user intervention",
-            display=Display("Timeout"),
-        ).meta(),
+    timeout: int = param(
+        1800,
+        unit="s",
+        limits=RangeLimit(30, 9000),
+        doc="Milling will timeout after this duration in seconds, without user intervention",
+        display=Display("Timeout"),
     )  # seconds, default timeout for milling
-    save_fm_images: bool = field(
-        default=True,
-        metadata=Parameter(
-            doc="Save FM images during milling", display=Display("Save FM Images")
-        ).meta(),
+    save_fm_images: bool = param(
+        True, doc="Save FM images during milling", display=Display("Save FM Images")
     )  # save FM images during milling
-    save_rate_limit: int = field(
-        default=2,
-        metadata=Parameter(
-            doc="Save one image every n seconds", display=Display("Save Rate Limit")
-        ).meta(),
+    save_rate_limit: int = param(
+        2, doc="Save one image every n seconds", display=Display("Save Rate Limit")
     )  # save one image every n seconds
     # acquire_z_stack: bool = False  # acquire a z-stack after milling
-    acquire_fib_image: bool = field(
-        default=True,
-        metadata=Parameter(
-            doc="Acquire a FIB image after milling",
-            display=Display("Acquire FIB Image"),
-        ).meta(),
+    acquire_fib_image: bool = param(
+        True,
+        doc="Acquire a FIB image after milling",
+        display=Display("Acquire FIB Image"),
     )  # acquire a FIB image after milling
-    intensity_drop_fraction: float = field(
-        default=0.4,
-        metadata=Parameter(
-            limits=RangeLimit(0.05, 0.95),
-            doc="Trigger when the rolling mean drops by this fraction below its peak (e.g. 0.4 = 40% drop)",
-            display=Display("Drop Fraction"),
-        ).meta(),
+    intensity_drop_fraction: float = param(
+        0.4,
+        limits=RangeLimit(0.05, 0.95),
+        doc="Trigger when the rolling mean drops by this fraction below its peak (e.g. 0.4 = 40% drop)",
+        display=Display("Drop Fraction"),
     )
-    rolling_window: int = field(
-        default=10,
-        metadata=Parameter(
-            doc="Number of frames for rolling mean calculation",
-            display=Display("Rolling Window"),
-        ).meta(),
+    rolling_window: int = param(
+        10,
+        doc="Number of frames for rolling mean calculation",
+        display=Display("Rolling Window"),
     )
-    warmup_duration: float = field(
-        default=30.0,
-        metadata=Parameter(
-            unit="s",
-            doc="Seconds to ignore at start before tracking the peak",
-            display=Display("Warmup Duration"),
-        ).meta(),
+    warmup_duration: float = param(
+        30.0,
+        unit="s",
+        doc="Seconds to ignore at start before tracking the peak",
+        display=Display("Warmup Duration"),
     )
-    consecutive_triggers: int = field(
-        default=10,
-        metadata=Parameter(
-            doc="Number of consecutive frames below threshold required to fire the signal",
-            display=Display("Consecutive Triggers"),
-        ).meta(),
+    consecutive_triggers: int = param(
+        10,
+        doc="Number of consecutive frames below threshold required to fire the signal",
+        display=Display("Consecutive Triggers"),
     )
-    supervised: bool = field(
-        default=True,
-        metadata=Parameter(
-            doc="Supervised: operator stops milling manually. Unsupervised (False): automatically stop when an intensity drop is detected.",
-            display=Display("Supervised"),
-        ).meta(),
+    supervised: bool = param(
+        True,
+        doc="Supervised: operator stops milling manually. Unsupervised (False): automatically stop when an intensity drop is detected.",
+        display=Display("Supervised"),
     )
-    bbox: Optional[FibsemRectangle] = field(
-        default=None,
-        # set interactively via the FM ROI, not a form control
-        metadata=Parameter(display=Display(hidden=True)).meta(),
+    bbox: Optional[FibsemRectangle] = param(
+        None, display=Display(hidden=True)
     )  # reduced area for intensity monitoring
     # oscillation parameters
 

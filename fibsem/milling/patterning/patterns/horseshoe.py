@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import (
     ClassVar,
     List,
@@ -8,60 +8,44 @@ from typing import (
 
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.milling.properties import (
-    cross_section_metadata,
-    distance_metadata,
-    scan_direction_metadata,
+    cross_section_param,
+    distance_param,
+    scan_direction_param,
 )
 from fibsem.structures import (
     CrossSectionPattern,
     Display,
     FibsemRectangleSettings,
-    Parameter,
+    param,
 )
 
 
 @dataclass
 class HorseshoePattern(BasePattern[FibsemRectangleSettings]):
-    width: float = field(
-        default=40.0e-6,
-        metadata=distance_metadata("Width", "Width of the horseshoe pattern."),
+    width: float = param(
+        40.0e-6, distance_param("Width", "Width of the horseshoe pattern.")
     )
-    upper_trench_height: float = field(
-        default=10.0e-6,
-        metadata=distance_metadata(
-            "Upper Trench Height", "Height of the upper trench."
-        ),
+    upper_trench_height: float = param(
+        10.0e-6, distance_param("Upper Trench Height", "Height of the upper trench.")
     )
-    lower_trench_height: float = field(
-        default=10.0e-6,
-        metadata=distance_metadata(
-            "Lower Trench Height", "Height of the lower trench."
-        ),
+    lower_trench_height: float = param(
+        10.0e-6, distance_param("Lower Trench Height", "Height of the lower trench.")
     )
-    spacing: float = field(
-        default=10.0e-6,
-        metadata=distance_metadata("Spacing", "Spacing between trenches."),
+    spacing: float = param(
+        10.0e-6, distance_param("Spacing", "Spacing between trenches.")
     )
-    depth: float = field(
-        default=10.0e-6,
-        metadata=distance_metadata("Depth", "Depth of the trenches."),
+    depth: float = param(10.0e-6, distance_param("Depth", "Depth of the trenches."))
+    side_width: float = param(
+        5.0e-6, distance_param("Side Width", "Width of the side trench.")
     )
-    side_width: float = field(
-        default=5.0e-6,
-        metadata=distance_metadata("Side Width", "Width of the side trench."),
+    inverted: bool = param(
+        False,
+        doc="If true, the side trench will be milled on the opposite side",
+        display=Display("Inverted"),
     )
-    inverted: bool = field(
-        default=False,
-        metadata=Parameter(
-            doc="If true, the side trench will be milled on the opposite side",
-            display=Display("Inverted"),
-        ).meta(),
-    )
-    scan_direction: str = field(
-        default="TopToBottom", metadata=scan_direction_metadata()
-    )
-    cross_section: CrossSectionPattern = field(
-        default=CrossSectionPattern.Rectangle, metadata=cross_section_metadata()
+    scan_direction: str = param("TopToBottom", scan_direction_param())
+    cross_section: CrossSectionPattern = param(
+        CrossSectionPattern.Rectangle, cross_section_param()
     )
 
     name: ClassVar[str] = "Horseshoe"
@@ -128,40 +112,27 @@ class HorseshoePattern(BasePattern[FibsemRectangleSettings]):
 
 @dataclass
 class HorseshoePatternVertical(BasePattern):
-    width: float = field(
-        default=2.0e-05,
-        metadata=distance_metadata("Width", "Width of the horseshoe vertical pattern."),
+    width: float = param(
+        2.0e-05, distance_param("Width", "Width of the horseshoe vertical pattern.")
     )
-    height: float = field(
-        default=5.0e-05,
-        metadata=distance_metadata(
-            "Height", "Height of the horseshoe vertical pattern."
-        ),
+    height: float = param(
+        5.0e-05, distance_param("Height", "Height of the horseshoe vertical pattern.")
     )
-    side_trench_width: float = field(
-        default=5.0e-06,
-        metadata=distance_metadata("Side Trench Width", "Width of the side trenches."),
+    side_trench_width: float = param(
+        5.0e-06, distance_param("Side Trench Width", "Width of the side trenches.")
     )
-    top_trench_height: float = field(
-        default=10.0e-6,
-        metadata=distance_metadata("Top Trench Height", "Height of the top trench."),
+    top_trench_height: float = param(
+        10.0e-6, distance_param("Top Trench Height", "Height of the top trench.")
     )
-    depth: float = field(
-        default=4.0e-6,
-        metadata=distance_metadata("Depth", "Depth of the trenches."),
+    depth: float = param(4.0e-6, distance_param("Depth", "Depth of the trenches."))
+    scan_direction: str = param("TopToBottom", scan_direction_param())
+    inverted: bool = param(
+        False,
+        doc="If true, the top trench will be milled below the point.",
+        display=Display("Inverted"),
     )
-    scan_direction: str = field(
-        default="TopToBottom", metadata=scan_direction_metadata()
-    )
-    inverted: bool = field(
-        default=False,
-        metadata=Parameter(
-            doc="If true, the top trench will be milled below the point.",
-            display=Display("Inverted"),
-        ).meta(),
-    )
-    cross_section: CrossSectionPattern = field(
-        default=CrossSectionPattern.Rectangle, metadata=cross_section_metadata()
+    cross_section: CrossSectionPattern = param(
+        CrossSectionPattern.Rectangle, cross_section_param()
     )
 
     name: ClassVar[str] = "HorseshoeVertical"

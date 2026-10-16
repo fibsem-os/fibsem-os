@@ -8,7 +8,7 @@ This form used to read raw ``dataclasses.fields(...).metadata`` and understood
 four keys, so most of the vocabulary was simply unavailable to it: an int field
 got the full 32-bit range because nothing could say otherwise, floats got Qt's
 defaults, and there was no way to mark a field advanced or hidden. Going through
-``config.field_specs`` means a task config now declares those the same way a
+``config.params`` means a task config now declares those the same way a
 pattern does.
 
 The container stays separate from the milling ones on purpose: it has milling
@@ -60,7 +60,7 @@ def build_parameter_rows(
     Shared by both containers in this module, which each carried their own copy
     of this loop -- and had already drifted: only one of them honoured `label`.
     """
-    specs = config.field_specs
+    specs = config.params
     rows: List[_Row] = []
 
     for name in config.parameters:

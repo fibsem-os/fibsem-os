@@ -26,7 +26,7 @@ from __future__ import annotations
 import logging
 import os
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import ClassVar, Optional, Type
 
 from fibsem import timing
@@ -39,9 +39,9 @@ from fibsem.structures import (
     Display,
     FibsemRectangle,
     InsertableDeviceState,
-    Parameter,
     Point,
     RangeLimit,
+    param,
 )
 
 SETUP_COINCIDENCE_MILLING_KEY = "SETUP_COINCIDENCE_MILLING"
@@ -66,49 +66,38 @@ class SetupCoincidenceMillingTaskConfig(AutoLamellaTaskConfig):
     task_type: ClassVar[str] = "SETUP_COINCIDENCE_MILLING"
     display_name: ClassVar[str] = "Setup Coincidence Milling"
 
-    field_of_view: float = field(
-        default=80e-6,
-        metadata=Parameter(
-            unit="m",
-            doc="FIB field of view for the setup image; the mill task reuses it",
-            display=Display("Field of View", scale=1e6),
-        ).meta(),
+    field_of_view: float = param(
+        80e-6,
+        unit="m",
+        doc="FIB field of view for the setup image; the mill task reuses it",
+        display=Display("Field of View", scale=1e6),
     )
-    intensity_drop_fraction: float = field(
-        default=0.4,
-        metadata=Parameter(
-            limits=RangeLimit(0.05, 0.95),
-            doc="Stop when the rolling mean drops by this fraction below its peak "
-            "(e.g. 0.4 = 40% drop). Seeds every coincidence stage of the mill.",
-            display=Display("Drop Fraction"),
-        ).meta(),
+    intensity_drop_fraction: float = param(
+        0.4,
+        limits=RangeLimit(0.05, 0.95),
+        doc="Stop when the rolling mean drops by this fraction below its peak "
+        "(e.g. 0.4 = 40% drop). Seeds every coincidence stage of the mill.",
+        display=Display("Drop Fraction"),
     )
-    align_coincidence: bool = field(
-        default=False,
-        metadata=Parameter(
-            doc="Run the SEM/FIB coincidence alignment at the milling pose before "
-            "inserting the objective. Off until the bench data is in (FIB-872).",
-            display=Display("Align Coincidence"),
-        ).meta(),
+    align_coincidence: bool = param(
+        False,
+        doc="Run the SEM/FIB coincidence alignment at the milling pose before "
+        "inserting the objective. Off until the bench data is in (FIB-872).",
+        display=Display("Align Coincidence"),
     )
     # --- written by the task -------------------------------------------------
     # metres; None until the task or the operator has set it
-    objective_position: Optional[float] = field(
-        default=None,
-        metadata=Parameter(
-            unit="m",
-            doc="Objective height that focuses the sample at the milling tilt",
-            display=Display("Objective Position", scale=1e6),
-        ).meta(),
+    objective_position: Optional[float] = param(
+        None,
+        unit="m",
+        doc="Objective height that focuses the sample at the milling tilt",
+        display=Display("Objective Position", scale=1e6),
     )
     # fraction of the FM camera frame (left, top, width, height); None = whole frame
-    fm_roi: Optional[FibsemRectangle] = field(
-        default=None, metadata=Parameter(display=Display(hidden=True)).meta()
-    )
+    fm_roi: Optional[FibsemRectangle] = param(None, display=Display(hidden=True))
     # metres from the FIB image centre, applied to every enabled milling stage
-    pattern_offset: Point = field(
-        default_factory=lambda: Point(0.0, 0.0),
-        metadata=Parameter(display=Display(hidden=True)).meta(),
+    pattern_offset: Point = param(
+        display=Display(hidden=True), default_factory=lambda: Point(0.0, 0.0)
     )
 
     @property

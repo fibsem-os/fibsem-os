@@ -46,7 +46,7 @@ class FibsemMillingTaskAcquisitionSettingsWidget(QWidget):
         # boolean in the editor has.
         self.acquire_sem_checkbox = QCheckBox()
         self.acquire_sem_checkbox.setChecked(True)
-        specs = field_specs(type(self._settings))
+        specs = self._settings.params
         self.acquire_sem_checkbox.setToolTip(specs["acquire_sem"].doc or "")
         self.acquire_fib_checkbox = QCheckBox()
         self.acquire_fib_checkbox.setChecked(True)

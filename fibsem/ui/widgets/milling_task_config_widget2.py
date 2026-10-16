@@ -34,7 +34,7 @@ from fibsem.ui.widgets.milling_task_acquisition_settings_widget import (
 )
 
 # The task's field of view is its stages' milling field of view.
-_MILLING_HFW = field_specs(FibsemMillingSettings)["hfw"]
+_MILLING_HFW = FibsemMillingSettings.params["hfw"]
 
 _WIDGET_CONFIG = {
     "name": {"default": "Milling Task", "placeholder": "Enter task name..."},

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import (
     ClassVar,
     List,
@@ -8,52 +8,50 @@ from typing import (
 
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.milling.properties import (
-    distance_metadata,
+    distance_param,
 )
 from fibsem.structures import (
     FibsemLineSettings,
     RangeLimit,
+    param,
 )
 
 
 @dataclass
 class LinePattern(BasePattern[FibsemLineSettings]):
-    start_x: float = field(
-        default=-10.0e-6,
-        metadata=distance_metadata(
+    start_x: float = param(
+        -10.0e-6,
+        distance_param(
             "Start X",
             "The x coordinate of the line's start.",
             limits=RangeLimit(-1000.0e-6, 1000.0e-6),
         ),
     )
-    end_x: float = field(
-        default=10.0e-6,
-        metadata=distance_metadata(
+    end_x: float = param(
+        10.0e-6,
+        distance_param(
             "End X",
             "The x coordinate of the line's end.",
             limits=RangeLimit(-1000.0e-6, 1000.0e-6),
         ),
     )
-    start_y: float = field(
-        default=0.0,
-        metadata=distance_metadata(
+    start_y: float = param(
+        0.0,
+        distance_param(
             "Start Y",
             "The y coordinate of the line's start.",
             limits=RangeLimit(-1000.0e-6, 1000.0e-6),
         ),
     )
-    end_y: float = field(
-        default=0.0,
-        metadata=distance_metadata(
+    end_y: float = param(
+        0.0,
+        distance_param(
             "End Y",
             "The y coordinate of the line's end.",
             limits=RangeLimit(-1000.0e-6, 1000.0e-6),
         ),
     )
-    depth: float = field(
-        default=1.0e-6,
-        metadata=distance_metadata("Depth", "Depth of the line pattern."),
-    )
+    depth: float = param(1.0e-6, distance_param("Depth", "Depth of the line pattern."))
     name: ClassVar[str] = "Line"
 
     def summary(self) -> str:

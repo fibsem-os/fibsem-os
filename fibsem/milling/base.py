@@ -27,6 +27,7 @@ from fibsem.milling.config import MILLING_SPUTTER_RATE
 from fibsem.milling.patterning import DEFAULT_MILLING_PATTERN, get_pattern
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.structures import (
+    Configurable,
     CrossSectionPattern,
     FibsemImage,
     FibsemMillingSettings,
@@ -58,7 +59,7 @@ TMillingStrategy = TypeVar("TMillingStrategy", bound="MillingStrategy")
 
 
 @dataclass
-class MillingStrategyConfig(ABC):
+class MillingStrategyConfig(Configurable, ABC):
     """Abstract base class for milling strategy configurations"""
 
     def to_dict(self) -> Dict[str, Any]:
@@ -83,11 +84,6 @@ class MillingStrategyConfig(ABC):
     def _hidden_attributes(self) -> Tuple[str, ...]:
         """Return attributes that are hidden from the UI."""
         return flagged_fields(self.__class__, "hidden")
-
-    @property
-    def field_specs(self) -> Dict[str, Parameter]:
-        """Each field as a form reads it."""
-        return field_specs(self.__class__)
 
 
 @dataclass
@@ -156,7 +152,7 @@ class MillingStrategy(ABC, Generic[TMillingStrategyConfig]):
             ):
                 continue
             val = getattr(self.config, attr)
-            spec = self.config.field_specs.get(attr)
+            spec = self.config.params.get(attr)
             unit = spec.unit if spec else None
             label = (spec and spec.label) or attr.replace("_", " ").title()
             if isinstance(val, float) and unit:

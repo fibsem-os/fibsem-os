@@ -1,7 +1,7 @@
 """A field declares a Parameter, and anything else in its metadata is reported.
 
 A dataclass field says what its value means and how a form shows it with
-``Parameter(...).meta()``: the one shape a device parameter uses too. The
+``param(...)``, whose Parameter is the one shape a device parameter uses too. The
 Parameter's constructor refuses a misspelled or older key (`tooltip`, `minimum`,
 `items`) when the module is imported (FIB-384, FIB-531). What is left is a raw
 metadata dict, which a plugin may still write: none of its keys are read, and
@@ -9,7 +9,7 @@ each is warned about once, so a field doesn't silently lose its tooltip.
 """
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 
 import fibsem.structures as fstructures
 from fibsem.structures import (
@@ -18,6 +18,7 @@ from fibsem.structures import (
     Parameter,
     RangeLimit,
     field_specs,
+    param,
 )
 
 
@@ -26,9 +27,7 @@ class MetadataProbe:
     """One field per declaration a form has to cope with."""
 
     raw: float = field(default=1.0, metadata={"doc": "a raw dict", "unit": "m"})
-    declared: float = field(
-        default=1.0, metadata=Parameter(doc="declared", unit="m").meta()
-    )
+    declared: float = param(1.0, doc="declared", unit="m")
     neither: float = field(default=1.0)
 
 
@@ -73,7 +72,7 @@ def test_a_raw_key_is_told_how_to_declare_it(caplog):
         r.message for r in caplog.records if "declares metadata key" in r.message
     ]
     assert len(messages) == 2
-    assert all("metadata=Parameter(...).meta()" in m for m in messages)
+    assert all("param(default, unit=..., doc=...)" in m for m in messages)
     assert any("'doc'" in m for m in messages)
 
 
@@ -97,10 +96,8 @@ def test_an_unreadable_metadata_key_is_reported_once(caplog):
 def test_a_declared_parameter_is_never_reported(caplog):
     @dataclass
     class Fine:
-        a: float = field(default=1.0, metadata=Parameter(doc="t", unit="m").meta())
-        b: str = field(
-            default="", metadata=Parameter(filepath=True, display=Display("L")).meta()
-        )
+        a: float = param(1.0, doc="t", unit="m")
+        b: str = param("", filepath=True, display=Display("L"))
 
     fstructures._warned_metadata_keys.clear()
     with caplog.at_level(logging.WARNING):
@@ -140,35 +137,55 @@ def test_in_tree_classes_declare_no_unreadable_keys(caplog):
     assert offenders == []
 
 
-def test_meta_keeps_the_parameter_under_one_key():
-    declared = Parameter(doc="Width", limits=RangeLimit(0.0, 1.0)).meta()
+def test_param_keeps_the_parameter_under_one_key():
+    (declared,) = fields(_Declared)
 
-    assert list(declared) == [PARAMETER_KEY]
-    assert declared[PARAMETER_KEY] == Parameter(
+    assert list(declared.metadata) == [PARAMETER_KEY]
+    assert declared.metadata[PARAMETER_KEY] == Parameter(
         doc="Width", limits=RangeLimit(0.0, 1.0)
     )
+    assert declared.default == 2.0
 
 
-def test_meta_keeps_choices_as_a_tuple():
+@dataclass
+class _Declared:
+    width: float = param(2.0, doc="Width", limits=RangeLimit(0.0, 1.0))
+
+
+def test_param_keeps_choices_as_a_tuple():
     """A list of choices would make two equal declarations compare unequal."""
-    declared = Parameter(choices=["a", "b"]).meta()[PARAMETER_KEY]
 
-    assert declared.choices == ("a", "b")
+    @dataclass
+    class Choosing:
+        mode: str = param("a", choices=["a", "b"])
+
+    assert field_specs(Choosing)["mode"].choices == ("a", "b")
 
 
-def test_the_shared_milling_metadata_declares_a_parameter():
+def test_param_overrides_a_shared_parameter():
+    shared = Parameter(unit="m", doc="Shared", display=Display("Width"))
+
+    @dataclass
+    class Overriding:
+        width: float = param(1.0, shared, doc="Own")
+        items: list = param(parameter=shared, default_factory=list)
+
+    specs = field_specs(Overriding)
+    assert (specs["width"].unit, specs["width"].doc) == ("m", "Own")
+    assert specs["items"].doc == "Shared"
+    assert Overriding().items == []
+
+
+def test_the_shared_milling_parameters_are_parameters():
     """These helpers declare roughly a hundred pattern and strategy fields, so one
     wrong declaration here renders blank in every field that uses it."""
     from fibsem.milling import properties
 
-    with_label = ("distance_metadata", "angle_metadata")
+    with_label = ("distance_param", "angle_param")
     shared = [
         helper("Label", "Doc") if name in with_label else helper()
         for name, helper in vars(properties).items()
-        if name.endswith("_metadata") and callable(helper)
+        if name.endswith("_param") and callable(helper)
     ]
     assert len(shared) >= 7
-
-    for declared in shared:
-        assert list(declared) == [PARAMETER_KEY]
-        assert isinstance(declared[PARAMETER_KEY], Parameter)
+    assert all(isinstance(declared, Parameter) for declared in shared)
