@@ -145,6 +145,39 @@ def _label(
     return label
 
 
+class _ElidedLabel(QLabel):
+    """One line that ends "…" where the card cuts it, never mid-word with no
+    sign it goes on (sim session 2026-10-16: "Stage · Stable move in the")."""
+
+    def __init__(self, color: str) -> None:
+        super().__init__()
+        self._full = ""
+        self.setStyleSheet(f"color: {color};")
+        font = self.font()
+        font.setPointSizeF(font.pointSizeF() - 1)
+        self.setFont(font)
+
+    def setText(self, text: str) -> None:  # noqa: N802 - Qt's name
+        self._full = text
+        self.setToolTip(text)
+        self._elide()
+
+    def text(self) -> str:
+        return self._full
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt's name
+        super().resizeEvent(event)
+        self._elide()
+
+    def _elide(self) -> None:
+        shown = self.fontMetrics().elidedText(
+            self._full,
+            Qt.ElideRight,  # type: ignore
+            max(0, self.width()),
+        )
+        super().setText(shown)
+
+
 class _RecentLine(QLabel):
     """One Recent action: wraps rather than being cut by the card, and opens
     the event log when clicked."""
@@ -512,7 +545,7 @@ class AgentCard(QFrame):
         self.recent_link.setToolTip("The agent's last few actions and how each ended")
         self.recent_link.clicked.connect(self._toggle_recent)
         recent.addWidget(self.recent_link)
-        self.recent_last = _label("", TEXT_MUTED_COLOR, small=True)
+        self.recent_last = _ElidedLabel(TEXT_MUTED_COLOR)
         self.recent_last.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         recent.addWidget(self.recent_last, 1)
         self.event_log_link = _link("Event log")

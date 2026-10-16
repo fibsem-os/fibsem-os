@@ -963,6 +963,24 @@ def test_a_long_recent_line_wraps_rather_than_being_cut(qapp):
     card.deleteLater()
 
 
+def test_the_folded_recent_line_ends_with_an_ellipsis_where_it_is_cut(qapp):
+    """Sim session 2026-10-16: cut mid-word at 440 px, "Stage · Stable move in
+    the", with no sign it went on."""
+    from PyQt5.QtWidgets import QLabel
+
+    card = AgentCard()
+    text = "Stage · Stable move in the ion beam: 33 µm right, 27 µm down"
+    card.set_recent([_row(text)])
+    card.set_level(AgentLevel.ASSIST)
+    card.show()
+    card.recent_last.resize(120, 20)
+    qapp.processEvents()
+    assert card.recent_last.text().startswith("last: Stage")
+    shown = QLabel.text(card.recent_last)
+    assert shown.endswith("…") and len(shown) < len(card.recent_last.text())
+    card.deleteLater()
+
+
 def test_recent_shows_at_drive_and_is_hidden_below_it_until_asked_for(qapp):
     card = AgentCard()
     logs = []
