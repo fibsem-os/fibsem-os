@@ -11,7 +11,7 @@ from PyQt5.QtWidgets import (
 
 from fibsem.devices.core import ParameterMetadata
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import BeamType, FibsemMillingSettings, Parameter
+from fibsem.structures import BeamType, FibsemMillingSettings, Parameter, field_specs
 from fibsem.ui.utils import beam_choices
 from fibsem.ui.widgets.custom_widgets import FormGrid, align_form
 from fibsem.ui.widgets.form_builder import Control, build_control
@@ -25,12 +25,6 @@ class _Row:
     control: Control
     field: str
     advanced: bool
-
-
-_SPECS = FibsemMillingSettings().field_specs
-
-# Fields hidden from UI — derived from their display (hidden=True), not hardcoded
-_HIDDEN_FIELDS = {name for name, spec in _SPECS.items() if spec.hidden}
 
 
 def _supported_settings(
@@ -61,6 +55,13 @@ class FibsemMillingSettingsWidget(QWidget):
         # The fields the instrument mills with and their choices, from its milling
         # service; None without one, which shows every field.
         self._supported = _supported_settings(microscope)
+        # The rows are the fields of the milling driver's settings class: the
+        # shared recipe fields it mills with and its own (FIB-1437).
+        milling = microscope.milling
+        self._milling = milling
+        self._specs: Dict[str, Parameter] = (
+            field_specs(milling.settings_class) if milling is not None else {}
+        )
         self._setup_ui()
         self._connect_signals()
         self._update_visibility()
@@ -74,13 +75,14 @@ class FibsemMillingSettingsWidget(QWidget):
         layout = FormGrid(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        for field_name, spec in _SPECS.items():
+        driver = self._driver_settings(self._settings)
+        for field_name, spec in self._specs.items():
             if spec.hidden:
                 continue
 
             control = build_control(
                 self._instrument_spec(spec),
-                getattr(self._settings, field_name),
+                getattr(driver, field_name),
                 resolve_choices=self._instrument_choices,
                 read_only_fallback=False,
             )
@@ -120,7 +122,7 @@ class FibsemMillingSettingsWidget(QWidget):
         """The choices of a field the instrument decides: the milling service's for
         the field, else the milling beam's for its parameter."""
         if self._supported is not None:
-            for name, spec in _SPECS.items():
+            for name, spec in self._specs.items():
                 if spec.bound_name == parameter and name in self._supported:
                     choices = self._supported[name].choices
                     if choices is not None:
@@ -155,32 +157,38 @@ class FibsemMillingSettingsWidget(QWidget):
     # Public API
     # ------------------------------------------------------------------
 
+    def _driver_settings(self, settings: FibsemMillingSettings):
+        """*settings* as the milling driver reads them, or None without one."""
+        if self._milling is None:
+            return None
+        return self._milling.driver_settings(settings)
+
     def get_settings(self) -> FibsemMillingSettings:
-        kwargs: Dict[str, object] = {}
-
-        # Hidden fields have no control, so they pass through untouched rather
-        # than reverting to the dataclass default.
-        for field_name in _HIDDEN_FIELDS:
-            kwargs[field_name] = getattr(self._settings, field_name)
-
+        if self._milling is None:
+            return self._settings
+        # Hidden fields have no control, and the other drivers' keys none here, so
+        # they pass through untouched rather than reverting to their defaults.
+        driver = self._driver_settings(self._settings)
+        changes: Dict[str, object] = {}
         for row in self._rows:
             value = row.control.read()
             # A combobox with nothing selected reads None; keep what we had
             # rather than handing the constructor a hole.
-            kwargs[row.field] = (
-                value if value is not None else getattr(self._settings, row.field)
-            )
-
-        return FibsemMillingSettings(**kwargs)
+            if value is not None:
+                changes[row.field] = value
+        return self._milling.with_driver_settings(
+            self._settings, replace(driver, **changes)
+        )
 
     def set_settings(self, settings: FibsemMillingSettings) -> None:
         self._settings = settings
+        driver = self._driver_settings(settings)
 
         for row in self._rows:
             row.control.set_blocked(True)
         try:
             for row in self._rows:
-                row.control.write(getattr(settings, row.field))
+                row.control.write(getattr(driver, row.field))
         finally:
             for row in self._rows:
                 row.control.set_blocked(False)

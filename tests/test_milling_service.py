@@ -5,6 +5,8 @@ The Demo mills with the shared demo code through `microscope.milling`. That
 suite (`test_finish_milling_puts_the_beam_back`), for both demos.
 """
 
+import dataclasses
+
 import pytest
 
 from fibsem import config as cfg
@@ -299,3 +301,72 @@ def test_the_drawn_patterns_are_announced_until_they_are_removed(microscope):
     milling.prepare(_recipe(), [_rectangle()])
     microscope.clear_patterns()
     assert seen == [2, 3, 0, 1, 0]
+
+
+# -- the recipe as each driver reads it (FIB-1437) ------------------------------------
+
+
+def test_a_protocol_saved_with_tescan_fields_at_the_top_loads_them_under_tescan():
+    recipe = FibsemMillingSettings.from_dict(
+        {"milling_current": 2e-9, "preset": "30 keV; 1 nA", "rate": 0.3}
+    )
+    assert recipe.milling_current == 2e-9
+    assert recipe.driver_settings == {"tescan": {"preset": "30 keV; 1 nA", "rate": 0.3}}
+    saved = recipe.to_dict()
+    assert saved["tescan.preset"] == "30 keV; 1 nA" and "preset" not in saved
+    assert FibsemMillingSettings.from_dict(saved) == recipe
+
+
+def test_a_driver_reads_its_keys_and_keeps_the_others(microscope):
+    milling = microscope.milling
+    recipe = FibsemMillingSettings(
+        milling_current=2e-9, driver_settings={"tescan.rate": 0.3}
+    )
+    driver = milling.driver_settings(recipe)
+    assert driver.milling_current == 2e-9
+    assert not hasattr(driver, "rate")
+    edited = milling.with_driver_settings(
+        recipe, dataclasses.replace(driver, milling_current=4e-9)
+    )
+    assert edited.milling_current == 4e-9
+    assert edited.driver_settings == {"tescan": {"rate": 0.3}}
+
+
+def test_the_agent_sees_the_recipe_this_instrument_mills_with(microscope):
+    from fibsem.server.devices import _arguments
+
+    schema = _arguments(microscope.milling, "setup")
+    recipe = schema["$defs"]["FibsemMillingSettings"]["properties"]
+    assert "milling_current" in recipe and "driver_settings" not in recipe
+    assert not any(key.startswith("tescan.") for key in recipe)
+    beam = microscope.milling.ion.current
+    assert recipe["milling_current"]["enum"] == list(beam.metadata.choices)
+    # a command that takes no recipe has no recipe schema
+    assert "$defs" not in _arguments(microscope.milling, "estimate_time")
+
+
+def test_a_driver_with_settings_of_its_own_needs_a_prefix():
+    from fibsem.services.milling import DriverMillingSettings
+
+    @dataclasses.dataclass
+    class Own(DriverMillingSettings):
+        aperture: int = 1
+
+    with pytest.raises(TypeError, match="settings_prefix"):
+
+        class Unprefixed(DemoMilling):
+            settings_class = Own
+
+    class Prefixed(DemoMilling):
+        settings_class = Own
+        settings_prefix = "probe"
+
+    assert Prefixed.setting_key("aperture") == "probe.aperture"
+    assert Prefixed.setting_key("hfw") == "hfw"
+
+
+def test_only_a_shared_field_is_taken_shared():
+    from fibsem.structures import shared_milling_setting
+
+    with pytest.raises(ValueError, match="not a shared milling setting"):
+        shared_milling_setting("rate")

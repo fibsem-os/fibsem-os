@@ -9,7 +9,7 @@ import sys
 import weakref
 from abc import ABC, abstractmethod
 from copy import deepcopy
-from dataclasses import InitVar, asdict, dataclass, field, fields, replace
+from dataclasses import MISSING, InitVar, asdict, dataclass, field, fields, replace
 from datetime import datetime, tzinfo
 from enum import Enum, auto
 from pathlib import Path
@@ -2193,23 +2193,49 @@ class FibsemPolygonSettings(FibsemPatternSettings):
         return width * height * self.depth
 
 
+# Saved before the driver keys had a prefix: the Tescan recipe fields, which were
+# top-level keys of every milling recipe. Loading a protocol written then moves
+# each one to the key the Tescan driver now saves it under.
+_UNPREFIXED_MILLING_KEYS = {
+    name: f"tescan.{name}"
+    for name in ("preset", "spot_size", "rate", "dwell_time", "spacing")
+}
+
+
 @dataclass
 class FibsemMillingSettings:
+    """A milling recipe, as a stage saves it.
+
+    Its fields are the settings fibsem defines once for every instrument: the
+    channel and field of view, and the shared settings a driver may mill with
+    (current, voltage, application file, patterning mode). A driver declares its
+    own settings class (`Milling.settings_class`) of the shared fields it uses,
+    taken with `shared_milling_setting`, and its own fields, which are kept here
+    in ``driver_settings`` by driver prefix (``{"tescan": {"rate": ...}}``). Each
+    driver reads its own and keeps the others, so a recipe saved on one
+    instrument loads, and saves back unchanged, on another.
+
+    A dict is flat: the driver keys sit beside the shared ones, as
+    ``tescan.rate``, and a constructor given that key keeps it the same way.
     """
-    This class is used to store and retrieve settings for FIBSEM milling.
 
-    Attributes:
-    milling_current (float): The current used in the FIBSEM milling process. Default value is 20.0e-12 A.
-    spot_size (float): The size of the beam spot used in the FIBSEM milling process. Default value is 5.0e-8 m.
-    rate (float): The milling rate of the FIBSEM process. Default value is 3.0e-3 m^3/A/s.
-    dwell_time (float): The dwell time of the beam at each point during the FIBSEM milling process. Default value is 1.0e-6 s.
-    hfw (float): The high voltage field width used in the FIBSEM milling process. Default value is 150e-6 m.
-
-    Methods:
-    to_dict(): Converts the object attributes into a dictionary.
-    from_dict(settings: dict) -> "FibsemMillingSettings": Creates a FibsemMillingSettings object from a dictionary of settings.
-    """
-
+    milling_channel: BeamType = field(
+        default=BeamType.ION,
+        metadata=field_meta(
+            choices=[BeamType.ION, BeamType.ELECTRON],
+            doc="The beam channel used for milling.",
+            display=Display("Milling Channel", hidden=True),
+        ),
+    )
+    hfw: float = field(
+        default=150e-6,
+        metadata=field_meta(
+            limits=RangeLimit(20e-6, 950e-6),
+            device_parameter="beam.hfw",
+            doc="The horizontal field width used for milling. Patterns must fit within this field of view.",
+            display=Display("Field of View", hidden=True),
+        ),
+    )
     # The fields bound to a microscope parameter take its unit, limits, choices and
     # display from the milling beam, and an instrument's own win over these.
     milling_current: float = field(
@@ -2244,75 +2270,6 @@ class FibsemMillingSettings:
             display=Display("Patterning Mode", advanced=True),
         ),
     )
-    hfw: float = field(
-        default=150e-6,
-        metadata=field_meta(
-            limits=RangeLimit(20e-6, 950e-6),
-            device_parameter="beam.hfw",
-            doc="The horizontal field width used for milling. Patterns must fit within this field of view.",
-            display=Display("Field of View", hidden=True),
-        ),
-    )
-    preset: str = field(
-        default="30 keV; 2nA",
-        metadata=field_meta(
-            device_parameter="beam.preset",
-            doc="The preset used for milling. Presets define the beam settings for different milling conditions.",
-            display=Display("Preset"),
-        ),
-    )
-    # 1 µm is the value the cryo lamella milling was validated at on hardware
-    # (2026-07-22). Protocols do not set spot_size, so this default is what every
-    # milling stage actually uses -- the `milling:` block in the system config is
-    # not consulted for it (only milling_current is read from there).
-    spot_size: float = field(
-        default=1.0e-6,
-        metadata=field_meta(
-            unit="m",
-            # Real spot sizes are tens of nm -- the TESCAN default is 50 nm -- so a
-            # 1 µm minimum would clamp every real value up to 1 µm.
-            limits=RangeLimit(1e-9, 1e-4),
-            doc="The spot size for the ion beam during milling.",
-            display=Display("Spot Size", scale=1e6, step=0.01, decimals=3),
-        ),
-    )
-    rate: float = field(
-        default=1.3e-8,
-        metadata=field_meta(
-            # mm³/A/s and TESCAN's own µm³/nA/s are numerically identical.
-            unit="m³/A/s",
-            doc="Ion etching rate — how much material one amp removes per "
-            "second. Equivalently µm³/nA/s, which is how TESCAN quotes "
-            "it. Default is the cryo lamella value; silicon is 0.3.",
-            display=Display("Rate", scale=1e9, unit="mm³/A/s"),
-        ),
-    )
-    dwell_time: float = field(
-        default=1.0e-6,
-        metadata=field_meta(
-            unit="s",
-            doc="The dwell time for the ion beam during milling (µs).",
-            display=Display("Dwell Time", scale=1e6),
-        ),
-    )
-    spacing: float = field(
-        default=0.005,
-        metadata=field_meta(
-            limits=RangeLimit(0.0, 100.0),
-            doc="Exposition mesh spacing — how finely the pattern is filled "
-            "with exposure points. Dimensionless; the TESCAN default is "
-            "1.0 and smaller values mill more finely and take longer.",
-            display=Display("Spacing", step=0.001, decimals=4),
-        ),
-    )
-    milling_channel: BeamType = field(
-        default=BeamType.ION,
-        metadata=field_meta(
-            choices=[BeamType.ION, BeamType.ELECTRON],
-            doc="The beam channel used for milling.",
-            display=Display("Milling Channel", hidden=True),
-        ),
-    )
     acquire_images: bool = field(
         default=False,
         metadata=field_meta(
@@ -2320,77 +2277,81 @@ class FibsemMillingSettings:
             display=Display("Acquire Images", hidden=True),
         ),
     )
+    driver_settings: Dict[str, Dict[str, Any]] = field(
+        default_factory=dict,
+        metadata=field_meta(
+            doc="Each driver's own settings, by its prefix and then by name "
+            "(tescan, rate). An instrument reads its driver's and keeps the rest.",
+            display=Display("Driver Settings", hidden=True),
+        ),
+    )
 
     def __post_init__(self):
-        assert isinstance(self.milling_current, (float, int)), (
-            f"invalid type for milling_current, must be int or float, currently {type(self.milling_current)}"
-        )
-        assert isinstance(self.spot_size, (float, int)), (
-            f"invalid type for spot_size, must be int or float, currently {type(self.spot_size)}"
-        )
-        assert isinstance(self.rate, (float, int)), (
-            f"invalid type for rate, must be int or float, currently {type(self.rate)}"
-        )
-        assert isinstance(self.dwell_time, (float, int)), (
-            f"invalid type for dwell_time, must be int or float, currently {type(self.dwell_time)}"
-        )
-        assert isinstance(self.hfw, (float, int)), (
-            f"invalid type for hfw, must be int or float, currently {type(self.hfw)}"
-        )
-        assert isinstance(self.patterning_mode, str), (
-            f"invalid type for value for patterning_mode, must be str, currently {type(self.patterning_mode)}"
-        )
-        assert isinstance(self.application_file, (str)), (
-            f"invalid type for value for application_file, must be str, currently {type(self.application_file)}"
-        )
-        assert isinstance(self.spacing, (float, int)), (
-            f"invalid type for value for spacing, must be int or float, currently {type(self.spacing)}"
-        )
-        # assert isinstance(self.preset,(str)), f"invalid type for value for preset, must be str, currently {type(self.preset)}"
+        for name in ("milling_current", "milling_voltage", "hfw"):
+            value = getattr(self, name)
+            if not isinstance(value, (float, int)):
+                raise TypeError(
+                    f"{name} must be a number, currently {type(value).__name__}"
+                )
+        for name in ("patterning_mode", "application_file"):
+            value = getattr(self, name)
+            if not isinstance(value, str):
+                raise TypeError(
+                    f"{name} must be a string, currently {type(value).__name__}"
+                )
+        nested: Dict[str, Dict[str, Any]] = {}
+        for prefix, value in self.driver_settings.items():
+            if "." in prefix:  # a saved key, tescan.rate
+                prefix, name = prefix.split(".", 1)
+                nested.setdefault(prefix, {})[name] = value
+            elif isinstance(value, dict):
+                nested.setdefault(prefix, {}).update(value)
+            else:
+                raise ValueError(
+                    f"A driver setting is kept under its driver's prefix, as "
+                    f"tescan.rate; got {prefix!r}"
+                )
+        self.driver_settings = nested
+
+    def get_driver_setting(self, key: str, default: Any = None) -> Any:
+        """The driver setting saved as *key* (tescan.rate), or *default*."""
+        prefix, name = key.split(".", 1)
+        return self.driver_settings.get(prefix, {}).get(name, default)
+
+    def set_driver_setting(self, key: str, value: Any) -> None:
+        """Keep *value* as the driver setting saved as *key* (tescan.rate)."""
+        prefix, name = key.split(".", 1)
+        self.driver_settings.setdefault(prefix, {})[name] = value
 
     def to_dict(self) -> dict:
-        settings_dict = {
-            "milling_current": self.milling_current,
-            "spot_size": self.spot_size,
-            "rate": self.rate,
-            "dwell_time": self.dwell_time,
-            "hfw": self.hfw,
-            "patterning_mode": self.patterning_mode,
-            "application_file": self.application_file,
-            "preset": self.preset,
-            "spacing": self.spacing,
-            "milling_voltage": self.milling_voltage,
-            "milling_channel": self.milling_channel.name,
-            "acquire_images": self.acquire_images,
+        settings_dict: Dict[str, Any] = {
+            f.name: getattr(self, f.name)
+            for f in fields(self)
+            if f.name != "driver_settings"
         }
-
+        settings_dict["milling_channel"] = self.milling_channel.name
+        for prefix, own in self.driver_settings.items():
+            for name, value in own.items():
+                settings_dict[f"{prefix}.{name}"] = value
         return settings_dict
 
     @staticmethod
     def from_dict(settings: dict) -> "FibsemMillingSettings":
-        # fall back to the dataclass field defaults rather than repeating them here,
-        # so there is a single source of truth for every default
-        defaults = FibsemMillingSettings()
-        milling_settings = FibsemMillingSettings(
-            milling_current=settings.get("milling_current", defaults.milling_current),
-            spot_size=settings.get("spot_size", defaults.spot_size),
-            rate=settings.get("rate", defaults.rate),
-            dwell_time=settings.get("dwell_time", defaults.dwell_time),
-            hfw=float(settings.get("hfw", defaults.hfw)),
-            patterning_mode=settings.get("patterning_mode", defaults.patterning_mode),
-            application_file=settings.get(
-                "application_file", defaults.application_file
-            ),
-            preset=settings.get("preset", defaults.preset),
-            spacing=settings.get("spacing", defaults.spacing),
-            milling_voltage=settings.get("milling_voltage", defaults.milling_voltage),
-            milling_channel=BeamType[
-                settings.get("milling_channel", defaults.milling_channel.name)
-            ],
-            acquire_images=settings.get("acquire_images", defaults.acquire_images),
-        )
-
-        return milling_settings
+        # a key left out takes the field's default, so each default is said once
+        values: Dict[str, Any] = {}
+        driver_settings: Dict[str, Any] = {}
+        names = {f.name for f in fields(FibsemMillingSettings)}
+        for key, value in settings.items():
+            key = _UNPREFIXED_MILLING_KEYS.get(key, key)
+            if "." in key:
+                driver_settings[key] = value
+            elif key in names and key != "driver_settings":
+                values[key] = value
+        if "milling_channel" in values:
+            values["milling_channel"] = BeamType[values["milling_channel"]]
+        if "hfw" in values:
+            values["hfw"] = float(values["hfw"])
+        return FibsemMillingSettings(**values, driver_settings=driver_settings)
 
     @property
     def field_specs(self) -> Dict[str, Parameter]:
@@ -2414,6 +2375,28 @@ class FibsemMillingSettings:
             f"        Patterning Mode: {self.patterning_mode}",
         ]
         return "\n".join(lines)
+
+
+def shared_milling_setting(name: str) -> Any:
+    """A driver settings class's field for the recipe's shared field *name*
+    (`FibsemMillingSettings`): the same default and metadata, so a driver that
+    mills with it says nothing of its own about what it means::
+
+        @dataclass
+        class ThermoMillingSettings:
+            milling_current: float = shared_milling_setting("milling_current")
+    """
+    shared = {f.name: f for f in fields(FibsemMillingSettings)}
+    shared.pop("driver_settings")
+    if name not in shared:
+        raise ValueError(
+            f"{name!r} is not a shared milling setting; those are "
+            f"{', '.join(shared)}. A driver's own setting is a field of its own."
+        )
+    f = shared[name]
+    if f.default_factory is not MISSING:
+        return field(default_factory=f.default_factory, metadata=f.metadata)
+    return field(default=f.default, metadata=f.metadata)
 
 
 # The axes a device is allowed to constrain.

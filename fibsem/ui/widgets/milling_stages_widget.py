@@ -61,15 +61,16 @@ class FibsemMillingStagesWidget(QWidget):
         # a Preset column where every other FIB gets Current. The milling service says
         # so by milling with a preset.
         _milling = getattr(self.microscope, "milling", None)
-        _show_preset = _milling is not None and "preset" in _milling.supported_settings(
-            BeamType.ION
+        _mills_by_preset = _milling is not None and "preset" in (
+            _milling.supported_settings(BeamType.ION)
         )
+        _preset_key = _milling.setting_key("preset") if _mills_by_preset else None
         _current_values = beam_choices(self.microscope, "current", BeamType.ION)
         _preset_values = beam_choices(self.microscope, "preset", BeamType.ION)
         self._list = MillingStageListWidget(
             current_values=_current_values,
             preset_values=_preset_values,
-            show_preset=_show_preset,
+            preset_key=_preset_key,
         )
         layout.addWidget(self._list)
 

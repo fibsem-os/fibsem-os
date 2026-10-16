@@ -32,12 +32,16 @@ def main() -> None:
 
     rough = FibsemMillingStage(name="Rough Cut")
     rough.pattern = get_pattern("Trench")
-    rough.milling = FibsemMillingSettings(milling_current=7.6e-9, rate=3.0e-1)
+    rough.milling = FibsemMillingSettings(
+        milling_current=7.6e-9, driver_settings={"tescan.rate": 3.0e-1}
+    )
     rough.strategy = get_strategy("Standard")
 
     polish = FibsemMillingStage(name="Polish")
     polish.pattern = get_pattern("Rectangle")
-    polish.milling = FibsemMillingSettings(milling_current=300e-12, rate=5.0e-2)
+    polish.milling = FibsemMillingSettings(
+        milling_current=300e-12, driver_settings={"tescan.rate": 5.0e-2}
+    )
     polish.strategy = get_strategy("Overtilt")
 
     fiducial = FibsemMillingStage(name="Fiducial")

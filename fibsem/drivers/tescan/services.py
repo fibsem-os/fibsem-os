@@ -20,6 +20,7 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import logging
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional, Sequence, Tuple, Union
 
 import numpy as np
@@ -36,12 +37,18 @@ from fibsem.drivers.tescan.microscope import (
 )
 from fibsem.imaging.spot import SpotBurnProgress, SpotBurnSettings, SpotBurnStatus
 from fibsem.milling.progress import MillingProgress
-from fibsem.services.milling import Milling, bind_milling, progress_update
+from fibsem.services.milling import (
+    DriverMillingSettings,
+    Milling,
+    bind_milling,
+    progress_update,
+)
 from fibsem.services.spot_burn import SpotBurn, bind_spot_burn
 from fibsem.services.stage_movement import StageMovement
 from fibsem.structures import (
     BeamType,
     CrossSectionPattern,
+    Display,
     FibsemCircleSettings,
     FibsemLineSettings,
     FibsemMillingSettings,
@@ -49,6 +56,9 @@ from fibsem.structures import (
     FibsemStagePosition,
     MillingState,
     Point,
+    RangeLimit,
+    field_meta,
+    shared_milling_setting,
 )
 
 if TYPE_CHECKING:
@@ -59,22 +69,73 @@ if TYPE_CHECKING:
     from fibsem.milling.base import FibsemMillingStage
 
 
+@dataclass
+class TescanMillingSettings(DriverMillingSettings):
+    """What Tescan mills with: the preset sets the current and voltage, and the rest
+    go into the DrawBeam layer. The recipe saves its own as ``tescan.<field>``."""
+
+    preset: str = field(
+        default="30 keV; 2nA",
+        metadata=field_meta(
+            device_parameter="beam.preset",
+            doc="The preset used for milling. Presets define the beam settings for different milling conditions.",
+            display=Display("Preset"),
+        ),
+    )
+    # 1 µm is the value the cryo lamella milling was validated at on hardware
+    # (2026-07-22). Protocols do not set spot_size, so this default is what every
+    # milling stage actually uses -- the `milling:` block in the system config is
+    # not consulted for it (only milling_current is read from there).
+    spot_size: float = field(
+        default=1.0e-6,
+        metadata=field_meta(
+            unit="m",
+            # Real spot sizes are tens of nm -- the TESCAN default is 50 nm -- so a
+            # 1 µm minimum would clamp every real value up to 1 µm.
+            limits=RangeLimit(1e-9, 1e-4),
+            doc="The spot size for the ion beam during milling.",
+            display=Display("Spot Size", scale=1e6, step=0.01, decimals=3),
+        ),
+    )
+    rate: float = field(
+        default=1.3e-8,
+        metadata=field_meta(
+            # mm³/A/s and TESCAN's own µm³/nA/s are numerically identical.
+            unit="m³/A/s",
+            doc="Ion etching rate — how much material one amp removes per "
+            "second. Equivalently µm³/nA/s, which is how TESCAN quotes "
+            "it. Default is the cryo lamella value; silicon is 0.3.",
+            display=Display("Rate", scale=1e9, unit="mm³/A/s"),
+        ),
+    )
+    dwell_time: float = field(
+        default=1.0e-6,
+        metadata=field_meta(
+            unit="s",
+            doc="The dwell time for the ion beam during milling (µs).",
+            display=Display("Dwell Time", scale=1e6),
+        ),
+    )
+    spacing: float = field(
+        default=0.005,
+        metadata=field_meta(
+            limits=RangeLimit(0.0, 100.0),
+            doc="Exposition mesh spacing — how finely the pattern is filled "
+            "with exposure points. Dimensionless; the TESCAN default is "
+            "1.0 and smaller values mill more finely and take longer.",
+            display=Display("Spacing", step=0.001, decimals=4),
+        ),
+    )
+    patterning_mode: str = shared_milling_setting("patterning_mode")
+
+
 class TescanMilling(Milling):
     """Tescan milling, on a DrawBeam layer, over the microscope's connection."""
 
     parent: TescanMicroscope
 
-    # The preset sets the current and voltage; the rest go into the DrawBeam layer.
-    setting_names = (
-        "milling_channel",
-        "hfw",
-        "preset",
-        "spot_size",
-        "rate",
-        "dwell_time",
-        "spacing",
-        "patterning_mode",
-    )
+    settings_class = TescanMillingSettings
+    settings_prefix = "tescan"
     scan_directions = TESCAN_SCAN_DIRECTIONS
 
     def __init__(self, connection: TescanConnection, **kwargs: Any):
@@ -88,7 +149,10 @@ class TescanMilling(Milling):
         # Tescan milling is preset-driven: the dose model (stage rate x preset
         # current), not the shared table keyed on the unused milling_current. A
         # preset the model can't read falls back to the table.
-        estimate = tescan.estimate_preset_milling_time(stage)
+        settings = cls.driver_settings(stage.milling)
+        estimate = tescan.estimate_preset_milling_time(
+            stage, settings.preset, settings.rate
+        )
         if estimate is None:
             return super().estimate_stage(stage)
         return estimate
@@ -99,7 +163,7 @@ class TescanMilling(Milling):
             return ParameterMetadata(choices=(BeamType.ION,))
         return super()._setting_metadata(name)
 
-    def _setup(self, settings: FibsemMillingSettings, name: Optional[str]) -> None:
+    def _setup(self, settings: TescanMillingSettings, name: Optional[str]) -> None:
         # ion only: the milling preset, then a DrawBeam layer from the recipe
         if settings.milling_channel is not BeamType.ION:
             raise ValueError("Only FIB milling is currently supported.")
@@ -440,8 +504,8 @@ class TescanSpotBurn(SpotBurn):
         recipe = FibsemMillingSettings(
             milling_channel=BeamType.ION,
             hfw=ion.hfw.get_value(),
-            preset=SPOT_BURN_PRESET,
             patterning_mode="Serial",
+            driver_settings={TescanMilling.setting_key("preset"): SPOT_BURN_PRESET},
         )
         self.parent.milling.setup(recipe, name="SpotBurn")
 

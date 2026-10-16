@@ -52,6 +52,7 @@ import threading
 import time
 import uuid
 from contextlib import contextmanager
+from dataclasses import dataclass, fields
 from typing import (
     Any,
     Callable,
@@ -96,6 +97,7 @@ from fibsem.structures import (
     FibsemRectangleSettings,
     MillingState,
     field_specs,
+    shared_milling_setting,
 )
 from fibsem.util.timestamps import now_iso
 
@@ -132,6 +134,36 @@ DRAW_HOOKS: Dict[Type[FibsemPatternSettings], str] = {
     FibsemBitmapSettings: "_draw_bitmap",
     FibsemPolygonSettings: "_draw_polygon",
 }
+
+
+@dataclass
+class DriverMillingSettings:
+    """The settings every driver mills with: the channel and the field of view.
+
+    A driver's settings class (`Milling.settings_class`) extends it with the shared
+    recipe fields it uses (`shared_milling_setting`) and fields of its own, which
+    the recipe keeps under the driver's prefix (`Milling.settings_prefix`).
+    """
+
+    milling_channel: BeamType = shared_milling_setting("milling_channel")
+    hfw: float = shared_milling_setting("hfw")
+
+
+@dataclass
+class BeamMillingSettings(DriverMillingSettings):
+    """The settings of a driver that mills at the beam's own current and voltage,
+    with an application file and a patterning mode (ThermoFisher and those that
+    drive it, the Demo)."""
+
+    milling_current: float = shared_milling_setting("milling_current")
+    milling_voltage: float = shared_milling_setting("milling_voltage")
+    application_file: str = shared_milling_setting("application_file")
+    patterning_mode: str = shared_milling_setting("patterning_mode")
+
+
+_SHARED_SETTINGS = frozenset(
+    f.name for f in fields(FibsemMillingSettings) if f.name != "driver_settings"
+)
 
 
 class UnsupportedPattern(NotImplementedError):
@@ -174,11 +206,69 @@ class Milling(Service):
     # How long `run` waits for the beam to stop after its stop event is set.
     stop_timeout: float = 30.0
 
-    # The `FibsemMillingSettings` fields this driver's ``setup`` reads; it ignores
-    # the rest. A driver sets it.
+    # What this driver's ``setup`` takes: the shared recipe fields it mills with
+    # and its own, which the recipe saves as ``<settings_prefix>.<field>``. A
+    # driver sets both. ``setting_names`` is the class's fields, in order.
+    settings_class: Type[DriverMillingSettings] = DriverMillingSettings
+    settings_prefix: str = ""
     setting_names: Tuple[str, ...] = ()
     # The directions this driver can scan a pattern in. A driver sets it.
     scan_directions: Tuple[str, ...] = ()
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        cls.setting_names = tuple(f.name for f in fields(cls.settings_class))
+        own = [name for name in cls.setting_names if name not in _SHARED_SETTINGS]
+        if own and not cls.settings_prefix:
+            raise TypeError(
+                f"{cls.__name__} has settings of its own ({', '.join(own)}), so it "
+                f"needs a settings_prefix to save them under."
+            )
+
+    # -- the recipe, as this driver reads it ----------------------------------------
+
+    @classmethod
+    def setting_key(cls, name: str) -> str:
+        """The key the recipe keeps this driver's setting *name* under: a shared
+        field's own name, else the driver's prefix and the name (tescan.rate)."""
+        if name in _SHARED_SETTINGS:
+            return name
+        return f"{cls.settings_prefix}.{name}"
+
+    @classmethod
+    def driver_settings(cls, settings: FibsemMillingSettings) -> DriverMillingSettings:
+        """*settings* as this driver mills with them: its settings class, from the
+        recipe's shared fields and its own keys. A key the recipe doesn't have takes
+        the class's default."""
+        own = settings.driver_settings.get(cls.settings_prefix, {})
+        values: Dict[str, Any] = {}
+        for name in cls.setting_names:
+            if name in _SHARED_SETTINGS:
+                values[name] = getattr(settings, name)
+            elif name in own:
+                values[name] = own[name]
+        return cls.settings_class(**values)
+
+    @classmethod
+    def with_driver_settings(
+        cls, settings: FibsemMillingSettings, driver: DriverMillingSettings
+    ) -> FibsemMillingSettings:
+        """*settings* with this driver's settings written back from *driver*; the
+        other drivers' keys and the fields this one doesn't use are kept."""
+        shared: Dict[str, Any] = {}
+        own: Dict[str, Any] = {}
+        for name in cls.setting_names:
+            value = getattr(driver, name)
+            if name in _SHARED_SETTINGS:
+                shared[name] = value
+            else:
+                own[name] = value
+        driver_settings = {
+            prefix: dict(values) for prefix, values in settings.driver_settings.items()
+        }
+        if own:
+            driver_settings[cls.settings_prefix] = own
+        return dataclasses.replace(settings, **shared, driver_settings=driver_settings)
 
     def __init__(self, name: str = "milling", **kwargs: Any):
         super().__init__(name, **kwargs)
@@ -281,8 +371,8 @@ class Milling(Service):
     def supported_settings(
         self, channel: BeamType = BeamType.ION
     ) -> Dict[str, ParameterMetadata]:
-        """The recipe (`FibsemMillingSettings`) fields this instrument mills with on
-        ``channel``, each with its choices and limits; the fields left out it ignores.
+        """The fields of this driver's settings class (`settings_class`) it mills
+        with on ``channel``, each with its choices and limits.
 
         A field bound to one of the milling beam's parameters
         (milling current and voltage, preset, hfw) has that parameter's own metadata, and is left out when that beam doesn't
@@ -295,7 +385,7 @@ class Milling(Service):
             return {}
         beam = self.beam(channel)
         available: Dict[str, ParameterMetadata] = {}
-        specs = field_specs(FibsemMillingSettings)
+        specs = field_specs(self.settings_class)
         for name in self.setting_names:
             beam_parameter = specs[name].bound_name
             if beam_parameter not in beam.parameters:
@@ -303,6 +393,35 @@ class Milling(Service):
             elif _settable(beam, beam_parameter):
                 available[name] = beam.parameters[beam_parameter].metadata
         return available
+
+    def schema_defs(self) -> Dict[str, Any]:
+        """The recipe's JSON schema on this instrument (`fibsem.schema`), for the
+        argument schemas of the commands that take one: the fields this driver
+        mills with on the ion beam, under the keys the recipe keeps them by
+        (tescan.rate), with the instrument's choices and limits; and whether to
+        acquire images after. The fields it doesn't use are left out, as the
+        milling form leaves them out."""
+        from fibsem.schema import parameter_schema
+
+        supported = self.supported_settings(BeamType.ION)
+        specs = field_specs(self.settings_class)
+        defs: Dict[str, Any] = {}
+        properties: Dict[str, Any] = {}
+        for name in self.setting_names:
+            if name not in supported:
+                continue
+            spec = specs[name].with_reported(supported[name])
+            properties[self.setting_key(name)] = parameter_schema(spec, defs)
+        acquire = field_specs(FibsemMillingSettings)["acquire_images"]
+        properties["acquire_images"] = parameter_schema(acquire, defs)
+        defs["FibsemMillingSettings"] = {
+            "type": "object",
+            "title": "FibsemMillingSettings",
+            "description": f"A milling recipe on this instrument "
+            f"({self._driver_name()}).",
+            "properties": properties,
+        }
+        return defs
 
     def supported_pattern_settings(self) -> Dict[str, ParameterMetadata]:
         """The pattern fields whose choices this instrument decides: the scan
@@ -354,7 +473,8 @@ class Milling(Service):
             self._save(self.beam(settings.milling_channel))
         self._name = name
         self._set_up = settings
-        self._setup(settings, name)
+        logging.debug({"msg": "setup_milling", "mill_settings": settings.to_dict()})
+        self._setup(self.driver_settings(settings), name)
         if self._drawn:
             self._set_drawn([])
 
@@ -797,9 +917,9 @@ class Milling(Service):
 
     # -- what a driver implements -------------------------------------------------
 
-    def _setup(self, settings: FibsemMillingSettings, name: Optional[str]) -> None:
-        """Apply the recipe (beam conditions, channel, patterning mode, application
-        file) and clear the patterns."""
+    def _setup(self, settings: DriverMillingSettings, name: Optional[str]) -> None:
+        """Apply the recipe, as this driver's settings class (beam conditions,
+        channel, patterning mode, application file), and clear the patterns."""
         raise NotImplementedError
 
     def _draw(self, pattern: FibsemPatternSettings, hook: str) -> None:

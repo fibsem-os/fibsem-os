@@ -599,7 +599,6 @@ def draw_milling_patterns(
     scalebar: bool = ...,
     title: str = ...,
     show_current: bool = ...,
-    show_preset: bool = ...,
     show_depth: bool = ...,
     highlight_overlaps: bool = ...,
     ax: plt.Axes = ...,
@@ -614,7 +613,6 @@ def draw_milling_patterns(
     scalebar: bool = ...,
     title: str = ...,
     show_current: bool = ...,
-    show_preset: bool = ...,
     show_depth: bool = ...,
     highlight_overlaps: bool = ...,
     ax: None = ...,
@@ -628,7 +626,6 @@ def draw_milling_patterns(
     scalebar: bool = True,
     title: str = "Milling Patterns",
     show_current: bool = False,
-    show_preset: bool = False,
     show_depth: bool = False,
     highlight_overlaps: bool = False,
     ax: Optional[plt.Axes] = None,
@@ -642,7 +639,6 @@ def draw_milling_patterns(
         scalebar: bool: Draw scalebar on image.
         title: str: Title for the plot.
         show_current: bool: Show milling current in legend.
-        show_preset: bool: Show preset name in legend.
         show_depth: bool: Show pattern depth in microns in legend.
         highlight_overlaps: bool: Highlight overlapping pattern regions.
         ax: Optional[plt.Axes]: Axis that patterns will be plotted on. If no axis is given, a figure and axis will be created.
@@ -663,8 +659,6 @@ def draw_milling_patterns(
         extra_parts = []
         if show_current:
             extra_parts.append(format_value(stage.milling.milling_current, "A"))
-        if show_preset:
-            extra_parts.append(stage.milling.preset)
         if show_depth:
             # Get depth from pattern
             depth_m = getattr(pattern, "depth", None)
