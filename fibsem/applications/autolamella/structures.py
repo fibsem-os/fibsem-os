@@ -582,11 +582,21 @@ class AutoLamellaWorkflowOptions:
 
 @evented
 @dataclass
-class LamellaDefaultConfig:
+class LamellaDefaultConfig(Configurable):
     """Initial state applied to every new Lamella created from this protocol."""
 
-    use_petname: bool = True
-    name_prefix: str = ""
+    use_petname: bool = param(
+        True,
+        doc="Append a random two-word petname (e.g. 'brave-tiger') to each new "
+        "lamella's name. Without it, names use the 'Lamella-01' format.",
+        display=Display("Use petname"),
+    )
+    name_prefix: str = param(
+        "",
+        doc="Optional text put before every new lamella name, with a dash between "
+        "(e.g. 'GridA' gives 'GridA-Lamella-01').",
+        display=Display("Prefix"),
+    )
     alignment_area: Optional[FibsemRectangle] = None
     poi: Optional[Point] = None
 
