@@ -810,6 +810,22 @@ def build_sidecar(client, capabilities):
         meta = {"item_name": item_name, "filename": filename, **_image_header(resp)}
         return [json.dumps(meta), Image(data=resp.content, format="jpeg")]
 
+    def item_measure_thickness(
+        item_name: str,
+        filename: str,
+        width_um: Optional[float] = None,
+        height_um: Optional[float] = None,
+    ):
+        body = {"width_um": width_um, "height_um": height_um}
+        data, err = _call(
+            client,
+            "POST",
+            f"/app/experiment/items/{quote(item_name, safe='')}/outputs/"
+            f"{quote(filename, safe='')}/thickness",
+            {k: v for k, v in body.items() if v is not None},
+        )
+        return err if err else _with_images(data)
+
     def experiment_get_image_metadata(path: str):
         return _app_get("/app/experiment/images/metadata?" + urlencode({"path": path}))
 
@@ -1169,6 +1185,7 @@ def build_sidecar(client, capabilities):
             protocol_get,
             item_list_outputs,
             item_get_output_image,
+            item_measure_thickness,
             experiment_get_image_metadata,
             item_get,
             grid_list,
