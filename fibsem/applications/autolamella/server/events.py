@@ -270,11 +270,14 @@ def attach_microscope_taps(buffer: EventBuffer, microscope) -> List[Callable[[],
     spot_burn = getattr(microscope, "spot_burn", None)
     if spot_burn is not None:
         tap(spot_burn.progress.changed, "spot_burn_progress", to_plain)
-    tap(
-        microscope.stage_position_changed,
-        "stage_position_changed",
-        lambda position: {"position": to_plain(position.to_dict())},
-    )
+    # The kind keeps the old microscope signal's name, so older recordings replay.
+    stage = getattr(microscope, "stage", None)
+    if stage is not None:
+        tap(
+            stage.position.changed,
+            "stage_position_changed",
+            lambda position: {"position": to_plain(position.to_dict())},
+        )
     tap(microscope.sem_acquisition_signal, "sem_acquisition", _image_metadata)
     tap(microscope.fib_acquisition_signal, "fib_acquisition", _image_metadata)
     # Live frames come from the beams themselves, under the same kinds.

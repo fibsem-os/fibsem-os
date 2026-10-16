@@ -14,8 +14,8 @@ spacing and stage limits, and only then saves. It refuses to capture at any othe
 orientation rather than taking a number it would have to reinterpret.
 
 Non-modal on purpose: the operator drives the stage from the Microscope tab while
-this sits beside it. The live position comes from the microscope's own
-``stage_position_changed`` signal; nothing here polls the hardware.
+this sits beside it. The live position comes from the stage device's
+``position.changed`` signal; nothing here polls the hardware.
 """
 
 from __future__ import annotations
@@ -173,8 +173,8 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
 
         self._stage_moved.connect(self._on_stage_moved)
         try:
-            microscope.stage_position_changed.connect(self._stage_moved.emit)
-        except Exception as e:  # noqa: BLE001 - a microscope without the signal
+            microscope.stage.position.changed.connect(self._stage_moved.emit)
+        except Exception as e:  # noqa: BLE001 - a microscope without a stage
             logging.debug(f"No stage position signal to subscribe to: {e}")
 
     # -- what the steps are ---------------------------------------------------
@@ -832,7 +832,7 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt naming
         self._closed = True
         try:
-            self._microscope.stage_position_changed.disconnect(self._stage_moved.emit)
+            self._microscope.stage.position.changed.disconnect(self._stage_moved.emit)
         except Exception:  # noqa: BLE001 - never subscribed, or already gone
             pass
         super().closeEvent(event)

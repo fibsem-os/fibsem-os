@@ -49,6 +49,7 @@ from psygnal import Signal
 from fibsem.devices.runs import Runs
 from fibsem.structures import (
     DisplayHint,
+    FibsemAxesPosition,
     Limits,
     Parameter,
     ParameterMetadata,
@@ -232,6 +233,9 @@ class BoundParameter:
         self._metadata_source = metadata
         self.needs_channel = needs_channel
         self._cached: Any = _UNSET
+        # the value ``changed`` last carried: a read is compared with this, not with
+        # the read before it, so drift below POSITION_TOLERANCE per read still signals
+        self._signalled: Any = _UNSET
         self.previous: Any = None
         """The value before the last change, for a ``changed`` handler to compare with."""
         self.metadata = ParameterMetadata()
@@ -417,19 +421,24 @@ class BoundParameter:
         )
         previous, self._cached = self._cached, value
         self.previous = None if previous is _UNSET else previous
+        self._signalled = value
         self._emit(value)
         self.device._dependency_changed(self.name)
         return value
 
     def _remember(self, value: Any) -> None:
         previous, self._cached = self._cached, value
-        if previous is _UNSET or not _same(previous, value):
-            if previous is not _UNSET:
-                self.previous = previous
-                self._emit(value)
-                # changed outside this device (the vendor UI): what depends on it
-                # is read again, as after a write
-                self.device._dependency_changed(self.name)
+        if previous is _UNSET:
+            self._signalled = value
+            return
+        if _same(self._signalled, value):
+            return
+        self.previous = previous
+        self._signalled = value
+        self._emit(value)
+        # changed outside this device (the vendor UI): what depends on it is read
+        # again, as after a write
+        self.device._dependency_changed(self.name)
 
     def _emit(self, value: Any) -> None:
         self.changed.emit(value)
@@ -1195,8 +1204,30 @@ def _numeric_choices(choices: Optional[Sequence[Any]]) -> list:
     ]
 
 
+# A stage or manipulator readback jitters below this; a move this small is not a move.
+POSITION_TOLERANCE = 1e-6
+
+
 def _same(a: Any, b: Any) -> bool:
     try:
-        return bool(a == b)
+        if a == b:
+            return True
     except Exception:
         return a is b
+    if isinstance(a, FibsemAxesPosition) and type(a) is type(b):
+        return _same_position(a, b)
+    return False
+
+
+def _same_position(a: FibsemAxesPosition, b: FibsemAxesPosition) -> bool:
+    """Whether two positions are within POSITION_TOLERANCE on every axis, angles
+    wrapped. An axis None on both sides is the same; None on one side is not."""
+    if getattr(a, "coordinate_system", None) != getattr(b, "coordinate_system", None):
+        return False
+    for axis, difference in a.axis_differences(b).items():
+        if difference is None:
+            if (getattr(a, axis) is None) != (getattr(b, axis) is None):
+                return False
+        elif difference >= POSITION_TOLERANCE:
+            return False
+    return True

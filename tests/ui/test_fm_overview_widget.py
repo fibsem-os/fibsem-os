@@ -1929,14 +1929,14 @@ def test_closing_the_widget_lets_go_of_the_stage_signal(qapp):
     from tests.fixtures.fm_microscope import build_microscope
 
     microscope = build_microscope()
-    before = len(microscope.stage_position_changed)
+    before = len(microscope.stage.position.changed)
     widget = FMOverviewWidget(microscope)
-    assert len(microscope.stage_position_changed) == before + 1
+    assert len(microscope.stage.position.changed) == before + 1
 
     widget.close()
     qapp.processEvents()
 
-    assert len(microscope.stage_position_changed) == before
+    assert len(microscope.stage.position.changed) == before
 
 
 def test_a_dropped_widget_lets_go_of_the_stage_signal_too(qapp):
@@ -1949,14 +1949,14 @@ def test_a_dropped_widget_lets_go_of_the_stage_signal_too(qapp):
     from tests.fixtures.fm_microscope import build_microscope
 
     microscope = build_microscope()
-    before = len(microscope.stage_position_changed)
+    before = len(microscope.stage.position.changed)
     widget = FMOverviewWidget(microscope)
-    assert len(microscope.stage_position_changed) == before + 1
+    assert len(microscope.stage.position.changed) == before + 1
 
     del widget
     gc.collect()
 
-    assert len(microscope.stage_position_changed) == before
+    assert len(microscope.stage.position.changed) == before
 
 
 # ── the host contract: saving, and being locked ──────────────────────────
@@ -2391,14 +2391,14 @@ def test_retiring_the_widget_releases_the_stage_signal(qapp):
     # the merged tab builds the beam widget too, and it subscribes to the same signal.
     # Counting from an empty microscope would be counting both and attributing them here.
     host._teardown_fm_overview_widget()
-    before = len(microscope.stage_position_changed)
+    before = len(microscope.stage.position.changed)
 
     host._build_fm_overview_widget()
-    assert len(microscope.stage_position_changed) == before + 1
+    assert len(microscope.stage.position.changed) == before + 1
 
     host._teardown_fm_overview_widget()
 
-    assert len(microscope.stage_position_changed) == before
+    assert len(microscope.stage.position.changed) == before
     assert host.fm_overview_widget is None
 
 
