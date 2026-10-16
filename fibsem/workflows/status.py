@@ -12,6 +12,7 @@ declared shape around it.
 
 from __future__ import annotations
 
+import logging
 from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import Enum, auto
@@ -214,3 +215,21 @@ def take_back_finish(item: Any, task_id: str, status: TaskStatus, message: str) 
         history[-1] = deepcopy(state)
     else:
         history.append(deepcopy(state))
+
+
+def post_status(
+    window: Any,
+    msg: Optional[str],
+    workflow_info: Optional[str] = None,
+    status_bar: Optional[str] = None,
+) -> None:
+    """Put a line on the window's workflow-information label or its status bar,
+    or in the log when there is no window."""
+    if window is None:
+        logging.info(msg or status_bar or "")
+        return
+    window.workflow_status_signal.emit(
+        WorkflowStatusEvent(
+            message=msg, workflow_info=workflow_info, status_bar=status_bar
+        )
+    )
