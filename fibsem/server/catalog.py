@@ -55,8 +55,9 @@ class ToolSpec:
         )
         if self.hardware:
             return (
-                f"{note} Refused (409) while a run or script is in control of "
-                "the microscope."
+                f"{note} Refused (409) while a run or script is in control, "
+                "except while a run waits on a question: then one action at a "
+                "time, and the run waits for it to finish."
             )
         return f"{note} The operator sets the level from the Agent chip in AutoLamella."
 

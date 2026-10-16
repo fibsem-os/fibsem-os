@@ -224,6 +224,33 @@ def _cut_short(answer: Any) -> bool:
     return isinstance(result, str) and result.lower() == CANCELLED
 
 
+# The flags a route answers 2xx with to say whether it did what it was asked:
+# workflow_start answers ``started: false`` and a reason when it is turned away,
+# a context edit ``applied: false``, a stop with nothing to stop ``stopped: false``.
+_OUTCOME_FLAGS = ("ok", "started", "applied", "stopped")
+
+
+def _refusal(answer: Any) -> Optional[Dict[str, Any]]:
+    """The refusal in an answer that came back 2xx but says the action did
+    nothing (one of its outcome flags is False), as a route's error detail;
+    None for an answer that did what it was asked. Such a step failed, with
+    its reason, rather than reading "applied"."""
+    if not isinstance(answer, dict):
+        return None
+    flag = next((name for name in _OUTCOME_FLAGS if answer.get(name) is False), None)
+    if flag is None:
+        return None
+    reason = next(
+        (
+            answer[key]
+            for key in ("reason", "error", "message")
+            if isinstance(answer.get(key), str) and answer[key].strip()
+        ),
+        f"Answered {flag}: false.",
+    )
+    return {"error_type": f"not_{flag}", "message": reason}
+
+
 class RequestStore:
     """The agent's requests, and the worker that runs approved ones.
 
@@ -577,19 +604,20 @@ class RequestStore:
                                 }
                             },
                         )
-                ok = code < 400
+                refused = _refusal(answer) if code < 400 else None
+                ok = code < 400 and refused is None
                 result = {
                     "index": index,
                     "tool": action.tool,
                     "status_code": code,
                     "ok": ok,
                 }
-                if ok:
+                if code < 400:
                     result["result"] = answer
-                    if _cut_short(answer):
-                        result["cancelled"] = True
-                else:
-                    result["error"] = (answer or {}).get("detail", answer)
+                if ok and _cut_short(answer):
+                    result["cancelled"] = True
+                if not ok:
+                    result["error"] = refused or (answer or {}).get("detail", answer)
                 request.results.append(result)
                 self._emit("request_applied", {"request_id": request.id, **result})
                 self._changed(request)

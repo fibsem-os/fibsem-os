@@ -101,9 +101,7 @@ def test_hardware_tools_are_offered_at_watch():
     client.headers["Authorization"] = f"Bearer {TOKEN}"
     sidecar = build_sidecar(client, _capabilities(client))
     assert "stage_move_relative" in _tool_names(sidecar)
-    result = asyncio.run(sidecar.call_tool("stage_move_relative", {"dx": 1e-6}))
-    text = "".join(getattr(c, "text", "") for c in _contents(result))
-    assert "level" in text
+    assert "level" in _refused(sidecar, "stage_move_relative", {"dx": 1e-6})
 
 
 def test_each_description_names_the_level_it_needs(armed_sidecar):
@@ -229,14 +227,24 @@ def test_image_tool_returns_image_content(armed_sidecar):
     assert getattr(image, "mime_type", None) == "image/jpeg"
 
 
-def test_hardware_refusal_is_readable_text_not_an_error():
-    # Registered tools + a server at Watch = the server refuses; the agent should
-    # see the structured refusal as text, not a raised exception.
+def _refused(sidecar, tool, arguments):
+    """The text of a tool's refusal, which the sidecar flags an error: the MCP
+    client gets is_error with this text, not a result to read as an answer."""
+    from mcp.server.mcpserver.exceptions import ToolError
+
+    with pytest.raises(ToolError) as refused:
+        asyncio.run(sidecar.call_tool(tool, arguments))
+    return str(refused.value)
+
+
+def test_a_hardware_refusal_is_an_error_with_the_server_s_text():
+    # Registered tools + a server at Watch = the server refuses (403). The agent
+    # gets it flagged an error, with the server's structured refusal as its text.
     read_client = _make_client("watch")
     armed_shape = {"routers": {"microscope": True, "app": False}, "level": "drive"}
     sidecar = build_sidecar(read_client, armed_shape)
-    result = asyncio.run(sidecar.call_tool("stage_move_relative", {"dx": 1e-6}))
-    text = "".join(getattr(c, "text", "") for c in _contents(result))
+    text = _refused(sidecar, "stage_move_relative", {"dx": 1e-6})
+    assert "refused (403): " in text
     assert "level" in text
 
 
@@ -357,13 +365,11 @@ def test_the_milling_angle_move_keeps_the_current_rotation(armed_sidecar):
 def test_a_tool_taking_a_name_passes_it_on(armed_sidecar):
     """An overview's file name is `name`; it reached the route's arguments
     rather than clashing with the tool's own name (a TypeError every call)."""
-    result = asyncio.run(
-        armed_sidecar.call_tool(
-            "beam_acquire_overview",
-            {"settings": {}, "path": "/tmp/elsewhere", "name": "ov"},
-        )
+    text = _refused(
+        armed_sidecar,
+        "beam_acquire_overview",
+        {"settings": {}, "path": "/tmp/elsewhere", "name": "ov"},
     )
-    text = "".join(getattr(c, "text", "") for c in _contents(result))
     assert "not_allowed" in text  # the server's answer: it got as far as the route
 
 
