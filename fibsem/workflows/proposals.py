@@ -737,7 +737,7 @@ def _id_for_a_record_without_one(data: dict) -> str:
 # Every proposal is a task result -- what ran, when, how it ended, the final
 # images -- plus, for kinds that have them, values a decision can edit and a
 # later task consumes. The result part is recorded for every kind, on a
-# lamella or a grid (workflows/tasks/proposing.py); a proposer supplies only
+# lamella or a grid (fibsem/workflows/proposing.py); a proposer supplies only
 # the values. TASK_RESULT is the kind with none.
 
 

@@ -153,14 +153,17 @@ def test_the_ui_check_is_a_noop_headless():
 
 
 def test_both_task_hierarchies_take_the_managers_token(manager):
-    """GridTask is a parallel hierarchy with its own __init__, so it has to be
-    kept in step by hand — it would otherwise miss a per-task stop entirely."""
+    """Lamella and grid tasks take the manager's token in the one __init__ they
+    share, so neither can miss a per-task stop."""
     import inspect
 
-    from fibsem.applications.autolamella.workflows.tasks import base
-    from fibsem.applications.autolamella.workflows.tasks.grid import base as grid_base
+    from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
+    from fibsem.applications.autolamella.workflows.tasks.grid.base import GridTask
+    from fibsem.workflows import task as task_module
+    from fibsem.workflows.task import BaseTask
 
-    for module in (base, grid_base):
-        source = inspect.getsource(module)
-        assert "task_manager.abort_token if task_manager else None" in source
-        assert "task_manager._stop_event" not in source
+    assert issubclass(AutoLamellaTask, BaseTask)
+    assert issubclass(GridTask, BaseTask)
+    source = inspect.getsource(task_module)
+    assert "task_manager.abort_token if task_manager else None" in source
+    assert "task_manager._stop_event" not in source
