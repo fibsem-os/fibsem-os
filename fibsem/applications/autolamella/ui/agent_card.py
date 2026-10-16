@@ -188,15 +188,17 @@ class _RecentLine(QLabel):
         super().__init__(text)
         self.setObjectName("agentRecent")
         self.setWordWrap(True)
+        self.setAlignment(Qt.AlignLeft | Qt.AlignTop)  # type: ignore
         self.setCursor(Qt.PointingHandCursor)  # type: ignore
 
     def resizeEvent(self, event) -> None:
         # The card is sized from its hints, which ignore wrapping: hold the
-        # height the wrapped text needs at this width.
+        # height the wrapped text needs at this width, and no more, or a row
+        # keeps a blank line from a narrower pass (sim session 2026-10-16).
         super().resizeEvent(event)
         height = self.heightForWidth(self.width())
-        if height > 0 and height != self.minimumHeight():
-            self.setMinimumHeight(height)
+        if height > 0 and height != self.height():
+            self.setFixedHeight(height)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.LeftButton:  # type: ignore
@@ -1014,9 +1016,11 @@ class AgentCard(QFrame):
         )
 
     def _showing_picture(self) -> bool:
-        """Whether what waits has a picture, or a note in its place."""
+        """Whether what waits has a picture. A note in its place ("No FIB image
+        of 05 yet") is a line under the steps, not a column of its own (sim
+        session 2026-10-16: it took the picture's 650 px)."""
         key = "suggestion" if self._request is None else "request"
-        return key in self._images or bool(self._notes.get(key))
+        return key in self._images
 
     def _inner_width(self) -> int:
         margins = self.layout().contentsMargins()

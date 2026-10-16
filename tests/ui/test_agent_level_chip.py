@@ -1169,6 +1169,11 @@ def test_a_card_with_no_picture_keeps_no_empty_column(qapp):
     image = QImage(300, 200, QImage.Format_RGB32)
     card.set_image(image, "FIB")
     assert not card._stacked()
+    # Sim session 2026-10-16: a note in the picture's place is a line under
+    # the steps, not the picture's column.
+    card.set_image(None, "No FIB image of 01 yet to draw on")
+    assert card._stacked()
+    assert "No FIB image of 01 yet to draw on" in _labels(card)
     card.deleteLater()
 
 
