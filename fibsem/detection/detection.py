@@ -898,7 +898,33 @@ def detect_features(
     else:
         rgb = decode_segmap_v2(mask)
 
-    # detect features
+    return features_from_mask(
+        image,
+        mask,
+        rgb,
+        features,
+        pixelsize,
+        filter=filter,
+        point=point,
+        fibsem_image=fibsem_image,
+        checkpoint=model.checkpoint,
+    )
+
+
+def features_from_mask(
+    image: np.ndarray,
+    mask: np.ndarray,
+    rgb: np.ndarray,
+    features: Sequence[Feature],
+    pixelsize: float,
+    filter: bool = True,
+    point: Optional[Point] = None,
+    fibsem_image: Optional[FibsemImage] = None,
+    checkpoint: Optional[str] = None,
+) -> DetectedFeatures:
+    """The *features* found in a model's *mask* (a class id per pixel) of
+    *image*, each with its position in pixels and in metres from the centre.
+    *checkpoint* names the model that made the mask."""
     features = detect_features_v2(
         img=image, mask=mask, features=features, filter=filter, point=point
     )
@@ -910,7 +936,7 @@ def detect_features(
         rgb=rgb,
         pixelsize=pixelsize,
         fibsem_image=fibsem_image,
-        checkpoint=model.checkpoint,
+        checkpoint=checkpoint,
     )
 
     # distance in metres (from centre)
@@ -931,7 +957,8 @@ def take_image_and_detect_features(
 ) -> DetectedFeatures:
 
     from fibsem import acquire, utils
-    from fibsem.ai.models import load_checkpoint
+    from fibsem.ai import detection
+    from fibsem.ai.models import default_manager
 
     if image_settings.reduced_area is not None:
         logging.info(
@@ -946,7 +973,7 @@ def take_image_and_detect_features(
     image = acquire.acquire_image(microscope, image_settings)
 
     # The model, loaded once for the session rather than on every detection.
-    model = load_checkpoint(checkpoint)
+    model = default_manager().for_checkpoint(checkpoint)
 
     if isinstance(point, FibsemStagePosition):
         logging.debug(f"Reprojecting point {point} to image coordinates...")
@@ -961,14 +988,7 @@ def take_image_and_detect_features(
     if "gis_lamela" in checkpoint or "adaptive" in checkpoint:
         point = Point(image.data.shape[1] // 2, image.data.shape[0] // 3)
 
-    # detect features
-    det = detect_features(
-        deepcopy(image),
-        model,
-        features=features,
-        pixelsize=image.metadata.pixel_size.x,
-        point=point,
-    )
+    det, _ = detection.detect(model, image, features, point=point)
     return det
 
 

@@ -77,6 +77,21 @@ class SegmentationResult:
             regions.append(region)
         return regions[:limit]
 
+    def _coloured(self) -> Dict[int, List[int]]:
+        """The labelled classes that have a colour, by id: their RGB."""
+        return {
+            class_id: _rgb(info.colour)
+            for class_id, info in self.classes.items()
+            if class_id != 0 and info.colour
+        }
+
+    def rgb(self) -> np.ndarray:
+        """The mask in the classes' colours, RGB uint8; background is black."""
+        rgb = np.zeros((*self.mask.shape, 3), dtype=np.uint8)
+        for class_id, colour in self._coloured().items():
+            rgb[self.mask == class_id] = colour
+        return rgb
+
     def overlay(self, image: np.ndarray) -> np.ndarray:
         """*image* in grey with each class drawn over it in its colour, RGB
         uint8. Background (class 0) is left as it is."""
@@ -86,12 +101,9 @@ class SegmentationResult:
         low, high = float(grey.min()), float(grey.max())
         grey = (grey - low) / (high - low) * 255 if high > low else grey * 0
         rgb = np.repeat(grey[..., None], 3, axis=2)
-        for class_id, info in self.classes.items():
-            if class_id == 0 or not info.colour:
-                continue
-            colour = np.array(_rgb(info.colour), dtype=np.float64)
-            where = self.mask == class_id
-            rgb[where] = (1 - OVERLAY_ALPHA) * rgb[where] + OVERLAY_ALPHA * colour
+        where = np.isin(self.mask, list(self._coloured()))
+        colours = self.rgb()
+        rgb[where] = (1 - OVERLAY_ALPHA) * rgb[where] + OVERLAY_ALPHA * colours[where]
         return rgb.astype(np.uint8)
 
     def to_dict(self) -> Dict[str, Any]:
