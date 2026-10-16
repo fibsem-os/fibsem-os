@@ -793,8 +793,11 @@ class AutoLamellaTask(ABC):
                 self.microscope, milling_config, "milling is turned off for this task"
             )
         responder = getattr(self.parent_ui, "ui_responder", None)
-        # The editor's copy is the operator's to edit; the task's own is not.
-        config = deepcopy(milling_config)
+        # The task's own config until an answer replaces it: an unasked mill
+        # runs it, so what the run records on it (a strategy's end reason)
+        # stays with the task even when the run is stopped. The question only
+        # ever shows, and answers with, copies.
+        config = milling_config
         passes, error, asked = 0, None, False
         try:
             while True:
