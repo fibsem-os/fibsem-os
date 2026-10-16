@@ -43,6 +43,24 @@ from fibsem.util.timestamps import now, to_datetime, to_iso
 # review is on and that did not propose a kind of its own.
 TASK_RESULT = "task_result"
 
+# Where a model put the features it was asked to find, for someone to correct:
+# the one kind so far that is asked *during* a task rather than after it
+# (FIB-1025). Its value is the feature set, keyed by name, so a delta is per
+# feature and not one number for the lot.
+DETECTION = "detection"
+# The instrument's state as a task arrived at it, for the operator to confirm
+# before the task goes on ("Acquire reference image. Press Continue when
+# ready."). The proposal is the stage position then; the decision is a
+# confirmation, and the task fills in the position as it stands afterwards,
+# so a move the operator made first is the delta. Asked mid-task, so its
+# value is written nowhere: the task is what uses it.
+STATE = "state"
+# The reduced area the alignment reference is taken in: a rectangle in
+# fractions of the FIB frame, dragged on the last FIB image. Asked mid-task,
+# right before that reference is acquired, so it is written nowhere: the
+# task acquires with the area it is handed (FIB-1053).
+ALIGNMENT_AREA = "alignment_area"
+
 
 class DecisionOutcome(Enum):
     """What was decided. ``Confirmed`` and ``Rejected`` are answers; a decider
@@ -176,6 +194,17 @@ def register_proposal_kind(kind: ProposalKind) -> ProposalKind:
 
 
 register_proposal_kind(ProposalKind(name=TASK_RESULT, values=(), label="Result"))
+register_proposal_kind(
+    ProposalKind(name=DETECTION, values=("features",), label="Detection")
+)
+register_proposal_kind(
+    ProposalKind(name=STATE, values=("stage_position",), label="Position")
+)
+register_proposal_kind(
+    ProposalKind(
+        name=ALIGNMENT_AREA, values=("alignment_area",), label="Alignment area"
+    )
+)
 
 
 # ---------------------------------------------------------------------------
@@ -210,6 +239,53 @@ def _decode_values(values: Dict[str, Any]) -> Dict[str, Any]:
         name: _VALUE_CODECS.get(name, (lambda v: v, lambda v: v))[1](value)
         for name, value in (values or {}).items()
     }
+
+
+def _point_to_dict(p: Any) -> Any:
+    return p.to_dict() if isinstance(p, Point) else p
+
+
+def _point_from_dict(d: Any) -> Any:
+    return Point.from_dict(d) if isinstance(d, dict) and "x" in d else d
+
+
+def features_to_dict(value: Any) -> Any:
+    """A detected feature set as ``[{name, px}]``.
+
+    Only the name and the pixel it sits on: the mask, the rgb and the image
+    are megabytes and already on disk beside the task's outputs, and a delta
+    is computed from the points alone.
+    """
+    if not isinstance(value, (list, tuple)):
+        return value
+    return [
+        {"name": f["name"], "px": _point_to_dict(f["px"])} if isinstance(f, dict) else f
+        for f in value
+    ]
+
+
+def _features_from_dict(value: Any) -> Any:
+    if not isinstance(value, (list, tuple)):
+        return value
+    return [
+        {"name": f.get("name", ""), "px": _point_from_dict(f.get("px"))}
+        if isinstance(f, dict)
+        else f
+        for f in value
+    ]
+
+
+register_value_codec("features", features_to_dict, _features_from_dict)
+register_value_codec(
+    "stage_position",
+    lambda p: p.to_dict() if isinstance(p, FibsemStagePosition) else p,
+    lambda d: FibsemStagePosition.from_dict(d) if isinstance(d, dict) else d,
+)
+register_value_codec(
+    "alignment_area",
+    lambda r: r.to_dict() if isinstance(r, FibsemRectangle) else r,
+    lambda d: FibsemRectangle.from_dict(d) if isinstance(d, dict) else d,
+)
 
 
 class ValueRefused(ValueError):
@@ -300,6 +376,66 @@ def prepare_values(
             step.undo()
 
     return PreparedWrite(apply=apply, undo=undo)
+
+
+# The values the in-run questions carry: checked, and written nowhere.
+
+
+def _prepare_features(experiment: Any, item: Any, value: Any) -> PreparedWrite:
+    """Checked, and written nowhere.
+
+    A value decided after its task has ended (a point of interest, say) is
+    written to the item, because there is nobody left to act on the answer. A detection is asked *during* a task (FIB-1025): the consumer
+    is the task itself, parked on the answer, which applies it with the
+    instrument in the state it asked in. Writing it to the item here would be
+    a second, later application of the same correction.
+
+    So the value is still checked -- a malformed answer must be refused before
+    the run is released on it -- and then left for its waiter.
+    """
+    if not isinstance(value, (list, tuple)):
+        raise ValueRefused(f"features must be a list, not {type(value).__name__}.")
+    for entry in value:
+        if not isinstance(entry, dict):
+            raise ValueRefused(
+                f"every feature must be a name and a point, not {type(entry).__name__}."
+            )
+        if not entry.get("name"):
+            raise ValueRefused("every feature needs a name to be matched back by.")
+        if not isinstance(entry.get("px"), Point):
+            raise ValueRefused(f"{entry['name']} needs a point in image pixels.")
+    return PreparedWrite.nothing()
+
+
+def _prepare_stage_position(experiment: Any, item: Any, value: Any) -> PreparedWrite:
+    """Checked, and written nowhere, for the reason ``_prepare_features`` gives:
+    a state is confirmed mid-task, and the instrument already holds it."""
+    if not isinstance(value, FibsemStagePosition):
+        raise ValueRefused(
+            f"stage_position must be a stage position, not {type(value).__name__}."
+        )
+    return PreparedWrite.nothing()
+
+
+def _prepare_alignment_area(experiment: Any, item: Any, value: Any) -> PreparedWrite:
+    """Checked, and written nowhere, for the reason ``_prepare_features``
+    gives: the task acquires its alignment reference with the area it is
+    handed. A rectangle that is not a valid reduced area is refused here,
+    before the run is released on it."""
+    if not isinstance(value, FibsemRectangle):
+        raise ValueRefused(
+            f"alignment_area must be a rectangle, not {type(value).__name__}."
+        )
+    if not value.is_valid_reduced_area:
+        raise ValueRefused(
+            f"alignment_area {value.pretty_string} is not inside the frame."
+        )
+    return PreparedWrite.nothing()
+
+
+register_value_writer("features", _prepare_features)
+register_value_writer("stage_position", _prepare_stage_position)
+register_value_writer("alignment_area", _prepare_alignment_area)
 
 
 def compute_delta(proposed: Any, confirmed: Any) -> Any:

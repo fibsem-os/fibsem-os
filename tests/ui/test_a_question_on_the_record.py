@@ -30,7 +30,6 @@ from PyQt5.QtCore import QCoreApplication, QEvent
 from PyQt5.QtWidgets import QWidget
 
 from fibsem import conversions
-from fibsem.applications.autolamella.proposals import DETECTION
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     AutoLamellaTaskState,
@@ -50,7 +49,7 @@ from fibsem.workflows.interaction import (
     ReviewDetection,
     ask,
 )
-from fibsem.workflows.proposals import Decision, DecisionOutcome, Proposal
+from fibsem.workflows.proposals import DETECTION, Decision, DecisionOutcome, Proposal
 from fibsem.workflows.status import HoldKind, TaskStatus
 
 TASK = "Mill Undercut"

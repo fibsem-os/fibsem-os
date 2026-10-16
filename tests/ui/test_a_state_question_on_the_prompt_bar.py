@@ -21,7 +21,6 @@ pytest.importorskip("PyQt5")
 from psygnal.containers import EventedDict
 from PyQt5.QtCore import QCoreApplication, QEvent
 
-from fibsem.applications.autolamella.proposals import STATE
 from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskDescription,
@@ -35,7 +34,7 @@ from fibsem.applications.autolamella.workflows.tasks.reference_image import (
     AcquireReferenceImageTask,
 )
 from fibsem.structures import FibsemStagePosition
-from fibsem.workflows.proposals import AuthorKind, DecisionOutcome
+from fibsem.workflows.proposals import STATE, AuthorKind, DecisionOutcome
 from fibsem.workflows.status import HoldKind, TaskStatus
 
 REF = "Acquire Reference Image"
