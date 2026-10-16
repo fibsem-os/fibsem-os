@@ -45,6 +45,7 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.applications.autolamella.workflows.tasks.proposing import settle
 from fibsem.applications.autolamella.workflows.tasks.status import take_back_finish
 from fibsem.cancellation import OperationCancelledError
+from fibsem.structures import Display, param
 from fibsem.util.timestamps import now, now_iso
 
 if TYPE_CHECKING:
@@ -70,18 +71,29 @@ class GridTaskConfig(Configurable, ABC):
 
     task_type: ClassVar[str]
     display_name: ClassVar[str]
-    task_name: str = ""  # unique within a protocol; the key the workflow uses
+    task_name: str = param(
+        "",
+        doc="The task's name, unique within the protocol: the key the workflow knows it by.",
+    )  # unique within a protocol; the key the workflow uses
     # Who decides the task's record: automated (the task confirms its own) or
     # supervised (the task ends AwaitingDecision and the Review tab decides;
     # a grid task asks nothing while it runs, so that is the whole of it).
     # One per task name, shared by every grid like the rest of the config;
     # read as automated while the review preference is off.
-    attention: Attention = Attention.automated
+    attention: Attention = param(
+        Attention.automated,
+        doc="Who decides the task's result: the task itself (automated), or the operator in the Review tab (supervised). Read as automated while reviews are off.",
+        display=Display("Attention"),
+    )
     # The tasks, by name, whose result this one uses, as on the lamella
     # workflow: it waits while one of them awaits a decision or is still queued
     # for the grid, and is skipped when one of them did not complete. Empty:
     # it runs whatever happened before it on the grid.
-    requires: List[str] = field(default_factory=list)
+    requires: List[str] = param(
+        doc="The tasks, by name, whose result this one uses. It waits while one of them awaits a decision or is still queued for the grid, and is skipped when one did not complete. Empty runs whatever happened before it.",
+        display=Display("Requires"),
+        default_factory=list,
+    )
 
     @property
     def estimated_duration(self) -> float:

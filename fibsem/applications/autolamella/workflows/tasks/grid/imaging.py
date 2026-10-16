@@ -42,8 +42,11 @@ from fibsem.imaging.tiling.reach import reachable_overview
 from fibsem.services.sample_handling import uncalibrated_message
 from fibsem.structures import (
     BeamType,
+    Display,
     FibsemStagePosition,
     OverviewAcquisitionSettings,
+    Parameter,
+    param,
 )
 
 if TYPE_CHECKING:
@@ -71,11 +74,20 @@ class BeamOverviewGridTaskConfig(GridTaskConfig):
 
     task_type: ClassVar[str] = "BEAM_OVERVIEW_GRID"
     display_name: ClassVar[str] = "Beam overview"
-    orientation: str = "SEM"
-    settings: OverviewAcquisitionSettings = field(
-        default_factory=OverviewAcquisitionSettings
+    orientation: str = param(
+        "SEM",
+        doc="The stage orientation to acquire in, by the microscope's name for it (SEM, FIB, ...). The grid's calibrated slot position is re-expressed for it.",
+        display=Display("Orientation"),
     )
-    filename: str = "overview"
+    settings: OverviewAcquisitionSettings = param(
+        doc="The tiled overview: the tile image settings (their beam is the overview's), the grid of tiles, focus and contrast.",
+        default_factory=OverviewAcquisitionSettings,
+    )
+    filename: str = param(
+        "overview",
+        doc="The name the overview is saved under, in the grid's folder.",
+        display=Display("Filename"),
+    )
 
     @property
     def beam_type(self) -> BeamType:
