@@ -756,7 +756,8 @@ class AgentCard(QFrame):
         self._body.setDirection(
             QBoxLayout.TopToBottom if self._stacked() else QBoxLayout.LeftToRight
         )
-        self._picture_holder = None
+        # The body's widgets are gone: so is the picture (else a resize touches it).
+        self._picture_holder = self.image_label = None
         request = self._request
         self.accept_button = self.details_link = self.why_link = None
         self.dismiss_button = None
@@ -1007,7 +1008,6 @@ class AgentCard(QFrame):
 
     def _add_picture(self, column: QVBoxLayout, image: str) -> None:
         """The *image* the values were measured on (FIB-1411), its legend on it."""
-        self.image_label = None
         if image not in self._images:
             if self._notes.get(image):
                 column.addWidget(
