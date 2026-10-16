@@ -55,6 +55,24 @@ def test_armed_sidecar_registers_the_full_microscope_catalog(armed_sidecar):
     assert _tool_names(armed_sidecar) == expected
 
 
+def test_each_tool_takes_the_arguments_its_catalog_entry_names():
+    """The catalog's params and optional are each tool's arguments: a request
+    is checked against them at filing (FIB-1425), so they must be the
+    sidecar's own, required and optional alike."""
+    client = _make_client("drive")
+    listed = asyncio.run(build_sidecar(client, None).list_tools())
+    schemas = {
+        t.name: getattr(t, "input_schema", None) or t.inputSchema
+        for t in getattr(listed, "tools", listed)
+    }
+    for spec in CATALOG:
+        schema = schemas[spec.name]
+        assert set(schema.get("properties", {})) == set(spec.params), spec.name
+        assert set(schema.get("required", [])) == (
+            set(spec.params) - set(spec.optional)
+        ), spec.name
+
+
 def test_hardware_tools_are_offered_at_watch():
     """Tools don't follow the level (FIB-1035): the server's 403 is the gate,
     so hardware tools are offered at Watch too, and refused there."""
