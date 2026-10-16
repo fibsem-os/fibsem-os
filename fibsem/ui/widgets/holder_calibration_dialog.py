@@ -816,7 +816,9 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
         )
         # On the microscope as well as here: this dialog is opened from more than one
         # place, and what draws the slots is not told by whichever opened it.
-        self._microscope.holder_changed.emit(holder)
+        handling = getattr(self._microscope, "sample_handling", None)
+        if handling is not None:
+            handling.holder_changed.emit(holder)
         self.holder_saved.emit(holder)
         self.accept()
 

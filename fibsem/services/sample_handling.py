@@ -31,6 +31,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import numpy as np
 import yaml
+from psygnal import Signal
 
 from fibsem import config as cfg
 from fibsem.config import SAMPLE_HOLDER_CONFIGURATION_PATH
@@ -384,6 +385,11 @@ class SampleHandling(Service):
         doc="The autoloader, where there is one: its magazine is the inventory.",
     )
 
+    # The sample holder changed: slots calibrated, or another holder loaded from the
+    # configuration (`load_holder`). Carries the holder. Emitted on the caller's
+    # thread.
+    holder_changed = Signal(object)
+
     def __init__(self, name: str = "sample_handling", **kwargs: Any):
         super().__init__(name, **kwargs)
         self.holder: Optional[SampleHolder] = None
@@ -396,10 +402,17 @@ class SampleHandling(Service):
         return f"<SampleHandling: holder={self.holder}, magazine={self.magazine}>"
 
     def connect(self) -> "SampleHandling":
+        """Bind the service, then build its holder (`load_holder`)."""
+        super().connect()
+        self.load_holder()
+        return self
+
+    def load_holder(self) -> None:
         """Build the holder from the configuration, and the magazine's grid model over
         the loader if there is one; then restore the occupancy the session state
-        records, once the configuration is known."""
-        super().connect()
+        records, once the configuration is known, and announce the holder on
+        ``holder_changed``. Applying a configuration that names a holder calls this
+        again, so subscribers stay connected."""
         microscope = self.parent
         stage_settings = microscope.system.stage
         builtin = self.stage.has_builtin_shuttle()
@@ -451,7 +464,7 @@ class SampleHandling(Service):
         # `setup_session` restores it once it is.
         if getattr(microscope, "configuration_path", None):
             self.restore_occupancy()
-        return self
+        self.holder_changed.emit(holder)
 
     # -- where the stage is, against the holder -----------------------------
 

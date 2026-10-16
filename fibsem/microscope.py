@@ -237,11 +237,7 @@ class FibsemMicroscope(ABC):
 
     stage_position_changed = Signal(FibsemStagePosition)
     _stage_position: FibsemStagePosition = None
-    # The sample holder changed: slots calibrated, or the stage rebuilt around another
-    # holder. Carries the holder. On the microscope rather than the `Stage`, because
-    # applying a configuration that names a holder rebuilds the `Stage`, and a signal
-    # on it would take every subscriber with it.
-    holder_changed = Signal(object)
+    # A holder change is on the sample handling service: ``sample_handling.holder_changed``.
 
     @abstractmethod
     def connect_to_microscope(
@@ -462,8 +458,6 @@ class FibsemMicroscope(ABC):
         self._read_hardware_capabilities()
 
         self.sample_handling = bind_sample_handling(self)
-        if self.sample_handling is not None:
-            self.holder_changed.emit(self.sample_handling.holder)
 
     # ---- fitted subsystems ---------------------------------------------------
     #
@@ -1665,10 +1659,14 @@ class FibsemMicroscope(ABC):
                 self.system.stage.active_holder = previous_stage.active_holder
             else:
                 # The file chose a holder, so the sample handling service -- built
-                # once at connect -- has to be rebuilt around it, or `system.stage`
-                # says one holder while `sample_handling.holder` still moves to the
-                # slots of another.
-                self._build_sample_handling()
+                # once at connect -- has to load it, or `system.stage` says one
+                # holder while `sample_handling.holder` still moves to the slots of
+                # another. Loaded into the same service rather than a new one, so
+                # what listens on its `holder_changed` stays connected.
+                if self.sample_handling is not None:
+                    self.sample_handling.load_holder()
+                else:
+                    self._build_sample_handling()
 
         # `system_settings.manipulator` is not taken from the incoming settings:
         # what is fitted is not in the file, so the incoming record only carries
