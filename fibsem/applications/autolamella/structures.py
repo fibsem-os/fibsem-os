@@ -66,6 +66,7 @@ from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.structures import (
     DEFAULT_ALIGNMENT_AREA,
     Configurable,
+    Display,
     FibsemImage,
     FibsemRectangle,
     FibsemStagePosition,
@@ -77,6 +78,7 @@ from fibsem.structures import (
     ReferenceImageParameters,
     SessionInfo,
     field_specs,
+    param,
 )
 from fibsem.util.durations import format_duration_precise
 from fibsem.util.timestamps import format_time, now, to_datetime, to_iso
@@ -213,10 +215,17 @@ class AutoLamellaTaskConfig(Configurable, ABC):
     # still carry them; they are dropped on load without the "Unknown parameter"
     # warning, which is for keys nobody recognises.
     retired_parameters: ClassVar[frozenset] = frozenset()
-    task_name: str = ""  # unique name for identifying in multi-task workflows
-    milling: Dict[str, FibsemMillingTaskConfig] = field(default_factory=dict)
-    reference_imaging: ReferenceImageParameters = field(
-        default_factory=ReferenceImageParameters
+    task_name: str = param(
+        "",
+        doc="The task's name, unique within the protocol: the key the workflow knows it by.",
+    )  # unique name for identifying in multi-task workflows
+    milling: Dict[str, FibsemMillingTaskConfig] = param(
+        doc="The task's milling, by key (trench, rough, polishing, ...): each one's patterns, strategy and alignment.",
+        default_factory=dict,
+    )
+    reference_imaging: ReferenceImageParameters = param(
+        doc="The reference images the task acquires when it finishes.",
+        default_factory=ReferenceImageParameters,
     )
 
     @property

@@ -31,7 +31,13 @@ from fibsem.imaging.thumbnail import write_thumbnail
 from fibsem.imaging.tiled import stamped_overview_name
 from fibsem.imaging.tiling.reach import reachable_fluorescence_overview
 from fibsem.services.sample_handling import uncalibrated_message
-from fibsem.structures import FibsemStagePosition, InsertableDeviceState
+from fibsem.structures import (
+    Display,
+    FibsemStagePosition,
+    InsertableDeviceState,
+    Parameter,
+    param,
+)
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
@@ -43,15 +49,28 @@ class FluorescenceOverviewGridTaskConfig(GridTaskConfig):
 
     task_type: ClassVar[str] = "FM_OVERVIEW_GRID"
     display_name: ClassVar[str] = "Fluorescence overview"
-    channels: List[ChannelSettings] = field(
-        default_factory=lambda: [ChannelSettings(name="Channel-01")]
+    channels: List[ChannelSettings] = param(
+        doc="The FM channels each tile is acquired in.",
+        default_factory=lambda: [ChannelSettings(name="Channel-01")],
     )
     # `overview`, not `parameters`: the base config's `parameters` is the list
     # of a form's fields, and a field of that name would shadow it.
-    overview: OverviewParameters = field(default_factory=OverviewParameters)
-    zparams: ZParameters = field(default_factory=ZParameters)
-    autofocus_settings: Optional[AutoFocusSettings] = None
-    filename: str = "overview"
+    overview: OverviewParameters = param(
+        doc="The grid of tiles, its order, focus and registration.",
+        default_factory=OverviewParameters,
+    )
+    zparams: ZParameters = param(
+        doc="The z-stack each tile takes, when the overview uses one.",
+        default_factory=ZParameters,
+    )
+    autofocus_settings: Optional[AutoFocusSettings] = param(
+        None, doc="How to autofocus, when the overview does. Empty uses the defaults."
+    )
+    filename: str = param(
+        "overview",
+        doc="The name the overview is saved under, in the grid's folder.",
+        display=Display("Filename"),
+    )
 
     role: ClassVar[str] = "overview_fm"
 
