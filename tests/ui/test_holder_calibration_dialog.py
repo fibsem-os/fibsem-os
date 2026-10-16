@@ -164,7 +164,7 @@ def test_save_writes_the_config_and_emits(qapp, microscope, tmp_path):
     # And on the microscope, which is what the overview tabs listen to: they are not
     # told by whichever widget opened the dialog.
     announced = []
-    microscope.holder_changed.connect(announced.append)
+    microscope.sample_handling.holder_changed.connect(announced.append)
     dialog.name_edit.setText("Two-grid shuttle")
     dialog._on_next()  # applies the name
 

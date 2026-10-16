@@ -2988,7 +2988,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._refresh_grid_context()
         # Renaming a grid in the Sample view has to follow the experiment's records.
         # Calibrating a slot there needs nothing here: the Overview tabs hear of it
-        # from `microscope.holder_changed`, whichever window ran the calibration.
+        # from `microscope.sample_handling.holder_changed`, whichever window ran the calibration.
         holder_panel = getattr(sample, "holder_widget", None)
         if holder_panel is not None:
             holder_panel.set_rename_check(self._grid_rename_refusal)

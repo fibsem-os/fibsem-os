@@ -682,7 +682,10 @@ class FibsemOverviewWidget(QWidget):
         if self.microscope.imaging is not None:
             self.microscope.imaging.tiled_progress.connect(self._on_progress)
         self.microscope.stage_position_changed.connect(self._on_stage_signal)
-        self.microscope.holder_changed.connect(self._on_holder_changed)
+        if self.microscope.sample_handling is not None:
+            self.microscope.sample_handling.holder_changed.connect(
+                self._on_holder_changed
+            )
 
         self._refresh_current_position()
         self._refresh_context_overlays()
@@ -4277,8 +4280,14 @@ class FibsemOverviewWidget(QWidget):
         # anywhere else in the application was a hard segfault, not an exception.
         subscriptions = [
             (self.microscope.stage_position_changed, self._on_stage_signal),
-            (self.microscope.holder_changed, self._on_holder_changed),
         ]
+        if self.microscope.sample_handling is not None:
+            subscriptions.append(
+                (
+                    self.microscope.sample_handling.holder_changed,
+                    self._on_holder_changed,
+                )
+            )
         if self.microscope.imaging is not None:
             subscriptions.append(
                 (self.microscope.imaging.tiled_progress, self._on_progress)

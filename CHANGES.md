@@ -50,6 +50,11 @@ lists where each key went.
   service instead: `microscope.imaging.tiled_progress.connect(slot)`. It carries the
   same `TiledProgress` reports from beam and fluorescence overviews, on the same
   thread. A microscope with no beam has no imaging service, so nothing reports there.
+- **`microscope.holder_changed` is removed.** Listen on the sample handling service
+  instead: `microscope.sample_handling.holder_changed.connect(slot)`. Applying a
+  configuration that names a holder now loads it into the same service
+  (`sample_handling.load_holder()`) rather than building a new one, so subscribers
+  stay connected.
 - **`microscope.move_to_microscope(target)` is removed.** Call
   `microscope.move_to_device(target)`; pass `orientation="SEM"` to land at SEM when
   returning to the beams, as the old method did on a compustage.
