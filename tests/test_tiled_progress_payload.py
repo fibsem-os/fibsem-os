@@ -1,6 +1,6 @@
 """What the tiled acquisition tells its consumers, per tile.
 
-`tiled_acquisition_signal` is shared: the FIB/SEM overview places tiles from it, the
+`imaging.tiled_progress` is shared: the FIB/SEM overview places tiles from it, the
 AutoLamella window branches on it, and a progress bar reads its counters. So the shape
 of the payload is a contract between modules that never see each other, and the sort of
 thing that gets edited by someone looking at one consumer.
@@ -25,6 +25,7 @@ from fibsem.imaging.tiling.progress import (
     MODALITY_FLUORESCENCE,
     TiledProgress,
     TiledStatus,
+    report_tiled_progress,
 )
 from fibsem.structures import (
     BeamType,
@@ -44,7 +45,7 @@ def payloads(microscope, tmp_path_factory):
     """One small run, captured. Module-scoped: the simulator sleeps per tile, and every
     assertion below reads the same run rather than paying for its own."""
     collected = []
-    microscope.tiled_acquisition_signal.connect(collected.append)
+    microscope.imaging.tiled_progress.connect(collected.append)
     try:
         TiledAcquisitionRunner(
             microscope,
@@ -62,8 +63,31 @@ def payloads(microscope, tmp_path_factory):
             ),
         ).run()
     finally:
-        microscope.tiled_acquisition_signal.disconnect(collected.append)
+        microscope.imaging.tiled_progress.disconnect(collected.append)
     return collected
+
+
+def test_tile_progress_is_on_the_imaging_service_not_the_microscope(microscope):
+    assert not hasattr(microscope, "tiled_acquisition_signal")
+    reports = []
+    microscope.imaging.tiled_progress.connect(reports.append)
+    try:
+        progress = TiledProgress(status=TiledStatus.STARTING, modality=MODALITY_BEAM)
+        report_tiled_progress(microscope, progress)
+    finally:
+        microscope.imaging.tiled_progress.disconnect(reports.append)
+    assert reports == [progress]
+
+
+def test_without_imaging_a_report_goes_nowhere():
+    """A microscope with no beam has no imaging service; reporting doesn't raise."""
+
+    class NoBeams:
+        imaging = None
+
+    report_tiled_progress(
+        NoBeams(), TiledProgress(status=TiledStatus.STARTING, modality=MODALITY_BEAM)
+    )
 
 
 def _per_tile(payloads):
@@ -176,7 +200,7 @@ def test_a_failed_run_carries_the_reason_not_just_the_fact(microscope, tmp_path)
     UI "Acquisition Failed" and nothing about why -- and a stage-limits rejection names
     every offending tile."""
     collected = []
-    microscope.tiled_acquisition_signal.connect(collected.append)
+    microscope.imaging.tiled_progress.connect(collected.append)
     runner = TiledAcquisitionRunner(
         microscope,
         OverviewAcquisitionSettings(
@@ -197,7 +221,7 @@ def test_a_failed_run_carries_the_reason_not_just_the_fact(microscope, tmp_path)
         with pytest.raises(RuntimeError):
             runner.run()
     finally:
-        microscope.tiled_acquisition_signal.disconnect(collected.append)
+        microscope.imaging.tiled_progress.disconnect(collected.append)
 
     terminal = [p for p in collected if p.status.is_terminal]
     assert terminal, "a failed run emitted no terminal report"

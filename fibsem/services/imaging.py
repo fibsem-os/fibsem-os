@@ -35,6 +35,8 @@ from typing import (
     Union,
 )
 
+from psygnal import Signal
+
 # At import, not under TYPE_CHECKING: the App Server decodes a command's arguments
 # from its type hints (an AutoFocusSettings sent as a dict).
 from fibsem.autofunctions.autofocus import AutoFocusResult, AutoFocusSettings
@@ -64,6 +66,7 @@ from fibsem.fm.structures import (
     OverviewParameters,
     ZParameters,
 )
+from fibsem.imaging.tiling.progress import TiledProgress
 from fibsem.services.core import Service, save_beam_conditions
 from fibsem.structures import (
     BeamType,
@@ -103,6 +106,11 @@ class Imaging(Service):
     electron = Role(Beam, required=False, doc="The electron beam.")
     ion = Role(Beam, required=False, doc="The ion beam.")
     fm = Role(FM, required=False, doc="The fluorescence microscope.")
+
+    # Tile progress (`TiledProgress`) from a beam or fluorescence tiled overview,
+    # however it was started: each tile, the stitch, and how the run ended. Emitted
+    # on the acquiring thread. A Signal, not a Parameter: it carries a preview image.
+    tiled_progress = Signal(TiledProgress)
 
     def __init__(self, name: str = "imaging", **kwargs: Any):
         super().__init__(name, **kwargs)

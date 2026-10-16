@@ -46,6 +46,10 @@ lists where each key went.
   `microscope.milling.progress.changed.connect(slot)` and
   `microscope.spot_burn.progress.changed.connect(slot)`. They carry the same
   `MillingProgress` and `SpotBurnProgress` reports, on the same thread.
+- **`microscope.tiled_acquisition_signal` is removed.** Listen on the imaging
+  service instead: `microscope.imaging.tiled_progress.connect(slot)`. It carries the
+  same `TiledProgress` reports from beam and fluorescence overviews, on the same
+  thread. A microscope with no beam has no imaging service, so nothing reports there.
 - **`microscope.move_to_microscope(target)` is removed.** Call
   `microscope.move_to_device(target)`; pass `orientation="SEM"` to land at SEM when
   returning to the beams, as the old method did on a compustage.
