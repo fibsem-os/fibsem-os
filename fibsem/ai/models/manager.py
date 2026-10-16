@@ -86,9 +86,14 @@ class Model:
         image: Any,
         pixel_size: Optional[float] = None,
         beam: Optional[str] = None,
+        tile: Optional[Tuple[int, int]] = None,
     ) -> SegmentationResult:
         """The segmentation of *image*: a `FibsemImage`, whose own pixel size and
-        beam are used, or an array with *pixel_size* (metres) and *beam*."""
+        beam are used, or an array with *pixel_size* (metres) and *beam*.
+
+        With *tile* (height, width in pixels), the image runs a tile at a time
+        and the masks are put back together: a stitched overview runs at its
+        tiles' size, so a large one needs no more memory than one tile."""
         data = getattr(image, "data", image)
         metadata = getattr(image, "metadata", None)
         if metadata is not None:
@@ -97,7 +102,7 @@ class Model:
         warnings = self.check(beam, pixel_size)
         started = time.perf_counter()
         with self._lock:  # one call at a time per loaded model
-            mask = self.backend.predict(np.asarray(data))
+            mask = _predict(self.backend, np.asarray(data), tile)
         return SegmentationResult(
             mask=np.asarray(mask, dtype=np.uint8),
             classes=self.card.classes,
@@ -114,6 +119,22 @@ class Model:
             },
             warnings=warnings,
         )
+
+
+def _predict(backend: Any, data: np.ndarray, tile: Optional[Tuple[int, int]]):
+    """The backend's mask for *data*, whole or a *tile* at a time."""
+    if tile is None:
+        return backend.predict(data)
+    height, width = data.shape[:2]
+    step_y, step_x = (max(int(n), 1) for n in tile)
+    mask = np.zeros((height, width), dtype=np.uint8)
+    for y in range(0, height, step_y):
+        for x in range(0, width, step_x):
+            window = data[y : y + step_y, x : x + step_x]
+            mask[y : y + window.shape[0], x : x + window.shape[1]] = backend.predict(
+                window
+            )
+    return mask
 
 
 class ModelManager:

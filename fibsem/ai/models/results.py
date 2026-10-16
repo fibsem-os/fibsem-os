@@ -18,6 +18,9 @@ from fibsem.ai.models.card import ClassInfo
 
 # How much of a labelled pixel's colour is the class's, over the image.
 OVERLAY_ALPHA = 0.45
+# The regions a result lists per class, largest first: enough to pick from
+# without one class's specks filling the answer.
+MAX_REGIONS = 20
 
 
 @dataclass
@@ -54,6 +57,26 @@ class SegmentationResult:
         _, found = ndimage.label(self.mask == self._id(name))
         return int(found)
 
+    def regions(self, name: str, limit: int = MAX_REGIONS) -> List[Dict[str, Any]]:
+        """The separate regions labelled *name*, largest first, at most *limit*:
+        each one's centre in pixels (x, y; +y down) and area in µm² (in pixels
+        without a pixel size). A centre is where on the image to look, or to
+        turn into a stage position from the image's metadata."""
+        labels, found = ndimage.label(self.mask == self._id(name))
+        if not found:
+            return []
+        sizes = ndimage.sum_labels(np.ones_like(labels), labels, range(1, found + 1))
+        centres = ndimage.center_of_mass(labels > 0, labels, range(1, found + 1))
+        regions = []
+        for pixels, (cy, cx) in sorted(zip(sizes, centres), key=lambda r: -r[0]):
+            region = {"centre_px": [round(cx, 1), round(cy, 1)]}
+            if self.pixel_size is None:
+                region["area_px"] = int(pixels)
+            else:
+                region["area_um2"] = _rounded(pixels * (self.pixel_size * 1e6) ** 2)
+            regions.append(region)
+        return regions[:limit]
+
     def overlay(self, image: np.ndarray) -> np.ndarray:
         """*image* in grey with each class drawn over it in its colour, RGB
         uint8. Background (class 0) is left as it is."""
@@ -82,6 +105,7 @@ class SegmentationResult:
                 "fraction": round(self.fraction(info.name), 4),
                 "area_um2": _rounded(self.area_um2(info.name)),
                 "count": self.count(info.name),
+                "regions": self.regions(info.name),
             }
         return {
             "model": self.provenance,

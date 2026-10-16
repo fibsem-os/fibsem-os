@@ -12,10 +12,12 @@ file: loading a checkpoint can run the code inside it.
 
 from __future__ import annotations
 
+import json
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from fibsem.devices.core import query
+from fibsem.imaging.tiling.result import METADATA_FILE
 from fibsem.services.core import Service
 from fibsem.structures import FibsemImage
 
@@ -74,7 +76,11 @@ class Inference(Service):
         ``inference`` folder beside the image, named after the image and the
         model. Answers each class's share of the image, area in µm² and region
         count, which model made it (name, version, backend, settings, seconds),
-        warnings, and the saved paths. Moves nothing."""
+        warnings, and the saved paths. Each class lists its largest regions'
+        centres in pixels, for a stage position from the image's metadata.
+
+        A stitched overview (its tiles' folder and record beside it) runs a
+        tile at a time, at the tiles' size and pixel size. Moves nothing."""
         if not model:
             default = self.manager.registry.default_for("segmentation")
             if default is None:
@@ -87,12 +93,16 @@ class Inference(Service):
             raise ValueError(
                 f"{entry.name} is a {loaded.card.task} model, not segmentation"
             )
-        result = loaded.segment(image)
+        overview = overview_tiles(image_path)
+        result = loaded.segment(image, tile=overview)
         if path is None:
             path = os.path.join(os.path.dirname(image_path), RESULTS_FOLDER)
         stem = f"{os.path.splitext(os.path.basename(image_path))[0]}-{entry.name}"
         saved = result.save(path, stem, image=image.data)
-        return {**result.to_dict(), "image_path": image_path, **saved}
+        answer = {**result.to_dict(), "image_path": image_path, **saved}
+        if overview is not None:
+            answer["tile_px"] = list(overview)
+        return answer
 
     def _agent_entry(self, model: str) -> Any:
         """The entry for *model*. One kept from the agent (``agent: false``) is
@@ -103,3 +113,23 @@ class Inference(Service):
 
             raise ModelNotFound(f"no model '{entry.name}' is registered for the agent")
         return entry
+
+
+def overview_tiles(image_path: str) -> Optional[Tuple[int, int]]:
+    """The tile size (height, width in pixels) of the stitched overview at
+    *image_path*, read from the record in its tiles' folder beside it, or None
+    for an image that is not one. The record was ``tile-layout.json`` before it
+    was ``overview-metadata.json``; both are read."""
+    folder = os.path.splitext(image_path)[0]
+    for name in (METADATA_FILE, "tile-layout.json"):
+        record = os.path.join(folder, name)
+        if not os.path.isfile(record):
+            continue
+        try:
+            with open(record) as f:
+                settings = json.load(f).get("settings") or {}
+            width, height = settings["image_settings"]["resolution"]
+        except (OSError, ValueError, KeyError, TypeError):
+            return None
+        return int(height), int(width)
+    return None

@@ -104,3 +104,28 @@ def test_an_image_outside_the_experiment_is_refused(client, microscope, tmp_path
     )
     assert resp.status_code == 403
     assert resp.json()["detail"]["error_type"] == "not_allowed"
+
+
+def test_a_stitched_overview_runs_at_its_tiles_size(client, microscope, experiment):
+    from fibsem.imaging.tiled import acquire_tiled_overview
+    from fibsem.structures import OverviewAcquisitionSettings
+
+    settings = OverviewAcquisitionSettings(
+        image_settings=ImageSettings(
+            beam_type=BeamType.ELECTRON, resolution=(64, 48), hfw=100e-6
+        ),
+        nrows=2,
+        ncols=3,
+    )
+    settings.image_settings.dwell_time = 1e-9
+    overview = acquire_tiled_overview(microscope, settings, str(experiment), "ov")
+    resp = client.post(
+        f"{INFERENCE}/queries/segment",
+        json={"kwargs": {"image_path": overview.mosaic_path}},
+    )
+    assert resp.status_code == 200, resp.text
+    result = resp.json()["result"]
+    assert result["tile_px"] == [48, 64]
+    assert result["shape"] == list(overview.image.data.shape)
+    cells = result["classes"]["Cell"]
+    assert len(cells["regions"]) == min(cells["count"], 20)

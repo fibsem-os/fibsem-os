@@ -140,3 +140,30 @@ def test_a_result_saves_its_mask_overlay_and_record(tmp_path):
         assert json.load(f)["model"]["version"] == "0.1.0"
     with Image.open(paths["overlay_path"]) as overlay:
         assert overlay.size == (96, 64)
+
+
+def test_a_tiled_run_calls_the_backend_once_per_tile():
+    model = _manager().get("fake-segmentation", seed=3)
+    shapes = []
+    predict = model.backend.predict
+    model.backend.predict = lambda window: (
+        shapes.append(window.shape) or predict(window)
+    )
+    result = model.segment(np.zeros((100, 150)), pixel_size=1e-6, tile=(50, 64))
+    assert result.mask.shape == (100, 150)
+    assert sorted(set(shapes)) == [(50, 22), (50, 64)]
+    assert len(shapes) == 6
+
+
+def test_regions_are_largest_first_with_centres():
+    result = (
+        _manager()
+        .get("fake-segmentation")
+        .segment(np.zeros((256, 256)), pixel_size=1e-6)
+    )
+    regions = result.regions("Cell")
+    assert regions and len(regions) == min(result.count("Cell"), 20)
+    areas = [region["area_um2"] for region in regions]
+    assert areas == sorted(areas, reverse=True)
+    x, y = regions[0]["centre_px"]
+    assert 0 <= x < 256 and 0 <= y < 256
