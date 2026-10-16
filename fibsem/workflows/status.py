@@ -79,6 +79,11 @@ class WorkflowStatusUpdate:
     # dropped together with it.
     task_names: List[str] = field(default_factory=list)
     lamella_names: List[str] = field(default_factory=list)
+    # The queue entry this report is about, so a timeline matches its row by id
+    # rather than by (item, task), which repeats when items run in rounds.
+    work_item_id: str = ""
+    # Its round (WorkItem.round): None for items that run their tasks once.
+    round: Optional[int] = None
 
     @property
     def lamella_name(self) -> str:
