@@ -128,6 +128,8 @@ _ADDITIVE = _WRITES_AT_WATCH | {
     "prompt_suggest_answer",
     "item_add",
     "experiment_create",
+    "protocol_add_task",
+    "workflow_queue_grids",
 }
 
 # Titles the name, read out, gets wrong.
@@ -296,6 +298,31 @@ CATALOG: Tuple[ToolSpec, ...] = (
         optional=("stages",),
     ),
     ToolSpec(
+        name="milling_check_stages",
+        description=(
+            "Check milling stages before anything is drawn: per stage, how long it "
+            "would mill (seconds) and the patterns that reach past its field (its "
+            "milling hfw wide, aspect of that high), which a real instrument "
+            "refuses to mill. A stage that cannot define its patterns says why. "
+            "Moves nothing."
+        ),
+        method="POST",
+        path="/microscope/services/milling/queries/check_stages",
+        level="watch",
+        params={
+            "stages": "FibsemMillingStage dicts",
+            "aspect": "the image's height over width (default 2/3, a 1536 x 1024 image)",
+        },
+        optional=("aspect",),
+    ),
+    ToolSpec(
+        name="milling_list_options",
+        description="The pattern names a stage's pattern.name takes and the strategy names its strategy.name takes.",
+        method="POST",
+        path="/microscope/services/milling/queries/list_options",
+        level="watch",
+    ),
+    ToolSpec(
         name="alignment_align_to_reference",
         description=(
             "Bring the view back onto a saved reference image: acquire with its "
@@ -316,8 +343,11 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "reference_path": "a saved image inside the open experiment",
             "steps": "how many measure-and-correct steps (default 3)",
             "subsystem": "beam-shift (default), stage or stage-vertical",
+            "use_autofocus": "true to auto focus before each acquisition (default false)",
+            "method": "how the shift is measured: cross-correlation (default), phase-correlation or skimage-phase-correlation",
+            "validate": "take a final image and check the methods agree on what is left (default true)",
         },
-        optional=("steps", "subsystem"),
+        optional=("steps", "subsystem", "use_autofocus", "method", "validate"),
     ),
     ToolSpec(
         name="alignment_measure_shift",
@@ -334,6 +364,25 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "reference_path": "the saved reference image",
             "image_path": "the saved image to measure against it",
         },
+    ),
+    ToolSpec(
+        name="alignment_compare_methods",
+        description=(
+            "The shift of one saved image from another by every alignment method, "
+            "how far apart the methods are in pixels, and whether they agree: the "
+            "check alignment_align_to_reference validates with. A disagreement "
+            "means the measurement is not to be trusted. Both paths inside the "
+            "open experiment. Reads the files and moves nothing."
+        ),
+        method="POST",
+        path="/microscope/services/alignment/queries/compare_methods",
+        level="watch",
+        params={
+            "reference_path": "the saved reference image",
+            "image_path": "the saved image to measure against it",
+            "agreement_px": "the most the methods may differ and agree, in pixels (default 2)",
+        },
+        optional=("agreement_px",),
     ),
     ToolSpec(
         name="alignment_check_coincidence",
@@ -574,6 +623,35 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "reason": "for a stop (stop, stop_live): why, for the operator (required there)",
         },
         optional=("kwargs", "reason"),
+    ),
+    ToolSpec(
+        name="device_call_query",
+        description="Ask a device query listed by device_list: it takes arguments, answers, and moves nothing, e.g. device=stage query=pose_table.",
+        method="POST",
+        path="/microscope/devices/{device}/queries/{query}",
+        level="watch",
+        params={
+            "device": "device name from device_list",
+            "query": "query name",
+            "kwargs": "the query's arguments, by name",
+        },
+        optional=("kwargs",),
+    ),
+    ToolSpec(
+        name="microscope_set_state",
+        description=(
+            "Set the microscope to a saved state: both beams' settings and the "
+            "stage position, e.g. the microscope_state of an image's metadata "
+            "(experiment_get_image_metadata) to go back to where and how it was "
+            "taken. The stage moves. microscope_get_state gives the shape."
+        ),
+        method="PUT",
+        path="/microscope/state",
+        level="drive",
+        hardware=True,
+        params={
+            "microscope_state": "a MicroscopeState dict, as microscope_get_state answers"
+        },
     ),
     ToolSpec(
         name="service_list",
@@ -1051,6 +1129,34 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         },
     ),
     ToolSpec(
+        name="experiment_get_image_stage_position",
+        description="The stage position under a point of any saved image in the experiment, beam or FM, from the image's own metadata, so it holds wherever the stage is now. Give x, y in source pixels, or fx, fy from 0 to 1 for a point read off a preview. Nothing moves.",
+        method="GET",
+        path="/app/experiment/images/stage_position",
+        level="watch",
+        router="app",
+        params={
+            "path": "an image file path inside the experiment folder",
+            "x": "source-pixel x (with y)",
+            "y": "source-pixel y, +y down (with x)",
+            "fx": "fraction across the image, 0-1 (with fy)",
+            "fy": "fraction down the image, 0-1 (with fx)",
+        },
+        optional=("x", "y", "fx", "fy"),
+    ),
+    ToolSpec(
+        name="experiment_get_image_pixels",
+        description="Where stage positions fall on any saved image in the experiment, beam or FM: source pixels for each (and whether inside the image), with the image's scale block. A position the image can't place answers why. Computed from the image's own metadata; never re-derive stage geometry. Nothing moves.",
+        method="POST",
+        path="/app/experiment/images/pixels",
+        level="watch",
+        router="app",
+        params={
+            "path": "an image file path inside the experiment folder",
+            "stage_positions": "stage position dicts (x, y, z, r, t, coordinate_system)",
+        },
+    ),
+    ToolSpec(
         name="experiment_list_files",
         description="One folder of the open experiment: its folders, then its files, each with name, path (relative to the experiment), kind (folder, text, image, other), size and modified time. Start at the top (no dir) and go down one folder at a time.",
         method="GET",
@@ -1175,6 +1281,41 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "grid_name": "the grid's name now, from grid_list or grid_get_inventory",
             "name": "its new name",
         },
+    ),
+    ToolSpec(
+        name="grid_set_quality",
+        description="Judge a grid, as its card's quality menu does: GOOD, REWORK or FAILED with a reason the operator reads, or UNASSESSED to clear it. Signed as the agent's; saved.",
+        method="POST",
+        path="/app/experiment/grids/{grid_name}/quality",
+        level="drive",
+        router="app",
+        params={
+            "grid_name": "the grid name, from grid_list",
+            "verdict": "GOOD, REWORK, FAILED, or UNASSESSED to clear",
+            "reason": "why, for the operator",
+        },
+        optional=("reason",),
+    ),
+    ToolSpec(
+        name="grid_set_note",
+        description="Keep a note on a grid's record, as the Grids tab's Note does; an empty note clears it. Apart from the verdict, so judging the grid again keeps it. Saved.",
+        method="POST",
+        path="/app/experiment/grids/{grid_name}/note",
+        level="drive",
+        router="app",
+        params={
+            "grid_name": "the grid name, from grid_list",
+            "note": "the note, at most 4000 characters ('' clears it)",
+        },
+    ),
+    ToolSpec(
+        name="grid_remove",
+        description="Stop tracking a grid, as the Grids tab's Remove does: its files stay on disk, and its lamellae stay with no grid (answered as items_without_grid). Refused while a workflow runs.",
+        method="DELETE",
+        path="/app/experiment/grids/{grid_name}",
+        level="drive",
+        router="app",
+        params={"grid_name": "the grid name, from grid_list"},
     ),
     # The grids on the hardware: the sample handling service, which loads them
     # onto the stage and names them where the loader keeps names.
@@ -1428,6 +1569,16 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         params={"item_name": "the item (lamella) name"},
     ),
     ToolSpec(
+        name="item_move_to_objective_position",
+        description="Move the FM objective to the position stored on a lamella's fluorescence pose, as the tab's objective Move to does: the objective only, not the stage. Refused when nothing is stored or the objective is not inserted.",
+        method="POST",
+        path="/app/experiment/items/{item_name}/objective/move_to",
+        level="drive",
+        router="app",
+        hardware=True,
+        params={"item_name": "the item (lamella) name"},
+    ),
+    ToolSpec(
         name="item_reorder_milling_stages",
         description="Reorder the milling stages inside one of an item's task configs ('run the stress relief first'). order must be exactly the current stage names in their new sequence — this can never add, drop, or duplicate a stage. Echo the version from item_get_task_config; stale is refused.",
         method="POST",
@@ -1471,14 +1622,17 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="workflow_set_options",
-        description="Set whether the run summary dialog opens when a run ends (the workflow's \"Show summary after completion\"). Off still toasts each run's end with a Show summary link. Turn it off before starting runs yourself, so no dialog stands over the operator's window, and tell the operator. Persists with the protocol; protocol_get's options show the current value.",
+        description="Set the workflow's run options, any of: whether the run summary dialog opens when a run ends (off still toasts each run's end with a Show summary link; turn it off before starting runs yourself, so no dialog stands over the operator's window, and tell the operator); whether the beams are turned off when a run ends; how long a run whose remaining work all waits on a review keeps waiting. Persists with the protocol; protocol_get's options show the current values.",
         method="POST",
         path="/app/workflow/options",
         level="drive",
         router="app",
         params={
             "show_run_summary": "true to open the summary dialog at a run's end, false for the toast only",
+            "turn_beams_off": "true to turn the beams off when a run ends",
+            "review_wait": "seconds of inactivity a run waiting on reviews waits, or -1 to wait until stopped",
         },
+        optional=("show_run_summary", "turn_beams_off", "review_wait"),
     ),
     ToolSpec(
         name="item_update",
@@ -1504,6 +1658,121 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "task_name": "the task name, as listed by protocol_get",
             "patch": "object of dotted-path: value entries to set",
             "version": "the version token from protocol_get_task_config",
+        },
+    ),
+    ToolSpec(
+        name="protocol_add_task",
+        description="Add a task of a registered type to the protocol, as the protocol editor's Add Task does: its default settings, at the end of the workflow, and a copy on every item. An unknown type is refused with the type names. Refused while a workflow runs.",
+        method="POST",
+        path="/app/experiment/protocol/tasks",
+        level="drive",
+        router="app",
+        params={
+            "task_type": "a registered task type",
+            "task_name": "the new task's name, unique in the protocol",
+        },
+    ),
+    ToolSpec(
+        name="protocol_remove_task",
+        description="Remove a task from the protocol, the workflow and every item, as the protocol editor's Remove does. What already ran stays in the task history. Refused while a workflow runs.",
+        method="DELETE",
+        path="/app/experiment/protocol/tasks/{task_name}",
+        level="drive",
+        router="app",
+        params={"task_name": "the task name, as listed by protocol_get"},
+    ),
+    ToolSpec(
+        name="protocol_reorder_tasks",
+        description="Put the workflow's tasks in a new order, as dragging them on the Workflow tab does. order is every task, each once; a task before one it requires is refused. Refused while a workflow runs.",
+        method="POST",
+        path="/app/experiment/protocol/tasks/reorder",
+        level="drive",
+        router="app",
+        params={"order": "every workflow task name, in the new order"},
+    ),
+    ToolSpec(
+        name="protocol_set_task_requirements",
+        description="Set what a workflow task requires (the earlier tasks an item must have completed first) and whether it is required or optional, as the Workflow tab's Edit Task does. Refused while a workflow runs.",
+        method="POST",
+        path="/app/experiment/protocol/tasks/{task_name}/requirements",
+        level="drive",
+        router="app",
+        params={
+            "task_name": "the task name, as listed by protocol_get",
+            "requires": "the earlier tasks it needs ([] for none)",
+            "required": "true for required, false for optional",
+        },
+        optional=("requires", "required"),
+    ),
+    ToolSpec(
+        name="protocol_set_lamella_defaults",
+        description="Set what every new item starts with, as the protocol editor's Lamella Template does: use_petname, name_prefix, poi ({x, y}) and alignment_area ({left, top, width, height}, frame fractions). Only what you pass changes; {} clears poi or alignment_area. Existing items keep theirs. Refused while a workflow runs.",
+        method="POST",
+        path="/app/experiment/protocol/lamella_defaults",
+        level="drive",
+        router="app",
+        params={
+            "use_petname": "true to name new items with petnames",
+            "name_prefix": "the prefix for new item names",
+            "poi": "the default point of interest {x, y}, or {} to clear it",
+            "alignment_area": "the default alignment area {left, top, width, height}, or {} to clear it",
+        },
+        optional=("use_petname", "name_prefix", "poi", "alignment_area"),
+    ),
+    ToolSpec(
+        name="protocol_save",
+        description="Save the experiment's protocol to the protocol folder under a file name, as Export Protocol does, so a later experiment can be created with it (experiment_create) or load it (protocol_load). An existing file is refused unless overwrite.",
+        method="POST",
+        path="/app/experiment/protocol/save",
+        level="drive",
+        router="app",
+        params={
+            "name": "a file name (.yaml is added if missing), no folders",
+            "overwrite": "true to replace a file of that name",
+        },
+        optional=("overwrite",),
+    ),
+    ToolSpec(
+        name="protocol_get_grid_task_config",
+        description="A grid task's settings (shared by every grid), with the version a patch echoes. The task names are protocol_get's grid_tasks.",
+        method="GET",
+        path="/app/experiment/grid_protocol/task_config/{task_name}",
+        level="watch",
+        router="app",
+        params={"task_name": "a grid task name, from protocol_get's grid_tasks"},
+    ),
+    ToolSpec(
+        name="protocol_update_grid_task_config",
+        description="Patch a grid task's settings with dotted-path edits, as the Protocol tab's grid task form does; attention (automated, supervised) is the Grids view's Automated/Supervised chip. Echo the version from protocol_get_grid_task_config — a mismatch is refused (409 stale_config). Refused while a workflow runs.",
+        method="POST",
+        path="/app/experiment/grid_protocol/task_config/{task_name}",
+        level="drive",
+        router="app",
+        params={
+            "task_name": "a grid task name, from protocol_get's grid_tasks",
+            "patch": "object of dotted-path: value entries to set",
+            "version": "the version token from protocol_get_grid_task_config",
+        },
+    ),
+    ToolSpec(
+        name="protocol_reorder_grid_tasks",
+        description="Put the grid tasks in a new order, as dragging them on the Grids view does: every grid task, each once. Refused while a workflow runs.",
+        method="POST",
+        path="/app/experiment/grid_protocol/tasks/reorder",
+        level="drive",
+        router="app",
+        params={"order": "every grid task name, in the new order"},
+    ),
+    ToolSpec(
+        name="protocol_set_grid_task_requirements",
+        description="Set what a grid task requires on the same grid first, as the Grids view's Edit Task does: any other grid tasks. Refused while a workflow runs.",
+        method="POST",
+        path="/app/experiment/grid_protocol/tasks/{task_name}/requirements",
+        level="drive",
+        router="app",
+        params={
+            "task_name": "a grid task name, from protocol_get's grid_tasks",
+            "requires": "the grid tasks it needs first ([] for none)",
         },
     ),
     ToolSpec(
@@ -1544,6 +1813,20 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         note="Needs the agent at Drive: the workflow is never the agent's own. At Assist, put it in request_create and the operator approves it (a direct call is refused, 403 ask_first); the operator can also press Stop. Refused (403) at Watch. Never refused for someone else being in control of the microscope.",
     ),
     ToolSpec(
+        name="workflow_stop_task",
+        description="Stop the task now running and carry on with the rest of the queue, as the timeline's Stop Task does; the mill halts too, and the task ends Cancelled. Name the task you mean (workflow_get_queue): if it is no longer the one running, nothing is stopped. Give the reason the operator reads.",
+        method="POST",
+        path="/app/workflow/stop_task",
+        level="drive",
+        router="app",
+        params={
+            "item_name": "the item (or grid) of the task running",
+            "task_name": "the task running",
+            "reason": "why you are stopping it, for the operator (required)",
+        },
+        note="Needs the agent at Drive: the workflow is never the agent's own. At Assist, put it in request_create and the operator approves it (a direct call is refused, 403 ask_first). Refused (403) at Watch. Never refused for someone else being in control of the microscope.",
+    ),
+    ToolSpec(
         name="workflow_start",
         description="Start a workflow — the Run button, remotely. Names the tasks to run (from the protocol) and optionally the items; omitted items means all of them. Refused while a workflow is already running.",
         method="POST",
@@ -1581,8 +1864,10 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "task_names": "grid tasks to run, from the protocol's grid_tasks names",
             "grid_names": "grids to run them on; omit for every recorded grid",
             "screen_all": "true = inventory first, then every present grid (no grid_names)",
+            "unload_at_end": "true to unload the last grid when the run ends",
+            "report_at_end": "true to write the grid report when the run ends",
         },
-        optional=("grid_names", "screen_all"),
+        optional=("grid_names", "screen_all", "unload_at_end", "report_at_end"),
     ),
     ToolSpec(
         name="protocol_set_supervision",
@@ -1621,6 +1906,18 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "item_name": "the item (lamella) the queued task is for",
             "task_name": "the queued task",
             "action": "remove, move_up, move_down or run_next",
+        },
+    ),
+    ToolSpec(
+        name="workflow_queue_grids",
+        description="Add grid tasks for grids to the RUNNING grid run, at the end of the queue, as the Grids view's Add to queue does: each grid's load, then its tasks, less what is already waiting. Refused when no grid run is going.",
+        method="POST",
+        path="/app/workflow/queue/grids",
+        level="drive",
+        router="app",
+        params={
+            "task_names": "grid tasks to add, from the protocol's grid_tasks names",
+            "grid_names": "the grids to add them for",
         },
     ),
     ToolSpec(
@@ -1763,8 +2060,6 @@ NOT_TOOLS: Dict[str, str] = {
     "GET /microscope/services/{service}/{parameter}/metadata": "service_list carries limits, choices and settable.",
     "GET /microscope/devices/{device}/values": "Not decided yet; device_get_parameter reads one value at a time.",
     "GET /microscope/services/{service}/values": "Not decided yet; service_get_parameter reads one value at a time.",
-    "POST /microscope/devices/{device}/queries/{query}": "Not decided yet; services hold the questions an agent asks (service_call_query).",
-    "PUT /microscope/state": "Not decided yet: restoring beams and stage is allowed, but has no tool.",
 }
 
 
@@ -1935,6 +2230,9 @@ _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict
             reference_path=str(a["reference_path"]),
             steps=int(a.get("steps") or 3),
             subsystem=str(a.get("subsystem") or "beam-shift"),
+            use_autofocus=bool(a.get("use_autofocus", False)),
+            method=str(a.get("method") or "cross-correlation"),
+            validate=bool(a.get("validate", True)),
         ),
     ),
     "alignment_measure_shift": lambda a: (
@@ -1943,6 +2241,22 @@ _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict
             reference_path=str(a["reference_path"]), image_path=str(a["image_path"])
         ),
     ),
+    "alignment_compare_methods": lambda a: (
+        {},
+        _kwargs(
+            reference_path=str(a["reference_path"]),
+            image_path=str(a["image_path"]),
+            agreement_px=float(a.get("agreement_px") or 2.0),
+        ),
+    ),
+    "milling_check_stages": lambda a: (
+        {},
+        _kwargs(
+            stages=[dict(stage) for stage in a["stages"]],
+            aspect=float(a.get("aspect") or 2 / 3),
+        ),
+    ),
+    "milling_list_options": lambda a: ({}, _kwargs()),
     "alignment_check_coincidence": lambda a: (
         {},
         _preview(
@@ -2024,6 +2338,10 @@ _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict
     "service_call_command": lambda a: (
         {"service": a.get("service"), "command": a.get("command")},
         _stop(_preview(dict(a.get("kwargs") or {})), a),
+    ),
+    "device_call_query": lambda a: (
+        {"device": a.get("device"), "query": a.get("query")},
+        _preview(dict(a.get("kwargs") or {})),
     ),
     "service_call_query": lambda a: (
         {"service": a.get("service"), "query": a.get("query")},

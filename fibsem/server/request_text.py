@@ -466,6 +466,31 @@ def _beam_short(beam_type: Any) -> str:
     return "FIB" if str(beam_type or "ELECTRON").upper() in ("ION", "2") else "SEM"
 
 
+def _options_line(a: Dict[str, Any]) -> str:
+    """The workflow options a call sets, in one line."""
+    parts = []
+    if "show_run_summary" in a and a["show_run_summary"] is not None:
+        parts.append(
+            "Open the run summary when a run ends"
+            if a["show_run_summary"]
+            else "Don't open the run summary when a run ends; a toast says it ended"
+        )
+    if "turn_beams_off" in a and a["turn_beams_off"] is not None:
+        parts.append(
+            "Turn the beams off when a run ends"
+            if a["turn_beams_off"]
+            else "Leave the beams on when a run ends"
+        )
+    if "review_wait" in a:
+        wait = a["review_wait"]
+        parts.append(
+            "Wait on reviews until stopped"
+            if wait is None or wait == -1
+            else f"Wait on reviews for {_number(float(wait))} s of quiet"
+        )
+    return "; ".join(parts) or "No change"
+
+
 def _names(values: Any, every: str) -> str:
     if not values:
         return every
@@ -1270,6 +1295,26 @@ def _line(
             "what": f"Grid '{a.get('grid_name')}'",
             "change": f"Rename it '{a.get('name')}', on its slot and in the experiment",
         }
+    if tool == "grid_set_quality":
+        verdict = str(a.get("verdict", "")).upper()
+        reason = a.get("reason")
+        return {
+            "what": f"Grid '{a.get('grid_name')}'",
+            "change": "Clear its verdict"
+            if verdict == "UNASSESSED"
+            else f"Mark it {verdict.lower()}" + (f": {reason}" if reason else ""),
+        }
+    if tool == "grid_set_note":
+        note = str(a.get("note") or "")
+        return {
+            "what": f"Grid '{a.get('grid_name')}'",
+            "change": f"Note: {_clip(note)}" if note else "Clear its note",
+        }
+    if tool == "grid_remove":
+        return {
+            "what": f"Grid '{a.get('grid_name')}'",
+            "change": "Stop tracking it; its files stay, its lamellae keep no grid",
+        }
     if tool in _GRID_COMMANDS.values():
         return _grid_line(tool, a, get, stage_now)
     if tool == "milling_stop":
@@ -1324,6 +1369,11 @@ def _line(
         return {
             "what": "Alignment",
             "change": f"Align to {reference}: {_plural(int(steps), 'step')} with {method}",
+        }
+    if tool == "microscope_set_state":
+        return {
+            "what": "Microscope",
+            "change": "Set both beams and the stage to a saved state; the stage moves",
         }
     if tool == "alignment_check_coincidence":
         return {
@@ -1408,6 +1458,11 @@ def _line(
             "what": str(item),
             "change": "Store the objective's position now on its fluorescence pose",
         }
+    if tool == "item_move_to_objective_position":
+        return {
+            "what": str(item),
+            "change": "Move the FM objective to its stored position",
+        }
     if tool == "item_apply_protocol":
         tasks = _names(a.get("task_names"), "every task")
         return {
@@ -1431,11 +1486,62 @@ def _line(
             "change": f"Schedule for {when}" if when else "Clear its schedule",
         }
     if tool == "workflow_set_options":
+        return {"what": "Workflow", "change": _options_line(a)}
+    if tool == "protocol_add_task":
         return {
-            "what": "Workflow",
-            "change": "Open the run summary when a run ends"
-            if a.get("show_run_summary")
-            else "Don't open the run summary when a run ends; a toast says it ended",
+            "what": "Protocol",
+            "change": f"Add a {a.get('task_type')} task named '{task}'",
+        }
+    if tool == "protocol_remove_task":
+        return {
+            "what": "Protocol",
+            "change": f"Remove {task} from the protocol and every lamella",
+        }
+    if tool == "protocol_reorder_tasks":
+        return {
+            "what": "Protocol",
+            "change": f"Put the tasks in this order: {_names(a.get('order'), 'none')}",
+        }
+    if tool == "protocol_set_task_requirements":
+        changes = []
+        if a.get("requires") is not None:
+            changes.append(f"needs {_names(a.get('requires'), 'no task')} first")
+        if a.get("required") is not None:
+            changes.append("required" if a.get("required") else "optional")
+        return {
+            "what": str(task),
+            "change": ("; ".join(changes) or "No change").capitalize(),
+        }
+    if tool == "protocol_set_lamella_defaults":
+        given = {
+            k: a[k]
+            for k in ("use_petname", "name_prefix", "poi", "alignment_area")
+            if k in a
+        }
+        return {
+            "what": "New lamellae",
+            "change": f"Start with {_values_text(given)}" if given else "No change",
+        }
+    if tool == "protocol_save":
+        return {
+            "what": "Protocol",
+            "change": f"Save it to the protocol folder as {a.get('name')}"
+            + (", replacing that file" if a.get("overwrite") else ""),
+        }
+    if tool == "protocol_update_grid_task_config":
+        return {
+            "what": f"Grid protocol · {task}",
+            "change": _patch_lines(a.get("patch"), document("config")),
+        }
+    if tool == "protocol_reorder_grid_tasks":
+        return {
+            "what": "Grid protocol",
+            "change": f"Put the grid tasks in this order: {_names(a.get('order'), 'none')}",
+        }
+    if tool == "protocol_set_grid_task_requirements":
+        return {
+            "what": f"Grid protocol · {task}",
+            "change": f"Needs {_names(a.get('requires'), 'no task')} first",
         }
     if tool == "workflow_start":
         return {
@@ -1444,15 +1550,35 @@ def _line(
             f"{_names(a.get('item_names'), 'every lamella')}",
         }
     if tool == "workflow_start_grids":
+        ends = [
+            words
+            for key, words in (
+                ("unload_at_end", "unload the last grid"),
+                ("report_at_end", "write the report"),
+            )
+            if a.get(key)
+        ]
         return {
             "what": "Grids",
             "change": f"Run {_names(a.get('task_names'), 'no tasks')} on "
-            f"{_names(a.get('grid_names'), 'every grid')}",
+            f"{_names(a.get('grid_names'), 'every grid')}"
+            + (f", then {' and '.join(ends)}" if ends else ""),
+        }
+    if tool == "workflow_queue_grids":
+        return {
+            "what": "Grids",
+            "change": f"Add {_names(a.get('task_names'), 'no tasks')} for "
+            f"{_names(a.get('grid_names'), 'no grids')} to the end of the run",
         }
     if tool == "workflow_stop":
         return {
             "what": "Workflow",
             "change": "Stop the run now running. A mill in progress stops too",
+        }
+    if tool == "workflow_stop_task":
+        return {
+            "what": f"{item} · {task}",
+            "change": "Stop this task; the run carries on. A mill in progress stops too",
         }
     if tool == "protocol_set_supervision":
         return {

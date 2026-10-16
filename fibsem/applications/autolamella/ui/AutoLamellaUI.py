@@ -86,6 +86,7 @@ from fibsem.applications.autolamella.poses import (
     grid_id_at,
     remove_lamella,
     set_lamella_pose,
+    stored_objective_position,
     sync_fluorescence_pose,
 )
 from fibsem.applications.autolamella.structures import (
@@ -1469,9 +1470,13 @@ class AutoLamellaUI(QMainWindow):
         task_names: List[str],
         grid_names: Optional[List[str]] = None,
         inventory_first: bool = False,
+        unload_at_end: bool = False,
+        report_at_end: bool = False,
     ) -> "Future":
         """Start a grid run as the Grids view's Run (or Screen all grids) would;
-        any thread. Same marshal as :meth:`request_start_workflow`."""
+        any thread. Same marshal as :meth:`request_start_workflow`.
+        ``unload_at_end`` and ``report_at_end`` are the confirmation's
+        end-of-run options."""
         from concurrent.futures import Future as _Future
 
         outcome: "_Future" = _Future()
@@ -1480,17 +1485,25 @@ class AutoLamellaUI(QMainWindow):
             list(task_names),
             grid_names,
             bool(inventory_first),
+            bool(unload_at_end),
+            bool(report_at_end),
             outcome,
         )
         return outcome
 
     def _apply_agent_start_grid_workflow(
-        self, task_names: List[str], grid_names, inventory_first: bool, outcome
+        self,
+        task_names: List[str],
+        grid_names,
+        inventory_first: bool,
+        unload_at_end: bool,
+        report_at_end: bool,
+        outcome,
     ) -> None:
         """GUI thread. Complete ``outcome`` with the start result."""
         try:
             result = self._start_grid_workflow_for_agent(
-                task_names, grid_names, inventory_first
+                task_names, grid_names, inventory_first, unload_at_end, report_at_end
             )
         except Exception as exc:  # noqa: BLE001 - the requester owns the failure
             outcome.set_exception(exc)
@@ -1502,6 +1515,8 @@ class AutoLamellaUI(QMainWindow):
         task_names: List[str],
         grid_names: Optional[List[str]],
         inventory_first: bool,
+        unload_at_end: bool = False,
+        report_at_end: bool = False,
     ) -> dict:
         """Validate and start, mirroring the Grids view's Run path (GUI thread).
 
@@ -1561,6 +1576,8 @@ class AutoLamellaUI(QMainWindow):
             task_names,
             list(grid_names) if grid_names is not None else None,
             inventory_first,
+            unload_at_end=unload_at_end,
+            report_at_end=report_at_end,
         )
         started = self.is_workflow_running
         if started and parent is not None:
@@ -2199,6 +2216,17 @@ class AutoLamellaUI(QMainWindow):
             return
         self._stop_workflow_thread()
 
+    def stop_current_task(self) -> None:
+        """Abandon the task now running and carry on with the rest of the queue.
+
+        Stop Task's two halves, as Stop Workflow has them: tell the queue this
+        task is being abandoned, and bring the hardware to a halt. Without the
+        second, the task stops waiting for the mill but the mill keeps going.
+        """
+        if self._task_manager is not None:
+            self._task_manager.stop_task()
+        self.stop_current_operations()
+
     def setup_hooks(self) -> HookManager:
         """Build the HookManager for one workflow run.
 
@@ -2702,18 +2730,12 @@ class AutoLamellaUI(QMainWindow):
         if lamella is None or lamella.fluorescence_pose is None:
             notification_service.show_toast("No lamella selected.", "warning")
             return
-        objective_position = lamella.fluorescence_pose.objective_position
-        if objective_position is None:
-            notification_service.show_toast(
-                f"{lamella.name} has no stored objective position.", "warning"
-            )
+        try:
+            objective_position = stored_objective_position(self.microscope.fm, lamella)
+        except ValueError as e:
+            notification_service.show_toast(str(e), "warning")
             return
         obj = self.microscope.fm.objective
-        if obj.state is not InsertableDeviceState.INSERTED:
-            notification_service.show_toast(
-                "Insert the objective before moving to a stored position.", "warning"
-            )
-            return
 
         # confirmation dialog
         ret = QMessageBox.question(

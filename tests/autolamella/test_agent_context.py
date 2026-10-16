@@ -321,7 +321,7 @@ def test_set_workflow_options_turns_the_run_summary_off_and_saves(experiment):
     ctx = AutoLamellaAppContext(host)
     assert ctx.protocol()["options"]["show_run_summary"] is True  # the default
 
-    applied = ctx.set_workflow_options(False)
+    applied = ctx.set_workflow_options(show_run_summary=False)
     assert applied == {
         "available": True,
         "applied": True,
@@ -332,7 +332,9 @@ def test_set_workflow_options_turns_the_run_summary_off_and_saves(experiment):
     assert ctx.protocol()["options"]["show_run_summary"] is False
     _assert_json_safe(applied)
 
-    assert AutoLamellaAppContext(Host()).set_workflow_options(False) == {
+    assert AutoLamellaAppContext(Host()).set_workflow_options(
+        show_run_summary=False
+    ) == {
         "available": False,
         "applied": False,
     }

@@ -327,17 +327,11 @@ class AutoLamellaAppContext:
         """A saved beam image's full metadata, as its file records it, for a
         path inside the open experiment only (the agent's drill-down behind
         the short block every image answer carries)."""
-        import os
-
-        from fibsem.server.files import FileRefusal, resolve
         from fibsem.structures import FibsemImage
 
-        try:
-            target = resolve(self.experiment_path, path)
-        except FileRefusal as refusal:
-            return refusal.detail
-        if not os.path.isfile(target):
-            return {"error_type": "not_found", "message": f"{path} is a folder."}
+        target, refusal = self._experiment_image(path)
+        if refusal:
+            return refusal
         image = FibsemImage.load(target)
         if image.metadata is None:
             return {
@@ -345,6 +339,69 @@ class AutoLamellaAppContext:
                 "message": f"{path} carries no beam image metadata.",
             }
         return {"path": path, "metadata": image.metadata.to_dict()}
+
+    def _experiment_image(self, path: str):
+        """``(real path, None)`` for a file inside the open experiment, else
+        ``(None, refusal)``: the agent reads saved images there only."""
+        import os
+
+        from fibsem.server.files import FileRefusal, resolve
+
+        try:
+            target = resolve(self.experiment_path, path)
+        except FileRefusal as refusal:
+            return None, refusal.detail
+        if not os.path.isfile(target):
+            return None, {"error_type": "not_found", "message": f"{path} is a folder."}
+        return target, None
+
+    def image_stage_position(self, path: str, px=None, fraction=None) -> Dict[str, Any]:
+        """The stage position under a point of any saved image in the
+        experiment, beam or fluorescence, through the same projection the
+        overview canvases use, built from the image's own metadata: it converts
+        as the image was taken, wherever the stage is now. ``px`` is [x, y] in
+        source pixels (origin top-left, +y down); ``fraction`` is [x, y] from 0
+        to 1 across the image."""
+        target, refusal = self._experiment_image(path)
+        if refusal:
+            return refusal
+        try:
+            position = _overview_point_to_stage(target, px=px, fraction=fraction)
+        except ValueError as exc:
+            return {"error_type": "invalid", "message": str(exc)}
+        return {"path": path, "stage_position": position.to_dict()}
+
+    def image_pixels(
+        self, path: str, stage_positions: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """Where each stage position falls on a saved image in the experiment,
+        in source pixels, with the image's scale block. A position the image
+        cannot place (no geometry for it) answers its reason instead."""
+        from fibsem.structures import FibsemStagePosition
+
+        target, refusal = self._experiment_image(path)
+        if refusal:
+            return refusal
+        try:
+            positions = [FibsemStagePosition.from_dict(p) for p in stage_positions]
+        except (TypeError, KeyError, AttributeError) as exc:
+            return {"error_type": "invalid", "message": f"Not a stage position: {exc}"}
+        block, project = _overview_projector(target)
+        points = []
+        for position in positions:
+            try:
+                point = project(position)
+            except Exception as exc:  # noqa: BLE001 - per-position answer
+                points.append({"px": None, "reason": str(exc)})
+                continue
+            x, y = float(point.x), float(point.y)
+            points.append(
+                {
+                    "px": [x, y],
+                    "inside": 0 <= x <= block["width"] and 0 <= y <= block["height"],
+                }
+            )
+        return {"path": path, "image": block, "points": points}
 
     @property
     def _manager(self):
@@ -1373,6 +1430,98 @@ class AutoLamellaAppContext:
             }
         return {"applied": True, "grid_name": name, "was": grid_name}
 
+    def _grid_record(self, grid_name: str):
+        """The experiment and its record of *grid_name*, or a refusal."""
+        experiment = self._experiment
+        if experiment is None:
+            return (
+                None,
+                None,
+                {"error_type": "not_found", "error": "No experiment is loaded."},
+            )
+        grid = experiment.get_grid_by_name(grid_name)
+        if grid is None:
+            return (
+                None,
+                None,
+                {
+                    "error_type": "not_found",
+                    **self._no_such_grid(experiment, grid_name),
+                },
+            )
+        return experiment, grid, None
+
+    def set_grid_quality(
+        self, grid_name: str, verdict: str, reason: str = ""
+    ) -> Dict[str, Any]:
+        """Judge a grid, as its card's quality menu does: GOOD, REWORK, FAILED,
+        or UNASSESSED to clear it, with an optional reason. Signed as the
+        agent's; saved."""
+        from fibsem.applications.autolamella.proposals import agent_author
+        from fibsem.applications.autolamella.structures import Verdict
+
+        experiment, grid, refusal = self._grid_record(grid_name)
+        if refusal:
+            return refusal
+        names = [v.name for v in Verdict]
+        if str(verdict).upper() not in names:
+            return {
+                "error_type": "invalid",
+                "error": f"verdict is one of {', '.join(names)}, not {verdict!r}.",
+            }
+        state = Verdict[str(verdict).upper()]
+
+        def judge():
+            grid.quality.set_defect(
+                description=reason or "", state=state, author=agent_author("remote")
+            )
+            experiment.save()
+            self._grids_changed()
+
+        self._agent_call(judge)
+        return {
+            "applied": True,
+            "grid_name": grid_name,
+            "quality": grid.quality.to_dict(),
+        }
+
+    def set_grid_note(self, grid_name: str, note: str) -> Dict[str, Any]:
+        """Keep a note on a grid's record, as the Grids tab's Note does; an empty
+        note clears it. Apart from the verdict, so judging the grid again keeps
+        it. Saved."""
+        experiment, grid, refusal = self._grid_record(grid_name)
+        if refusal:
+            return refusal
+
+        def keep():
+            grid.description = note
+            experiment.save()
+            self._grids_changed()
+
+        self._agent_call(keep)
+        return {"applied": True, "grid_name": grid_name, "note": note}
+
+    def remove_grid(self, grid_name: str) -> Dict[str, Any]:
+        """Stop tracking a grid, as the Grids tab's Remove does: its files stay,
+        its lamellae stay with no grid. Refused while a workflow runs (its queue
+        holds grids by name). Saved."""
+        experiment, grid, refusal = self._grid_record(grid_name)
+        if refusal:
+            return refusal
+        refusal = self._not_while_running("remove grids")
+        if refusal:
+            return refusal
+
+        def remove():
+            orphaned = [p.name for p in experiment.get_lamellae_for_grid(grid)]
+            experiment.remove_grid(grid_name)
+            experiment.save()
+            self._grids_changed()
+            return orphaned
+
+        orphaned = self._agent_call(remove)
+        return {"applied": True, "grid_name": grid_name, "items_without_grid": orphaned}
+
     def move_to_item_pose(self, item_name: str, pose_name: str) -> Dict[str, Any]:
         """Move the stage to one of a lamella's poses, as the tab's Move to does,
         through the safe absolute move (flat before a large rotation). Runs on
@@ -1474,6 +1623,32 @@ class AutoLamellaAppContext:
 
         self._agent_call(store)
         return {"applied": True, "item_name": item_name, "objective_position": value}
+
+    def move_objective_to_item(self, item_name: str) -> Dict[str, Any]:
+        """Move the FM objective to the position stored on a lamella's
+        fluorescence pose, as the tab's Move to does: the objective only, not
+        the stage. Runs on the caller's thread, which holds control."""
+        from fibsem.applications.autolamella.poses import stored_objective_position
+
+        experiment, microscope, refusal = self._editable()
+        if refusal:
+            return refusal
+        lamella, refusal = find_item(experiment, item_name)
+        if refusal:
+            return {"error_type": "not_found", **refusal}
+        fm = getattr(microscope, "fm", None)
+        if fm is None:
+            return {"error_type": "not_found", "error": "This microscope has no FM."}
+        try:
+            position = stored_objective_position(fm, lamella)
+        except ValueError as exc:
+            return {"error_type": "invalid", "error": str(exc)}
+        fm.objective.move_absolute(position)
+        return {
+            "applied": True,
+            "item_name": item_name,
+            "objective_position": fm.objective.position,
+        }
 
     def item_detail(self, item_name: str) -> Dict[str, Any]:
         """The durable facts about one item, as a curated snapshot.
@@ -2025,6 +2200,32 @@ class AutoLamellaAppContext:
         host.stop_task_workflow()
         return {"available": True, "stopped": True}
 
+    def stop_task(self, item_name: str, task_name: str) -> Dict[str, Any]:
+        """Stop the task now running and carry on with the rest of the queue,
+        as the timeline's Stop Task does. *item_name* and *task_name* name the
+        task meant: a stop that lands after it finished is refused rather than
+        stopping the next one."""
+        host = self._host
+        manager = self._manager
+        if manager is None or not hasattr(host, "stop_current_task"):
+            return {"stopped": False, "reason": "no workflow is running"}
+        active = manager.queue.active
+        if active is None or (active.item_name, active.task_name) != (
+            item_name,
+            task_name,
+        ):
+            return {
+                "stopped": False,
+                "reason": f"{task_name} for {item_name} is not the task running",
+                "running": (
+                    {"item_name": active.item_name, "task_name": active.task_name}
+                    if active is not None
+                    else None
+                ),
+            }
+        host.stop_current_task()
+        return {"stopped": True, "item_name": item_name, "task_name": task_name}
+
     def start_workflow(
         self,
         task_names: List[str],
@@ -2138,9 +2339,13 @@ class AutoLamellaAppContext:
         task_names: List[str],
         grid_names: Optional[List[str]] = None,
         screen_all: bool = False,
+        unload_at_end: bool = False,
+        report_at_end: bool = False,
         timeout: float = 15.0,
     ) -> Dict[str, Any]:
-        """Start a grid run as the Grids view's Run (or Screen all grids) would.
+        """Start a grid run as the Grids view's Run (or Screen all grids) would,
+        with the confirmation's end-of-run options: unload the last grid, write
+        the report.
 
         Marshalled to the GUI thread like :meth:`start_workflow`; shares its
         worker slot, so it is refused while any workflow — lamella or grid —
@@ -2151,7 +2356,11 @@ class AutoLamellaAppContext:
         if not hasattr(host, "request_start_grid_workflow"):
             return {"available": False, "started": False}
         outcome = host.request_start_grid_workflow(
-            list(task_names), grid_names, inventory_first=screen_all
+            list(task_names),
+            grid_names,
+            inventory_first=screen_all,
+            unload_at_end=unload_at_end,
+            report_at_end=report_at_end,
         )
         result = outcome.result(timeout=timeout)
         result["available"] = True
@@ -2284,21 +2493,29 @@ class AutoLamellaAppContext:
             "task_names": [t.name for t in config.tasks],
         }
 
-    def set_workflow_options(self, show_run_summary: bool) -> Dict[str, Any]:
-        """Set whether the run summary dialog opens when a run ends.
+    def set_workflow_options(self, **options: Any) -> Dict[str, Any]:
+        """Set the workflow's run options, as its options panel does, and like
+        the operator's it persists with the protocol. Any of:
 
-        The workflow's "Show summary after completion", and like the operator's
-        checkbox it persists with the protocol. Off leaves the run-end toast
-        and its Show summary link: an agent starting many short runs turns it
-        off so no dialog stands over the window (FIB-1376). Read when a run
-        ends, so it applies from the next end, mid-run included; a plain bool
-        rebind, so no GUI marshal, like ``set_task_schedule``.
+        - ``show_run_summary``: whether the run summary dialog opens when a run
+          ends. Off leaves the run-end toast and its Show summary link: an agent
+          starting many short runs turns it off so no dialog stands over the
+          window (FIB-1376).
+        - ``turn_beams_off``: whether the beams are turned off when a run ends.
+        - ``review_wait``: how long a run whose remaining work all waits on a
+          review keeps waiting, in seconds of inactivity; None waits until it is
+          stopped.
+
+        Each is read when it applies (a run's end, a review wait), so a change
+        takes effect from then, mid-run included; plain rebinds, so no GUI
+        marshal, like ``set_task_schedule``.
         """
         experiment = self._experiment
         protocol = getattr(experiment, "task_protocol", None) if experiment else None
         if protocol is None:
             return {"available": False, "applied": False}
-        protocol.options.show_run_summary = bool(show_run_summary)
+        for name, value in options.items():
+            setattr(protocol.options, name, value)
         saved = True
         try:
             experiment.save(save_protocol=True)
@@ -2309,15 +2526,419 @@ class AutoLamellaAppContext:
                 "applied in memory but not yet on disk"
             )
         if self._event_buffer is not None:
-            self._event_buffer.append(
-                "workflow_changed",
-                {"field": "show_run_summary", "value": bool(show_run_summary)},
+            for name, value in options.items():
+                self._event_buffer.append(
+                    "workflow_changed", {"field": name, "value": value}
+                )
+        return {"available": True, "applied": True, "saved": saved, **options}
+
+    # -- the workflow's tasks: the Workflow tab's task list and the protocol
+    # editor's Add and Remove. Refused while a workflow runs: the run reads them.
+
+    def _experiment_changed(self) -> None:
+        """Tell the app's views an agent changed the experiment's protocol, so
+        no editor writes back a list it drew before the change."""
+        signal = getattr(self._host, "experiment_update_signal", None)
+        if signal is not None:
+            signal.emit()
+
+    def _workflow_edit(self, what: str):
+        """The experiment and its workflow config for an edit, or a refusal."""
+        experiment = self._experiment
+        protocol = getattr(experiment, "task_protocol", None) if experiment else None
+        if protocol is None:
+            return (
+                None,
+                None,
+                {"error_type": "not_found", "error": "No experiment is loaded."},
             )
+        refusal = self._not_while_running(what)
+        if refusal:
+            return None, None, refusal
+        return experiment, protocol.workflow_config, None
+
+    def _protocol_changed(self, experiment, change: Dict[str, Any]) -> bool:
+        """Save the protocol after an edit (GUI thread), redraw, and put it on
+        the record. Whether it saved."""
+        saved = True
+        try:
+            experiment.save(save_protocol=True)
+        except Exception:
+            saved = False
+            logging.exception("save after a protocol change failed; applied in memory")
+        self._experiment_changed()
+        if self._event_buffer is not None:
+            self._event_buffer.append("workflow_changed", change)
+        return saved
+
+    def add_task(self, task_type: str, task_name: str) -> Dict[str, Any]:
+        """Add a task of a registered type, as the protocol editor's Add Task
+        does: its default settings in the protocol, at the end of the workflow,
+        and a copy on every lamella."""
+        from fibsem.applications.autolamella.workflows.tasks import get_tasks
+
+        experiment, _, refusal = self._workflow_edit("add tasks")
+        if refusal:
+            return refusal
+        types = sorted(get_tasks())
+        if task_type not in types:
+            return {
+                "error_type": "not_found",
+                "error": f"No task type {task_type!r}.",
+                "task_type_names": types,
+            }
+
+        def add():
+            try:
+                experiment.add_task(task_type, task_name)
+            except ValueError as exc:
+                return str(exc)
+            return self._protocol_changed(
+                experiment, {"field": "tasks", "added": task_name.strip()}
+            )
+
+        saved = self._agent_call(add)
+        if isinstance(saved, str):
+            return {"error_type": "invalid", "error": saved}
         return {
-            "available": True,
             "applied": True,
             "saved": saved,
-            "show_run_summary": bool(show_run_summary),
+            "task_name": task_name.strip(),
+            "task_type": task_type,
+            "task_names": experiment.task_protocol.workflow_config.workflow,
+        }
+
+    def remove_task(self, task_name: str) -> Dict[str, Any]:
+        """Remove a task from the protocol, the workflow and every lamella, as
+        the protocol editor's Remove does. Task history stays: it is the record
+        of what ran."""
+        experiment, config, refusal = self._workflow_edit("remove tasks")
+        if refusal:
+            return refusal
+        if task_name not in experiment.task_protocol.task_config:
+            return {
+                "error_type": "not_found",
+                "error": f"No task named {task_name!r} in the protocol.",
+                "task_names": list(experiment.task_protocol.task_config),
+            }
+
+        def remove():
+            experiment.remove_task(task_name)
+            return self._protocol_changed(
+                experiment, {"field": "tasks", "removed": task_name}
+            )
+
+        saved = self._agent_call(remove)
+        return {"applied": True, "saved": saved, "task_names": config.workflow}
+
+    def reorder_tasks(self, order: List[str]) -> Dict[str, Any]:
+        """Put the workflow's tasks in *order*, as dragging them on the Workflow
+        tab does: every task, each once. Refused when a task would come before
+        a task it requires."""
+        experiment, config, refusal = self._workflow_edit("reorder tasks")
+        if refusal:
+            return refusal
+        names = config.workflow
+        if sorted(order) != sorted(names):
+            return {
+                "error_type": "invalid",
+                "error": "Give every task in the workflow, each once.",
+                "task_names": names,
+            }
+        by_name = {task.name: task for task in config.tasks}
+        reordered = [by_name[name] for name in order]
+        issues = type(config)(tasks=reordered).validate()
+        if issues:
+            return {"error_type": "invalid", "error": " ".join(issues)}
+
+        def reorder():
+            config.tasks[:] = reordered
+            return self._protocol_changed(
+                experiment, {"field": "order", "order": order}
+            )
+
+        saved = self._agent_call(reorder)
+        return {"applied": True, "saved": saved, "task_names": config.workflow}
+
+    def set_task_requirements(
+        self,
+        task_name: str,
+        requires: Optional[List[str]] = None,
+        required: Optional[bool] = None,
+    ) -> Dict[str, Any]:
+        """Set what a workflow task requires (the tasks a lamella must have
+        completed first) and whether it is required or optional, as the
+        Workflow tab's Edit Task does. Refused when a requirement is not an
+        earlier task."""
+        experiment, config, refusal = self._workflow_edit("edit tasks")
+        if refusal:
+            return refusal
+        task = next((t for t in config.tasks if t.name == task_name), None)
+        if task is None:
+            return {
+                "error_type": "not_found",
+                "error": f"No task named {task_name!r} in the workflow.",
+                "task_names": config.workflow,
+            }
+        if requires is not None:
+            earlier = config.workflow[: config.workflow.index(task_name)]
+            wrong = [name for name in requires if name not in earlier]
+            if wrong:
+                return {
+                    "error_type": "invalid",
+                    "error": f"{task_name} can only require tasks before it: "
+                    f"{', '.join(earlier) or 'none'}; not {', '.join(wrong)}.",
+                }
+
+        def edit():
+            if requires is not None:
+                task.requires = list(requires)
+            if required is not None:
+                task.required = bool(required)
+            return self._protocol_changed(
+                experiment,
+                {
+                    "field": "requirements",
+                    "task_name": task_name,
+                    "requires": task.requires,
+                    "required": task.required,
+                },
+            )
+
+        saved = self._agent_call(edit)
+        return {
+            "applied": True,
+            "saved": saved,
+            "task_name": task_name,
+            "requires": list(task.requires),
+            "required": task.required,
+        }
+
+    def set_lamella_defaults(self, defaults: Dict[str, Any]) -> Dict[str, Any]:
+        """Set what every new lamella starts with, as the protocol editor's
+        Lamella Template does: ``use_petname``, ``name_prefix``, ``poi`` ({x, y}
+        image fraction) and ``alignment_area`` ({left, top, width, height}
+        fractions). Only the keys given change; null or {} clears ``poi``
+        or ``alignment_area``. Existing lamellae keep theirs."""
+        from fibsem.applications.autolamella.structures import LamellaDefaultConfig
+
+        experiment, _, refusal = self._workflow_edit("edit the lamella defaults")
+        if refusal:
+            return refusal
+        protocol = experiment.task_protocol
+        known = ("use_petname", "name_prefix", "poi", "alignment_area")
+        unknown = [key for key in defaults if key not in known]
+        if not defaults or unknown:
+            return {
+                "error_type": "invalid",
+                "error": f"Set any of {', '.join(known)}"
+                + (f"; not {', '.join(unknown)}." if unknown else "."),
+            }
+        # An empty poi or alignment_area clears it, as null does.
+        cleared = {k: None if v == {} else v for k, v in defaults.items()}
+        merged = {**protocol.lamella_defaults.to_dict(), **cleared}
+        try:
+            updated = LamellaDefaultConfig.from_dict(merged)
+            if not isinstance(updated.use_petname, bool) or not isinstance(
+                updated.name_prefix, str
+            ):
+                raise ValueError("use_petname is true or false; name_prefix is text.")
+        except (KeyError, TypeError, ValueError) as exc:
+            return {"error_type": "invalid", "error": f"Not lamella defaults: {exc}"}
+
+        def edit():
+            protocol.lamella_defaults = updated
+            return self._protocol_changed(
+                experiment, {"field": "lamella_defaults", "value": updated.to_dict()}
+            )
+
+        saved = self._agent_call(edit)
+        return {"applied": True, "saved": saved, "lamella_defaults": updated.to_dict()}
+
+    def save_protocol_as(self, name: str, overwrite: bool = False) -> Dict[str, Any]:
+        """Save the experiment's protocol to the protocol folder as *name*, as
+        Export Protocol does, so a later experiment can be created with it or
+        load it. Refused when the file exists, unless *overwrite*."""
+        import os
+
+        from fibsem.applications.autolamella import experiment_setup
+
+        experiment = self._experiment
+        protocol = getattr(experiment, "task_protocol", None) if experiment else None
+        if protocol is None:
+            return {"error_type": "not_found", "error": "No experiment is loaded."}
+        try:
+            path = experiment_setup.protocol_file_for(name)
+        except ValueError as exc:
+            return {"error_type": "invalid", "error": str(exc)}
+        if os.path.exists(path) and not overwrite:
+            return {
+                "error_type": "invalid",
+                "error": f"{os.path.basename(path)} already exists in the protocol "
+                "folder; pass overwrite to replace it.",
+                "protocol_names": [
+                    p["name"] for p in experiment_setup.list_protocols()
+                ],
+            }
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        protocol.save(path)
+        if self._event_buffer is not None:
+            self._event_buffer.append(
+                "workflow_changed", {"field": "protocol_saved", "path": path}
+            )
+        return {"saved": True, "name": os.path.basename(path), "path": path}
+
+    # -- the grid protocol: the Protocol tab's grid tasks and the Grids view's
+    # task list. Refused while a workflow runs: a grid run reads these configs,
+    # shared by every grid.
+
+    def _grid_protocol_edit(self, what: str):
+        experiment = self._experiment
+        if experiment is None or experiment.task_protocol is None:
+            return (
+                None,
+                None,
+                {"error_type": "not_found", "error": "No experiment is loaded."},
+            )
+        refusal = self._not_while_running(what)
+        if refusal:
+            return None, None, refusal
+        return experiment, experiment.grid_protocol, None
+
+    def _grid_task(self, grid_protocol, task_name: str):
+        config = grid_protocol.task_config.get(task_name)
+        if config is None:
+            return None, {
+                "error_type": "not_found",
+                "error": f"No grid task named {task_name!r} in the protocol.",
+                "task_names": grid_protocol.ordered_task_names,
+            }
+        return config, None
+
+    def grid_task_config(self, task_name: str) -> Dict[str, Any]:
+        """A grid task's settings, with the version a patch echoes."""
+        experiment = self._experiment
+        if experiment is None or experiment.task_protocol is None:
+            return {"error_type": "not_found", "error": "No experiment is loaded."}
+        config, refusal = self._grid_task(experiment.grid_protocol, task_name)
+        if refusal:
+            return refusal
+        return self._config_document(task_name, config, "grid_protocol")
+
+    def apply_grid_task_config_patch(
+        self, task_name: str, patch: Dict[str, Any], version: str
+    ) -> Dict[str, Any]:
+        """Patch a grid task's settings with dotted-path edits, as the Protocol
+        tab's grid task form does; ``attention`` (automated, supervised) is the
+        Grids view's Automated/Supervised chip. Version-guarded like the lamella
+        task configs."""
+        from fibsem.applications.autolamella.server.events import to_plain
+        from fibsem.server.config_patch import PatchError, apply_patch
+
+        experiment, grid_protocol, refusal = self._grid_protocol_edit("edit grid tasks")
+        if refusal:
+            return refusal
+        config, refusal = self._grid_task(grid_protocol, task_name)
+        if refusal:
+            return refusal
+
+        def edit():
+            if config_version(config) != version:
+                return {"stale": True}
+            try:
+                changes = apply_patch(config, patch)
+            except PatchError as exc:
+                return {"invalid_patch": str(exc), "path": exc.path}
+            changed = [
+                {"path": p, "old": to_plain(old), "new": to_plain(new)}
+                for p, old, new in changes
+            ]
+            saved = self._protocol_changed(
+                experiment,
+                {
+                    "field": "grid_task_config",
+                    "task_name": task_name,
+                    "changes": changed,
+                },
+            )
+            return {"changes": changed, "saved": saved}
+
+        result = self._agent_call(edit)
+        if "changes" not in result:
+            return {"applied": False, **result}
+        return {
+            "applied": True,
+            "task_name": task_name,
+            "version": config_version(config),
+            **result,
+        }
+
+    def reorder_grid_tasks(self, order: List[str]) -> Dict[str, Any]:
+        """Put the grid tasks in *order*, as dragging them on the Grids view
+        does: every task, each once."""
+        experiment, grid_protocol, refusal = self._grid_protocol_edit(
+            "reorder grid tasks"
+        )
+        if refusal:
+            return refusal
+        names = grid_protocol.ordered_task_names
+        if sorted(order) != sorted(names):
+            return {
+                "error_type": "invalid",
+                "error": "Give every grid task, each once.",
+                "task_names": names,
+            }
+
+        def reorder():
+            grid_protocol.order = list(order)
+            return self._protocol_changed(
+                experiment, {"field": "grid_order", "order": order}
+            )
+
+        saved = self._agent_call(reorder)
+        return {
+            "applied": True,
+            "saved": saved,
+            "task_names": grid_protocol.ordered_task_names,
+        }
+
+    def set_grid_task_requirements(
+        self, task_name: str, requires: List[str]
+    ) -> Dict[str, Any]:
+        """Set what a grid task requires on the same grid, as the Grids view's
+        Edit Task does: any other grid task."""
+        experiment, grid_protocol, refusal = self._grid_protocol_edit("edit grid tasks")
+        if refusal:
+            return refusal
+        config, refusal = self._grid_task(grid_protocol, task_name)
+        if refusal:
+            return refusal
+        others = [n for n in grid_protocol.ordered_task_names if n != task_name]
+        wrong = [name for name in requires if name not in others]
+        if wrong:
+            return {
+                "error_type": "invalid",
+                "error": f"{task_name} can require {', '.join(others) or 'no task'}; "
+                f"not {', '.join(wrong)}.",
+            }
+
+        def edit():
+            config.requires = list(requires)
+            return self._protocol_changed(
+                experiment,
+                {
+                    "field": "grid_requirements",
+                    "task_name": task_name,
+                    "requires": requires,
+                },
+            )
+
+        saved = self._agent_call(edit)
+        return {
+            "applied": True,
+            "saved": saved,
+            "task_name": task_name,
+            "requires": list(requires),
         }
 
     def requeue_task(
@@ -2384,6 +3005,59 @@ class AutoLamellaAppContext:
             "item_id": item.id,
             "item_name": item_name,
             "task_name": task_name,
+            "queue_version": manager.queue.version,
+        }
+
+    def queue_grid_tasks(
+        self, task_names: List[str], grid_names: List[str]
+    ) -> Dict[str, Any]:
+        """Add grid tasks for grids to the running grid run, at the end of the
+        queue, as the Grids view's Add to queue does: each grid's load, then
+        its tasks, less what is already waiting."""
+        from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+            GridTaskManager,
+        )
+
+        manager = self._manager
+        if manager is None:
+            return {
+                "queued": False,
+                "reason": "no workflow is running; the queue exists only during a run",
+            }
+        if not isinstance(manager, GridTaskManager):
+            return {
+                "queued": False,
+                "reason": "a lamella run is going; grid tasks cannot join it",
+            }
+        experiment = self._experiment
+        known_tasks = list(experiment.grid_protocol.ordered_task_names)
+        unknown = [t for t in task_names if t not in known_tasks]
+        if not task_names or unknown:
+            return {
+                "queued": False,
+                "reason": f"unknown grid tasks: {unknown!r}" if unknown else "no tasks",
+                "task_names": known_tasks,
+            }
+        known_grids = [g.name for g in experiment.grids]
+        missing = [n for n in grid_names if n not in known_grids]
+        if not grid_names or missing:
+            return {
+                "queued": False,
+                "reason": f"unknown grids: {missing!r}" if missing else "no grids",
+                "grid_names": known_grids,
+            }
+        pairs = manager.pairs_to_queue(list(task_names), list(grid_names))
+        if not pairs:
+            return {"queued": False, "reason": "everything named is already queued"}
+        added = manager.queue_pairs(pairs)
+        for item in added:
+            self._record_queue_change("requeue", item)
+        return {
+            "queued": bool(added),
+            "added": [
+                {"item_id": i.id, "grid_name": i.item_name, "step": i.task_name}
+                for i in added
+            ],
             "queue_version": manager.queue.version,
         }
 

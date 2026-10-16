@@ -541,7 +541,12 @@ def build_sidecar(client, capabilities):
         return _routed("milling_preview_patterns", image_path=image_path, stages=stages)
 
     def alignment_align_to_reference(
-        reference_path: str, steps: int = 3, subsystem: str = "beam-shift"
+        reference_path: str,
+        steps: int = 3,
+        subsystem: str = "beam-shift",
+        use_autofocus: bool = False,
+        method: str = "cross-correlation",
+        validate: bool = True,
     ):
         return _routed(
             "alignment_align_to_reference",
@@ -549,7 +554,27 @@ def build_sidecar(client, capabilities):
             reference_path=reference_path,
             steps=steps,
             subsystem=subsystem,
+            use_autofocus=use_autofocus,
+            method=method,
+            validate=validate,
         )
+
+    def alignment_compare_methods(
+        reference_path: str, image_path: str, agreement_px: float = 2.0
+    ):
+        return _routed(
+            "alignment_compare_methods",
+            "comparison",
+            reference_path=reference_path,
+            image_path=image_path,
+            agreement_px=agreement_px,
+        )
+
+    def milling_check_stages(stages: list, aspect: float = 2 / 3):
+        return _routed("milling_check_stages", "stages", stages=stages, aspect=aspect)
+
+    def milling_list_options():
+        return _routed("milling_list_options", "options")
 
     def alignment_measure_shift(reference_path: str, image_path: str):
         return _routed(
@@ -670,6 +695,12 @@ def build_sidecar(client, capabilities):
             kwargs=kwargs,
             reason=reason,
         )
+
+    def device_call_query(device: str, query: str, kwargs: Optional[dict] = None):
+        return _routed("device_call_query", device=device, query=query, kwargs=kwargs)
+
+    def microscope_set_state(microscope_state: dict):
+        return _routed("microscope_set_state", microscope_state=dict(microscope_state))
 
     def service_list():
         return _json_tool("service_list")[1]()
@@ -916,6 +947,25 @@ def build_sidecar(client, capabilities):
     def experiment_get_image_metadata(path: str):
         return _app_get("/app/experiment/images/metadata?" + urlencode({"path": path}))
 
+    def experiment_get_image_stage_position(
+        path: str,
+        x: Optional[float] = None,
+        y: Optional[float] = None,
+        fx: Optional[float] = None,
+        fy: Optional[float] = None,
+    ):
+        query = {"path": path, "x": x, "y": y, "fx": fx, "fy": fy}
+        return _app_get(
+            "/app/experiment/images/stage_position?"
+            + urlencode({k: v for k, v in query.items() if v is not None})
+        )
+
+    def experiment_get_image_pixels(path: str, stage_positions: list):
+        return _app_post(
+            "/app/experiment/images/pixels",
+            {"path": path, "stage_positions": [dict(p) for p in stage_positions]},
+        )
+
     def _region(values):
         return None if values is None else ",".join(str(float(v)) for v in values)
 
@@ -1069,6 +1119,11 @@ def build_sidecar(client, capabilities):
         )
         return err if err else data
 
+    def item_move_to_objective_position(item_name: str):
+        return _app_post(
+            f"/app/experiment/items/{quote(item_name, safe='')}/objective/move_to"
+        )
+
     def item_move_to_pose(item_name: str, pose: str):
         return _app_post(
             f"/app/experiment/items/{quote(item_name, safe='')}/move_to", {"pose": pose}
@@ -1155,6 +1210,101 @@ def build_sidecar(client, capabilities):
             f"/app/experiment/grids/{quote(grid_name, safe='')}/rename", {"name": name}
         )
 
+    def grid_set_quality(grid_name: str, verdict: str, reason: str = ""):
+        return _app_post(
+            f"/app/experiment/grids/{quote(grid_name, safe='')}/quality",
+            {"verdict": verdict, "reason": reason},
+        )
+
+    def grid_set_note(grid_name: str, note: str):
+        return _app_post(
+            f"/app/experiment/grids/{quote(grid_name, safe='')}/note", {"note": note}
+        )
+
+    def grid_remove(grid_name: str):
+        data, err = _call(
+            client, "DELETE", f"/app/experiment/grids/{quote(grid_name, safe='')}"
+        )
+        return err if err else data
+
+    def protocol_add_task(task_type: str, task_name: str):
+        return _app_post(
+            "/app/experiment/protocol/tasks",
+            {"task_type": task_type, "task_name": task_name},
+        )
+
+    def protocol_remove_task(task_name: str):
+        data, err = _call(
+            client,
+            "DELETE",
+            f"/app/experiment/protocol/tasks/{quote(task_name, safe='')}",
+        )
+        return err if err else data
+
+    def protocol_reorder_tasks(order: list):
+        return _app_post(
+            "/app/experiment/protocol/tasks/reorder", {"order": list(order)}
+        )
+
+    def protocol_set_task_requirements(
+        task_name: str, requires: Optional[list] = None, required: Optional[bool] = None
+    ):
+        body: dict = {}
+        if requires is not None:
+            body["requires"] = list(requires)
+        if required is not None:
+            body["required"] = bool(required)
+        return _app_post(
+            f"/app/experiment/protocol/tasks/{quote(task_name, safe='')}/requirements",
+            body,
+        )
+
+    def protocol_set_lamella_defaults(
+        use_petname: Optional[bool] = None,
+        name_prefix: Optional[str] = None,
+        poi: Optional[dict] = None,
+        alignment_area: Optional[dict] = None,
+    ):
+        given = {
+            "use_petname": use_petname,
+            "name_prefix": name_prefix,
+            "poi": poi,
+            "alignment_area": alignment_area,
+        }
+        return _app_post(
+            "/app/experiment/protocol/lamella_defaults",
+            {k: v for k, v in given.items() if v is not None},
+        )
+
+    def protocol_save(name: str, overwrite: bool = False):
+        return _app_post(
+            "/app/experiment/protocol/save",
+            {"name": name, "overwrite": bool(overwrite)},
+        )
+
+    def protocol_get_grid_task_config(task_name: str):
+        return _app_get(
+            f"/app/experiment/grid_protocol/task_config/{quote(task_name, safe='')}"
+        )
+
+    def protocol_update_grid_task_config(task_name: str, patch: dict, version: str):
+        return _app_post(
+            f"/app/experiment/grid_protocol/task_config/{quote(task_name, safe='')}",
+            {"patch": patch, "version": version},
+        )
+
+    def protocol_reorder_grid_tasks(order: list):
+        return _app_post(
+            "/app/experiment/grid_protocol/tasks/reorder", {"order": list(order)}
+        )
+
+    def protocol_set_grid_task_requirements(task_name: str, requires: list):
+        return _app_post(
+            f"/app/experiment/grid_protocol/tasks/{quote(task_name, safe='')}"
+            "/requirements",
+            {"requires": list(requires)},
+        )
+
     def experiment_load(path: str):
         return _app_post("/app/experiment/load", {"path": path})
 
@@ -1166,6 +1316,18 @@ def build_sidecar(client, capabilities):
 
     def workflow_stop(reason: str):
         return _app_post("/app/workflow/stop", {"reason": reason})
+
+    def workflow_stop_task(item_name: str, task_name: str, reason: str):
+        return _app_post(
+            "/app/workflow/stop_task",
+            {"item_name": item_name, "task_name": task_name, "reason": reason},
+        )
+
+    def workflow_queue_grids(task_names: list, grid_names: list):
+        return _app_post(
+            "/app/workflow/queue/grids",
+            {"task_names": list(task_names), "grid_names": list(grid_names)},
+        )
 
     def workflow_start(task_names: list, item_names: list = None):  # noqa: RUF013
         payload = {"task_names": list(task_names)}
@@ -1182,15 +1344,34 @@ def build_sidecar(client, capabilities):
         return _app_post("/app/workflow/grids/plan", payload)
 
     def workflow_start_grids(
-        task_names: list, grid_names: list = None, screen_all: bool = False
-    ):  # noqa: RUF013
-        payload = {"task_names": list(task_names), "screen_all": bool(screen_all)}
+        task_names: list,
+        grid_names: list = None,  # noqa: RUF013
+        screen_all: bool = False,
+        unload_at_end: bool = False,
+        report_at_end: bool = False,
+    ):
+        payload = {
+            "task_names": list(task_names),
+            "screen_all": bool(screen_all),
+            "unload_at_end": bool(unload_at_end),
+            "report_at_end": bool(report_at_end),
+        }
         if grid_names is not None:
             payload["grid_names"] = list(grid_names)
         return _app_post("/app/workflow/grids/start", payload)
 
-    def workflow_set_options(show_run_summary: bool):
-        payload = {"show_run_summary": bool(show_run_summary)}
+    def workflow_set_options(
+        show_run_summary: Optional[bool] = None,
+        turn_beams_off: Optional[bool] = None,
+        review_wait: Optional[float] = None,
+    ):
+        payload: dict = {}
+        if show_run_summary is not None:
+            payload["show_run_summary"] = bool(show_run_summary)
+        if turn_beams_off is not None:
+            payload["turn_beams_off"] = bool(turn_beams_off)
+        if review_wait is not None:
+            payload["review_wait"] = review_wait
         return _app_post("/app/workflow/options", payload)
 
     def protocol_set_supervision(task_name: str, supervise: bool):
@@ -1299,6 +1480,29 @@ def build_sidecar(client, capabilities):
             milling_preview_patterns,
             alignment_align_to_reference,
             alignment_measure_shift,
+            alignment_compare_methods,
+            milling_check_stages,
+            milling_list_options,
+            device_call_query,
+            microscope_set_state,
+            experiment_get_image_stage_position,
+            experiment_get_image_pixels,
+            grid_set_quality,
+            grid_set_note,
+            grid_remove,
+            protocol_add_task,
+            protocol_remove_task,
+            protocol_reorder_tasks,
+            protocol_set_task_requirements,
+            protocol_set_lamella_defaults,
+            protocol_save,
+            protocol_get_grid_task_config,
+            protocol_update_grid_task_config,
+            protocol_reorder_grid_tasks,
+            protocol_set_grid_task_requirements,
+            workflow_stop_task,
+            workflow_queue_grids,
+            item_move_to_objective_position,
             alignment_check_coincidence,
             alignment_measure_coincidence,
             milling_stop,

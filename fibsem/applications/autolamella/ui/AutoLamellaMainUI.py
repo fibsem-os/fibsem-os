@@ -3337,8 +3337,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self._show_queue_message("Select at least one grid and one task to add.")
             return
         grid_names = [g.name for g in grids]
-        pending = {(i.item_name, i.task_name) for i in manager.queue.pending}
-        pairs = [p for p in plan_grid_run(task_names, grid_names) if p not in pending]
+        pairs = manager.pairs_to_queue(task_names, grid_names)
         if not pairs:
             self._show_queue_message("Everything selected is already queued.")
             return
@@ -3355,12 +3354,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         )
         if dialog.exec_() != QDialog.Accepted:
             return
-        added = 0
-        for grid_name, step in pairs:
-            if manager.queue.add(grid_name, step) is not None:
-                added += 1
-        manager.notify_queue_changed()
-        self._show_queue_message(f"Added {added} step(s) to the queue.")
+        added = manager.queue_pairs(pairs)
+        self._show_queue_message(f"Added {len(added)} step(s) to the queue.")
         self.grid_workflow_widget.set_all_grids_selected(False)
 
     def _on_queue_changed(self, info: dict) -> None:
@@ -3568,12 +3563,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             box.setDefaultButton(QMessageBox.No)
             if box.exec_() != QMessageBox.Yes:
                 return
-            # Two halves, as Stop Workflow has: tell the queue this task is being
-            # abandoned, and bring the hardware to a halt. Without the second, the
-            # task stops waiting for the mill but the mill keeps going.
             self._record_operator_stop("task", "Stop Task", task=label)
-            manager.stop_task()
-            self.autolamella_ui.stop_current_operations()
+            self.autolamella_ui.stop_current_task()
             # No queue mutation here: the task unwinds on the worker thread and the
             # status it emits on the way out is what updates the timeline.
             self._show_queue_message(f"Stopping {label}...")

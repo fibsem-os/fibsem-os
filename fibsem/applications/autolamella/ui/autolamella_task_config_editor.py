@@ -873,24 +873,13 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         if dialog.exec_() == QDialog.Accepted:
             task_type, task_name = dialog.get_task_info()
             if task_type and task_name:
-                # Create new task config from registry
-                task_cls = get_tasks()[task_type]
-                new_task_config = task_cls.config_cls()  # type: ignore
-                new_task_config.task_name = task_name
-
                 via = "add task"
                 self._touch_protocol(task_name, via)
                 self._edits.touch_task_configs(
                     self.experiment.positions, [task_name], via
                 )
-                # Add to experiment
-                self.experiment.task_protocol.task_config[task_name] = new_task_config
-                self.experiment.task_protocol.workflow_config.add_task(new_task_config)
-
-                # also add task to each existing lamella
-                for lamella in self.experiment.positions:
-                    lamella.task_config[task_name] = copy.deepcopy(new_task_config)
-                    lamella._sync_imaging_paths()
+                # To the protocol, the workflow and every lamella
+                self.experiment.add_task(task_type, task_name)
 
                 # Save experiment
                 self._save_experiment()

@@ -3147,6 +3147,32 @@ class Experiment:
 
         return updated_count
 
+    def add_task(self, task_type: str, task_name: str) -> AutoLamellaTaskConfig:
+        """Add a new task of a registered *task_type*, named *task_name*: its
+        default config in the protocol, at the end of the workflow (required,
+        supervised), and a copy on every lamella. The protocol editor's Add
+        Task, and an agent's. Raises ValueError for an unknown type or a name
+        the protocol already has."""
+        from fibsem.applications.autolamella.workflows.tasks import get_tasks
+
+        task_name = task_name.strip()
+        registry = get_tasks()
+        if task_type not in registry:
+            raise ValueError(f"No task type {task_type!r}.")
+        if not task_name:
+            raise ValueError("A task needs a name.")
+        if task_name in self.task_protocol.task_config:
+            raise ValueError(f"There is already a task named {task_name!r}.")
+        config = registry[task_type].config_cls()  # type: ignore[attr-defined]
+        config.task_name = task_name
+        self.task_protocol.task_config[task_name] = config
+        self.task_protocol.workflow_config.add_task(config)
+        for lamella in self.positions:
+            lamella.task_config[task_name] = deepcopy(config)
+            lamella._sync_imaging_paths()
+        logging.info(f"Added task {task_name} ({task_type}) to experiment {self.name}")
+        return config
+
     def remove_task(self, task_name: str) -> None:
         """Remove a task from the experiment: from the protocol, from the
         workflow, and from every lamella's config (FIB-1109).

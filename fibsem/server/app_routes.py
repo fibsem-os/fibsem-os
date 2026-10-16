@@ -142,7 +142,56 @@ class AppContext(Protocol):
         self, task_name: str, scheduled_at: Optional[str]
     ) -> Dict[str, Any]: ...
 
-    def set_workflow_options(self, show_run_summary: bool) -> Dict[str, Any]: ...
+    def set_workflow_options(self, **options: Any) -> Dict[str, Any]: ...
+
+    def add_task(self, task_type: str, task_name: str) -> Dict[str, Any]: ...
+
+    def remove_task(self, task_name: str) -> Dict[str, Any]: ...
+
+    def reorder_tasks(self, order: List[str]) -> Dict[str, Any]: ...
+
+    def set_task_requirements(
+        self,
+        task_name: str,
+        requires: Optional[List[str]] = None,
+        required: Optional[bool] = None,
+    ) -> Dict[str, Any]: ...
+
+    def set_lamella_defaults(self, defaults: Dict[str, Any]) -> Dict[str, Any]: ...
+
+    def save_protocol_as(
+        self, name: str, overwrite: bool = False
+    ) -> Dict[str, Any]: ...
+
+    def grid_task_config(self, task_name: str) -> Dict[str, Any]: ...
+
+    def apply_grid_task_config_patch(
+        self, task_name: str, patch: Dict[str, Any], version: str
+    ) -> Dict[str, Any]: ...
+
+    def reorder_grid_tasks(self, order: List[str]) -> Dict[str, Any]: ...
+
+    def set_grid_task_requirements(
+        self, task_name: str, requires: List[str]
+    ) -> Dict[str, Any]: ...
+
+    def set_grid_quality(
+        self, grid_name: str, verdict: str, reason: str = ""
+    ) -> Dict[str, Any]: ...
+
+    def set_grid_note(self, grid_name: str, note: str) -> Dict[str, Any]: ...
+
+    def remove_grid(self, grid_name: str) -> Dict[str, Any]: ...
+
+    def image_stage_position(
+        self, path: str, px: Any = None, fraction: Any = None
+    ) -> Dict[str, Any]: ...
+
+    def image_pixels(
+        self, path: str, stage_positions: List[Dict[str, Any]]
+    ) -> Dict[str, Any]: ...
+
+    def move_objective_to_item(self, item_name: str) -> Dict[str, Any]: ...
 
     def apply_protocol_to_item(
         self, item_name: str, task_names: Optional[List[str]] = None
@@ -194,6 +243,8 @@ class AppContext(Protocol):
 
     def stop_workflow(self) -> Dict[str, Any]: ...
 
+    def stop_task(self, item_name: str, task_name: str) -> Dict[str, Any]: ...
+
     def start_workflow(
         self, task_names: List[str], item_names: Optional[List[str]] = None
     ) -> Dict[str, Any]: ...
@@ -210,6 +261,8 @@ class AppContext(Protocol):
         task_names: List[str],
         grid_names: Optional[List[str]] = None,
         screen_all: bool = False,
+        unload_at_end: bool = False,
+        report_at_end: bool = False,
     ) -> Dict[str, Any]: ...
 
     def set_supervision(self, task_name: str, supervise: bool) -> Dict[str, Any]: ...
@@ -220,6 +273,10 @@ class AppContext(Protocol):
 
     def edit_queue(
         self, item_name: str, task_name: str, action: str
+    ) -> Dict[str, Any]: ...
+
+    def queue_grid_tasks(
+        self, task_names: List[str], grid_names: List[str]
     ) -> Dict[str, Any]: ...
 
 
@@ -282,6 +339,8 @@ _REFUSAL_STATUS = {
     "invalid": 422,
     "task_running": 409,
     "not_pending": 409,
+    "not_allowed": 403,
+    "no_experiment": 409,
 }
 
 
@@ -298,6 +357,14 @@ def _required_text(body: Dict[str, Any], key: str, what: str) -> str:
     value = body.get(key)
     if not isinstance(value, str) or not value:
         raise _missing_field(f"Pass {key}: {what}.")
+    return value
+
+
+def _names(body: Dict[str, Any], key: str, what: str) -> List[str]:
+    """*body*'s list of strings *key*, or the 422 saying to pass it (*what*)."""
+    value = body.get(key)
+    if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+        raise _missing_field(f"Pass {key}: {what} (a list of strings).")
     return value
 
 
@@ -323,7 +390,10 @@ def _answer_or_refusal(result: Dict[str, Any]) -> Dict[str, Any]:
     error_type = result.get("error_type")
     if error_type is None:
         return result
-    detail = {"error_type": error_type, "message": result.get("error", "")}
+    detail = {
+        "error_type": error_type,
+        "message": result.get("error", result.get("message", "")),
+    }
     for key, value in result.items():
         if key.endswith(("_names", "_paths")) or key == "filenames":
             detail[key] = value
@@ -459,6 +529,10 @@ def build_app_router(context: AppContext) -> APIRouter:
     def grid_markers(grid_name: str, filename: str):
         return context.grid_markers(grid_name, filename)
 
+    @router.get("/experiment/grid_protocol/task_config/{task_name}")
+    def grid_task_config(task_name: str):
+        return _answer_or_refusal(context.grid_task_config(task_name))
+
     @router.get("/experiment/protocols")
     def protocols():
         return context.protocols()
@@ -479,6 +553,37 @@ def build_app_router(context: AppContext) -> APIRouter:
             status = 403 if error == "not_allowed" else 404
             raise HTTPException(status_code=status, detail=answer)
         return answer
+
+    @router.get("/experiment/images/stage_position")
+    def image_stage_position(
+        path: str,
+        x: Optional[float] = None,
+        y: Optional[float] = None,
+        fx: Optional[float] = None,
+        fy: Optional[float] = None,
+    ):
+        # Any saved image in the experiment, beam or FM: a point on it as a
+        # stage position, from the image's own metadata.
+        px = None if x is None or y is None else [x, y]
+        fraction = None if fx is None or fy is None else [fx, fy]
+        return _answer_or_refusal(context.image_stage_position(path, px, fraction))
+
+    @router.post("/experiment/images/pixels")
+    def image_pixels(body: Dict[str, Any]):
+        # A POST on the read router because it computes, never acts: stage
+        # positions as points on a saved image, a list a GET could not carry.
+        path = _required_text(body, "path", "a saved image inside the experiment")
+        positions = body.get("stage_positions")
+        if (
+            not isinstance(positions, list)
+            or not positions
+            or not all(isinstance(p, dict) for p in positions)
+        ):
+            raise _missing_field(
+                "Pass stage_positions: a non-empty list of stage positions "
+                "({x, y, z, r, t, coordinate_system})."
+            )
+        return _answer_or_refusal(context.image_pixels(path, positions))
 
     # -- the experiment's own files: previews and text, never raw bytes --------
 
@@ -711,7 +816,17 @@ def build_app_control_router(context: AppContext) -> APIRouter:
         # The Grids view's Run / Screen all grids, remotely. Shares the lamella
         # run's worker slot, so the context refuses it while any run is live.
         task_names, grid_names, screen_all = _grid_run_body(body)
-        return context.start_grid_workflow(task_names, grid_names, screen_all)
+        unload_at_end = body.get("unload_at_end", False)
+        report_at_end = body.get("report_at_end", False)
+        if not isinstance(unload_at_end, bool) or not isinstance(report_at_end, bool):
+            raise _missing_field("unload_at_end and report_at_end are booleans.")
+        return context.start_grid_workflow(
+            task_names,
+            grid_names,
+            screen_all,
+            unload_at_end=unload_at_end,
+            report_at_end=report_at_end,
+        )
 
     @router.post("/agent/supervision")
     def set_supervision(body: Dict[str, Any]):
@@ -746,6 +861,13 @@ def build_app_control_router(context: AppContext) -> APIRouter:
             body, "action", "remove, move_up, move_down or run_next"
         )
         return _answer_or_refusal(context.edit_queue(item_name, task_name, action))
+
+    @router.post("/workflow/queue/grids")
+    def queue_grid_tasks(body: Dict[str, Any]):
+        # The Grids view's Add to queue on a running grid run: at the end.
+        task_names = _names(body, "task_names", "the grid tasks to add")
+        grid_names = _names(body, "grid_names", "the grids to add them for")
+        return context.queue_grid_tasks(task_names, grid_names)
 
     return router
 
@@ -846,6 +968,14 @@ def build_app_stop_router(context: AppContext) -> APIRouter:
         # command lock. The operator's own Stop is never gated.
         return context.stop_workflow()
 
+    @router.post("/workflow/stop_task")
+    def stop_task(body: Dict[str, Any]):
+        # The timeline's Stop Task: the task running, and the run carries on.
+        # It names the task meant, so a stop landing late stops nothing else.
+        item_name = _required_text(body, "item_name", "the item of the task running")
+        task_name = _required_text(body, "task_name", "the task running")
+        return context.stop_task(item_name, task_name)
+
     return router
 
 
@@ -919,11 +1049,103 @@ def build_app_config_router(context: AppContext) -> APIRouter:
 
     @router.post("/workflow/options")
     def set_workflow_options(body: Dict[str, Any]):
-        # The workflow's run options, beside the schedule. One so far: whether the run summary dialog opens.
-        show_run_summary = body.get("show_run_summary")
-        if not isinstance(show_run_summary, bool):
-            raise _missing_field("Pass show_run_summary (boolean).")
-        return context.set_workflow_options(show_run_summary)
+        # The workflow's run options, beside the schedule: whether the run
+        # summary dialog opens, whether the beams go off at the end, and how
+        # long a run waiting on reviews waits (null: until stopped).
+        options: Dict[str, Any] = {}
+        for key in ("show_run_summary", "turn_beams_off"):
+            if key in body:
+                if not isinstance(body[key], bool):
+                    raise _missing_field(f"{key} is a boolean.")
+                options[key] = body[key]
+        if "review_wait" in body:
+            wait = body["review_wait"]
+            if wait is not None and (
+                isinstance(wait, bool)
+                or not isinstance(wait, (int, float))
+                or (wait < 0 and wait != -1)
+            ):
+                raise _missing_field(
+                    "review_wait is seconds (0 or more), or -1 (or null) to wait "
+                    "until stopped."
+                )
+            options["review_wait"] = None if wait in (None, -1) else float(wait)
+        if not options:
+            raise _missing_field(
+                "Pass any of show_run_summary (boolean), turn_beams_off "
+                "(boolean), review_wait (seconds, or -1 to wait until stopped)."
+            )
+        return context.set_workflow_options(**options)
+
+    # -- the workflow's tasks: the protocol editor and the Workflow tab ---------
+
+    @router.post("/experiment/protocol/tasks")
+    def add_task(body: Dict[str, Any]):
+        task_type = _required_text(body, "task_type", "a registered task type")
+        task_name = _required_text(body, "task_name", "the new task's name")
+        return _answer_or_refusal(context.add_task(task_type, task_name))
+
+    @router.delete("/experiment/protocol/tasks/{task_name}")
+    def remove_task(task_name: str):
+        return _answer_or_refusal(context.remove_task(task_name))
+
+    @router.post("/experiment/protocol/tasks/reorder")
+    def reorder_tasks(body: Dict[str, Any]):
+        order = _names(body, "order", "every workflow task, in the new order")
+        return _answer_or_refusal(context.reorder_tasks(order))
+
+    @router.post("/experiment/protocol/tasks/{task_name}/requirements")
+    def set_task_requirements(task_name: str, body: Dict[str, Any]):
+        requires = body.get("requires")
+        required = body.get("required")
+        if (requires is None and required is None) or (
+            required is not None and not isinstance(required, bool)
+        ):
+            raise _missing_field(
+                "Pass requires (the earlier tasks it needs, a list) and/or "
+                "required (boolean)."
+            )
+        if requires is not None:
+            requires = _names(body, "requires", "the earlier tasks it needs")
+        return _answer_or_refusal(
+            context.set_task_requirements(task_name, requires, required)
+        )
+
+    @router.post("/experiment/protocol/lamella_defaults")
+    def set_lamella_defaults(body: Dict[str, Any]):
+        if not body:
+            raise _missing_field(
+                "Pass any of use_petname, name_prefix, poi, alignment_area."
+            )
+        return _answer_or_refusal(context.set_lamella_defaults(body))
+
+    @router.post("/experiment/protocol/save")
+    def save_protocol_as(body: Dict[str, Any]):
+        name = _required_text(body, "name", "a file name for the protocol folder")
+        overwrite = body.get("overwrite", False)
+        if not isinstance(overwrite, bool):
+            raise _missing_field("overwrite is a boolean.")
+        return _answer_or_refusal(context.save_protocol_as(name, overwrite))
+
+    # -- the grid protocol: grid task settings, order and requirements ---------
+
+    @router.post("/experiment/grid_protocol/task_config/{task_name}")
+    def patch_grid_task_config(task_name: str, body: Dict[str, Any]):
+        patch, version = _validated(body)
+        result = context.apply_grid_task_config_patch(task_name, patch, version)
+        return _refused_or(_answer_or_refusal(result))
+
+    @router.post("/experiment/grid_protocol/tasks/reorder")
+    def reorder_grid_tasks(body: Dict[str, Any]):
+        order = _names(body, "order", "every grid task, in the new order")
+        return _answer_or_refusal(context.reorder_grid_tasks(order))
+
+    @router.post("/experiment/grid_protocol/tasks/{task_name}/requirements")
+    def set_grid_task_requirements(task_name: str, body: Dict[str, Any]):
+        requires = _names(body, "requires", "the grid tasks it needs first")
+        return _answer_or_refusal(
+            context.set_grid_task_requirements(task_name, requires)
+        )
 
     def _validated_reorder(body: Dict[str, Any]):
         milling_key = body.get("milling_key")
@@ -1009,6 +1231,29 @@ def build_app_config_router(context: AppContext) -> APIRouter:
         name = _required_text(body, "name", "the grid's new name")
         return _answer_or_refusal(context.rename_grid(grid_name, name))
 
+    @router.post("/experiment/grids/{grid_name}/quality")
+    def set_grid_quality(grid_name: str, body: Dict[str, Any]):
+        verdict = _required_text(
+            body, "verdict", "GOOD, REWORK, FAILED, or UNASSESSED to clear"
+        )
+        reason = body.get("reason", "")
+        if not isinstance(reason, str):
+            raise _missing_field("reason is text.")
+        return _answer_or_refusal(context.set_grid_quality(grid_name, verdict, reason))
+
+    @router.post("/experiment/grids/{grid_name}/note")
+    def set_grid_note(grid_name: str, body: Dict[str, Any]):
+        note = body.get("note")
+        if not isinstance(note, str) or len(note) > 4000:
+            raise _missing_field(
+                "Pass note: text, at most 4000 characters ('' clears)."
+            )
+        return _answer_or_refusal(context.set_grid_note(grid_name, note))
+
+    @router.delete("/experiment/grids/{grid_name}")
+    def remove_grid(grid_name: str):
+        return _answer_or_refusal(context.remove_grid(grid_name))
+
     # -- lamella positions: the Lamella tab's buttons ---------------------------
 
     @router.post("/experiment/items")
@@ -1044,6 +1289,14 @@ def build_app_config_router(context: AppContext) -> APIRouter:
     def move_to_item_pose(item_name: str, body: Dict[str, Any]):
         pose = _required_text(body, "pose", "a pose name from the item (MILLING, ...)")
         return _answer_or_refusal(context.move_to_item_pose(item_name, pose))
+
+    @router.post(
+        "/experiment/items/{item_name}/objective/move_to",
+        dependencies=[Depends(take_control)],
+    )
+    def move_objective_to_item(item_name: str):
+        # The tab's objective Move to: the FM objective to the stored position.
+        return _answer_or_refusal(context.move_objective_to_item(item_name))
 
     @router.post("/experiment/items/{item_name}/poses/{pose_name}")
     def set_item_pose(item_name: str, pose_name: str):

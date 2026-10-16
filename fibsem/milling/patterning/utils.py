@@ -398,3 +398,14 @@ def outside_field(pattern, width: float, height: float) -> bool:
         or y_min < -height / 2
         or y_max > height / 2
     )
+
+
+def stage_outside_field(stage, aspect: float = 2 / 3) -> list:
+    """The patterns of milling *stage* that reach past its field: its milling
+    hfw wide and *aspect* of that high (an image's height over width)."""
+    hfw = stage.milling.hfw
+    return [
+        pattern
+        for pattern in stage.define_patterns()
+        if outside_field(pattern, hfw, hfw * aspect)
+    ]
