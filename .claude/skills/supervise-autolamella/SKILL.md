@@ -578,6 +578,13 @@ each step's shift and whether the methods agree on what is left. If they don't
 agree, or the score stays low, the view has changed (milled, drifted out of
 frame): stop and tell the operator rather than aligning again.
 
+**How thick is the lamella?** `item_measure_thickness` with a FIB image from
+`item_list_outputs` measures the band between the trenches on the full-resolution
+file, around the item's POI: thickness, wedge, the band's angle, where it sits
+against the POI, and any holes. Use it instead of measuring a preview yourself.
+When `resolution.under_resolved` is true the band is under 8 px: take the next
+image at the suggested field width before trusting the number.
+
 **Overviews and focus stacks.** `beam_acquire_overview` images a grid of tiles
 around where the stage is and stitches them; the stage moves to each tile and
 comes back. Ask `beam_estimate_overview` first: it gives the tile count and the scan

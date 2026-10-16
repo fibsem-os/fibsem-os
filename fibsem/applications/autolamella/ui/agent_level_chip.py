@@ -11,7 +11,8 @@ At Assist the agent acts by asking (FIB-1283). While its request waits, the chip
 turns amber, "Agent asks", and the card shows the request. Only one request waits
 at a time, so the chip carries no count. A suggested answer to the run's question
 turns it amber too, "Agent suggests", and the card shows it with Accept
-(FIB-1407).
+(FIB-1407). Either one opens the card on its own, floating, so it is seen without
+a click (`show_card`).
 
 The card can float (FIB-1404): its button moves it into a window of its own, a
 tool window over the app (never over other apps) that the operator moves and
@@ -153,6 +154,9 @@ class FloatingPanel(QWidget):
         super().__init__(parent, _OVER_APP)
         self.setWindowTitle("Agent")
         self.setObjectName("agentPanel")
+        # Opened by a request arriving, not only by a click: it never takes the
+        # keyboard from what the operator is typing in.
+        self.setAttribute(Qt.WA_ShowWithoutActivating)  # type: ignore
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
 
@@ -254,10 +258,16 @@ class AgentLevelChip(QPushButton):
     def set_request(self, request: Optional[Dict[str, Any]]) -> None:
         """Show the agent's request waiting or being applied, or None for none.
         Does not emit: this is the window telling the chip."""
+        shown = (self._request or {}).get("request_id")
+        arrived = (request or {}).get("status") == "pending" and (request or {}).get(
+            "request_id"
+        ) != shown
         self._request = dict(request) if request is not None else None
         self.card.set_request(self._request)
         self._paint()
         self._fit_popup()
+        if arrived:
+            self.show_card()
 
     @property
     def suggestion(self) -> Optional[Dict[str, str]]:
@@ -266,10 +276,13 @@ class AgentLevelChip(QPushButton):
     def set_suggestion(self, suggestion: Optional[Dict[str, str]]) -> None:
         """Show the agent's suggested answer (see `AgentCard.set_suggestion`),
         or None for none. Does not emit: this is the window telling the chip."""
+        arrived = suggestion is not None and dict(suggestion) != self._suggestion
         self._suggestion = dict(suggestion) if suggestion is not None else None
         self.card.set_suggestion(self._suggestion)
         self._paint()
         self._fit_popup()
+        if arrived:
+            self.show_card()
 
     def set_now(self, action: Optional[str]) -> None:
         """What the agent is doing on the microscope, for the card."""
@@ -327,6 +340,16 @@ class AgentLevelChip(QPushButton):
         self.popup.show()
         self._fit_popup()
 
+    def show_card(self) -> None:
+        """The card, floating, for something new waiting for the operator: a
+        request or a suggestion. Its own window rather than the popup, which
+        takes the mouse and closes on the next click elsewhere; closed, it
+        stays closed until the next one. Already open, it stays where it is."""
+        if not self.isVisible() or self.popup.isVisible():
+            return
+        self.float_card()
+        self.panel.raise_()
+
     def _on_float_clicked(self) -> None:
         if self.floating:
             self.dock_card()
@@ -351,8 +374,9 @@ class AgentLevelChip(QPushButton):
             self.panel.setGeometry(self._panel_geometry)
         else:
             self.panel.resize(self._card_width(), self.card.sizeHint().height())
-            if start is not None:
-                self.panel.move(start.topLeft())
+            self.panel.move(
+                start.topLeft() if start is not None else self._above_chip(self.panel)
+            )
         self.panel.show()
         self.panel.raise_()
 
@@ -383,14 +407,19 @@ class AgentLevelChip(QPushButton):
         popup.adjustSize()
         if not popup.isVisible():
             return
+        popup.move(self._above_chip(popup))
+
+    def _above_chip(self, window: QWidget) -> QPoint:
+        """Where *window* stands above the chip, its right edge on the chip's,
+        inside the screen."""
         corner = self.mapToGlobal(QPoint(self.width(), 0))
-        x = corner.x() - popup.width()
-        y = corner.y() - popup.height() - 4
+        x = corner.x() - window.width()
+        y = corner.y() - window.height() - 4
         screen = self.screen().availableGeometry() if self.screen() else None
         if screen is not None:
-            x = max(screen.left(), min(x, screen.right() - popup.width()))
+            x = max(screen.left(), min(x, screen.right() - window.width()))
             y = max(screen.top(), y)
-        popup.move(x, y)
+        return QPoint(x, y)
 
     def _closing(self, signal):
         def emit() -> None:

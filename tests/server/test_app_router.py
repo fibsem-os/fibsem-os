@@ -1309,3 +1309,103 @@ def test_sidecar_reads_experiment_files_as_tools_and_resources(
     assert [e["name"] for e in json.loads(folder[0].content)["entries"]] == [
         "grid-aspen"
     ]
+
+
+def test_thickness_reads_a_saved_fib_image_over_http_and_mcp(client, host):
+    """FIB-1434: the band measured off an item's saved FIB image, around its
+    POI, by the route and by the Watch tool, with the result's plot."""
+    pytest.importorskip("mcp")
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+    from fibsem.mcp.sidecar import build_sidecar
+    from fibsem.structures import BeamType
+    from tests.test_lamella_thickness import band_image
+
+    lamella = host.experiment.positions[0]
+    os.makedirs(lamella.path, exist_ok=True)
+    fname = "ref_Polishing_final_high_res_ib.tif"
+    image = band_image(235, angle_deg=0.6)
+    image.metadata.microscope_state = MicroscopeState()  # a saved image has one
+    image.metadata.image_settings.beam_type = BeamType.ION
+    image.save(os.path.join(lamella.path, fname))
+    sem = "ref_Polishing_final_high_res_eb.tif"
+    image.metadata.image_settings.beam_type = BeamType.ELECTRON
+    image.save(os.path.join(lamella.path, sem))
+    lamella.task_history.append(
+        AutoLamellaTaskState(
+            name="Polishing", outputs={"final_fib": [fname], "final_sem": [sem]}
+        )
+    )
+    route = f"/app/experiment/items/{lamella.name}/outputs/{fname}/thickness"
+
+    answer = client.post(route, headers=AUTH).json()
+    assert answer["thickness_nm"]["mean"] == pytest.approx(235, abs=10)
+    assert answer["angle_deg"] == pytest.approx(0.6, abs=0.05)
+    # This item has no trench patterns, so the window is the default.
+    assert answer["window_um"] == [10.0, 4.0]
+    assert answer["window_from"] == "default"
+    assert answer["plot"]["image_b64_jpeg"]
+    # Saved beside the image, as an autofocus run is.
+    saved = answer["saved_to"]
+    assert saved == os.path.join(lamella.path, "thickness", fname[: -len(".tif")])
+    assert sorted(os.listdir(saved)) == ["data.json", "plot.png", "window.tif"]
+
+    narrow = client.post(route, json={"width_um": "5"}, headers=AUTH).json()
+    assert narrow["continuity"]["columns"] == 512
+    assert narrow["window_from"] == "given"
+
+    unknown = client.post(
+        f"/app/experiment/items/{lamella.name}/outputs/nope.tif/thickness",
+        headers=AUTH,
+    )
+    assert unknown.status_code == 404
+    assert fname in unknown.json()["detail"]["filenames"]
+    refused = client.post(
+        f"/app/experiment/items/{lamella.name}/outputs/{sem}/thickness", headers=AUTH
+    )
+    assert refused.status_code == 422
+    bad = client.post(route, json={"height_um": "tall"}, headers=AUTH)
+    assert bad.status_code == 422
+
+    client.headers["Authorization"] = f"Bearer {TOKEN}"
+    sidecar = build_sidecar(client, client.get("/capabilities").json())
+    result = asyncio.run(
+        sidecar.call_tool(
+            "item_measure_thickness", {"item_name": lamella.name, "filename": fname}
+        )
+    )
+    if isinstance(result, tuple):
+        result = result[0]
+    contents = list(getattr(result, "content", result))
+    assert any(getattr(c, "type", None) == "image" for c in contents)
+    text = json.loads(contents[0].text)
+    assert text["thickness_nm"]["mean"] == pytest.approx(235, abs=10)
+    assert text["plot"]["image_index"] == 0
+
+
+def test_the_thickness_window_comes_from_the_trench_patterns():
+    """Along: nine tenths of the narrowest trench pattern; across: the widest
+    gap (the rough slab) and half a micron into each trench."""
+    from types import SimpleNamespace
+
+    from fibsem.applications.autolamella.server.context import _trench_window
+    from fibsem.milling.patterning.patterns.trench import TrenchPattern
+
+    def task(sync, *patterns):
+        stages = [SimpleNamespace(pattern=p) for p in patterns]
+        return SimpleNamespace(
+            sync_to_poi=sync, milling={"mill": SimpleNamespace(stages=stages)}
+        )
+
+    rough = TrenchPattern(width=12e-6, spacing=2e-6)
+    polish = TrenchPattern(width=10e-6, spacing=0.25e-6)
+    lamella = SimpleNamespace(
+        task_config={
+            "Rough Milling": task(True, rough),
+            "Polishing": task(True, polish),
+            "Elsewhere": task(False, TrenchPattern(width=1e-6, spacing=9e-6)),
+        }
+    )
+    width, height = _trench_window(lamella)
+    assert width == pytest.approx(9e-6)
+    assert height == pytest.approx(3e-6)
+    assert _trench_window(SimpleNamespace(task_config={})) is None

@@ -1,74 +1,21 @@
 # FibsemClient — Remaining Gaps
 
-What is still missing before `FibsemClient` can be used as a drop-in `FibsemMicroscope` subclass.
+`FibsemClient` (`fibsem/server/client.py`) is a plain class, not a `FibsemMicroscope`
+subclass. It keeps `FibsemMicroscope`'s names for imaging, stage moves, beam and
+detector settings, the milling angle and milling, and reaches everything else the App
+Server serves by name: `get_parameter`/`set_parameter`, `get_values`,
+`call_command`/`call_query` for devices, and `get_service_parameter`,
+`set_service_parameter`, `call_service_command`, `call_service_query` and
+`wait_for_run` for services. What it still lacks, against the microscope:
 
-## Abstract methods — not yet on server or client
+## Not on the client
 
-### Manipulator
-All manipulator methods are low-priority (most systems don't have one).
-
-| Method | Signature |
-|--------|-----------|
-| `insert_manipulator` | `(name: str) -> None` |
-| `retract_manipulator` | `() -> None` |
-| `move_manipulator_relative` | `(position: FibsemManipulatorPosition) -> None` |
-| `move_manipulator_absolute` | `(position: FibsemManipulatorPosition) -> None` |
-| `move_manipulator_corrected` | `(dx: float, dy: float, beam_type: BeamType) -> None` |
-| `move_manipulator_to_position_offset` | `(offset: FibsemManipulatorPosition, name: str) -> None` |
-| `_get_saved_manipulator_position` | `(name: str) -> FibsemManipulatorPosition` |
-
-### Connection lifecycle
-| Method | Signature |
-|--------|-----------|
-| `connect_to_microscope` | `(ip_address: str, port: int, reset_beam_shift: bool = True) -> None` |
-| `disconnect` | `() -> None` |
-
-### Individual pattern drawing
-The server exposes `draw_patterns` (batch) but not the individual `@abstractmethod` variants.
-These need either stubs that delegate to `draw_patterns`, or individual endpoints.
-
-| Method | Signature |
-|--------|-----------|
-| `draw_rectangle` | `(pattern_settings: FibsemRectangleSettings)` |
-| `draw_line` | `(pattern_settings: FibsemLineSettings)` |
-| `draw_circle` | `(pattern_settings: FibsemCircleSettings)` |
-| `draw_bitmap_pattern` | `(pattern_settings: FibsemBitmapSettings) -> None` |
-| `draw_polygon` | `(pattern_settings: FibsemPolygonSettings) -> None` |
-
-### Internal methods (need stubs only, nothing external calls them directly)
-| Method | Notes |
-|--------|-------|
-| `_get(key, beam_type)` | Low-level hardware getter — stub with `NotImplementedError` |
-| `_set(key, value, beam_type)` | Low-level hardware setter — stub with `NotImplementedError` |
-
----
-
-## Direct attribute access — not yet on client
-
-These are read directly from `microscope.<attr>` in the existing codebase, not via method calls.
-
-| Attribute | Type | Used where | Notes |
-|-----------|------|-----------|-------|
-| `microscope.sample_handling` | `SampleHandling` | movement UI, autolamella grid workflows | A service (`fibsem.services.sample_handling`): its commands can be served once services are (FIB-1280). Needs `holder`, `current_grid`, the inventory. |
-| `microscope.fm` | `FluorescenceMicroscope \| None` | 4 places — image settings widget, minimap, autolamella UI | Always checked with `if microscope.fm is not None` first. Can be stubbed as `None` on client. |
-| `microscope.milling_channel` | `BeamType` | Milling setup code | Defaults to `BeamType.ION`. Can be a fixed client attribute. |
-| `microscope._last_imaging_settings` | `ImageSettings` | `get_imaging_settings()` fallback path | Internal — low risk. |
-
----
-
-## Properties — not yet on client
-
-| Property | Returns | Notes |
-|----------|---------|-------|
-| `is_acquiring` | `bool` | Could poll `GET /is_acquiring` or always return `False` |
-| `current_grid` | `str` | Reads `sample_handling.current_grid` — depends on `sample_handling` being served |
-| `manufacturer` | `str` | Can be populated from `GET /health` at connect time |
-
----
-
-## Notes
-
-- `microscope.system` is fetched and cached at `FibsemClient.__init__` — this is covered.
-- `microscope.fm = None` is safe to hardcode on the client; fluorescence microscope is never remote-controlled through this server.
-- The individual `draw_*` methods are the easiest to close — they can delegate to `draw_patterns([pattern])` locally on the client without a new server endpoint.
-- `sample_handling` is the hardest gap: autolamella grid workflows read `microscope.sample_handling.holder` directly. Its commands become reachable when services are served (FIB-1280); the holder itself would need its own endpoint.
+| What | Notes |
+|------|-------|
+| `client.devices` for the stage, chamber, chamber camera and manipulator | `client.devices` builds only the beams and the FM parts. `RemoteStage`, `RemoteChamber`, `RemoteChamberCamera` and `RemoteManipulator` exist in `fibsem/drivers/remote/devices.py`; `_connect_devices` doesn't build them yet. |
+| A `sample_handling` attribute | The service is served (`/microscope/services/sample_handling`: `move_to_grid`, `move_to_slot`, `current`, `holder_slots`, `get_inventory`, ...) and reachable through `call_service_command`/`call_service_query`; there is no wrapper, and no client-side holder object for code that reads `microscope.sample_handling.holder`. |
+| `microscope.fm` | The FM's parts are in `client.devices` and its acquisitions are `imaging`'s `fm_*` commands; there is no `FluorescenceMicroscope` over them on the client. |
+| Manipulator methods | The allowlist blocks every manipulator write and command for an agent (`fibsem/server/allowlist.py`), so wrappers would only be refused. |
+| Individual `draw_*` methods | `draw_patterns` sends them to the milling service's `draw`, which takes any pattern list; single-pattern wrappers could delegate to it locally. |
+| `is_acquiring`, `manufacturer`, `current_grid` | `is_acquiring` on the microscope is computed from the beams' `is_live`; `manufacturer` is in `GET /microscope`; `current_grid` is `sample_handling`'s `current` query. None is a client property yet. |
+| `connect_to_microscope`, `disconnect` | The client connects in its constructor and ends with `close()`. |
