@@ -1227,3 +1227,39 @@ def test_the_border_is_the_agent_s_purple_while_it_drives(main_ui, host):
     main_ui._refresh_agent_chip()
     assert shown() == "supervised"
     main_ui._set_border_state("idle")
+
+
+def test_the_chip_pulses_while_the_agent_acts_and_ends_a_whole_cycle(qapp):
+    from fibsem.applications.autolamella.ui.agent_level_chip import (
+        PULSE_MS,
+        PULSE_STEP_MS,
+    )
+    from fibsem.applications.autolamella.ui.agent_style import LEVEL_STYLES
+
+    chip = AgentLevelChip()
+    chip.set_level(AgentLevel.DRIVE)
+    assert not chip.pulsing
+    chip.set_now("focus sweep")
+    assert chip.pulsing
+
+    steps = PULSE_MS // PULSE_STEP_MS
+    for _ in range(steps // 2):
+        chip._on_pulse()
+    # Halfway, the fill is at its faintest.
+    assert chip.styleSheet() != LEVEL_STYLES[AgentLevel.DRIVE]
+    assert chip.text() == "Agent: Driving"
+
+    # The action ends: the cycle runs out, then the chip is still.
+    chip.set_now(None)
+    assert chip.pulsing
+    for _ in range(steps - steps // 2):
+        chip._on_pulse()
+    assert not chip.pulsing
+    assert chip.styleSheet() == LEVEL_STYLES[AgentLevel.DRIVE]
+
+    # A request waiting shows over the pulse.
+    chip.set_now("move stage relative")
+    chip.set_request(_request())
+    chip._on_pulse()
+    assert chip.text() == "Agent asks"
+    chip.deleteLater()
