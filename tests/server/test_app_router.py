@@ -287,8 +287,7 @@ def test_summaries_and_protocol_over_http(client):
         body = client.get(path, headers=AUTH).json()
         assert body["available"] is True, path
     assert (
-        client.get("/app/workflow/run_summary", headers=AUTH).json()["available"]
-        is False
+        client.get("/app/workflow/summary", headers=AUTH).json()["available"] is False
     )
 
 
@@ -503,7 +502,7 @@ def test_agent_notes_land_on_the_record(microscope, host, event_buffer):
     with TestClient(armed, raise_server_exceptions=False) as client:
         item = host.experiment.positions[0].name
         ok = client.post(
-            "/app/agent/notes",
+            "/app/experiment/notes",
             headers=AUTH,
             json={"text": "curtaining on the face, accepted anyway", "item_name": item},
         )
@@ -514,17 +513,17 @@ def test_agent_notes_land_on_the_record(microscope, host, event_buffer):
         assert note["payload"]["item_id"] == host.experiment.positions[0].id
 
         unknown = client.post(
-            "/app/agent/notes",
+            "/app/experiment/notes",
             headers=AUTH,
             json={"text": "x", "item_name": "nope"},
         )
         assert unknown.status_code == 404
-        empty = client.post("/app/agent/notes", headers=AUTH, json={"text": "   "})
+        empty = client.post("/app/experiment/notes", headers=AUTH, json={"text": "   "})
         assert empty.status_code == 422
 
         # Its answer to the operator's message names the message (FIB-1423).
         reply = client.post(
-            "/app/agent/notes",
+            "/app/experiment/notes",
             headers=AUTH,
             json={"text": "skipping 03", "reply_to": "ab12"},
         )
@@ -533,14 +532,14 @@ def test_agent_notes_land_on_the_record(microscope, host, event_buffer):
         note = [e for e in events if e["kind"] == "agent_note"][-1]
         assert note["payload"]["reply_to"] == "ab12"
         bad = client.post(
-            "/app/agent/notes", headers=AUTH, json={"text": "x", "reply_to": 3}
+            "/app/experiment/notes", headers=AUTH, json={"text": "x", "reply_to": 3}
         )
         assert bad.status_code == 422
 
 
 def test_agent_notes_need_only_the_read_scope(client):
     # A watching agent notes what it sees (FIB-1035); a note changes nothing.
-    resp = client.post("/app/agent/notes", headers=AUTH, json={"text": "x"})
+    resp = client.post("/app/experiment/notes", headers=AUTH, json={"text": "x"})
     assert resp.status_code == 200
 
 

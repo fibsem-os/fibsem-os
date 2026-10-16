@@ -48,7 +48,7 @@ The tools this skill uses, with their routes for plain HTTP:
 | `request_get` | `GET /app/agent/requests/{request_id}` |
 | `request_withdraw` | `POST /app/agent/requests/{request_id}/withdraw` with `{"reason": ...}` |
 | `prompt_suggest_answer` | `POST /app/workflow/prompt/suggest` |
-| `experiment_add_note` | `POST /app/agent/notes` |
+| `experiment_add_note` | `POST /app/experiment/notes` |
 | `workflow_stop`, `milling_stop` | `POST /app/workflow/stop`, `POST /microscope/services/milling/commands/stop`, each with `{"reason": ...}` |
 
 In a request, `tool` is the tool's name without the `mcp__fibsem__`

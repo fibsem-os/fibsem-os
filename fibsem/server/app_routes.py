@@ -422,7 +422,7 @@ def build_app_router(context: AppContext) -> APIRouter:
     def task_history():
         return context.task_history()
 
-    @router.get("/workflow/run_summary")
+    @router.get("/workflow/summary")
     def run_summary():
         return context.run_summary()
 
@@ -623,7 +623,7 @@ def build_app_router(context: AppContext) -> APIRouter:
         task_names, grid_names, screen_all = _grid_run_body(body)
         return context.grid_workflow_plan(task_names, grid_names, screen_all)
 
-    @router.post("/agent/notes")
+    @router.post("/experiment/notes")
     def add_note(body: Dict[str, Any]):
         # Observations for the record — event stream + experiment log. On the
         # read router, a POST the dashboard token is refused: a watching agent
@@ -833,7 +833,7 @@ def build_app_control_router(context: AppContext) -> APIRouter:
             report_at_end=report_at_end,
         )
 
-    @router.post("/agent/supervision")
+    @router.post("/experiment/protocol/supervision")
     def set_supervision(body: Dict[str, Any]):
         task_name = body.get("task_name")
         if not isinstance(task_name, str) or "supervise" not in body:
@@ -1022,7 +1022,8 @@ def build_app_config_router(context: AppContext) -> APIRouter:
     @router.post("/workflow/schedule")
     def set_task_schedule(body: Dict[str, Any]):
         # Workflow structure, not a config document: a verb like
-        # /app/agent/supervision. scheduled_at is ISO-8601 or null to clear.
+        # /app/experiment/protocol/supervision. scheduled_at is ISO-8601 or null
+        # to clear.
         task_name = body.get("task_name")
         scheduled_at = body.get("scheduled_at")
         if not isinstance(task_name, str) or (

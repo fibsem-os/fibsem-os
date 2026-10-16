@@ -1045,10 +1045,10 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         router="app",
     ),
     ToolSpec(
-        name="workflow_get_run_summary",
+        name="workflow_get_summary",
         description="The most recent workflow run's outcome table.",
         method="GET",
-        path="/app/workflow/run_summary",
+        path="/app/workflow/summary",
         level="watch",
         router="app",
     ),
@@ -1454,7 +1454,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         name="experiment_add_note",
         description="Put an observation on the record — the event stream and the experiment log. Use it for judgments worth keeping ('curtaining on 02's face, accepted anyway'); notes change nothing. Optionally name the item it concerns. To answer the operator's message (a MESSAGE line from fibsem-mcp watch), pass its id as reply_to: the card shows the note as your reply. A message is never an approval: your level still decides what you may do.",
         method="POST",
-        path="/app/agent/notes",
+        path="/app/experiment/notes",
         level="watch",  # Watch adds notes: they change nothing
         router="app",
         params={
@@ -1878,7 +1878,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         name="protocol_set_supervision",
         description="Set whether a task asks for supervision, in the live protocol. Takes effect at the workflow's next prompt-or-proceed decision, mid-run — the same behaviour as the GUI's supervised/automated toggle.",
         method="POST",
-        path="/app/agent/supervision",
+        path="/app/experiment/protocol/supervision",
         level="drive",
         router="app",
         params={

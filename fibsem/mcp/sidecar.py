@@ -884,8 +884,8 @@ def build_sidecar(client, capabilities):
     def experiment_get_task_history():
         return _app_get("/app/experiment/task_history")
 
-    def workflow_get_run_summary():
-        return _app_get("/app/workflow/run_summary")
+    def workflow_get_summary():
+        return _app_get("/app/workflow/summary")
 
     def protocol_get():
         return _app_get("/app/experiment/protocol")
@@ -1080,7 +1080,7 @@ def build_sidecar(client, capabilities):
         body = {"text": str(text), "item_name": item_name}
         if reply_to:
             body["reply_to"] = str(reply_to)
-        return _app_post("/app/agent/notes", body)
+        return _app_post("/app/experiment/notes", body)
 
     def request_create(actions: list, reason: str, image: Optional[str] = None):
         body = {"actions": list(actions), "reason": str(reason)}
@@ -1379,7 +1379,7 @@ def build_sidecar(client, capabilities):
 
     def protocol_set_supervision(task_name: str, supervise: bool):
         payload = {"task_name": task_name, "supervise": bool(supervise)}
-        return _app_post("/app/agent/supervision", payload)
+        return _app_post("/app/experiment/protocol/supervision", payload)
 
     def workflow_requeue(item_name: str, task_name: str, front: bool = False):
         return _app_post(
@@ -1542,7 +1542,7 @@ def build_sidecar(client, capabilities):
             workflow_get_queue,
             item_list,
             experiment_get_task_history,
-            workflow_get_run_summary,
+            workflow_get_summary,
             app_get_log,
             protocol_get,
             item_list_outputs,

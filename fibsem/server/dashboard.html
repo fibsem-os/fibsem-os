@@ -442,7 +442,7 @@ function appendEvents(events) {
 
 async function refreshTop() {
   const [status, protocol, runSummary] = await Promise.all([
-    api("/app/workflow/status"), api("/app/experiment/protocol"), api("/app/workflow/run_summary"),
+    api("/app/workflow/status"), api("/app/experiment/protocol"), api("/app/workflow/summary"),
   ]);
   protocolTasks = protocol.tasks || [];
   renderHeader(status);

@@ -479,7 +479,7 @@ def test_supervision_and_requeue_require_the_control_scope(ui, qapp):
     with _client(ui, arm_control=False) as client:
         for path, payload in (
             (
-                "/app/agent/supervision",
+                "/app/experiment/protocol/supervision",
                 {"task_name": "Rough Milling", "supervise": True},
             ),
             ("/app/workflow/queue/requeue", {"item_name": "01", "task_name": "x"}),
@@ -493,7 +493,7 @@ def test_supervision_and_requeue_require_the_control_scope(ui, qapp):
             assert refused.json()["detail"]["level"] == "watch"
     with _client(ui, arm_control=True) as client:
         for path in (
-            "/app/agent/supervision",
+            "/app/experiment/protocol/supervision",
             "/app/workflow/queue/requeue",
             "/app/workflow/queue/edit",
         ):

@@ -96,7 +96,7 @@ def test_watch_reads_and_notes_but_acts_on_nothing(client):
     capabilities = client.get("/capabilities", headers=AGENT).json()
     assert capabilities["level"] == "watch"
     assert client.get("/app/workflow/status", headers=AGENT).status_code == 200
-    note = client.post("/app/agent/notes", headers=AGENT, json={"text": "seen"})
+    note = client.post("/app/experiment/notes", headers=AGENT, json={"text": "seen"})
     assert note.status_code == 200
 
     for path in ("/app/workflow/stop", STOP_MILLING, "/app/workflow/prompt/answer"):
@@ -173,7 +173,7 @@ def test_off_refuses_the_agent_everything_but_not_the_dashboard(client, auth):
         ("GET", "/capabilities"),
         ("GET", "/app/workflow/status"),
         ("GET", "/microscope/devices/stage/position"),
-        ("POST", "/app/agent/notes"),
+        ("POST", "/app/experiment/notes"),
     ):
         response = client.request(method, path, headers=AGENT, json={"text": "x"})
         assert response.status_code == 403, path
