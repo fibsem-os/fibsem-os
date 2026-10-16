@@ -849,10 +849,12 @@ class AutoLamellaAppContext:
         its peak brightness (:func:`fibsem.imaging.thickness.measure_lamella_band`)
         in a window around the item's POI: ``width_um`` along the lamella,
         ``height_um`` across it, each by default from the item's own trench
-        patterns (:func:`_trench_window`). Reads the file only. The answer
-        carries the result's diagnostic plot.
+        patterns (:func:`_trench_window`). Nothing moves; the result is saved
+        in a ``thickness`` folder beside the image. The answer carries the
+        result's diagnostic plot.
         """
         import base64
+        import os
 
         from fibsem.imaging.thickness import DEFAULT_WINDOW, measure_lamella_band
         from fibsem.structures import BeamType, FibsemImage, Point
@@ -890,12 +892,23 @@ class AutoLamellaAppContext:
             result = measure_lamella_band(image, poi, window)
         except ValueError as exc:
             return {"error_type": "invalid", "error": str(exc)}
+        # Kept beside the image, as an autofocus run keeps its own: one folder
+        # per image, replaced when the same image is measured again.
+        stem = os.path.splitext(os.path.basename(path))[0]
+        try:
+            saved_to = str(
+                result.save(os.path.join(os.path.dirname(path), "thickness"), stem)
+            )
+        except OSError:
+            logging.exception(f"Could not save the thickness result for {filename!r}")
+            saved_to = None
         return {
             "item_name": item_name,
             "filename": filename,
             "poi": {"x": poi.x, "y": poi.y},
             "window_um": [round(window[0] * 1e6, 3), round(window[1] * 1e6, 3)],
             "window_from": source,
+            "saved_to": saved_to,
             **result.to_dict(),
             "plot": {"image_b64_jpeg": base64.b64encode(result.plot_jpeg()).decode()},
         }

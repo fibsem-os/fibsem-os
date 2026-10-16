@@ -767,13 +767,13 @@ def build_sidecar(client, capabilities):
         width_um: Optional[float] = None,
         height_um: Optional[float] = None,
     ):
-        query = {"width_um": width_um, "height_um": height_um}
+        body = {"width_um": width_um, "height_um": height_um}
         data, err = _call(
             client,
-            "GET",
+            "POST",
             f"/app/experiment/items/{quote(item_name, safe='')}/outputs/"
-            f"{quote(filename, safe='')}/thickness?"
-            + urlencode({k: v for k, v in query.items() if v is not None}),
+            f"{quote(filename, safe='')}/thickness",
+            {k: v for k, v in body.items() if v is not None},
         )
         return err if err else _with_images(data)
 

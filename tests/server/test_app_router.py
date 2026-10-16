@@ -1173,28 +1173,34 @@ def test_thickness_reads_a_saved_fib_image_over_http_and_mcp(client, host):
     )
     route = f"/app/experiment/items/{lamella.name}/outputs/{fname}/thickness"
 
-    answer = client.get(route, headers=AUTH).json()
+    answer = client.post(route, headers=AUTH).json()
     assert answer["thickness_nm"]["mean"] == pytest.approx(235, abs=10)
     assert answer["angle_deg"] == pytest.approx(0.6, abs=0.05)
     # This item has no trench patterns, so the window is the default.
     assert answer["window_um"] == [10.0, 4.0]
     assert answer["window_from"] == "default"
     assert answer["plot"]["image_b64_jpeg"]
+    # Saved beside the image, as an autofocus run is.
+    saved = answer["saved_to"]
+    assert saved == os.path.join(lamella.path, "thickness", fname[: -len(".tif")])
+    assert sorted(os.listdir(saved)) == ["data.json", "plot.png", "window.tif"]
 
-    narrow = client.get(route, params={"width_um": 5}, headers=AUTH).json()
+    narrow = client.post(route, json={"width_um": "5"}, headers=AUTH).json()
     assert narrow["continuity"]["columns"] == 512
     assert narrow["window_from"] == "given"
 
-    unknown = client.get(
+    unknown = client.post(
         f"/app/experiment/items/{lamella.name}/outputs/nope.tif/thickness",
         headers=AUTH,
     )
     assert unknown.status_code == 404
     assert fname in unknown.json()["detail"]["filenames"]
-    refused = client.get(
+    refused = client.post(
         f"/app/experiment/items/{lamella.name}/outputs/{sem}/thickness", headers=AUTH
     )
     assert refused.status_code == 422
+    bad = client.post(route, json={"height_um": "tall"}, headers=AUTH)
+    assert bad.status_code == 422
 
     client.headers["Authorization"] = f"Bearer {TOKEN}"
     sidecar = build_sidecar(client, client.get("/capabilities").json())
