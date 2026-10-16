@@ -19,10 +19,15 @@ from typing import Any, Optional, Tuple
 from PyQt5.QtCore import QEvent, QObject
 from PyQt5.QtWidgets import QAbstractSpinBox, QToolTip
 
+from fibsem.fm.structures import ChannelSettings
+from fibsem.ui.widgets.custom_widgets import ValueSpinBox
+from fibsem.ui.widgets.form_builder import configure_spinbox
+
 NativeScale = Tuple[float, Optional[str]]
 
 EXPOSURE_RANGE_MS: Tuple[float, float] = (1.0, 10000.0)
 POWER_RANGE_PERCENT: Tuple[float, float] = (0.0, 100.0)
+GAIN_RANGE_PERCENT: Tuple[float, float] = (0.0, 100.0)
 BINNINGS: Tuple[int, ...] = (1, 2, 4, 8)
 
 
@@ -47,20 +52,47 @@ def _read(fm: Any, what: str, read) -> Optional[Any]:
         return None
 
 
-def exposure_range_ms(fm: Any, decimals: int = 1) -> Tuple[float, float]:
+def _in_channel_steps(limits: Tuple[float, float], name: str) -> Tuple[float, float]:
+    """``limits`` as a channel's ``name`` box shows them."""
+    spec = ChannelSettings.params[name]
+    return _in_steps(limits, spec.scale, spec.display.decimals)
+
+
+def exposure_range_ms(fm: Any) -> Tuple[float, float]:
     """The exposure times the camera takes, in ms."""
     limits = _read(fm, "exposure limits", lambda fm: fm.camera.exposure_time_limits)
     if limits is None:
         return EXPOSURE_RANGE_MS
-    return _in_steps(limits, 1e3, decimals)
+    return _in_channel_steps(limits, "exposure_time")
 
 
-def power_range_percent(fm: Any, decimals: int = 1) -> Tuple[float, float]:
+def power_range_percent(fm: Any) -> Tuple[float, float]:
     """The light source's power range, in percent of its maximum."""
     limits = _read(fm, "power limits", lambda fm: fm.light_source.power_limits)
     if limits is None:
         return POWER_RANGE_PERCENT
-    return _in_steps(limits, 1e2, decimals)
+    return _in_channel_steps(limits, "power")
+
+
+def channel_spinbox(name: str, shown_range: Tuple[float, float]) -> ValueSpinBox:
+    """A box for one of a channel's numbers, shown as ``ChannelSettings`` declares
+    it (its device's unit, step and decimals) over ``shown_range``, what the FM
+    reports."""
+    spinbox = ValueSpinBox()
+    configure_spinbox(spinbox, ChannelSettings.params[name])
+    spinbox.setRange(*shown_range)
+    return spinbox
+
+
+def shown_channel_value(channel: ChannelSettings, name: str) -> float:
+    """A channel's number in the units its box shows; an unset one shows as 0."""
+    value = getattr(channel, name)
+    return (value or 0.0) * ChannelSettings.params[name].scale
+
+
+def stored_channel_value(spinbox: QAbstractSpinBox, name: str) -> float:
+    """What a channel box shows, in the units the channel stores."""
+    return spinbox.value() / ChannelSettings.params[name].scale
 
 
 def available_binnings(fm: Any) -> Tuple[int, ...]:
