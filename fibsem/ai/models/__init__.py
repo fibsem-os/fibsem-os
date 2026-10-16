@@ -32,6 +32,13 @@ def get(name: str, **config) -> Model:
     return default_manager().get(name, **config)
 
 
+def load_checkpoint(checkpoint: str):
+    """The model a protocol or the app names by its checkpoint, as the
+    framework object the detection code calls itself (``.inference``), loaded
+    once by the default manager and shared by every caller after."""
+    return default_manager().for_checkpoint(checkpoint).backend.model
+
+
 __all__ = [
     "ClassInfo",
     "InputMismatch",
@@ -46,4 +53,5 @@ __all__ = [
     "SegmentationResult",
     "default_manager",
     "get",
+    "load_checkpoint",
 ]

@@ -15,7 +15,6 @@ from fibsem.applications.autolamella.workflows.question_adapters import (
 )
 from fibsem.detection import utils as det_utils
 from fibsem.detection.detection import DetectedFeatures
-from fibsem.segmentation.model import load_model
 from fibsem.structures import (
     BeamType,
     Point,

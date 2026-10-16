@@ -10,8 +10,9 @@ from PyQt5 import QtWidgets
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtGui import QFont
 
+from fibsem.ai.models import load_checkpoint
 from fibsem.detection.detection import DetectedFeatures
-from fibsem.segmentation.model import SegmentationModel, load_model
+from fibsem.segmentation.model import SegmentationModel
 from fibsem.ui import stylesheets
 from fibsem.ui.qt.threading import thread_worker
 from fibsem.ui.utils import install_wheel_blocker
@@ -130,7 +131,7 @@ class FibsemSegmentationModelWidget(QtWidgets.QDialog):
     def load_model_worker(self, model_type: str, checkpoint: str):
 
         if model_type == "SegmentationModel":
-            self.model = load_model(checkpoint=checkpoint)
+            self.model = load_checkpoint(checkpoint)
 
         if model_type == "SegmentAnythingModel":
             self.model = SamModelWrapper(checkpoint=checkpoint)
