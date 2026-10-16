@@ -16,7 +16,6 @@ from PyQt5.QtWidgets import (
 from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskDescription,
-    AutoLamellaTaskState,
     AutoLamellaWorkflowConfig,
     DefectState,
     DefectType,
@@ -26,7 +25,7 @@ from fibsem.applications.autolamella.ui.lamella_workflow_widget import (
     LamellaWorkflowWidget,
 )
 from fibsem.ui.stylesheets import NAPARI_STYLE
-from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.status import TaskState, TaskStatus
 
 # ── sample data ──────────────────────────────────────────────────────────────
 
@@ -56,7 +55,7 @@ def _make_lamella(
 ):
     lam = Lamella(path=Path(f"/tmp/test/{petname}"), number=number, petname=petname)
     if last_task:
-        state = AutoLamellaTaskState(name=last_task, status=TaskStatus.Completed)
+        state = TaskState(name=last_task, status=TaskStatus.Completed)
         state.end_timestamp = time.time()
         lam.task_history.append(state)
     if in_progress:

@@ -8,9 +8,8 @@ from datetime import datetime, timedelta, timezone
 import pytest
 import yaml
 
-from fibsem.applications.autolamella.structures import AutoLamellaTaskState
 from fibsem.constants import TIME_DISPLAY_AMPM_SHORT
-from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.status import TaskState, TaskStatus
 
 # A completed Rough Milling run, as an older experiment.yaml holds it.
 OLDER = {
@@ -44,7 +43,7 @@ def _shown(stamp: float) -> str:
 
 
 def test_an_older_state_shows_the_times_it_always_did(viewer_zone):
-    state = AutoLamellaTaskState.from_dict(OLDER)
+    state = TaskState.from_dict(OLDER)
     assert state.started_at == _shown(OLDER["start_timestamp"])
     assert state.completed_at == _shown(OLDER["end_timestamp"])
     assert state.duration == pytest.approx(
@@ -54,11 +53,11 @@ def test_an_older_state_shows_the_times_it_always_did(viewer_zone):
 
 
 def test_an_older_state_saved_again_keeps_its_times(viewer_zone):
-    state = AutoLamellaTaskState.from_dict(OLDER)
+    state = TaskState.from_dict(OLDER)
     saved = state.to_dict()
     # written as ISO with an offset, under the same key
     assert datetime.fromisoformat(saved["start_timestamp"]).tzinfo is not None
-    again = AutoLamellaTaskState.from_dict(yaml.safe_load(yaml.safe_dump(saved)))
+    again = TaskState.from_dict(yaml.safe_load(yaml.safe_dump(saved)))
     assert again.start_timestamp == state.start_timestamp
     assert again.end_timestamp == state.end_timestamp
     assert (again.started_at, again.completed_at) == (
@@ -68,7 +67,7 @@ def test_an_older_state_saved_again_keeps_its_times(viewer_zone):
 
 
 def test_a_new_state_records_aware_times():
-    state = AutoLamellaTaskState(name="Setup")
+    state = TaskState(name="Setup")
     assert state.start_timestamp.tzinfo is not None
     assert state.end_timestamp is None
     assert state.completed_at == "in progress"
@@ -81,14 +80,14 @@ def test_a_time_written_elsewhere_keeps_its_offset():
         start_timestamp="2026-09-13T21:12:11.874894-06:00",
         end_timestamp="2026-09-13T21:23:32.250000-06:00",
     )
-    state = AutoLamellaTaskState.from_dict(written)
+    state = TaskState.from_dict(written)
     assert state.start_timestamp.utcoffset() == timedelta(hours=-6)
     assert state.duration == pytest.approx(680.375106)
     assert state.to_dict()["start_timestamp"] == written["start_timestamp"]
 
 
 def test_a_caller_passing_a_posix_float_gets_an_aware_time():
-    state = AutoLamellaTaskState(
+    state = TaskState(
         name="Coincidence",
         end_timestamp=1789356212.25,
         status=TaskStatus.Completed,
@@ -97,6 +96,13 @@ def test_a_caller_passing_a_posix_float_gets_an_aware_time():
 
 
 def test_an_unreadable_time_reads_as_unknown():
-    state = AutoLamellaTaskState.from_dict(dict(OLDER, end_timestamp="not a time"))
+    state = TaskState.from_dict(dict(OLDER, end_timestamp="not a time"))
     assert state.end_timestamp is None
     assert state.completed_at == "in progress"
+
+
+def test_an_older_state_names_its_item():
+    """Written as lamella_id before a run could be on any item."""
+    state = TaskState.from_dict(OLDER)
+    assert state.item_id == OLDER["lamella_id"]
+    assert "lamella_id" not in state.to_dict()

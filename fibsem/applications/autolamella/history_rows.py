@@ -25,14 +25,14 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-from fibsem.applications.autolamella.structures import AutoLamellaTaskState, Lamella
+from fibsem.applications.autolamella.structures import Lamella
 from fibsem.applications.autolamella.task_outputs import (
     final_reference_images,
     fluorescence_images,
 )
 from fibsem.cancellation import CANCELLED, COMPLETED, FAILED, SKIPPED
 from fibsem.util.timestamps import to_datetime
-from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.status import TaskState, TaskStatus
 
 # The event kinds that are a run's operations. A record written before
 # operations said how they ended has no status: it was only ever written for a
@@ -201,7 +201,7 @@ def history_rows(
     a run by the task id the event was stamped with. An experiment without an
     events file still has its runs and images, with no operations.
     """
-    runs: List[AutoLamellaTaskState] = list(lamella.task_history)
+    runs: List[TaskState] = list(lamella.task_history)
     current = lamella.task_state
     known = {run.task_id for run in runs}
     if (
@@ -333,7 +333,7 @@ def operations_summary(run: HistoryRun) -> str:
 
 
 def _images_by_run(
-    lamella: Lamella, runs: List[AutoLamellaTaskState]
+    lamella: Lamella, runs: List[TaskState]
 ) -> Tuple[Dict[str, List[str]], Dict[str, str]]:
     """Each run's images. A file two runs recorded belongs to the later one:
     reference images are rewritten to the same name on every run, so what is on

@@ -32,7 +32,6 @@ from PyQt5.QtWidgets import QWidget
 from fibsem import conversions
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskState,
     Experiment,
 )
 from fibsem.detection.detection import DetectedFeatures, LamellaCentre
@@ -50,7 +49,7 @@ from fibsem.workflows.interaction import (
     ask,
 )
 from fibsem.workflows.proposals import DETECTION, Decision, DecisionOutcome, Proposal
-from fibsem.workflows.status import HoldKind, TaskStatus
+from fibsem.workflows.status import HoldKind, TaskState, TaskStatus
 
 TASK = "Mill Undercut"
 RUN = "run-1"
@@ -94,9 +93,7 @@ def window(qapp, tmp_path):
     experiment.task_protocol = AutoLamellaTaskProtocol()
     experiment.add_new_lamella(MicroscopeState(), EventedDict())
     lamella = experiment.positions[0]
-    lamella.task_history.append(
-        AutoLamellaTaskState(name=TASK, status=TaskStatus.InProgress)
-    )
+    lamella.task_history.append(TaskState(name=TASK, status=TaskStatus.InProgress))
     lamella.task_state.name = TASK
     lamella.task_state.task_id = RUN
     lamella.task_state.status = TaskStatus.InProgress

@@ -178,7 +178,7 @@ class HookContext:
     # about: on a failure, "3 remaining" means three more will be attempted.
     tasks_remaining: Optional[int] = None
     tasks_total: Optional[int] = None
-    # Application-owned state for the run. AutoLamella passes an AutoLamellaTaskState;
+    # Application-owned state for the run. AutoLamella passes a TaskState;
     # left untyped so this module does not depend on any one application's structures.
     task_state: Optional[Any] = None
     # The exception message, not a traceback: this payload can leave the machine via a

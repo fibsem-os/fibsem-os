@@ -28,7 +28,6 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 import tifffile as tff
 
 from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskState,
     Experiment,
     GridRecord,
     Lamella,
@@ -42,7 +41,7 @@ from fibsem.fm.preview import is_fluorescence_image
 from fibsem.fm.structures import FluorescenceImageMetadata, safe_ome_from_tiff
 from fibsem.geometry.projection import BeamStageProjection, FMStageProjection
 from fibsem.structures import BeamType, FibsemImageMetadata, FibsemStagePosition
-from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.status import TaskState, TaskStatus
 
 logger = logging.getLogger(__name__)
 
@@ -268,7 +267,7 @@ def _mark(
 # ---------------------------------------------------------------------------
 
 
-def _recorded_image(root: str, state: AutoLamellaTaskState, role: str) -> Optional[str]:
+def _recorded_image(root: str, state: TaskState, role: str) -> Optional[str]:
     """The last existing image this run recorded under `role`, or None."""
     for relpath in reversed(state.outputs.get(role, [])):
         path = os.path.join(root, relpath)
@@ -277,7 +276,7 @@ def _recorded_image(root: str, state: AutoLamellaTaskState, role: str) -> Option
     return None
 
 
-def _role_of(state: AutoLamellaTaskState, configs: Dict[str, Any]) -> Optional[str]:
+def _role_of(state: TaskState, configs: Dict[str, Any]) -> Optional[str]:
     """Which overview role a history entry is: from what it recorded, else from
     the protocol's config for its task (a failed run recorded nothing)."""
     for role in OVERVIEW_ROLES:
@@ -300,7 +299,7 @@ def _tiles_of(config) -> Optional[Tuple[int, int]]:
 def overview_entry(
     experiment: Experiment,
     grid: GridRecord,
-    state: AutoLamellaTaskState,
+    state: TaskState,
     lamellae: Sequence[Lamella],
     configs: Dict[str, Any],
 ) -> Optional[OverviewEntry]:

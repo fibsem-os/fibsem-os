@@ -82,7 +82,6 @@ def task(tmp_path):
     """A real task, run through `post_task`. Only `_run` is abstract."""
     from fibsem import utils
     from fibsem.applications.autolamella.structures import (
-        AutoLamellaTaskState,
         Lamella,
     )
 
@@ -90,6 +89,7 @@ def task(tmp_path):
     # unset, so the base class cannot be instantiated on its own.
     from fibsem.applications.autolamella.workflows.tasks import MillTrenchTaskConfig
     from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
+    from fibsem.workflows.status import TaskState
 
     class _Task(AutoLamellaTask):
         def _run(self):  # pragma: no cover - never called here
@@ -97,7 +97,7 @@ def task(tmp_path):
 
     microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
     lamella = Lamella(path=str(tmp_path / "lam"), number=1, petname="test")
-    lamella.task_state = AutoLamellaTaskState(name="TestTask")
+    lamella.task_state = TaskState(name="TestTask")
     return _Task(
         microscope=microscope,
         config=MillTrenchTaskConfig(task_name="TestTask"),

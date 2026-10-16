@@ -83,7 +83,7 @@ from fibsem.workflows.proposals import (
     proposals_from_dict,
     proposals_to_dict,
 )
-from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.status import TaskState, TaskStatus
 
 if TYPE_CHECKING:
     import numpy as np
@@ -121,86 +121,6 @@ class Attention(str, Enum):
 # extra fields never had a reader. Removed rather than left dormant, because half a
 # user model is worse than either answer. fibsem.structures.FibsemUser is the only
 # user model now; see FIB-450 and the ownership rule on FibsemImageMetadata.
-
-
-@evented
-@dataclass
-class AutoLamellaTaskState:
-    name: str = ""
-    step: str = ""
-    task_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    task_type: str = ""
-    lamella_id: str = ""
-    # When the run started and ended: aware datetimes, written as ISO 8601 with
-    # their offset (FIB-1197). Files written before that hold POSIX floats, which
-    # read as this machine's zone -- the clock time they always displayed.
-    start_timestamp: Optional[datetime] = field(default_factory=now)
-    end_timestamp: Optional[datetime] = None
-    status: TaskStatus = TaskStatus.NotStarted
-    status_message: str = ""
-    # files this run produced, keyed by role, as paths relative to lamella.path.
-    # roles mirror the naming convention the files already carry: phase x modality,
-    # i.e. final_sem / final_fib / start_sem / start_fib, plus fluorescence.
-    # paths only -- the experiment is written with yaml.safe_dump, which refuses
-    # numpy scalars and enums and would fail the whole save. measured values belong
-    # in a separate field, not here.
-    outputs: Dict[str, List[str]] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        # A caller that still passes a POSIX float gets it read as one.
-        self.start_timestamp = to_datetime(self.start_timestamp)
-        self.end_timestamp = to_datetime(self.end_timestamp)
-
-    @property
-    def completed(self) -> str:
-        return f"{self.name} ({self.completed_at})"
-
-    @property
-    def completed_at(self) -> str:
-        if self.end_timestamp is None:
-            return "in progress"
-        return format_time(self.end_timestamp, TIME_DISPLAY_AMPM_SHORT) or ""
-
-    @property
-    def started_at(self) -> str:
-        return format_time(self.start_timestamp, TIME_DISPLAY_AMPM_SHORT) or ""
-
-    @property
-    def duration(self) -> float:
-        """Seconds from start to end; 0 while it runs or when either is unknown."""
-        start, end = to_datetime(self.start_timestamp), to_datetime(self.end_timestamp)
-        if start is None or end is None:
-            return 0
-        return (end - start).total_seconds()
-
-    @property
-    def duration_str(self) -> str:
-        return format_duration_precise(self.duration)
-
-    def to_dict(self) -> dict:
-        """Convert the task state to a dictionary."""
-        ddict = asdict(self)
-        ddict["status"] = self.status.name
-        for key in ("start_timestamp", "end_timestamp"):
-            when = to_datetime(ddict[key])
-            ddict[key] = when.isoformat() if when is not None else None
-        return ddict
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "AutoLamellaTaskState":
-        """Create a task state from a dictionary."""
-        if data is None:
-            return cls()
-        data = data.copy()
-        data["status"] = TaskStatus[data.get("status", "NotStarted")]
-        # Either form: ISO with offset, or the POSIX float written before FIB-1197.
-        for key in ("start_timestamp", "end_timestamp"):
-            if key in data:
-                data[key] = to_datetime(data[key])
-        # drop keys this build doesn't know about: an experiment written by a newer
-        # version must still load in an older one rather than raising TypeError.
-        known = {f.name for f in fields(cls)}
-        return cls(**{k: v for k, v in data.items() if k in known})
 
 
 @evented
@@ -1192,8 +1112,8 @@ class Lamella(ExperimentItem):
         default_factory=lambda: EventedDict()
     )
     poses: Dict[str, MicroscopeState] = field(default_factory=dict)
-    task_state: AutoLamellaTaskState = field(default_factory=AutoLamellaTaskState)
-    task_history: List["AutoLamellaTaskState"] = field(default_factory=list)
+    task_state: TaskState = field(default_factory=TaskState)
+    task_history: List["TaskState"] = field(default_factory=list)
     defect: DefectState = field(default_factory=DefectState)
     milling_angle: Optional[float] = None
     poi: Point = field(
@@ -1224,7 +1144,7 @@ class Lamella(ExperimentItem):
         # actually written (``FibsemImage.save``, ``save_thumbnail``). See FIB-420.
         if self.id is None:
             self.id = str(uuid.uuid4())
-        self.task_state.lamella_id = self.id
+        self.task_state.item_id = self.id
 
         self._sync_imaging_paths()
 
@@ -1296,7 +1216,7 @@ class Lamella(ExperimentItem):
         self.milling_pose.stage_position = value
 
     @property
-    def last_completed_task(self) -> Optional["AutoLamellaTaskState"]:
+    def last_completed_task(self) -> Optional["TaskState"]:
         """Return the last completed task state.
 
         The last *completed* one, not the last recorded: a failure landing last
@@ -1437,10 +1357,9 @@ class Lamella(ExperimentItem):
             id=data.get("id", ""),
             poses=poses,
             task_config=load_task_config(data.get("task_config", {})),
-            task_state=AutoLamellaTaskState.from_dict(data.get("task_state", {})),
+            task_state=TaskState.from_dict(data.get("task_state", {})),
             task_history=[
-                AutoLamellaTaskState.from_dict(task)
-                for task in data.get("task_history", [])
+                TaskState.from_dict(task) for task in data.get("task_history", [])
             ],
             defect=DefectState.from_dict(data.get("defect", {})),
             milling_angle=data.get("milling_angle", None),
@@ -1675,8 +1594,8 @@ class GridRecord(ExperimentItem):
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     description: str = ""
     quality: QualityRecord = field(default_factory=QualityRecord)
-    task_state: AutoLamellaTaskState = field(default_factory=AutoLamellaTaskState)
-    task_history: List[AutoLamellaTaskState] = field(default_factory=list)
+    task_state: TaskState = field(default_factory=TaskState)
+    task_history: List[TaskState] = field(default_factory=list)
     # Aware, written as ISO 8601 with its offset (FIB-1197); older files hold a
     # POSIX float, which reads as this machine's zone.
     created_at: Optional[datetime] = field(default_factory=now)
@@ -1687,6 +1606,7 @@ class GridRecord(ExperimentItem):
     def __post_init__(self) -> None:
         if not self.id:
             self.id = str(uuid.uuid4())
+        self.task_state.item_id = self.id
 
     def overlay_of(self, kind: str) -> Optional[OverlayRecord]:
         """The one record of *kind* that has no source -- the grid bars, say."""
@@ -1738,10 +1658,8 @@ class GridRecord(ExperimentItem):
             id=data.get("_id") or str(uuid.uuid4()),
             description=data.get("description", ""),
             quality=QualityRecord.from_dict(data.get("quality")),
-            task_state=AutoLamellaTaskState.from_dict(data.get("task_state", {})),
-            task_history=[
-                AutoLamellaTaskState.from_dict(t) for t in data.get("task_history", [])
-            ],
+            task_state=TaskState.from_dict(data.get("task_state", {})),
+            task_history=[TaskState.from_dict(t) for t in data.get("task_history", [])],
             created_at=to_datetime(data.get("created_at", now())),
             proposals=proposals_from_dict(data.get("proposals")),
             overlays=[OverlayRecord.from_dict(o) for o in data.get("overlays", [])],
@@ -3314,7 +3232,7 @@ class Experiment:
             for task in pos.task_history:
                 ddict = {
                     "lamella_name": name,
-                    "lamella_id": task.lamella_id,
+                    "lamella_id": task.item_id,
                     "task_name": task.name,
                     "task_id": task.task_id,
                     "task_type": task.task_type,
