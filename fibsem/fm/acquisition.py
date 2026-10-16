@@ -1326,6 +1326,8 @@ def acquire_fm_tiled_overview(
     passes its own ``result``, which is filled in either way. Taking the FM for the
     run (`FluorescenceMicroscope.acquiring`) is the caller's.
     """
+    if result is None:
+        result = OverviewResult(MODALITY_FLUORESCENCE)
     runner = FMTiledAcquisitionRunner(
         microscope=microscope,
         channel_settings=list(channels),
@@ -1337,7 +1339,6 @@ def acquire_fm_tiled_overview(
         centre_position=centre_position,
         result=result,
     )
-    result = runner.result
 
     def report(status: TiledStatus, **fields) -> None:
         microscope.tiled_acquisition_signal.emit(
@@ -1353,7 +1354,8 @@ def acquire_fm_tiled_overview(
             report(TiledStatus.SAVING)
             path = destination.save_mosaic(mosaic)
             result.mosaic_path = path
-            result.save(runner.save_directory, runner._layout_check)
+            # Again, now with the mosaic's path; the layout check is already in it.
+            result.save(result.tiles_directory, None)
         record_fluorescence_image(microscope, mosaic, overview=parameters)
         if on_acquired is not None:
             on_acquired(mosaic, path)
@@ -1363,7 +1365,7 @@ def acquire_fm_tiled_overview(
     except Exception as e:
         report(TiledStatus.FAILED, error=str(e))
         raise
-    report(TiledStatus.FINISHED, warning=runner.layout_warning)
+    report(TiledStatus.FINISHED, warning=result.warning)
     return result
 
 
