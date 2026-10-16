@@ -55,6 +55,12 @@ lists where each key went.
   configuration that names a holder now loads it into the same service
   (`sample_handling.load_holder()`) rather than building a new one, so subscribers
   stay connected.
+- **A stage or manipulator position's `changed` signal ignores moves under 1e-6** on
+  every axis (metres and radians), compared with the position it last signalled, so
+  readback jitter no longer signals a move. The overviews, the stage readout, the
+  holder calibration dialog and the App Server feed now follow
+  `microscope.stage.position.changed`, so a move made through the stage device is
+  seen at once. The App Server event kind is still `stage_position_changed`.
 - **`microscope.move_to_microscope(target)` is removed.** Call
   `microscope.move_to_device(target)`; pass `orientation="SEM"` to land at SEM when
   returning to the beams, as the old method did on a compustage.

@@ -120,6 +120,34 @@ def test_a_move_emits_position_and_axis_changes(stage):
     assert ys == []  # an axis that didn't move stays quiet
 
 
+def test_readback_jitter_below_the_tolerance_does_not_signal(stage):
+    """A real stage's readback wanders by nanometres between reads. Every read
+    signalling would redraw the overview and fill the event feed while nothing moved."""
+    stage.position.get_value()
+    positions = []
+    stage.position.changed.connect(positions.append)
+
+    stage.sim_position = stage.sim_position + FibsemStagePosition(x=1e-9, t=1e-9)
+    read = stage.position.get_value()
+
+    assert positions == []
+    assert stage.position.cached == read  # the cache still holds the exact read
+
+
+def test_drift_below_the_tolerance_per_read_still_signals_once_it_adds_up(stage):
+    """Compared with what was last signalled, not with the read before, so a slow
+    drift is seen once it passes the tolerance."""
+    stage.position.get_value()
+    positions = []
+    stage.position.changed.connect(positions.append)
+
+    for _ in range(4):
+        stage.sim_position = stage.sim_position + FibsemStagePosition(x=4e-7)
+        stage.position.get_value()
+
+    assert len(positions) == 1
+
+
 def test_home_and_link_are_commands_that_report_the_result(stage):
     stage.sim_homed = False
     stage.sim_linked = False
@@ -152,3 +180,23 @@ def test_a_move_holds_the_stage_resource(stage):
         assert not moved.wait(0.2)  # blocked while another holder has the stage
     worker.join(5)
     assert moved.is_set()
+
+
+@pytest.mark.parametrize(
+    "a, b, same",
+    [
+        (FibsemStagePosition(x=0, t=0), FibsemStagePosition(x=5e-7, t=5e-7), True),
+        (FibsemStagePosition(x=0, t=0), FibsemStagePosition(x=2e-6, t=0), False),
+        (FibsemStagePosition(x=0, r=None), FibsemStagePosition(x=1e-9, r=None), True),
+        (FibsemStagePosition(x=0, r=None), FibsemStagePosition(x=0, r=0.0), False),
+        (
+            FibsemStagePosition(x=0, coordinate_system="RAW"),
+            FibsemStagePosition(x=0, coordinate_system="SPECIMEN"),
+            False,
+        ),
+    ],
+)
+def test_positions_are_the_same_within_the_tolerance(a, b, same):
+    from fibsem.devices.core import _same
+
+    assert _same(a, b) is same

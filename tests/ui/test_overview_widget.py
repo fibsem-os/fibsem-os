@@ -1833,7 +1833,7 @@ class TestLifecycle:
         widget = FibsemOverviewWidget(microscope)
         signals = (
             microscope.imaging.tiled_progress,
-            microscope.stage_position_changed,
+            microscope.stage.position.changed,
             microscope.sample_handling.holder_changed,
         )
         before = [len(s) for s in signals]
