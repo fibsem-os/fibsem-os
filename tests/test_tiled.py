@@ -325,7 +325,7 @@ def _runner_with_recorded_signal(monkeypatch, settings=None):
     """
     emitted = []
     microscope = MagicMock()
-    microscope.tiled_acquisition_signal.emit = emitted.append
+    microscope.imaging.tiled_progress.emit = emitted.append
 
     runner = TiledAcquisitionRunner.__new__(TiledAcquisitionRunner)
     runner.microscope = microscope
@@ -455,7 +455,7 @@ def _demo_runner(settings, tmp_path):
 
     microscope, _ = utils.setup_session(manufacturer="Demo")
     emitted = []
-    microscope.tiled_acquisition_signal.connect(emitted.append)
+    microscope.imaging.tiled_progress.connect(emitted.append)
     settings.image_settings.path = str(tmp_path)
     settings.image_settings.filename = "overview-image"
     runner = TiledAcquisitionRunner(microscope, settings)
@@ -647,7 +647,7 @@ def test_a_run_with_no_tiles_is_refused_before_it_starts(tmp_path):
 
     microscope, _ = utils.setup_session(manufacturer="Demo")
     emitted = []
-    microscope.tiled_acquisition_signal.connect(emitted.append)
+    microscope.imaging.tiled_progress.connect(emitted.append)
 
     settings = _make_settings(2, 2)
     settings.tile_mask = [[False, False], [False, False]]

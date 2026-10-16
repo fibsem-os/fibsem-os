@@ -548,8 +548,9 @@ class FluorescenceMicroscope:
     # mistake is not available to make again.
     #
     # What a *task* is doing belongs on the task's own signals (`step_update_signal`,
-    # `workflow_status_signal`), and tile progress belongs on `tiled_acquisition_signal`
-    # (FIB-725). This signal is the acquisition functions', and nothing else's.
+    # `workflow_status_signal`), and tile progress belongs on the imaging service's
+    # `tiled_progress` (FIB-725). This signal is the acquisition functions', and
+    # nothing else's.
     acquisition_progress_signal = Signal(FluorescenceAcquisitionProgress)
     # Raised when something starts or stops driving the FM, so a widget that did not
     # start it can grey its controls out. Emitted from whichever thread set the flag --

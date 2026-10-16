@@ -31,7 +31,7 @@ observer with a doorbell, not a second driver.
    dashboard. *Serve the microscope* there also serves the routes that
    reach the instrument, everything under `/microscope`: who it is, its
    state, its devices and its services (milling, stage movement, spot burn,
-   sample handling, imaging), reads included. It is saved too, and changing
+   sample handling, imaging, alignment), reads included. It is saved too, and changing
    it restarts a running server; a connected agent carries on. It starts
    off, because a read of the instrument is hardware access, not
    monitoring. Only the agent's level resets at every launch.
@@ -46,8 +46,8 @@ One knob, on the Agent chip in the status bar, set in two clicks:
 |---|---|
 | **Off** | nothing: every request is refused |
 | **Watch** | see everything below and add notes; never act |
-| **Assist** | also stop a run or a mill, suggest answers to the run's questions, and ask you to approve anything else it wants done |
-| **Drive** | also answer, start and stop, change supervision, re-queue, and edit configuration; with the microscope served, use it too |
+| **Assist** | also stop what it started itself, suggest answers to the run's questions, and ask you to approve anything else it wants done |
+| **Drive** | also answer, start and stop (a run, or a mill it didn't start), change supervision, re-queue, and edit configuration; with the microscope served, use it too |
 
 Every launch starts at **Watch**. The level lasts the session: nothing in any
 file raises it. Changing it is recorded on the event stream, with you as the
@@ -134,8 +134,11 @@ At Drive the agent may:
   adjusted. Milling parameters cannot travel this way; only the geometry
   the question itself is about;
 - **start and stop workflows** — the same as your Run and Stop buttons, and
-  stop milling. At Watch it cannot stop anything: a watching agent that sees
-  trouble tells you, and the Stop button is yours;
+  stop milling. Stopping a run, or a mill the workflow or you started, needs
+  Drive or a request you approve at Assist; at Assist the agent stops only its
+  own command. Every stop carries the agent's reason, which the record keeps.
+  At Watch it cannot stop anything: a watching agent that sees trouble tells
+  you, and the Stop button is yours;
 - **change supervision** — flip a task between automated and supervised,
   mid-run;
 - **re-queue a task** — "run 03's fiducial again" during a run.
@@ -166,8 +169,10 @@ runs, so it never acts beside anything else:
   refused with `409 microscope_busy`, naming who is in control;
 - while the run waits on a question, the run lends control: whoever answers
   may act, one command at a time, and the run carries on when it ends;
-- stopping a mill never takes control, so it is never refused; it needs
-  Assist.
+- stopping never takes control, so a stop is never refused by whoever is in
+  control. The agent stops its own command at Assist; anything else (a mill
+  the workflow or you started) needs Drive. A stop when nothing is milling
+  answers 409 `NothingToStop`.
 
 Your own buttons don't take control yet, so nothing stops an agent's command
 running beside something you started by hand. Set the agent to Watch while
@@ -175,7 +180,8 @@ you work at the microscope yourself.
 
 The app follows: a stage move shows in its stage position like one of yours
 would. With the microscope not served, every `/microscope` route answers 404
-`microscope_off`, saying so, whatever the level.
+`microscope_off`, saying so, at any level from Watch up (at Off, every
+request answers 403 `agent_off`).
 
 ## Supervised tasks and the agent
 

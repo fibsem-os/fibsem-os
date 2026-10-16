@@ -1,7 +1,8 @@
 # The App Server
 
 The HTTP server AutoLamella hosts for agents and the dashboard (the App
-Server), and `FibsemClient`, a `FibsemMicroscope` that talks to it. The user
+Server), and `FibsemClient`, the client that talks to it. The client keeps
+`FibsemMicroscope`'s method names where it has them, but it is not a subclass. The user
 guide is [docs/app-server.md](../../docs/app-server.md).
 
 ## Installation
@@ -31,17 +32,19 @@ Separate from the level, an allowlist (`fibsem/server/allowlist.py`) names what
 the agent may never write or run, at any level and in an approved request too:
 a beam's `on`, `angular_correction`, `tilt_correction` and `plasma_gas`; the
 stage's `home` and `link`; every chamber and manipulator write and command; the
-objective's `limit_position`. `GET /microscope/devices` and `/microscope/services` mark those
+objective's `limit_position`; the FM's `cancel` (the agent stops a z-stack with
+`imaging`'s `stop`). `GET /microscope/devices` and `/microscope/services` mark those
 `agent: false`. A command's `path` argument must be inside the open experiment. A hardware
 command takes control of the microscope while it runs: when a run, a script or
 another command is in control it gets `409 microscope_busy`, naming who.
-A long service command (marked `long: true` in the listing: the milling and spot
-burn services' `run`) answers at once with its run (`run_id`, `state: running`)
+A long service command (marked `long: true` in the listing: milling's `run`,
+`run_task` and `run_stage`; imaging's `focus_stack`, `tiled_overview`,
+`fm_focus_sweep` and `fm_tiled_overview`; alignment's `align`; spot burn's `run`) answers at once with its run (`run_id`, `state: running`)
 and runs on in control of the microscope; `GET /microscope/services/{service}/run`
 reads it, waiting up to `?wait=` seconds (at most 60) for the end, and the end is
 a `command_ended` event. `FibsemClient.run_milling` waits for it.
-A stop (`POST /microscope/services/milling/commands/stop`, a device's `stop`,
-`stop_live` or `cancel`, or `POST /app/workflow/stop`) never takes control. The
+A stop (`POST /microscope/services/milling/commands/stop`, a device's or a
+service's `stop` or `stop_live`, or `POST /app/workflow/stop`) never takes control. The
 agent stops its own action (its command holds control) at Assist or Drive; anything
 else needs Drive, or a request approved at Assist. Every stop needs a `reason`
 in its body (`422 missing_reason` without one), recorded as an `agent_stop`
@@ -153,8 +156,8 @@ microscope.draw_patterns([rect])
 # Supported pattern types: FibsemRectangleSettings, FibsemLineSettings,
 #                          FibsemCircleSettings, FibsemBitmapSettings, FibsemPolygonSettings
 
-# 3. Run milling (blocks until complete)
-microscope.run_milling(milling_current=20e-12, milling_voltage=30000)
+# 3. Run milling: the server runs it as a long command; this waits for the end
+ended = microscope.run_milling(timeout=3600)   # "completed" or "cancelled"
 
 # 4. Restore imaging conditions
 microscope.finish_milling()                 # clear, put the beam back as setup found it
@@ -197,8 +200,29 @@ from one `values` read, and written parameter by parameter. Stage moves and
 milling go through the `stage_movement` and `milling` services.
 
 Reads work at Watch. Parameter writes and commands need Drive, or a request the
-operator approved at Assist, and take control of the microscope, except the stops (`stop`, `stop_live`, `cancel`), which follow
+operator approved at Assist, and take control of the microscope, except the stops (`stop`, `stop_live`), which follow
 the stop rule above and never take control.
+
+`microscope.devices` gives the served beams and FM parts as live devices, by name,
+like `FibsemMicroscope.devices`, with no event stream: `changed` fires only for this
+client's own reads and writes. The other devices are reached by name as above.
+
+```python
+microscope.devices["ion"].current.get_value()           # a live read
+microscope.get_values("electron")                       # every parameter, one read
+microscope.call_query("stage", "pose_table")
+
+# Services, by name
+microscope.get_service_parameter("milling", "state")
+microscope.set_service_parameter("stage_movement", "milling_angle", 0.3)
+microscope.call_service_command("stage_movement", "move_relative", delta=FibsemStagePosition(x=10e-6))
+microscope.call_service_query(
+    "stage_movement", "project_stable_move",
+    dx=10e-6, dy=0, beam_type=BeamType.ELECTRON, base_position=microscope.get_stage_position(),
+)
+run = microscope.call_service_command("alignment", "align", reference_path="ref.tif")
+microscope.wait_for_run("alignment", run["run_id"])     # a long command's result
+```
 
 ---
 
@@ -219,6 +243,11 @@ the stop rule above and never take control.
 | `POST` | `/microscope/devices/{device}/commands/{command}` | Run a command (`{"kwargs": {...}}`); an image answers as its data (TIFF, npy), or with `{"answer": "preview"}` as `{"result": {"summary", "path", "preview"}}`, the shape agents get for every image (a beam image, a camera frame, a z-stack) |
 | `POST` | `/microscope/devices/{device}/queries/{query}` | Ask a query (`{"kwargs": {...}}`), read-only |
 | `GET` | `/microscope/services` | Every service (`imaging`, `milling`, `stage_movement`, ...) and what it offers |
+| `GET` | `/microscope/services/{service}` | One service |
+| `GET` | `/microscope/services/{service}/values` | Every parameter's value in one read |
+| `GET` | `/microscope/services/{service}/run` | A long command's latest run (`?run_id=`, `?wait=` up to 60 s) |
 | `GET` | `/microscope/services/{service}/{parameter}` | A service's state, e.g. `milling/state` |
+| `PUT` | `/microscope/services/{service}/{parameter}` | Write a service parameter, e.g. `stage_movement/milling_angle` |
+| `GET` | `/microscope/services/{service}/{parameter}/metadata` | Limits, choices, settable |
 | `POST` | `/microscope/services/{service}/commands/{command}` | Run a service command, e.g. `stage_movement/commands/move_relative`, `milling/commands/run`, `milling/commands/stop` |
 | `POST` | `/microscope/services/{service}/queries/{query}` | Ask a service query, e.g. `milling/queries/estimate_time` |

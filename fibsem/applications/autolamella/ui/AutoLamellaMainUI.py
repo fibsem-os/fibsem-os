@@ -143,6 +143,7 @@ from fibsem.ui.stylesheets import (
     SECONDARY_BUTTON_STYLESHEET,
     STATUS_BAR_STYLESHEET,
     border_stylesheet,
+    shown_border_state,
 )
 from fibsem.ui.tokens import (
     ACCENT_COLOR,
@@ -504,6 +505,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # process abort (FIB-329), not a missing border. The attribute alone -- the
         # frame is unstyled until _set_border_state changes it, which is idle's look.
         self._border_state = "idle"
+        # Whether the agent drives: the border turns its purple (see
+        # shown_border_state). Follows the level with the agent chip.
+        self._agent_driving = False
         self.dev_mode = self._preferences.display.dev_mode
 
         # create menus, status bar, and tabs
@@ -980,7 +984,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._preferences = fibsem_cfg.update_user_preferences(
             lambda p: setattr(p.display, "border_enabled", checked)
         )
-        self._set_border_state("idle")
+        self._apply_border()
 
     def _on_open_preferences(self):
         """Open the preferences dialog."""
@@ -1004,6 +1008,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         d = self._preferences.display
         self._sound_enabled = d.sound_enabled
         self._border_enabled = d.border_enabled
+        self._apply_border()
         self.dev_mode = d.dev_mode
         # The lamella strip's density. Guarded because _apply_preferences also runs
         # before the Lamella tab is built.
@@ -1598,6 +1603,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.agent_chip.approve_clicked.connect(self._on_approve_agent_request)
         self.agent_chip.reject_clicked.connect(self._on_reject_agent_request)
         self.agent_chip.accept_clicked.connect(self._on_accept_agent_suggestion)
+        self.agent_chip.dismiss_clicked.connect(self._on_dismiss_agent_suggestion)
         # The suggestion the operator dropped by answering otherwise, until the
         # answer that dropped it is heard (the responder takes the suggestion
         # down before it says the question was answered).
@@ -1627,7 +1633,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             task_config=self._agent_task_config,
             show_picture=self.agent_chip.card.set_image,
             item_pose=self._agent_item_pose,
+            item_image=self._agent_item_image,
             overview_image=self._agent_overview_image,
+            item_overview=self._agent_item_overview,
         )
         self._agent_chip_timer = QTimer(self)
         self._agent_chip_timer.setInterval(1000)
@@ -2155,6 +2163,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if state == getattr(self, "_border_state", None):
             return
         self._border_state = state
+        self._apply_border()
+
+    def _apply_border(self) -> None:
+        """Paint the border for the run's state, and the agent driving."""
+        state = shown_border_state(self._border_state, self._agent_driving)
         effective = state if self._border_enabled else "idle"
         self._border_frame.setProperty("borderState", effective)
         style = self._border_frame.style()
@@ -3835,14 +3848,27 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self._watch_agent_requests(None)
             self.agent_previews.show_request(None)
             self.agent_chip.hide()
+            self._set_agent_driving(False)
             return
         level = host.auth.level or AgentLevel.WATCH
         if self.agent_chip.level is not level:
             self.agent_chip.set_level(level)
+        self._set_agent_driving(level is AgentLevel.DRIVE)
         store = getattr(host, "requests", None)
         self._watch_agent_requests(store)
         self._show_agent_request(store)
         self.agent_chip.show()
+
+    def _set_agent_driving(self, driving: bool) -> None:
+        """The agent's purple on the border while it drives, here and on the
+        coincidence viewer's border."""
+        viewer = getattr(self.autolamella_ui, "_coincidence_viewer_window", None)
+        if viewer is not None:
+            viewer.set_agent_driving(driving)
+        if driving == self._agent_driving:
+            return
+        self._agent_driving = driving
+        self._apply_border()
 
     def _watch_agent_requests(self, store) -> None:
         """Follow *store*'s changes, so the chip moves as a request is filed and
@@ -4072,6 +4098,34 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         pose = dict(lamella.poses).get(pose_name)
         return getattr(pose, "stage_position", None)
 
+    def _agent_item_image(self, item_name: str):
+        """An item's last FIB image, the one its point of interest and
+        alignment area are drawn on: its last completed task's final one, else
+        the last one listed. None when it has none (FIB-1424)."""
+        from fibsem.applications.autolamella.server.context import find_item
+        from fibsem.applications.autolamella.task_outputs import (
+            lamella_images,
+            latest_task_image,
+        )
+        from fibsem.structures import FibsemImage
+
+        experiment = self.autolamella_ui.experiment
+        if experiment is None:
+            return None
+        lamella, refusal = find_item(experiment, item_name)
+        if refusal:
+            return None
+        listed = [f for f in lamella_images(lamella, "_ib.tif") if "alignment" not in f]
+        filename = latest_task_image(lamella, "_ib.tif") or (
+            listed[-1] if listed else ""
+        )
+        if not filename:
+            return None
+        try:
+            return FibsemImage.load(os.path.join(lamella.path, filename))
+        except Exception:  # noqa: BLE001 - a broken file: nothing to draw on
+            return None
+
     def _agent_overview_image(self, grid_name: str, filename: str):
         """A grid's recorded overview, for a waiting item_add's preview; None
         when there is none, or it is not a beam image."""
@@ -4089,6 +4143,30 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return FibsemImage.load(path) if path else None
         except Exception:  # noqa: BLE001 - a fluorescence or broken file
             return None
+
+    def _agent_item_overview(self, item_name: str):
+        """The latest overview of an item's grid, SEM before FIB: where a pose
+        off the live view is drawn instead. None when there is none."""
+        from fibsem.applications.autolamella.server.context import find_item
+        from fibsem.applications.autolamella.task_outputs import latest_grid_output
+        from fibsem.structures import FibsemImage
+
+        experiment = self.autolamella_ui.experiment
+        if experiment is None:
+            return None
+        lamella, refusal = find_item(experiment, item_name)
+        grid = None if refusal else experiment.get_grid_for_lamella(lamella)
+        if grid is None:
+            return None
+        for role in ("overview_sem", "overview_fib"):
+            path = latest_grid_output(experiment, grid, role)
+            if path is None:
+                continue
+            try:
+                return FibsemImage.load(path)
+            except Exception:  # noqa: BLE001 - a broken file: try the next
+                continue
+        return None
 
     def _agent_review_image(self, arguments: dict):
         """The image a waiting ``review_decide``'s values sit on: its proposal's
@@ -4122,7 +4200,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         responder = self.autolamella_ui.ui_responder
         standing = responder.suggestion if suggestion is not None else None
         self.agent_previews.show_suggestion(
-            responder.pending_question(), standing[2] if standing else None
+            responder.pending_question() if standing else None,
+            standing[2] if standing else None,
+            image=standing[4] if standing else None,
         )
 
     def _on_accept_agent_suggestion(self) -> None:
@@ -4135,6 +4215,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 "taken down",
                 "info",
             )
+
+    def _on_dismiss_agent_suggestion(self, reason: str) -> None:
+        """Dismiss on the agent's card: the operator declines the suggestion,
+        recorded with their reason for the agent; the question stays up."""
+        self.autolamella_ui.dismiss_suggestion(reason)
+        # Declined, not dropped: no "you answered it yourself" later.
+        self._dropped_agent_suggestion = None
 
     def _refresh_workflow_indicators(self) -> None:
         """Re-read the waiting/supervised/running state into the window chrome."""

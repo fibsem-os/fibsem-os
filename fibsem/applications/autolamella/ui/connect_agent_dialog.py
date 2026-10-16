@@ -125,6 +125,10 @@ def agent_setup_text(
         "tools load.\n"
         "4. Then call server_get_capabilities and tell me your agent level. I set it "
         "from the Agent chip in AutoLamella.\n"
+        "5. If you ask me before each tool, tell me which fibsem tools I can allow "
+        "for good: the ones that only read (marked read-only), and "
+        "prompt_suggest_answer and experiment_add_note, which only add a "
+        "suggestion or a note.\n"
     )
 
 

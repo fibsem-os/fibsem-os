@@ -213,6 +213,27 @@ def _rendered_preview(path: str, filename: str, max_width: int) -> Dict[str, Any
     }
 
 
+def _trench_window(lamella):
+    """The window to measure a lamella's band in, from its own trench patterns
+    (those that follow its POI): along the lamella, nine tenths of the
+    narrowest pattern, so the trench ends stay out; across it, the widest
+    gap between trenches (the rough slab) and half a micron into each trench.
+    None when it has no trench pattern."""
+    widths, gaps = [], []
+    for config in lamella.task_config.values():
+        if not getattr(config, "sync_to_poi", False):
+            continue
+        for milling in (getattr(config, "milling", None) or {}).values():
+            for stage in milling.stages:
+                pattern = stage.pattern
+                if hasattr(pattern, "spacing") and hasattr(pattern, "width"):
+                    widths.append(pattern.width)
+                    gaps.append(pattern.spacing)
+    if not widths:
+        return None
+    return 0.9 * min(widths), max(gaps) + 1e-6
+
+
 def find_item(experiment, item_name: str):
     """The item named *item_name*, and None; or None and why not, in the words
     every route refuses an unknown item with, and the names there are. Each
@@ -788,24 +809,109 @@ class AutoLamellaAppContext:
         own recorded outputs. Stacks and multi-channel images are max-projected
         to something viewable; this is a preview, not the data.
         """
-        import os
-
         experiment = self._experiment
         if experiment is None:
             return {"available": False, "jpeg": None}
         lamella, refusal = find_item(experiment, item_name)
         if refusal:
             return {"available": False, "jpeg": None, **refusal}
-        paths = self._recorded_item_paths(lamella)
-        match = next((p for p in paths if os.path.basename(p) == filename), None)
-        if match is None:
-            return {
-                "available": True,
-                "jpeg": None,
-                "error": f"No output named {filename!r} for {item_name!r}.",
-                "filenames": [os.path.basename(p) for p in paths],
-            }
+        match, refusal = self._recorded_item_file(lamella, filename)
+        if refusal:
+            return {"available": True, "jpeg": None, **refusal}
         return _rendered_preview(match, filename, max_width)
+
+    @classmethod
+    def _recorded_item_file(cls, lamella, filename: str):
+        """The path of the output :meth:`task_outputs` lists as *filename*, and
+        None; or None and the refusal naming the valid ones. Only a listed
+        basename resolves, so no client reaches outside the item's outputs."""
+        import os
+
+        paths = cls._recorded_item_paths(lamella)
+        match = next((p for p in paths if os.path.basename(p) == filename), None)
+        if match is not None:
+            return match, None
+        return None, {
+            "error": f"No output named {filename!r} for {lamella.name!r}.",
+            "filenames": [os.path.basename(p) for p in paths],
+        }
+
+    def measure_thickness(
+        self,
+        item_name: str,
+        filename: str,
+        width_um: Optional[float] = None,
+        height_um: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """The lamella's thickness, read off one of the item's saved FIB images.
+
+        The bright band between the trenches, measured column by column at half
+        its peak brightness (:func:`fibsem.imaging.thickness.measure_lamella_band`)
+        in a window around the item's POI: ``width_um`` along the lamella,
+        ``height_um`` across it, each by default from the item's own trench
+        patterns (:func:`_trench_window`). Nothing moves; the result is saved
+        in a ``thickness`` folder beside the image. The answer carries the
+        result's diagnostic plot.
+        """
+        import base64
+        import os
+
+        from fibsem.imaging.thickness import DEFAULT_WINDOW, measure_lamella_band
+        from fibsem.structures import BeamType, FibsemImage, Point
+
+        experiment = self._experiment
+        if experiment is None:
+            return {"error_type": "not_found", "error": "No experiment is open."}
+        lamella, refusal = find_item(experiment, item_name)
+        if refusal:
+            return {"error_type": "not_found", **refusal}
+        path, refusal = self._recorded_item_file(lamella, filename)
+        if refusal:
+            return {"error_type": "not_found", **refusal}
+        try:
+            image = FibsemImage.load(path)
+        except Exception as exc:  # noqa: BLE001 - an unreadable file is a data fact
+            return {"error_type": "invalid", "error": f"{filename!r}: {exc}"}
+        settings = getattr(image.metadata, "image_settings", None)
+        if getattr(settings, "beam_type", None) is BeamType.ELECTRON:
+            return {
+                "error_type": "invalid",
+                "error": f"{filename!r} is an SEM image; the band is read off a FIB image.",
+            }
+        default, source = _trench_window(lamella), "patterns"
+        if default is None:
+            default, source = DEFAULT_WINDOW, "default"
+        window = (
+            default[0] if width_um is None else width_um * 1e-6,
+            default[1] if height_um is None else height_um * 1e-6,
+        )
+        if width_um is not None or height_um is not None:
+            source = "given"
+        poi = lamella.poi if lamella.poi is not None else Point(0, 0)
+        try:
+            result = measure_lamella_band(image, poi, window)
+        except ValueError as exc:
+            return {"error_type": "invalid", "error": str(exc)}
+        # Kept beside the image, as an autofocus run keeps its own: one folder
+        # per image, replaced when the same image is measured again.
+        stem = os.path.splitext(os.path.basename(path))[0]
+        try:
+            saved_to = str(
+                result.save(os.path.join(os.path.dirname(path), "thickness"), stem)
+            )
+        except OSError:
+            logging.exception(f"Could not save the thickness result for {filename!r}")
+            saved_to = None
+        return {
+            "item_name": item_name,
+            "filename": filename,
+            "poi": {"x": poi.x, "y": poi.y},
+            "window_um": [round(window[0] * 1e6, 3), round(window[1] * 1e6, 3)],
+            "window_from": source,
+            "saved_to": saved_to,
+            **result.to_dict(),
+            "plot": {"image_b64_jpeg": base64.b64encode(result.plot_jpeg()).decode()},
+        }
 
     # --- grids: the screening read model (FIB-876) ----------------------------
 
@@ -2717,6 +2823,7 @@ class AutoLamellaAppContext:
         reason: str,
         value: Optional[Dict[str, Any]] = None,
         timeout: float = 10.0,
+        image: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Suggest an answer to the pending question (FIB-1283).
 
@@ -2742,7 +2849,11 @@ class AutoLamellaAppContext:
             if refusal is not None:
                 return refusal
         outcome = responder.submit_suggestion(
-            bool(response), int(question_id), value=parsed, reason=str(reason)
+            bool(response),
+            int(question_id),
+            value=parsed,
+            reason=str(reason),
+            image=image,
         )
         try:
             outcome.result(timeout=timeout)

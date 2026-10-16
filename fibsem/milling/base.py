@@ -207,6 +207,10 @@ class FibsemMillingStage:
         default_factory=ImageSettings
     )  # settings for post-milling acquisition
     reference_image: Optional[FibsemImage] = None
+    # The whole-frame reference, for a stage that aligns full frame at a low
+    # current (``alignment.full_frame_below``). Set with reference_image, never
+    # saved with the stage.
+    reference_image_full_frame: Optional[FibsemImage] = None
     # Where this stage's run writes: its alignment reference, the drift
     # correction, anything a strategy saves. Set by FibsemMillingTask before the
     # strategy runs, like reference_image, and never saved with the stage -- it

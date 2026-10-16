@@ -33,8 +33,12 @@ _SECTION_STYLE = (
     "font-size: 10px; font-weight: bold; color: #707070;"
     " padding: 4px 0px 2px 0px; letter-spacing: 0.5px;"
 )
-_LABEL_STYLE = f"color: {NEUTRAL_500}; min-width: 80px; font-size: 11px; background: transparent;"
-_INVALID_STYLE = f"color: {SEMANTIC_WARNING_COLOR}; font-size: 10px; background: transparent;"
+_LABEL_STYLE = (
+    f"color: {NEUTRAL_500}; min-width: 80px; font-size: 11px; background: transparent;"
+)
+_INVALID_STYLE = (
+    f"color: {SEMANTIC_WARNING_COLOR}; font-size: 10px; background: transparent;"
+)
 _HINT_STYLE = (
     "color: #808080; font-size: 10px; background: transparent;"
     f" border-top: 1px solid {NEUTRAL_750}; padding-top: 6px;"
@@ -51,14 +55,14 @@ _CANVAS_HINT = (
 
 _EXAMPLE_PETNAME = "brave-tiger"
 
-_AA_SPIN_W = 120   # holds a bare "0.20"
+_AA_SPIN_W = 120  # holds a bare "0.20"
 # Sized for the widest legal POI value, "-50.00 µm" — sign, digits and the suffix.
 # Sizing for a typical "-3.00 µm" instead clips silently at the extremes, which is
 # how the suffix used to render as "µn".
 _POI_SPIN_W = 150
 
 # ── Preview image settings ─────────────────────────────────────────────────────
-_PREVIEW_HFW = 100e-6               # 100 µm horizontal field width
+_PREVIEW_HFW = 100e-6  # 100 µm horizontal field width
 _PREVIEW_W, _PREVIEW_H = 384, 288
 _PIXEL_SIZE = _PREVIEW_HFW / _PREVIEW_W
 _PREVIEW_VFW = _PREVIEW_HFW * _PREVIEW_H / _PREVIEW_W  # vertical field width (metres)
@@ -67,11 +71,11 @@ _PREVIEW_VFW = _PREVIEW_HFW * _PREVIEW_H / _PREVIEW_W  # vertical field width (m
 # lands inside the image. Previously ±5000 µm, 100x what a 100 µm frame can show:
 # _poi_to_pixel clamps anything past the edge, so the marker parked on the border
 # and displayed a position it did not have (500 µm and 5000 µm looked identical).
-_POI_LIMIT_X_UM = _PREVIEW_HFW / 2 * 1e6   # 50.00
-_POI_LIMIT_Y_UM = _PREVIEW_VFW / 2 * 1e6   # 37.50
+_POI_LIMIT_X_UM = _PREVIEW_HFW / 2 * 1e6  # 50.00
+_POI_LIMIT_Y_UM = _PREVIEW_VFW / 2 * 1e6  # 37.50
 
-_COLOR_AA = "limegreen"            # alignment area rectangle
-_COLOR_POI = "magenta"             # point of interest marker
+_COLOR_AA = "limegreen"  # alignment area rectangle
+_COLOR_POI = "magenta"  # point of interest marker
 
 # Black background the overlays are drawn over (the canvas adds its own scalebar +
 # centre crosshair from the pixel size, so only the AA rect + POI need overlays).
@@ -142,7 +146,9 @@ class LamellaDefaultConfigWidget(QWidget):
         root.setSpacing(8)
 
         # ── left column: controls inside TitledPanel ──────────────────
-        self._btn_reset = IconToolButton(icon="mdi:refresh", tooltip="Reset to defaults", size=24)
+        self._btn_reset = IconToolButton(
+            icon="mdi:refresh", tooltip="Reset to defaults", size=24
+        )
 
         controls_widget = QWidget()
         left = QVBoxLayout(controls_widget)
@@ -168,11 +174,11 @@ class LamellaDefaultConfigWidget(QWidget):
         aa_lbl.setStyleSheet(_SECTION_STYLE)
         left.addWidget(aa_lbl)
 
-        self.aa_left   = ValueSpinBox(minimum=0.0, maximum=1.0, decimals=2, step=0.01)
+        self.aa_left = ValueSpinBox(minimum=0.0, maximum=1.0, decimals=2, step=0.01)
         self.aa_left.setFixedWidth(_AA_SPIN_W)
-        self.aa_top    = ValueSpinBox(minimum=0.0, maximum=1.0, decimals=2, step=0.01)
+        self.aa_top = ValueSpinBox(minimum=0.0, maximum=1.0, decimals=2, step=0.01)
         self.aa_top.setFixedWidth(_AA_SPIN_W)
-        self.aa_width  = ValueSpinBox(minimum=0.0, maximum=1.0, decimals=2, step=0.01)
+        self.aa_width = ValueSpinBox(minimum=0.0, maximum=1.0, decimals=2, step=0.01)
         self.aa_width.setFixedWidth(_AA_SPIN_W)
         self.aa_height = ValueSpinBox(minimum=0.0, maximum=1.0, decimals=2, step=0.01)
         self.aa_height.setFixedWidth(_AA_SPIN_W)
@@ -188,8 +194,8 @@ class LamellaDefaultConfigWidget(QWidget):
         self.aa_top.setToolTip(f"Top edge of the alignment area.\n{_aa_tip}")
         self.aa_height.setToolTip(f"Height of the alignment area.\n{_aa_tip}")
 
-        left.addLayout(_row("Left / Width",  self.aa_left,  self.aa_width))
-        left.addLayout(_row("Top / Height", self.aa_top,   self.aa_height))
+        left.addLayout(_row("Left / Width", self.aa_left, self.aa_width))
+        left.addLayout(_row("Top / Height", self.aa_top, self.aa_height))
 
         self.aa_validation_lbl = QLabel()
         self.aa_validation_lbl.setVisible(False)
@@ -201,11 +207,21 @@ class LamellaDefaultConfigWidget(QWidget):
 
         # Wider than the alignment-area boxes: those hold a bare "0.20", these hold a
         # signed value plus the µm suffix ("-50.00 µm"), which does not fit in 120px.
-        self.poi_x = ValueSpinBox(suffix="µm", minimum=-_POI_LIMIT_X_UM, maximum=_POI_LIMIT_X_UM,
-                                  decimals=2, step=0.1)
+        self.poi_x = ValueSpinBox(
+            suffix="µm",
+            minimum=-_POI_LIMIT_X_UM,
+            maximum=_POI_LIMIT_X_UM,
+            decimals=2,
+            step=0.1,
+        )
         self.poi_x.setFixedWidth(_POI_SPIN_W)
-        self.poi_y = ValueSpinBox(suffix="µm", minimum=-_POI_LIMIT_Y_UM, maximum=_POI_LIMIT_Y_UM,
-                                  decimals=2, step=0.1)
+        self.poi_y = ValueSpinBox(
+            suffix="µm",
+            minimum=-_POI_LIMIT_Y_UM,
+            maximum=_POI_LIMIT_Y_UM,
+            decimals=2,
+            step=0.1,
+        )
         self.poi_y.setFixedWidth(_POI_SPIN_W)
         self._poi_widgets = [self.poi_x, self.poi_y]
 
@@ -243,7 +259,9 @@ class LamellaDefaultConfigWidget(QWidget):
         self.canvas_hint_lbl.setWordWrap(True)
         left.addWidget(self.canvas_hint_lbl)
 
-        self._params_panel = TitledPanel("Default Parameters", content=controls_widget, collapsible=False)
+        self._params_panel = TitledPanel(
+            "Default Parameters", content=controls_widget, collapsible=False
+        )
         self._params_panel.add_header_widget(self._btn_reset)
         root.addWidget(self._params_panel)
 
@@ -266,9 +284,9 @@ class LamellaDefaultConfigWidget(QWidget):
         self._poi_overlay = PointOverlay(
             color=_COLOR_POI,
             selected_color=_COLOR_POI,
-            marker="+",       # thin cross, reads like the (yellow) centre crosshair
+            marker="+",  # thin cross, reads like the (yellow) centre crosshair
             size=11.0,
-            edge_width=1.2,   # thin lines (centre crosshair is linewidth=1)
+            edge_width=1.2,  # thin lines (centre crosshair is linewidth=1)
             add_on_right_click=False,
             removable=False,
         )
@@ -278,19 +296,26 @@ class LamellaDefaultConfigWidget(QWidget):
         # Patch legend keying the three preview elements ("yellow" = the canvas's
         # built-in centre crosshair; see FibsemImageCanvas._refresh_crosshair).
         # Lower-left: name hint is upper-left, toolbar upper-right, scalebar lower-right.
-        self.canvas.set_legend([
-            ("yellow", "Image centre", "+"),      # matches the built-in crosshair glyph
-            (_COLOR_AA, "Alignment area"),        # a region -> filled swatch
-            (_COLOR_POI, "Point of interest", "+"),
-        ], loc="lower left")
+        self.canvas.set_legend(
+            [
+                ("yellow", "Image centre", "+"),  # matches the built-in crosshair glyph
+                (_COLOR_AA, "Alignment area"),  # a region -> filled swatch
+                (_COLOR_POI, "Point of interest", "+"),
+            ],
+            loc="lower left",
+        )
         preview_layout.addWidget(self.canvas)
 
-        preview_panel = TitledPanel("Preview  (100 µm FIB)", content=preview_widget, collapsible=False)
+        preview_panel = TitledPanel(
+            "Preview  (100 µm FIB)", content=preview_widget, collapsible=False
+        )
         root.addWidget(preview_panel)
 
     # ------------------------------------------------------------------
     def _connect_signals(self) -> None:
-        self._btn_reset.clicked.connect(lambda: self.set_template(LamellaDefaultConfig()))
+        self._btn_reset.clicked.connect(
+            lambda: self.set_template(LamellaDefaultConfig())
+        )
         self.use_petname_cb.toggled.connect(self._on_changed)
         self.name_prefix_edit.editingFinished.connect(self._on_changed)
         for sb in self._aa_widgets:
@@ -298,7 +323,9 @@ class LamellaDefaultConfigWidget(QWidget):
         for sb in self._poi_widgets:
             sb.valueChanged.connect(self._on_changed)
         # Overlay → spinbox (only fires on user drag/resize, never on programmatic set)
-        self._aa_overlay.alignment_area_changed.connect(self._on_overlay_alignment_changed)
+        self._aa_overlay.alignment_area_changed.connect(
+            self._on_overlay_alignment_changed
+        )
         self._poi_overlay.point_dragging.connect(self._on_overlay_poi_dragging)
         self._poi_overlay.point_moved.connect(self._on_overlay_poi_moved)
 
@@ -314,7 +341,11 @@ class LamellaDefaultConfigWidget(QWidget):
         self.use_petname_cb.setChecked(template.use_petname)
         self.name_prefix_edit.setText(template.name_prefix or "")
 
-        aa = template.alignment_area if template.alignment_area is not None else _DEFAULT_AA
+        aa = (
+            template.alignment_area
+            if template.alignment_area is not None
+            else _DEFAULT_AA
+        )
         self.aa_left.setValue(aa.left)
         self.aa_top.setValue(aa.top)
         self.aa_width.setValue(aa.width)
@@ -405,7 +436,11 @@ class LamellaDefaultConfigWidget(QWidget):
 
     def _sync_overlays(self, template: LamellaDefaultConfig) -> None:
         """Push a template onto the canvas overlays + name hint (no signals emitted)."""
-        aa = template.alignment_area if template.alignment_area is not None else _DEFAULT_AA
+        aa = (
+            template.alignment_area
+            if template.alignment_area is not None
+            else _DEFAULT_AA
+        )
         self._aa_overlay.set_area(aa)
         self._aa_overlay.set_visible(True)
 
@@ -441,7 +476,9 @@ class LamellaDefaultConfigWidget(QWidget):
 
     def _on_overlay_poi_moved(self, _idx: int, x: float, y: float) -> None:
         """POI marker released — commit the value and notify listeners."""
-        self._on_overlay_poi_dragging(_idx, x, y)  # ensure spinboxes match the release point
+        self._on_overlay_poi_dragging(
+            _idx, x, y
+        )  # ensure spinboxes match the release point
         self._emit_changed()
 
     # ── outward change notification ───────────────────────────────────

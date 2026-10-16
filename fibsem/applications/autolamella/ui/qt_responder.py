@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple, Type
 
 from PyQt5.QtCore import QObject, pyqtSignal
 
-from fibsem.acting import AGENT, TASK, acting
+from fibsem.acting import AGENT, OPERATOR, TASK, acting
 from fibsem.applications.autolamella.proposals import AuthorKind, DecisionOutcome
 from fibsem.applications.autolamella.workflows.interaction import (
     ClearMillingConfig,
@@ -157,12 +157,14 @@ class QtResponder(QObject):
     )  # (clicked_yes, question_id, value, Future[bool])
     _agent_peeked = pyqtSignal(object)  # (Future[(question_id, live value)])
     _agent_suggested = pyqtSignal(
-        bool, object, object, object, object
-    )  # (response, question_id, value, reason, Future[bool])
+        bool, object, object, object, object, object
+    )  # (response, question_id, value, reason, image, Future[bool])
 
     def __init__(self, ui: "AutoLamellaUI"):
         super().__init__()
         self._ui = ui
+        # The pending prompt's buttons, positive and negative, as it shows them.
+        self._buttons: Tuple[Optional[str], Optional[str]] = (None, None)
         self._handlers: Dict[Type[Request], Callable] = {
             SetImages: self._set_images,
             SetMillingConfig: self._set_milling_config,
@@ -216,7 +218,9 @@ class QtResponder(QObject):
         # The agent's suggested answer to the pending question (FIB-1283):
         # (question_id, response, value, reason), shown as a button the operator
         # may take. Dropped when that question goes.
-        self._suggestion: Optional[Tuple[int, bool, Optional[object], str]] = None
+        self._suggestion: Optional[
+            Tuple[int, bool, Optional[object], str, Optional[str]]
+        ] = None
         self._submitted.connect(self._dispatch)
         self._agent_suggested.connect(self._apply_agent_suggestion)
         self._agent_answered.connect(self._apply_agent_answer)
@@ -398,10 +402,12 @@ class QtResponder(QObject):
         question_id: int,
         value: Optional[object] = None,
         reason: str = "",
+        image: Optional[str] = None,
     ) -> "Future":
         """Suggest an answer to the pending question, for the operator to take
         or not (FIB-1283). Any thread; a Future[bool], True once the suggestion
-        is shown. Nothing is answered: the operator's click on the suggestion
+        is shown. *image* is the path of the image the agent's evidence is in,
+        which the card shows (FIB-1424). Nothing is answered: the operator's click on the suggestion
         answers, as theirs, with the agent named as the one who suggested it.
 
         Fails with :class:`StalePromptError` when that question is no longer
@@ -411,12 +417,15 @@ class QtResponder(QObject):
         from concurrent.futures import Future as _Future
 
         outcome: "_Future" = _Future()
-        self._agent_suggested.emit(response, question_id, value, reason, outcome)
+        self._agent_suggested.emit(response, question_id, value, reason, image, outcome)
         return outcome
 
     @property
-    def suggestion(self) -> Optional[Tuple[int, bool, Optional[object], str]]:
-        """``(question_id, response, value, reason)`` while one stands, else None."""
+    def suggestion(
+        self,
+    ) -> Optional[Tuple[int, bool, Optional[object], str, Optional[str]]]:
+        """``(question_id, response, value, reason, image)`` while one stands,
+        else None."""
         suggestion = self._suggestion
         if suggestion is None:
             return None
@@ -429,6 +438,7 @@ class QtResponder(QObject):
         question_id: int,
         value: Optional[object],
         reason: str,
+        image: Optional[str],
         outcome: "Future",
     ) -> None:
         """GUI thread: put the suggestion up beside the prompt's buttons."""
@@ -454,7 +464,13 @@ class QtResponder(QObject):
         if value is not None and not isinstance(pending[0], _VALUE_QUESTIONS):
             self._fail(outcome, ValueError("this question takes no value"))
             return
-        self._suggestion = (question_id, bool(response), value, str(reason))
+        self._suggestion = (
+            question_id,
+            bool(response),
+            value,
+            str(reason),
+            str(image) if image else None,
+        )
         payload = {
             "type": type(pending[0]).__name__,
             "question_id": question_id,
@@ -463,6 +479,8 @@ class QtResponder(QObject):
         }
         if value is not None:
             payload["has_value"] = True
+        if image:
+            payload["image"] = str(image)
         self._emit_question_event("prompt_suggested", payload, actor=AGENT)
         self._show_suggestion()
         self._deliver(outcome, True)
@@ -475,7 +493,7 @@ class QtResponder(QObject):
         if suggestion is None:
             self._clear_suggestion()
             return False
-        _question_id, response, value, _reason = suggestion
+        _question_id, response, value = suggestion[:3]
         pending = self._pending_question
         adjusted = False
         if value is not None and pending is not None:
@@ -488,6 +506,27 @@ class QtResponder(QObject):
         return self.answer_confirm(
             response, source="operator", adjusted=adjusted, suggested_by="agent"
         )
+
+    def dismiss_suggestion(self, reason: str = "") -> bool:
+        """GUI thread, from Dismiss on the agent's card: the operator declines
+        the suggestion, saying why if they like. Recorded as
+        ``prompt_suggestion_dismissed`` with the reason, for the agent to read
+        (FIB-1424); the question stays up. False when it had gone."""
+        suggestion = self.suggestion
+        pending = self._pending_question
+        if suggestion is None or pending is None:
+            self._clear_suggestion()
+            return False
+        payload = {
+            "type": type(pending[0]).__name__,
+            "question_id": suggestion[0],
+            "response": suggestion[1],
+        }
+        if str(reason or "").strip():
+            payload["reason"] = str(reason).strip()
+        self._clear_suggestion()
+        self._emit_question_event("prompt_suggestion_dismissed", payload, OPERATOR)
+        return True
 
     def _clear_suggestion(self) -> None:
         if self._suggestion is not None:
@@ -502,9 +541,11 @@ class QtResponder(QObject):
         if suggestion is None:
             show(None, "")
             return
-        _question_id, response, value, reason = suggestion
+        _question_id, response, value, reason = suggestion[:4]
         pending = self._pending_question
         label = self._button_label(pending[0], response) if pending else None
+        shown = self._buttons[0 if response else 1]
+        label = shown or label
         point = None
         if pending is not None and isinstance(pending[0], PickPOI):
             point = self._suggested_pixel(pending[0], value)
@@ -788,6 +829,8 @@ class QtResponder(QObject):
             self._pending_question[1].cancel()
         self._question_seq += 1
         self._pending_question = (request, future, self._question_seq)
+        # The buttons the prompt shows: what a suggestion is said as.
+        self._buttons = (pos, neg)
         self._clear_suggestion()
         self._emit_question_event(
             "prompt_raised",

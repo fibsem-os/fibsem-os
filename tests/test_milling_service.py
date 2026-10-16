@@ -87,11 +87,33 @@ def test_the_demo_has_a_milling_service_that_is_not_a_device(microscope):
 
 def test_prepare_applies_the_recipe_and_draws(microscope):
     milling = microscope.milling
-    milling.prepare(_recipe(patterning_mode="Parallel"), _patterns())
+    prepared = milling.prepare(_recipe(patterning_mode="Parallel"), _patterns())
     assert _conditions(microscope) == (30e3, 7.6e-9, 80e-6)
     assert microscope._connection.milling_system.patterning_mode == "Parallel"
     assert len(microscope._connection.milling_system.patterns) == 3
-    assert milling.estimate_time() == microscope.estimate_milling_time() == 15
+    assert prepared["milling_current"] == 7.6e-9
+    assert milling.estimate_time() == {"seconds": 15, **prepared}
+    assert microscope.estimate_milling_time() == 15
+
+
+def test_a_current_the_beam_does_not_list_is_warned_of(microscope):
+    listed = sorted(microscope.beams[BeamType.ION].current.choices)
+    asked = (listed[0] + listed[1]) / 2
+    prepared = microscope.milling.prepare(_recipe(milling_current=asked), _patterns())
+    warning = prepared["warning"]
+    assert "is not a current the milling beam lists" in warning
+    assert utils.format_current(listed[0]) in warning
+    assert utils.format_current(listed[1]) in warning
+    assert microscope.milling.estimate_time()["warning"] == warning
+
+
+def test_a_driver_that_lists_no_currents_has_no_warning(microscope, monkeypatch):
+    from fibsem.devices.core import ParameterMetadata
+
+    current = microscope.beams[BeamType.ION].current
+    monkeypatch.setattr(current, "_metadata_source", ParameterMetadata())
+    prepared = microscope.milling.prepare(_recipe(milling_current=1.234e-9), [])
+    assert prepared["warning"] is None
 
 
 def test_a_setup_clears_what_was_drawn(microscope):

@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 
+from fibsem.server import allowlist
 from fibsem.server.auth import take_control
 
 try:  # Protocol is typing-only; keep import robust on the 3.8 floor
@@ -95,6 +96,14 @@ class AppContext(Protocol):
     def item_detail(self, item_name: str) -> Dict[str, Any]: ...
 
     def output_image(self, item_name: str, filename: str) -> Dict[str, Any]: ...
+
+    def measure_thickness(
+        self,
+        item_name: str,
+        filename: str,
+        width_um: Optional[float] = None,
+        height_um: Optional[float] = None,
+    ) -> Dict[str, Any]: ...
 
     def grids(self) -> Dict[str, Any]: ...
 
@@ -379,6 +388,25 @@ def build_app_router(context: AppContext) -> APIRouter:
         # can consume it; filename must be a basename the item's own
         # outputs listing names — the context refuses anything else.
         return _jpeg_or_404(context.output_image(item_name, filename))
+
+    @router.post("/experiment/items/{item_name}/outputs/{filename}/thickness")
+    def measure_thickness(
+        item_name: str, filename: str, body: Optional[Dict[str, Any]] = None
+    ):
+        # Computed over the saved file, nothing moves; a POST because the result
+        # is saved beside the image, as an autofocus run is.
+        window = {}
+        for key in ("width_um", "height_um"):
+            value = (body or {}).get(key)
+            if value is None:
+                continue
+            try:
+                window[key] = float(value)
+            except (TypeError, ValueError):
+                raise _missing_field(f"{key} is a number of microns.") from None
+        return _answer_or_refusal(
+            context.measure_thickness(item_name, filename, **window)
+        )
 
     @router.get("/experiment/grids")
     def grids():
@@ -723,6 +751,18 @@ def build_app_suggest_router(context: AppContext) -> APIRouter:
                     "ConfirmDetection, {points: [...]} for RunSpotBurn.",
                 },
             )
+        image = body.get("image") or None
+        if image is not None:
+            # The image the agent's evidence is in, shown on the card (FIB-1424).
+            refusal = allowlist.image_refusal(
+                image, lambda: getattr(context, "experiment_path", None)
+            )
+            if refusal is not None:
+                status, error_type, message = refusal
+                raise HTTPException(
+                    status_code=status,
+                    detail={"error_type": error_type, "message": message},
+                )
         suggest = getattr(context, "suggest_answer", None)
         if suggest is None:
             return {"available": False, "suggested": False, "stale": False}
@@ -731,6 +771,7 @@ def build_app_suggest_router(context: AppContext) -> APIRouter:
             question_id,
             reason.strip(),
             value=value,
+            **({"image": image} if image else {}),
         )
         if result.get("stale"):
             raise HTTPException(

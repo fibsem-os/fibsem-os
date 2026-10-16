@@ -90,7 +90,7 @@ the whole test: if you see this, the install worked.
 ## 4. Make a desktop shortcut
 
 You will not want to open a terminal every session. From the menu bar choose
-**Tools → Create Desktop Shortcut...**, pick where to put it (the Desktop is
+**Tools → Create Desktop Shortcut → AutoLamella...**, pick where to put it (the Desktop is
 offered), and fibsemOS writes a shortcut that activates the right environment
 and starts the application. It makes a `.lnk` on Windows, a `.desktop` file
 on Linux and a `.command` file on macOS.

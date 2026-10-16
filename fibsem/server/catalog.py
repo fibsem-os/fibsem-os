@@ -114,7 +114,12 @@ GROUP_TITLES: Dict[str, str] = {
 
 # Watch tools that write a record (a note, a request) rather than only read.
 _WRITES_AT_WATCH = frozenset(
-    {"experiment_add_note", "request_create", "request_withdraw"}
+    {
+        "experiment_add_note",
+        "request_create",
+        "request_withdraw",
+        "item_measure_thickness",  # saves its result beside the image
+    }
 )
 
 # Writes that only add: notes, the agent's own requests and suggestions, a new
@@ -215,7 +220,12 @@ CATALOG: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="milling_estimate_time",
-        description="Estimated time in seconds for the currently drawn patterns.",
+        description=(
+            "How long the drawn patterns take to mill, in seconds, and the ion "
+            "current they mill at (milling_current, amps). warning is set when the "
+            "recipe asked for a current the beam does not list; it names the "
+            "nearest listed currents."
+        ),
         method="POST",
         path="/microscope/services/milling/queries/estimate_time",
         level="watch",
@@ -631,16 +641,35 @@ CATALOG: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="beam_auto_focus",
         description=(
-            "Focus a beam: the instrument's own autofocus where the beam has one, "
-            "else an image-based sweep of the working distance at the beam's field "
-            "of view. Moves the working distance. Take a fresh image to check."
+            "Focus a beam by sweeping its working distance and scoring an image "
+            "at each step; it moves to the best one. Answers each step's working "
+            "distance and score, the working distance it moved to, and at_edge "
+            "when the best score was at an end of the range searched (widen "
+            "search_range and run again). By default two passes, 50 µm in 5 µm "
+            "steps then 10 µm in 1 µm steps, at the beam's field of view. Every "
+            "step is an image: on the ION beam each one doses the sample, so "
+            "sweep the FIB only when you need to, with as few steps as will do. "
+            "method instrument runs the instrument's own autofocus instead. Where "
+            "the working distance can't be set, the instrument's autofocus runs "
+            "and the answer says so (focused_with: instrument)."
         ),
         method="POST",
-        path="/microscope/services/imaging/commands/auto_focus",
+        path="/microscope/services/imaging/commands/{command}",
         level="drive",
         hardware=True,
-        params={"beam_type": "ELECTRON or ION"},
-        optional=("beam_type",),
+        params={
+            "beam_type": "ELECTRON or ION",
+            "method": "sweep (default) or instrument",
+            "hfw": "the probe images' field of view in metres (default the beam's)",
+            "settings": (
+                "AutoFocusSettings dict, for the sweep: passes [{search_range, "
+                "step_size}] in metres, method (tenengrad, laplacian, sobel or "
+                "variance: how an image is scored), probe_resolution [w, h], "
+                "probe_dwell_time (s), reduced_area {left, top, width, height} "
+                "(0-1), use_autocontrast"
+            ),
+        },
+        optional=("beam_type", "method", "hfw", "settings"),
     ),
     ToolSpec(
         name="beam_acquire_overview",
@@ -932,6 +961,21 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "item_name": "the item (lamella) name",
             "filename": "a basename from item_list_outputs",
         },
+    ),
+    ToolSpec(
+        name="item_measure_thickness",
+        description="The lamella's thickness, read off one of an item's saved FIB images (a file item_list_outputs lists, full resolution): the bright band between the trenches, its width at half its peak brightness column by column, in a window around the item's POI, sized from the item's own trench patterns (window_from says; width_um / height_um override). Answers thickness in nm (mean, median, min, max, by thirds), wedge (nm per um along the lamella), angle_deg (the band's rotation, counter-clockwise; what the polishing patterns would turn by), straightness, centre_offset_nm (band above the POI is positive), continuity (columns dropped and where: holes or breaks), contrast (band vs trench brightness), resolution (band_px, flagged under 8 px with a suggested field width) and uncertainty_nm (one pixel), plus a plot: the window with the band's edges, and thickness along the lamella. A top-down estimate. Nothing moves; the result (data.json, window.tif, plot.png) is saved in a thickness folder beside the image, at saved_to, and replaced when the same image is measured again.",
+        method="POST",
+        path="/app/experiment/items/{item_name}/outputs/{filename}/thickness",
+        level="watch",
+        router="app",
+        params={
+            "item_name": "the item (lamella) name",
+            "filename": "a FIB image basename from item_list_outputs",
+            "width_um": "window along the lamella, um (default: from the trench patterns)",
+            "height_um": "window across the lamella, um (default: from the trench patterns)",
+        },
+        optional=("width_um", "height_um"),
     ),
     ToolSpec(
         name="experiment_get_image_metadata",
@@ -1235,7 +1279,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="item_add",
-        description="Add a lamella, as the Lamella tab's Add does: at the stage position now (no where; refused while a workflow runs, since the run moves the stage), at stage_position, or under a point of a recorded grid overview (overview = {grid_name, filename, px: [x, y] source pixels or fraction: [x, y] 0-1}), which also puts it on that grid. Its poses, milling angle and grid are worked out as for a click, and it is saved. The app names it unless name is given. Answers with the new item.",
+        description="Add a lamella, as the Lamella tab's Add does: at the stage position now (no where; refused while a workflow runs, since the run moves the stage), at stage_position, or under a point of a recorded grid overview (overview = {grid_name, filename, px: [x, y] source pixels or fraction: [x, y] 0-1}), which also puts it on that grid. Its poses, milling angle and grid are worked out as for a click, and it is saved. Leave name out: the app's item names (petnames) are the house style; put where the site came from in its description with item_update. Answers with the new item.",
         method="POST",
         path="/app/experiment/items",
         level="drive",
@@ -1539,7 +1583,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="prompt_suggest_answer",
-        description="Suggest an answer to the pending supervision question, for the operator to take or not. Nothing is answered: the prompt shows 'Agent suggests: <the button>' with your reason under it, and the operator's click on it answers as theirs, recorded with you as the one who suggested it (prompt_suggested, then prompt_answered with suggested_by). Answering any other way ignores it; a new posting of the question drops it. Echo the question_id from prompt_get (409 stale_prompt if it has gone). value is as for prompt_answer, and is placed in the widget only when the operator takes the suggestion. Not for a question whose prompt says answer_via: \"decide\" (409 not_suggestible): at Assist, decide it through request_create.",
+        description="Suggest an answer to the pending supervision question, for the operator to take or not. Nothing is answered: the prompt shows 'Agent suggests: <the button>' with your reason under it, and the operator's click on it answers as theirs, recorded with you as the one who suggested it (prompt_suggested, then prompt_answered with suggested_by). Answering any other way ignores it; the operator may dismiss it, saying why (prompt_suggestion_dismissed, with their reason); a new posting of the question drops it. Echo the question_id from prompt_get (409 stale_prompt if it has gone). value is as for prompt_answer, and is placed in the widget only when the operator takes the suggestion. Not for a question whose prompt says answer_via: \"decide\" (409 not_suggestible): at Assist, decide it through request_create.",
         method="POST",
         path="/app/workflow/prompt/suggest",
         level="assist",
@@ -1549,8 +1593,9 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "question_id": "the question_id from prompt_get",
             "reason": "why: shown under the suggestion for the operator",
             "value": "optional geometry, as for prompt_answer",
+            "image": "optional: the path of the image your evidence is in, inside the experiment (as the image tools answered it); the card shows it with the suggested value drawn on it",
         },
-        optional=("value",),
+        optional=("value", "image"),
         note="Works at Assist and Drive; refused (403) at Watch. At Drive you may prompt_answer directly instead.",
     ),
     ToolSpec(
@@ -1678,6 +1723,20 @@ def _kwargs(**values: Any) -> dict:
     return {"kwargs": values}
 
 
+def _auto_focus(a: Dict[str, Any]) -> Tuple[Dict[str, Any], dict]:
+    """beam_auto_focus: the imaging service's focus sweep, or with method
+    instrument its auto_focus (the instrument's own where the beam has one)."""
+    method = str(a.get("method") or "sweep").lower()
+    if method == "instrument":
+        if a.get("hfw") is not None or a.get("settings") is not None:
+            raise ValueError("hfw and settings are for method sweep")
+        return {"command": "auto_focus"}, _kwargs(**_beam(a))
+    if method != "sweep":
+        raise ValueError(f"method must be sweep or instrument, not {method!r}")
+    sweep = _beam(a, hfw=a.get("hfw"), settings=a.get("settings"))
+    return {"command": "focus_sweep"}, _kwargs(**sweep)
+
+
 def _preview(kwargs: dict) -> dict:
     """A generic command's body: an image it returns comes back as the agent's
     answer (summary, saved path, preview), not as data it can't read."""
@@ -1702,7 +1761,7 @@ _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict
         },
     ),
     "beam_auto_contrast": lambda a: ({}, _kwargs(**_beam(a))),
-    "beam_auto_focus": lambda a: ({}, _kwargs(**_beam(a))),
+    "beam_auto_focus": _auto_focus,
     "fm_auto_focus": lambda a: (
         {},
         _kwargs(
