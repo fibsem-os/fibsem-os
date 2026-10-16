@@ -1142,3 +1142,16 @@ def test_a_filed_request_and_a_beam_switched_off_read_as_words():
         "",
     )
     assert off == {"what": "Electron", "change": "Turn the electron beam off"}
+
+
+def test_a_protocol_s_re_alignment_reads_as_the_milling_panel_says_it():
+    """Sim session 2026-10-16: "Interval enabled off → on / Interval 30 → 60"."""
+    from fibsem.server.request_text import describe_patch
+    from fibsem.structures import MillingAlignment
+
+    line = describe_patch(
+        MillingAlignment(), {"interval_enabled": True, "interval": 60}
+    )
+    assert line["change"] == (
+        "Re-align during milling: off → on\nRe-align every 30 s → 60 s"
+    )

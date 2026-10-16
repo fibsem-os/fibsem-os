@@ -229,7 +229,9 @@ def describe_patch(root: Any, patch: Any) -> Dict[str, Any]:
             rows.append((setting, "", after))
             continue
         before = _display(old, spec)
-        lines.append(f"{setting} {before} → {after}")
+        # A switch reads "Re-align during milling: off → on".
+        joint = ": " if isinstance(old, bool) else " "
+        lines.append(f"{setting}{joint}{before} → {after}")
         rows.append((setting, before, after))
     return {
         "change": "\n".join(lines),
