@@ -24,7 +24,6 @@ from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
-    standing,
 )
 from fibsem.structures import MicroscopeState, Point
 from fibsem.workflows.proposals import (
@@ -34,6 +33,7 @@ from fibsem.workflows.proposals import (
     Proposal,
     Standing,
 )
+from fibsem.workflows.review import standing
 from fibsem.workflows.status import TaskStatus
 
 TASK = "Setup Lamella Position"
