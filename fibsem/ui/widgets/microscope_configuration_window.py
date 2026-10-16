@@ -46,6 +46,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem.fm.structures import emission_filter_from_dict
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import ImageSettings
 from fibsem.ui import stylesheets
@@ -557,19 +558,15 @@ def _angle(radians) -> str:
         return NOT_STATED
 
 
-def _emission(value) -> str:
-    if value is None:
-        return "Reflection"
-    if isinstance(value, str):
-        return value
-    return _number(value, digits=0, unit="nm")
+def _emission(channel: dict) -> str:
+    return emission_filter_from_dict(channel).label
 
 
 def _channel_row(channel: dict) -> Tuple[str, str, str, str, str]:
     return (
         str(channel.get("name", NOT_STATED)),
         _number(channel.get("excitation_wavelength"), digits=0, unit="nm"),
-        _emission(channel.get("emission_wavelength")),
+        _emission(channel),
         _number(channel.get("power"), scale=100, digits=1, unit="%"),
         _number(channel.get("exposure_time"), scale=1e3, digits=0, unit="ms"),
     )

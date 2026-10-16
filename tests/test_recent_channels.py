@@ -7,7 +7,12 @@ import yaml
 
 from fibsem import config as cfg
 from fibsem.fm import config as fm_config
-from fibsem.fm.structures import ChannelSettings
+from fibsem.fm.structures import (
+    REFLECTION,
+    ChannelSettings,
+    EmissionFilter,
+    emission_filter_for,
+)
 from fibsem.session_state import SessionState
 
 
@@ -28,7 +33,7 @@ def _channel(
     return ChannelSettings(
         name=name,
         excitation_wavelength=excitation,
-        emission_wavelength=emission,
+        emission_filter=emission_filter_for(emission, {}),
         **kwargs,
     )
 
@@ -155,11 +160,15 @@ def test_round_trip_preserves_emission_types(recents_env):
     fm_config.record_recent_channels(
         [
             _channel("Reflection", 550.0, emission=None),
-            _channel("Filter", 488.0, emission="LP510"),
+            ChannelSettings(
+                name="Filter",
+                excitation_wavelength=488.0,
+                emission_filter=EmissionFilter("LP510", bands=[(510, None)]),
+            ),
         ],
         recents_env,
     )
 
     recents = fm_config.load_recent_channels(recents_env)
-    assert recents[0].emission_wavelength is None
-    assert recents[1].emission_wavelength == "LP510"
+    assert recents[0].emission_filter == REFLECTION
+    assert recents[1].emission_filter == EmissionFilter("LP510", bands=[(510, None)])

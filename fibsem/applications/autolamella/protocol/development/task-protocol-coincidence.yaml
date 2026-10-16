@@ -207,7 +207,10 @@ tasks:
         monitoring_channel:
             name: Monitoring
             excitation_wavelength: 550
-            emission_wavelength: Fluorescence
+            emission_filter:
+                name: Fluorescence
+                bands: []
+                multi_band: true
             power: 0.1
             exposure_time: 0.1
         reference_imaging:
@@ -249,13 +252,19 @@ tasks:
         channel_settings:
         -   name: Reflection Channel
             excitation_wavelength: 550
-            emission_wavelength: null
+            emission_filter:
+                name: Reflection
+                bands: []
+                multi_band: false
             power: 0.03
             exposure_time: 0.005
             color: gray
         -   name: Red Channel
             excitation_wavelength: 550
-            emission_wavelength: Fluorescence
+            emission_filter:
+                name: Fluorescence
+                bands: []
+                multi_band: true
             power: 0.3
             exposure_time: 0.5
             color: red

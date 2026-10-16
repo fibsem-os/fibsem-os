@@ -13,6 +13,7 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
+from fibsem.fm.structures import EmissionFilter
 from fibsem.structures import DeviceImagingState
 
 IFLM_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
@@ -158,7 +159,7 @@ def test_the_tiled_runner_raises_the_route():
             channel_settings=ChannelSettings(
                 name="DAPI",
                 excitation_wavelength=358,
-                emission_wavelength=461,
+                emission_filter=EmissionFilter("461 nm", low=461),
                 power=0.1,
                 exposure_time=0.001,
             ),

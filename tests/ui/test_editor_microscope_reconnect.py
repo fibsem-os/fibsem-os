@@ -50,7 +50,11 @@ from fibsem.applications.autolamella.ui.autolamella_task_config_editor import ( 
 from fibsem.applications.autolamella.workflows.tasks.acquire_fluorescence import (  # noqa: E402
     AcquireFluorescenceImageConfig,
 )
-from fibsem.fm.structures import ChannelSettings  # noqa: E402
+from fibsem.fm.structures import (
+    REFLECTION,
+    ChannelSettings,  # noqa: E402
+    EmissionFilter,
+)
 
 EDITORS = [AutoLamellaProtocolTaskConfigEditor, AutoLamellaProtocolEditorWidget]
 EDITOR_IDS = ["task_config_editor", "lamella_protocol_editor"]
@@ -65,14 +69,14 @@ def _channels():
         ChannelSettings(
             name="Reflection",
             excitation_wavelength=550,
-            emission_wavelength=None,
+            emission_filter=REFLECTION,
             power=0.02,
             exposure_time=0.005,
         ),
         ChannelSettings(
             name="Red",
             excitation_wavelength=550,
-            emission_wavelength="FLUORESCENCE",
+            emission_filter=EmissionFilter("FLUORESCENCE", multi_band=True),
             power=0.3,
             exposure_time=0.1,
             color="red",
@@ -189,11 +193,12 @@ def test_channel_editor_offers_the_new_microscope_filters(qapp, editor_cls):
     expected = list(new.fm.filter_set.available_excitation_wavelengths)
     assert expected, "the fixture must offer some excitation wavelengths"
     assert [
-        detail.excitation_combo.itemData(i) for i in range(detail.excitation_combo.count())
+        detail.excitation_combo.itemData(i)
+        for i in range(detail.excitation_combo.count())
     ] == expected
     assert channels._list._excitation_items == expected
     assert channels._list._emission_items == list(
-        new.fm.filter_set.available_emission_wavelengths
+        new.fm.filter_set.available_emission_filters
     )
 
 

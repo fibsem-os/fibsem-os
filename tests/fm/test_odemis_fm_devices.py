@@ -35,7 +35,13 @@ from typing import Any, Callable, List
 import numpy as np
 import pytest
 
-from fibsem.fm.structures import REFLECTION, ChannelSettings
+from fibsem.fm.structures import (
+    REFLECTION,
+    ChannelSettings,
+    EmissionFilter,
+    emission_filter_for,
+    matching_emission_filter,
+)
 from fibsem.util.timestamps import iso_from_posix
 from tests.fm import _odemis_stubs as stubs
 
@@ -389,10 +395,9 @@ def _part_cases():
     for nm in (None, 420.0, 500.0, 680.0):
 
         def new(d, nm=nm):
-            from fibsem.fm.microscope import emission_filter_named
-
             param = d["filter_set"].emission_filter
-            param.write_through(emission_filter_named(nm, param.choices))
+            wanted = emission_filter_for(nm, {})
+            param.write_through(matching_emission_filter(wanted, param.choices))
 
         add(
             f"filter set emission {nm}",
@@ -606,20 +611,20 @@ def test_connecting_makes_the_old_calls_and_reads_the_limits(odemis):
 CHANNELS = {
     "fluorescence": ChannelSettings(
         excitation_wavelength=450,
-        emission_wavelength=500.0,
+        emission_filter=EmissionFilter("500 nm", low=500.0),
         power=0.3,
         exposure_time=0.2,
         gain=2.0,
     ),
     "reflection": ChannelSettings(
         excitation_wavelength=550,
-        emission_wavelength=None,
+        emission_filter=REFLECTION,
         power=0.1,
         exposure_time=0.05,
     ),
     "label": ChannelSettings(
         excitation_wavelength=635,
-        emission_wavelength="Fluorescence",
+        emission_filter=EmissionFilter("Fluorescence", multi_band=True),
         power=1.0,
         exposure_time=0.5,
     ),
@@ -878,7 +883,9 @@ def _summary(value):
 
     if isinstance(value, FluorescenceImage):
         shape, found = _old_frame(value)
-        found["emission_wavelength"] = value.metadata.channels[0].emission_wavelength
+        found["emission_wavelength"] = _emission_value(
+            value.metadata.channels[0].emission_filter
+        )
         found["gain"] = value.metadata.channels[0].gain
         return shape, found
     if isinstance(value, (list, tuple)):
@@ -907,12 +914,13 @@ def _api_cases():
         "light power": lambda fm: fm.light_source.power,
         "light power_limits": lambda fm: fm.light_source.power_limits,
         "filter excitation": lambda fm: fm.filter_set.excitation_wavelength,
-        "filter emission": lambda fm: fm.filter_set.emission_wavelength,
+        "filter emission": lambda fm: _emission_value(fm.filter_set.emission_filter),
         "filter excitations": lambda fm: sorted(
             fm.filter_set.available_excitation_wavelengths
         ),
         "filter emissions": lambda fm: sorted(
-            fm.filter_set.available_emission_wavelengths, key=lambda v: v or 0
+            (_emission_value(f) for f in fm.filter_set.available_emission_filters),
+            key=lambda v: v or 0,
         ),
         "filter emission_bands": lambda fm: sorted(
             fm.filter_set.emission_bands.items()
@@ -940,13 +948,15 @@ def _api_cases():
             fm.filter_set, "excitation_wavelength", 365
         ),
         "set emission None": lambda fm: setattr(
-            fm.filter_set, "emission_wavelength", None
+            fm.filter_set, "emission_filter", REFLECTION
         ),
         "set emission 590": lambda fm: setattr(
-            fm.filter_set, "emission_wavelength", 590.0
+            fm.filter_set, "emission_filter", EmissionFilter("590 nm", low=590.0)
         ),
         "set emission Fluorescence": lambda fm: setattr(
-            fm.filter_set, "emission_wavelength", "Fluorescence"
+            fm.filter_set,
+            "emission_filter",
+            EmissionFilter("Fluorescence", multi_band=True),
         ),
         "set_channel fluorescence": lambda fm: fm.set_channel(fluorescence),
         "set_channel label": lambda fm: fm.set_channel(label),

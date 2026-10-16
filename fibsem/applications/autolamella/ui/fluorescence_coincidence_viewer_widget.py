@@ -2027,8 +2027,8 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         logging.info(f"Channel field changed: {field} -> {value}")
         if field == "excitation_wavelength":
             fm.filter_set.excitation_wavelength = value
-        elif field == "emission_wavelength":
-            fm.filter_set.emission_wavelength = value
+        elif field == "emission_filter":
+            fm.filter_set.emission_filter = value
         elif field == "exposure_time":
             fm.set_exposure_time(value)
         elif field == "gain":
