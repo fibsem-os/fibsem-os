@@ -419,5 +419,5 @@ def test_an_acting_tool_names_itself_to_the_server():
     calls = [p for kind, p in recorded if kind == "agent_called"]
     assert len(calls) == 1
     assert calls[0]["tool"] == "stage_move_relative"
-    assert calls[0]["action"] == "Stage · Move by x 2 µm"
+    assert calls[0]["action"] == "Stage · Move 2 µm in x"
     assert calls[0]["level"] == "drive" and calls[0]["ok"]

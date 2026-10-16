@@ -267,7 +267,9 @@ def test_every_step_is_on_the_record_with_who_acted(client, app, context):
     raised = context.recorded[0][1]
     assert raised["reason"] == "checking the trenches"
     # With the card's words, for the app's Recent list (sim session 2026-10-16 F7).
-    assert raised["actions"] == [{**NUDGE, "what": "Stage", "change": "Move by x 1 µm"}]
+    (action,) = raised["actions"]
+    assert action.pop("change").startswith("Move 1 µm in x, from x ")
+    assert action == {**NUDGE, "what": "Stage"}
     decided = context.recorded[1][1]
     assert decided["outcome"] == "approved"
     assert decided["decided_by"] == "operator"
@@ -503,8 +505,11 @@ def test_each_action_is_described_by_the_server_with_old_and_new(client, context
     }
     filed = _file(client, NUDGE, edit, SUPERVISE).json()
     lines = [(a["what"], a["change"]) for a in filed["actions"]]
+    # The nudge says from where on the axis (sim session 2026-10-16).
+    assert lines[0][1].startswith("Move 1 µm in x, from x ")
+    lines[0] = ("Stage", "Move 1 µm in x")
     assert lines == [
-        ("Stage", "Move by x 1 µm"),
+        ("Stage", "Move 1 µm in x"),
         (item.name, "description: first pass → trench floor high"),
         ("MILL_ROUGH", "Supervised: ask at each decision"),
     ]
@@ -1134,7 +1139,7 @@ def test_a_filed_request_and_a_beam_switched_off_read_as_words():
     )
     assert filed == {
         "what": "Request",
-        "change": "Ask you to approve 1 action: Stage · Move by x 1 µm",
+        "change": "Ask you to approve 1 action: Stage · Move 1 µm in x",
     }
     off = describe_action(
         "device_set_parameter",

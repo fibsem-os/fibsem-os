@@ -252,7 +252,7 @@ def _request(status="pending", results=(), request_id="ab12"):
             {
                 "tool": "stage_move_relative",
                 "what": "Stage",
-                "change": "Move by x 1 µm",
+                "change": "Move 1 µm in x",
             },
         ],
         "results": list(results),
@@ -301,7 +301,7 @@ def test_approve_and_reject_say_which_request_and_why(qapp):
     card.reject_button.click()
     assert card.reason_edit is not None and card.approve_button is None
     # Re-rendered, the actions are shown once.
-    assert _labels(card).count("Move by x 1 µm") == 1
+    assert _labels(card).count("Move 1 µm in x") == 1
     card.back_button.click()
     assert card.approve_button is not None
     card.reject_button.click()
@@ -1029,7 +1029,7 @@ def test_at_drive_what_the_agent_does_shows_in_the_card_now_then_recent(qapp):
     activity.follow_events(buffer)
     with acting(AGENT), control.take(AGENT, "move stage relative"):
         assert "move stage relative" in _labels(chip.card)
-        buffer.append("agent_called", _called("Stage · Move by x 2 µm"))
+        buffer.append("agent_called", _called("Stage · Move 2 µm in x"))
     buffer.append(
         "milling", {"milling_task_name": "agent test mill", "status": "completed"}
     )
@@ -1041,7 +1041,7 @@ def test_at_drive_what_the_agent_does_shows_in_the_card_now_then_recent(qapp):
     assert texts == [
         "Yes to 'the run's question'",
         "Milled 'agent test mill'",
-        "Stage · Move by x 2 µm",
+        "Stage · Move 2 µm in x",
     ]
     assert "move stage relative" not in _labels(chip.card)
     activity.follow_events(None)
@@ -1081,7 +1081,7 @@ def test_at_drive_each_direct_call_shows_in_now_then_recent_with_its_level(qapp)
             else None
         )
 
-    move, image = "Stage · Move by x 2 µm", "FIB · Take an image, 150 µm wide"
+    move, image = "Stage · Move 2 µm in x", "FIB · Take an image, 150 µm wide"
     overview = "FIB · Overview, 3 × 3 tiles"
     with acting(AGENT):
         with control.take(AGENT, move):

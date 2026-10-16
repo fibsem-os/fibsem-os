@@ -37,7 +37,7 @@ def _called(action, status=200, level="drive", **extra):
 
 def test_at_drive_a_move_a_mill_and_an_answer_each_make_a_row():
     recent = RecentActions()
-    recent.add(_called("Stage · Move by x 2 µm"))
+    recent.add(_called("Stage · Move 2 µm in x"))
     recent.add(
         _record(
             "milling",
@@ -64,7 +64,7 @@ def test_at_drive_a_move_a_mill_and_an_answer_each_make_a_row():
     assert _rows(recent) == [
         ("Yes to 'Is the lamella centred?'", "done", OK),
         ("Milled 'agent test mill'", "done", OK),
-        ("Stage · Move by x 2 µm", "done", OK),
+        ("Stage · Move 2 µm in x", "done", OK),
     ]
     assert recent.rows[0].when == "16:08"
     # Each at the level it was done at: the mill's is the agent's last seen.
@@ -89,7 +89,7 @@ def test_a_request_is_one_row_that_follows_it_to_its_end():
     ]
     recent.add(_record("request_raised", {"request_id": "r1", "actions": actions}))
     assert _rows(recent) == [
-        ("Asked: Stage · Move by x 5 µm, and 1 more", "waiting", WAITING)
+        ("Asked: Stage · Move 5 µm in x, and 1 more", "waiting", WAITING)
     ]
     recent.add(
         _record(
@@ -98,13 +98,13 @@ def test_a_request_is_one_row_that_follows_it_to_its_end():
     )
     assert _rows(recent)[0][1:] == ("approved", WAITING)
     # What the approved request does is the request's row, not rows of its own.
-    assert not recent.add(_called("Stage · Move by x 5 µm", level="assist"))
+    assert not recent.add(_called("Stage · Move 5 µm in x", level="assist"))
     recent.add(_record("request_applied", {"request_id": "r1", "index": 0, "ok": True}))
     assert _rows(recent)[0][1:] == ("applying 2 of 2", WAITING)
     recent.add(_record("request_applied", {"request_id": "r1", "index": 1, "ok": True}))
     recent.add(_record("request_finished", {"request_id": "r1", "status": "applied"}))
     assert _rows(recent) == [
-        ("Asked: Stage · Move by x 5 µm, and 1 more", "applied", OK)
+        ("Asked: Stage · Move 5 µm in x, and 1 more", "applied", OK)
     ]
     assert recent.rows[0].level == "assist"
     recent.add(_record("request_raised", {"request_id": "r2", "actions": actions}))
@@ -183,7 +183,7 @@ def test_a_long_command_is_one_row_and_a_refusal_says_why():
 
 def test_a_direct_call_says_how_it_ended():
     recent = RecentActions()
-    recent.add(_called("Stage · Move by x 2 µm", 409, error_type="microscope_busy"))
+    recent.add(_called("Stage · Move 2 µm in x", 409, error_type="microscope_busy"))
     recent.add(_called("FIB · Take an image", 500))
     # A mill started and left running is its mill's row.
     assert not recent.add(
@@ -200,7 +200,7 @@ def test_a_direct_call_says_how_it_ended():
     assert _rows(recent) == [
         ("Stopped the mill: through", "done", OK),
         ("FIB · Take an image", "failed", ERROR),
-        ("Stage · Move by x 2 µm", "refused: busy", ERROR),
+        ("Stage · Move 2 µm in x", "refused: busy", ERROR),
     ]
 
 

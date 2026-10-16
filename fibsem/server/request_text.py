@@ -631,13 +631,24 @@ def _values_text(values: Any) -> str:
     return _short(values)
 
 
-def _stage_relative(a: Dict[str, Any]) -> str:
-    moves = [
-        f"{axis} {_distance(a[k])}"
-        for axis, k in (("x", "dx"), ("y", "dy"), ("z", "dz"))
-        if a.get(k)
+def _stage_relative(a: Dict[str, Any], now: Optional[Dict[str, Any]] = None) -> str:
+    """ "Move 2.5 µm in x, from x 8 µm": by how much along which stage axis, and
+    from where on that axis when the stage's position is known."""
+    axes = [
+        (axis, a[k]) for axis, k in (("x", "dx"), ("y", "dy"), ("z", "dz")) if a.get(k)
     ]
-    return "Move by " + (", ".join(moves) if moves else "nothing")
+    if not axes:
+        return "Move nothing"
+    text = "Move " + ", ".join(f"{_minus(_distance(v))} in {axis}" for axis, v in axes)
+    if now:
+        known = [
+            f"{axis} {_coordinate(now[axis])}"
+            for axis, _ in axes
+            if now.get(axis) is not None
+        ]
+        if known:
+            text += ", from " + ", ".join(known)
+    return text
 
 
 def _beam_words(beam_type: Any, default: str = "ELECTRON") -> str:
@@ -1304,7 +1315,7 @@ def _line(
         return value if isinstance(value, dict) else None
 
     if tool == "stage_move_relative":
-        return {"what": "Stage", "change": _stage_relative(a)}
+        return {"what": "Stage", "change": _stage_relative(a, stage_now())}
     if tool == "stage_move_absolute":
         change = f"Safe move to {_position(a)}"
         now = stage_now()

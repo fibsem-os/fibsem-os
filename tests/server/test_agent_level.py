@@ -393,11 +393,13 @@ def test_a_direct_call_is_described_and_recorded(client, auth, microscope):
     finally:
         microscope.session.record_signal.disconnect(record)
         microscope.control.changed.disconnect(control)
-    assert actions == ["Stage · Move by x 1 µm", "move relative"]
+    # Read from where the stage is: ", from x ..." (sim session 2026-10-16).
+    assert actions[0].startswith("Stage · Move 1 µm in x, from x ")
+    assert actions[1] == "move relative"
     calls = [p for kind, p in recorded if kind == "agent_called"]
+    assert calls[0].pop("action") == actions[0]
     assert calls == [
         {
-            "action": "Stage · Move by x 1 µm",
             "route": f"POST {MOVE_RELATIVE}",
             "status": 200,
             "ok": True,
