@@ -1,6 +1,6 @@
 """The app's event stream for a microscope session, and its record on disk.
 
-The event buffer (``server/events.py``) began as the App Server's: built when
+The event buffer (``events.py``) began as the App Server's: built when
 the server started, gone when it stopped, so with the server off nothing -- the
 dashboard, a monitor, a replay -- had a stream to read. It is the app's now.
 An :class:`EventRecorder` is created when a microscope connects, whether or not
@@ -35,7 +35,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Tuple
 
 from fibsem.acting import AGENT, OPERATOR, TASK, acting, current_actor
-from fibsem.applications.autolamella.server.events import (
+from fibsem.workflows.events import (
     EventBuffer,
     attach_microscope_taps,
     make_lifecycle_hook,
@@ -564,7 +564,7 @@ class ProposalTap:
         self._asked = set()
         # (proposal id, decision index) -> whether it was recorded with values
         self._decided: Dict[Tuple[str, int], bool] = {}
-        for item in _items(experiment):
+        for item in experiment.items():
             for proposals in list(item.proposals.values()):
                 for proposal in list(proposals):
                     if proposal.asking:
@@ -624,11 +624,6 @@ class ProposalTap:
             payload["filled_in"] = True
         with acting(_ACTOR_OF_AUTHOR.get(decision.author.kind.value)):
             self._buffer.append("proposal_decided", payload)
-
-
-def _items(experiment: Any) -> List[Any]:
-    """The lamellae and grids: the items a proposal can sit on."""
-    return list(experiment.positions) + list(getattr(experiment, "grids", None) or [])
 
 
 def _proposal_payload(item: Any, task_name: str, proposal: Any) -> Dict[str, Any]:

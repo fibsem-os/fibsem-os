@@ -21,7 +21,6 @@ from psygnal.containers import EventedDict  # noqa: E402
 from PyQt5.QtTest import QTest  # noqa: E402
 
 from fibsem.acting import OPERATOR  # noqa: E402
-from fibsem.applications.autolamella.event_recording import EventRecorder  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
@@ -41,6 +40,7 @@ from fibsem.applications.autolamella.workflows.tasks.tasks import (  # noqa: E40
     SpotBurnFiducialTaskConfig,
 )
 from fibsem.structures import MicroscopeState, Point  # noqa: E402
+from fibsem.workflows.event_recording import EventRecorder  # noqa: E402
 
 TASK = "Rough Milling"
 KEY = "mill_rough"

@@ -14,7 +14,6 @@ from pathlib import Path
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.applications.autolamella.event_recording import EventRecorder
 from fibsem.applications.autolamella.structures import Lamella
 from fibsem.applications.autolamella.workflows.tasks.select_position import (
     SelectMillingPositionTask,
@@ -25,6 +24,7 @@ from fibsem.imaging.spot import SpotBurnSettings
 from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.tasks import FibsemMillingTask, FibsemMillingTaskConfig
 from fibsem.structures import BeamType, Point
+from fibsem.workflows.event_recording import EventRecorder
 
 LAMELLA = "01-test"
 MILLING_TASK = "Rough Milling"

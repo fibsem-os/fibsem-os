@@ -22,9 +22,6 @@ from PyQt5.QtWidgets import QApplication, QLabel, QPushButton  # noqa: E402
 
 import fibsem.applications.autolamella.ui.lamella_task_image_widget as history_tab  # noqa: E402
 import fibsem.config as cfg  # noqa: E402
-from fibsem.applications.autolamella.event_recording import (  # noqa: E402
-    EVENTS_FILENAME,
-)
 from fibsem.applications.autolamella.history_rows import HistoryFilter  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskState,
@@ -36,6 +33,9 @@ from fibsem.applications.autolamella.ui.lamella_task_image_widget import (  # no
 )
 from fibsem.structures import FibsemImage, MicroscopeState  # noqa: E402
 from fibsem.util.timestamps import format_time  # noqa: E402
+from fibsem.workflows.event_recording import (  # noqa: E402
+    EVENTS_FILENAME,
+)
 from fibsem.workflows.status import TaskStatus  # noqa: E402
 
 T0 = datetime(2026, 7, 29, 18, 0, tzinfo=timezone(timedelta(hours=10)))

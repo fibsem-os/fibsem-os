@@ -28,9 +28,9 @@ from pathlib import Path
 
 import yaml
 
-from fibsem.applications.autolamella.event_recording import EVENTS_FILENAME, read_events
 from fibsem.applications.autolamella.tools.event_tables import read_event_tables
 from fibsem.util.timestamps import wall_time_of
+from fibsem.workflows.event_recording import EVENTS_FILENAME, read_events
 
 LOG_FILENAME = "logfile.log"
 # A log line's own time, at the start of every line the logger wrote.

@@ -739,7 +739,7 @@ class AutoLamellaUI(QMainWindow):
             self._stop_event_recorder()
         try:
             from fibsem.acting import OPERATOR
-            from fibsem.applications.autolamella.event_recording import EventRecorder
+            from fibsem.workflows.event_recording import EventRecorder
 
             self._event_recorder = EventRecorder(
                 self.microscope,
@@ -1768,8 +1768,8 @@ class AutoLamellaUI(QMainWindow):
         tells the operator what changed.
         """
         from fibsem.applications.autolamella.server.context import config_version
-        from fibsem.applications.autolamella.server.events import to_plain
         from fibsem.server.config_patch import PatchError, apply_patch
+        from fibsem.workflows.events import to_plain
 
         parent = self.parent_widget
         if parent is not None:
@@ -1876,8 +1876,8 @@ class AutoLamellaUI(QMainWindow):
             find_item,
             item_fields_version,
         )
-        from fibsem.applications.autolamella.server.events import to_plain
         from fibsem.server.config_patch import PatchError, apply_patch
+        from fibsem.workflows.events import to_plain
 
         lamella, refusal = find_item(experiment, item_name)
         if refusal:

@@ -210,11 +210,6 @@ class GridTaskManager(BaseTaskManager):
         # grids that might load fine.
         self._not_loaded: Dict[str, str] = {}
 
-    def _run_recorder(self):
-        from fibsem.applications.autolamella.event_recording import run_recorder
-
-        return run_recorder(self.microscope, self.experiment)
-
     # --- Public API ---
 
     def run(

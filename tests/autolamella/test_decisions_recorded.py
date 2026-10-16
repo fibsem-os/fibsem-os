@@ -15,7 +15,6 @@ from psygnal.containers import EventedDict
 
 from fibsem import utils
 from fibsem.acting import OPERATOR
-from fibsem.applications.autolamella.event_recording import EventRecorder
 from fibsem.applications.autolamella.proposals import (
     DETECTION,
     POINT_OF_INTEREST,
@@ -31,6 +30,7 @@ from fibsem.applications.autolamella.workflows.question_adapters import (
 )
 from fibsem.detection.detection import DetectedFeatures, LamellaCentre
 from fibsem.structures import FibsemStagePosition, MicroscopeState, Point
+from fibsem.workflows.event_recording import EventRecorder
 from fibsem.workflows.proposals import Decision, DecisionOutcome, Proposal
 from fibsem.workflows.status import TaskStatus
 
@@ -285,7 +285,7 @@ def test_the_experiment_watched_is_the_one_set(microscope, experiment, tmp_path)
 def test_a_decision_that_cannot_be_recorded_is_still_made(
     experiment, recorder, monkeypatch
 ):
-    from fibsem.applications.autolamella import event_recording
+    from fibsem.workflows import event_recording
 
     def fail(values):
         raise RuntimeError("cannot encode")
