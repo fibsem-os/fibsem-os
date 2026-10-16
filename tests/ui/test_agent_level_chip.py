@@ -1233,6 +1233,52 @@ def test_the_border_is_the_agent_s_purple_while_it_drives(main_ui, host):
     main_ui._set_border_state("idle")
 
 
+def test_the_coincidence_viewer_follows_the_border_switch(
+    main_ui, tmp_path, monkeypatch
+):
+    """Show Workflow Border hides the coincidence viewer's border too, when it is
+    turned off and when the viewer opens with it off."""
+    from fibsem import config as cfg
+    from fibsem import utils
+
+    # The switch saves itself: to a file of this test's, not the user's.
+    monkeypatch.setattr(cfg, "USER_PREFERENCES_PATH", str(tmp_path / "prefs.yaml"))
+    from fibsem.applications.autolamella.structures import Experiment
+    from fibsem.applications.autolamella.ui.fluorescence_coincidence_viewer_widget import (
+        FluorescenceCoincidenceViewerWidget,
+    )
+
+    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
+    ui = main_ui.autolamella_ui
+    viewer = FluorescenceCoincidenceViewerWidget(
+        microscope=microscope,
+        experiment=Experiment(path=str(tmp_path), name="border-switch"),
+    )
+    enabled, driving = main_ui._border_enabled, main_ui._agent_driving
+    previous = getattr(ui, "_coincidence_viewer_window", None)
+
+    def shown():
+        return viewer._border_frame.property("borderState")
+
+    try:
+        main_ui._agent_driving = True
+        main_ui._on_border_toggle(True)
+        viewer._set_border_state("supervised")
+        # Opened: it takes the switch and the agent's purple from the window.
+        ui._coincidence_viewer_window = viewer
+        main_ui._sync_coincidence_viewer_border()
+        assert shown() == "agent"
+        main_ui._on_border_toggle(False)
+        assert shown() == "idle"
+        main_ui._on_border_toggle(True)
+        assert shown() == "agent"
+    finally:
+        ui._coincidence_viewer_window = previous
+        main_ui._agent_driving = driving
+        main_ui._on_border_toggle(enabled)
+        viewer.deleteLater()
+
+
 def test_the_chip_pulses_while_the_agent_acts_and_ends_a_whole_cycle(qapp):
     from fibsem.applications.autolamella.ui.agent_level_chip import (
         PULSE_MS,
