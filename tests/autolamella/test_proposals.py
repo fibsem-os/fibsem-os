@@ -19,7 +19,6 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
     GridRecord,
     Verdict,
-    standing,
 )
 from fibsem.applications.autolamella.workflows.tasks.rough import MillRoughTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.select_position import (
@@ -50,6 +49,7 @@ from fibsem.workflows.proposals import (
     prepare_values,
     register_proposal_kind,
 )
+from fibsem.workflows.review import standing
 from fibsem.workflows.status import TaskState, TaskStatus
 
 SETUP = "Setup Lamella Position"
