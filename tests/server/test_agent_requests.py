@@ -593,6 +593,33 @@ def test_a_mill_reads_as_its_patterns_and_its_run_as_how_long():
     assert run["change"].startswith("Run, about ")
 
 
+def test_a_mill_past_the_field_says_so_on_its_line():
+    """Sim session 2026-10-16: the warning lived only in the picture's legend."""
+    from fibsem.server.request_text import describe_action
+    from fibsem.structures import FibsemMillingSettings, FibsemRectangleSettings
+
+    def rectangle(x):
+        pattern = FibsemRectangleSettings(
+            width=2e-6, height=1e-6, depth=0.2e-6, centre_x=x, centre_y=0.0
+        )
+        return {**pattern.to_dict(), "type": "Rectangle"}
+
+    settings = FibsemMillingSettings(milling_current=2e-11, hfw=150e-6).to_dict()
+    line = describe_action(
+        "service_call_command",
+        {
+            "service": "milling",
+            "command": "prepare",
+            "kwargs": {
+                "settings": settings,
+                "patterns": [rectangle(0.0), rectangle(80e-6)],
+            },
+        },
+        "/x",
+    )
+    assert line["change"].endswith(", 1 of them past the 150 µm field")
+
+
 @pytest.mark.parametrize(
     "tool, arguments, line",
     [

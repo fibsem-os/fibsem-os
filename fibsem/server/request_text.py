@@ -293,6 +293,23 @@ def _estimate(patterns: List[Any], current: Optional[float]) -> Optional[float]:
         return None
 
 
+def _past_field(patterns: List[Any], settings: Any) -> str:
+    """ "1 of them past the 150 µm field": the patterns a real instrument would
+    refuse, on the step's line and not only in the picture's legend. The field
+    is an image's 2:3, as the picture checks it."""
+    from fibsem.milling.patterning.utils import outside_field
+
+    try:
+        hfw = float(settings["hfw"])
+    except (KeyError, TypeError, ValueError):
+        return ""
+    past = [p for p in patterns if outside_field(p, hfw, hfw * 2 / 3)]
+    if not past:
+        return ""
+    which = "past" if len(patterns) == 1 else f"{len(past)} of them past"
+    return f"{which} the {_distance(hfw)} field"
+
+
 def _prepare(kwargs: Dict[str, Any]) -> Dict[str, Any]:
     patterns = parse_patterns(kwargs.get("patterns"))
     settings = kwargs.get("settings") or {}
@@ -314,6 +331,9 @@ def _prepare(kwargs: Dict[str, Any]) -> Dict[str, Any]:
         if voltage:
             beam += f" at {_number(float(voltage) / 1e3)} kV"
         parts.append(beam)
+    past = _past_field(patterns, settings)
+    if past:
+        parts.append(past)
     name = kwargs.get("name")
     change = (f"Prepare '{name}'" if name else "Prepare") + ": " + ", ".join(parts)
     rows = [
