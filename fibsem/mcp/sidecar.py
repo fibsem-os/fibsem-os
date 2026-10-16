@@ -298,9 +298,11 @@ _MILLING_STATES = ("IDLE", "RUNNING", "STOPPING", "PAUSED", "ERROR", "UNKNOWN")
 
 
 class _Failure(str):
-    """The server's own error (5xx), as text: unlike a refusal, the call may have
-    done part of its work (a stage move that failed partway has moved). A tool
-    that answers one is flagged an error (`_flag_failures`)."""
+    """An error answer, as text: a refusal (4xx, "refused (403): ...") or the
+    server's own error (5xx, "failed (500): ..."; unlike a refusal, the call may
+    have done part of its work: a stage move that failed partway has moved). A
+    tool that answers one is flagged an error to the MCP client, with this text
+    (`_flag_failures`), so the agent does not read a refusal as a result."""
 
 
 def _pop_previews(data) -> List[bytes]:
@@ -347,17 +349,17 @@ def _refusal(resp):
         detail = resp.json().get("detail", resp.text)
     except (ValueError, AttributeError):
         detail = resp.text
-    if resp.status_code >= 500:
-        return _Failure(f"failed ({resp.status_code}): {json.dumps(detail)}")
-    return f"refused ({resp.status_code}): {json.dumps(detail)}"
+    said = "failed" if resp.status_code >= 500 else "refused"
+    return _Failure(f"{said} ({resp.status_code}): {json.dumps(detail)}")
 
 
 def _call(client, method, path, payload=None):
     """Call the server; refusals come back as readable text, not exceptions.
 
     Agents act sensibly on a structured refusal string; a raw traceback for a
-    403 teaches them nothing. A server error comes back as a `_Failure`: it
-    says "failed", not "refused", because the call may have done part of its work.
+    403 teaches them nothing. Both come back as a `_Failure`, flagged an error
+    with that text; a server error says "failed", not "refused", because the
+    call may have done part of its work.
     """
     kwargs = {"json": payload}
     tool = _calling.get()
@@ -465,7 +467,8 @@ def build_sidecar(client, capabilities):
         try:
             method, path, body = route_call(by_name[tool_name], arguments)
         except ValueError as exc:
-            return None, f"refused: {exc}"
+            # Refused before it reached the server: an error, as a 422 would be.
+            return None, _Failure(f"refused: {exc}")
         return _call(client, method, path, body)
 
     def _routed(tool_name, key=None, /, **arguments):
@@ -1074,10 +1077,13 @@ def build_sidecar(client, capabilities):
     def item_get_task_config(item_name: str, task_name: str):
         return _app_get(f"/app/experiment/items/{item_name}/task_config/{task_name}")
 
-    def experiment_add_note(text: str, item_name: Optional[str] = None):
-        return _app_post(
-            "/app/experiment/notes", {"text": str(text), "item_name": item_name}
-        )
+    def experiment_add_note(
+        text: str, item_name: Optional[str] = None, reply_to: Optional[str] = None
+    ):
+        body = {"text": str(text), "item_name": item_name}
+        if reply_to:
+            body["reply_to"] = str(reply_to)
+        return _app_post("/app/experiment/notes", body)
 
     def request_create(actions: list, reason: str, image: Optional[str] = None):
         body = {"actions": list(actions), "reason": str(reason)}

@@ -144,8 +144,9 @@ function gate(message) {
 const GROUPS = [
   ["questions", "questions", k => k.startsWith("prompt_") || k.startsWith("question_")
     || k.startsWith("proposal_") || k === "review_decided"],
-  ["notes", "agent's calls, notes & stops", k => k === "agent_note" || k === "agent_stop"
-    || k === "agent_refused" || k === "agent_called"],
+  ["notes", "messages, agent's calls, notes & stops", k => k === "agent_note"
+    || k === "agent_stop" || k === "agent_refused" || k === "agent_called"
+    || k === "operator_message"],
   ["requests", "requests", k => k.startsWith("request_")],
   ["workflow", "workflow", k => k.startsWith("task_") || k.startsWith("workflow_")
     || k === "item_completed" || k === "experiment_completed"],
@@ -268,7 +269,8 @@ function describe(e) {
     case "proposal_asked": return ["proposed", esc(p.field || p.kind || p.type || "")];
     case "proposal_decided": return ["decided", esc([p.field || p.kind, p.outcome].filter(Boolean).join(" · "))];
     case "review_decided": return ["reviewed", esc([p.field, p.outcome || p.decision].filter(Boolean).join(" · "))];
-    case "agent_note": return ["note", esc(p.text)];
+    case "agent_note": return [p.reply_to ? "reply" : "note", esc(p.text)];
+    case "operator_message": return ["message", esc(p.text)];
     case "agent_stop":
       return ["stopped", `${esc(p.what || p.action)}${p.own ? " (its own)" : ""} <span class="muted">${esc(p.reason)}</span>`];
     case "agent_called":

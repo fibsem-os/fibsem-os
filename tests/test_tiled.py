@@ -1109,7 +1109,7 @@ def test_an_overview_writes_its_record_beside_the_tiles(tmp_path):
 
     from fibsem import utils
     from fibsem.imaging.tiled import acquire_tiled_overview
-    from fibsem.imaging.tiling.layout_check import LAYOUT_FILE
+    from fibsem.imaging.tiling.result import METADATA_FILE
 
     microscope, _ = utils.setup_session(manufacturer="Demo")
     settings = _make_settings(2, 2, resolution=(64, 64), overlap=0.1)
@@ -1119,7 +1119,7 @@ def test_an_overview_writes_its_record_beside_the_tiles(tmp_path):
     result = acquire_tiled_overview(microscope, settings, str(tmp_path), "ov")
 
     assert result.status == "completed" and result.duration >= 0
-    assert result.record_path == os.path.join(result.tiles_directory, LAYOUT_FILE)
+    assert result.record_path == os.path.join(result.tiles_directory, METADATA_FILE)
     with open(result.record_path) as f:
         record = json.load(f)
     assert record["status"] == "completed"

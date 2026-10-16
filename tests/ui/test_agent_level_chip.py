@@ -15,6 +15,7 @@ from fibsem.applications.autolamella.ui.agent_level_chip import (  # noqa: E402
     last_heard_text,
     request_outcome,
 )
+from fibsem.applications.autolamella.ui.agent_recent import RecentRow  # noqa: E402
 from fibsem.server.levels import AgentLevel  # noqa: E402
 from fibsem.structures import BeamType  # noqa: E402
 
@@ -130,6 +131,31 @@ def test_the_card_opens_the_event_log_and_offers_to_connect_an_agent(qapp):
     assert not card.connect_link.isVisibleTo(card)
     assert card.heard_label.text() == "Agent · last heard 4 s ago"
     chip.deleteLater()
+
+
+def test_the_operator_messages_the_agent_once_one_is_heard_from(qapp):
+    # FIB-1423: a line on the card; Enter or Send says what was written.
+    card = AgentCard()
+    assert not card.message_row.isVisibleTo(card)  # no one listens yet
+    card.set_last_heard("Agent · last heard 4 s ago", heard=True)
+    assert card.message_row.isVisibleTo(card)
+    sent = []
+    card.message_sent.connect(sent.append)
+    card.message_edit.setText("   ")
+    card.send_button.click()
+    card.message_edit.setText("  skip 03 ")
+    card.message_edit.returnPressed.emit()
+    assert sent == ["skip 03"]
+    assert card.message_edit.text() == ""
+    card.deleteLater()
+
+
+def test_folded_recent_adds_no_outcome_a_message_does_not_have(qapp):
+    card = AgentCard()
+    card.set_level(AgentLevel.ASSIST)
+    card.set_recent([RecentRow("06:12", "Reply: skipping 03", "", "muted", "drive")])
+    assert card.recent_last.text() == "last: Reply: skipping 03"
+    card.deleteLater()
 
 
 def test_the_last_heard_line():
@@ -1252,6 +1278,87 @@ def test_the_border_is_the_agent_s_purple_while_it_drives(main_ui, host):
     main_ui._refresh_agent_chip()
     assert shown() == "supervised"
     main_ui._set_border_state("idle")
+
+
+def test_the_agent_s_workflow_stop_turns_the_border_red(main_ui, qapp):
+    """The agent's workflow_stop goes through the app's own stop, from the App
+    Server's thread, and the border shows stopping as for the operator's Stop."""
+    import threading
+
+    from fibsem.applications.autolamella.server import AutoLamellaAppContext
+
+    class _Running:
+        def is_alive(self):
+            return True
+
+    ui = main_ui.autolamella_ui
+    previous = ui._task_worker_thread
+    ui._task_worker_thread = _Running()
+    main_ui._set_border_state("automated")
+    answers = []
+    try:
+        context = AutoLamellaAppContext(ui)
+        server = threading.Thread(
+            target=lambda: answers.append(context.stop_workflow())
+        )
+        server.start()
+        server.join(timeout=5)
+        # Painted on the GUI thread, not the server's: nothing until it runs.
+        assert main_ui._border_frame.property("borderState") == "automated"
+        qapp.processEvents()
+        assert answers == [{"available": True, "stopped": True}]
+        assert main_ui._border_frame.property("borderState") == "stopping"
+    finally:
+        ui._task_worker_thread = previous
+        ui._workflow_stop_event.clear()
+        main_ui._border_state = None
+        main_ui._set_border_state("idle")
+
+
+def test_the_coincidence_viewer_follows_the_border_switch(
+    main_ui, tmp_path, monkeypatch
+):
+    """Show Workflow Border hides the coincidence viewer's border too, when it is
+    turned off and when the viewer opens with it off."""
+    from fibsem import config as cfg
+    from fibsem import utils
+
+    # The switch saves itself: to a file of this test's, not the user's.
+    monkeypatch.setattr(cfg, "USER_PREFERENCES_PATH", str(tmp_path / "prefs.yaml"))
+    from fibsem.applications.autolamella.structures import Experiment
+    from fibsem.applications.autolamella.ui.fluorescence_coincidence_viewer_widget import (
+        FluorescenceCoincidenceViewerWidget,
+    )
+
+    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
+    ui = main_ui.autolamella_ui
+    viewer = FluorescenceCoincidenceViewerWidget(
+        microscope=microscope,
+        experiment=Experiment(path=str(tmp_path), name="border-switch"),
+    )
+    enabled, driving = main_ui._border_enabled, main_ui._agent_driving
+    previous = getattr(ui, "_coincidence_viewer_window", None)
+
+    def shown():
+        return viewer._border_frame.property("borderState")
+
+    try:
+        main_ui._agent_driving = True
+        main_ui._on_border_toggle(True)
+        viewer._set_border_state("supervised")
+        # Opened: it takes the switch and the agent's purple from the window.
+        ui._coincidence_viewer_window = viewer
+        main_ui._sync_coincidence_viewer_border()
+        assert shown() == "agent"
+        main_ui._on_border_toggle(False)
+        assert shown() == "idle"
+        main_ui._on_border_toggle(True)
+        assert shown() == "agent"
+    finally:
+        ui._coincidence_viewer_window = previous
+        main_ui._agent_driving = driving
+        main_ui._on_border_toggle(enabled)
+        viewer.deleteLater()
 
 
 def test_the_chip_pulses_while_the_agent_acts_and_ends_a_whole_cycle(qapp):

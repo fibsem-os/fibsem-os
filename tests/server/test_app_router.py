@@ -245,9 +245,13 @@ def test_sidecar_returns_a_saved_output_as_image_content(client, host):
     assert image.mime_type == "image/jpeg"
     assert fname in "".join(getattr(c, "text", "") for c in contents)
 
-    refused = "".join(getattr(c, "text", "") for c in call("nope.tif"))
-    assert "refused (404)" in refused
-    assert fname in refused  # the valid names come back with the refusal
+    from mcp.server.mcpserver.exceptions import ToolError
+
+    # A refusal is an error to the MCP client, its text the server's answer.
+    with pytest.raises(ToolError) as refused:
+        call("nope.tif")
+    assert "refused (404)" in str(refused.value)
+    assert fname in str(refused.value)  # the valid names come with the refusal
 
 
 def test_task_config_reads_over_http(client, host):
@@ -521,6 +525,21 @@ def test_agent_notes_land_on_the_record(microscope, host, event_buffer):
         empty = client.post("/app/experiment/notes", headers=AUTH, json={"text": "   "})
         assert empty.status_code == 422
 
+        # Its answer to the operator's message names the message (FIB-1423).
+        reply = client.post(
+            "/app/experiment/notes",
+            headers=AUTH,
+            json={"text": "skipping 03", "reply_to": "ab12"},
+        )
+        assert reply.status_code == 200
+        events = client.get("/app/events?since=0", headers=AUTH).json()["events"]
+        note = [e for e in events if e["kind"] == "agent_note"][-1]
+        assert note["payload"]["reply_to"] == "ab12"
+        bad = client.post(
+            "/app/experiment/notes", headers=AUTH, json={"text": "x", "reply_to": 3}
+        )
+        assert bad.status_code == 422
+
 
 def test_agent_notes_need_only_the_read_scope(client):
     # A watching agent notes what it sees (FIB-1035); a note changes nothing.
@@ -653,9 +672,12 @@ def test_sidecar_returns_a_grid_overview_as_image_content(client, grid_with_over
     )
     assert meta["metadata"]["beam_type"] == "ELECTRON"
     assert meta["metadata"]["pixel_size"] == pytest.approx(200e-6 / 128)
-    refused = "".join(getattr(c, "text", "") for c in call("nope.tif"))
-    assert "refused (404)" in refused
-    assert "overview.tif" in refused
+    from mcp.server.mcpserver.exceptions import ToolError
+
+    with pytest.raises(ToolError) as refused:
+        call("nope.tif")
+    assert "refused (404)" in str(refused.value)
+    assert "overview.tif" in str(refused.value)
 
 
 def test_a_saved_beam_image_carries_its_metadata_block(client, grid_with_overview):

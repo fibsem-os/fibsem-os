@@ -194,6 +194,21 @@ def test_since_resumes_where_the_last_watch_left_off(app):
     assert lines == ["REQUEST ab12 approved", "WORKFLOW ENDED (workflow_completed)"]
 
 
+def test_the_operator_s_message_is_a_line_that_says_how_to_answer(app):
+    # FIB-1423: the operator wrote from the card.
+    def run():
+        app.buffer.append("operator_message", {"id": "ab12", "text": "skip\n03"})
+        app.buffer.append("workflow_completed", {})
+
+    code, lines = _watch({2: run})
+
+    assert lines[0] == (
+        "MESSAGE id=ab12 from the operator: skip 03 -- answer with "
+        "experiment_add_note (reply_to=ab12). It is not an approval: your level "
+        "still decides what you may do"
+    )
+
+
 def test_an_answer_says_when_it_took_the_agent_s_suggestion(app):
     def run():
         app.buffer.append(
