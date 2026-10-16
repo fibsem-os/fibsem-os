@@ -78,44 +78,6 @@ def decode_segmap_v2(image, colormap: List[tuple] = None) -> np.ndarray:
     return rgb_mask
 
 
-def show_img_and_mask(imgs, gts, mask, title="Image, Ground Truth and Mask"):
-    """Show a plot of the image, ground truth mask, and predicted mask"""
-    n_imgs = len(imgs)
-    imgs = imgs.cpu().detach()
-
-    fig, ax = plt.subplots(n_imgs, 3, figsize=(8, 6))
-    fig.suptitle(title)
-
-    for i in range(len(imgs)):
-        img = imgs[i].permute(1, 2, 0).squeeze()
-        gt = decode_segmap(gts[i].permute(1, 2, 0).squeeze())  # convert to rgb mask
-
-        ax[0].imshow(img, cmap="gray")
-        ax[1].imshow(gt)
-        ax[1].set_title("Ground Truth")
-        ax[2].imshow(mask)
-        ax[2].set_title("Predicted Mask")
-
-    plt.show()
-
-
-def show_memory_usage():
-    """Show total, reserved and allocated gpu memory"""
-    t = torch.cuda.get_device_properties(0).total_memory
-    r = torch.cuda.memory_reserved(0)
-    a = torch.cuda.memory_allocated(0)
-    f = r - a  # free inside reserved
-    if r == 0:
-        r = 0.00001
-    print("GPU memory", t, r, a, f, f"{f / r:.3}")
-
-
-def show_values(ten):
-    """Show tensor statistics for debugging"""
-    unq = np.unique(ten.detach().cpu().numpy())
-    print(ten.shape, ten.min(), ten.max(), ten.mean(), ten.std(), unq)
-
-
 def validate_config(config: dict):
     if "data_paths" not in config:
         raise ValueError(
@@ -264,61 +226,6 @@ unet_encoders = [
     "efficientnet-b0",
     "xception",
 ]
-
-
-def plot_segmentations(
-    images: List[np.ndarray],
-    masks: List[np.ndarray],
-    alpha=0.5,
-    legend: bool = True,
-    show: bool = True,
-) -> plt.Figure:
-    """Plot the image and mask overlaid with a class legend."""
-
-    if not isinstance(images, list):
-        images = [images]
-    if not isinstance(masks, list):
-        masks = [masks]
-
-    if len(images) != len(masks):
-        raise ValueError("images and masks must be the same length")
-
-    n_cols = len(images)
-    fig, ax = plt.subplots(1, len(images), figsize=(10 * n_cols / 2, 10 * n_cols / 2))
-    for i, (image, mask) in enumerate(zip(images, masks)):
-        # convert to rgb mask
-        rgb = decode_segmap_v2(mask)
-
-        if len(images) == 1:
-            axes = ax
-        else:
-            axes = ax[i]
-        # plot
-        axes.imshow(image.data, cmap="gray")
-        axes.imshow(rgb, alpha=0.4)
-
-        # filter legend to only include classes present in mask
-        class_ids = np.unique(mask)
-
-        colors, labels = [], []
-        for idx in class_ids:
-            colors.append(CLASS_COLORS[idx])
-            labels.append(CLASS_LABELS[idx])
-
-        # Create a patch for each class color
-        patches = [
-            mpatches.Patch(color=color, label=label)
-            for color, label in zip(colors, labels)
-        ]
-
-        # Add the patches to the legend
-        if legend:
-            axes.legend(handles=patches, loc="best", prop={"size": 6})
-
-    if show:
-        plt.show()
-
-    return fig
 
 
 ## Huggingface Utils
