@@ -553,6 +553,7 @@ def build_device_router(
                     for key, value in (
                         ("action", agent_call.action),
                         ("level", agent_call.level),
+                        ("evidence", agent_call.evidence),
                     )
                     if value
                 }

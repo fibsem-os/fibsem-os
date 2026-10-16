@@ -314,3 +314,15 @@ def test_the_operator_s_message_and_the_agent_s_reply_are_rows():
     ]
     # The operator's line is at no level; the agent's reply at its own.
     assert [row.level for row in recent.rows] == ["drive", ""]
+
+
+def test_a_row_carries_the_evidence_its_call_cites():
+    recent = RecentActions()
+    kept = {"evidence_id": "ab12cd34", "text": "trench off centre", "image": "/e.png"}
+    recent.add(_record("agent_evidence", kept))
+    assert recent.rows == []  # the call citing it is the row
+    recent.add(_called("Stage · Move 2 µm in x", evidence="ab12cd34"))
+    recent.add(_called("Stage · Move 1 µm in y"))
+    uncited, cited = recent.rows
+    assert cited.evidence["text"] == "trench off centre"
+    assert uncited.evidence is None

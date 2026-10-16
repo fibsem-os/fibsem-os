@@ -30,7 +30,7 @@ in tests.
 import logging
 import math
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella import task_outputs as _task_outputs
@@ -1921,9 +1921,11 @@ class AutoLamellaAppContext:
         text: str,
         item_name: Optional[str] = None,
         reply_to: Optional[str] = None,
+        evidence: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Put an agent observation on the record, or its answer to the
-        operator's message (``reply_to``, the message's id, FIB-1423).
+        operator's message (``reply_to``, the message's id, FIB-1423), citing
+        the *evidence* (its record) it rests on when it names one.
 
         The agent's judgments otherwise live only in its chat: this writes
         them where the run's story is told — the event stream (live consumers:
@@ -1950,8 +1952,35 @@ class AutoLamellaAppContext:
             payload = {"text": text, "item_name": item_name, "item_id": item_id}
             if reply_to:
                 payload["reply_to"] = reply_to
+            if evidence:
+                payload["evidence"] = evidence["evidence_id"]
             self._event_buffer.append("agent_note", payload)
         return {"available": True, "recorded": True}
+
+    def add_evidence(
+        self, item_name: Optional[str], save: Callable[[], Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """Keep the agent's evidence (*save* keeps it in the experiment and
+        answers its record) and put it on the record as ``agent_evidence``,
+        under the item it names. The calls, requests, suggestions and notes that
+        cite it name its id."""
+        item_id = None
+        if item_name is not None:
+            item, refusal = find_item(self._experiment, item_name)
+            if refusal:
+                return {"available": True, "recorded": False, **refusal}
+            item_id = item.id
+        record = save()
+        logging.info(
+            "agent evidence %s%s: %s (%s)",
+            record["evidence_id"],
+            f" [{item_name}]" if item_name else "",
+            record["text"],
+            record["image"],
+        )
+        if self._event_buffer is not None:
+            self._event_buffer.append("agent_evidence", {**record, "item_id": item_id})
+        return {"available": True, "recorded": True, **record}
 
     def record_event(self, kind: str, payload: Dict[str, Any]) -> None:
         """Put an event on the experiment's record: the agent's requests and
@@ -3362,7 +3391,7 @@ class AutoLamellaAppContext:
         reason: str,
         value: Optional[Dict[str, Any]] = None,
         timeout: float = 10.0,
-        image: Optional[str] = None,
+        evidence: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Suggest an answer to the pending question (FIB-1283).
 
@@ -3391,7 +3420,7 @@ class AutoLamellaAppContext:
             int(question_id),
             value=parsed,
             reason=str(reason),
-            image=image,
+            evidence=evidence,
         )
         try:
             outcome.result(timeout=timeout)

@@ -103,10 +103,11 @@ saw, where you saw it (an image, a value, an event), and what the actions
 will do. Two sentences is usually right. The reason is kept on the record
 with the request, so you don't need a separate note for it.
 
-**Show the image you mean.** When your evidence is in an image, pass its
-path as `image` (the path the image tools answered, inside the experiment).
-The card shows it under Why with your actions' points, areas and patterns
-drawn on it. Without it, the card shows the image the values were measured on.
+**Show the image you mean.** When an image decided the request, attach it as
+`evidence` (autolamella-agent, *Write down why*). The card shows it under Why,
+and draws your actions' points, areas and patterns on its beam image. Without
+it, the card says "No evidence" and draws them on the image the values were
+measured on.
 
 **Read just before you ask.** Read the config (`item_get_task_config`) or
 the stage position before filing, and pass the `version` you read. Until
@@ -166,8 +167,8 @@ their reason. Read it before you suggest again. A suggestion carries a
 `value` when the prompt has a `value` field, as `prompt_answer` would (for
 the milling question, the action and any edits). It is placed on screen
 only if the operator takes the suggestion. When you judged on an image (the
-fresh SEM and FIB pair for a position, the start image for a mill), pass its
-path as `image`, as for a request: the card shows it with your value drawn
+fresh SEM and FIB pair for a position, the start image for a mill), attach
+it as `evidence`, as for a request: the card shows it with your value drawn
 on it.
 
 Two playbook rules hold at Assist too. Before you suggest a Setup position

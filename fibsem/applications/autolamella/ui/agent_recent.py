@@ -3,7 +3,9 @@
 The agent card's Recent list: the agent's requests (asked, then approved,
 applying, then applied or failed, or rejected with the operator's why), its
 suggested answers (taken, dropped or dismissed), and what it does itself at
-Drive or was refused. The operator's messages to it are rows too, "You: ...",
+Drive or was refused. A row whose call carried the agent's evidence
+(``agent_evidence``, `fibsem.server.evidence`) carries it too, for the card to
+open. The operator's messages to it are rows too, "You: ...",
 and its answers "Reply: ..." (FIB-1423). Read from the session's record, the event stream the event
 log shows, so the list and the log never disagree; only the agent's own entries
 make a row. Each row says the level it was done at (FIB-1426).
@@ -21,7 +23,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from dataclasses import dataclass, replace
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from fibsem.acting import AGENT
 from fibsem.server.request_text import describe_action
@@ -85,6 +87,8 @@ class RecentRow:
     tone: str
     # The level it was done at, "assist" or "drive"; "" when not known.
     level: str = ""
+    # The evidence it rests on (its record), or None.
+    evidence: Optional[Dict[str, Any]] = None
 
 
 def _when(record: Dict[str, Any]) -> str:
@@ -141,6 +145,9 @@ class RecentActions:
         self._sizes: Dict[Any, int] = {}
         # The level the agent was last seen at, for a row whose record omits it.
         self._level = ""
+        # The agent's evidence by id, and the evidence of the record being read.
+        self._evidence: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
+        self._citing: Optional[Dict[str, Any]] = None
 
     @property
     def rows(self) -> List[RecentRow]:
@@ -152,6 +159,7 @@ class RecentActions:
         self._applying.clear()
         self._sizes.clear()
         self._level = ""
+        self._evidence.clear()
 
     def add(self, record: Dict[str, Any]) -> bool:
         """Take one record of the session's; True when the rows changed."""
@@ -162,7 +170,11 @@ class RecentActions:
         handler = getattr(self, f"_on_{kind}", None)
         if handler is None:
             return False
-        return bool(handler(record, payload, record.get("actor") == AGENT))
+        self._citing = self._evidence.get(str(payload.get("evidence")))
+        try:
+            return bool(handler(record, payload, record.get("actor") == AGENT))
+        finally:
+            self._citing = None
 
     # --- rows ------------------------------------------------------------------
 
@@ -177,7 +189,9 @@ class RecentActions:
     ):
         level = str(self._level if level is None else level)
         self._rows.pop(key, None)
-        self._rows[key] = RecentRow(_when(record), _cut(text), outcome, tone, level)
+        self._rows[key] = RecentRow(
+            _when(record), _cut(text), outcome, tone, level, self._citing
+        )
         while len(self._rows) > self._size:
             self._rows.popitem(last=False)
         return True
@@ -370,6 +384,14 @@ class RecentActions:
         outcome, tone = _RUN_ENDED.get(status, (_words(status), MUTED))
         text = f"Milled '{p.get('milling_task_name') or 'milling'}'"
         return self._put(("mill", p.get("milling_run_id")), record, text, outcome, tone)
+
+    def _on_agent_evidence(self, record, p, agent):
+        # Not a row: the call, request, suggestion or note citing it is.
+        if p.get("evidence_id"):
+            self._evidence[str(p["evidence_id"])] = dict(p)
+            while len(self._evidence) > 4 * self._size:
+                self._evidence.popitem(last=False)
+        return False
 
     def _on_agent_note(self, record, p, agent):
         # Its answer to the operator's message (FIB-1423), or an observation.

@@ -28,7 +28,7 @@ import logging
 from concurrent.futures import InvalidStateError
 from copy import deepcopy
 from dataclasses import replace
-from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple, Type
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Type
 
 from PyQt5.QtCore import QObject, pyqtSignal
 
@@ -132,7 +132,7 @@ class QtResponder(QObject):
     _agent_peeked = pyqtSignal(object)  # (Future[(question_id, live value)])
     _agent_suggested = pyqtSignal(
         bool, object, object, object, object, object
-    )  # (response, question_id, value, reason, image, Future[bool])
+    )  # (response, question_id, value, reason, evidence, Future[bool])
 
     def __init__(self, ui: "AutoLamellaUI"):
         super().__init__()
@@ -182,10 +182,10 @@ class QtResponder(QObject):
         # must never break the click (or the other observers) it is watching.
         self._question_observers: List[Callable[[str, Dict], None]] = []
         # The agent's suggested answer to the pending question (FIB-1283):
-        # (question_id, response, value, reason), shown as a button the operator
-        # may take. Dropped when that question goes.
+        # (question_id, response, value, reason, evidence), shown as a button
+        # the operator may take. Dropped when that question goes.
         self._suggestion: Optional[
-            Tuple[int, bool, Optional[object], str, Optional[str]]
+            Tuple[int, bool, Optional[object], str, Optional[Dict[str, Any]]]
         ] = None
         # The operator's last Dismiss of a suggestion: (question_id, reason),
         # for the agent reading the question again (sim session 2026-10-16).
@@ -371,13 +371,14 @@ class QtResponder(QObject):
         question_id: int,
         value: Optional[object] = None,
         reason: str = "",
-        image: Optional[str] = None,
+        evidence: Optional[Dict[str, Any]] = None,
     ) -> "Future":
         """Suggest an answer to the pending question, for the operator to take
         or not (FIB-1283). Any thread; a Future[bool], True once the suggestion
-        is shown. *image* is the path of the image the agent's evidence is in,
-        which the card shows (FIB-1424). Nothing is answered: the operator's click on the suggestion
-        answers, as theirs, with the agent named as the one who suggested it.
+        is shown. *evidence* is the record of what the agent judged from
+        (`fibsem.server.evidence`), which the card shows. Nothing is answered:
+        the operator's click on the suggestion answers, as theirs, with the
+        agent named as the one who suggested it.
 
         Fails with :class:`StalePromptError` when that question is no longer
         pending, and with ValueError for a question on the record (decided in
@@ -386,7 +387,9 @@ class QtResponder(QObject):
         from concurrent.futures import Future as _Future
 
         outcome: "_Future" = _Future()
-        self._agent_suggested.emit(response, question_id, value, reason, image, outcome)
+        self._agent_suggested.emit(
+            response, question_id, value, reason, evidence, outcome
+        )
         return outcome
 
     def dismissed_reason(self) -> Optional[str]:
@@ -401,9 +404,9 @@ class QtResponder(QObject):
     @property
     def suggestion(
         self,
-    ) -> Optional[Tuple[int, bool, Optional[object], str, Optional[str]]]:
-        """``(question_id, response, value, reason, image)`` while one stands,
-        else None."""
+    ) -> Optional[Tuple[int, bool, Optional[object], str, Optional[Dict[str, Any]]]]:
+        """``(question_id, response, value, reason, evidence)`` while one
+        stands, else None."""
         suggestion = self._suggestion
         if suggestion is None:
             return None
@@ -416,7 +419,7 @@ class QtResponder(QObject):
         question_id: int,
         value: Optional[object],
         reason: str,
-        image: Optional[str],
+        evidence: Optional[Dict[str, Any]],
         outcome: "Future",
     ) -> None:
         """GUI thread: put the suggestion up beside the prompt's buttons."""
@@ -447,7 +450,7 @@ class QtResponder(QObject):
             bool(response),
             value,
             str(reason),
-            str(image) if image else None,
+            dict(evidence) if evidence else None,
         )
         payload = {
             "type": type(pending[0]).__name__,
@@ -457,8 +460,8 @@ class QtResponder(QObject):
         }
         if value is not None:
             payload["has_value"] = True
-        if image:
-            payload["image"] = str(image)
+        if evidence:
+            payload["evidence"] = evidence["evidence_id"]
         self._emit_question_event("prompt_suggested", payload, actor=AGENT)
         self._show_suggestion()
         self._deliver(outcome, True)
@@ -522,7 +525,7 @@ class QtResponder(QObject):
         if suggestion is None:
             show(None, "")
             return
-        _question_id, response, value, reason = suggestion[:4]
+        _question_id, response, value, reason, evidence = suggestion
         pending = self._pending_question
         label = self._button_label(pending[0], response, value) if pending else None
         shown = self._buttons[0 if response else 1]
@@ -532,7 +535,7 @@ class QtResponder(QObject):
         point = None
         if pending is not None and isinstance(pending[0], PickPOI):
             point = self._suggested_pixel(pending[0], value)
-        show(label or ("Yes" if response else "No"), reason, point)
+        show(label or ("Yes" if response else "No"), reason, point, evidence)
 
     def _suggested_pixel(self, request: "PickPOI", value: object):
         """The suggested point of interest in the FIB view's pixels, for the

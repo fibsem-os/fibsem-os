@@ -16,7 +16,7 @@ import os
 import threading
 from copy import deepcopy
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
@@ -2926,11 +2926,13 @@ class AutoLamellaUI(QMainWindow):
         label: Optional[str],
         reason: str = "",
         point: Optional[Tuple[float, float]] = None,
+        evidence: Optional[Dict[str, Any]] = None,
     ) -> None:
         """The agent's suggested answer, or None to take it down. Called by the
         responder, which owns when it stands. Not on the prompt: the agent card
         shows it (FIB-1407), so this says so through `suggestion_changed`.
-        *point* is a suggested point of interest, in the FIB image's pixels."""
+        *point* is a suggested point of interest, in the FIB image's pixels;
+        *evidence*, the record of what the agent judged from."""
         if label is None:
             self.suggestion_shown = None
         else:
@@ -2941,6 +2943,8 @@ class AutoLamellaUI(QMainWindow):
             }
             if point is not None:
                 self.suggestion_shown["point"] = point
+            if evidence:
+                self.suggestion_shown["evidence"] = evidence
         self.suggestion_changed.emit(self.suggestion_shown)
 
     def take_suggestion(self) -> bool:

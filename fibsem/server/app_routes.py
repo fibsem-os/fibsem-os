@@ -13,11 +13,11 @@ one place (build_server).
 """
 
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 
-from fibsem.server import allowlist, files
+from fibsem.server import evidence, files
 from fibsem.server.auth import take_control
 
 try:  # Protocol is typing-only; keep import robust on the 3.8 floor
@@ -242,6 +242,11 @@ class AppContext(Protocol):
         text: str,
         item_name: Optional[str] = None,
         reply_to: Optional[str] = None,
+        evidence: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]: ...
+
+    def add_evidence(
+        self, item_name: Optional[str], save: Callable[[], Dict[str, Any]]
     ) -> Dict[str, Any]: ...
 
     def stop_workflow(self) -> Dict[str, Any]: ...
@@ -345,6 +350,25 @@ _REFUSAL_STATUS = {
     "not_allowed": 403,
     "no_experiment": 409,
 }
+
+
+def _evidence_refused(refusal: "evidence.EvidenceRefused") -> HTTPException:
+    return HTTPException(status_code=refusal.status_code, detail=refusal.detail)
+
+
+def cited_evidence(experiment_path) -> Optional[Dict[str, Any]]:
+    """The evidence the agent's call names (`calls.EVIDENCE_HEADER`), its
+    record; None when it names none. *experiment_path* answers the open
+    experiment's folder."""
+    from fibsem.server.calls import current_call
+
+    call = current_call()
+    if call is None or not call.evidence:
+        return None
+    try:
+        return evidence.load(experiment_path, call.evidence)
+    except evidence.EvidenceRefused as refusal:
+        raise _evidence_refused(refusal)
 
 
 def _missing_field(message: str) -> HTTPException:
@@ -642,7 +666,46 @@ def build_app_router(context: AppContext) -> APIRouter:
                 "Pass text (a non-empty string, at most 4000 characters); "
                 "item_name and reply_to (strings) are optional."
             )
-        result = context.add_note(text, item_name, reply_to)
+        cited = cited_evidence(lambda: context.experiment_path)
+        result = context.add_note(
+            text, item_name, reply_to, **({"evidence": cited} if cited else {})
+        )
+        if not result.get("recorded") and result.get("error"):
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error_type": "not_found",
+                    "message": result["error"],
+                    "item_names": result.get("item_names", []),
+                },
+            )
+        return result
+
+    @router.post("/experiment/evidence")
+    def add_evidence(body: Dict[str, Any]):
+        # What the agent judged from, kept in the experiment: an image of the
+        # experiment's or one it made (uploaded, saved here), what it saw in it
+        # and marks on it. Changes nothing, like a note; the calls that cite it
+        # name its id.
+        item_name = body.get("item_name")
+        if item_name is not None and not isinstance(item_name, str):
+            raise _missing_field("item_name, when given, is a string.")
+
+        def save() -> Dict[str, Any]:
+            return evidence.save(
+                lambda: context.experiment_path,
+                body.get("text"),
+                image=body.get("image"),
+                upload=body.get("upload"),
+                marks=body.get("marks"),
+                source=body.get("source"),
+                item_name=item_name,
+            )
+
+        try:
+            result = context.add_evidence(item_name, save)
+        except evidence.EvidenceRefused as refusal:
+            raise _evidence_refused(refusal)
         if not result.get("recorded") and result.get("error"):
             raise HTTPException(
                 status_code=404,
@@ -912,18 +975,8 @@ def build_app_suggest_router(context: AppContext) -> APIRouter:
                     "the shape the prompt's value field gives.",
                 },
             )
-        image = body.get("image") or None
-        if image is not None:
-            # The image the agent's evidence is in, shown on the card (FIB-1424).
-            refusal = allowlist.image_refusal(
-                image, lambda: getattr(context, "experiment_path", None)
-            )
-            if refusal is not None:
-                status, error_type, message = refusal
-                raise HTTPException(
-                    status_code=status,
-                    detail={"error_type": error_type, "message": message},
-                )
+        # What the agent judged from, shown on the card.
+        cited = cited_evidence(lambda: getattr(context, "experiment_path", None))
         suggest = getattr(context, "suggest_answer", None)
         if suggest is None:
             return {"available": False, "suggested": False, "stale": False}
@@ -932,7 +985,7 @@ def build_app_suggest_router(context: AppContext) -> APIRouter:
             question_id,
             reason.strip(),
             value=value,
-            **({"image": image} if image else {}),
+            **({"evidence": cited} if cited else {}),
         )
         if result.get("stale"):
             raise HTTPException(

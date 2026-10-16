@@ -484,7 +484,7 @@ class EventRecorder:
             if getattr(ref, "task_id", None) or getattr(ref, "task_name", None):
                 task = {"id": ref.task_id, "name": ref.task_name}
         if (
-            kind == "agent_note"
+            kind in ("agent_note", "agent_evidence")
             and isinstance(payload, dict)
             and payload.get("item_id")
         ):
