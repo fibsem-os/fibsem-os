@@ -186,3 +186,36 @@ def test_a_framework_model_says_what_it_is_missing_without_importing_it(
         assert packages in status["missing"]
         with pytest.raises(ModelUnavailable, match=packages):
             _manager(entry).get("real")
+
+
+def test_a_checkpoint_a_protocol_names_loads_once(monkeypatch):
+    """The legacy backend runs a checkpoint as load_model always has, but once:
+    take_image_and_detect_features used to load it on every detection. torch
+    is not installed here, so load_model is stood in for."""
+    import sys
+    import types
+
+    loads = []
+
+    class Loaded:
+        device = "cpu"
+
+        def inference(self, image, rgb=True):
+            return np.ones((1, *image.shape[:2]), dtype=np.uint8)
+
+    def load_model(checkpoint):
+        loads.append(checkpoint)
+        return Loaded()
+
+    stub = types.ModuleType("fibsem.segmentation.model")
+    stub.load_model = load_model
+    monkeypatch.setitem(sys.modules, "fibsem.segmentation.model", stub)
+    monkeypatch.setattr("fibsem.ai.models.backends.legacy.missing", lambda packages: [])
+    manager = _manager()
+    first = manager.for_checkpoint("autolamella-mega-20240107.pt")
+    again = manager.for_checkpoint("autolamella-mega-20240107.pt")
+    assert again is first and loads == ["autolamella-mega-20240107.pt"]
+    assert isinstance(first.backend.model, Loaded)
+    assert first.card.classes[1].name == "lamella"
+    assert first.segment(np.zeros((8, 8)), pixel_size=1e-6).fraction("lamella") == 1
+    assert manager.registry.resolve("autolamella-mega-20240107.pt")[0].agent is False

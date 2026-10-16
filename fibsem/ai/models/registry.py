@@ -69,7 +69,7 @@ class ModelRegistry:
     def __init__(self, entries: Iterable[ModelEntry] = BUILTIN_ENTRIES):
         self._entries: Dict[str, ModelEntry] = {}
         for entry in entries:
-            self._entries[entry.name] = entry
+            self.add(entry)
 
     @classmethod
     def load(cls, path: str = MODELS_PATH) -> "ModelRegistry":
@@ -79,6 +79,10 @@ class ModelRegistry:
         if os.path.isfile(path):
             entries.extend(read_entries(path))
         return cls(entries)
+
+    def add(self, entry: ModelEntry) -> None:
+        """Register *entry*, over one of the same name."""
+        self._entries[entry.name] = entry
 
     def entries(self) -> List[ModelEntry]:
         return list(self._entries.values())

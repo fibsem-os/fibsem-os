@@ -16,6 +16,9 @@ import numpy as np
 
 from fibsem.ai.models.card import ModelCard, find_card
 from fibsem.ai.models.registry import ModelEntry, ModelRegistry
+
+#: The ref of a checkpoint run as `fibsem.segmentation.model.load_model` reads it.
+LEGACY = "builtin://legacy/"
 from fibsem.ai.models.results import SegmentationResult
 from fibsem.util import timestamps
 
@@ -199,6 +202,21 @@ class ModelManager:
             answer["missing"] = missing
         return answer
 
+    def for_checkpoint(self, checkpoint: str) -> Model:
+        """The model a protocol or task names by its checkpoint, loaded once:
+        the registered model of that name, else the checkpoint as
+        ``fibsem.segmentation.model.load_model`` has always read it (the
+        ``legacy`` backend), registered for the app and kept from the agent."""
+        try:
+            return self.get(checkpoint)
+        except ModelNotFound:
+            pass
+        with self._lock:
+            self.registry.add(
+                ModelEntry(name=checkpoint, ref=LEGACY + checkpoint, agent=False)
+            )
+        return self.get(checkpoint)
+
     def unload(self, name: str) -> None:
         """Unload every loaded copy of *name*."""
         entry, _ = self.entry(name)
@@ -226,7 +244,7 @@ def _card_for(entry: ModelEntry) -> Tuple[ModelCard, str]:
 
         if builtin not in BACKENDS:
             raise ModelUnavailable(f"{entry.name}: no built-in backend '{builtin}'.")
-        return BACKENDS[builtin].default_card(), "backend"
+        return BACKENDS[builtin].default_card(entry), "backend"
     card, source = find_card(entry.ref, entry.card)
     if card is None:
         raise ModelUnavailable(
