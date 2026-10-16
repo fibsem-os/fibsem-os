@@ -7,7 +7,7 @@ from abc import ABC
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime
-from enum import Enum, auto
+from enum import Enum
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
@@ -60,14 +60,16 @@ from fibsem.structures import (
     field_specs,
 )
 from fibsem.util.durations import format_duration_precise
-from fibsem.util.timestamps import format_time, now, to_datetime, to_iso
+from fibsem.util.timestamps import format_time, now
 from fibsem.workflows.experiment import BaseExperiment
+from fibsem.workflows.grids import ExperimentGrids, GridRecord
 from fibsem.workflows.item import ExperimentItem
 from fibsem.workflows.proposals import (
     Proposal,
     proposals_from_dict,
     proposals_to_dict,
 )
+from fibsem.workflows.quality import QualityRecord, Verdict
 from fibsem.workflows.review import ProposalReview
 from fibsem.workflows.saved_format import check_app
 from fibsem.workflows.status import TaskState, TaskStatus
@@ -875,173 +877,6 @@ class AutoLamellaTaskProtocol:
         return task_configs
 
 
-class Verdict(Enum):
-    """A judgement about a lamella or a grid, made by a person (or a reviewer
-    acting for one) and never by a task.
-
-    ``UNASSESSED`` and ``GOOD`` are different answers: nobody has looked, versus
-    somebody looked and it was fine. The old ``DefectType.NONE`` meant both.
-    """
-
-    UNASSESSED = auto()
-    GOOD = auto()
-    REWORK = auto()
-    FAILED = auto()
-
-    # Aliases for the names the old enums used. ``Verdict["NONE"]`` resolves,
-    # ``Verdict.NONE is Verdict.UNASSESSED``, and iteration skips them.
-    NONE = UNASSESSED
-    FAILURE = FAILED
-    POOR = FAILED
-
-
-@evented
-@dataclass
-class QualityRecord:
-    """The current human verdict on an item, attributed.
-
-    One type for lamellae and grids, replacing ``DefectState`` (lamella) and the
-    bare ``GridQuality`` enum (grid), which were the same idea under two names
-    with neither recording who set it. Holds the *current* verdict only; the
-    full trail of what was proposed and decided lives on the item's proposals,
-    and ``decision_id`` points at the decision that set this verdict when a
-    review did.
-    """
-
-    verdict: Verdict = field(default=Verdict.UNASSESSED)
-    author: str = ""  # "human:<name>" | "agent:<model>"; "" when unrecorded
-    reason: str = ""
-    at_task: str = ""  # the task the item was judged at
-    # When the verdict was set: aware, written as ISO 8601 with its offset
-    # (FIB-1197); older files hold a POSIX float, which reads as this machine's zone.
-    updated_at: Optional[datetime] = None
-    decision_id: Optional[Tuple[str, str]] = None  # (item_id, task_name)
-
-    def __post_init__(self) -> None:
-        # a caller that still passes a POSIX float gets it read as one
-        self.updated_at = to_datetime(self.updated_at)
-
-    # -- names the old DefectState API used; kept so callers migrate one at a time
-    @property
-    def state(self) -> Verdict:
-        return self.verdict
-
-    @state.setter
-    def state(self, value: Verdict) -> None:
-        self.verdict = value
-
-    @property
-    def description(self) -> str:
-        return self.reason
-
-    @description.setter
-    def description(self, value: str) -> None:
-        self.reason = value
-
-    @property
-    def last_completed_task(self) -> str:
-        return self.at_task
-
-    @last_completed_task.setter
-    def last_completed_task(self, value: str) -> None:
-        self.at_task = value
-
-    def to_dict(self) -> dict:
-        return {
-            "verdict": self.verdict.name,
-            "author": self.author,
-            "reason": self.reason,
-            "at_task": self.at_task,
-            "updated_at": to_iso(self.updated_at),
-            "decision_id": list(self.decision_id) if self.decision_id else None,
-        }
-
-    @classmethod
-    def from_dict(cls, data: Union[dict, str, None]) -> "QualityRecord":
-        """Read the current shape, the ``DefectState`` shape (``state`` /
-        ``description`` / ``last_completed_task``), the pre-``DefectState``
-        ``has_defect`` / ``requires_rework`` bools, and the bare name string
-        ``GridRecord`` used to write. Unknown names read as ``UNASSESSED``."""
-        if not data:
-            return cls()
-        if isinstance(data, str):
-            return cls(verdict=_verdict_by_name(data))
-        if "has_defect" in data:
-            if data.get("has_defect"):
-                verdict = (
-                    Verdict.REWORK if data.get("requires_rework") else Verdict.FAILED
-                )
-            else:
-                verdict = Verdict.UNASSESSED
-            return cls(
-                verdict=verdict,
-                reason=data.get("description", ""),
-                updated_at=to_datetime(data.get("updated_at")),
-            )
-        decision_id = data.get("decision_id")
-        return cls(
-            verdict=_verdict_by_name(data.get("verdict", data.get("state", ""))),
-            author=data.get("author", ""),
-            reason=data.get("reason", data.get("description", "")),
-            at_task=data.get("at_task", data.get("last_completed_task", "")),
-            updated_at=to_datetime(data.get("updated_at")),
-            decision_id=tuple(decision_id) if decision_id else None,
-        )
-
-    def clear(self):
-        self.verdict = Verdict.UNASSESSED
-        self.author = ""
-        self.reason = ""
-        self.at_task = ""
-        self.updated_at = None
-        self.decision_id = None
-
-    def set_defect(
-        self,
-        description: str = "",
-        state: Verdict = Verdict.FAILED,
-        author: str = "",
-    ):
-        self.verdict = state
-        self.reason = description
-        self.author = str(author)  # an Author or its kind:name form
-        self.updated_at = now()
-
-
-_quality_record_init = QualityRecord.__init__
-
-
-def _quality_record_init_with_old_names(
-    self,
-    *args,
-    state: Optional[Verdict] = None,
-    description: Optional[str] = None,
-    last_completed_task: Optional[str] = None,
-    **kwargs,
-):
-    """``DefectState(state=..., description=..., last_completed_task=...)`` keeps
-    constructing. The dataclass ``__init__`` only knows the new field names, so
-    the old keywords are mapped here; a caller passing both forms gets the new
-    one."""
-    if state is not None:
-        kwargs.setdefault("verdict", state)
-    if description is not None:
-        kwargs.setdefault("reason", description)
-    if last_completed_task is not None:
-        kwargs.setdefault("at_task", last_completed_task)
-    _quality_record_init(self, *args, **kwargs)
-
-
-QualityRecord.__init__ = _quality_record_init_with_old_names  # type: ignore[method-assign]
-
-
-def _verdict_by_name(name: str) -> Verdict:
-    try:
-        return Verdict[name]
-    except KeyError:
-        return Verdict.UNASSESSED
-
-
 # The names this type and its enum had before they were one thing. Every reader
 # of ``DefectState`` / ``DefectType`` / ``GridQuality`` keeps working; new code
 # says ``QualityRecord`` / ``Verdict``.
@@ -1461,201 +1296,6 @@ class Lamella(ExperimentItem):
         return synced_tasks, moves
 
 
-def _plain(value: Any) -> Any:
-    """*value* with every numpy scalar and array made a plain Python one, all the
-    way down: the YAML writer cannot represent numpy types, and a record carries
-    dicts filled from a canvas and a composite."""
-    import numpy as np  # this module imports numpy for annotations only
-
-    if isinstance(value, dict):
-        return {str(k): _plain(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_plain(v) for v in value]
-    if isinstance(value, np.ndarray):
-        return _plain(value.tolist())
-    if isinstance(value, np.generic):
-        return value.item()
-    return value
-
-
-@evented
-@dataclass
-class OverlayRecord:
-    """Something placed by hand over a grid's overview, and where it was put.
-
-    The grid bars today; a fluorescence overview next (FIB-1030). What is stored is a
-    placement on the *sample*: an offset in metres along its surface and a turn in
-    degrees, relative to `reference` -- the grid centre when there is none -- so the
-    same record draws in every view, squashed by whatever that view's foreshortening
-    is. The view does not belong in here.
-
-    One record per placed thing, on the grid rather than the experiment: a placement is
-    about one grid, and switching grids should swap it with them.
-    """
-
-    kind: str  # "gridbar" | "image"
-    dx: float = 0.0  # metres along the sample surface from the reference
-    dy: float = 0.0
-    rotation: float = 0.0  # degrees, clockwise on screen
-    scale: float = 1.0
-    # An image mirrored left to right by the user, about its own axis.
-    mirrored: bool = False
-    # Grid bars: the lattice's pitch and bar width, in metres.
-    pitch: Optional[float] = None
-    bar_width: Optional[float] = None
-    # An image: its file, relative to the grid's folder.
-    source: Optional[str] = None
-    # What it was aligned against: an overview's file, relative to the grid's folder,
-    # and the view it was shown in. None means the grid centre.
-    reference: Optional[str] = None
-    view: Optional[str] = None
-    # How it was placed by a fit, when it was: the point pairs and the residual.
-    fit: Dict[str, Any] = field(default_factory=dict)
-    # An image: how it is shown -- opacity, signal only, and per channel its colour,
-    # visibility, opacity, gamma and contrast. Empty means as loaded.
-    display: Dict[str, Any] = field(default_factory=dict)
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    # Aware, written as ISO 8601 with its offset (FIB-1197); older files hold a
-    # POSIX float, which reads as this machine's zone.
-    created_at: Optional[datetime] = field(default_factory=now)
-
-    def to_dict(self) -> dict:
-        # Plain floats throughout: a numpy scalar that slipped in from a canvas
-        # cannot be represented by the YAML writer, and a save that raises half-way
-        # is worse than a wrong number.
-        return {
-            "kind": self.kind,
-            "dx": float(self.dx),
-            "dy": float(self.dy),
-            "rotation": float(self.rotation),
-            "scale": float(self.scale),
-            "mirrored": bool(self.mirrored),
-            "pitch": None if self.pitch is None else float(self.pitch),
-            "bar_width": None if self.bar_width is None else float(self.bar_width),
-            "source": self.source,
-            "reference": self.reference,
-            "view": self.view,
-            "fit": _plain(self.fit),
-            "display": _plain(self.display),
-            "id": self.id,
-            "created_at": to_iso(self.created_at),
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "OverlayRecord":
-        return cls(
-            kind=str(data.get("kind", "")),
-            dx=float(data.get("dx", 0.0) or 0.0),
-            dy=float(data.get("dy", 0.0) or 0.0),
-            rotation=float(data.get("rotation", 0.0) or 0.0),
-            scale=float(data.get("scale", 1.0) or 1.0),
-            mirrored=bool(data.get("mirrored", False)),
-            pitch=data.get("pitch"),
-            bar_width=data.get("bar_width"),
-            source=data.get("source"),
-            reference=data.get("reference"),
-            view=data.get("view"),
-            fit=dict(data.get("fit") or {}),
-            display=dict(data.get("display") or {}),
-            id=data.get("id") or str(uuid.uuid4()),
-            created_at=to_datetime(data.get("created_at", now())),
-        )
-
-
-@dataclass
-class GridRecord(ExperimentItem):
-    """A grid as the workflow knows it, distinct from the hardware's `SampleGrid`.
-
-    Linked to the hardware by name and to lamellae by `Lamella.grid_id -> id`.
-    Deliberately holds no slot, stage position, loaded state or copy of the
-    hardware grid: all of that is resolved live against the stage, so a record
-    stays valid when its grid changes slot or leaves the magazine. A record exists
-    from the moment a grid is *available* (present in the inventory), so twelve
-    grids can be queued before any has been loaded.
-
-    `task_state` and `task_history` are the same types the lamella side uses,
-    and the same rule applies: never replace `task_state` wholesale, mutate it.
-    """
-
-    name: str
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    description: str = ""
-    quality: QualityRecord = field(default_factory=QualityRecord)
-    task_state: TaskState = field(default_factory=TaskState)
-    task_history: List[TaskState] = field(default_factory=list)
-    # Aware, written as ISO 8601 with its offset (FIB-1197); older files hold a
-    # POSIX float, which reads as this machine's zone.
-    created_at: Optional[datetime] = field(default_factory=now)
-    proposals: Dict[str, List[Proposal]] = field(default_factory=dict)  # as on Lamella
-    # What has been placed by hand over this grid's overviews; see `OverlayRecord`.
-    overlays: List[OverlayRecord] = field(default_factory=list)
-
-    def __post_init__(self) -> None:
-        if not self.id:
-            self.id = str(uuid.uuid4())
-        self.task_state.item_id = self.id
-
-    def overlay_of(self, kind: str) -> Optional[OverlayRecord]:
-        """The one record of *kind* that has no source -- the grid bars, say."""
-        return next(
-            (o for o in self.overlays if o.kind == kind and o.source is None), None
-        )
-
-    def set_overlay(self, record: OverlayRecord) -> None:
-        """Keep *record*, replacing the one it stands in for.
-
-        By id when the record has been seen before, otherwise by kind for a
-        source-less record: there is one lattice of grid bars per grid.
-        """
-        for index, existing in enumerate(self.overlays):
-            same = existing.id == record.id or (
-                record.source is None
-                and existing.source is None
-                and existing.kind == record.kind
-            )
-            if same:
-                self.overlays[index] = record
-                return
-        self.overlays.append(record)
-
-    @property
-    def is_failure(self) -> bool:
-        """Whether the latest run on this grid ended in failure. Not a verdict on
-        the grid -- see `quality` for that, which a person sets and a task never
-        does, same as a lamella."""
-        return self.task_state.status is TaskStatus.Failed
-
-    def to_dict(self) -> dict:
-        return {
-            "name": self.name,
-            "_id": self.id,
-            "description": self.description,
-            "quality": self.quality.to_dict(),
-            "task_state": self.task_state.to_dict(),
-            "task_history": [t.to_dict() for t in self.task_history],
-            "created_at": to_iso(self.created_at),
-            "proposals": proposals_to_dict(self.proposals),
-            "overlays": [o.to_dict() for o in self.overlays],
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "GridRecord":
-        return cls(
-            name=data["name"],
-            id=data.get("_id") or str(uuid.uuid4()),
-            description=data.get("description", ""),
-            quality=QualityRecord.from_dict(data.get("quality")),
-            task_state=TaskState.from_dict(data.get("task_state", {})),
-            task_history=[TaskState.from_dict(t) for t in data.get("task_history", [])],
-            created_at=to_datetime(data.get("created_at", now())),
-            proposals=proposals_from_dict(data.get("proposals")),
-            overlays=[OverlayRecord.from_dict(o) for o in data.get("overlays", [])],
-        )
-
-    def __repr__(self) -> str:
-        return f"GridRecord(name={self.name!r}, quality={self.quality.verdict.name}, tasks={len(self.task_history)})"
-
-
 def find_overviews(root: Union[str, Path]) -> List[Path]:
     """The stitched beam overviews an experiment keeps, oldest first.
 
@@ -1675,7 +1315,7 @@ def find_overviews(root: Union[str, Path]) -> List[Path]:
 
 @evented
 @dataclass
-class Experiment(BaseExperiment, ProposalReview):
+class Experiment(ExperimentGrids, ProposalReview, BaseExperiment):
     app: ClassVar[str] = "autolamella"
 
     name: str
@@ -1799,62 +1439,10 @@ class Experiment(BaseExperiment, ProposalReview):
             )
         return self.task_protocol.grid_tasks
 
-    def get_grid_by_name(self, name: str) -> Optional[GridRecord]:
-        return next((g for g in self.grids if g.name == name), None)
-
-    def get_grid_by_id(self, grid_id: Optional[str]) -> Optional[GridRecord]:
-        if grid_id is None:
-            return None
-        return next((g for g in self.grids if g.id == grid_id), None)
-
-    def add_grid(self, grid: GridRecord) -> GridRecord:
-        """Track a grid. Names are the link to the hardware, so they are unique."""
-        if self.get_grid_by_name(grid.name) is not None:
-            raise ValueError(f"Grid '{grid.name}' already exists in the experiment.")
-        self.grids.append(grid)
-        return grid
-
-    def remove_grid(self, name: str) -> Optional[GridRecord]:
-        """Stop tracking a grid. Its lamellae are orphaned, not deleted."""
-        grid = self.get_grid_by_name(name)
-        if grid is None:
-            return None
+    def _release_grid(self, grid: GridRecord) -> None:
+        """A grid no longer tracked: its lamellae are orphaned, not deleted."""
         for lamella in self.get_lamellae_for_grid(grid):
             lamella.grid_id = None
-        self.grids.remove(grid)
-        return grid
-
-    def sync_grids_from_inventory(self, stage) -> List[GridRecord]:
-        """Create a record for every grid the inventory reports present.
-
-        Idempotent, matched by name: a grid already tracked is left alone, with its
-        history; a grid whose hardware has gone keeps its record too, and the UI
-        reads "not present" for it from the inventory. Returns the records added.
-        """
-        added: List[GridRecord] = []
-        for entry in stage.grid_inventory():
-            if not entry.present or not entry.name:
-                continue
-            if self.get_grid_by_name(entry.name) is None:
-                added.append(self.add_grid(GridRecord(name=entry.name)))
-        return added
-
-    def grid_path(self, grid: GridRecord) -> Path:
-        """Where a grid's task output goes: `grids/<name>/` under the experiment.
-
-        Its own directory so it can never collide with a lamella's, which sits
-        directly under the experiment path. Not created here; a task creates its
-        own output directory when it first writes.
-        """
-        return Path(self.path) / "grids" / grid.name
-
-    def item_path(self, item: Union["Lamella", GridRecord]) -> Path:
-        """The directory an item's recorded outputs are relative to: a lamella's
-        own ``path``, a grid's ``grid_path``. Derived for a grid rather than
-        stored on its record, which is renamed in place."""
-        if isinstance(item, GridRecord):
-            return self.grid_path(item)
-        return super().item_path(item)
 
     def get_lamellae_for_grid(self, grid: GridRecord) -> List["Lamella"]:
         """Derived from `Lamella.grid_id`; nothing stores the reverse."""

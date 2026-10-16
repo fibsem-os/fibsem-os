@@ -18,7 +18,6 @@ from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
-    GridRecord,
 )
 from fibsem.applications.autolamella.task_outputs import grid_outputs
 from fibsem.applications.autolamella.workflows.tasks.grid import (
@@ -42,6 +41,7 @@ from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
 from fibsem.cancellation import OperationCancelledError
 from fibsem.services.sample_handling import BUILTIN_SLOT_NAME
 from fibsem.structures import BeamType, ImageSettings, OverviewAcquisitionSettings
+from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.status import TaskStatus as Status
 from fibsem.workflows.status import WorkflowStatusEvent
 

@@ -670,10 +670,10 @@ def _sem_image() -> FibsemImage:
 def _grid_waiting(experiment):
     """Grid-01's SEM overview under review, its stitched image on disk, and a
     FIB overview that requires it."""
-    from fibsem.applications.autolamella.structures import GridRecord
     from fibsem.applications.autolamella.workflows.tasks.grid import (
         BeamOverviewGridTaskConfig,
     )
+    from fibsem.workflows.grids import GridRecord
 
     protocol = experiment.grid_protocol
     protocol.add(
@@ -743,7 +743,7 @@ def _positions_waiting(experiment, positions=(), name="Grid-02"):
     """A grid's overview under review for where the lamellae go, with its
     stitched image on disk."""
     from fibsem.applications.autolamella.proposals import OVERVIEW_POSITIONS
-    from fibsem.applications.autolamella.structures import GridRecord
+    from fibsem.workflows.grids import GridRecord
 
     grid = experiment.add_grid(GridRecord(name=name))
     directory = experiment.grid_path(grid) / "SEM Overview"
@@ -997,7 +997,7 @@ def _fluorescence_overview(path: Path):
 
 
 def _fm_grid_proposal(experiment, filename="overview.ome.tiff", write=True):
-    from fibsem.applications.autolamella.structures import GridRecord
+    from fibsem.workflows.grids import GridRecord
 
     grid = experiment.add_grid(GridRecord(name="Grid-FM"))
     relative = f"FM Overview/{filename}"
@@ -1081,7 +1081,7 @@ def test_an_unreadable_image_clears_the_last_one_and_says_so(tab, experiment, qa
 
 
 def test_a_result_with_no_image_recorded_says_so(tab, experiment):
-    from fibsem.applications.autolamella.structures import GridRecord
+    from fibsem.workflows.grids import GridRecord
 
     grid = experiment.add_grid(GridRecord(name="Grid-None"))
     grid.task_history.append(

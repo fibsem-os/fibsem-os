@@ -21,7 +21,6 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
     AutoLamellaWorkflowConfig,
     Experiment,
-    GridRecord,
 )
 from fibsem.applications.autolamella.ui import review_tab_widget as R  # noqa: E402
 from fibsem.applications.autolamella.workflows.tasks.grid import (  # noqa: E402
@@ -39,6 +38,7 @@ from fibsem.structures import (  # noqa: E402
     MicroscopeState,
     Point,
 )
+from fibsem.workflows.grids import GridRecord  # noqa: E402
 from fibsem.workflows.proposals import (  # noqa: E402
     TASK_RESULT,
     Decision,

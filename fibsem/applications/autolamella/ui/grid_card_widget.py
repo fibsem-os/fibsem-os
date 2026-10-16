@@ -27,7 +27,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.applications.autolamella.structures import Experiment, GridRecord, Verdict
+from fibsem.applications.autolamella.structures import Experiment
 from fibsem.applications.autolamella.task_outputs import latest_grid_output
 from fibsem.applications.autolamella.ui.lamella_list_widget import (
     VERDICT_LOOK,
@@ -61,6 +61,8 @@ from fibsem.ui.tokens import (
 )
 from fibsem.ui.widgets.custom_widgets import ElidedLabel, chip
 from fibsem.ui.widgets.sample_loader_widget import ICON_LOAD, ICON_UNLOAD
+from fibsem.workflows.grids import GridRecord
+from fibsem.workflows.quality import Verdict
 from fibsem.workflows.status import TaskStatus
 
 _CARD_WIDTH = 300

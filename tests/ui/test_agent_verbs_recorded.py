@@ -29,7 +29,6 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
     Experiment,
-    GridRecord,
 )
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI  # noqa: E402
 from fibsem.applications.autolamella.workflows.tasks.grid.imaging import (  # noqa: E402
@@ -41,6 +40,7 @@ from fibsem.ui.qt.threading import FunctionWorker  # noqa: E402
 from fibsem.workflows.event_recording import (  # noqa: E402
     EventRecorder,
 )
+from fibsem.workflows.grids import GridRecord  # noqa: E402
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}

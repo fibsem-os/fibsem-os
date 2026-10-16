@@ -29,10 +29,7 @@ import tifffile as tff
 
 from fibsem.applications.autolamella.structures import (
     Experiment,
-    GridRecord,
     Lamella,
-    QualityRecord,
-    Verdict,
 )
 from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     LOAD_ENTRY_NAME,
@@ -41,6 +38,11 @@ from fibsem.fm.preview import is_fluorescence_image
 from fibsem.fm.structures import FluorescenceImageMetadata, safe_ome_from_tiff
 from fibsem.geometry.projection import BeamStageProjection, FMStageProjection
 from fibsem.structures import BeamType, FibsemImageMetadata, FibsemStagePosition
+from fibsem.workflows.grids import GridRecord
+from fibsem.workflows.quality import (
+    QualityRecord,
+    Verdict,
+)
 from fibsem.workflows.status import TaskState, TaskStatus
 
 logger = logging.getLogger(__name__)

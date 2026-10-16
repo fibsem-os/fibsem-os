@@ -19,10 +19,10 @@ import fibsem.config as fibsem_config
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
-    GridRecord,
 )
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
 from fibsem.structures import FibsemStagePosition, SampleGrid, SlotCalibration
+from fibsem.workflows.grids import GridRecord
 
 
 def _ui(monkeypatch, tmp_path, arctis: bool):
