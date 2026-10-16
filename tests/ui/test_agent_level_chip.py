@@ -1148,3 +1148,82 @@ def test_a_card_with_no_picture_keeps_no_empty_column(qapp):
     card.set_image(image, "FIB")
     assert not card._stacked()
     card.deleteLater()
+
+
+def test_a_new_request_or_suggestion_opens_the_card_floating(qapp):
+    """The card opens itself for something new waiting for the operator, in its
+    own window; closed, it stays closed until the next one."""
+    from PyQt5.QtWidgets import QMainWindow
+
+    window = QMainWindow()
+    chip = AgentLevelChip()
+    window.statusBar().addPermanentWidget(chip)
+    window.show()
+    chip.set_level(AgentLevel.ASSIST)
+    assert not chip.floating
+
+    chip.set_request(_request())
+    assert chip.floating and not chip.popup.isVisible()
+    chip.panel.close()
+    # The same request again (the window refreshes it) leaves it closed.
+    chip.set_request(_request())
+    chip.set_request(_request(status="applying"))
+    assert not chip.floating
+
+    chip.set_request(None)
+    chip.set_suggestion(_SUGGESTION)
+    assert chip.floating
+    chip.panel.close()
+    chip.set_suggestion(_SUGGESTION)
+    assert not chip.floating
+    chip.set_suggestion({**_SUGGESTION, "answer": "Repeat"})
+    assert chip.floating
+
+    chip.panel.close()
+    chip.set_request(_request(request_id="cd34"))
+    assert chip.floating
+    window.close()
+
+
+def test_a_hidden_chip_opens_no_card(qapp):
+    chip = AgentLevelChip()
+    chip.set_level(AgentLevel.ASSIST)
+    chip.set_request(_request())
+    chip.set_suggestion(_SUGGESTION)
+    assert not chip.floating and not chip.popup.isVisible()
+    chip.deleteLater()
+
+
+def test_the_border_is_the_agent_s_purple_while_it_drives(main_ui, host):
+    def shown():
+        return main_ui._border_frame.property("borderState")
+
+    main_ui._set_border_state("supervised")
+    main_ui.agent_chip.level_chosen.emit(AgentLevel.DRIVE)
+    assert shown() == "agent"
+    for state in ("idle", "automated", "pending", "waiting"):
+        main_ui._set_border_state(state)
+        assert shown() == "agent"
+    # Stopping is the one state shown over the agent's.
+    main_ui._set_border_state("stopping")
+    assert shown() == "stopping"
+
+    main_ui._set_border_state("supervised")
+    main_ui.agent_chip.level_chosen.emit(AgentLevel.ASSIST)
+    assert shown() == "supervised"
+
+    # The border's switch turns the purple off too.
+    main_ui.agent_chip.level_chosen.emit(AgentLevel.DRIVE)
+    enabled = main_ui._border_enabled
+    main_ui._border_enabled = False
+    main_ui._apply_border()
+    assert shown() == "idle"
+    main_ui._border_enabled = enabled
+    main_ui._apply_border()
+    assert shown() == "agent"
+
+    # No App Server, no agent: the run's own colour.
+    host.running = False
+    main_ui._refresh_agent_chip()
+    assert shown() == "supervised"
+    main_ui._set_border_state("idle")
