@@ -132,3 +132,14 @@ def test_fm_fiducial_polarity_is_dark_by_default_and_round_trips():
         FitSettings.from_dict({"fm_fiducial_polarity": "x"}).fm_fiducial_polarity
         == "dark"
     )
+
+
+def test_fib_window_and_reflection_planes_default_to_the_fits_old_values():
+    """Both were fixed in the fits (15 px; 10 planes below, 4 above); the fit
+    panel's Save as default sets them (FIB-1218)."""
+    fit = CorrelationConfig().fit
+    assert (fit.fib_window, fit.reflection_planes) == (15, (10, 4))
+    saved = FitSettings(fib_window=9, reflection_planes=(6, 6))
+    assert FitSettings.from_dict(saved.to_dict()) == saved
+    bad = FitSettings.from_dict({"fib_window": -1, "reflection_planes": [3]})
+    assert (bad.fib_window, bad.reflection_planes) == (15, (10, 4))

@@ -104,6 +104,8 @@ class FitPanelDialog(QDialog):
         channel_names: Sequence[str] = (),
         position: Optional[tuple] = None,
         stack: Optional[Callable[[int], np.ndarray]] = None,
+        save_default: Optional[Callable[[FitInputs], None]] = None,
+        default_label: str = "this kind of point",
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
@@ -254,6 +256,20 @@ class FitPanelDialog(QDialog):
         more = position is not None and position[0] + 1 < position[1]
         nxt = ", next \u203a" if more else ""
         buttons = QHBoxLayout()
+        self._save_btn = None
+        if save_default is not None:
+            # The inputs on screen become the experiment's fit settings for
+            # this kind of point (FIB-1218).
+            self._save_default = save_default
+            self._save_label = f"Save as default for {default_label}"
+            self._save_btn = QPushButton(self._save_label)
+            self._save_btn.setAutoDefault(False)
+            self._save_btn.setToolTip(
+                "Fit every point of this kind with these inputs, from now on in "
+                "this experiment. The Method panel shows them."
+            )
+            self._save_btn.clicked.connect(self._on_save_default)
+            buttons.addWidget(self._save_btn)
         buttons.addStretch(1)
         keep = QPushButton(f"Keep click{nxt}")
         keep.setToolTip("Leave the point where you placed it")
@@ -401,8 +417,16 @@ class FitPanelDialog(QDialog):
             ),
         )
 
+    def _on_save_default(self) -> None:
+        self._save_default(self._read_inputs())
+        self._save_btn.setText("Saved as default \u2713")
+        self._save_btn.setEnabled(False)
+
     def _on_input_changed(self, *_) -> None:
         """Fit again with the inputs on screen, and show what came back."""
+        if self._save_btn is not None:  # these inputs aren't the saved ones
+            self._save_btn.setText(self._save_label)
+            self._save_btn.setEnabled(True)
         inputs = self._read_inputs()
         result = self._refit(inputs)
         if result is None:  # nothing to fit with these inputs

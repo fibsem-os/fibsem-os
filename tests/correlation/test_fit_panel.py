@@ -449,3 +449,71 @@ def test_accepting_z_by_hand_moves_the_fm_point(qapp, monkeypatch):
     w._on_refit_requested(coord)
     assert coord.point.z == 12.0
     assert (coord.point.x, coord.point.y) == pytest.approx((30.0, 30.0), abs=0.5)
+
+
+# --- Save as default (FIB-1218 6d) -----------------------------------------------
+
+
+def test_save_as_default_for_fib_fiducials_starts_the_next_fit_there(qapp, monkeypatch):
+    """Save ±10 on the first point: the experiment's FIB window is 10, and the
+    next point's panel opens on 10."""
+    w, coords, seen = _run_of_points(qapp, monkeypatch, [QDialog.Accepted] * 3)
+    windows = []
+    import fibsem.ui.correlation.widgets.correlation_tab_widget as ctw
+
+    def save_on_first(panel):
+        windows.append(panel._window_spin.value())
+        if len(windows) == 1:
+            panel._window_spin.setValue(10)
+            assert panel._save_btn.text() == "Save as default for FIB fiducials"
+            panel._save_btn.click()
+            assert not panel._save_btn.isEnabled()
+        return QDialog.Accepted
+
+    monkeypatch.setattr(ctw.FitPanelDialog, "exec_", save_on_first)
+    w._on_refit_requested(coords[0])
+    assert windows == [15, 10, 10]
+    assert w.correlation_config.fit.fib_window == 10
+
+
+def test_save_as_default_for_fm_fiducials_sets_the_method_panel(qapp):
+    from fibsem.correlation.config import CorrelationConfig, FitSettings
+
+    w = _widget(qapp)
+    w.set_correlation_config(
+        CorrelationConfig(fit=FitSettings(fm_fiducial_method="Hole"))
+    )
+    for name in ("reflection", "GFP"):
+        w._coords_tab._fm_fid_ch_combo.addItem(name)
+        w._coords_tab._fm_poi_ch_combo.addItem(name)
+    w._save_fit_defaults(
+        _coord(pt=PointType.FM),
+        FitInputs(window=3, channel=1, looks="bright", planes=(6, 6)),
+    )
+    fit = w.correlation_config.fit
+    assert (fit.reflection_cutout, fit.reflection_planes) == (3, (6, 6))
+    assert (fit.fm_fiducial_channel, fit.fm_fiducial_polarity) == ("GFP", "bright")
+    assert w._fit_inputs_for(_coord(pt=PointType.FM)) == FitInputs(
+        window=3, window_label="Depth box ±", channel=1, looks="bright", planes=(6, 6)
+    )
+
+    w._save_fit_defaults(_coord(pt=PointType.POI), FitInputs(window=8, channel=0))
+    fit = w.correlation_config.fit
+    assert (fit.fluorescence_cutout, fit.fm_poi_channel) == (8, "reflection")
+    assert fit.reflection_cutout == 3  # the fiducials' settings untouched
+
+
+def test_changing_an_input_after_saving_offers_to_save_again(qapp):
+    saved = []
+    panel = FitPanelDialog(
+        _result(),
+        FitInputs(window=15),
+        lambda i: _result(),
+        save_default=saved.append,
+        default_label="FIB fiducials",
+    )
+    panel._save_btn.click()
+    assert saved == [FitInputs(window=15)]
+    panel._window_spin.setValue(12)
+    assert panel._save_btn.isEnabled()
+    assert panel._save_btn.text() == "Save as default for FIB fiducials"
