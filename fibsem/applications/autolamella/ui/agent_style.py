@@ -37,6 +37,17 @@ def _tint(colour: str, alpha: float) -> str:
 # Driving's solid fill.
 PURPLE_TINT = _tint(PURPLE_COLOR, 0.35)
 
+
+def pulse_chip(strength: float) -> str:
+    """The chip while the agent acts on the microscope: its purple fill at
+    *strength* (0 to 1), from Assisting's tint up to Driving's solid."""
+    return CHIP.format(
+        color=TEXT_STRONG_COLOR,
+        background=_tint(PURPLE_COLOR, 0.35 + 0.65 * strength),
+        border=f"1px solid {PURPLE_COLOR}",
+    )
+
+
 # Something waiting for the operator, or being applied: amber, as the Review
 # tab's waiting decisions.
 REQUEST_CHIP = CHIP.format(

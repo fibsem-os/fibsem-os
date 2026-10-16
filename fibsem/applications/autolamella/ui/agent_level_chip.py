@@ -10,9 +10,12 @@ log). No menu and no dialog.
 At Assist the agent acts by asking (FIB-1283). While its request waits, the chip
 turns amber, "Agent asks", and the card shows the request. Only one request waits
 at a time, so the chip carries no count. A suggested answer to the run's question
-turns it amber too, "Agent suggests", and the card shows it with Accept
+says "Agent suggests" in its level's look, not amber (the run's Attention
+Required already is), and the card shows it with Accept
 (FIB-1407). Either one opens the card on its own, floating, so it is seen without
 a click (`show_card`).
+
+While the agent acts on the microscope (the card's Now line), the chip pulses.
 
 The card can float (FIB-1404): its button moves it into a window of its own, a
 tool window over the app (never over other apps) that the operator moves and
@@ -27,9 +30,10 @@ What a pick does -- setting the App Server's level -- is the window's.
 
 from __future__ import annotations
 
+import math
 from typing import Any, Callable, Dict, Optional
 
-from PyQt5.QtCore import QPoint, QRect, Qt, pyqtSignal
+from PyQt5.QtCore import QPoint, QRect, Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import QFrame, QPushButton, QVBoxLayout, QWidget
 
 from fibsem.applications.autolamella.ui.agent_card import (
@@ -41,6 +45,7 @@ from fibsem.applications.autolamella.ui.agent_style import (
     LEVEL_TIPS,
     LEVEL_WORDS,
     REQUEST_CHIP,
+    pulse_chip,
 )
 from fibsem.server.levels import AgentLevel
 from fibsem.ui.tokens import (
@@ -59,6 +64,12 @@ __all__ = [
     "last_heard_text",
     "request_outcome",
 ]
+
+# While the agent acts on the microscope the chip pulses: its fill fades and
+# comes back once per cycle, and a cycle always runs to its end, so a quick
+# action (an image) is one whole pulse rather than a flicker.
+PULSE_MS = 1600
+PULSE_STEP_MS = 50
 
 # The card's width on the chip: wide while something waits for the operator (the
 # actions beside the reason and the decision), narrow otherwise.
@@ -206,6 +217,11 @@ class AgentLevelChip(QPushButton):
         self._request: Optional[Dict[str, Any]] = None
         self._suggestion: Optional[Dict[str, str]] = None
         self.setCursor(Qt.PointingHandCursor)  # type: ignore
+        self._acting = False
+        self._pulse_ms = 0
+        self._pulse = QTimer(self)
+        self._pulse.setInterval(PULSE_STEP_MS)
+        self._pulse.timeout.connect(self._on_pulse)
 
         self.card = AgentCard()
         self.card.level_chosen.connect(self._on_chosen)
@@ -285,9 +301,26 @@ class AgentLevelChip(QPushButton):
             self.show_card()
 
     def set_now(self, action: Optional[str]) -> None:
-        """What the agent is doing on the microscope, for the card."""
+        """What the agent is doing on the microscope, for the card; the chip
+        pulses while it does something."""
         self.card.set_now(action)
         self._fit_popup()
+        self._acting = action is not None
+        if self._acting and not self._pulse.isActive():
+            self._pulse_ms = 0
+            self._pulse.start()
+
+    @property
+    def pulsing(self) -> bool:
+        return self._pulse.isActive()
+
+    def _on_pulse(self) -> None:
+        self._pulse_ms += PULSE_STEP_MS
+        if self._pulse_ms >= PULSE_MS:
+            self._pulse_ms = 0
+            if not self._acting:
+                self._pulse.stop()
+        self._paint()
 
     def set_recent(self, rows) -> None:
         """What the agent did lately, for the card's Recent."""
@@ -313,10 +346,16 @@ class AgentLevelChip(QPushButton):
             text, style = chip_request_text(self._request), REQUEST_CHIP
             tooltip = "The agent is asking: click to see what, and decide"
         elif self._suggestion is not None:
-            text, style = "Agent suggests", REQUEST_CHIP
+            # Not amber: the run's Attention Required already is, for the same
+            # question, and the card opens itself with the suggestion.
+            text = "Agent suggests"
             tooltip = (
                 "The agent suggests an answer to the run's question: click to see it"
             )
+        elif self._pulse.isActive():
+            # Full at the start and end of a cycle, faintest halfway.
+            phase = 2 * math.pi * self._pulse_ms / PULSE_MS
+            style = pulse_chip(0.5 + 0.5 * math.cos(phase))
         self.setText(text)
         self.setStyleSheet(style)
         self.setToolTip(tooltip + _HELP)

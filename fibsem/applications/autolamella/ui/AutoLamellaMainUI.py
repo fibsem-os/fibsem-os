@@ -1734,6 +1734,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         ):
             self.tab_widget.setCurrentWidget(review_tab)
             return
+        # The agent's suggested answer is on its card, not on the prompt.
+        if self.agent_chip.suggestion is not None:
+            self.agent_chip.show_card()
         host = self.autolamella_ui.ui_responder.question_host()
         if host is not None and self.tab_widget.indexOf(host) != -1:
             # A question answered on one of this window's own tabs.
