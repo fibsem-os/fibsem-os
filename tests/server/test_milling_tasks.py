@@ -16,10 +16,10 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from fibsem import config as fcfg  # noqa: E402
 from fibsem import utils  # noqa: E402
+from fibsem.devices.runs import ended_as  # noqa: E402
 from fibsem.milling.base import FibsemMillingStage  # noqa: E402
 from fibsem.milling.tasks import FibsemMillingTaskConfig  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.server.runs import _cancelled  # noqa: E402
 from fibsem.structures import BeamType, ImageSettings  # noqa: E402
 
 TOKEN = "test-token"
@@ -134,8 +134,8 @@ def test_a_path_outside_the_experiment_is_refused(client, tmp_path):
 
 
 def test_a_stopped_task_ends_cancelled():
-    assert _cancelled({"status": "cancelled", "stages": []})
-    assert not _cancelled({"status": "completed"})
+    assert ended_as({"status": "cancelled", "stages": []}) == "cancelled"
+    assert ended_as({"status": "completed"}) == "done"
 
 
 def test_the_listing_marks_the_stage_and_task_runs_long(client):

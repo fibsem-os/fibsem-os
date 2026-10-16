@@ -80,6 +80,7 @@ from fibsem.cancellation import (
 )
 from fibsem.devices.beam import Beam
 from fibsem.devices.core import DeviceParameter, ParameterMetadata, Role, command, query
+from fibsem.devices.runs import current_run_id
 from fibsem.milling.base import FibsemMillingStage, estimate_milling_time
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.services.core import Service, save_beam_conditions
@@ -678,7 +679,9 @@ class Milling(Service):
         records one ``milling`` event with how it ended, as a task's run does
         (FIB-1257, FIB-1377)."""
         payload: Dict[str, Any] = {
-            "milling_run_id": str(uuid.uuid4()),
+            # The id of its run on this service (`fibsem.devices.runs`), so
+            # its events and its run share one id.
+            "milling_run_id": current_run_id(self.name) or str(uuid.uuid4()),
             "milling_task_name": self._name,
             "started_at": now_iso(),
         }

@@ -93,6 +93,7 @@ from fibsem.devices.core import (
     ResourceBusy,
     _limits_to_dict,
 )
+from fibsem.devices.runs import RUNNING, Run
 from fibsem.devices.sample_loader import GridExchangeError
 from fibsem.devices.wire import (
     FRAME_METADATA_HEADER,
@@ -105,6 +106,7 @@ from fibsem.devices.wire import (
     to_wire,
 )
 from fibsem.schema import arguments_schema
+from fibsem.server.calls import current_call
 from fibsem.server.images import (
     TIFF_MEDIA_TYPE,
     image_answer,
@@ -112,7 +114,6 @@ from fibsem.server.images import (
     is_image_result,
     tiff_bytes,
 )
-from fibsem.server.runs import Runs
 from fibsem.structures import FibsemImage
 
 # Before uvicorn 0.54 its default websockets implementation imports websockets.legacy,
@@ -370,7 +371,7 @@ def build_device_router(
     noun: str = "device",
     on_image: Optional[Callable[[FibsemImage], None]] = None,
     refuse: Optional[Refuse] = None,
-    runs: Optional[Runs] = None,
+    long_commands: bool = False,
     adopt_control: Optional[Callable[[Request], Optional[Callable[[], None]]]] = None,
 ) -> APIRouter:
     """The ``/devices`` routes over whatever *devices* returns, by name.
@@ -387,10 +388,11 @@ def build_device_router(
     or a command is never allowed here (403 ``not_allowed``), and the listings
     mark those (``agent: false``): the App Server's allowlist.
 
-    With *runs*, a command marked ``long`` answers at once with its run and runs
-    on (`fibsem.server.runs`), and ``GET {prefix}/{name}/run`` reads how it is
-    going; *adopt_control* keeps the control of the microscope the request took
-    until the run ends. Without, every command answers when it ends: the device
+    With *long_commands*, a command marked ``long`` answers at once with its run
+    and runs on, and ``GET {prefix}/{name}/run`` reads the service's latest run
+    (`fibsem.devices.runs`), whoever started it: this route, a task or the
+    operator. *adopt_control* keeps the control of the microscope the request
+    took until the run ends. Without, every command answers when it ends: the device
     server, whose client (the remote driver) waits for it.
     """
     router = APIRouter()
@@ -442,16 +444,17 @@ def build_device_router(
     def get_device(device: str) -> Dict[str, Any]:
         return describe_device(lookup(device), refuse)
 
-    if runs is not None:
+    if long_commands:
         # Before /{parameter}, which would otherwise take "run" as a name.
         @router.get(prefix + "/{device}/run", dependencies=list(read))
         def read_run(
             device: str, run_id: Optional[str] = None, wait: float = 0.0
         ) -> Dict[str, Any]:
-            """The latest run of a long command, waiting up to *wait* seconds
-            (at most a minute) for it to end; with *run_id*, for that run."""
-            lookup(device)
-            found = runs.wait(device, run_id, min(max(wait, 0.0), RUN_WAIT_CAP_S))
+            """The latest run of a long command, whoever started it, waiting up
+            to *wait* seconds (at most a minute) for it to end; with *run_id*,
+            for that run."""
+            runs = lookup(device).runs
+            found = runs.wait(run_id, min(max(wait, 0.0), RUN_WAIT_CAP_S))
             if found is None:
                 raise HTTPException(
                     404,
@@ -460,7 +463,7 @@ def build_device_router(
                         "message": f"{noun} {device} has run no long command",
                     },
                 )
-            return {"run": found.to_dict()}
+            return {"run": run_answer(device, found)}
 
     # Before /{parameter}, which would otherwise take "values" as a name.
     @router.get(prefix + "/{device}/values", dependencies=list(read))
@@ -539,8 +542,29 @@ def build_device_router(
         what = f"{noun} {device}.{command}"
         kwargs = run(lambda: decode_kwargs(method, body.get("kwargs", {})), what)
         check(d, "command", command, kwargs)
-        if runs is not None and d.commands[command].long:
-            return {"result": start_run(request, device, command, method, kwargs)}
+        if long_commands and d.commands[command].long:
+            release = adopt_control(request) if adopt_control is not None else None
+            agent_call = current_call()
+            labels = {}
+            if agent_call is not None:
+                # What the agent's call was, for the run's events to say.
+                labels = {
+                    key: value
+                    for key, value in (
+                        ("action", agent_call.action),
+                        ("level", agent_call.level),
+                    )
+                    if value
+                }
+            started = d.runs.start(
+                command,
+                lambda: shown(method(**kwargs)),
+                before_end=release,
+                labels=labels,
+            )
+            if agent_call is not None:
+                agent_call.run_id = started.run_id  # its run's events say how it went
+            return {"result": started.to_dict()}
         result = shown(run(lambda: method(**kwargs), what))
         headers = {}
         # "answer": "preview" asks for what an agent reads. Otherwise the data
@@ -569,22 +593,27 @@ def build_device_router(
             )
         return {"result": json_answer(result, preview)}
 
-    def start_run(request, device, command, method, kwargs) -> Dict[str, Any]:
-        what = f"{noun} {device}.{command}"
+    # Each ended run's answer, made once (its images' previews, and its
+    # error's answer, which logs it): the latest per device.
+    answers: Dict[str, Tuple[str, Dict[str, Any]]] = {}
+    answers_lock = threading.Lock()
 
-        def failure(error: BaseException) -> Dict[str, Any]:
-            return answer_for_error(error, what).detail
-
-        release = adopt_control(request) if adopt_control is not None else None
-        started = runs.start(
-            device,
-            command,
-            lambda: method(**kwargs),
-            lambda result: json_answer(shown(result), preview=True),
-            failure,
-            release,
-        )
-        return started.to_dict()
+    def run_answer(device: str, found: Run) -> Dict[str, Any]:
+        """*found* as the route answers it: its result as a command's answer
+        would carry it, and its error as a refusal does."""
+        if found.state == RUNNING:
+            return found.to_dict()
+        with answers_lock:
+            made = answers.get(device)
+            if made is not None and made[0] == found.run_id:
+                return made[1]
+            answer = found.to_dict()
+            answer["result"] = json_answer(found.result, preview=True)
+            if found.exception is not None:
+                what = f"{noun} {device}.{found.command}"
+                answer["error"] = answer_for_error(found.exception, what).detail
+            answers[device] = (found.run_id, answer)
+            return answer
 
     @router.post(prefix + "/{device}/queries/{query}", dependencies=list(read))
     def ask(device: str, query: str, body: Dict[str, Any] = _NO_BODY) -> Dict[str, Any]:
