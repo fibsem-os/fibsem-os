@@ -326,6 +326,57 @@ CATALOG: Tuple[ToolSpec, ...] = (
         },
     ),
     ToolSpec(
+        name="alignment_check_coincidence",
+        description=(
+            "EXPERIMENTAL, to try beside the by-hand loop: take an SEM and a FIB "
+            "image here and find the SEM's target in the FIB view. The target is "
+            "x, y metres from the SEM image's centre, +y up; the feature you "
+            "centred in the SEM is 0, 0 (the default). Autocontrasts each beam "
+            "first unless autocontrast is false. Answers an overlay to look at "
+            "(the SEM patch and target beside the FIB match: + where the target "
+            "was found, x where it would be if coincident) and dy for "
+            "stage_vertical_move (beam_type ION), the height error dz, and dx: a "
+            "height error cannot move x, so a steady dx is a beam shift or scan "
+            "rotation, never a stage move. Also the score, how well two filter "
+            "scales agree, how close a second match comes and warnings. It moves "
+            "nothing and refuses nothing: judge the overlay before moving. "
+            "path saves the pair and the overlay, for alignment_measure_coincidence "
+            "to replay."
+        ),
+        method="POST",
+        path="/microscope/services/alignment/commands/check_coincidence",
+        level="drive",
+        hardware=True,
+        params={
+            "x": "target x, metres from the SEM image centre (default 0)",
+            "y": "target y, metres from the SEM image centre, +y up (default 0)",
+            "hfw": "field width of both images in metres (default 150e-6)",
+            "autocontrast": "autocontrast each beam first (default true)",
+            "path": "optional folder inside the open experiment to save into",
+        },
+        optional=("x", "y", "hfw", "autocontrast", "path"),
+    ),
+    ToolSpec(
+        name="alignment_measure_coincidence",
+        description=(
+            "EXPERIMENTAL: alignment_check_coincidence on a saved SEM and FIB "
+            "pair of the same size and field, both inside the open experiment: "
+            "replays a check, or measures images you took. Same answer: an "
+            "overlay and dy, dz, dx, score and warnings. Reads the files and "
+            "moves nothing."
+        ),
+        method="POST",
+        path="/microscope/services/alignment/queries/measure_coincidence",
+        level="watch",
+        params={
+            "sem_path": "the saved SEM image",
+            "fib_path": "the saved FIB image of the same place",
+            "x": "target x, metres from the SEM image centre (default 0)",
+            "y": "target y, metres from the SEM image centre, +y up (default 0)",
+        },
+        optional=("x", "y"),
+    ),
+    ToolSpec(
         name="milling_stop",
         description="Stop an in-progress mill, with the reason the operator reads: the whole milling task, so no later stage starts. Refused 409 NothingToStop when nothing is milling.",
         method="POST",
@@ -1783,6 +1834,27 @@ _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict
         {},
         _kwargs(
             reference_path=str(a["reference_path"]), image_path=str(a["image_path"])
+        ),
+    ),
+    "alignment_check_coincidence": lambda a: (
+        {},
+        _preview(
+            {
+                "x": float(a.get("x") or 0.0),
+                "y": float(a.get("y") or 0.0),
+                "hfw": float(a.get("hfw") or 150e-6),
+                "autocontrast": a.get("autocontrast") is not False,
+                "path": a.get("path"),
+            }
+        ),
+    ),
+    "alignment_measure_coincidence": lambda a: (
+        {},
+        _kwargs(
+            sem_path=str(a["sem_path"]),
+            fib_path=str(a["fib_path"]),
+            x=float(a.get("x") or 0.0),
+            y=float(a.get("y") or 0.0),
         ),
     ),
     "milling_preview_patterns": lambda a: (
