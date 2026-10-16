@@ -188,8 +188,8 @@ def test_a_move_past_the_stage_limits_is_refused_not_a_500(armed_client, microsc
     before = microscope.stage.position.get_value()
     target = FibsemStagePosition(x=before.x, y=1.0, z=before.z, r=before.r, t=before.t)
     resp = armed_client.post(
-        "/microscope/services/stage_movement/commands/move_absolute",
-        json={"kwargs": {"position": target.to_dict()}},
+        "/microscope/services/stage_movement/commands/safe_absolute_stage_movement",
+        json={"kwargs": {"stage_position": target.to_dict()}},
     )
     assert resp.status_code == 422, resp.text
     detail = resp.json()["detail"]

@@ -511,8 +511,8 @@ def build_sidecar(client, capabilities):
     def microscope_get_state():
         return _json_tool("microscope_get_state")[1]()
 
-    def stage_get_milling_angle():
-        return _service_call("stage_get_milling_angle", {}, "milling_angle_deg")
+    def stage_get_current_milling_angle():
+        return _service_call("stage_get_current_milling_angle", {}, "milling_angle_deg")
 
     def stage_get_geometry():
         return _service_call("stage_get_geometry", {}, "geometry")
@@ -1292,7 +1292,7 @@ def build_sidecar(client, capabilities):
             stage_get_position,
             stage_get_orientation,
             microscope_get_state,
-            stage_get_milling_angle,
+            stage_get_current_milling_angle,
             stage_get_geometry,
             milling_get_state,
             milling_estimate_time,

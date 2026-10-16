@@ -198,7 +198,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
         },
     ),
     ToolSpec(
-        name="stage_get_milling_angle",
+        name="stage_get_current_milling_angle",
         description="Current milling angle in degrees: the angle between the ion beam and the sample surface at the stage's rotation and tilt (90 at the FIB pose).",
         method="POST",
         path="/microscope/services/stage_movement/queries/current_milling_angle",
@@ -1973,7 +1973,7 @@ _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict
     "grid_move_to": lambda a: ({}, _kwargs(grid_name=str(a["grid_name"]))),
     "grid_move_to_slot": lambda a: ({}, _kwargs(slot_name=str(a["slot_name"]))),
     "stage_get_orientation": lambda a: ({}, _kwargs()),
-    "stage_get_milling_angle": lambda a: ({}, _kwargs()),
+    "stage_get_current_milling_angle": lambda a: ({}, _kwargs()),
     "stage_get_geometry": lambda a: ({}, _kwargs()),
     "stage_stable_move": lambda a: (
         {},
