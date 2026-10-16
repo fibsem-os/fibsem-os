@@ -506,9 +506,11 @@ A coincidence error shows only as a vertical offset in the image, never
 side to side.
 
 To try (experimental): `alignment_check_coincidence` finds the feature you
-centred in the SEM in the FIB view for you. It answers `dy` for
-`stage_vertical_move` (ION), and `dx`: a height error can't cause it, so a
-steady `dx` is a beam shift, never a stage move. It answers an overlay too.
+centred in one beam (`beam`, ELECTRON by default) in the other beam's view for
+you. It answers `dy` for `stage_vertical_move` with the other beam's
+`beam_type`, and `dx`: a height error can't cause it, so a steady `dx` is a
+beam shift, never a stage move. Start from the SEM when the error may be
+large: from the FIB it shows about 3x larger in the SEM and can leave the frame. It answers an overlay too.
 Look at it, and use the `dy` only if the `+` sits on your feature; it
 refuses nothing. Give it a `path` so the pair can be replayed, and say in a
 note how it compared with your own measurement.

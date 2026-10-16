@@ -39,7 +39,7 @@ from fibsem.alignment.coincidence import (
     _local_normalise,
     geometry_from_images,
 )
-from fibsem.structures import FibsemImage
+from fibsem.structures import BeamType, FibsemImage
 
 METHOD = "target-patch"
 # Width and height of the SEM patch around the target. About what the agent
@@ -76,8 +76,10 @@ class TargetCoincidence:
     target_px: Tuple[float, float]  # SEM image px (origin top-left)
     found_px: Tuple[float, float]  # FIB image px where the target was found
     expected_px: Tuple[float, float]  # FIB image px where it would be if coincident
-    patch_px: Tuple[int, int, int, int]  # SEM patch: left, top, width, height
+    # the patch in the reference image: left, top, width, height (px)
+    patch_px: Tuple[int, int, int, int]
     pixel_size: float  # m/px
+    reference: str = "ELECTRON"  # the view the target is centred in
     warnings: List[str] = field(default_factory=list)
     method: str = METHOD
 
@@ -111,6 +113,14 @@ def _patch_box(
     if x1 - x0 < MIN_PATCH_PX or y1 - y0 < MIN_PATCH_PX:
         raise ValueError("the patch around the target is too small to match")
     return x0, y0, x1 - x0, y1 - y0
+
+
+def _unstretched(
+    box: Tuple[int, int, int, int], scale: float
+) -> Tuple[int, int, int, int]:
+    """A box in the stretched FIB image, in the FIB image's own pixels."""
+    x0, y0, pw, ph = box
+    return x0, int(round(y0 / scale)), pw, int(round(ph / scale))
 
 
 def _subpixel(scores: np.ndarray, y: int, x: int) -> Tuple[float, float]:
@@ -177,11 +187,18 @@ def measure_coincidence_at_target(
     patch_size: Tuple[float, float] = DEFAULT_PATCH_SIZE,
     stretch_search: float = DEFAULT_STRETCH_SEARCH,
     geometry: Optional[CoincidenceGeometry] = None,
+    reference: BeamType = BeamType.ELECTRON,
 ) -> TargetCoincidence:
-    """Find the SEM image's *target* in the FIB image of the same pair.
+    """Find the *reference* view's *target* in the other view of the same pair:
+    by default the SEM's target in the FIB image, with ``ION`` the FIB's in
+    the SEM image.
 
-    *target* is metres from the SEM image's centre (+y up): the feature you
-    centred is (0, 0). The pair must share size and pixel size. The geometry
+    *target* is metres from the reference image's centre (+y up): the feature
+    you centred is (0, 0). dx/dy are in the searched view, for
+    ``vertical_move`` with that view's beam type. From the FIB, a height error
+    moves the target y_stretch times further in the SEM than the other way
+    round, so a large one can carry it out of the SEM frame: measure from the
+    SEM first when the error may be large. The pair must share size and pixel size. The geometry
     comes from the pair's own metadata unless given. Pure image computation:
     no acquisition, no motion, no refusal.
     """
@@ -194,11 +211,8 @@ def measure_coincidence_at_target(
     px = geometry.pixel_size
     h, w = sem.shape
     tx, ty = _pixels(sem, target, px)
-    box = _patch_box(sem.shape, tx, ty, patch_size, px)
-    x0, y0, _, _ = box
     steps = int(round(stretch_search / STRETCH_STEP))
     factors = 1 + STRETCH_STEP * np.arange(-steps, steps + 1)
-    stretches = geometry.y_stretch * factors
 
     # The FIB image stretched in y into the SEM's projection by the geometry,
     # whole rather than cropped, so the whole frame is searched; both are
@@ -208,35 +222,50 @@ def measure_coincidence_at_target(
     scale = height / h
     stretched = cv2.resize(fib, (w, height), interpolation=cv2.INTER_LINEAR)
     sem_n, fib_n = _local_normalise(sem), _local_normalise(stretched)
+    from_sem = reference is BeamType.ELECTRON
+    if from_sem:  # the SEM patch, found in the stretched FIB
+        source, searched, sy = sem_n, fib_n, ty
+    else:  # the stretched FIB patch, found in the SEM
+        source, searched, sy = fib_n, sem_n, ty * scale
+    box = _patch_box(source.shape, tx, sy, patch_size, px)
+    x0, y0, pw, ph = box
 
     answers = []
     for bands in AGREEMENT_BANDS:
         score, factor, (top, left), rival = _match(
-            sem_n, fib_n, box, factors, RIVAL_LOBE / px, bands
+            source, searched, box, factors, RIVAL_LOBE / px, bands
         )
-        stretch = geometry.y_stretch * factor
-        # the target sits in the patch at (tx - x0, ty - y0), squashed by factor
-        found = (left + (tx - x0), (top + (ty - y0) / factor) / scale)
-        expected = (tx, h / 2 + (ty - h / 2) / stretch)
-        answers.append((score, stretch, found, expected, rival))
+        # the target sits in the patch at (tx - x0, sy - y0), squashed by factor
+        found = [left + (tx - x0), top + (sy - y0) / factor]
+        if from_sem:
+            stretch = geometry.y_stretch * factor
+            found[1] /= scale
+            expected = (tx, h / 2 + (ty - h / 2) / stretch)
+        else:
+            stretch = geometry.y_stretch / factor
+            expected = (tx, h / 2 + (ty - h / 2) * stretch)
+        answers.append((score, stretch, tuple(found), expected, rival))
 
     (score_a, stretch_a, found_a, expected_a, rival_a) = answers[0]
     (score_b, stretch_b, found_b, expected_b, rival_b) = answers[1]
-    # the shift that brings the FIB scene onto the SEM scene: minus where the
-    # target moved to (x right, y down)
+    # the shift that brings the searched view's scene onto the reference's:
+    # minus where the target moved to (x right, y down), in the searched view
     shifts = [(-(f[0] - e[0]) * px, -(f[1] - e[1]) * px) for _, _, f, e, _ in answers]
     dx = float(np.mean([s[0] for s in shifts]))
     dy = float(np.mean([s[1] for s in shifts]))
     disagreement = float(
         np.hypot(shifts[0][0] - shifts[1][0], shifts[0][1] - shifts[1][1])
     )
+    stretches = geometry.y_stretch * factors
     score = min(score_a, score_b)
     rival = max(rival_a, rival_b)
     found = tuple(float(v) for v in np.mean([found_a, found_b], axis=0))
     expected = tuple(float(v) for v in np.mean([expected_a, expected_b], axis=0))
 
     warnings: List[str] = []
-    if disagreement > DEFAULT_AGREEMENT_TOLERANCE:
+    # measured from the FIB, the shift is in the SEM plane, where the same
+    # height error reads y_stretch times larger
+    if disagreement > DEFAULT_AGREEMENT_TOLERANCE * (1 if from_sem else stretch_a):
         warnings.append(
             f"the two filter scales disagree by {disagreement * 1e6:.1f} um"
         )
@@ -260,7 +289,10 @@ def measure_coincidence_at_target(
     return TargetCoincidence(
         dx=dx,
         dy=dy,
-        dz=float(dy * geometry.dz_per_dy),
+        dz=float(
+            (dy if from_sem else -dy / ((stretch_a + stretch_b) / 2))
+            * geometry.dz_per_dy
+        ),
         score=float(score),
         band_disagreement=disagreement,
         rival_ratio=float(rival),
@@ -270,7 +302,8 @@ def measure_coincidence_at_target(
         target_px=(float(tx), float(ty)),
         found_px=found,
         expected_px=expected,
-        patch_px=box,
+        patch_px=box if from_sem else _unstretched(box, scale),
+        reference=reference.name,
         pixel_size=float(px),
         warnings=warnings,
     )
@@ -286,36 +319,43 @@ def _to_uint8(data: np.ndarray) -> np.ndarray:
 def render_target_coincidence(
     sem_image: FibsemImage, fib_image: FibsemImage, result: TargetCoincidence
 ) -> np.ndarray:
-    """The SEM (patch and target) and the FIB (the match, where the target was
-    found and where it would be if coincident) side by side: an RGB image
-    ``OVERLAY_WIDTH`` px wide."""
+    """The reference view (patch and target) and the searched view (the match,
+    where the target was found and where it would be if coincident) side by
+    side: an RGB image ``OVERLAY_WIDTH`` px wide."""
     sem = cv2.cvtColor(_to_uint8(sem_image.data), cv2.COLOR_GRAY2RGB)
     fib = cv2.cvtColor(_to_uint8(fib_image.data), cv2.COLOR_GRAY2RGB)
+    if result.reference == BeamType.ELECTRON.name:
+        source, searched, names = sem, fib, ("SEM", "FIB")
+        ratio = 1 / result.y_stretch  # searched px per reference px, in y
+    else:
+        source, searched, names = fib, sem, ("FIB", "SEM")
+        ratio = result.y_stretch
     h, w = sem.shape[:2]
     thickness = max(1, w // 400)
     marker = max(12, w // 40)
     yellow, red, cyan = (255, 220, 0), (255, 60, 40), (0, 200, 255)
 
     x0, y0, pw, ph = result.patch_px
-    cv2.rectangle(sem, (x0, y0), (x0 + pw, y0 + ph), yellow, thickness)
+    cv2.rectangle(source, (x0, y0), (x0 + pw, y0 + ph), yellow, thickness)
     tx, ty = (int(round(v)) for v in result.target_px)
-    cv2.drawMarker(sem, (tx, ty), red, cv2.MARKER_CROSS, marker, thickness + 1)
+    cv2.drawMarker(source, (tx, ty), red, cv2.MARKER_CROSS, marker, thickness + 1)
 
     fx, fy = result.found_px
-    squashed = ph / result.y_stretch
-    top = fy - (result.target_px[1] - y0) / result.y_stretch
+    top = fy - (result.target_px[1] - y0) * ratio
     left = fx - (result.target_px[0] - x0)
     cv2.rectangle(
-        fib,
+        searched,
         (int(round(left)), int(round(top))),
-        (int(round(left + pw)), int(round(top + squashed))),
+        (int(round(left + pw)), int(round(top + ph * ratio))),
         yellow,
         thickness,
     )
     ex, ey = (int(round(v)) for v in result.expected_px)
-    cv2.drawMarker(fib, (ex, ey), cyan, cv2.MARKER_TILTED_CROSS, marker, thickness + 1)
     cv2.drawMarker(
-        fib,
+        searched, (ex, ey), cyan, cv2.MARKER_TILTED_CROSS, marker, thickness + 1
+    )
+    cv2.drawMarker(
+        searched,
         (int(round(fx)), int(round(fy))),
         red,
         cv2.MARKER_CROSS,
@@ -324,17 +364,16 @@ def render_target_coincidence(
     )
 
     font, scale = cv2.FONT_HERSHEY_SIMPLEX, w / 1000
-    cv2.putText(
-        sem, "SEM: target", (10, int(30 * scale) + 10), font, scale, red, thickness
-    )
+    origin = (10, int(30 * scale) + 10)
+    cv2.putText(source, f"{names[0]}: target", origin, font, scale, red, thickness)
     label = (
-        f"FIB: found (+) vs coincident (x)  dy {result.dy * 1e6:+.1f} um  "
+        f"{names[1]}: found (+) vs coincident (x)  dy {result.dy * 1e6:+.1f} um  "
         f"dx {result.dx * 1e6:+.1f} um  score {result.score:.2f}"
     )
-    cv2.putText(fib, label, (10, int(30 * scale) + 10), font, scale, red, thickness)
+    cv2.putText(searched, label, origin, font, scale, red, thickness)
 
     both = np.concatenate(
-        [sem, np.full((h, max(4, w // 100), 3), 255, np.uint8), fib], 1
+        [source, np.full((h, max(4, w // 100), 3), 255, np.uint8), searched], 1
     )
     height = int(round(both.shape[0] * OVERLAY_WIDTH / both.shape[1]))
     return cv2.resize(both, (OVERLAY_WIDTH, height), interpolation=cv2.INTER_AREA)

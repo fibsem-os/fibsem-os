@@ -151,6 +151,19 @@ def test_check_coincidence_at_target_answers_an_overlay_and_saves_the_pair(
     assert replayed["dy"] == pytest.approx(measured["dy"])
     assert replayed["dx"] == pytest.approx(measured["dx"])
 
+    from_fib = client.post(
+        f"{ALIGNMENT}/queries/measure_coincidence",
+        json={
+            "kwargs": {
+                "sem_path": measured["sem_path"],
+                "fib_path": measured["fib_path"],
+                "beam": "ION",
+            }
+        },
+    )
+    assert from_fib.status_code == 200, from_fib.text
+    assert from_fib.json()["result"]["summary"]["metadata"]["reference"] == "ION"
+
 
 def test_a_coincidence_pair_outside_the_experiment_is_refused(
     client, microscope, tmp_path

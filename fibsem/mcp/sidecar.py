@@ -498,6 +498,7 @@ def build_sidecar(client, capabilities):
         hfw: float = 150e-6,
         autocontrast: bool = True,
         path: Optional[str] = None,
+        beam: str = "ELECTRON",
     ):
         return _routed(
             "alignment_check_coincidence",
@@ -507,10 +508,15 @@ def build_sidecar(client, capabilities):
             hfw=hfw,
             autocontrast=autocontrast,
             path=path,
+            beam=beam,
         )
 
     def alignment_measure_coincidence(
-        sem_path: str, fib_path: str, x: float = 0.0, y: float = 0.0
+        sem_path: str,
+        fib_path: str,
+        x: float = 0.0,
+        y: float = 0.0,
+        beam: str = "ELECTRON",
     ):
         return _routed(
             "alignment_measure_coincidence",
@@ -519,6 +525,7 @@ def build_sidecar(client, capabilities):
             fib_path=fib_path,
             x=x,
             y=y,
+            beam=beam,
         )
 
     def milling_stop(reason: str):

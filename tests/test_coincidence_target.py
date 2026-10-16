@@ -115,3 +115,30 @@ def test_the_overlay_shows_both_views():
     assert overlay.dtype == np.uint8
     assert overlay.shape[1] == 1024 and overlay.shape[2] == 3
     assert result.to_dict()["method"] == "target-patch"
+
+
+def test_measured_from_the_fib_gives_the_same_height_error():
+    """Centred in the FIB, the target is found in the SEM: dy is then in the
+    SEM view (y_stretch times larger) and dz is the same height error."""
+    sem = make_scene()
+    sem_image, fib_image = _pair(sem, _fib(sem, 6e-6))
+    from_sem = measure_coincidence_at_target(sem_image, fib_image)
+    h, w = SHAPE
+    # the target where the SEM measurement found it in the FIB
+    target = (
+        (from_sem.found_px[0] - w / 2) * PIXEL_SIZE,
+        -(from_sem.found_px[1] - h / 2) * PIXEL_SIZE,
+    )
+
+    from_fib = measure_coincidence_at_target(
+        sem_image, fib_image, target=target, reference=BeamType.ION
+    )
+
+    assert from_fib.reference == "ION"
+    assert from_fib.dz == pytest.approx(from_sem.dz, abs=0.5e-6)
+    assert from_fib.dy == pytest.approx(
+        -from_sem.dy * from_fib.y_stretch, abs=5 * PIXEL_SIZE
+    )
+    assert abs(from_fib.dx) < 3 * PIXEL_SIZE
+    overlay = render_target_coincidence(sem_image, fib_image, from_fib)
+    assert overlay.shape[1] == 1024

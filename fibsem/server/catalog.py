@@ -329,16 +329,19 @@ CATALOG: Tuple[ToolSpec, ...] = (
         name="alignment_check_coincidence",
         description=(
             "EXPERIMENTAL, to try beside the by-hand loop: take an SEM and a FIB "
-            "image here and find the SEM's target in the FIB view. The target is "
-            "x, y metres from the SEM image's centre, +y up; the feature you "
-            "centred in the SEM is 0, 0 (the default). Autocontrasts each beam "
-            "first unless autocontrast is false. Answers an overlay to look at "
-            "(the SEM patch and target beside the FIB match: + where the target "
-            "was found, x where it would be if coincident) and dy for "
-            "stage_vertical_move (beam_type ION), the height error dz, and dx: a "
+            "image here and find the target centred in one beam (beam, ELECTRON "
+            "by default) in the other beam's view. The target is x, y metres "
+            "from that beam's image centre, +y up; the feature you centred is "
+            "0, 0 (the default). Autocontrasts each beam first unless "
+            "autocontrast is false. Answers an overlay to look at (the patch and "
+            "target beside the match: + where the target was found, x where it "
+            "would be if coincident) and dy for stage_vertical_move with "
+            "beam_type the OTHER beam, the height error dz, and dx: a "
             "height error cannot move x, so a steady dx is a beam shift or scan "
             "rotation, never a stage move. Also the score, how well two filter "
-            "scales agree, how close a second match comes and warnings. It moves "
+            "scales agree, how close a second match comes and warnings. From the "
+            "FIB a height error shows ~3x larger in the SEM and can leave its "
+            "frame: start from the SEM when it may be large. It moves "
             "nothing and refuses nothing: judge the overlay before moving. "
             "path saves the pair and the overlay, for alignment_measure_coincidence "
             "to replay."
@@ -348,13 +351,14 @@ CATALOG: Tuple[ToolSpec, ...] = (
         level="drive",
         hardware=True,
         params={
-            "x": "target x, metres from the SEM image centre (default 0)",
-            "y": "target y, metres from the SEM image centre, +y up (default 0)",
+            "x": "target x, metres from that beam's image centre (default 0)",
+            "y": "target y, metres from that beam's image centre, +y up (default 0)",
             "hfw": "field width of both images in metres (default 150e-6)",
             "autocontrast": "autocontrast each beam first (default true)",
             "path": "optional folder inside the open experiment to save into",
+            "beam": "the beam the target is centred in: ELECTRON (default) or ION",
         },
-        optional=("x", "y", "hfw", "autocontrast", "path"),
+        optional=("x", "y", "hfw", "autocontrast", "path", "beam"),
     ),
     ToolSpec(
         name="alignment_measure_coincidence",
@@ -371,10 +375,11 @@ CATALOG: Tuple[ToolSpec, ...] = (
         params={
             "sem_path": "the saved SEM image",
             "fib_path": "the saved FIB image of the same place",
-            "x": "target x, metres from the SEM image centre (default 0)",
-            "y": "target y, metres from the SEM image centre, +y up (default 0)",
+            "x": "target x, metres from that beam's image centre (default 0)",
+            "y": "target y, metres from that beam's image centre, +y up (default 0)",
+            "beam": "the beam the target is centred in: ELECTRON (default) or ION",
         },
-        optional=("x", "y"),
+        optional=("x", "y", "beam"),
     ),
     ToolSpec(
         name="milling_stop",
@@ -1845,6 +1850,7 @@ _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict
                 "hfw": float(a.get("hfw") or 150e-6),
                 "autocontrast": a.get("autocontrast") is not False,
                 "path": a.get("path"),
+                "beam": str(a.get("beam") or "ELECTRON"),
             }
         ),
     ),
@@ -1855,6 +1861,7 @@ _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict
             fib_path=str(a["fib_path"]),
             x=float(a.get("x") or 0.0),
             y=float(a.get("y") or 0.0),
+            beam=str(a.get("beam") or "ELECTRON"),
         ),
     ),
     "milling_preview_patterns": lambda a: (

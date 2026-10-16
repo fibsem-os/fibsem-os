@@ -95,17 +95,19 @@ class Alignment(Service):
         hfw: float = DEFAULT_ALIGNMENT_HFW,
         autocontrast: bool = True,
         path: Optional[str] = None,
+        beam: str = "ELECTRON",
     ) -> Frame:
-        """EXPERIMENTAL. Take an SEM and a FIB image here and find the SEM's
-        target in the FIB view; moves nothing.
+        """EXPERIMENTAL. Take an SEM and a FIB image here and find the target
+        centred in one beam (*beam*, ``ELECTRON`` by default) in the other's
+        view; moves nothing.
 
-        The target is (*x*, *y*) metres from the SEM image's centre, +y up:
-        the feature you centred in the SEM is (0, 0). Both images are taken at
+        The target is (*x*, *y*) metres from that beam's image centre, +y up:
+        the feature you centred is (0, 0). Both images are taken at
         *hfw* with each beam's autocontrast first unless *autocontrast* is
         False. Answers an overlay (SEM patch and target beside the FIB match,
         where the target was found and where it would be if coincident) with
-        the measurement: dy for an ION ``vertical_move`` and the height error
-        dz it means; dx, which a height error cannot cause, so a steady dx is
+        the measurement: dy for a ``vertical_move`` in the other beam's view
+        and the height error dz it means; dx, which a height error cannot cause, so a steady dx is
         a beam shift or scan rotation; the score, how well two filter scales
         agree, how close a second match comes, and warnings. Given *path*,
         saves the pair and the overlay there.
@@ -121,14 +123,22 @@ class Alignment(Service):
         sem_image = self.parent.imaging.acquire_image(settings)
         settings.beam_type = BeamType.ION
         fib_image = self.parent.imaging.acquire_image(settings)
-        frame = self._coincidence_at_target(sem_image, fib_image, x, y, path)
+        frame = self._coincidence_at_target(sem_image, fib_image, x, y, beam, path)
         self.parent.record_event(
             "coincidence_measured",
             {
                 "hfw": hfw,
                 **{
                     key: frame.metadata[key]
-                    for key in ("method", "dx", "dy", "dz", "score", "warnings")
+                    for key in (
+                        "method",
+                        "reference",
+                        "dx",
+                        "dy",
+                        "dz",
+                        "score",
+                        "warnings",
+                    )
                 },
             },
         )
@@ -136,13 +146,18 @@ class Alignment(Service):
 
     @query
     def measure_coincidence(
-        self, sem_path: str, fib_path: str, x: float = 0.0, y: float = 0.0
+        self,
+        sem_path: str,
+        fib_path: str,
+        x: float = 0.0,
+        y: float = 0.0,
+        beam: str = "ELECTRON",
     ) -> Frame:
         """EXPERIMENTAL. ``check_coincidence`` on a saved SEM and FIB
         pair (same size and field), reading the files: replays a check, or
         measures images you took. Moves nothing."""
         return self._coincidence_at_target(
-            FibsemImage.load(sem_path), FibsemImage.load(fib_path), x, y
+            FibsemImage.load(sem_path), FibsemImage.load(fib_path), x, y, beam
         )
 
     def _coincidence_at_target(
@@ -151,14 +166,18 @@ class Alignment(Service):
         fib_image: FibsemImage,
         x: float,
         y: float,
+        beam: str,
         path: Optional[str] = None,
     ) -> Frame:
         from fibsem.alignment.coincidence_target import (
             measure_coincidence_at_target,
             render_target_coincidence,
         )
+        from fibsem.structures import BeamType
 
-        result = measure_coincidence_at_target(sem_image, fib_image, target=(x, y))
+        result = measure_coincidence_at_target(
+            sem_image, fib_image, target=(x, y), reference=BeamType[beam.upper()]
+        )
         overlay = render_target_coincidence(sem_image, fib_image, result)
         metadata = result.to_dict()
         if path is not None:
