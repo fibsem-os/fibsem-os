@@ -487,9 +487,16 @@ class Milling(Service):
         the config carries. Answers the task's status (``completed``,
         ``cancelled``, ``skipped`` when no stage is enabled), the folder it
         saved into, and how each stage ended, as its ``milling`` event says.
-        A failed task raises its error, after the beam is put back. ``stop``
-        ends it ``cancelled``.
+        The folder is answered however the task ended, made empty when nothing
+        was saved in it (a task stopped before its first image). A failed task
+        raises its error, after the beam is put back. ``stop`` ends it
+        ``cancelled``.
         """
+        return self._run_task(config, path, answer_empty_folder=True)
+
+    def _run_task(
+        self, config: Any, path: Optional[str], answer_empty_folder: bool
+    ) -> Dict[str, Any]:
         # Imported here: fibsem.milling.tasks imports this module.
         from fibsem.milling.tasks import FibsemMillingTaskConfig, run_milling_task
 
@@ -513,9 +520,15 @@ class Milling(Service):
             )
         ended = task.ended()
         if ended.get("path") and not os.path.isdir(ended["path"]):
-            # Nothing was saved (a task that acquires no images, as run_stage's
-            # usually is): answer no folder rather than one that isn't there.
-            ended["path"] = None
+            if answer_empty_folder:
+                # The task's folder, whether or not it got to save anything: a
+                # stopped task answered none (FIB-1430).
+                os.makedirs(ended["path"], exist_ok=True)
+            else:
+                # Nothing was saved (a stage that acquires no images, as
+                # run_stage's usually is): answer no folder rather than one
+                # that isn't there.
+                ended["path"] = None
         return ended
 
     @command(long=True)
@@ -528,8 +541,10 @@ class Milling(Service):
         answer's ``path`` is None."""
         from fibsem.milling.tasks import FibsemMillingTaskConfig
 
-        return self.run_task(
-            FibsemMillingTaskConfig.from_stages([stage], name=stage.name), path=path
+        return self._run_task(
+            FibsemMillingTaskConfig.from_stages([stage], name=stage.name),
+            path,
+            answer_empty_folder=False,
         )
 
     @query

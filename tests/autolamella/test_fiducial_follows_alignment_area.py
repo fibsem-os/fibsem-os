@@ -15,9 +15,13 @@ from fibsem.applications.autolamella.protocol.constants import (
     MILL_ROUGH_KEY,
 )
 from fibsem.applications.autolamella.structures import Lamella
+from fibsem.applications.autolamella.workflows.tasks.base import (
+    ALIGNMENT_REFERENCE_IMAGE_FILENAME,
+)
 from fibsem.applications.autolamella.workflows.tasks.fiducial import (
     MillFiducialTaskConfig,
     fiducial_point_in_alignment_area,
+    follow_alignment_area,
 )
 from fibsem.applications.autolamella.workflows.tasks.rough import MillRoughTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.select_position import (
@@ -211,3 +215,61 @@ def test_setup_again_after_the_fiducial_saves_and_reloads(
     assert reloaded_lamella.alignment_area.left == pytest.approx(
         float(lamella.alignment_area.left)
     )
+
+
+def _save_alignment_reference(microscope, lamella, hfw=100e-6):
+    """The alignment reference Setup leaves in the lamella's folder, cropped to
+    the area, as Setup takes it."""
+    from fibsem import acquire
+    from fibsem.structures import BeamType, ImageSettings
+
+    acquire.acquire_image(
+        microscope,
+        ImageSettings(
+            hfw=hfw,
+            resolution=(1536, 1024),
+            beam_type=BeamType.ION,
+            reduced_area=lamella.alignment_area,
+            save=True,
+            path=str(lamella.path),
+            filename="ref_alignment",
+        ),
+    )
+    assert os.path.isfile(
+        os.path.join(lamella.path, ALIGNMENT_REFERENCE_IMAGE_FILENAME)
+    )
+
+
+def test_an_area_edit_after_setup_moves_the_fiducial(microscope, tmp_path):
+    """FIB-1430: the fiducial follows the area to its new centre, in the full
+    frame the area is a fraction of."""
+    lamella = _lamella(tmp_path, microscope, AREA)
+    _save_alignment_reference(microscope, lamella)
+    lamella.alignment_area = FibsemRectangle(
+        left=0.66, top=0.12, width=0.28, height=0.35
+    )
+
+    assert follow_alignment_area(lamella) == [FIDUCIAL]
+
+    point = lamella.task_config[FIDUCIAL].milling[FIDUCIAL_KEY].stages[0].pattern.point
+    assert point.x == pytest.approx((0.80 - 0.5) * 100e-6)
+    assert point.y == pytest.approx((0.5 - 0.295) * 100e-6 * 1024 / 1536)
+
+
+def test_before_setup_or_once_milled_the_fiducial_stays(microscope, tmp_path):
+    from fibsem.applications.autolamella.structures import (
+        AutoLamellaTaskState,
+        AutoLamellaTaskStatus,
+    )
+
+    lamella = _lamella(tmp_path, microscope, AREA)
+    stage = lamella.task_config[FIDUCIAL].milling[FIDUCIAL_KEY].stages[0]
+    before = stage.pattern.point
+    assert follow_alignment_area(lamella) == []  # no reference: Setup syncs
+
+    _save_alignment_reference(microscope, lamella)
+    lamella.task_history.append(
+        AutoLamellaTaskState(name=FIDUCIAL, status=AutoLamellaTaskStatus.Completed)
+    )
+    assert follow_alignment_area(lamella) == []  # on the sample already
+    assert stage.pattern.point == before

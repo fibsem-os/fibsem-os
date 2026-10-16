@@ -515,6 +515,10 @@ def _multi_step_alignment(
             method=method,
         )
         alignment_results.append(result)
+    # a stop during the last step: no final image either, so a stop means no
+    # more beam (FIB-1430)
+    if stop_event is not None and stop_event.is_set():
+        aborted = True
 
     # Cancelled before any step completed: there is nothing meaningful to
     # persist. Skip the final-image acquisition (which would touch the
@@ -534,6 +538,10 @@ def _multi_step_alignment(
 
     if validate:
         acquire_final_image = True
+    # Stopped: what the steps measured is kept, but no final image is taken to
+    # check them -- that would be more beam after the stop (FIB-1430).
+    if aborted:
+        acquire_final_image = validate = False
 
     final_image = None
     validation = None

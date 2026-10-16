@@ -31,7 +31,7 @@ import os
 import re
 import sys
 from contextvars import ContextVar
-from typing import Any, List, Optional, Tuple
+from typing import Annotated, Any, List, Optional, Tuple
 from urllib.parse import quote, urlencode
 
 from fibsem.server.calls import headers_for
@@ -221,11 +221,7 @@ class _LazyClient:
         with self._lock:
             if self._client is None:
                 client, capabilities = self._connect()
-                print(
-                    f"fibsem-mcp: connected to {client.base_url} "
-                    f"(agent level {capabilities.get('level')})",
-                    file=sys.stderr,
-                )
+                _say_connected(client.base_url, capabilities)
                 if self._user_agent is not None:
                     client.set_user_agent(self._user_agent)
                 self._client = client
@@ -243,6 +239,31 @@ class _LazyClient:
     def close(self):
         if self._client is not None:
             self._client.close()
+
+
+def _connected_lines(base_url, capabilities):
+    """What ``--check`` and the first call print: where the sidecar connected,
+    the agent level when the server says one, and a warning when the app runs
+    other ``fibsem`` code than this sidecar imports (FIB-1429)."""
+    from fibsem.server.discovery import fibsem_folder
+
+    level = capabilities.get("level")
+    line = f"fibsem-mcp: connected to {base_url}"
+    lines = [f"{line} (agent level {level})" if level else line]
+    served = (capabilities.get("fibsem") or {}).get("path")
+    ours = fibsem_folder()
+    if served and os.path.normcase(served) != os.path.normcase(ours):
+        lines.append(
+            f"fibsem-mcp: warning: the app runs fibsem from {served}, but this "
+            f"sidecar imports it from {ours}. Register the sidecar with "
+            f"PYTHONPATH={os.path.dirname(served)} so its tools match the app."
+        )
+    return lines
+
+
+def _say_connected(base_url, capabilities):
+    for line in _connected_lines(base_url, capabilities):
+        print(line, file=sys.stderr)
 
 
 def _probe(client_factory, url, token):
@@ -350,6 +371,7 @@ def build_sidecar(client, capabilities):
     None (no server answered at start-up) registers every tool.
     """
     from mcp.server.mcpserver import Image, MCPServer
+    from mcp.types import ToolAnnotations
 
     mcp = MCPServer("fibsem")
     _name_the_client(mcp, client)
@@ -643,6 +665,30 @@ def build_sidecar(client, capabilities):
             zparams=zparams,
         )
 
+    def grid_get_inventory():
+        return _routed("grid_get_inventory", "inventory")
+
+    def grid_get_current():
+        return _routed("grid_get_current", "current")
+
+    def grid_get_holder_slots():
+        return _routed("grid_get_holder_slots", "slots")
+
+    def grid_run_inventory():
+        return _routed("grid_run_inventory", "run")
+
+    def grid_load(grid_name: str):
+        return _routed("grid_load", "run", grid_name=grid_name)
+
+    def grid_unload():
+        return _routed("grid_unload", "run")
+
+    def grid_move_to(grid_name: str):
+        return _routed("grid_move_to", "position", grid_name=grid_name)
+
+    def grid_move_to_slot(slot_name: str):
+        return _routed("grid_move_to_slot", "position", slot_name=slot_name)
+
     def milling_run_stage(stage: dict, path: Optional[str] = None):
         return _routed("milling_run_stage", "run", stage=stage, path=path)
 
@@ -793,7 +839,7 @@ def build_sidecar(client, capabilities):
     def item_get_task_config(item_name: str, task_name: str):
         return _app_get(f"/app/experiment/items/{item_name}/task_config/{task_name}")
 
-    def experiment_add_note(text: str, item_name=None):
+    def experiment_add_note(text: str, item_name: Optional[str] = None):
         return _app_post(
             "/app/agent/notes", {"text": str(text), "item_name": item_name}
         )
@@ -843,10 +889,10 @@ def build_sidecar(client, capabilities):
             f"/app/experiment/items/{quote(item_name, safe='')}/move_to", {"pose": pose}
         )
 
-    def item_set_pose(item_name: str, pose_name: str):
+    def item_set_pose(item_name: str, pose: str):
         return _app_post(
             f"/app/experiment/items/{quote(item_name, safe='')}"
-            f"/poses/{quote(pose_name, safe='')}"
+            f"/poses/{quote(pose, safe='')}"
         )
 
     def item_set_objective_position(item_name: str):
@@ -854,7 +900,7 @@ def build_sidecar(client, capabilities):
             f"/app/experiment/items/{quote(item_name, safe='')}/objective_position"
         )
 
-    def item_apply_protocol(item_name: str, task_names=None):
+    def item_apply_protocol(item_name: str, task_names: Optional[List[str]] = None):
         return _app_post(
             f"/app/experiment/items/{item_name}/apply_protocol",
             {"task_names": list(task_names) if task_names else None},
@@ -876,7 +922,7 @@ def build_sidecar(client, capabilities):
             {"milling_key": milling_key, "order": list(order), "version": version},
         )
 
-    def protocol_set_schedule(task_name: str, scheduled_at=None):
+    def protocol_set_schedule(task_name: str, scheduled_at: Optional[str] = None):
         return _app_post(
             "/app/workflow/schedule",
             {"task_name": task_name, "scheduled_at": scheduled_at},
@@ -914,6 +960,14 @@ def build_sidecar(client, capabilities):
         return _app_post(
             "/app/experiment/create",
             {"name": name, "protocol": protocol, "description": description},
+        )
+
+    def grid_add():
+        return _app_post("/app/experiment/grids")
+
+    def grid_rename(grid_name: str, name: str):
+        return _app_post(
+            f"/app/experiment/grids/{quote(grid_name, safe='')}/rename", {"name": name}
         )
 
     def experiment_load(path: str):
@@ -1106,6 +1160,16 @@ def build_sidecar(client, capabilities):
             grid_get_output_image,
             grid_get_markers,
             grid_get_stage_position,
+            grid_add,
+            grid_rename,
+            grid_get_inventory,
+            grid_get_current,
+            grid_get_holder_slots,
+            grid_run_inventory,
+            grid_load,
+            grid_unload,
+            grid_move_to,
+            grid_move_to_slot,
             protocol_get_task_config,
             item_get_task_config,
             item_update_task_config,
@@ -1154,12 +1218,44 @@ def build_sidecar(client, capabilities):
 
     for name, fn in implementations.items():
         if name in offered:
+            spec = by_name[name]
             mcp.add_tool(
-                _flag_failures(fn, name),
+                _described(_flag_failures(fn, name), spec.params),
                 name=name,
-                description=by_name[name].full_description,
+                title=spec.title,
+                description=spec.full_description,
+                annotations=ToolAnnotations(
+                    title=spec.title,
+                    read_only_hint=spec.read_only,
+                    destructive_hint=spec.destructive,
+                    idempotent_hint=spec.idempotent,
+                    open_world_hint=False,
+                ),
             )
     return mcp
+
+
+def _described(fn, params):
+    """*fn*, each argument carrying the catalog's words for it
+    (`ToolSpec.params`), so the client's input schema describes it."""
+    import inspect
+
+    from pydantic import Field
+
+    signature = inspect.signature(fn, eval_str=True)
+    fn.__signature__ = signature.replace(
+        parameters=[
+            parameter.replace(
+                annotation=Annotated[
+                    parameter.annotation, Field(description=params[parameter.name])
+                ]
+            )
+            if parameter.name in params
+            else parameter
+            for parameter in signature.parameters.values()
+        ]
+    )
+    return fn
 
 
 def _flag_failures(fn, name=None):
@@ -1267,11 +1363,7 @@ def main(argv=None):
             )
         except ServerUnreachable as exc:
             sys.exit(str(exc))
-        print(
-            f"fibsem-mcp: connected to {client.base_url} "
-            f"(agent level {capabilities.get('level')})",
-            file=sys.stderr,
-        )
+        _say_connected(client.base_url, capabilities)
         return
     # Answer the MCP client's handshake first, and wait for a server in the
     # first call (FIB-1416).

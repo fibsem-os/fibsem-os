@@ -49,6 +49,9 @@ from fibsem.applications.autolamella.ui.autolamella_task_config_widget import (
     AutoLamellaTaskParametersConfigWidget,
 )
 from fibsem.applications.autolamella.ui.edit_recording import PendingEdits
+from fibsem.applications.autolamella.workflows.tasks.fiducial import (
+    follow_alignment_area,
+)
 from fibsem.applications.autolamella.workflows.tasks.tasks import (
     AcquireFluorescenceImageConfig,
     SpotBurnFiducialTaskConfig,
@@ -1410,7 +1413,11 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self._edits.touch(
             lamella, None, "alignment_area", lambda: lamella.alignment_area
         )
+        self._edits.touch_patterns(lamella, via="alignment area")
         lamella.alignment_area = rect
+        # the fiducial not milled yet follows the area (FIB-1430)
+        if follow_alignment_area(lamella):
+            self._on_selected_task_changed()
         self._save_experiment()
 
     def _add_poi_context_menu_action(

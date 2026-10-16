@@ -12,11 +12,18 @@ it would block the agent from acting on what it prints.
 
 The lines: ``PROMPT``, ``ANSWERED``, ``PROMPT WITHDRAWN``, ``QUESTION``,
 ``QUESTION RELEASED``, ``REQUEST`` (the agent's request decided, finished or
-cancelled, FIB-1283), task ``EVENT`` lines, ``GAP``, ``RESTARTED`` and
-``RUN ENDED``.
-Exits 0 when the run ends, 1 when the server cannot be watched. A run that
-stops without an end event still ends the watch: ``RUN ENDED (stopped
-without an end event)``, once ``/app/workflow/status`` says nothing is running.
+cancelled, FIB-1283), ``COMMAND ENDED``, task ``EVENT`` lines,
+``WORKFLOW STARTED``, ``WORKFLOW ENDED``, ``GAP``, ``RESTARTED`` and
+``AGENT OFF``/``AGENT BACK``.
+
+It follows the whole session, not one workflow: the agent starts and stops
+workflows itself, and between them it still has to hear the app (FIB-1431). A
+workflow's end is a line, not the end of the watch, and so is one that stops
+without an end event: ``WORKFLOW ENDED (stopped without an end event)``, once
+``/app/workflow/status`` says nothing is running. It exits only when the
+server cannot be watched (1), or when it is stopped. While the operator has the
+agent level at Off the app refuses the agent, but it is still running: the
+watch says so once and waits for the level to come back (FIB-1429).
 
 It finds the server the way the sidecar does (``--url``/``--token``, the
 environment, the discovery file) and follows a restarted server the same way
@@ -32,23 +39,25 @@ import urllib.error
 import urllib.request
 from http.client import HTTPException
 
-# Kinds that end the watch: the run is over, report and stop. A stalled run
+# Kinds that end a workflow: report it, and keep watching. A stalled workflow
 # drained with decisions pending; a failed one died outside a task (FIB-1037).
-TERMINAL = {
+WORKFLOW_ENDS = {
     "workflow_completed",
     "workflow_cancelled",
     "workflow_stalled",
     "workflow_failed",
 }
 # Kinds worth a wake-up line of their own (prompts and questions have theirs).
-INTERESTING = TERMINAL | {
-    "workflow_started",
+INTERESTING = {
     "task_started",
     "task_completed",
     "task_failed",
     "task_cancelled",
     "task_skipped",
 }
+
+ENDED = "WORKFLOW ENDED"
+NO_END_EVENT_LINE = f"{ENDED} (stopped without an end event)"
 
 POLL_S = 25.0  # the server caps a park at 30 s
 FAILURES_BEFORE_GIVING_UP = 4
@@ -62,6 +71,15 @@ GAP_LINE = (
 # it is news (FIB-1421).
 RESTARTED_LINE = (
     "RESTARTED: the app restarted (new session); following its events from the start."
+)
+# The operator set the level to Off: the app is running but refuses the agent
+# (403 agent_off), so the watch waits for the level to come back (FIB-1429).
+AGENT_OFF = "agent_off"
+AGENT_OFF_LINE = (
+    "AGENT OFF: the operator set the agent level to Off; waiting for it to be raised."
+)
+AGENT_BACK_LINE = (
+    "AGENT BACK: the operator raised the agent level; following events again."
 )
 
 
@@ -120,6 +138,8 @@ def _poll(client, since, timeout):
     except (OSError, HTTPException, ValueError) as error:
         return None, f"unreachable ({error})"
     if response.status_code >= 400:
+        if _error_type(response) == AGENT_OFF:
+            return None, AGENT_OFF
         return None, f"HTTP {response.status_code}"
     try:
         return response.json(), None
@@ -127,9 +147,21 @@ def _poll(client, since, timeout):
         return None, "a reply that is not JSON"
 
 
+def _error_type(response):
+    """A refusal's ``error_type`` (``agent_off``, ``level``), or None."""
+    try:
+        detail = response.json().get("detail")
+    except (ValueError, AttributeError):
+        return None
+    return detail.get("error_type") if isinstance(detail, dict) else None
+
+
 def _print_events(events, since, out):
-    """Print wake-up lines; returns (new_since, run_ended)."""
-    run_ended = False
+    """Print wake-up lines; returns (new_since, running).
+
+    ``running`` is True when the last workflow event among them started one,
+    False when it ended one, and None when there was neither."""
+    running = None
     for event in events:
         kind = event.get("kind", "")
         data = event.get("payload") or {}
@@ -171,17 +203,20 @@ def _print_events(events, since, out):
                 f"run={data.get('run_id')} state={data.get('state')}"
             )
             out(f"{line} ({data['error']})" if data.get("error") else line)
-        elif kind in TERMINAL:
+        elif kind == "workflow_started":
+            out("WORKFLOW STARTED")
+            running = True
+        elif kind in WORKFLOW_ENDS:
             detail = data.get("error") or _counts(data.get("task_counts"))
-            out(f"RUN ENDED ({kind}: {detail})" if detail else f"RUN ENDED ({kind})")
-            run_ended = True
+            out(f"{ENDED} ({kind}: {detail})" if detail else f"{ENDED} ({kind})")
+            running = False
         elif kind in INTERESTING:
             task = data.get("task_name")
             line = f"EVENT {kind} {data.get('item_name', '')}"
             line = f"{line} {task}" if task else line
             reason = _skip_reason(data) if kind == "task_skipped" else None
             out(f"{line} ({reason})" if reason else line)
-    return since, run_ended
+    return since, running
 
 
 def _request_line(kind, data):
@@ -237,7 +272,8 @@ def _run_is_live(client):
 
 
 def watch(client, out=None, sleep_fn=None, poll_s=POLL_S, clock=None, since=None):
-    """Watch until the run ends (0) or the server cannot be watched (1).
+    """Watch until the server cannot be watched (1). Workflows starting and
+    ending are lines along the way, not the end of the watch (FIB-1431).
 
     ``since`` resumes after that event seq, so a watch restarted after the
     last one returned misses nothing in between; None starts at the tail.
@@ -251,10 +287,17 @@ def watch(client, out=None, sleep_fn=None, poll_s=POLL_S, clock=None, since=None
     sleep_fn = sleep_fn or time.sleep
     clock = clock or time.monotonic
 
-    # Seed the cursor at the tail: the buffer outlives runs, so starting at 0
-    # would replay history -- stale PROMPT lines, and a previous run's
-    # workflow_completed would end this watch before it began.
+    # Seed the cursor at the tail: the buffer outlives workflows, so starting at
+    # 0 would replay history -- stale PROMPT lines, and a previous workflow's
+    # end reported as news.
     snapshot, failure = _poll(client, since=0, timeout=0.0)
+    if failure == AGENT_OFF:
+        out(AGENT_OFF_LINE)
+        while failure == AGENT_OFF:
+            sleep_fn(RETRY_DELAY_S)
+            snapshot, failure = _poll(client, since=0, timeout=0.0)
+        if failure is None:
+            out(AGENT_BACK_LINE)
     if failure is not None:
         out(f"SERVER UNAVAILABLE: /app/events gave {failure}. Is the app running?")
         return 1
@@ -268,14 +311,25 @@ def watch(client, out=None, sleep_fn=None, poll_s=POLL_S, clock=None, since=None
         # Resumed with a seq from before the app restarted.
         out(RESTARTED_LINE)
         since = 0
-    # A run can end without an end event: one that dies outside a task fires
-    # none (FIB-1331). So while a run is live, /app/workflow/status is the backstop.
-    run_live = _run_is_live(client) is True
+    # A workflow can end without an end event: one that dies outside a task
+    # fires none (FIB-1331). So while one is live, /app/workflow/status is the
+    # backstop.
+    workflow_live = _run_is_live(client) is True
     checked_at = clock()
 
     failures = 0
+    agent_off = False
     while True:
         payload, failure = _poll(client, since=since, timeout=poll_s)
+        if failure == AGENT_OFF:
+            # The app is up; its events wait in the buffer for the level to
+            # come back, so the cursor holds and nothing is missed.
+            if not agent_off:
+                out(AGENT_OFF_LINE)
+                agent_off = True
+            failures = 0
+            sleep_fn(RETRY_DELAY_S)
+            continue
         if failure is not None:
             # A refusal is usually a restart that has not rewritten the
             # discovery file yet: the next request re-reads it.
@@ -286,6 +340,9 @@ def watch(client, out=None, sleep_fn=None, poll_s=POLL_S, clock=None, since=None
             sleep_fn(RETRY_DELAY_S)
             continue
         failures = 0
+        if agent_off:
+            out(AGENT_BACK_LINE)
+            agent_off = False
 
         if not payload.get("available"):
             out("NO EVENTS: the server's event stream went away. Stopping.")
@@ -308,26 +365,26 @@ def watch(client, out=None, sleep_fn=None, poll_s=POLL_S, clock=None, since=None
             out(GAP_LINE)
 
         events = payload.get("events", [])
-        if any(event.get("kind") == "workflow_started" for event in events):
-            run_live = True
-        since, run_ended = _print_events(events, since, out)
+        since, running = _print_events(events, since, out)
         since = max(since, latest)
-        if run_ended:
-            return 0
+        if running is not None:
+            workflow_live = running
+            checked_at = clock()
 
         # Asked on a quiet poll, and at least once a poll on a busy one.
-        if run_live and (not events or clock() - checked_at >= poll_s):
+        if workflow_live and (not events or clock() - checked_at >= poll_s):
             checked_at = clock()
             if _run_is_live(client) is False:
                 # An end event may have landed since the poll: report that
                 # one rather than the fallback.
                 last, failure = _poll(client, since=since, timeout=0.0)
+                running = None
                 if failure is None and last.get("available"):
-                    since, run_ended = _print_events(last.get("events", []), since, out)
-                    if run_ended:
-                        return 0
-                out("RUN ENDED (stopped without an end event)")
-                return 0
+                    since, running = _print_events(last.get("events", []), since, out)
+                if running is None:
+                    out(NO_END_EVENT_LINE)
+                    running = False
+                workflow_live = running
 
 
 def _print_line(line):

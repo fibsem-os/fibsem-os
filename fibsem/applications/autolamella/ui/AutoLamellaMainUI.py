@@ -102,8 +102,8 @@ from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     LOAD_ENTRY_NAME as GRID_LOAD_STEP,
 )
 from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
-    NAME_FIXED_REASON,
     grid_has_run,
+    grid_rename_refusal,
     plan_grid_run,
 )
 from fibsem.applications.autolamella.workflows.tasks.queue import (
@@ -2311,6 +2311,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # responder emits these where the lifecycle already runs.
         self.autolamella_ui.ui_responder.add_question_observer(self._on_question_event)
         self.autolamella_ui.suggestion_changed.connect(self._on_agent_suggestion)
+        self.autolamella_ui.grids_changed.connect(self._refresh_after_naming)
         notification_service._get_service().toast.connect(self._on_notification_service)
         notification_service._get_service().toast_action.connect(
             self._on_notification_service_action
@@ -2972,12 +2973,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return ""
         if ui.is_workflow_running:
             return "Grids cannot be renamed while a workflow is running."
-        grid = experiment.get_grid_by_name(old)
-        if grid is not None and grid_has_run(grid):
-            return f"{old} cannot be renamed. {NAME_FIXED_REASON}"
-        if experiment.get_grid_by_name(new) is not None:
-            return f"There is already a grid named {new}."
-        return ""
+        return grid_rename_refusal(experiment, old, new)
 
     def _on_slot_grid_renamed(self, old: str, new: str) -> None:
         """A grid renamed on the Sample view: its record takes the new name, with

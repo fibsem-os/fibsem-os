@@ -571,7 +571,7 @@ class SampleHandling(Service):
         """The grids loaded right now, read from the holder every time."""
         return [s.loaded_grid for s in self.holder.occupied_slots]  # type: ignore[misc]
 
-    @command
+    @command(long=True)
     def ensure_loaded(self, grid_name: str) -> GridSlot:
         """Make a grid reachable, and return the working slot it occupies.
 
@@ -605,7 +605,7 @@ class SampleHandling(Service):
         self.magazine.load_grid(home.name)
         return self.magazine.working_slot
 
-    @command
+    @command(long=True)
     def unload(self) -> None:
         """Retract the working slot. Nothing to do on a fixed holder."""
         if self.magazine is None:
@@ -644,7 +644,7 @@ class SampleHandling(Service):
         is calibrated), its calibration and the grid loaded in it."""
         return sorted(self.holder.slots.values(), key=lambda slot: slot.index)
 
-    @command
+    @command(long=True)
     def run_inventory(self) -> List[GridInventoryEntry]:
         """Scan the magazine and return the inventory: the slow one.
 

@@ -434,6 +434,60 @@ def test_a_poi_patch_moves_the_attached_patterns_with_it(ui, qapp):
         assert stage.pattern.point.y == pytest.approx(2e-6)
 
 
+def test_an_area_patch_moves_the_fiducial_not_milled_yet(ui, qapp):
+    """Setup puts the fiducial at the area's centre; an area edited after it
+    left the fiducial at the old centre (FIB-1430)."""
+    from fibsem import acquire
+    from fibsem.applications.autolamella.protocol.constants import FIDUCIAL_KEY
+    from fibsem.applications.autolamella.workflows.tasks.base import (
+        ALIGNMENT_REFERENCE_IMAGE_FILENAME,
+    )
+    from fibsem.applications.autolamella.workflows.tasks.fiducial import (
+        MillFiducialTaskConfig,
+    )
+    from fibsem.structures import BeamType, FibsemRectangle, ImageSettings
+
+    lamella = ui.experiment.positions[0]
+    fiducial = "Mill Fiducial"
+    lamella.task_config[fiducial] = MillFiducialTaskConfig(task_name=fiducial)
+    lamella.alignment_area = FibsemRectangle(left=0.6, top=0.3, width=0.3, height=0.4)
+    # the alignment reference Setup leaves, at 100 um
+    acquire.acquire_image(
+        ui.microscope,
+        ImageSettings(
+            hfw=100e-6,
+            resolution=(1536, 1024),
+            beam_type=BeamType.ION,
+            reduced_area=lamella.alignment_area,
+            save=True,
+            path=str(lamella.path),
+            filename="ref_alignment",
+        ),
+    )
+    assert os.path.isfile(
+        os.path.join(lamella.path, ALIGNMENT_REFERENCE_IMAGE_FILENAME)
+    )
+    stage = lamella.task_config[fiducial].milling[FIDUCIAL_KEY].stages[0]
+
+    item = lamella.name
+    with _client(ui) as client:
+        doc = client.get(f"/app/experiment/items/{item}", headers=AUTH).json()
+        resp = _post_on_worker(
+            qapp,
+            client,
+            f"/app/experiment/items/{item}",
+            {
+                "patch": {"alignment_area.top": 0.2, "alignment_area.height": 0.5},
+                "version": doc["version"],
+            },
+        )
+    assert resp.status_code == 200, resp.text
+    assert fiducial in resp.json()["synced_tasks"]
+    # the new centre, (0.75, 0.45) of a 100 x 66.7 um frame
+    assert stage.pattern.point.x == pytest.approx(25e-6)
+    assert stage.pattern.point.y == pytest.approx(0.05 * 100e-6 * 1024 / 1536)
+
+
 def test_stage_reorder_is_same_set_versioned_and_recorded(ui, qapp, recorded):
     buffer = recorded
     lamella = ui.experiment.positions[0]

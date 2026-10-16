@@ -46,10 +46,10 @@ from fibsem.applications.autolamella.ui.grid_positions_widget import (
 )
 from fibsem.applications.autolamella.ui.grid_results_widget import GridResultsWidget
 from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
-    NAME_FIXED_REASON,
-    grid_has_run,
+    grid_rename_refusal,
+    rename_grid,
 )
-from fibsem.structures import GridInventoryEntry, SampleGrid
+from fibsem.structures import GridInventoryEntry
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.qt.threading import thread_worker
@@ -373,29 +373,18 @@ class GridsTabWidget(QWidget):
             return
         # The card greys Rename out for a grid that has run; this is the rule
         # itself, for any other way in.
-        if grid_has_run(grid):
-            self._say(f"{grid.name} cannot be renamed. {NAME_FIXED_REASON}", error=True)
-            return
-        if experiment.get_grid_by_name(name) is not None:
-            self._say(f"There is already a grid named {name}.", error=True)
+        why = grid_rename_refusal(experiment, grid.name, name)
+        if why:
+            self._say(why, error=True)
             return
         old = grid.name
-        entry = self._inventory.get(old)
-        # The record links to the hardware by name, so the hardware goes first:
-        # on the autoloader that writes the slot description, on a fixed holder
-        # the occupancy in the session state. A slot that keeps the old name
-        # would hand it back at the next inventory read, so the record keeps it.
-        if entry is not None and entry.present and self.stage is not None:
-            try:
-                self.stage.assign_grid(
-                    entry.slot_name, SampleGrid(name=name), persist=True
-                )
-            except Exception as e:  # noqa: BLE001 - not renamed; say why
-                logging.warning(f"Could not rename {old}: {e}")
-                self._say(f"Could not rename {old}: {e}", error=True)
-                self.refresh()
-                return
-        grid.name = name
+        try:
+            rename_grid(experiment, self.stage, old, name)
+        except Exception as e:  # noqa: BLE001 - not renamed; say why
+            logging.warning(f"Could not rename {old}: {e}")
+            self._say(f"Could not rename {old}: {e}", error=True)
+            self.refresh()
+            return
         self._save()
         self.refresh()
         self.experiment_changed.emit()

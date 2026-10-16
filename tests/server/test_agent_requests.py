@@ -190,6 +190,38 @@ def test_a_request_carries_the_image_its_evidence_is_in(client, tmp_path):
     assert filed.json()["image"] == str(inside)
 
 
+@pytest.mark.parametrize(
+    "tool, arguments, unknown, missing",
+    [
+        # FIB-1425: both were filed, and read "None" on the card.
+        (
+            "item_move_to_pose",
+            {"item_name": "01", "pose_name": "MILLING"},
+            ["pose_name"],
+            ["pose"],
+        ),
+        ("protocol_load", {"path": "/data/protocol.yaml"}, ["path"], ["protocol"]),
+        ("protocol_load", {"protocol": None}, [], ["protocol"]),
+    ],
+)
+def test_arguments_the_tool_does_not_take_are_refused_at_filing(
+    client, app, tool, arguments, unknown, missing
+):
+    refused = _file(client, {"tool": tool, "arguments": arguments})
+    assert refused.status_code == 422
+    detail = _detail(refused)
+    assert detail["error_type"] == "invalid_arguments"
+    assert (detail["tool"], detail["unknown"], detail["missing"]) == (
+        tool,
+        unknown,
+        missing,
+    )
+    assert detail["message"].startswith(f"Action 1: {tool} ")
+    for name in unknown + missing:
+        assert name in detail["message"]
+    assert app.state.requests.pending() is None
+
+
 def test_hardware_needs_the_devices_service(microscope, context, auth):
     app = build_server(
         microscope, app_context=context, auth=auth, serve_microscope=False
@@ -438,6 +470,9 @@ _SAMPLE_ARGUMENTS = {
         "parameters": {"rows": 1, "cols": 2},
         "path": "experiment",
     },
+    "grid_load": {"grid_name": "G2"},
+    "grid_move_to": {"grid_name": "G2"},
+    "grid_move_to_slot": {"slot_name": "Shuttle"},
     "device_call_command": {"device": "stage", "command": "home"},
     "service_call_command": {"service": "milling", "command": "run"},
 }
@@ -630,6 +665,21 @@ def test_no_acting_tool_reads_as_its_name_or_as_json():
         assert described["what"] != spec.name.replace("_", " ").capitalize(), spec.name
         text = described["change"] + str(described.get("details", ""))
         assert "{" not in described["change"] and '"' not in text, spec.name
+
+
+def test_no_acting_tool_reads_none_with_its_required_arguments():
+    """FIB-1425: filing needs every required argument, so a line never shows a
+    value left out as "None"."""
+    from fibsem.server.request_text import describe_action
+
+    for spec in CATALOG:
+        if spec.level != "drive":
+            continue
+        arguments = {name: "x" for name in spec.params if name not in spec.optional}
+        arguments.update(_SAMPLE_ARGUMENTS.get(spec.name, {}))
+        described = describe_action(spec.name, arguments, spec.path)
+        text = described["what"] + described["change"]
+        assert "None" not in text, (spec.name, text)
 
 
 def _reader(answers):
