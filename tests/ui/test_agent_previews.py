@@ -417,6 +417,22 @@ def test_an_item_edit_s_point_and_alignment_area_are_drawn_on_the_item_s_image()
     assert caption.startswith("01-full-magpie · FIB")
 
 
+def test_an_item_edit_s_nested_alignment_area_is_drawn_too():
+    # Sim session 2026-10-16 F4: the server takes {"alignment_area": {...}};
+    # only the dotted keys were drawn.
+    item_image = FibsemImage.generate_blank_image(resolution=(200, 100), hfw=100e-6)
+    request = _item_edit()
+    request["actions"][0]["arguments"]["patch"] = {
+        "alignment_area": {"left": 0.25, "top": 0.5, "width": 0.5, "height": 0.25}
+    }
+    previews = AgentPreviews(
+        lambda: _Controller(), item_image=lambda item: item_image, show_picture=_Card()
+    )
+    previews.show_request(request)
+    _, layer = _layer(previews.request_picture)
+    assert layer.areas == [[pytest.approx((50.0, 50.0)), pytest.approx((150.0, 75.0))]]
+
+
 def test_an_item_edit_without_an_image_of_the_item_says_so():
     # Never the live view instead: it may be at another lamella.
     controller = _Controller()

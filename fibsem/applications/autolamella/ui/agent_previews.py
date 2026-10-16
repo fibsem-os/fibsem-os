@@ -271,14 +271,15 @@ def _point(value: Any) -> Optional[Point]:
 
 def _area(patch: Dict[str, Any]) -> Optional[List[Tuple[float, float]]]:
     """An item edit's alignment area as its two corners, fractions of the frame
-    (origin top-left); None when the edit sets no complete area."""
+    (origin top-left), dotted ("alignment_area.left") or nested; None when the
+    edit sets no complete area."""
+    nested = patch.get("alignment_area")
+    area = dict(nested) if isinstance(nested, dict) else {}
+    for key in ("left", "top", "width", "height"):
+        area.setdefault(key, patch.get(f"alignment_area.{key}"))
     try:
-        left, top = (
-            float(patch["alignment_area.left"]),
-            float(patch["alignment_area.top"]),
-        )
-        width = float(patch["alignment_area.width"])
-        height = float(patch["alignment_area.height"])
+        left, top = float(area["left"]), float(area["top"])
+        width, height = float(area["width"]), float(area["height"])
     except (KeyError, TypeError, ValueError):
         return None
     return [(left, top), (left + width, top + height)]
