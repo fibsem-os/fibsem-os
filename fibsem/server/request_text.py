@@ -1566,6 +1566,22 @@ def _line(
         if target and now:
             change += f"\nfrom {_position(now)}"
         return {"what": str(item), "change": change}
+    if tool == "item_apply_correlation":
+        run = str(a.get("run_path") or "")
+        name = os.path.basename(os.path.normpath(run)) if run else run
+        change = f"Move its point of interest to the correlation saved in {name}"
+        try:
+            from fibsem.correlation.history import load_run
+
+            result = load_run(run).result
+            poi = result.poi[0].px_m
+            change += (
+                f": ({poi.x * 1e6:.2f}, {poi.y * 1e6:.2f}) µm from the image centre"
+            )
+        except Exception:  # the request still reads without the run's numbers
+            pass
+        change += "\nThe patterns that follow the point move with it"
+        return {"what": str(item), "change": change}
     if tool == "item_set_pose":
         pose = a.get("pose")
         change = f"Set its {pose} pose to where the stage is now"

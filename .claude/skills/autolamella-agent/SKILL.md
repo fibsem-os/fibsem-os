@@ -471,7 +471,9 @@ Refine each pick first with `correlation_refine_point`, and look at the
 overlay before trusting the answer. Pass `lamella_path` so the fit starts from
 earlier runs and is saved where the correlation tab finds it. A verdict of
 `check` or `bad` names the fiducial to look at. The answer does not move the
-lamella's POI; tell the operator where the target is.
+lamella's POI: `item_apply_correlation` with the run's `run_path` does, as the
+tab's Continue (Drive; at Assist, ask). Only move it on a `good` verdict, or
+when the operator agrees.
 
 **Overviews and focus stacks.** `beam_acquire_overview` images a grid of
 tiles around where the stage is and stitches them; the stage moves to each

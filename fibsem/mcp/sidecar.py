@@ -1186,6 +1186,12 @@ def build_sidecar(client, capabilities):
             f"/poses/{quote(pose, safe='')}"
         )
 
+    def item_apply_correlation(item_name: str, run_path: str):
+        return _app_post(
+            f"/app/experiment/items/{quote(item_name, safe='')}/correlation",
+            {"run_path": run_path},
+        )
+
     def item_set_objective_position(item_name: str):
         return _app_post(
             f"/app/experiment/items/{quote(item_name, safe='')}/objective_position"
@@ -1630,6 +1636,7 @@ def build_sidecar(client, capabilities):
             item_remove,
             item_move_to_pose,
             item_set_pose,
+            item_apply_correlation,
             item_set_objective_position,
             experiment_add_note,
             request_create,

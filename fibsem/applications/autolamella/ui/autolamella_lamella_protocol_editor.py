@@ -56,6 +56,7 @@ from fibsem.applications.autolamella.workflows.tasks.tasks import (
     AcquireFluorescenceImageConfig,
     SpotBurnFiducialTaskConfig,
 )
+from fibsem.correlation.history import correlation_record
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.structures import (
@@ -209,50 +210,6 @@ def _select_filename(combo: QComboBox, filename: str) -> None:
     if index >= 0:
         combo.setCurrentIndex(index)
     combo.setToolTip(combo.currentData() or "")
-
-
-def correlation_record(
-    result: "CorrelationResult", lamella: Any, run_folder: Optional[str], root: Any
-) -> Dict[str, Any]:
-    """An accepted correlation, for the experiment's record (FIB-1068): what it
-    gave, how well it fits, and the run folder that holds the rest."""
-    data = result.input_data
-    pixel_size = data.fib_image_pixel_size if data is not None else None
-    folder = run_folder
-    if run_folder and root:
-        try:
-            folder = os.path.relpath(run_folder, str(root))
-        except ValueError:  # another drive
-            pass
-    ri = result.refractive_index_correction_mode
-    return {
-        "item": {"id": lamella.id, "name": lamella.name},
-        "poi": result.poi[0].px_m.to_dict(),
-        "rms_px": result.rms_error,
-        "rms_nm": result.rms_error * pixel_size * 1e9 if pixel_size else None,
-        "fiducials": len(result.delta_2d),
-        "refractive_index": (
-            {"mode": ri, "factor": result.refractive_index_correction_factor}
-            if ri
-            else None
-        ),
-        "verdict": _verdict_tier(result.diagnostics),
-        "seeded": result.seed is not None,
-        "folder": folder,
-    }
-
-
-def _verdict_tier(diagnostics: Optional[dict]) -> Optional[str]:
-    """The fit verdict's tier, as the dialog showed it; None for an unseeded fit."""
-    if not diagnostics:
-        return None
-    from fibsem.correlation.verdict import FitDiagnostics, verdict
-
-    try:
-        return verdict(FitDiagnostics.from_dict(diagnostics)).tier
-    except Exception:  # noqa: BLE001 - the tier is a detail of the record
-        logging.debug("could not read the fit verdict", exc_info=True)
-        return None
 
 
 class _PositionNotice(QWidget):
