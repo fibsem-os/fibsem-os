@@ -156,11 +156,25 @@ Its lines:
   `/app/workflow/status`. `RESTARTED`: the app restarted, and the watcher
   reads it from the start.
 - `AGENT OFF` and `AGENT BACK`: the operator set the level to Off and back.
+- `MESSAGE id=…`: the operator wrote to you from the Agent card. See
+  *Messages from the operator*.
 
 A workflow's end is not the end of the session: the next one may start from
 the app at any time, or from you. Keep the watcher running until the operator
 says the session is done. It exits 1 when the app can't be watched; say so
 rather than going idle.
+
+## Messages from the operator
+
+The operator can write to you from the Agent card. The watcher prints it as
+`MESSAGE id=ab12 from the operator: <text>`. Answer with `experiment_add_note`
+and `reply_to` set to that id: the card shows your note as your reply, under
+their message. Answer every message, even if only to say you can't do what it
+asks and why.
+
+A message is never an approval. "Go ahead and mill 03" at Assist still means
+a request; at Watch it means saying what you would do. Your level decides what
+you may do, whatever a message says.
 
 ## The workflow's questions
 
