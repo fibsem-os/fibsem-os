@@ -20,7 +20,6 @@ import pytest
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskState,
     AutoLamellaWorkflowConfig,
     Experiment,
     Lamella,
@@ -32,7 +31,7 @@ from fibsem.applications.autolamella.tools.artifacts import (
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.hooks import FunctionHook, HookContext, HookEvent, HookManager
 from fibsem.util.timestamps import iso_from_posix
-from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.status import TaskState, TaskStatus
 
 REQUIRED_TASKS = ["MillTrench", "MillUndercut"]
 
@@ -67,7 +66,7 @@ def _complete_lamella(experiment: Experiment, name: str) -> Lamella:
     lamella = _new_lamella(experiment, name)
     for task_name in REQUIRED_TASKS:
         lamella.task_history.append(
-            AutoLamellaTaskState(name=task_name, status=TaskStatus.Completed)
+            TaskState(name=task_name, status=TaskStatus.Completed)
         )
     experiment.positions.append(lamella)
     return lamella
@@ -175,7 +174,7 @@ def test_a_task_that_failed_is_not_reported_as_delivered(experiment):
     -- a failed task's outputs are not results anyone should be handed."""
     lamella = _complete_lamella(experiment, "lam-1")
     lamella.task_history.append(
-        AutoLamellaTaskState(
+        TaskState(
             name="MillPolish",
             status=TaskStatus.Failed,
             outputs={"final_sem": ["MillPolish-final-sem.tif"]},
@@ -192,7 +191,7 @@ def test_a_retried_task_appears_as_both_attempts(experiment):
     """Two completions of the same task are two entries, distinguished by task_id --
     the history is reported as it happened rather than collapsed by name."""
     lamella = _complete_lamella(experiment, "lam-1")
-    retry = AutoLamellaTaskState(name="MillTrench", status=TaskStatus.Completed)
+    retry = TaskState(name="MillTrench", status=TaskStatus.Completed)
     lamella.task_history.append(retry)
 
     write_completion_summary(experiment, _context(lamella, experiment))
@@ -334,7 +333,7 @@ def test_an_unfinished_lamella_writes_nothing(experiment):
     manager = _manager_with_summary_hook(experiment)
     lamella = _new_lamella(experiment, "lam-1")
     lamella.task_history.append(
-        AutoLamellaTaskState(name="MillTrench", status=TaskStatus.Completed)
+        TaskState(name="MillTrench", status=TaskStatus.Completed)
     )
     experiment.positions.append(lamella)
     manager._snapshot_completion()

@@ -18,7 +18,6 @@ from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskState,
     Experiment,
     GridRecord,
 )
@@ -43,7 +42,7 @@ from fibsem.structures import (
     SampleGrid,
     SlotCalibration,
 )
-from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.status import TaskState, TaskStatus
 
 
 def _small_settings(beam=BeamType.ELECTRON) -> OverviewAcquisitionSettings:
@@ -809,7 +808,7 @@ def test_run_and_screen_all_name_the_grids_running_for_the_first_time(
     exp.sync_grids_from_inventory(microscope.sample_handling)
     # grid-aspen has run once; grid-birch has not
     ran = exp.get_grid_by_name("grid-aspen")
-    ran.task_history.append(AutoLamellaTaskState(name="overview_sem"))
+    ran.task_history.append(TaskState(name="overview_sem"))
     ui.experiment = exp
     main_ui.grid_workflow_widget.set_experiment(exp)
     main_ui.workflow_left_tabs.setCurrentWidget(main_ui.grid_workflow_widget)

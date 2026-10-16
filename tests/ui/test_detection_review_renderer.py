@@ -23,7 +23,6 @@ pytest.importorskip("PyQt5")
 import fibsem.applications.autolamella.ui.review_tab_widget as R
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskState,
     Experiment,
 )
 from fibsem.structures import (
@@ -36,7 +35,7 @@ from fibsem.structures import (
     Point,
 )
 from fibsem.workflows.proposals import DETECTION, Decision, DecisionOutcome, Proposal
-from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.status import TaskState, TaskStatus
 
 TASK = "Mill Rough"
 RUN = "run-1"
@@ -65,7 +64,7 @@ def experiment(tmp_path) -> Experiment:
     # The task's record: waiting on the decision, as a question's is once the
     # task is no longer parked on it; the live task_state below is InProgress.
     lamella.task_history.append(
-        AutoLamellaTaskState(name=TASK, status=TaskStatus.AwaitingDecision)
+        TaskState(name=TASK, status=TaskStatus.AwaitingDecision)
     )
     lamella.task_state.name = TASK
     lamella.task_state.task_id = RUN

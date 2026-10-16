@@ -20,7 +20,6 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
     Attention,
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskState,
     AutoLamellaWorkflowConfig,
     Experiment,
 )
@@ -47,7 +46,7 @@ from fibsem.workflows.proposals import (  # noqa: E402
     DecisionOutcome,
     Proposal,
 )
-from fibsem.workflows.status import TaskStatus  # noqa: E402
+from fibsem.workflows.status import TaskState, TaskStatus  # noqa: E402
 
 SETUP = "Setup Lamella Position"
 FIDUCIAL = "Mill Fiducial"
@@ -91,7 +90,7 @@ def experiment(tmp_path) -> Experiment:
     lamella = exp.positions[0]
     lamella.path.mkdir(parents=True, exist_ok=True)
     lamella.task_history.append(
-        AutoLamellaTaskState(name=SETUP, status=TaskStatus.AwaitingDecision)
+        TaskState(name=SETUP, status=TaskStatus.AwaitingDecision)
     )
     ref = os.path.join(str(lamella.path), "ref_setup_ib")
     _fib_image().save(ref)
@@ -260,7 +259,7 @@ def test_an_unregistered_kind_still_gets_the_two_verbs(tab, experiment, qapp):
         Proposal(kind="site_pick_v9", values={}, provenance={"task_id": RUN})
     ]
     lamella.task_history.append(
-        AutoLamellaTaskState(name="other", status=TaskStatus.AwaitingDecision)
+        TaskState(name="other", status=TaskStatus.AwaitingDecision)
     )
     tab.refresh()
     assert tab.pending_count == 2
@@ -431,7 +430,7 @@ def test_mark_all_as_checked_records_a_look_on_every_to_check_row(
         )
     ]
     lamella.task_history.append(
-        AutoLamellaTaskState(name=ROUGH, status=TaskStatus.AwaitingDecision)
+        TaskState(name=ROUGH, status=TaskStatus.AwaitingDecision)
     )
     tab.refresh()
     assert tab.check_count == 2 and tab.pending_count == 1
@@ -498,7 +497,7 @@ def test_a_task_result_renders_both_images_and_confirms_with_no_values(
     eb = os.path.join(str(lamella.path), "ref_rough_eb")
     _fib_image().save(eb)
     lamella.task_history.append(
-        AutoLamellaTaskState(name=ROUGH, status=TaskStatus.AwaitingDecision)
+        TaskState(name=ROUGH, status=TaskStatus.AwaitingDecision)
     )
     lamella.proposals[ROUGH] = [
         Proposal(
@@ -692,7 +691,7 @@ def _grid_waiting(experiment):
     directory.mkdir(parents=True)
     _sem_image().save(str(directory / "overview"))
     grid.task_history.append(
-        AutoLamellaTaskState(name="SEM Overview", status=TaskStatus.AwaitingDecision)
+        TaskState(name="SEM Overview", status=TaskStatus.AwaitingDecision)
     )
     grid.proposals["SEM Overview"] = [
         Proposal(
@@ -751,7 +750,7 @@ def _positions_waiting(experiment, positions=(), name="Grid-02"):
     directory.mkdir(parents=True, exist_ok=True)
     _sem_image().save(str(directory / "overview"))
     grid.task_history.append(
-        AutoLamellaTaskState(name="SEM Overview", status=TaskStatus.AwaitingDecision)
+        TaskState(name="SEM Overview", status=TaskStatus.AwaitingDecision)
     )
     grid.proposals["SEM Overview"] = [
         Proposal(
@@ -1006,7 +1005,7 @@ def _fm_grid_proposal(experiment, filename="overview.ome.tiff", write=True):
     if write:
         _fluorescence_overview(target)
     grid.task_history.append(
-        AutoLamellaTaskState(name="FM Overview", status=TaskStatus.AwaitingDecision)
+        TaskState(name="FM Overview", status=TaskStatus.AwaitingDecision)
     )
     grid.proposals["FM Overview"] = [
         Proposal(
@@ -1086,7 +1085,7 @@ def test_a_result_with_no_image_recorded_says_so(tab, experiment):
 
     grid = experiment.add_grid(GridRecord(name="Grid-None"))
     grid.task_history.append(
-        AutoLamellaTaskState(name="SEM Overview", status=TaskStatus.AwaitingDecision)
+        TaskState(name="SEM Overview", status=TaskStatus.AwaitingDecision)
     )
     grid.proposals["SEM Overview"] = [
         Proposal(kind=TASK_RESULT, provenance={"task_id": RUN, "reference_image": ""})

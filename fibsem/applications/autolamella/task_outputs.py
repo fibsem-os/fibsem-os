@@ -1,6 +1,6 @@
 """Reading back the files a task run produced.
 
-Runs record what they wrote on their history entry (`AutoLamellaTaskState.outputs`).
+Runs record what they wrote on their history entry (`TaskState.outputs`).
 This module is the read side of that: it answers "which files does this run's images
 consist of", so consumers don't each re-encode the filename convention.
 
@@ -17,11 +17,11 @@ from datetime import datetime
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskState,
     Experiment,
     GridRecord,
     Lamella,
 )
+from fibsem.workflows.status import TaskState
 
 # Characters a folder name cannot hold on Windows (and ``/`` anywhere).
 _UNSAFE_IN_FOLDER_NAMES = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
@@ -50,9 +50,7 @@ def run_folder(lamella: Lamella, task_name: str, started: datetime) -> str:
     return folder
 
 
-def _recorded(
-    lamella: Lamella, tasks: Sequence[AutoLamellaTaskState], *roles: str
-) -> List[str]:
+def _recorded(lamella: Lamella, tasks: Sequence[TaskState], *roles: str) -> List[str]:
     """Absolute, existing, de-duplicated paths recorded across the given runs.
 
     Every function here accepts any number of runs of the same task and returns the
@@ -82,7 +80,7 @@ def _recorded(
     return sorted({path for path in paths if os.path.isfile(path)})
 
 
-def fluorescence_images(lamella: Lamella, *tasks: AutoLamellaTaskState) -> List[str]:
+def fluorescence_images(lamella: Lamella, *tasks: TaskState) -> List[str]:
     """Absolute paths to the fluorescence z-stacks the given runs produced.
 
     No filename fallback, unlike the reference images: fluorescence output never
@@ -95,7 +93,7 @@ def fluorescence_images(lamella: Lamella, *tasks: AutoLamellaTaskState) -> List[
 
 
 def final_reference_images(
-    lamella: Lamella, *tasks: AutoLamellaTaskState, fallback: bool = True
+    lamella: Lamella, *tasks: TaskState, fallback: bool = True
 ) -> List[str]:
     """Absolute paths to the final reference images the given runs produced.
 
@@ -140,7 +138,7 @@ def latest_final_reference_images(lamella: Lamella, task_name: str) -> List[str]
             return found
     if any(run.outputs for run in runs):
         return []  # its runs record what they make, and none made final images
-    return final_reference_images(lamella, AutoLamellaTaskState(name=task_name))
+    return final_reference_images(lamella, TaskState(name=task_name))
 
 
 def latest_task_image(lamella: Lamella, suffix: str) -> str:
@@ -195,7 +193,7 @@ def images_by_task(lamella: Lamella) -> List[Tuple[str, List[str], List[str]]]:
     oldest first. A run that recorded nothing (cancelled, or failed before saving)
     adds nothing, and a task none of whose runs left an image has no entry.
     """
-    runs: Dict[str, List[AutoLamellaTaskState]] = {}
+    runs: Dict[str, List[TaskState]] = {}
     last: Dict[str, int] = {}
     for index, run in enumerate(lamella.task_history):
         runs.setdefault(run.name, []).append(run)

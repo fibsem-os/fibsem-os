@@ -24,7 +24,6 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
     Attention,
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskState,
     AutoLamellaWorkflowConfig,
     Experiment,
 )
@@ -44,7 +43,7 @@ from fibsem.structures import (  # noqa: E402
 )
 from fibsem.workflows.events import EventBuffer  # noqa: E402
 from fibsem.workflows.proposals import Decision, DecisionOutcome, Proposal  # noqa: E402
-from fibsem.workflows.status import TaskStatus  # noqa: E402
+from fibsem.workflows.status import TaskState, TaskStatus  # noqa: E402
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -99,7 +98,7 @@ def ui(qapp, monkeypatch, tmp_path):
     _fib_image().save(ref)
     # A waiting proposal: its task ended waiting for the decision.
     lamella.task_history.append(
-        AutoLamellaTaskState(name=SETUP, status=TaskStatus.AwaitingDecision)
+        TaskState(name=SETUP, status=TaskStatus.AwaitingDecision)
     )
     lamella.proposals[SETUP] = [
         Proposal(
@@ -257,7 +256,7 @@ def test_confirm_from_a_worker_writes_through_as_the_agent(ui, qapp):
 def test_reject_needs_a_reason_and_fails_the_task(ui, qapp):
     lamella = ui.experiment.positions[0]
     lamella.task_history.append(
-        AutoLamellaTaskState(name=SETUP, status=TaskStatus.AwaitingDecision)
+        TaskState(name=SETUP, status=TaskStatus.AwaitingDecision)
     )
     with _client(ui) as client:
         resp = _post_on_worker(

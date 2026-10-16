@@ -464,24 +464,24 @@ def test_task_protocol_carries_correlation_config():
     assert AutoLamellaTaskProtocol.from_dict(legacy).correlation == CorrelationConfig()
 
 
-# ── AutoLamellaTaskState.outputs ──────────────────────────────────────────────
+# ── TaskState.outputs ──────────────────────────────────────────────
 
 
 def test_task_state_outputs_defaults_to_empty():
-    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+    from fibsem.workflows.status import TaskState
 
-    assert AutoLamellaTaskState().outputs == {}
+    assert TaskState().outputs == {}
 
 
 def test_task_state_outputs_survive_an_experiment_round_trip(tmp_path):
     """The experiment is written with yaml.safe_dump, which refuses anything but
     plain types. Recording paths as strings is what keeps the save working."""
-    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+    from fibsem.workflows.status import TaskState
 
     exp = _make_experiment(tmp_path)
     exp.add_new_lamella(MicroscopeState(), EventedDict())
     exp.positions[0].task_history.append(
-        AutoLamellaTaskState(
+        TaskState(
             name="MillRough",
             outputs={
                 "final_sem": ["ref_MillRough_final_res_01_eb.tif"],
@@ -501,11 +501,11 @@ def test_task_state_outputs_survive_an_experiment_round_trip(tmp_path):
 
 def test_task_state_from_dict_without_outputs_defaults(tmp_path):
     """Experiments written before outputs existed must still load."""
-    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+    from fibsem.workflows.status import TaskState
 
     legacy = {"name": "MillRough", "status": "Completed"}
 
-    assert AutoLamellaTaskState.from_dict(legacy).outputs == {}
+    assert TaskState.from_dict(legacy).outputs == {}
 
 
 def test_task_state_from_dict_ignores_unknown_keys():
@@ -514,11 +514,11 @@ def test_task_state_from_dict_ignores_unknown_keys():
     from_dict expands the dict into the constructor, so an unrecognised key would
     otherwise raise TypeError and make the whole experiment unloadable.
     """
-    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+    from fibsem.workflows.status import TaskState
 
     future = {"name": "MillRough", "status": "Completed", "metrics": {"focus": 1.0}}
 
-    state = AutoLamellaTaskState.from_dict(future)
+    state = TaskState.from_dict(future)
 
     assert state.name == "MillRough"
     assert not hasattr(state, "metrics")

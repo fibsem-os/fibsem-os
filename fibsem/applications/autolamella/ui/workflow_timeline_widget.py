@@ -1332,7 +1332,7 @@ class WorkflowProgressWidget(QWidget):
         The duration goes in the estimate column rather than in brackets after the task
         name, so a finished row lines up with the pending ones and the whole workflow can
         be read down one column. It is wall-clock and still counts any supervised wait —
-        `AutoLamellaTaskState.duration` is end minus start, and the experiment record
+        `TaskState.duration` is end minus start, and the experiment record
         agrees with it.
         """
         if not (0 <= outer_idx < len(self._outer._steps)):

@@ -656,11 +656,11 @@ class TestEndOfRun:
         )
 
     def test_an_unload_entry_does_not_fix_a_grids_name(self, experiment):
-        from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+        from fibsem.workflows.status import TaskState
 
         grid = experiment.get_grid_by_name("Grid-01")
         for name in (LOAD_ENTRY_NAME, UNLOAD_ENTRY_NAME):
-            grid.task_history.append(AutoLamellaTaskState(name=name))
+            grid.task_history.append(TaskState(name=name))
         assert not grid_has_run(grid)
 
     def test_the_report_is_written_after_the_unload(
