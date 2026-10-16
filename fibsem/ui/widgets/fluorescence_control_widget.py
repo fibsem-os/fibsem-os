@@ -525,8 +525,8 @@ class FMControlWidget(QWidget):
         logging.info(f"Channel field changed: {field} -> {value}")
         if field == "excitation_wavelength":
             self.fm.filter_set.excitation_wavelength = value
-        elif field == "emission_wavelength":
-            self.fm.filter_set.emission_wavelength = value
+        elif field == "emission_filter":
+            self.fm.filter_set.emission_filter = value
         elif field == "exposure_time":
             self.fm.set_exposure_time(value)  # seconds
         elif field == "gain":

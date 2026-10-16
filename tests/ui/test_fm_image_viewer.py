@@ -26,6 +26,7 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtWidgets import QApplication  # noqa: E402
 
 from fibsem.fm.structures import (
+    EmissionFilter,
     FluorescenceChannelMetadata,
     FluorescenceImage,
     FluorescenceImageMetadata,
@@ -39,7 +40,7 @@ def _channel(name: str, color: str) -> FluorescenceChannelMetadata:
     return FluorescenceChannelMetadata(
         name=name,
         excitation_wavelength=488.0,
-        emission_wavelength=509.0,
+        emission_filter=EmissionFilter("509 nm", low=509.0),
         power=0.5,
         exposure_time=0.1,
         gain=1.0,

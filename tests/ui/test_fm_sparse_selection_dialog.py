@@ -19,6 +19,7 @@ from PyQt5.QtWidgets import QApplication, QDialog, QSizePolicy
 from fibsem.fm.structures import (
     AutoFocusMode,
     ChannelSettings,
+    EmissionFilter,
     OverviewParameters,
     ZParameters,
 )
@@ -53,7 +54,7 @@ CHANNELS = [
     ChannelSettings(
         name="DAPI",
         excitation_wavelength=405,
-        emission_wavelength=450,
+        emission_filter=EmissionFilter("450 nm", low=450),
         power=0.5,
         exposure_time=0.1,
     )

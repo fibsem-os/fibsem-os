@@ -53,9 +53,9 @@ def calculate_total_images_count(
 
     Example:
         >>> channel1 = ChannelSettings(name="DAPI", excitation_wavelength=365,
-        ...                           emission_wavelength=450, power=0.5, exposure_time=0.1)
+        ...                           emission_filter=EmissionFilter("450 nm", low=450), power=0.5, exposure_time=0.1)
         >>> channel2 = ChannelSettings(name="FITC", excitation_wavelength=488,
-        ...                           emission_wavelength=525, power=0.3, exposure_time=0.05)
+        ...                           emission_filter=EmissionFilter("525 nm", low=525), power=0.3, exposure_time=0.05)
         >>> zparams = ZParameters(zmin=-5e-6, zmax=5e-6, zstep=1e-6)
         >>>
         >>> # Single channel, no z-stack
@@ -158,9 +158,9 @@ def estimate_acquisition_time(
 
     Example:
         >>> channel1 = ChannelSettings(name="DAPI", excitation_wavelength=365,
-        ...                           emission_wavelength=450, power=0.5, exposure_time=0.1)
+        ...                           emission_filter=EmissionFilter("450 nm", low=450), power=0.5, exposure_time=0.1)
         >>> channel2 = ChannelSettings(name="FITC", excitation_wavelength=488,
-        ...                           emission_wavelength=525, power=0.3, exposure_time=0.05)
+        ...                           emission_filter=EmissionFilter("525 nm", low=525), power=0.3, exposure_time=0.05)
         >>> zparams = ZParameters(zmin=-5e-6, zmax=5e-6, zstep=1e-6)
         >>>
         >>> # Single channel, no z-stack
@@ -243,9 +243,9 @@ def estimate_tileset_acquisition_time(
 
     Example:
         >>> channel1 = ChannelSettings(name="DAPI", excitation_wavelength=365,
-        ...                           emission_wavelength=450, power=0.5, exposure_time=0.1)
+        ...                           emission_filter=EmissionFilter("450 nm", low=450), power=0.5, exposure_time=0.1)
         >>> channel2 = ChannelSettings(name="FITC", excitation_wavelength=488,
-        ...                           emission_wavelength=525, power=0.3, exposure_time=0.05)
+        ...                           emission_filter=EmissionFilter("525 nm", low=525), power=0.3, exposure_time=0.05)
         >>> zparams = ZParameters(zmin=-2e-6, zmax=2e-6, zstep=1e-6)  # 5 z-planes
         >>>
         >>> from fibsem.fm.structures import AutoFocusMode

@@ -21,6 +21,7 @@ from fibsem.fm.structures import (
     AutoFocusMode,
     AutoFocusSettings,
     ChannelSettings,
+    EmissionFilter,
     FocusMethod,
     OverviewParameters,
     ZParameters,
@@ -29,7 +30,7 @@ from fibsem.fm.structures import (
 CHANNEL = ChannelSettings(
     name="GFP",
     excitation_wavelength=488,
-    emission_wavelength=509,
+    emission_filter=EmissionFilter("509 nm", low=509),
     power=0.2,
     exposure_time=0.1,
 )

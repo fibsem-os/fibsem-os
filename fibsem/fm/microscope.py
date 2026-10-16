@@ -59,8 +59,7 @@ from fibsem.fm.structures import (
     FluorescenceImageMetadata,
     ZParameters,
     ZStackOrder,
-    emission_filter_for,
-    same_emission_value,
+    matching_emission_filter,
 )
 from fibsem.structures import InsertableDeviceState
 from fibsem.util.timestamps import now, now_iso, to_aware
@@ -416,39 +415,10 @@ class LightSource:
         return _native_scale(self._device, "power")
 
 
-def _old_emission_value(found: EmissionFilter) -> Optional[Union[float, str]]:
-    if found == REFLECTION:
-        return None
-    return found.name if found.low is None else found.low
-
-
-def emission_filter_named(
-    value: Optional[Union[float, str]], filters: Sequence[EmissionFilter]
-) -> EmissionFilter:
-    """The filter among ``filters`` that today's emission value names.
-
-    ``None`` is reflection. A label is the filter of that name, or else the multi-band
-    filter, as the FM classes take any label to mean fluorescence. A number is the
-    band whose bottom edge is closest; a filter set with no bands has only its
-    multi-band filter, which is what such an FM reports a number as.
-    """
-    multi_band = [f for f in filters if f != REFLECTION and f.low is None]
-    if value is None:
-        matches = [f for f in filters if f == REFLECTION]
-    elif isinstance(value, str):
-        matches = [f for f in filters if f.name == value] or multi_band
-    else:
-        banded = [f for f in filters if f.low is not None]
-        matches = sorted(banded, key=lambda f: abs(f.low - value))[:1] or multi_band
-    if not matches:
-        raise ValueError(f"No emission filter for {value!r}")
-    return matches[0]
-
-
 class FilterSet:
     """The FM API's filter set, over its device: the excitation wavelength and
-    the emission filter. An emission filter is named by one value: None for
-    reflection, a label for a multi-band filter, or the band's bottom edge in nm."""
+    the emission filter. Setting a filter picks the device's matching one
+    (``matching_emission_filter``), so a channel saved on another scope applies."""
 
     def __init__(
         self,
@@ -462,21 +432,9 @@ class FilterSet:
     def available_excitation_wavelengths(self) -> Tuple[float, ...]:
         return tuple(_param(self._device, "excitation_wavelength").choices or ())
 
-    # Today's API names a filter by one value: None for reflection, a label for a
-    # multi-band filter, or the band's bottom edge in nm.
-
     @property
-    def available_emission_wavelengths(self) -> Tuple[Union[None, str, float], ...]:
-        return tuple(_old_emission_value(f) for f in self._emission_filters())
-
-    def _emission_filters(self) -> Tuple[EmissionFilter, ...]:
+    def available_emission_filters(self) -> Tuple[EmissionFilter, ...]:
         return tuple(_param(self._device, "emission_filter").choices or ())
-
-    def emission_filter(self, value: Optional[Union[float, str]]) -> EmissionFilter:
-        for found in self._emission_filters():
-            if same_emission_value(_old_emission_value(found), value):
-                return found
-        return emission_filter_for(value, {})
 
     @property
     def excitation_wavelength(self) -> float:
@@ -487,12 +445,12 @@ class FilterSet:
         _param(self._device, "excitation_wavelength").write_through(value)
 
     @property
-    def emission_wavelength(self) -> Optional[Union[float, str]]:
-        return _old_emission_value(_param(self._device, "emission_filter").get_value())
+    def emission_filter(self) -> EmissionFilter:
+        return _param(self._device, "emission_filter").get_value()
 
-    @emission_wavelength.setter
-    def emission_wavelength(self, value: Optional[Union[float, str]]) -> None:
-        found = emission_filter_named(value, self._emission_filters())
+    @emission_filter.setter
+    def emission_filter(self, value: EmissionFilter) -> None:
+        found = matching_emission_filter(value, self.available_emission_filters)
         _param(self._device, "emission_filter").write_through(found)
 
 
@@ -803,7 +761,7 @@ class FluorescenceMicroscope:
 
         # Configure filter wavelengths
         self.filter_set.excitation_wavelength = channel_settings.excitation_wavelength
-        self.filter_set.emission_wavelength = channel_settings.emission_wavelength
+        self.filter_set.emission_filter = channel_settings.emission_filter
 
         # Set light source power
         self.set_power(channel_settings.power)
@@ -1066,11 +1024,9 @@ class FluorescenceMicroscope:
             return frame[key] if key in frame else read()
 
         if "emission_filter" in frame:
-            emission = _old_emission_value(
-                EmissionFilter.from_dict(frame["emission_filter"])
-            )
+            emission = EmissionFilter.from_dict(frame["emission_filter"])
         else:
-            emission = self.filter_set.emission_wavelength
+            emission = self.filter_set.emission_filter
         camera, objective = self.camera, self.objective
         channel = FluorescenceChannelMetadata(
             name=self.channel_name,
@@ -1079,7 +1035,7 @@ class FluorescenceMicroscope:
                 "excitation_wavelength",
                 lambda: self.filter_set.excitation_wavelength,
             ),
-            emission_wavelength=emission,
+            emission_filter=emission,
             power=reported("power", lambda: self.light_source.power),
             exposure_time=reported("exposure_time", lambda: camera.exposure_time),
             gain=reported("gain", lambda: camera.gain),
@@ -1130,7 +1086,7 @@ class FluorescenceMicroscope:
             name=self.channel_name,
             color=self.channel_color,
             excitation_wavelength=self.filter_set.excitation_wavelength,
-            emission_wavelength=self.filter_set.emission_wavelength,
+            emission_filter=self.filter_set.emission_filter,
             power=self.light_source.power,
             exposure_time=self.camera.exposure_time,
             gain=self.camera.gain,

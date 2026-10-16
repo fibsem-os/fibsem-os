@@ -15,6 +15,7 @@ import pytest
 from fibsem.devices.wire import Frame
 from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
 from fibsem.fm.structures import (
+    REFLECTION,
     ChannelSettings,
     FluorescenceImage,
     FluorescenceImageMetadata,
@@ -31,7 +32,7 @@ def fm():
 
 def _channel() -> ChannelSettings:
     return ChannelSettings(
-        name="GFP", excitation_wavelength=488, emission_wavelength=None, power=0.1
+        name="GFP", excitation_wavelength=488, emission_filter=REFLECTION, power=0.1
     )
 
 

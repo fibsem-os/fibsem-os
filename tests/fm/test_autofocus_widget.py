@@ -2,6 +2,7 @@
 
 Uses PyQt5 directly with the offscreen platform (no pytest-qt dependency).
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -10,19 +11,32 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem.fm.structures import AutoFocusSettings, ChannelSettings, FocusMethod
+from fibsem.fm.structures import (
+    REFLECTION,
+    AutoFocusSettings,
+    ChannelSettings,
+    EmissionFilter,
+    FocusMethod,
+)
 
 
 @pytest.fixture
 def channels():
     return [
-        ChannelSettings(name="Reflection", excitation_wavelength=550, emission_wavelength=None),
-        ChannelSettings(name="GFP", excitation_wavelength=488, emission_wavelength="FLUORESCENCE"),
+        ChannelSettings(
+            name="Reflection", excitation_wavelength=550, emission_filter=REFLECTION
+        ),
+        ChannelSettings(
+            name="GFP",
+            excitation_wavelength=488,
+            emission_filter=EmissionFilter("FLUORESCENCE", multi_band=True),
+        ),
     ]
 
 
 def _widget(qapp, channels):
     from fibsem.ui.fm.widgets.autofocus_widget import AutofocusWidget
+
     return AutofocusWidget(channel_settings=channels)
 
 
@@ -87,8 +101,10 @@ def test_row_edit_updates_pass_and_emits(qapp, channels):
 def test_set_get_round_trip(qapp, channels):
     w = _widget(qapp, channels)
     settings = AutoFocusSettings.from_coarse_fine(
-        coarse_range=30e-6, coarse_step=6e-6,
-        fine_range=8e-6, fine_step=2e-6,
+        coarse_range=30e-6,
+        coarse_step=6e-6,
+        fine_range=8e-6,
+        fine_step=2e-6,
         method=FocusMethod.SOBEL,
     )
     w.set_autofocus_settings(settings)
@@ -150,6 +166,13 @@ def test_channel_selection(qapp, channels):
 def test_update_channels_preserves_selection(qapp, channels):
     w = _widget(qapp, channels)
     w.set_selected_channel_by_name("GFP")
-    new_channels = [channels[1], ChannelSettings(name="DAPI", excitation_wavelength=405, emission_wavelength="FLUORESCENCE")]
+    new_channels = [
+        channels[1],
+        ChannelSettings(
+            name="DAPI",
+            excitation_wavelength=405,
+            emission_filter=EmissionFilter("FLUORESCENCE", multi_band=True),
+        ),
+    ]
     w.update_channels(new_channels)
     assert w.autofocus_settings.channel_name == "GFP"

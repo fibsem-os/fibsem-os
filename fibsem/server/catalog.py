@@ -927,7 +927,8 @@ CATALOG: Tuple[ToolSpec, ...] = (
         params={
             "channels": (
                 "list of ChannelSettings dicts: name, excitation_wavelength, "
-                "emission_wavelength, power, exposure_time"
+                "emission_filter ({name}, a name from the filter set's choices), "
+                "power, exposure_time"
             ),
             "path": "a folder inside the open experiment to save it in",
             "name": "the file name, stamped with the time (default image)",
@@ -960,7 +961,8 @@ CATALOG: Tuple[ToolSpec, ...] = (
         params={
             "channels": (
                 "list of ChannelSettings dicts: name, excitation_wavelength, "
-                "emission_wavelength, power, exposure_time"
+                "emission_filter ({name}, a name from the filter set's choices), "
+                "power, exposure_time"
             ),
             "parameters": (
                 "OverviewParameters dict: rows, cols, overlap, autofocus_mode "

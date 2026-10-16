@@ -24,6 +24,7 @@ pytest.importorskip("PyQt5")
 
 from fibsem.correlation.structures import CorrelationInputData
 from fibsem.fm.structures import (
+    EmissionFilter,
     FluorescenceChannelMetadata,
     FluorescenceImage,
     FluorescenceImageMetadata,
@@ -68,7 +69,7 @@ def _fm_image(filepath=FM_PATH, requested_name="fm_stack_as_acquired"):
                 name="GFP",
                 color="#00FF00",
                 excitation_wavelength=488,
-                emission_wavelength=509,
+                emission_filter=EmissionFilter("509 nm", low=509),
                 power=1.0,
                 exposure_time=0.1,
                 gain=1.0,
