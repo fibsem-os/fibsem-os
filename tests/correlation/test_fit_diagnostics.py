@@ -384,6 +384,26 @@ def test_plot_fit_diagnostic_dark_vs_light_facecolor():
     )
 
 
+def test_a_z_set_by_hand_is_drawn_beside_the_faded_fit():
+    from dataclasses import replace
+
+    from fibsem.theme.tokens import ACCENT_COLOR
+
+    ax_z = plot_fit_diagnostic(replace(_with_z(), z_by_hand=4.0)).axes[0]
+    by_label = {line.get_label(): line for line in ax_z.get_lines()}
+    assert by_label["fit 2.5, not used"].get_alpha() == 0.4
+    assert by_label["by hand 4"].get_color() == ACCENT_COLOR
+    assert by_label["by hand 4"].get_xdata()[0] == 4.0
+
+
+def test_a_z_set_by_hand_outside_the_planes_searched_is_on_the_axis():
+    from dataclasses import replace
+
+    ax_z = plot_fit_diagnostic(replace(_with_z(), z_by_hand=9.0)).axes[0]
+    lo, hi = ax_z.get_xlim()
+    assert lo < 9.0 < hi
+
+
 # --- the target fit on the bounded core (FIB-1218 step 5) --------------------
 
 

@@ -361,6 +361,9 @@ class FitPanelDialog(QDialog):
         plane = self._plane_slider.value()
         base = self._fitted.fitted or self._fitted.initial
         fitted = PointXYZ(base.x, base.y, float(plane))
+        diagnostic = self._fitted.diagnostic
+        if diagnostic is not None and diagnostic.has_z:
+            diagnostic = replace(diagnostic, z_by_hand=float(plane))
         self._result = replace(
             self._fitted,
             fitted=fitted,
@@ -368,6 +371,7 @@ class FitPanelDialog(QDialog):
             method=f"{self._fitted.method} · {Z_BY_HAND}",
             message=None,
             detail=None,
+            diagnostic=diagnostic,
         )
         self._show(self._result)
 

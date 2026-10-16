@@ -392,6 +392,39 @@ def test_a_refit_replaces_z_by_hand(qapp):
     assert panel._plane_slider.value() == 11
 
 
+def test_z_by_hand_shows_in_the_figure_until_the_next_fit(qapp):
+    from dataclasses import replace
+
+    from fibsem.correlation.fit_diagnostics import FitDiagnostic
+
+    profile = np.exp(-((np.arange(21.0) - 10.2) ** 2) / 8)
+    diagnostic = FitDiagnostic(
+        title="t",
+        roi_xy=np.zeros((10, 10)),
+        input_xy=(5.0, 5.0),
+        z_axis=np.arange(21),
+        z_signal=profile,
+        z_fit=profile,
+        z_input=8.0,
+        z_fitted=10.2,
+    )
+    fitted = replace(_fm_result(z=10.2), diagnostic=diagnostic)
+    panel = _fm_panel(fitted, _hole_stack(), refit=lambda i: fitted)
+
+    def z_legend():
+        legend = panel._canvas.figure.axes[0].get_legend()
+        return [t.get_text() for t in legend.get_texts()]
+
+    assert z_legend() == ["input 8.0", "fitted 10.2"]
+    panel._plane_slider.setValue(13)
+    panel._use_plane_btn.click()
+    assert panel.result.diagnostic.z_by_hand == 13.0
+    assert z_legend() == ["input 8.0", "fit 10.2, not used", "by hand 13"]
+    assert fitted.diagnostic.z_by_hand is None  # the fit itself is untouched
+    panel._window_spin.setValue(3)  # an input change fits again
+    assert z_legend() == ["input 8.0", "fitted 10.2"]
+
+
 def test_fib_fits_have_no_plane_controls(qapp):
     panel = FitPanelDialog(_result(), FitInputs(window=15), lambda i: _result())
     assert panel._plane_slider is None and panel._planes_spins is None
