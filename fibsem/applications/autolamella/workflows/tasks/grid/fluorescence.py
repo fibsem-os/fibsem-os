@@ -68,7 +68,7 @@ class FluorescenceOverviewGridTaskConfig(GridTaskConfig):
     )
     filename: str = param(
         "overview",
-        doc="The name the overview is saved under, in the grid's folder.",
+        doc="The stem of the name the overview is saved under, in the grid's folder; a time stamp is added per run.",
         display=Display("Filename"),
     )
 

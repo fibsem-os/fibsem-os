@@ -41,6 +41,7 @@ from fibsem.imaging.tiled import acquire_tiled_overview, stamped_overview_name
 from fibsem.imaging.tiling.reach import reachable_overview
 from fibsem.services.sample_handling import uncalibrated_message
 from fibsem.structures import (
+    BEAM_ORIENTATIONS,
     BeamType,
     Display,
     FibsemStagePosition,
@@ -76,7 +77,8 @@ class BeamOverviewGridTaskConfig(GridTaskConfig):
     display_name: ClassVar[str] = "Beam overview"
     orientation: str = param(
         "SEM",
-        doc="The stage orientation to acquire in, by the microscope's name for it (SEM, FIB, ...). The grid's calibrated slot position is re-expressed for it.",
+        choices=BEAM_ORIENTATIONS,
+        doc="The stage orientation to acquire in. The grid's calibrated slot position is re-expressed for it.",
         display=Display("Orientation"),
     )
     settings: OverviewAcquisitionSettings = param(
@@ -85,7 +87,7 @@ class BeamOverviewGridTaskConfig(GridTaskConfig):
     )
     filename: str = param(
         "overview",
-        doc="The name the overview is saved under, in the grid's folder.",
+        doc="The stem of the name the overview is saved under, in the grid's folder; a time stamp is added per run.",
         display=Display("Filename"),
     )
 

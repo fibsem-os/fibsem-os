@@ -40,6 +40,7 @@ from fibsem import config as cfg
 from fibsem import constants, conversions
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
+    BEAM_ORIENTATIONS,
     BeamType,
     FibsemStagePosition,
     InsertableDeviceState,
@@ -66,8 +67,6 @@ INSTRUCTIONS_TEXT = (
 # to "updating images", "taking new images" and, on the orientation path, nothing at
 # all -- so the same phase looked different depending on how the move was started.
 ACQUIRING_IMAGES = "Acquiring images…"
-
-ORIENTATIONS = ("SEM", "FIB", "MILLING")
 
 
 class StageControlWidget(QWidget):
@@ -601,7 +600,7 @@ class StageControlWidget(QWidget):
 
     def move_to_orientation(self, orientation: str) -> None:
         """Move to the specifed orientation"""
-        if orientation not in ORIENTATIONS:
+        if orientation not in BEAM_ORIENTATIONS:
             raise ValueError(f"Invalid orientation: {orientation}")
         self._toggle_interactions(False)
         self._report_move(f"Moving to the {orientation} orientation…")
