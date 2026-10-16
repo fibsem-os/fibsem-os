@@ -32,7 +32,7 @@ def band_image(
     image = FibsemImage.generate_blank_image(
         resolution=(WIDTH, HEIGHT), hfw=WIDTH * pixel_size
     )
-    ys = np.arange(HEIGHT)[:, None] + 0.5
+    ys = np.arange(HEIGHT)[:, None]  # pixel y is centred on y, as fibsem has it
     xs = np.arange(WIDTH)[None, :]
     centre = (
         HEIGHT / 2 - offset_px - math.tan(math.radians(angle_deg)) * (xs - WIDTH / 2)
@@ -59,7 +59,7 @@ def test_a_rotated_band_reads_its_thickness_and_angle():
     assert answer["thickness_nm"]["median"] == pytest.approx(235, abs=one_px)
     assert answer["angle_deg"] == pytest.approx(0.6, abs=0.05)
     assert answer["straightness"]["centre_spread_px"] < 0.5
-    assert answer["centre_offset_nm"] == pytest.approx(0, abs=one_px)
+    assert answer["centre_offset_nm"] == pytest.approx(0, abs=one_px / 2)
     assert answer["continuity"]["dropped"] == 0
     assert answer["continuity"]["gaps_px"] == []
     assert answer["resolution"]["under_resolved"] is False
@@ -115,7 +115,7 @@ def test_coarse_pixels_flag_the_band_and_suggest_a_field_of_view():
     assert resolution["suggested_field_width_um"] == pytest.approx(22.6, abs=1.5)
     assert answer["thickness_nm"]["mean"] == pytest.approx(235, abs=39)
     # Moved up 3 px from the POI: above it, so positive.
-    assert answer["centre_offset_nm"] == pytest.approx(3 * 39, abs=39)
+    assert answer["centre_offset_nm"] == pytest.approx(3 * 39, abs=39 / 2)
 
 
 def test_a_rectangle_limits_the_search():

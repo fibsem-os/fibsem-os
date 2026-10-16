@@ -361,13 +361,15 @@ def draw_band_edges(image: FibsemImage, measurement: LamellaBandMeasurement):
     lo, hi = float(crop.min()), float(crop.max())
     scaled = (crop - lo) / (hi - lo) * 255 if hi > lo else np.zeros_like(crop)
     rgb = _ensure_rgb(scaled.astype(np.uint8)).copy()
-    # Thick enough to survive the preview's downscale.
-    half = max(0, (x1 - x0) // 512)
+    # Each edge is a line just outside the band, so the band itself stays in
+    # view; thick enough to survive the preview's downscale.
+    line = max(1, (x1 - x0) // 256)
     for i, ok in enumerate(measurement.measured):
         if not ok:
             rgb[:, i] = (rgb[:, i] * 0.5 + np.array([128, 0, 0])).astype(np.uint8)
             continue
-        for edge in (measurement.top[i], measurement.bottom[i]):
-            y = int(round(edge)) - y0
-            rgb[max(0, y - half) : y + half + 1, i] = (0, 255, 255)
+        top = int(math.floor(measurement.top[i])) - y0
+        bottom = int(math.ceil(measurement.bottom[i])) - y0
+        rgb[max(0, top - line + 1) : top + 1, i] = (0, 255, 255)
+        rgb[bottom : bottom + line, i] = (255, 0, 255)
     return rgb
