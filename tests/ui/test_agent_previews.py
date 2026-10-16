@@ -899,3 +899,31 @@ def test_the_agent_s_own_image_is_the_picture_with_the_values_on_it():
     stop["image"] = "/exp/ref_trench.tif"
     previews.show_request(stop)
     assert previews.request_picture[0] is evidence
+
+
+def test_a_pair_of_views_labels_each_half(qapp):
+    """Sim session 2026-10-16: "SEM and FIB · 05:16" captioned two images with
+    no label on either."""
+    from PyQt5.QtGui import QColor, QImage
+
+    from fibsem.applications.autolamella.ui.agent_previews import side_by_side
+
+    def black():
+        image = QImage(200, 120, QImage.Format_RGB32)
+        image.fill(QColor(0, 0, 0))
+        return image
+
+    plain = side_by_side([black(), black()])
+    labelled = side_by_side([black(), black()], labels=["SEM", "FIB"])
+    assert plain.size() == labelled.size()
+
+    def white_in(image, x0, x1):
+        return any(
+            QColor(image.pixel(x, y)).lightness() > 200
+            for x in range(x0, x1)
+            for y in range(0, 30)
+        )
+
+    assert not white_in(plain, 0, 60)
+    assert white_in(labelled, 0, 60)  # "SEM", top-left of the first half
+    assert white_in(labelled, 204, 264)  # "FIB", top-left of the second

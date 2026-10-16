@@ -508,10 +508,12 @@ def draw_picture(frame, layers: List[_Layer]):
     return image
 
 
-def side_by_side(images: List, gap: int = 4):
-    """*images* (QImages) in a row at one height, the shortest's, *gap* apart."""
-    from PyQt5.QtCore import Qt
-    from PyQt5.QtGui import QColor, QImage, QPainter
+def side_by_side(images: List, gap: int = 4, labels: Optional[List[str]] = None):
+    """*images* (QImages) in a row at one height, the shortest's, *gap* apart,
+    each with its label in its top-left corner when *labels* are given (which
+    view is which: "SEM", "FIB")."""
+    from PyQt5.QtCore import QRect, Qt
+    from PyQt5.QtGui import QColor, QFont, QGuiApplication, QImage, QPainter
 
     height = min(image.height() for image in images)
     scaled = [
@@ -526,10 +528,25 @@ def side_by_side(images: List, gap: int = 4):
     width = sum(image.width() for image in scaled) + gap * (len(scaled) - 1)
     row = QImage(width, height, QImage.Format_RGB32)
     row.fill(QColor(0, 0, 0))
+    if QGuiApplication.instance() is None:
+        labels = None  # text needs the app's fonts
     painter = QPainter(row)
+    font = QFont()
+    # About a twelfth of the picture's height: still readable once the card
+    # scales the picture down to its column.
+    font.setPixelSize(max(10, height // 12))
+    font.setBold(True)
+    painter.setFont(font)
+    pad = max(2, height // 60)
     x = 0
-    for image in scaled:
+    for index, image in enumerate(scaled):
         painter.drawImage(x, 0, image)
+        if labels and index < len(labels) and labels[index]:
+            box = painter.fontMetrics().boundingRect(labels[index])
+            back = QRect(x, 0, box.width() + 2 * pad, box.height() + 2 * pad)
+            painter.fillRect(back, QColor(0, 0, 0, 160))
+            painter.setPen(QColor(255, 255, 255))
+            painter.drawText(back, Qt.AlignCenter, labels[index])  # type: ignore
         x += image.width() + gap
     painter.end()
     return row
@@ -1075,13 +1092,13 @@ class AgentPreviews:
         self.suggestion_picture = _PairPicture(
             (tuple(f for f, _ in frames), tuple(layers))
         )
-        words = " and ".join(
-            "SEM" if beam is BeamType.ELECTRON else "FIB" for _, beam in frames
-        )
+        names = ["SEM" if beam is BeamType.ELECTRON else "FIB" for _, beam in frames]
+        words = " and ".join(names)
         caption = picture_caption(frames[-1][0], frames[-1][1]).split(" · ", 1)
         self._show_picture(
             side_by_side(
-                [draw_picture(f, [layer]) for (f, _), layer in zip(frames, layers)]
+                [draw_picture(f, [layer]) for (f, _), layer in zip(frames, layers)],
+                labels=names,
             ),
             " · ".join([words, *caption[1:]]),
             suggestion=True,
