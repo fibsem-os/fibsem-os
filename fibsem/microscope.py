@@ -33,7 +33,6 @@ from fibsem.geometry.movement import beam_view_tilt
 from fibsem.geometry.orientations import (
     compucentric_rotation,
 )
-from fibsem.imaging.tiling.progress import TiledProgress
 from fibsem.structures import (
     DEFAULT_STAGE_DEVICES,
     DEVICE_AXES,
@@ -153,8 +152,7 @@ class FibsemMicroscope(ABC):
     # crash-on-hardware bug that won't reproduce on a dev machine.
     #
     # Milling and spot burn progress is on their services: ``milling.progress`` and
-    # ``spot_burn.progress``.
-    tiled_acquisition_signal = Signal(TiledProgress)
+    # ``spot_burn.progress``. Tile progress is on ``imaging.tiled_progress``.
     system: SystemSettings
     #: The registry name of this class's driver, as its package's
     #: ``DRIVER.manufacturer`` spells it (``"Tescan"``). Each driver's class sets it;
@@ -1121,7 +1119,7 @@ class FibsemMicroscope(ABC):
         return self.milling.state.get_value()
 
     def estimate_milling_time(self) -> float:
-        return self._milling_service().estimate_time()
+        return self._milling_service().estimate_time()["seconds"]
 
     def draw_patterns(self, patterns: List[FibsemPatternSettings]) -> None:
         """Draw milling patterns on the microscope from the list of settings. All

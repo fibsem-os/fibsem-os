@@ -143,6 +143,21 @@ def latest_final_reference_images(lamella: Lamella, task_name: str) -> List[str]
     return final_reference_images(lamella, AutoLamellaTaskState(name=task_name))
 
 
+def latest_task_image(lamella: Lamella, suffix: str) -> str:
+    """The last completed task's most zoomed final image ending in ``suffix``,
+    from its latest run, relative to the lamella folder; empty when it left
+    none. The run's record says which, wherever it saved them (FIB-1275)."""
+    task = lamella.last_completed_task
+    if task is None:
+        return ""
+    finals = [
+        f
+        for f in latest_final_reference_images(lamella, task.name)
+        if f.endswith(suffix)
+    ]
+    return os.path.relpath(finals[-1], lamella.path) if finals else ""
+
+
 def lamella_images(lamella: Lamella, suffix: str) -> List[str]:
     """The lamella's image files ending in ``suffix``, relative to its folder:
     those in the folder itself (every image of an experiment from before task

@@ -142,19 +142,51 @@ def test_typed_milling_progress_serializes_through_the_real_service(microscope):
     try:
         microscope.milling.report(
             MillingProgress(
-                status=MillingProgressStatus.STAGE_UPDATE,
+                status=MillingProgressStatus.STAGE_STARTED,
                 stage_name="Rough Mill 01",
                 current_stage=0,
                 total_stages=2,
-                remaining_time=42.0,
+                estimated_time=42.0,
             )
         )
         event = buffer.events_since(0)["events"][-1]
         assert event["kind"] == "milling_progress"
-        assert event["payload"]["status"] == MillingProgressStatus.STAGE_UPDATE.value
+        assert event["payload"]["status"] == MillingProgressStatus.STAGE_STARTED.value
         assert event["payload"]["stage_name"] == "Rough Mill 01"
-        assert event["payload"]["remaining_time"] == 42.0
+        assert event["payload"]["estimated_time"] == 42.0
         json.dumps(event)
+    finally:
+        for dispose in disposers:
+            dispose()
+
+
+def test_a_stages_countdown_ticks_are_not_recorded(microscope):
+    """The 1 Hz stage updates are most of a milling log and nothing reads them
+    there; the transitions are recorded, and progress answers the countdown."""
+    from fibsem.milling.progress import MillingProgress, MillingProgressStatus
+
+    buffer = EventBuffer()
+    disposers = attach_microscope_taps(buffer, microscope)
+    try:
+        for status in (
+            MillingProgressStatus.STAGE_STARTED,
+            MillingProgressStatus.STAGE_UPDATE,
+            MillingProgressStatus.STAGE_UPDATE,
+            MillingProgressStatus.STAGE_FINISHED,
+        ):
+            microscope.milling.report(
+                MillingProgress(status=status, remaining_time=1.0)
+            )
+        statuses = [
+            event["payload"]["status"]
+            for event in buffer.events_since(0)["events"]
+            if event["kind"] == "milling_progress"
+        ]
+        assert statuses == ["stage-started", "stage-finished"]
+        microscope.milling.report(
+            MillingProgress(MillingProgressStatus.STAGE_UPDATE, remaining_time=7.0)
+        )
+        assert microscope.milling.progress.get_value().remaining_time == 7.0
     finally:
         for dispose in disposers:
             dispose()

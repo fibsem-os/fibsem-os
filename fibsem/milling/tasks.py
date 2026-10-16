@@ -30,6 +30,7 @@ from fibsem.structures import (
     BeamType,
     Display,
     FibsemImage,
+    FibsemRectangle,
     ImageSettings,
     MillingAlignment,
     Point,
@@ -325,6 +326,7 @@ class FibsemMillingTask:
     config: FibsemMillingTaskConfig = field(default_factory=FibsemMillingTaskConfig)
     task_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     reference_image: Optional[FibsemImage] = None
+    reference_image_full_frame: Optional[FibsemImage] = None
 
     def __init__(
         self,
@@ -569,6 +571,7 @@ class FibsemMillingTask:
 
         # Set up the stage with the task configuration
         stage.reference_image = self.reference_image
+        stage.reference_image_full_frame = self.reference_image_full_frame
         stage.output_dir = self.output_dir
         for stage_path, task_path in TASK_SETS_ON_STAGE.items():
             _set_path(stage, stage_path, _get_path(self.config, task_path))
@@ -689,29 +692,49 @@ class FibsemMillingTask:
         self.microscope.record_event("milling_stage_started", payload)
 
     def _acquire_reference_image(self) -> Optional[FibsemImage]:
-        """Acquire a reference image for the milling task."""
-
-        if self.reference_image is not None:
-            return self.reference_image
+        """Acquire the reference images for the milling task: the alignment
+        area, and the whole frame too when a stage may align full frame."""
 
         path = self.output_dir
         if path is None:
             path = Path(fcfg.DATA_CC_PATH)
 
-        filename = f"{self.name}_{fcfg.REFERENCE_FILENAME}_{current_timestamp_v3(timeonly=True)}".replace(
-            " ", "-"
-        )
+        if self.reference_image is None:
+            self.reference_image = self._acquire_alignment_reference(
+                path, reduced_area=self.config.alignment.rect
+            )
+        if (
+            self.config.alignment.full_frame_below > 0
+            and self.reference_image_full_frame is None
+        ):
+            self.reference_image_full_frame = self._acquire_alignment_reference(
+                path, reduced_area=None, tag="full-frame"
+            )
+        return self.reference_image
+
+    def _acquire_alignment_reference(
+        self,
+        path,
+        reduced_area: Optional[FibsemRectangle],
+        tag: str = "",
+    ) -> FibsemImage:
+        """One alignment reference at the task's field of view, at the current
+        the beam is at now (the imaging current, before any stage sets its own)."""
+        filename = f"{self.name}_{fcfg.REFERENCE_FILENAME}"
+        if tag:
+            filename = f"{filename}_{tag}"
+        filename = f"{filename}_{current_timestamp_v3(timeonly=True)}".replace(" ", "-")
         image_settings = ImageSettings(
             hfw=self.config.field_of_view,
             dwell_time=self.config.alignment.imaging.dwell_time,
             resolution=self.config.alignment.imaging.resolution,
             beam_type=self.config.channel,
-            reduced_area=self.config.alignment.rect,
+            reduced_area=reduced_area,
             save=True,
             path=path,
             filename=filename,
         )
-        self.reference_image = acquire.acquire_image(
+        return acquire.acquire_image(
             microscope=self.microscope, settings=image_settings
         )
 

@@ -22,6 +22,7 @@ from dataclasses import asdict, dataclass
 from typing import Any, Callable, Dict, Optional
 
 from fibsem.cancellation import CANCELLED, FAILED, ended_by
+from fibsem.server.calls import current_call
 from fibsem.util.timestamps import now_iso
 
 __all__ = ["Run", "Runs", "RUNNING", "DONE", "FAILED", "CANCELLED"]
@@ -95,6 +96,9 @@ class Runs:
         )
         with self._cond:
             self._runs[service] = run
+        agent_call = current_call()
+        if agent_call is not None:
+            agent_call.run_id = run.run_id  # its run's events say how it went
         self._tell("command_started", run)
         context = contextvars.copy_context()
         threading.Thread(
@@ -160,4 +164,9 @@ class Runs:
         }
         if run.error is not None:
             payload["error"] = run.error.get("message")
+        agent_call = current_call()  # the thread runs in the request's context
+        if agent_call is not None and agent_call.action:
+            payload["action"] = agent_call.action
+        if agent_call is not None and agent_call.level:
+            payload["level"] = agent_call.level
         self._record(kind, payload)
