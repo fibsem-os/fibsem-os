@@ -203,10 +203,10 @@ class FibsemClient:
     def vertical_move(self, dy: float, dx: float = 0.0) -> FibsemStagePosition:
         return self._move("vertical_move", dy=dy, dx=dx)
 
-    def safe_absolute_stage_movement(self, position: FibsemStagePosition) -> None:
-        self.call_service_command(
-            STAGE_MOVEMENT, "safe_absolute_stage_movement", stage_position=position
-        )
+    def safe_absolute_stage_movement(
+        self, position: FibsemStagePosition
+    ) -> FibsemStagePosition:
+        return self._move("safe_absolute_stage_movement", stage_position=position)
 
     def move_to_orientation(self, orientation: str) -> FibsemStagePosition:
         return self._move("move_to_orientation", orientation=orientation)
@@ -636,7 +636,7 @@ class FibsemClient:
         return MillingState(self.get_service_parameter(MILLING, "state"))
 
     def estimate_milling_time(self) -> float:
-        return self.call_service_query(MILLING, "estimate")
+        return self.call_service_query(MILLING, "estimate_time")
 
 
 def _point(value: Optional[Dict[str, Any]]) -> Optional[Point]:

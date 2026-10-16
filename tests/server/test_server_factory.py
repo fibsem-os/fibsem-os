@@ -104,6 +104,11 @@ def test_capabilities_reports_the_level_and_routers(read_client):
     assert body["routers"] == {"microscope": True, "app": False}
     assert body["level"] == "watch"
     assert "manufacturer" not in body  # the microscope's own: GET /microscope
+    # the code it runs, for a sidecar to compare its own with (FIB-1429)
+    import fibsem
+    from fibsem.server.discovery import fibsem_folder
+
+    assert body["fibsem"] == {"version": fibsem.__version__, "path": fibsem_folder()}
 
 
 def test_the_microscope_says_who_it_is(read_client):

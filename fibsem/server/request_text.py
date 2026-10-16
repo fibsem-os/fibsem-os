@@ -15,8 +15,8 @@ An action may also carry ``details``, a small table the operator can open
 ("Show details"): every value, so the one line never has to hold them all.
 """
 
-import json
 import math
+import os
 from dataclasses import fields as dataclass_fields
 from dataclasses import is_dataclass
 from enum import Enum
@@ -38,11 +38,20 @@ _MISSING = object()
 
 
 def _short(value: Any) -> str:
+    """A value as words: never JSON, which an operator should not have to read."""
+    if isinstance(value, bool):
+        return "yes" if value else "no"
     if isinstance(value, float):
         return f"{value:.4g}"
     if isinstance(value, str):
         return value
-    return json.dumps(value, default=str)
+    if value is None:
+        return "none"
+    if isinstance(value, dict):
+        return ", ".join(f"{_words(k)} {_short(v)}" for k, v in value.items())
+    if isinstance(value, (list, tuple)):
+        return ", ".join(_short(v) for v in value)
+    return str(value)
 
 
 def _clip(text: str, limit: int = _LINE_VALUE) -> str:
@@ -113,7 +122,7 @@ def _display(value: Any, spec: Optional["Parameter"]) -> str:
         return _short(value)
     if spec is None:
         shown, unit = value, ""
-    elif spec.unit and not spec.scale and not spec.display.unit:
+    elif spec.unit and not spec.scale and not spec._shown.unit:
         # no scale declared: the prefix the value's size calls for (60 pA)
         from fibsem.utils import _get_display_unit, _get_scale_from_value
 
@@ -293,7 +302,7 @@ def _prepare(kwargs: Dict[str, Any]) -> Dict[str, Any]:
         "what": "Milling",
         "change": change,
         "details": _table(("Pattern", "Size", "Depth", "Centre"), rows),
-        "_estimate": _estimate(patterns, current),
+        "_estimate": (_estimate(patterns, current), current),
     }
 
 
@@ -307,28 +316,118 @@ _MILLING = {
     "finish": "Finish milling: clear the patterns and put the beam back",
 }
 
+# Whose estimate a mill's time is: the sputter-rate table's, at the mill's
+# current, not the instrument's (FIB-1412).
+_ESTIMATED = "estimated from the sputter rate"
 
-def _milling_command(command: str, kwargs: Dict[str, Any], estimate: Optional[float]):
+
+def _stages(values: Any) -> List[Any]:
+    """Milling stage dicts as stages; one that does not parse is left out."""
+    from fibsem.milling.base import FibsemMillingStage
+
+    stages = []
+    for value in values or []:
+        try:
+            stages.append(FibsemMillingStage.from_dict(dict(value)))
+        except Exception:  # noqa: BLE001 - the route refuses it; describe the rest
+            continue
+    return stages
+
+
+def _stage_rows(stages: List[Any]) -> Dict[str, Any]:
+    rows = []
+    for stage in stages:
+        pattern = stage.pattern
+        point = getattr(pattern, "point", None)
+        depth = getattr(pattern, "depth", None)
+        rows.append(
+            (
+                stage.name,
+                str(getattr(pattern, "name", "") or type(pattern).__name__),
+                _current(stage.milling.milling_current),
+                _distance(depth) if depth is not None else "",
+                (
+                    f"({point.x * 1e6:+.1f}, {point.y * 1e6:+.1f}) µm"
+                    if point is not None
+                    else ""
+                ),
+            )
+        )
+    return _table(("Stage", "Pattern", "Current", "Depth", "Position"), rows)
+
+
+def _stages_estimate(stages: List[Any]) -> Optional[float]:
+    try:
+        return sum(stage.estimated_time for stage in stages)
+    except Exception:  # noqa: BLE001 - no estimate, nothing more
+        return None
+
+
+def _names_cut(names: List[str], shown: int = 3) -> str:
+    if len(names) <= shown:
+        return ", ".join(names)
+    return ", ".join(names[:shown]) + " …"
+
+
+def _run_task(kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    """A milling task, by its stages: what each mills, at what current, where."""
+    config = kwargs.get("config")
+    config = config if isinstance(config, dict) else {}
+    name = config.get("name") or "milling task"
+    stages = [s for s in _stages(config.get("stages")) if s.enabled]
+    if not stages:
+        raw = [s.get("name") for s in config.get("stages") or [] if isinstance(s, dict)]
+        listed = f": {_plural(len(raw), 'stage')}" if raw else ""
+        return {"what": "Milling", "change": f"Run task '{name}'{listed}"}
+    names = [stage.name for stage in stages]
+    change = f"Run task '{name}': {_plural(len(stages), 'stage')} ({_names_cut(names)})"
+    estimate = _stages_estimate(stages)
+    if estimate:
+        change += f", about {_seconds(estimate)} ({_ESTIMATED})"
+    return {"what": "Milling", "change": change, "details": _stage_rows(stages)}
+
+
+def _run_stage(kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    stages = _stages([kwargs.get("stage")])
+    if not stages:
+        stage = kwargs.get("stage")
+        name = stage.get("name") if isinstance(stage, dict) else None
+        return {"what": "Milling", "change": f"Run stage '{name or 'milling stage'}'"}
+    stage = stages[0]
+    pattern = stage.pattern
+    change = (
+        f"Run stage '{stage.name}': "
+        f"{str(getattr(pattern, 'name', '') or 'pattern').lower()}, "
+        f"{_current(stage.milling.milling_current)}"
+    )
+    estimate = _stages_estimate(stages)
+    if estimate:
+        change += f", about {_seconds(estimate)} ({_ESTIMATED})"
+    return {"what": "Milling", "change": change, "details": _stage_rows(stages)}
+
+
+def _milling_command(command: str, kwargs: Dict[str, Any], estimate):
     if command == "prepare":
         return _prepare(kwargs)
     if command == "run":
-        about = f", about {_seconds(estimate)}" if estimate else ""
+        seconds, current = estimate or (None, None)
+        about = ""
+        if seconds:
+            at = f" at {_current(current)}" if current else ""
+            about = f", about {_seconds(seconds)} ({_ESTIMATED}{at})"
         return {"what": "Milling", "change": f"Run{about}"}
+    if command == "run_task":
+        return _run_task(kwargs)
+    if command == "run_stage":
+        return _run_stage(kwargs)
     if command in _MILLING:
         return {"what": "Milling", "change": _MILLING[command]}
     return None
 
 
-def _um(metres: Any) -> str:
-    try:
-        return f"{float(metres) * 1e6:.3g} µm"
-    except (TypeError, ValueError):
-        return _short(metres)
-
-
 def _deg(radians: Any) -> str:
     try:
-        return f"{math.degrees(float(radians)):.3g}°"
+        return f"{_number(math.degrees(float(radians)))}°"
     except (TypeError, ValueError):
         return _short(radians)
 
@@ -336,6 +435,10 @@ def _deg(radians: Any) -> str:
 def _beam(arguments: Dict[str, Any]) -> str:
     beam = str(arguments.get("beam_type", "ELECTRON")).upper()
     return "Ion beam" if beam == "ION" else "Electron beam"
+
+
+def _beam_short(beam_type: Any) -> str:
+    return "FIB" if str(beam_type or "ELECTRON").upper() in ("ION", "2") else "SEM"
 
 
 def _names(values: Any, every: str) -> str:
@@ -358,22 +461,112 @@ def _walk(document: Any, dotted: str) -> Any:
     return node
 
 
-def _patch_lines(patch: Any, document: Optional[Dict[str, Any]]) -> str:
+def _item_setting(path: str) -> str:
+    """An item's dotted path as words: "poi.x" reads "POI x"."""
+    words = _words(str(path).replace(".", " "))
+    return "POI" + words[3:] if words.startswith("poi") else words
+
+
+def _item_value(path: str, value: Any) -> str:
+    """An item's value in display units: the POI in metres reads in µm, the
+    alignment area's fractions of the frame as percent."""
+    if isinstance(value, dict):
+        return ", ".join(
+            f"{_words(k)} {_item_value(f'{path}.{k}', v)}" for k, v in value.items()
+        )
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        parts = str(path).split(".")
+        if "area" in str(path):
+            return f"{_number(value * 100)}%"
+        if parts[-1] in ("x", "y", "z") or "poi" in parts or "point" in parts:
+            return _distance(value)
+    return _short(value)
+
+
+# An item's places, each one line however many of its fields the edit sets:
+# (field, words, the fields in the order they read).
+_ITEM_PLACES = (
+    ("poi", "Point of interest", ("x", "y")),
+    ("alignment_area", "Alignment area", ("left", "top", "width", "height")),
+)
+
+
+def _item_patch_lines(patch: Any, document: Optional[Dict[str, Any]]) -> str:
+    """An item edit as lines: its point of interest and its alignment area one
+    line each ("Point of interest: (1, 0) µm → (2, 0) µm"), however the edit
+    sets them; anything else a line per setting."""
+    if not isinstance(patch, dict) or not patch:
+        return "No changes"
+    flat: Dict[str, Any] = {}
+    for path, new in patch.items():
+        if isinstance(new, dict) and any(path == f for f, _, _ in _ITEM_PLACES):
+            flat.update({f"{path}.{k}": v for k, v in new.items()})
+        else:
+            flat[str(path)] = new
+    lines: List[str] = []
+    for field, words, parts in _ITEM_PLACES:
+        if not any(f"{field}.{p}" in flat for p in parts):
+            continue
+        old = {p: _walk(document or {}, f"{field}.{p}") for p in parts}
+        new = {p: flat.pop(f"{field}.{p}", old[p]) for p in parts}
+        line = f"{words}: {_item_place(field, new)}"
+        if all(v is not _MISSING for v in old.values()):
+            line = f"{words}: {_item_place(field, old)} → {_item_place(field, new)}"
+        lines.append(line)
+    rest = _patch_lines(flat, document, _item_setting, _item_value) if flat else ""
+    return "\n".join(lines + ([rest] if rest else []))
+
+
+def _item_place(field: str, values: Dict[str, Any]) -> str:
+    """A point of interest as "(1, -3) µm"; an alignment area as "30 × 20% at
+    (25, 50)%". A value not known reads "?"."""
+
+    def number(value: Any, scale: float) -> str:
+        try:
+            return _number(float(value) * scale)
+        except (TypeError, ValueError):
+            return "?"
+
+    if field == "poi":
+        return f"({number(values['x'], 1e6)}, {number(values['y'], 1e6)}) µm"
+    return (
+        f"{number(values['width'], 100)} × {number(values['height'], 100)}% at "
+        f"({number(values['left'], 100)}, {number(values['top'], 100)})%"
+    )
+
+
+def _patch_lines(
+    patch: Any,
+    document: Optional[Dict[str, Any]],
+    name: Callable[[str], str] = str,
+    value: Callable[[str, Any], str] = lambda _path, v: _short(v),
+) -> str:
     if not isinstance(patch, dict) or not patch:
         return "No changes"
     lines: List[str] = []
     for path, new in patch.items():
         old = _MISSING if document is None else _walk(document, str(path))
+        after = value(str(path), new)
         if old is _MISSING:
-            lines.append(f"{path}: {_short(new)}")
+            lines.append(f"{name(str(path))}: {after}")
         else:
-            lines.append(f"{path}: {_short(old)} → {_short(new)}")
+            lines.append(f"{name(str(path))}: {value(str(path), old)} → {after}")
     return "\n".join(lines)
+
+
+def _values_text(values: Any) -> str:
+    """A decision's or an answer's values as words: {"poi": {"x", "y"}} reads
+    "POI x 1.2 µm, y -3 µm"."""
+    if isinstance(values, dict):
+        return ", ".join(
+            f"{_item_setting(k)} {_item_value(k, v)}" for k, v in values.items()
+        )
+    return _short(values)
 
 
 def _stage_relative(a: Dict[str, Any]) -> str:
     moves = [
-        f"{axis} {_um(a[k])}"
+        f"{axis} {_distance(a[k])}"
         for axis, k in (("x", "dx"), ("y", "dy"), ("z", "dz"))
         if a.get(k)
     ]
@@ -399,11 +592,385 @@ def _offset(dx: Any, dy: Any) -> str:
     return ", ".join(parts) or "no offset"
 
 
-def _stage_absolute(a: Dict[str, Any]) -> str:
-    return (
-        f"Move to x {_um(a.get('x'))}, y {_um(a.get('y'))}, z {_um(a.get('z'))}, "
-        f"rotation {_deg(a.get('r'))}, tilt {_deg(a.get('t'))}"
+def _position(p: Any) -> str:
+    """A stage position in metres and radians, in display units."""
+    if not isinstance(p, dict):
+        return _short(p)
+    parts = [
+        f"{axis} {_distance(p[axis])}" for axis in "xyz" if p.get(axis) is not None
+    ]
+    for axis, word in (("t", "tilt"), ("r", "rotation")):
+        if p.get(axis) is not None:
+            parts.append(f"{word} {_deg(p[axis])}")
+    return ", ".join(parts)
+
+
+def _dwell(seconds: Any) -> str:
+    try:
+        seconds = float(seconds)
+    except (TypeError, ValueError):
+        return _short(seconds)
+    if seconds >= 1e-3:
+        return f"{_number(seconds * 1e3)} ms"
+    if seconds >= 1e-6:
+        return f"{_number(seconds * 1e6)} µs"
+    return f"{_number(seconds * 1e9)} ns"
+
+
+def _resolution(value: Any) -> str:
+    if isinstance(value, (list, tuple)) and len(value) == 2:
+        return f"{value[0]} × {value[1]}"
+    return _short(value)
+
+
+# A fresh image's settings when the agent leaves one out: the tool's defaults,
+# not the beam's current values (catalog: beam_acquire_image).
+_IMAGE_DEFAULTS = {"hfw": 150e-6, "resolution": [1536, 1024], "dwell_time": 1e-6}
+
+
+def _image_settings(settings: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
+    """An image's field of view, resolution and dwell, as one phrase and a table."""
+    hfw = settings.get("hfw")
+    resolution = settings.get("resolution")
+    dwell = settings.get("dwell_time")
+    phrase = ", ".join(
+        part
+        for part in (
+            f"{_distance(hfw)} wide" if hfw is not None else "",
+            _resolution(resolution) if resolution is not None else "",
+            f"{_dwell(dwell)} dwell" if dwell is not None else "",
+        )
+        if part
     )
+    rows = [
+        (_words(key), _short(value))
+        for key, value in settings.items()
+        if key != "beam_type"
+    ]
+    return phrase, _table(("Setting", "Value"), rows)
+
+
+def _acquire_image(a: Dict[str, Any]) -> Dict[str, Any]:
+    settings = a.get("image_settings")
+    if not isinstance(settings, dict) or not settings:
+        return {"what": _beam(a), "change": "Take an image, as the beam is set now"}
+    phrase, details = _image_settings({**_IMAGE_DEFAULTS, **settings})
+    return {
+        "what": _beam(a),
+        "change": f"Take an image: {phrase}. These settings stay on the beam",
+        "details": details,
+    }
+
+
+def _overview(a: Dict[str, Any]) -> Dict[str, Any]:
+    settings = a.get("settings") if isinstance(a.get("settings"), dict) else {}
+    image = settings.get("image_settings") or {}
+    rows, cols = settings.get("nrows"), settings.get("ncols")
+    beam = _beam_short(image.get("beam_type"))
+    hfw = image.get("hfw")
+    grid = f"{rows} × {cols} " if rows and cols else ""
+    change = f"Take a {grid}{beam} overview"
+    try:
+        overlap = float(settings.get("overlap") or 0.0)
+        if hfw is not None and rows and cols:
+            across = float(hfw) * (max(int(rows), int(cols)) * (1 - overlap) + overlap)
+            change += f", {_distance(hfw)} tiles (about {_distance(across)} across)"
+    except (TypeError, ValueError):
+        pass
+    change += ", here"
+    table = [
+        (_words(k), _short(v)) for k, v in settings.items() if k != "image_settings"
+    ]
+    table += [(_words(k), _short(v)) for k, v in image.items()]
+    if a.get("path"):
+        table.append(("saved in", f"{a['path']} as {a.get('name') or 'overview'}"))
+    return {
+        "what": "Overview",
+        "change": change,
+        "details": _table(("Setting", "Value"), table),
+    }
+
+
+def _focus_stack(a: Dict[str, Any]) -> Dict[str, Any]:
+    image = a.get("image_settings") if isinstance(a.get("image_settings"), dict) else {}
+    steps = a.get("n_steps") or 3
+    change = f"Take an image focused in {steps} strips"
+    if image.get("hfw") is not None:
+        change += f", {_distance(image['hfw'])} wide"
+    if a.get("auto_focus", True):
+        change += ", each strip focused first"
+    return {"what": _beam(image), "change": change}
+
+
+def _fm_channels(a: Dict[str, Any], change: str) -> Dict[str, Any]:
+    """*change* in the channels the call names, with their settings as details."""
+    channels = [c for c in a.get("channels") or [] if isinstance(c, dict)]
+    names = [str(c.get("name") or "channel") for c in channels]
+    change += f" in {_plural(len(channels), 'channel')}"
+    if names:
+        change += f" ({_names_cut(names)})"
+    change += ", here"
+    table = [
+        (
+            str(c.get("name") or ""),
+            ", ".join(f"{_words(k)} {_short(v)}" for k, v in c.items() if k != "name"),
+        )
+        for c in channels
+    ]
+    return {
+        "what": "Fluorescence",
+        "change": change,
+        "details": _table(("Channel", "Settings"), table) if table else None,
+    }
+
+
+def _fm_overview(a: Dict[str, Any]) -> Dict[str, Any]:
+    parameters = a.get("parameters") if isinstance(a.get("parameters"), dict) else {}
+    rows, cols = parameters.get("rows"), parameters.get("cols")
+    grid = f"{rows} × {cols} " if rows and cols else ""
+    return _fm_channels(a, f"Take a {grid}overview")
+
+
+def _fm_image(a: Dict[str, Any]) -> Dict[str, Any]:
+    zparams = a.get("zparams") if isinstance(a.get("zparams"), dict) else None
+    return _fm_channels(a, "Take a z-stack" if zparams else "Take an image")
+
+
+_ALIGN_WITH = {
+    "beam-shift": "the beam shift",
+    "stage": "stage moves",
+    "stage-vertical": "vertical stage moves",
+}
+
+
+def _parameter_spec(info: Any) -> Optional["Parameter"]:
+    """A device parameter's listing (``describe_device``) as a ``Parameter``:
+    its unit and how it is shown."""
+    if not isinstance(info, dict):
+        return None
+    from fibsem.structures import Display, Parameter
+
+    display = info.get("display")
+    shown = None
+    if isinstance(display, dict) and {"label", "scale", "unit"} & set(display):
+        known = {f.name for f in dataclass_fields(Display)}
+        try:
+            shown = Display(**{k: v for k, v in display.items() if k in known})
+        except TypeError:
+            shown = None
+    return Parameter(unit=info.get("unit"), display=shown)
+
+
+def _set_parameter(
+    a: Dict[str, Any], owner_key: str, path: str, get: Callable[[str], Any]
+) -> Dict[str, Any]:
+    owner, parameter = a.get(owner_key), str(a.get("parameter"))
+    spec = None
+    listing = get(path.rsplit("/", 1)[0]) if "/" in path else None
+    if isinstance(listing, dict):
+        spec = _parameter_spec((listing.get("parameters") or {}).get(parameter))
+    name = (spec.label if spec is not None else None) or _words(parameter)
+    new = _display(a.get("value"), spec)
+    current = get(path)
+    if isinstance(current, dict) and "value" in current:
+        change = f"Set {name} {_display(current['value'], spec)} → {new}"
+    else:
+        change = f"Set {name} to {new}"
+    return {"what": _words(owner).capitalize() if owner else "", "change": change}
+
+
+def _item_route(item: Any) -> str:
+    from urllib.parse import quote
+
+    return f"/app/experiment/items/{quote(str(item), safe='')}"
+
+
+def _pose_of(detail: Any, pose: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(detail, dict):
+        return None
+    position = (detail.get("poses") or {}).get(pose)
+    return position if isinstance(position, dict) else None
+
+
+def _add_item(a: Dict[str, Any], stage_now: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    named = f" '{a['name']}'" if a.get("name") else ""
+    overview = a.get("overview")
+    position = a.get("stage_position")
+    rows = []
+    if isinstance(overview, dict):
+        where = overview.get("filename") or "the overview"
+        if overview.get("fraction") is not None:
+            fx, fy = (list(overview["fraction"]) + [None, None])[:2]
+            at = f"{_number(float(fx) * 100)}% across, {_number(float(fy) * 100)}% down"
+        else:
+            at = f"pixel {_short(overview.get('px'))}"
+        change = f"Add{named} on {where}, at {at}"
+        rows.append(("Grid", _short(overview.get("grid_name"))))
+    elif isinstance(position, dict):
+        change = f"Add{named} at {_position(position)}"
+    else:
+        change = f"Add{named} at the stage position now"
+        if stage_now:
+            change += f": {_position(stage_now)}"
+    if isinstance(position, dict) and position.get("coordinate_system"):
+        rows.append(("Coordinates", str(position["coordinate_system"])))
+    line = {"what": "Lamella", "change": change}
+    if rows:
+        line["details"] = _table(("", ""), rows)
+    return line
+
+
+def _open_experiment(get) -> Optional[str]:
+    """The name of the experiment open now, or None."""
+    status = get("/app/workflow/status")
+    current = (status or {}).get("experiment") if isinstance(status, dict) else None
+    return (current or {}).get("name") if isinstance(current, dict) else None
+
+
+def _experiment_name(path: str) -> str:
+    """An experiment's name from its path: the folder, not experiment.yaml."""
+    path = path.rstrip("/\\")
+    name = os.path.basename(path.replace("\\", "/"))
+    if os.path.splitext(name)[1].lower() in (".yaml", ".yml"):
+        name = os.path.basename(os.path.dirname(path.replace("\\", "/")))
+    return name or "an experiment"
+
+
+def _review_item(reviews: Any, item_id: Any) -> Optional[str]:
+    if not isinstance(reviews, dict):
+        return None
+    for review in list(reviews.get("reviews") or []) + list(
+        reviews.get("to_check") or []
+    ):
+        if isinstance(review, dict) and review.get("item_id") == item_id:
+            return review.get("item_name")
+    return None
+
+
+# --- grids on the hardware: what an exchange will do ---------------------------------
+
+_SAMPLE_HANDLING = "/microscope/services/sample_handling/queries/"
+
+
+def _result(answer: Any) -> Any:
+    return answer.get("result") if isinstance(answer, dict) else None
+
+
+def _loaded(inventory: List[Dict[str, Any]]) -> Optional[str]:
+    """The grid on the stage now, by name."""
+    return next((e.get("name") for e in inventory if e.get("state") == "loaded"), None)
+
+
+def _grid_load(name: str, inventory: Any) -> str:
+    """``Load grid 'G2' from Slot-02 (unloads 'G1' first)``: the exchange the
+    loader will make, from the inventory as it reads now."""
+    change = f"Load grid '{name}'"
+    if not isinstance(inventory, list) or not inventory:
+        return change
+    entry = next((e for e in inventory if e.get("name") == name), None)
+    if entry is None:
+        return change + ": it is not in the inventory"
+    if entry.get("source") != "magazine":
+        return change + f": it is in {entry.get('slot_name')} already, nothing moves"
+    if entry.get("state") == "loaded":
+        return change + ": it is on the stage already, nothing moves"
+    change += f" from {entry.get('slot_name')}"
+    current = _loaded(inventory)
+    return change + (f" (unloads '{current}' first)" if current else "")
+
+
+def _grid_unload(inventory: Any) -> str:
+    if not isinstance(inventory, list) or not inventory:
+        return "Return the grid on the stage to the magazine"
+    if inventory[0].get("source") != "magazine":
+        return "Unload: nothing to do on a fixed holder"
+    current = _loaded(inventory)
+    if current is None:
+        return "Unload: no grid is on the stage"
+    return f"Return grid '{current}' to the magazine"
+
+
+def _grid_add(get: Callable[[str], Any]) -> str:
+    """Which grids the inventory read will record: those present and not yet
+    in the experiment."""
+    inventory = _result(get(_SAMPLE_HANDLING + "get_inventory"))
+    records = get("/app/experiment/grids")
+    if not isinstance(inventory, list) or not isinstance(records, dict):
+        return "Record the inventory's grids the experiment has no record of"
+    known = {g.get("name") for g in records.get("items") or []}
+    new = [
+        e.get("name")
+        for e in inventory
+        if e.get("name")
+        and e.get("state") in ("loaded", "occupied")
+        and e.get("name") not in known
+    ]
+    if not new:
+        return "Record the inventory's grids: every one is recorded already"
+    return f"Record {_names_cut(new)} from the inventory"
+
+
+def _slot_move(change: str, slot: Optional[Dict[str, Any]], now: Any) -> str:
+    """A move to a holder slot, with where that is and where the stage is now."""
+    target = slot.get("position") if slot else None
+    if target:
+        change += f": {_position(target)}"
+    elif slot is not None:
+        change += ": the slot is not calibrated, so it will be refused"
+    if target and now:
+        change += f"\nfrom {_position(now)}"
+    return change
+
+
+# The sample handling commands that have a tool of their own: called either way,
+# a request reads the same.
+_GRID_COMMANDS = {
+    "ensure_loaded": "grid_load",
+    "unload": "grid_unload",
+    "run_inventory": "grid_run_inventory",
+    "move_to_grid": "grid_move_to",
+    "move_to_slot": "grid_move_to_slot",
+}
+
+
+def _grid_line(
+    tool: str,
+    a: Dict[str, Any],
+    get: Callable[[str], Any],
+    stage_now: Callable[[], Optional[Dict[str, Any]]],
+) -> Dict[str, Any]:
+    if tool == "grid_load":
+        inventory = _result(get(_SAMPLE_HANDLING + "get_inventory"))
+        return {
+            "what": "Grids",
+            "change": _grid_load(str(a.get("grid_name")), inventory),
+        }
+    if tool == "grid_unload":
+        inventory = _result(get(_SAMPLE_HANDLING + "get_inventory"))
+        return {"what": "Grids", "change": _grid_unload(inventory)}
+    if tool == "grid_run_inventory":
+        return {
+            "what": "Grids",
+            "change": "Scan the magazine slot by slot, to read which grids it holds",
+        }
+    slots = _result(get(_SAMPLE_HANDLING + "holder_slots"))
+    slots = slots if isinstance(slots, list) else []
+    if tool == "grid_move_to":
+        name = str(a.get("grid_name"))
+        change = f"Move to grid '{name}'"
+        slot = next(
+            (s for s in slots if (s.get("loaded_grid") or {}).get("name") == name),
+            None,
+        )
+        if slot is not None:
+            change += f", in {slot.get('name')}"
+        elif slots:
+            change += ": it is not on the stage, so it will be refused"
+    else:
+        name = str(a.get("slot_name"))
+        change = f"Move to slot '{name}'"
+        slot = next((s for s in slots if s.get("name") == name), None)
+    return {"what": "Stage", "change": _slot_move(change, slot, stage_now())}
 
 
 def describe_actions(
@@ -415,7 +982,7 @@ def describe_actions(
     action can read what came before it: a milling run says how long the
     patterns an earlier action prepares take."""
     described = []
-    estimate: Optional[float] = None
+    estimate: Optional[Tuple[Optional[float], Any]] = None
     for tool, arguments, path in actions:
         line = _describe(tool, arguments, path, read, describe, estimate)
         if "_estimate" in line:
@@ -446,9 +1013,22 @@ def _describe(
     path: str,
     read: Optional[Reader],
     describe: Optional[Describer],
-    estimate: Optional[float],
+    estimate,
 ) -> Dict[str, Any]:
-    a = arguments or {}
+    line = _line(tool, arguments or {}, path, read, describe, estimate)
+    if line.get("details") is None:
+        line.pop("details", None)
+    return line
+
+
+def _line(
+    tool: str,
+    a: Dict[str, Any],
+    path: str,
+    read: Optional[Reader],
+    describe: Optional[Describer],
+    estimate,
+) -> Dict[str, Any]:
     item, task = a.get("item_name"), a.get("task_name")
     if describe is not None:
         try:
@@ -457,25 +1037,38 @@ def _describe(
             own = None
         if own:
             line = {"what": tool, "change": "Run"}
-            line.update(_describe(tool, a, path, read, None, estimate))
+            line.update(_line(tool, a, path, read, None, estimate))
             line.update(own)
             return line
 
-    def document(key: Optional[str]) -> Optional[Dict[str, Any]]:
+    def get(route: str) -> Any:
+        """GET *route*, or None: no old value is shown, nothing more."""
         if read is None:
             return None
         try:
-            answer = read(path)
-        except Exception:  # noqa: BLE001 - no old value is shown, nothing more
+            return read(route)
+        except Exception:  # noqa: BLE001
             return None
+
+    def document(key: Optional[str]) -> Optional[Dict[str, Any]]:
+        answer = get(path)
         if not isinstance(answer, dict):
             return None
         return answer.get(key) if key else answer
 
+    def stage_now() -> Optional[Dict[str, Any]]:
+        answer = get("/microscope/devices/stage/position")
+        value = answer.get("value") if isinstance(answer, dict) else None
+        return value if isinstance(value, dict) else None
+
     if tool == "stage_move_relative":
         return {"what": "Stage", "change": _stage_relative(a)}
     if tool == "stage_move_absolute":
-        return {"what": "Stage", "change": "Safe " + _stage_absolute(a).lower()}
+        change = f"Safe move to {_position(a)}"
+        now = stage_now()
+        if now:
+            change += f"\nfrom {_position(now)}"
+        return {"what": "Stage", "change": change}
     if tool == "stage_stable_move":
         return {
             "what": "Stage",
@@ -483,16 +1076,31 @@ def _describe(
             f"{_offset(a.get('dx'), a.get('dy'))}",
         }
     if tool == "stage_vertical_move":
-        return {
-            "what": "Stage",
-            "change": "Vertical move, to centre a feature "
-            f"{_offset(a.get('dx'), a.get('dy'))} in {_beam_words(a.get('beam_type'), 'ION')}",
-        }
+        change = (
+            "Vertical move, to centre a feature "
+            f"{_offset(a.get('dx'), a.get('dy'))} in {_beam_words(a.get('beam_type'), 'ION')}"
+        )
+        try:
+            relaxation = float(a["relaxation"])
+        except (KeyError, TypeError, ValueError):
+            relaxation = 1.0
+        if relaxation < 1:
+            change += f", {_number(relaxation * 100)}% of the way"
+        return {"what": "Stage", "change": change}
     if tool == "stage_move_to_orientation":
         return {
             "what": "Stage",
             "change": f"Move to the {str(a.get('orientation', '')).upper()} orientation",
         }
+    if tool == "grid_add":
+        return {"what": "Grids", "change": _grid_add(get)}
+    if tool == "grid_rename":
+        return {
+            "what": f"Grid '{a.get('grid_name')}'",
+            "change": f"Rename it '{a.get('name')}', on its slot and in the experiment",
+        }
+    if tool in _GRID_COMMANDS.values():
+        return _grid_line(tool, a, get, stage_now)
     if tool == "milling_stop":
         return {"what": "Milling", "change": _MILLING["stop"]}
     if tool == "stage_move_to_milling_angle":
@@ -506,16 +1114,50 @@ def _describe(
             ),
         }
     if tool == "beam_acquire_image":
-        return {"what": _beam(a), "change": "Take an image"}
+        return _acquire_image(a)
     if tool == "last_image_preview":
         return {"what": _beam(a), "change": "Show the last image"}
     if tool == "beam_auto_contrast":
         return {"what": _beam(a), "change": "Autocontrast"}
-    if tool == "device_set_parameter":
+    if tool == "beam_auto_brightness_contrast":
+        return {"what": _beam(a), "change": "Auto brightness and contrast"}
+    if tool == "beam_auto_focus":
+        return {"what": _beam(a), "change": "Autofocus"}
+    if tool == "beam_acquire_overview":
+        return _overview(a)
+    if tool == "beam_acquire_focus_stack":
+        return _focus_stack(a)
+    if tool == "fm_auto_focus":
+        on = (
+            f"on {a['channel_name']}"
+            if a.get("channel_name")
+            else "on the current channel"
+        )
+        return {"what": "Fluorescence", "change": f"Focus the objective {on}"}
+    if tool == "fm_acquire_overview":
+        return _fm_overview(a)
+    if tool == "fm_acquire_image":
+        return _fm_image(a)
+    if tool == "milling_run_stage":
+        return _run_stage(a)
+    if tool == "milling_run_task":
+        return _run_task(a)
+    if tool == "alignment_align_to_reference":
+        reference = (
+            os.path.basename(str(a.get("reference_path") or "")) or "a reference"
+        )
+        steps = a.get("steps") or 3
+        method = _ALIGN_WITH.get(
+            str(a.get("subsystem") or "beam-shift"), "the beam shift"
+        )
         return {
-            "what": str(a.get("device")),
-            "change": f"Set {a.get('parameter')} to {_short(a.get('value'))}",
+            "what": "Alignment",
+            "change": f"Align to {reference}: {_plural(int(steps), 'step')} with {method}",
         }
+    if tool == "device_set_parameter":
+        return _set_parameter(a, "device", path, get)
+    if tool == "service_set_parameter":
+        return _set_parameter(a, "service", path, get)
     if tool in ("device_call_command", "service_call_command"):
         owner = a.get("device") if tool == "device_call_command" else a.get("service")
         kwargs = a.get("kwargs") or {}
@@ -525,6 +1167,10 @@ def _describe(
             line = _milling_command(str(a.get("command")), kwargs, estimate)
             if line is not None:
                 return line
+        if tool == "service_call_command" and owner == "sample_handling":
+            grid_tool = _GRID_COMMANDS.get(str(a.get("command")))
+            if grid_tool is not None:
+                return _grid_line(grid_tool, kwargs, get, stage_now)
         extra = ", ".join(f"{_words(k)} {_clip(_short(v))}" for k, v in kwargs.items())
         if len(extra) > 2 * _LINE_VALUE:
             extra = _plural(len(kwargs), "argument")
@@ -550,7 +1196,41 @@ def _describe(
     if tool == "item_update":
         return {
             "what": str(item),
-            "change": _patch_lines(a.get("patch"), document(None)),
+            "change": _item_patch_lines(a.get("patch"), document(None)),
+        }
+    if tool == "item_add":
+        return _add_item(a, None if a.get("stage_position") else stage_now())
+    if tool == "item_remove":
+        return {
+            "what": str(item),
+            "change": "Remove it from the experiment. Its files stay on disk",
+        }
+    if tool == "item_move_to_pose":
+        pose = a.get("pose")
+        change = f"Move the stage to its {pose} pose"
+        target = _pose_of(get(_item_route(item)), pose)
+        if target:
+            change += f": {_position(target)}"
+        now = stage_now()
+        if target and now:
+            change += f"\nfrom {_position(now)}"
+        return {"what": str(item), "change": change}
+    if tool == "item_set_pose":
+        pose = a.get("pose")
+        change = f"Set its {pose} pose to where the stage is now"
+        now = stage_now()
+        if now:
+            change += f": {_position(now)}"
+        old = _pose_of(get(_item_route(item)), pose)
+        if old:
+            change += f"\nwas {_position(old)}"
+        if str(pose).upper() == "MILLING":
+            change += "\nIts milling angle and fluorescence pose follow"
+        return {"what": str(item), "change": change}
+    if tool == "item_set_objective_position":
+        return {
+            "what": str(item),
+            "change": "Store the objective's position now on its fluorescence pose",
         }
     if tool == "item_apply_protocol":
         tasks = _names(a.get("task_names"), "every task")
@@ -561,18 +1241,25 @@ def _describe(
     if tool == "item_reorder_milling_stages":
         return {
             "what": f"{item} · {task}",
-            "change": f"Reorder {a.get('milling_key')} stages: {_short(a.get('order'))}",
+            "change": f"Reorder {a.get('milling_key')} stages: {_names(a.get('order'), 'as they are')}",
         }
     if tool == "protocol_reorder_milling_stages":
         return {
             "what": f"Protocol · {task}",
-            "change": f"Reorder {a.get('milling_key')} stages: {_short(a.get('order'))}",
+            "change": f"Reorder {a.get('milling_key')} stages: {_names(a.get('order'), 'as they are')}",
         }
     if tool == "protocol_set_schedule":
         when = a.get("scheduled_at")
         return {
             "what": str(task),
             "change": f"Schedule for {when}" if when else "Clear its schedule",
+        }
+    if tool == "workflow_set_options":
+        return {
+            "what": "Workflow",
+            "change": "Open the run summary when a run ends"
+            if a.get("show_run_summary")
+            else "Don't open the run summary when a run ends; a toast says it ended",
         }
     if tool == "workflow_start":
         return {
@@ -585,6 +1272,11 @@ def _describe(
             "what": "Grids",
             "change": f"Run {_names(a.get('task_names'), 'no tasks')} on "
             f"{_names(a.get('grid_names'), 'every grid')}",
+        }
+    if tool == "workflow_stop":
+        return {
+            "what": "Workflow",
+            "change": "Stop the run now running. A mill in progress stops too",
         }
     if tool == "protocol_set_supervision":
         return {
@@ -616,11 +1308,50 @@ def _describe(
         else:
             change = "Confirm the proposal"
             if a.get("values"):
-                change += f" with {_short(a.get('values'))}"
-        return {"what": f"{a.get('item_id')} · {task}", "change": change}
+                change += f" with {_values_text(a.get('values'))}"
+        name = _review_item(get("/app/workflow/reviews"), a.get("item_id"))
+        return {"what": f"{name or a.get('item_id')} · {task}", "change": change}
     if tool == "prompt_answer":
         change = "Answer yes" if a.get("response") else "Answer no"
         if a.get("value"):
-            change += f" with {_short(a.get('value'))}"
+            change += f" with {_values_text(a.get('value'))}"
         return {"what": "The run's question", "change": change}
-    return {"what": tool, "change": _short(a) if a else "Run"}
+    if tool == "experiment_create":
+        protocol = a.get("protocol")
+        replaces = _open_experiment(get)
+        return {
+            "what": "Experiment",
+            "change": f"Create and open '{a.get('name')}', with "
+            + (f"protocol {protocol}" if protocol else "the default protocol"),
+            "details": _table(
+                ("", ""),
+                [
+                    ("Folder", _short(a.get("name"))),
+                    ("Protocol", protocol or "the default"),
+                    ("Description", a.get("description") or ""),
+                    ("Replaces", replaces or "none open"),
+                ],
+            ),
+        }
+    if tool == "experiment_load":
+        path = str(a.get("path") or "")
+        replaces = _open_experiment(get)
+        return {
+            "what": "Experiment",
+            "change": f"Open '{_experiment_name(path)}'"
+            + (f" in place of '{replaces}'" if replaces else ""),
+            "details": _table(
+                ("", ""), [("Path", path), ("Replaces", replaces or "none open")]
+            ),
+        }
+    if tool == "protocol_load":
+        return {
+            "what": "Protocol",
+            "change": f"Load '{a.get('protocol')}' into the open experiment, "
+            "replacing its protocol",
+        }
+    line = {"what": _words(tool).capitalize(), "change": "Run"}
+    details = _kwargs_table(a)
+    if details is not None:
+        line["details"] = details
+    return line

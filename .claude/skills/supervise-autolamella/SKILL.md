@@ -128,12 +128,17 @@ Wake and act on its lines: `PROMPT` (a question is standing, with its
 `question_id`), `QUESTION` (the run is stopped on a recorded question — rule 5),
 `ANSWERED` (check who — if the operator answered, your read of that
 question is stale), task lifecycle `EVENT` lines, `GAP` (events were lost:
-re-read `/app/workflow/prompt` and `/app/workflow/status`), and `RUN ENDED` (report and stop
-watching). A run that ended badly says how: `workflow_stalled` (decisions
-are pending), `workflow_failed: <error>`, or `stopped without an end event`
-(it died without saying so). For the last two, read `app_get_log` with the
-run's `task_id` and `level=WARNING` before you report. It exits 1 when the app cannot be watched; say so rather than
-going idle.
+re-read `/app/workflow/prompt` and `/app/workflow/status`), `WORKFLOW STARTED`, and
+`WORKFLOW ENDED` (report, and keep watching). A workflow that ended badly
+says how: `workflow_stalled` (decisions are pending), `workflow_failed:
+<error>`, or `stopped without an end event` (it died without saying so). For
+the last two, read `app_get_log` with the workflow's `task_id` and
+`level=WARNING` before you report.
+
+Keep the watcher running for the whole session, across workflows: you may
+start the next workflow yourself, and the operator may start one from the
+app. Stop it only when the operator says the session is done. It exits 1
+when the app cannot be watched; say so rather than going idle.
 
 If your harness cannot keep a background process alive while you are idle
 (spawned subagents usually cannot — the watcher dies with your turn, and no
@@ -141,7 +146,7 @@ line will ever wake you), do not go idle expecting one. Hold the watch in
 the foreground of a single bounded command instead: run the watcher with
 your tool timeout as the cap, act on whatever lines it printed when the
 command returns, and run it again with `--since <the last seq you saw>`
-(`latest_seq` from `app_get_events`) so the gap between runs is not lost. A stalled watch looks exactly like a
+(`latest_seq` from `app_get_events`) so nothing between two watches is lost. A stalled watch looks exactly like a
 quiet run — when in doubt, read `/app/workflow/prompt` directly.
 
 ## Answer — the rules that are never optional
@@ -368,6 +373,20 @@ The argument selects a variation on the same loop:
   the same body; `screen_all: true` inventories and runs every present grid.
   One run at a time: it is refused while a lamella run is live, and a
   lamella start is refused while a grid run is.
+- **one grid by hand** (Drive): `grid_list` is the experiment's records;
+  `grid_get_inventory` is the hardware now, and says which grid is loaded.
+  `grid_load` brings a grid onto the stage by name. With an autoloader that is
+  an exchange: the loaded grid goes back to the magazine first, so say which
+  grid comes out before you load. It does not move the stage; follow it with
+  `grid_move_to`. `grid_unload` returns the grid; `grid_run_inventory` scans
+  the magazine again (minutes). All three are long: wait with
+  `service_wait_for_run sample_handling`. A grid run loads its own grids, so
+  never load ahead of one.
+- **grid records** (Drive): `grid_add` records the inventory's grids the
+  experiment doesn't have yet. `grid_rename` renames a grid on its slot and
+  in the experiment together; never rename only the slot. A grid that has run
+  keeps its name, so ask the operator before renaming anything, and say the
+  old and new names.
 
 ## Acting beyond answers (Drive)
 
@@ -400,7 +419,9 @@ operator changes it (the Agent chip for the level; Tools → App Server,
 way in. A hardware tool missing from your tool list means the same thing.
 
 **Get your bearings once, before the first move.** On an instrument you
-have not used this session:
+have not used this session (every read here works at Watch):
+- `microscope_get_info` says which microscope it is: manufacturer, model,
+  software version and the optional hardware fitted.
 - `device_list` shows what it has: the beams, detectors, stage and an FM.
 - Read `device_get_parameter` `on` for the electron and ion beams. If one is off,
   stop and tell the operator: switching a beam on is theirs. Note it if a
@@ -411,6 +432,13 @@ have not used this session:
   axis makes, and which way raw +z goes. If a view says
   `scan_rotation_handled: false`, its image axes are not the stage's: don't
   `stage_stable_move` from it.
+- `grid_get_holder_slots` gives each holder slot's stage position and its
+  calibration. A slot whose `position` is null is not calibrated, or was
+  calibrated against a pre-tilt or rotation reference the system no longer
+  has. Say which slots are not calibrated: the operator calibrates them with
+  the app's wizard, never you, and nothing moves to an uncalibrated slot.
+- `grid_get_inventory` and `grid_get_current` say which grid is on the stage
+  and whether the stage is at a slot.
 - `microscope_get_state` gives each beam's voltage, current, working
   distance and scan rotation, the detectors' type and mode, and the stage
   position. Say what you read, and anything that looks wrong for the task
@@ -522,6 +550,9 @@ into a folder you name inside the experiment and are long commands:
 imaging `stop`, with a reason, ends either one. `fm_acquire_overview` is the
 fluorescence one, from the FM pose with the objective in; `fm_estimate_overview`
 gives its whole run time, stage moves included, and the same `stop` ends it.
+`register_tiles` (experimental, off by default) places each tile where its
+picture says it is rather than where the stage step put it; the answer's
+`layout` says whether it moved the tiles and why not when it didn't.
 
 **`409 microscope_busy` is someone else working.** Its
 `detail.in_control` names who (`workflow`, `script`, or another command)

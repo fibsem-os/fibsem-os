@@ -16,7 +16,9 @@ turns it amber too, "Agent suggests", and the card shows it with Accept
 The card can float (FIB-1404): its button moves it into a window of its own, a
 tool window over the app (never over other apps) that the operator moves and
 sizes, narrow enough and it stacks. Closing that window, or the button again,
-puts the card back on the chip. The window keeps its place for the session.
+puts the card back on the chip. The window keeps its place for the session, and
+its pin, off at first, keeps it over every window for the session (FIB-1418): a
+waiting request stays in sight while the operator is in another app.
 
 Like `WorkflowControls`, this only shows what it is told and says what was picked.
 What a pick does -- setting the App Server's level -- is the window's.
@@ -33,11 +35,12 @@ from fibsem.applications.autolamella.ui.agent_card import (
     AgentCard,
     last_heard_text,
 )
-
-# The card's width on the chip: wide while something waits for the operator (the
-# actions beside the reason and the decision), narrow otherwise.
-WIDE_WIDTH = 820
-NARROW_WIDTH = 440
+from fibsem.applications.autolamella.ui.agent_style import (
+    LEVEL_STYLES,
+    LEVEL_TIPS,
+    LEVEL_WORDS,
+    REQUEST_CHIP,
+)
 from fibsem.server.levels import AgentLevel
 from fibsem.ui.tokens import (
     BORDER_COLOR,
@@ -56,71 +59,15 @@ __all__ = [
     "request_outcome",
 ]
 
-_CHIP = """
-    QPushButton {{
-        color: {color};
-        background-color: {background};
-        border: {border};
-        padding: 4px 10px;
-        border-radius: 3px;
-        font-weight: bold;
-    }}
-"""
+# The card's width on the chip: wide while something waits for the operator (the
+# actions beside the reason and the decision), narrow otherwise.
+WIDE_WIDTH = 780
+NARROW_WIDTH = 440
 
-# Assisting's fill: the purple at a third strength, between Watching's outline and
-# Driving's solid fill.
-_PURPLE_TINT = "rgba({}, {}, {}, 0.35)".format(
-    *(int(PURPLE_COLOR[i : i + 2], 16) for i in (1, 3, 5))
-)
-
-# Something waiting for the operator, or being applied: amber, as the Review
-# tab's waiting decisions.
-_REQUEST_CHIP = _CHIP.format(
-    color=TEXT_STRONG_COLOR,
-    background="rgba({}, {}, {}, 0.30)".format(
-        *(int(REVIEW_COLOR[i : i + 2], 16) for i in (1, 3, 5))
-    ),
-    border=f"1px solid {REVIEW_COLOR}",
-)
-
-# Each level: the chip's word, its look, and its tooltip.
 _LEVELS = {
-    AgentLevel.OFF: (
-        "Agent: Off",
-        _CHIP.format(color=TEXT_MUTED_COLOR, background="transparent", border="none"),
-        "No access",
-    ),
-    AgentLevel.WATCH: (
-        "Agent: Watching",
-        _CHIP.format(
-            color=TEXT_STRONG_COLOR,
-            background="transparent",
-            border=f"1px solid {PURPLE_COLOR}",
-        ),
-        "Read only",
-    ),
-    AgentLevel.ASSIST: (
-        "Agent: Assisting",
-        _CHIP.format(
-            color=TEXT_STRONG_COLOR,
-            background=_PURPLE_TINT,
-            border=f"1px solid {PURPLE_COLOR}",
-        ),
-        "Asks first",
-    ),
-    AgentLevel.DRIVE: (
-        "Agent: Driving",
-        _CHIP.format(
-            color=TEXT_STRONG_COLOR,
-            background=PURPLE_COLOR,
-            border=f"1px solid {PURPLE_COLOR}",
-        ),
-        "Full control",
-    ),
+    level: (LEVEL_WORDS[level], LEVEL_STYLES[level], LEVEL_TIPS[level])
+    for level in LEVEL_WORDS
 }
-
-# The chip's word for each level, for anywhere else that names it.
-LEVEL_WORDS = {level: text for level, (text, _, _) in _LEVELS.items()}
 
 # The levels the card offers, in order.
 OFFERED_LEVELS = (AgentLevel.OFF, AgentLevel.WATCH, AgentLevel.ASSIST, AgentLevel.DRIVE)
@@ -201,6 +148,18 @@ class FloatingPanel(QWidget):
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
 
+    def set_keep_on_top(self, on: bool) -> None:
+        """Over every window, or over the app's only."""
+        if bool(self.windowFlags() & Qt.WindowStaysOnTopHint) == on:  # type: ignore
+            return
+        shown = self.isVisible()
+        geometry = self.geometry()
+        self.setWindowFlag(Qt.WindowStaysOnTopHint, on)  # type: ignore
+        if shown:
+            # A window's flags change only as it is shown again.
+            self.setGeometry(geometry)
+            self.show()
+
     def hold(self, card: AgentCard) -> None:
         self._layout.addWidget(card)
         card.show()
@@ -244,6 +203,8 @@ class AgentLevelChip(QPushButton):
         self.card.reject_clicked.connect(self._on_reject)
         self.card.accept_clicked.connect(self._closing(self.accept_clicked))
         self.card.float_clicked.connect(self._on_float_clicked)
+        self.card.keep_on_top_toggled.connect(self.set_keep_on_top)
+        self._keep_on_top = False
         self.popup = _CardPopup(self.card, self)
         # The card's own window, made the first time it floats (the chip has no
         # window to sit over until it is in the status bar).
@@ -303,16 +264,33 @@ class AgentLevelChip(QPushButton):
     def set_now(self, action: Optional[str]) -> None:
         """What the agent is doing on the microscope, for the card."""
         self.card.set_now(action)
+        self._fit_popup()
+
+    def set_recent(self, rows) -> None:
+        """What the agent did lately, for the card's Recent."""
+        self.card.set_recent(rows)
+        self._fit_popup()
+
+    @property
+    def keep_on_top(self) -> bool:
+        return self._keep_on_top
+
+    def set_keep_on_top(self, on: bool) -> None:
+        """Keep the floating card over every window, for the session."""
+        self._keep_on_top = bool(on)
+        self.card.set_keep_on_top(self._keep_on_top)
+        if self.panel is not None:
+            self.panel.set_keep_on_top(self._keep_on_top)
 
     def _paint(self) -> None:
         if self._level is None:
             return
         text, style, tooltip = _LEVELS[self._level]
         if self._request is not None:
-            text, style = chip_request_text(self._request), _REQUEST_CHIP
+            text, style = chip_request_text(self._request), REQUEST_CHIP
             tooltip = "The agent is asking: click to see what, and decide"
         elif self._suggestion is not None:
-            text, style = "Agent suggests", _REQUEST_CHIP
+            text, style = "Agent suggests", REQUEST_CHIP
             tooltip = (
                 "The agent suggests an answer to the run's question: click to see it"
             )
@@ -355,6 +333,7 @@ class AgentLevelChip(QPushButton):
         if self.panel is None:
             self.panel = FloatingPanel(self.window())
             self.panel.closed.connect(self.dock_card)
+            self.panel.set_keep_on_top(self._keep_on_top)
         self.refresh_last_heard()
         self.panel.hold(self.card)
         self.card.set_floating(True)

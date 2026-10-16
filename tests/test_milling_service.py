@@ -82,7 +82,7 @@ def test_the_demo_has_a_milling_service_that_is_not_a_device(microscope):
         "restore",
         "run",
     } <= set(milling.commands)
-    assert "estimate" in milling.queries
+    assert "estimate_time" in milling.queries
 
 
 def test_prepare_applies_the_recipe_and_draws(microscope):
@@ -91,7 +91,7 @@ def test_prepare_applies_the_recipe_and_draws(microscope):
     assert _conditions(microscope) == (30e3, 7.6e-9, 80e-6)
     assert microscope._connection.milling_system.patterning_mode == "Parallel"
     assert len(microscope._connection.milling_system.patterns) == 3
-    assert milling.estimate() == microscope.estimate_milling_time() == 15
+    assert milling.estimate_time() == microscope.estimate_milling_time() == 15
 
 
 def test_a_setup_clears_what_was_drawn(microscope):

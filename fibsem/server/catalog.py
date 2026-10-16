@@ -26,6 +26,10 @@ class ToolSpec:
     path: str
     level: str  # the level the route needs: "watch" | "assist" | "drive"
     params: Dict[str, str] = field(default_factory=dict)  # name -> description
+    # The params that may be left out; the rest are required. With params, the
+    # tool's arguments: a request is checked against them at filing (FIB-1425),
+    # and the sidecar's signatures are pinned to them (test_sidecar).
+    optional: Tuple[str, ...] = ()
     # Which router serves it: "microscope" unless the App Server's devices
     # service is off (FIB-1035); "app" only when the server was built with an
     # app_context; "base" always. /capabilities reports which.
@@ -59,6 +63,72 @@ class ToolSpec:
     @property
     def full_description(self) -> str:
         return f"{self.description} {self.level_note}"
+
+    @property
+    def title(self) -> str:
+        """The name a client shows: "Stage: Move absolute" for stage_move_absolute."""
+        if self.name in _TITLES:
+            return _TITLES[self.name]
+        group, _, rest = self.name.partition("_")
+        return f"{GROUP_TITLES[group]}: {rest.replace('_', ' ').capitalize()}"
+
+    @property
+    def read_only(self) -> bool:
+        """Changes nothing: a Watch tool other than the few that write a record."""
+        return self.level == "watch" and self.name not in _WRITES_AT_WATCH
+
+    @property
+    def destructive(self) -> bool:
+        """Changes or removes what is there, as MCP means it: every write but
+        the few that only add. A client may ask before one."""
+        return not self.read_only and self.name not in _ADDITIVE
+
+    @property
+    def idempotent(self) -> bool:
+        """Calling it twice with the same arguments does no more than once."""
+        return self.read_only or self.method == "PUT"
+
+
+# Group first, then verb (plans: mcp-tool-naming). A new tool joins a group
+# here, or the group is added on purpose; the title names it.
+GROUP_TITLES: Dict[str, str] = {
+    "server": "Server",
+    "microscope": "Microscope",
+    "device": "Device",
+    "service": "Service",
+    "stage": "Stage",
+    "beam": "Beam",
+    "fm": "FM",
+    "milling": "Milling",
+    "alignment": "Alignment",
+    "app": "App",
+    "experiment": "Experiment",
+    "protocol": "Protocol",
+    "item": "Item",
+    "grid": "Grid",
+    "workflow": "Workflow",
+    "prompt": "Prompt",
+    "review": "Review",
+    "request": "Request",
+}
+
+# Watch tools that write a record (a note, a request) rather than only read.
+_WRITES_AT_WATCH = frozenset(
+    {"experiment_add_note", "request_create", "request_withdraw"}
+)
+
+# Writes that only add: notes, the agent's own requests and suggestions, a new
+# item or experiment. Every other write changes or removes something.
+_ADDITIVE = _WRITES_AT_WATCH | {
+    "prompt_suggest_answer",
+    "item_add",
+    "experiment_create",
+}
+
+# Titles the name, read out, gets wrong.
+_TITLES: Dict[str, str] = {
+    "beam_auto_brightness_contrast": "Beam: Auto brightness and contrast",
+}
 
 
 CATALOG: Tuple[ToolSpec, ...] = (
@@ -147,8 +217,55 @@ CATALOG: Tuple[ToolSpec, ...] = (
         name="milling_estimate_time",
         description="Estimated time in seconds for the currently drawn patterns.",
         method="POST",
-        path="/microscope/services/milling/queries/estimate",
+        path="/microscope/services/milling/queries/estimate_time",
         level="watch",
+    ),
+    ToolSpec(
+        name="milling_run_stage",
+        description=(
+            "Mill one stage as a task of its own: prepare its patterns, run them "
+            "with the stage's strategy, and put the beam back. stage is a "
+            "FibsemMillingStage dict, e.g. one from item_get_task_config; "
+            "milling_preview_patterns first to see where it mills. It saves images "
+            "only when the stage's milling.acquire_images is set, under path "
+            "(a folder inside the open experiment; left out, the app's data "
+            "folder). A long command: it answers "
+            "with its run at once; service_wait_for_run milling gives how it "
+            "ended and the folder it saved to; milling_stop ends it."
+        ),
+        method="POST",
+        path="/microscope/services/milling/commands/run_stage",
+        level="drive",
+        hardware=True,
+        params={
+            "stage": "a FibsemMillingStage dict",
+            "path": "optional folder inside the open experiment to save into",
+        },
+        optional=("path",),
+    ),
+    ToolSpec(
+        name="milling_run_task",
+        description=(
+            "Run a milling task as the app runs a protocol's: each enabled stage "
+            "in turn with its strategy, aligning to the task's reference image "
+            "between stages, and the beam put back at the end. config is a "
+            "FibsemMillingTaskConfig dict, e.g. one from item_get_task_config. "
+            "It saves its reference and stage images under "
+            "<path>/Milling/<name>, path a folder inside the open experiment "
+            "(left out, the app's data folder). "
+            "A long command: it answers with its run at once; "
+            "service_wait_for_run milling gives the task's status, the folder "
+            "and how each stage ended; milling_stop ends it."
+        ),
+        method="POST",
+        path="/microscope/services/milling/commands/run_task",
+        level="drive",
+        hardware=True,
+        params={
+            "config": "a FibsemMillingTaskConfig dict",
+            "path": "optional folder inside the open experiment to save into",
+        },
+        optional=("path",),
     ),
     ToolSpec(
         name="milling_preview_patterns",
@@ -160,12 +277,13 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "image_path must be inside the open experiment. Moves nothing."
         ),
         method="POST",
-        path="/microscope/services/milling/queries/pattern_preview",
+        path="/microscope/services/milling/queries/preview_patterns",
         level="watch",
         params={
             "image_path": "a saved ion image inside the open experiment",
             "stages": "FibsemMillingStage dicts; left out, what prepare drew",
         },
+        optional=("stages",),
     ),
     ToolSpec(
         name="alignment_align_to_reference",
@@ -181,7 +299,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "how far off the view is."
         ),
         method="POST",
-        path="/microscope/services/alignment/commands/align",
+        path="/microscope/services/alignment/commands/align_to_reference",
         level="drive",
         hardware=True,
         params={
@@ -189,6 +307,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "steps": "how many measure-and-correct steps (default 3)",
             "subsystem": "beam-shift (default), stage or stage-vertical",
         },
+        optional=("steps", "subsystem"),
     ),
     ToolSpec(
         name="alignment_measure_shift",
@@ -233,6 +352,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "beam_type": "ELECTRON or ION",
             "image_settings": 'optional: ImageSettings fields, e.g. {"hfw": 150e-6, "resolution": [1536, 1024], "dwell_time": 1e-6}',
         },
+        optional=("beam_type", "image_settings"),
     ),
     ToolSpec(
         name="stage_stable_move",
@@ -261,6 +381,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "dy": "the feature's offset from the image centre along y, metres, up positive",
             "beam_type": "the beam whose image the offset was measured in: ELECTRON or ION",
         },
+        optional=("beam_type",),
     ),
     ToolSpec(
         name="stage_vertical_move",
@@ -284,6 +405,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "beam_type": "the view the offset was measured in: ION (default) or ELECTRON",
             "relaxation": "fraction of the exact move to make, 0-1 (default 1); below 1 undershoots, to keep a repeated look-and-correct loop from overshooting",
         },
+        optional=("dx", "beam_type", "relaxation"),
     ),
     ToolSpec(
         name="stage_move_to_orientation",
@@ -338,6 +460,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "dy": "relative y in metres",
             "dz": "relative z in metres",
         },
+        optional=("dx", "dy", "dz"),
     ),
     ToolSpec(
         name="stage_move_to_milling_angle",
@@ -353,6 +476,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "milling_angle_deg": "target milling angle in degrees",
             "rotation_deg": "stage rotation in degrees; the current rotation if left out",
         },
+        optional=("rotation_deg",),
     ),
     ToolSpec(
         name="device_set_parameter",
@@ -383,6 +507,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "kwargs": "the command's arguments, by name",
             "reason": "for a stop (stop, stop_live): why, for the operator (required there)",
         },
+        optional=("kwargs", "reason"),
     ),
     ToolSpec(
         name="service_list",
@@ -433,8 +558,9 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "Run a service command listed by service_list, e.g. service=stage_movement "
             "command=move_to_orientation kwargs={'orientation': 'SEM'}. A long command "
             "(listed with long: true: milling run, run_stage and run_task, spot burn "
-            "run, alignment align, imaging fm_focus_sweep, tiled_overview, "
-            "fm_tiled_overview and focus_stack) answers at once with "
+            "run, alignment align_to_reference, imaging fm_auto_focus, "
+            "fm_acquire_image, acquire_overview, fm_acquire_overview and "
+            "acquire_focus_stack) answers at once with "
             "its run (run_id, state: running) and runs on, in control of the "
             "microscope; service_wait_for_run says how it ended. command=stop from "
             "another call stops it: the agent's own run at Assist or Drive, "
@@ -450,6 +576,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "kwargs": "the command's arguments, by name",
             "reason": "for a stop (stop, stop_live): why, for the operator (required there)",
         },
+        optional=("kwargs", "reason"),
     ),
     ToolSpec(
         name="service_wait_for_run",
@@ -470,6 +597,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "run_id": "the run_id the command answered with",
             "wait": "seconds to wait for the end, at most 60 (default 60)",
         },
+        optional=("run_id", "wait"),
     ),
     ToolSpec(
         name="service_call_query",
@@ -488,6 +616,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "query": "query name",
             "kwargs": "the query's arguments, by name",
         },
+        optional=("kwargs",),
     ),
     ToolSpec(
         name="beam_auto_contrast",
@@ -497,6 +626,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
         level="drive",
         hardware=True,
         params={"beam_type": "ELECTRON or ION"},
+        optional=("beam_type",),
     ),
     ToolSpec(
         name="beam_auto_focus",
@@ -510,6 +640,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
         level="drive",
         hardware=True,
         params={"beam_type": "ELECTRON or ION"},
+        optional=("beam_type",),
     ),
     ToolSpec(
         name="beam_acquire_overview",
@@ -521,21 +652,26 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "experiment. beam_estimate_overview first: a big grid at a long dwell runs "
             "for hours. A long command: it answers with its run at once; "
             "service_wait_for_run imaging gives the stitched image (summary, path, "
-            "preview) and the tiles' paths; service_call_command imaging stop, "
+            "preview), the tiles' paths and the layout (the layout check's warning, "
+            "and whether register_tiles moved the tiles and why); "
+            "service_call_command imaging stop, "
             "with a reason, ends it before the next tile."
         ),
         method="POST",
-        path="/microscope/services/imaging/commands/tiled_overview",
+        path="/microscope/services/imaging/commands/acquire_overview",
         level="drive",
         hardware=True,
         params={
             "settings": (
                 "OverviewAcquisitionSettings dict: image_settings, nrows, ncols, "
-                "overlap, autofocus_mode, autocontrast_mode, focus_stack_settings"
+                "overlap, autofocus_mode, autocontrast_mode, focus_stack_settings, "
+                "register_tiles (experimental: place each tile where its picture "
+                "says it is, not where the stage step put it; default false)"
             ),
             "path": "a folder inside the open experiment to save it in",
             "name": "the file name, stamped with the time (default overview)",
         },
+        optional=("name",),
     ),
     ToolSpec(
         name="beam_estimate_overview",
@@ -546,7 +682,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "often more than the scanning. Moves nothing."
         ),
         method="POST",
-        path="/microscope/services/imaging/queries/estimate_tiled_overview",
+        path="/microscope/services/imaging/queries/estimate_overview",
         level="watch",
         params={
             "settings": "OverviewAcquisitionSettings dict, as beam_acquire_overview"
@@ -565,7 +701,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "a reason, ends it before the next strip."
         ),
         method="POST",
-        path="/microscope/services/imaging/commands/focus_stack",
+        path="/microscope/services/imaging/commands/acquire_focus_stack",
         level="drive",
         hardware=True,
         params={
@@ -574,6 +710,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "n_steps": "how many strips (default 3)",
             "auto_focus": "focus each strip first (default true)",
         },
+        optional=("n_steps", "auto_focus"),
     ),
     ToolSpec(
         name="fm_auto_focus",
@@ -588,13 +725,44 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "reason, ends it."
         ),
         method="POST",
-        path="/microscope/services/imaging/commands/fm_focus_sweep",
+        path="/microscope/services/imaging/commands/fm_auto_focus",
         level="drive",
         hardware=True,
         params={
             "channel_name": "the channel to focus on; left out, the current one",
             "path": "a folder inside the open experiment to save the sweep to",
         },
+        optional=("channel_name", "path"),
+    ),
+    ToolSpec(
+        name="fm_acquire_image",
+        description=(
+            "A fluorescence image where the stage and objective are, in each of "
+            "the channels; with zparams, a z-stack about the objective's position, "
+            "which it comes back to after. Refused while the FM is in use or "
+            "can't image the sample from here. path must be a folder inside "
+            "the open experiment. A long command: it answers with its run at "
+            "once; service_wait_for_run imaging gives the image's path and "
+            "summary; service_call_command imaging stop, with a reason, ends it "
+            "before the next frame and saves nothing."
+        ),
+        method="POST",
+        path="/microscope/services/imaging/commands/fm_acquire_image",
+        level="drive",
+        hardware=True,
+        params={
+            "channels": (
+                "list of ChannelSettings dicts: name, excitation_wavelength, "
+                "emission_wavelength, power, exposure_time"
+            ),
+            "path": "a folder inside the open experiment to save it in",
+            "name": "the file name, stamped with the time (default image)",
+            "zparams": (
+                "ZParameters dict (zmin, zmax, zstep, metres about the objective's "
+                "position) for a z-stack; left out, one plane"
+            ),
+        },
+        optional=("name", "zparams"),
     ),
     ToolSpec(
         name="fm_acquire_overview",
@@ -606,12 +774,13 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "use. path must be a folder inside the open experiment. "
             "fm_estimate_overview first: tiles take seconds to minutes each. A "
             "long command: it answers with its run at once; service_wait_for_run imaging "
-            "gives the mosaic's path and summary and the tiles' paths; "
+            "gives the mosaic's path and summary, the tiles' paths and the layout, "
+            "as beam_acquire_overview's; "
             "service_call_command imaging stop, with a reason, ends it before the "
             "next tile."
         ),
         method="POST",
-        path="/microscope/services/imaging/commands/fm_tiled_overview",
+        path="/microscope/services/imaging/commands/fm_acquire_overview",
         level="drive",
         hardware=True,
         params={
@@ -621,12 +790,14 @@ CATALOG: Tuple[ToolSpec, ...] = (
             ),
             "parameters": (
                 "OverviewParameters dict: rows, cols, overlap, autofocus_mode "
-                "(none, once, each_row, each_tile), use_zstack"
+                "(none, once, each_row, each_tile), use_zstack, register_tiles "
+                "(experimental, as beam_acquire_overview's; default false)"
             ),
             "path": "a folder inside the open experiment to save it in",
             "name": "the file name, stamped with the time (default overview)",
             "zparams": "ZParameters dict (zmin, zmax, zstep), with use_zstack",
         },
+        optional=("name", "zparams"),
     ),
     ToolSpec(
         name="fm_estimate_overview",
@@ -636,13 +807,14 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "objective moves and focus sweeps counted. Moves nothing."
         ),
         method="POST",
-        path="/microscope/services/imaging/queries/estimate_fm_tiled_overview",
+        path="/microscope/services/imaging/queries/fm_estimate_overview",
         level="watch",
         params={
             "channels": "list of ChannelSettings dicts, as fm_acquire_overview",
             "parameters": "OverviewParameters dict, as fm_acquire_overview",
             "zparams": "ZParameters dict, as fm_acquire_overview",
         },
+        optional=("zparams",),
     ),
     ToolSpec(
         name="beam_auto_brightness_contrast",
@@ -661,6 +833,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
         level="drive",
         hardware=True,
         params={"beam_type": "ELECTRON or ION"},
+        optional=("beam_type",),
     ),
 )
 
@@ -720,6 +893,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "level": "the lowest level to keep: DEBUG, INFO, WARNING, ERROR (default DEBUG, or INFO with task_id)",
             "lines": "the most records to return, the latest kept (default 200, max 2000)",
         },
+        optional=("task_id", "since", "until", "level", "lines"),
     ),
     ToolSpec(
         name="protocol_get",
@@ -772,7 +946,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="grid_list",
-        description="Every grid the experiment records: quality verdict, task status, completed tasks, linked item count, and the basename of its latest SEM/FIB/FM overview by role. Records only — not the live slot inventory.",
+        description="Every grid the experiment records: quality verdict, task status, completed tasks, linked item count, and the basename of its latest SEM/FIB/FM overview by role. Records only — not the live slot inventory (grid_get_inventory).",
         method="GET",
         path="/app/experiment/grids",
         level="watch",
@@ -814,6 +988,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "fx": "fraction across the image, 0-1 (with fy)",
             "fy": "fraction down the image, 0-1 (with fx)",
         },
+        optional=("x", "y", "fx", "fy"),
     ),
     ToolSpec(
         name="grid_get_markers",
@@ -826,6 +1001,145 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "grid_name": "the grid name",
             "filename": "an overview basename from grid_list / grid_get",
         },
+    ),
+    ToolSpec(
+        name="grid_add",
+        description=(
+            "Record every grid in the inventory that the experiment has no record "
+            "of, as the Grids tab's inventory read does: the loader's last scan "
+            "(grid_run_inventory scans again); nothing moves. Answers the names "
+            "added and every grid the experiment now records."
+        ),
+        method="POST",
+        path="/app/experiment/grids",
+        level="drive",
+        router="app",
+    ),
+    ToolSpec(
+        name="grid_rename",
+        description=(
+            "Rename a grid as the Grids tab's Rename does: the slot that holds it "
+            "first (the loader's slot description, or the holder's record), then "
+            "the experiment's record, with its history and lamellae. Refused for "
+            "a grid that has run (its folder and images carry the name), a name "
+            "another grid has, and while a workflow runs."
+        ),
+        method="POST",
+        path="/app/experiment/grids/{grid_name}/rename",
+        level="drive",
+        router="app",
+        params={
+            "grid_name": "the grid's name now, from grid_list or grid_get_inventory",
+            "name": "its new name",
+        },
+    ),
+    # The grids on the hardware: the sample handling service, which loads them
+    # onto the stage and names them where the loader keeps names.
+    ToolSpec(
+        name="grid_get_inventory",
+        description=(
+            "The grids on the hardware now: every slot of the autoloader's "
+            "magazine (or of the holder, without one), the grid in it by name and "
+            "its state: loaded (on the stage, ready to use), occupied (in the "
+            "magazine), empty, or unknown (not scanned since the magazine was "
+            "docked). The loader's last scan, read at once; grid_run_inventory "
+            "scans again. Not the experiment's records (grid_list)."
+        ),
+        method="POST",
+        path="/microscope/services/sample_handling/queries/get_inventory",
+        level="watch",
+    ),
+    ToolSpec(
+        name="grid_get_current",
+        description=(
+            "Where the stage is among the holder's slots: the slot it is at and "
+            "the grid loaded there, each null when it is at none. Moves nothing."
+        ),
+        method="POST",
+        path="/microscope/services/sample_handling/queries/current",
+        level="watch",
+    ),
+    ToolSpec(
+        name="grid_get_holder_slots",
+        description=(
+            "The holder's slots in order: each one's stage position (null until "
+            "it is calibrated), its calibration and the grid loaded in it. "
+            "grid_move_to_slot goes to one."
+        ),
+        method="POST",
+        path="/microscope/services/sample_handling/queries/holder_slots",
+        level="watch",
+    ),
+    ToolSpec(
+        name="grid_run_inventory",
+        description=(
+            "Scan the magazine slot by slot and answer the inventory, as "
+            "grid_get_inventory gives it. With an autoloader it takes minutes "
+            "and needs the magazine shut; on a fixed holder it is the same "
+            "instant read. A long command: it answers with its run at once; "
+            "service_wait_for_run sample_handling gives the inventory."
+        ),
+        method="POST",
+        path="/microscope/services/sample_handling/commands/run_inventory",
+        level="drive",
+        hardware=True,
+    ),
+    ToolSpec(
+        name="grid_load",
+        description=(
+            "Bring a grid onto the stage, by its name in grid_get_inventory. With "
+            "an autoloader it is an exchange: the grid on the stage goes back to "
+            "the magazine first, then this one is loaded, minutes in all. Already "
+            "loaded, or on a fixed holder (every grid already sits in a slot), "
+            "nothing moves. It does not move the stage: grid_move_to follows it. "
+            "A grid not in the inventory is refused (409). A long command: it "
+            "answers with its run at once; service_wait_for_run sample_handling "
+            "gives the slot it is in."
+        ),
+        method="POST",
+        path="/microscope/services/sample_handling/commands/ensure_loaded",
+        level="drive",
+        hardware=True,
+        params={"grid_name": "the grid's name, from grid_get_inventory"},
+    ),
+    ToolSpec(
+        name="grid_unload",
+        description=(
+            "Return the grid on the stage to the magazine. Nothing to do on a "
+            "fixed holder. A long command: it answers with its run at once; "
+            "service_wait_for_run sample_handling says how it ended."
+        ),
+        method="POST",
+        path="/microscope/services/sample_handling/commands/unload",
+        level="drive",
+        hardware=True,
+    ),
+    ToolSpec(
+        name="grid_move_to",
+        description=(
+            "Move the stage to the holder slot that holds a grid, by name: the "
+            "slot's calibrated position, rotation and tilt included. The grid "
+            "must be on the stage (grid_load first, with an autoloader); a slot "
+            "not calibrated is refused."
+        ),
+        method="POST",
+        path="/microscope/services/sample_handling/commands/move_to_grid",
+        level="drive",
+        hardware=True,
+        params={"grid_name": "the grid's name"},
+    ),
+    ToolSpec(
+        name="grid_move_to_slot",
+        description=(
+            "Move the stage to a holder slot, by name from grid_get_holder_slots: "
+            "its calibrated position, rotation and tilt included. A slot not "
+            "calibrated is refused."
+        ),
+        method="POST",
+        path="/microscope/services/sample_handling/commands/move_to_slot",
+        level="drive",
+        hardware=True,
+        params={"slot_name": "the holder slot's name"},
     ),
     ToolSpec(
         name="protocol_get_task_config",
@@ -859,6 +1173,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "text": "the note, at most 4000 characters",
             "item_name": "optional: the item this note concerns",
         },
+        optional=("item_name",),
     ),
     ToolSpec(
         name="request_create",
@@ -869,8 +1184,10 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         router="app",
         params={
             "actions": "list of {tool, arguments}, at most 20",
-            "reason": "why: what you saw and what the actions will do, for the operator",
+            "reason": "why, for the operator, in two or three short sentences: the evidence first (what you saw, in which image, when), then why these actions follow. The card already says what each action does: don't restate it",
+            "image": "optional: the path of the image your evidence is in, as the image tools answered it (inside the experiment). The card shows it under Why with the actions' points, areas and patterns drawn on it; without it, the card uses the image the values were measured on",
         },
+        optional=("image",),
         note="Works at Assist only: at Drive make the calls yourself; refused (403 level) at Drive and Watch.",
     ),
     ToolSpec(
@@ -914,6 +1231,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "item_name": "the item (lamella) name",
             "task_names": "optional list of task names; omitted = every task in the protocol",
         },
+        optional=("task_names",),
     ),
     ToolSpec(
         name="item_add",
@@ -927,6 +1245,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "stage_position": "optional {x, y, z, r, t} (metres, radians) to add at",
             "overview": "optional {grid_name, filename, px | fraction}: a point on a grid overview",
         },
+        optional=("name", "stage_position", "overview"),
     ),
     ToolSpec(
         name="item_remove",
@@ -951,10 +1270,10 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         name="item_set_pose",
         description="Set the stage position now as one of a lamella's poses, as the tab's Set pose does. Setting MILLING moves the lamella: its milling angle and fluorescence pose follow. Saved; answers with the item.",
         method="POST",
-        path="/app/experiment/items/{item_name}/poses/{pose_name}",
+        path="/app/experiment/items/{item_name}/poses/{pose}",
         level="drive",
         router="app",
-        params={"item_name": "the item (lamella) name", "pose_name": "the pose name"},
+        params={"item_name": "the item (lamella) name", "pose": "the pose name"},
     ),
     ToolSpec(
         name="item_set_objective_position",
@@ -1005,6 +1324,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "task_name": "the task name, as listed by protocol_get",
             "scheduled_at": "ISO-8601 timestamp, or null to clear",
         },
+        optional=("scheduled_at",),
     ),
     ToolSpec(
         name="workflow_set_options",
@@ -1068,6 +1388,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "since": "return events with seq greater than this (0 for all held)",
             "timeout": "seconds to wait for new events before returning (max 30)",
         },
+        optional=("since", "timeout"),
     ),
     ToolSpec(
         name="workflow_stop",
@@ -1090,6 +1411,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "task_names": "the tasks to run, from the protocol's task names",
             "item_names": "the items (lamellae) to run them for; omit for all",
         },
+        optional=("item_names",),
     ),
     ToolSpec(
         name="workflow_plan_grids",
@@ -1103,6 +1425,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "grid_names": "grids to run them on; omit for every recorded grid",
             "screen_all": "true = inventory first, then every present grid (no grid_names)",
         },
+        optional=("grid_names", "screen_all"),
     ),
     ToolSpec(
         name="workflow_start_grids",
@@ -1116,6 +1439,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "grid_names": "grids to run them on; omit for every recorded grid",
             "screen_all": "true = inventory first, then every present grid (no grid_names)",
         },
+        optional=("grid_names", "screen_all"),
     ),
     ToolSpec(
         name="protocol_set_supervision",
@@ -1141,6 +1465,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "task_name": "the task to queue, from the protocol's task names",
             "front": "true to run it next instead of at the end (optional)",
         },
+        optional=("front",),
     ),
     ToolSpec(
         name="workflow_edit_queue",
@@ -1196,6 +1521,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "reason": "required on Rejected",
             "author": "optional agent/model name, recorded as agent:<name>",
         },
+        optional=("proposal_id", "values", "reason", "author", "task_id"),
     ),
     ToolSpec(
         name="prompt_answer",
@@ -1209,6 +1535,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "question_id": "the question_id from prompt_get, naming the question being answered",
             "value": "optional edit: {left, top, width, height} (fractions of the frame, origin top-left) for EditAlignmentArea; {x, y} (metres, microscope image coordinates, origin centre, +y up) for PickPOI; {features: [{name, px: {x, y}}]} (source-image pixels, origin top-left, only the named features move) for ConfirmDetection; {points: [{x, y}]} (fractions of the frame, origin top-left; current and exposure stay the protocol's) for RunSpotBurn",
         },
+        optional=("value",),
     ),
     ToolSpec(
         name="prompt_suggest_answer",
@@ -1223,6 +1550,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "reason": "why: shown under the suggestion for the operator",
             "value": "optional geometry, as for prompt_answer",
         },
+        optional=("value",),
         note="Works at Assist and Drive; refused (403) at Watch. At Drive you may prompt_answer directly instead.",
     ),
     ToolSpec(
@@ -1253,6 +1581,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "protocol": "optional protocol name from protocol_list",
             "description": "optional one-line description",
         },
+        optional=("protocol", "description"),
     ),
     ToolSpec(
         name="experiment_load",
@@ -1403,6 +1732,23 @@ _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict
             auto_focus=a.get("auto_focus", True),
         ),
     ),
+    "fm_acquire_image": lambda a: (
+        {},
+        _kwargs(
+            channels=[dict(c) for c in a["channels"]],
+            path=str(a["path"]),
+            name=str(a.get("name") or "image"),
+            zparams=a.get("zparams"),
+        ),
+    ),
+    "milling_run_stage": lambda a: (
+        {},
+        _kwargs(stage=dict(a["stage"]), path=a.get("path")),
+    ),
+    "milling_run_task": lambda a: (
+        {},
+        _kwargs(config=dict(a["config"]), path=a.get("path")),
+    ),
     "fm_acquire_overview": lambda a: (
         {},
         _kwargs(
@@ -1443,6 +1789,14 @@ _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict
         {},
         _kwargs(image_path=str(a["image_path"]), stages=a.get("stages")),
     ),
+    "grid_get_inventory": lambda a: ({}, _kwargs()),
+    "grid_get_current": lambda a: ({}, _kwargs()),
+    "grid_get_holder_slots": lambda a: ({}, _kwargs()),
+    "grid_run_inventory": lambda a: ({}, _kwargs()),
+    "grid_load": lambda a: ({}, _kwargs(grid_name=str(a["grid_name"]))),
+    "grid_unload": lambda a: ({}, _kwargs()),
+    "grid_move_to": lambda a: ({}, _kwargs(grid_name=str(a["grid_name"]))),
+    "grid_move_to_slot": lambda a: ({}, _kwargs(slot_name=str(a["slot_name"]))),
     "stage_get_orientation": lambda a: ({}, _kwargs()),
     "stage_get_milling_angle": lambda a: ({}, _kwargs()),
     "stage_get_geometry": lambda a: ({}, _kwargs()),

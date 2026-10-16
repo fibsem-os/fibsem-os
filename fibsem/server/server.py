@@ -21,6 +21,7 @@ from fastapi.responses import JSONResponse, Response
 from fastapi.routing import APIRoute
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from fibsem import __version__
 from fibsem.acting import AGENT, acting
 from fibsem.microscope import FibsemMicroscope
 from fibsem.server import allowlist
@@ -42,6 +43,7 @@ from fibsem.server.auth import (
     take_control,
 )
 from fibsem.server.devices import ERROR_STATUS, build_device_router, refusal
+from fibsem.server.discovery import fibsem_folder
 from fibsem.server.models import MicroscopeStateRequest
 from fibsem.server.requests import RequestStore, build_request_router
 from fibsem.server.runs import Runs
@@ -342,6 +344,9 @@ def build_server(
             "routers": {"microscope": serve_microscope, "app": app_context is not None},
             # The agent level (FIB-1035): what the agent may do right now.
             "level": auth.level.value,
+            # The code the server runs, so a sidecar can tell it imports
+            # other code (a worktree on the app's PYTHONPATH, FIB-1429).
+            "fibsem": {"version": __version__, "path": fibsem_folder()},
         }
 
     # --- The microscope as a whole ---
@@ -451,6 +456,10 @@ def build_server(
             emit=getattr(app_context, "record_event", None),
             describe=getattr(app_context, "describe_action", None),
             not_allowed=_not_allowed(microscope) if serve_microscope else None,
+            image_refused=lambda path: allowlist.path_outside(
+                {"image_path": path},
+                lambda: getattr(app_context, "experiment_path", None),
+            ),
         )
         app.include_router(build_request_router(app.state.requests))
     return app

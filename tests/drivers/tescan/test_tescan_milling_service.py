@@ -140,7 +140,7 @@ def test_a_pattern_drawbeam_has_no_shape_for_raises(connect, pattern):
     assert drawbeam(fake) == []
 
 
-with open(Path(__file__).parent / "fixtures" / "tescan_milling_calls.json") as f:
+with open(Path(__file__).parents[2] / "fixtures" / "tescan_milling_calls.json") as f:
     OLD_CALLS = json.load(f)
 
 

@@ -21,8 +21,8 @@ import pytest
 
 from tests.fixtures.demoted_messages import as_logged_now
 
-SCRIPT = Path(__file__).parent / "fixtures" / "autoscript_milling_parity.py"
-OLD_CALLS = Path(__file__).parent / "fixtures" / "autoscript_milling_calls.json"
+SCRIPT = Path(__file__).parents[2] / "fixtures" / "autoscript_milling_parity.py"
+OLD_CALLS = Path(__file__).parents[2] / "fixtures" / "autoscript_milling_calls.json"
 
 
 @pytest.fixture(scope="module")

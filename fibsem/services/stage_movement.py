@@ -1392,9 +1392,12 @@ class StageMovement(Service):
     # -- moves to a place ------------------------------------------------------------------
 
     @command
-    def safe_absolute_stage_movement(self, stage_position: FibsemStagePosition) -> None:
+    def safe_absolute_stage_movement(
+        self, stage_position: FibsemStagePosition
+    ) -> FibsemStagePosition:
         """Move the stage to a position safely: tilted flat for a large rotation, and
-        rotated compucentrically before the rest of the move."""
+        rotated compucentrically before the rest of the move. Returns where it is,
+        as every move does."""
         with recording_move(
             self.session,
             self.stage,
@@ -1408,6 +1411,7 @@ class StageMovement(Service):
             logging.debug(f"safe moving to {stage_position}")
             self._move_stage(stage_position)
             logging.debug("safe movement complete.")
+            return self._position()
 
     def _safe_rotation(self, stage_position: FibsemStagePosition) -> None:
         """What comes before the move itself: on a stage with a rotation axis, tilt

@@ -1,7 +1,7 @@
 """A beam's resolution choices are what its scan can be set to, and its dwell time
 and field of view have limits where the driver knows them.
 
-Thermo's, from the scan, are in ``tests/test_autoscript_beam.py``.
+Thermo's, from the scan, are in ``tests/drivers/autoscript/test_autoscript_beam.py``.
 """
 
 import os

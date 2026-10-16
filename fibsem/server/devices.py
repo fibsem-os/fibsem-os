@@ -93,6 +93,7 @@ from fibsem.devices.core import (
     ResourceBusy,
     _limits_to_dict,
 )
+from fibsem.devices.sample_loader import GridExchangeError
 from fibsem.devices.wire import (
     FRAME_METADATA_HEADER,
     FRAMES_MEDIA_TYPE,
@@ -129,6 +130,7 @@ ERROR_STATUS = {
     OperationCancelledError: 409,  # stopped: a sweep, a mill (FIB-1355)
     ResourceBusy: 409,  # held by someone else: a scanner live on the other beam
     NothingToStop: 409,  # a stop with nothing running (FIB-1398)
+    GridExchangeError: 409,  # a grid not in the inventory, or the loader refused
     TypeError: 422,
     ValueError: 422,  # an argument that does not decode names its parameter
     NotImplementedError: 501,  # a command this driver has no hook for (a needle's stop)

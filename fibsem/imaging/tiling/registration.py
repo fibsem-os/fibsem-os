@@ -196,3 +196,19 @@ def _paste(canvas: np.ndarray, tile: np.ndarray, position: PixelPosition, crop) 
         top + cy0 - y0 : top + cy1 - y0,
         left + cx0 - x0 : left + cx1 - x0,
     ]
+
+
+def layout_summary(runner) -> Dict[str, Optional[object]]:
+    """What a finished tiled run's layout came to, for a caller that is not
+    watching its progress signal: the layout check's warning, and whether
+    `register_tiles` moved the tiles (``applied``) and why (``note``). None
+    for each that did not run."""
+    registration = getattr(runner, "registration", None)
+    return {
+        "warning": getattr(runner, "layout_warning", None),
+        "registration": (
+            {"applied": registration["applied"], "note": registration["note"]}
+            if registration
+            else None
+        ),
+    }

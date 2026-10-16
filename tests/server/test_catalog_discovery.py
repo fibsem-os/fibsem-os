@@ -12,7 +12,7 @@ pytest.importorskip("httpx")
 
 from fibsem import utils  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.server.catalog import CATALOG, NOT_TOOLS  # noqa: E402
+from fibsem.server.catalog import CATALOG, GROUP_TITLES, NOT_TOOLS  # noqa: E402
 from fibsem.server.discovery import (  # noqa: E402
     read_discovery_file,
     remove_discovery_file,
@@ -82,6 +82,43 @@ def test_every_route_is_a_tool_or_says_why_not(app):
     assert all(reason.strip() for reason in NOT_TOOLS.values())
 
 
+# A named service tool is its group and its route's command or query
+# (``fm_acquire_overview`` -> ``imaging.fm_acquire_overview``,
+# ``beam_acquire_overview`` -> ``imaging.acquire_overview``), a read with ``get_``
+# before the query's name. These keep an older name, each for a reason.
+NAMED_OTHERWISE = {
+    # The beams' own command names, which the imaging service passes through.
+    "beam_acquire_image": "acquire",
+    "beam_auto_contrast": "autocontrast",
+    # The service's raw move holds move_absolute; renaming it would change every
+    # caller's move without a word.
+    "stage_move_absolute": "safe_absolute_stage_movement",
+    # milling_angle is the service's stored-angle parameter.
+    "stage_get_milling_angle": "current_milling_angle",
+    "stage_get_orientation": "stage_orientation",
+    # The sample handling service's names are what the grid workflows and
+    # scripts call; the tools say what they do in the grid group's words.
+    "grid_load": "ensure_loaded",
+    "grid_move_to": "move_to_grid",
+}
+
+
+def test_each_service_tool_is_named_for_its_route():
+    mismatched = {}
+    for tool in CATALOG:
+        match = re.match(
+            r"/microscope/services/\w+/(commands|queries)/(\w+)$", tool.path
+        )
+        if match is None:
+            continue
+        kind, route = match.groups()
+        rest = tool.name.split("_", 1)[1]
+        if route in (tool.name, rest) or (kind == "queries" and rest == f"get_{route}"):
+            continue
+        mismatched[tool.name] = route
+    assert mismatched == NAMED_OTHERWISE
+
+
 def test_catalog_names_unique_and_levels_valid():
     names = [t.name for t in CATALOG]
     assert len(names) == len(set(names))
@@ -97,11 +134,17 @@ def test_catalog_names_unique_and_levels_valid():
 
 
 # Group first, then verb (plans: mcp-tool-naming): sorted, a group reads as one
-# block. A new tool joins a group here, or the group is added on purpose.
-GROUPS = (
-    "server microscope device service stage beam fm milling alignment "
-    "app experiment protocol item grid workflow prompt review request"
-).split()
+# block. A new tool joins a group in the catalog, or the group is added on purpose.
+GROUPS = tuple(GROUP_TITLES)
+
+
+def test_a_write_that_only_adds_is_not_destructive():
+    by_name = {t.name: t for t in CATALOG}
+    assert by_name["item_update"].destructive
+    assert by_name["workflow_stop"].destructive
+    assert not by_name["item_add"].destructive
+    assert not by_name["request_create"].destructive
+    assert not by_name["stage_get_position"].destructive
 
 
 def test_every_tool_name_starts_with_its_group():

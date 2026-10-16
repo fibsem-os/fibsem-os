@@ -1,7 +1,7 @@
 """Tiled overviews and focus stacks through the App Server (map 8e): the imaging
-service's ``tiled_overview`` and ``focus_stack`` run on as long commands and save
+service's ``acquire_overview`` and ``acquire_focus_stack`` run on as long commands and save
 inside the open experiment, ``stop`` ends them cancelled, and
-``estimate_tiled_overview`` answers the tile count and scan time.
+``estimate_overview`` answers the tile count and scan time.
 """
 
 import os
@@ -86,7 +86,7 @@ def test_an_overview_runs_on_and_saves_inside_the_experiment(
     start = microscope.get_stage_position()
     folder = experiment / "overviews"
     resp = client.post(
-        f"{IMAGING}/commands/tiled_overview",
+        f"{IMAGING}/commands/acquire_overview",
         json={
             "kwargs": {
                 "settings": _overview().to_dict(),
@@ -109,15 +109,40 @@ def test_an_overview_runs_on_and_saves_inside_the_experiment(
     assert image["preview"] and image["summary"]["kind"] == "image"
     assert len(result["tile_paths"]) == 4
     assert all(os.path.isfile(path) for path in result["tile_paths"])
+    # Not asked to register: the tiles stay as planned, and the answer says so.
+    assert result["layout"]["registration"] is None
     # The stage comes back to where it started.
     end = microscope.get_stage_position()
     assert abs(end.x - start.x) < 1e-9 and abs(end.y - start.y) < 1e-9
 
 
+def test_an_overview_says_what_tile_registration_did(client, experiment):
+    settings = _overview()
+    settings.register_tiles = True
+    resp = client.post(
+        f"{IMAGING}/commands/acquire_overview",
+        json={
+            "kwargs": {
+                "settings": settings.to_dict(),
+                "path": str(experiment / "overviews"),
+                "name": "reg",
+            }
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    ended = _wait(client, resp.json()["result"]["run_id"])
+    assert ended["state"] == "done", ended
+    layout = ended["result"]["layout"]
+    assert set(layout) == {"warning", "registration"}
+    registration = layout["registration"]
+    assert isinstance(registration["applied"], bool)
+    assert registration["note"]
+
+
 def test_a_path_outside_the_experiment_is_refused(client, tmp_path):
     for command, kwargs in (
-        ("tiled_overview", {"settings": _overview().to_dict()}),
-        ("focus_stack", {"image_settings": _image_settings().to_dict()}),
+        ("acquire_overview", {"settings": _overview().to_dict()}),
+        ("acquire_focus_stack", {"image_settings": _image_settings().to_dict()}),
     ):
         resp = client.post(
             f"{IMAGING}/commands/{command}",
@@ -139,7 +164,7 @@ def test_stop_ends_an_overview_cancelled(microscope, tmp_path):
 
     imaging.acquire_image = stopping_acquire
     try:
-        result = imaging.tiled_overview(_overview(), str(tmp_path))
+        result = imaging.acquire_overview(_overview(), str(tmp_path))
     finally:
         del imaging.acquire_image
     assert result["status"] == "cancelled"
@@ -151,7 +176,7 @@ def test_the_estimate_counts_tiles_and_scan_time(client):
     settings = _overview()
     settings.tile_mask = [[True, False], [True, True]]
     resp = client.post(
-        f"{IMAGING}/queries/estimate_tiled_overview",
+        f"{IMAGING}/queries/estimate_overview",
         json={"kwargs": {"settings": settings.to_dict()}},
     )
     assert resp.status_code == 200, resp.text
@@ -163,7 +188,7 @@ def test_the_estimate_counts_tiles_and_scan_time(client):
 
 def test_a_focus_stack_saves_inside_the_experiment(client, experiment):
     resp = client.post(
-        f"{IMAGING}/commands/focus_stack",
+        f"{IMAGING}/commands/acquire_focus_stack",
         json={
             "kwargs": {
                 "image_settings": _image_settings().to_dict(),
@@ -192,7 +217,7 @@ def test_stop_ends_a_focus_stack_cancelled(microscope, tmp_path):
 
     imaging.acquire_image = stopping_acquire
     try:
-        result = imaging.focus_stack(
+        result = imaging.acquire_focus_stack(
             _image_settings(), str(tmp_path), n_steps=3, auto_focus=False
         )
     finally:
@@ -217,7 +242,7 @@ def test_a_stop_survives_the_focus_sweep_inside_a_focus_stack(microscope, tmp_pa
 
     imaging.auto_focus = stop_then_sweep
     try:
-        result = imaging.focus_stack(
+        result = imaging.acquire_focus_stack(
             _image_settings(), str(tmp_path), n_steps=3, auto_focus=True
         )
     finally:

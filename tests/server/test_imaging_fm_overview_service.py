@@ -1,7 +1,7 @@
 """Fluorescence overviews through the App Server (map 8f): the imaging service's
-``fm_tiled_overview`` runs on as a long command and saves inside the open
+``fm_acquire_overview`` runs on as a long command and saves inside the open
 experiment, ``stop`` ends it cancelled, it is refused while the FM is in use,
-and ``estimate_fm_tiled_overview`` answers the tiles and the run's length.
+and ``fm_estimate_overview`` answers the tiles and the run's length.
 """
 
 import os
@@ -83,7 +83,7 @@ def _kwargs(**extra):
 
 def test_the_command_is_listed_as_long(client):
     command = client.get("/microscope/services").json()["imaging"]["commands"][
-        "fm_tiled_overview"
+        "fm_acquire_overview"
     ]
     assert command["long"] is True and command["available"] is True
 
@@ -95,7 +95,7 @@ def test_an_overview_runs_on_and_saves_inside_the_experiment(
     objective = microscope.fm.objective.position
     folder = experiment / "overviews"
     resp = client.post(
-        f"{IMAGING}/commands/fm_tiled_overview",
+        f"{IMAGING}/commands/fm_acquire_overview",
         json={"kwargs": _kwargs(path=str(folder), name="fm")},
     )
     assert resp.status_code == 200, resp.text
@@ -122,11 +122,33 @@ def test_an_overview_runs_on_and_saves_inside_the_experiment(
     assert abs(end.x - start.x) < 1e-9 and abs(end.y - start.y) < 1e-9
     assert microscope.fm.objective.position == pytest.approx(objective)
     assert not microscope.fm.is_acquiring
+    assert result["layout"]["registration"] is None
+
+
+def test_an_overview_says_what_tile_registration_did(client, experiment):
+    parameters = ONE_BY_TWO.to_dict()
+    parameters["register_tiles"] = True
+    resp = client.post(
+        f"{IMAGING}/commands/fm_acquire_overview",
+        json={
+            "kwargs": _kwargs(
+                parameters=parameters, path=str(experiment / "overviews"), name="reg"
+            )
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    ended = client.get(
+        f"{IMAGING}/run", params={"run_id": resp.json()["result"]["run_id"], "wait": 60}
+    ).json()["run"]
+    assert ended["state"] == "done", ended
+    registration = ended["result"]["layout"]["registration"]
+    assert isinstance(registration["applied"], bool)
+    assert registration["note"]
 
 
 def test_a_path_outside_the_experiment_is_refused(client, tmp_path):
     resp = client.post(
-        f"{IMAGING}/commands/fm_tiled_overview",
+        f"{IMAGING}/commands/fm_acquire_overview",
         json={"kwargs": _kwargs(path=str(tmp_path / "elsewhere"))},
     )
     assert resp.status_code == 403
@@ -146,7 +168,7 @@ def test_stop_ends_an_overview_cancelled(microscope, tmp_path):
 
     group.acquire_frame = stopping_frame
     try:
-        result = imaging.fm_tiled_overview(CHANNELS, ONE_BY_TWO, str(tmp_path))
+        result = imaging.fm_acquire_overview(CHANNELS, ONE_BY_TWO, str(tmp_path))
     finally:
         del group.acquire_frame
     assert frames.is_set()
@@ -160,7 +182,7 @@ def test_an_overview_is_refused_while_the_fm_is_in_use(microscope, tmp_path):
     microscope.fm.set_acquiring(True, "z-stack")
     try:
         with pytest.raises(AcquisitionRefused, match="z-stack"):
-            microscope.imaging.fm_tiled_overview(CHANNELS, ONE_BY_TWO, str(tmp_path))
+            microscope.imaging.fm_acquire_overview(CHANNELS, ONE_BY_TWO, str(tmp_path))
     finally:
         microscope.fm.set_acquiring(False)
     assert not list(tmp_path.iterdir())
@@ -175,7 +197,7 @@ def test_the_estimate_is_the_runs_length(client):
         objective_start=ObjectiveStartPosition.CURRENT,
     )
     resp = client.post(
-        f"{IMAGING}/queries/estimate_fm_tiled_overview",
+        f"{IMAGING}/queries/fm_estimate_overview",
         json={
             "kwargs": {
                 "channels": [c.to_dict() for c in CHANNELS],

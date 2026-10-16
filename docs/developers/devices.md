@@ -513,7 +513,7 @@ milling.prepare(
     FibsemMillingSettings(milling_current=2e-9),
     [FibsemRectangleSettings(width=10e-6, height=5e-6, depth=1e-6, centre_x=0, centre_y=0)],
 )
-milling.estimate()            # seconds
+milling.estimate_time()       # seconds
 milling.start()               # starts, and returns
 milling.state.get_value()     # MillingState.RUNNING
 milling.stop()

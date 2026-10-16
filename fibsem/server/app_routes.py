@@ -104,6 +104,10 @@ class AppContext(Protocol):
 
     def grid_markers(self, grid_name: str, filename: str) -> Dict[str, Any]: ...
 
+    def add_grids(self) -> Dict[str, Any]: ...
+
+    def rename_grid(self, grid_name: str, name: str) -> Dict[str, Any]: ...
+
     def image_metadata(self, path: str) -> Dict[str, Any]: ...
 
     def protocol_task_config(self, task_name: str) -> Dict[str, Any]: ...
@@ -917,6 +921,18 @@ def build_app_config_router(context: AppContext) -> APIRouter:
     def load_protocol(body: Dict[str, Any]):
         name = _required_text(body, "protocol", "a protocol name from the list")
         return _answer_or_refusal(context.load_protocol(name))
+
+    # -- grid records: the Grids tab's inventory read and Rename ----------------
+
+    @router.post("/experiment/grids")
+    def add_grids():
+        # A record for every grid the inventory holds and the experiment lacks.
+        return _answer_or_refusal(context.add_grids())
+
+    @router.post("/experiment/grids/{grid_name}/rename")
+    def rename_grid(grid_name: str, body: Dict[str, Any]):
+        name = _required_text(body, "name", "the grid's new name")
+        return _answer_or_refusal(context.rename_grid(grid_name, name))
 
     # -- lamella positions: the Lamella tab's buttons ---------------------------
 

@@ -3,7 +3,7 @@
 The Demo's binding is tested in ``tests/test_scan_generator.py``; here a Tescan, over its
 fake SharkSEM connection, and a Thermo, over the fake AutoScript SDK, bind the electron
 beam's scanner to the Demo's simulated scan generator. The Odemis case is in
-``tests/test_odemis_devices.py``, beside its fake client.
+``tests/drivers/odemis/test_odemis_devices.py``, beside its fake client.
 """
 
 import ast

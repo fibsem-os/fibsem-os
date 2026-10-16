@@ -75,8 +75,9 @@ tools listed) and ask:
 
 ## 4. Watch a run
 
-MCP cannot wake an idle agent, so an agent that supervises or observes a run
-keeps a watcher running in the background and wakes on each line it prints:
+MCP cannot wake an idle agent, so an agent working with the app keeps a
+watcher running in the background for the whole session and wakes on each
+line it prints:
 
 ```bash
 fibsem-mcp watch
@@ -87,11 +88,14 @@ variables, the discovery file) and follows a restarted app the same way;
 `--since N` resumes after event N. It
 prints `PROMPT`, `ANSWERED`, `PROMPT WITHDRAWN`, `QUESTION`,
 `QUESTION RELEASED`, `REQUEST` (the agent's request decided, finished or
-cancelled), task `EVENT` lines, `COMMAND ENDED` (a long command's end), `GAP`
-(events were lost; re-read the prompt and status) and `RUN ENDED`, and exits 0 when the run ends or 1 when
-the app cannot be watched. A run ends completed, cancelled, stalled or failed;
-one that stops without recording an end ends the watch too, as
-`RUN ENDED (stopped without an end event)`. It needs only fibsem, not the `[mcp]` extra; where
+cancelled), `COMMAND ENDED` (a long command's end), task `EVENT` lines,
+`WORKFLOW STARTED`, `WORKFLOW ENDED` and `GAP` (events were lost; re-read the
+prompt and status). A workflow ends completed, cancelled, stalled or failed;
+one that stops without recording an end is reported as
+`WORKFLOW ENDED (stopped without an end event)`. A workflow's end does not end
+the watch: the agent may start the next one. While the operator has the agent
+level at Off it prints `AGENT OFF` and waits, then `AGENT BACK`. It exits 1 when the app cannot be
+watched, and otherwise runs until it is stopped. It needs only fibsem, not the `[mcp]` extra; where
 `fibsem-mcp` is not on the PATH, `python -m fibsem.mcp.sidecar watch` is the
 same thing.
 

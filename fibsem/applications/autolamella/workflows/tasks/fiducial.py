@@ -1,9 +1,10 @@
 ######## FIDUCIAL TASK DEFINITIONS ########
 
 import logging
+import os
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import ClassVar, Optional, Tuple, Type
+from typing import TYPE_CHECKING, ClassVar, List, Optional, Tuple, Type
 
 from fibsem.applications.autolamella.proposals import ALIGNMENT_AREA
 from fibsem.applications.autolamella.protocol.constants import (
@@ -25,6 +26,9 @@ from fibsem.milling.patterning.utils import (
 )
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.structures import Display, FibsemImage, FibsemRectangle, Point, field_meta
+
+if TYPE_CHECKING:
+    from fibsem.applications.autolamella.structures import Lamella
 
 
 @dataclass
@@ -108,6 +112,75 @@ def fiducial_point_in_alignment_area(
         and (ymax + dy) / height <= area.top + area.height
     )
     return target if fits else None
+
+
+def sync_fiducial_to_alignment_area(
+    lamella: "Lamella", image: FibsemImage, skip_milled: bool = False
+) -> List[str]:
+    """Move each fiducial to the centre of the lamella's alignment area, on
+    ``image``, the FIB frame the area is in; returns the tasks moved.
+
+    A fiducial that does not fit in the area keeps its position. With
+    ``skip_milled``, so does one whose task has completed: it is on the
+    sample already.
+    """
+    synced = []
+    for task_name, task_config in lamella.task_config.items():
+        if task_config.task_type != MillFiducialTaskConfig.task_type:
+            continue
+        if skip_milled and lamella.has_completed_task(task_name):
+            continue
+        milling_config = task_config.milling.get(FIDUCIAL_KEY)
+        if milling_config is None or not milling_config.stages:
+            continue
+        point = fiducial_point_in_alignment_area(
+            milling_config, lamella.alignment_area, image
+        )
+        if point is None:
+            logging.warning(
+                f"The fiducial for {task_name} does not fit in the alignment "
+                f"area {lamella.alignment_area}; keeping its configured position."
+            )
+            continue
+        diff = point - milling_config.stages[0].pattern.point
+        for stage in milling_config.stages:
+            stage.pattern.point = stage.pattern.point + diff
+        logging.info(
+            f"Synced {task_name} fiducial position to the alignment area: {point}"
+        )
+        synced.append(task_name)
+    return synced
+
+
+def follow_alignment_area(lamella: "Lamella") -> List[str]:
+    """After an edit to the alignment area (the editor, an agent's
+    ``item_update``), move the fiducials not milled yet to its new centre, as
+    Setup does when it chooses the area (FIB-1430); returns the tasks moved.
+
+    The frame is the alignment reference Setup took in the area, at the field
+    of view it chose the area on. Before Setup there is none, and nothing
+    moves: Setup syncs when it runs. Setup's own switch
+    (``sync_fiducial_position``) turns this off too.
+    """
+    switches = [
+        task_config.sync_fiducial_position
+        for task_config in lamella.task_config.values()
+        if hasattr(task_config, "sync_fiducial_position")
+    ]
+    if switches and not any(switches):
+        return []
+    path = os.path.join(str(lamella.path), ALIGNMENT_REFERENCE_IMAGE_FILENAME)
+    if not os.path.isfile(path):
+        return []
+    metadata = FibsemImage.load(path).metadata
+    if metadata is None:
+        return []
+    settings = metadata.image_settings
+    # the reference is cropped to the area: the frame is the full one
+    frame = FibsemImage.generate_blank_image(
+        resolution=settings.resolution, hfw=settings.hfw
+    )
+    return sync_fiducial_to_alignment_area(lamella, frame, skip_milled=True)
 
 
 class MillFiducialTask(AutoLamellaTask):

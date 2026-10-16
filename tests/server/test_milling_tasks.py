@@ -1,6 +1,6 @@
 """Milling a protocol's stages through the App Server (map 8b): ``run_stage`` and
 ``run_task`` mill as the app does and run on as long commands, saving only
-inside the open experiment; ``pattern_preview`` draws stages over a saved image
+inside the open experiment; ``preview_patterns`` draws stages over a saved image
 the agent can look at.
 """
 
@@ -105,6 +105,25 @@ def test_run_task_saves_inside_the_experiment(client, experiment):
     assert [s["status"] for s in run["result"]["stages"]] == ["completed"] * 2
 
 
+def test_a_task_that_saved_nothing_still_answers_its_folder(client, experiment):
+    """A task stopped before its first image answered ``path: null`` (FIB-1430):
+    the task's folder is answered however it ended, empty when nothing was
+    saved. Here nothing is: no alignment, no acquisition."""
+    config = FibsemMillingTaskConfig.from_stages([_stage()], name="Quiet")
+    config.alignment.enabled = False
+    config.acquisition.acquire_sem = config.acquisition.acquire_fib = False
+
+    run = _run(
+        client,
+        "run_task",
+        {"config": config.to_dict(), "path": str(experiment / "runs")},
+    )
+
+    folder = run["result"]["path"]
+    assert folder == str(experiment / "runs" / "Milling" / "Quiet")
+    assert os.path.isdir(folder) and not os.listdir(folder)
+
+
 def test_a_path_outside_the_experiment_is_refused(client, tmp_path):
     resp = client.post(
         f"{MILLING}/commands/run_stage",
@@ -139,7 +158,7 @@ def test_pattern_preview_draws_the_stages_over_a_saved_image(
 ):
     path = _saved_ion_image(microscope, experiment)
     resp = client.post(
-        f"{MILLING}/queries/pattern_preview",
+        f"{MILLING}/queries/preview_patterns",
         json={"kwargs": {"image_path": path, "stages": [_stage().to_dict()]}},
     )
     assert resp.status_code == 200, resp.text
@@ -154,7 +173,7 @@ def test_pattern_preview_draws_the_stages_over_a_saved_image(
 def test_pattern_preview_reads_only_inside_the_experiment(client, microscope, tmp_path):
     path = _saved_ion_image(microscope, tmp_path)
     resp = client.post(
-        f"{MILLING}/queries/pattern_preview", json={"kwargs": {"image_path": path}}
+        f"{MILLING}/queries/preview_patterns", json={"kwargs": {"image_path": path}}
     )
     assert resp.status_code == 403
     assert resp.json()["detail"]["error_type"] == "not_allowed"

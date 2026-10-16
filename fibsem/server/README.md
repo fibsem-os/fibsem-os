@@ -250,4 +250,4 @@ microscope.wait_for_run("alignment", run["run_id"])     # a long command's resul
 | `PUT` | `/microscope/services/{service}/{parameter}` | Write a service parameter, e.g. `stage_movement/milling_angle` |
 | `GET` | `/microscope/services/{service}/{parameter}/metadata` | Limits, choices, settable |
 | `POST` | `/microscope/services/{service}/commands/{command}` | Run a service command, e.g. `stage_movement/commands/move_relative`, `milling/commands/run`, `milling/commands/stop` |
-| `POST` | `/microscope/services/{service}/queries/{query}` | Ask a service query, e.g. `milling/queries/estimate` |
+| `POST` | `/microscope/services/{service}/queries/{query}` | Ask a service query, e.g. `milling/queries/estimate_time` |

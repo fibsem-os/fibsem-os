@@ -34,7 +34,7 @@ from tests.fixtures.tescan_sdk import connect
 
 E, I = BeamType.ELECTRON, BeamType.ION
 RECORDED = os.path.join(
-    os.path.dirname(__file__), "fixtures", "tescan_imaging_calls.json"
+    os.path.dirname(__file__), "..", "..", "fixtures", "tescan_imaging_calls.json"
 )
 AREA = FibsemRectangle(0.25, 0.25, 0.5, 0.5)
 

@@ -33,9 +33,9 @@ def test_the_chip_starts_watching_and_its_card_offers_every_level(qapp):
     chip = AgentLevelChip()
     assert chip.level is AgentLevel.WATCH
     assert chip.text() == "Agent: Watching"
-    buttons = chip.card.level_switch.buttons
-    assert [b.text() for b in buttons.values()] == ["Off", "Watch", "Assist", "Drive"]
-    assert [b.text() for b in buttons.values() if b.isChecked()] == ["Watch"]
+    actions = chip.card.level_menu.actions_
+    assert [a.text() for a in actions.values()] == ["Off", "Watch", "Assist", "Drive"]
+    assert [a.text() for a in actions.values() if a.isChecked()] == ["Watch"]
     chip.deleteLater()
 
 
@@ -84,13 +84,13 @@ def test_choosing_a_level_says_so_and_choosing_the_current_one_does_not(qapp):
     chip = AgentLevelChip()
     chosen = []
     chip.level_chosen.connect(chosen.append)
-    buttons = chip.card.level_switch.buttons
-    buttons[AgentLevel.DRIVE].click()
+    menu = chip.card.level_menu
+    menu.choose(AgentLevel.DRIVE)
     assert chosen == [AgentLevel.DRIVE]
-    # The chip and its switch show what the window tells them, not the click.
+    # The chip and its menu show what the window tells them, not the click.
     assert chip.level is AgentLevel.WATCH
-    assert buttons[AgentLevel.WATCH].isChecked()
-    buttons[AgentLevel.WATCH].click()
+    assert menu.actions_[AgentLevel.WATCH].isChecked()
+    menu.choose(AgentLevel.WATCH)
     assert chosen == [AgentLevel.DRIVE]
     chip.deleteLater()
 
@@ -145,6 +145,57 @@ def test_with_nothing_waiting_the_card_says_what_the_agent_is_doing(qapp):
     assert "stable move" in shown
     # Nothing waits, so no "Waiting for you".
     assert "WAITING FOR YOU" not in shown
+    card.deleteLater()
+
+
+def test_now_shows_under_the_title_while_a_request_waits_too(qapp):
+    # FIB-1414: at Assist the card showed the request and nothing of the mill
+    # still running.
+    card = AgentCard()
+    card.set_request(_request())
+    assert not card.now_row.isVisibleTo(card)  # nothing runs, a request waits
+    card.set_now("Milling 'trench' · stage 2 of 6")
+    assert card.now_row.isVisibleTo(card)
+    assert card.now_label.text() == "Milling 'trench' · stage 2 of 6"
+    card.set_request(None)
+    card.set_now(None)
+    assert card.now_row.isVisibleTo(card) and card.now_label.text() == "Nothing."
+    card.deleteLater()
+
+
+def test_the_image_shows_beside_the_steps_and_follows_the_card_s_width(qapp):
+    # Patrick, 2026-10-15 (layout E): the steps and Why left, the image right,
+    # wider as the card is; stacked under them with details open.
+    from PyQt5.QtGui import QImage
+
+    from fibsem.applications.autolamella.ui.agent_card import PICTURE_MIN
+
+    card = AgentCard()
+    card.resize(780, 400)
+    card.show()
+    card.set_request(_request())
+    assert card.image_label is None
+    image = QImage(1024, 683, QImage.Format_RGB32)
+    legend = [("#8b5cf6", True, "target", "move target")]
+    card.set_image(image, "FIB · 07:41", legend=legend)
+    narrow = card.image_label.pixmap().width()
+    assert narrow >= PICTURE_MIN
+    assert card.image_label.toolTip() == "FIB · 07:41 · click to enlarge"
+    # Wider: the image takes the width the steps don't need.
+    card.resize(1000, 400)
+    assert card.image_label.pixmap().width() == narrow + 220
+    # Details open: stacked, the image the card's width.
+    card.details_link.click()
+    margins = card.layout().contentsMargins()
+    assert card.image_label.pixmap().width() == 1000 - margins.left() - margins.right()
+    card.image_label.enlarge()
+    assert card.image_label.window_.isVisible()
+    card.image_label.window_.close()
+    # A suggestion's image is its own: the request's stays with the request.
+    card.set_image(None, suggestion=True)
+    assert card.image_label is not None
+    card.set_image(None)
+    assert card.image_label is None
     card.deleteLater()
 
 
@@ -575,9 +626,9 @@ def test_the_window_shows_a_suggestion_on_the_card_and_says_when_it_is_dropped(
     assert main_ui.agent_chip.suggestion is None
 
 
-def test_the_window_draws_a_waiting_request_s_mill_and_takes_it_down(main_ui, host):
-    from fibsem.applications.autolamella.ui.agent_previews import PATTERNS_OVERLAY
-
+def test_the_window_draws_a_waiting_request_s_mill_on_the_card_and_takes_it_down(
+    main_ui, host
+):
     rectangle = {
         "type": "Rectangle",
         "width": 2e-6,
@@ -599,14 +650,20 @@ def test_the_window_draws_a_waiting_request_s_mill_and_takes_it_down(main_ui, ho
             "change": "Prepare: 1 rectangle",
         }
     ]
+    from fibsem.structures import FibsemImage
+
+    main_ui.view_controller.set_image(
+        BeamType.ION, FibsemImage.generate_blank_image(resolution=(200, 100))
+    )
     host.auth.set_level(AgentLevel.ASSIST)
     host.requests.requests = [waiting]
     main_ui._refresh_agent_chip()
-    assert (BeamType.ION, PATTERNS_OVERLAY) in main_ui.agent_previews.drawn
+    assert main_ui.agent_previews.request_picture is not None
+    assert main_ui.agent_chip.card.image_label is not None
 
     host.requests.requests = [dict(waiting, status="rejected")]
     main_ui._refresh_agent_chip()
-    assert main_ui.agent_previews.drawn == []
+    assert main_ui.agent_previews.request_picture is None
 
 
 def test_the_card_is_narrow_until_something_waits(qapp):
@@ -690,3 +747,228 @@ def test_the_card_floats_in_its_own_window_and_goes_back_on_the_chip(qapp):
     chip.card.float_button.click()  # the button puts it back too
     assert not chip.floating and chip.card.parent() is chip.popup
     window.close()
+
+
+def test_show_details_gives_every_row_its_height_in_the_floating_card(qapp):
+    # FIB-1413: a mill's six-row table was squeezed into two lines, rows over
+    # each other. Rows are one line each, full height; a tall table scrolls.
+    from PyQt5.QtWidgets import QLabel, QMainWindow, QScrollArea
+
+    rows = [
+        [f"Rectangle {i} (upper trench)", "10.00 µm × 5.00 µm", "1.00 µm", "(0, 0)"]
+        for i in range(6)
+    ]
+    request = _request()
+    request["actions"] = [
+        {
+            "tool": "milling_run",
+            "what": "Milling",
+            "change": "Run 'agent test mill'",
+            "details": {
+                "columns": ["Pattern", "Size", "Depth", "Centre"],
+                "rows": rows,
+            },
+        }
+    ]
+    window = QMainWindow()
+    chip = AgentLevelChip()
+    window.statusBar().addPermanentWidget(chip)
+    window.show()
+    chip.set_level(AgentLevel.ASSIST)
+    chip.toggle_card()
+    chip.card.float_button.click()
+    chip.set_request(request)
+    chip.panel.resize(420, 300)
+    qapp.processEvents()
+    chip.card.details_link.click()
+    qapp.processEvents()
+
+    (table,) = chip.card.findChildren(QScrollArea, "agentDetails")
+    cells = [
+        label
+        for label in table.widget().findChildren(QLabel)
+        if label.text().startswith("Rectangle")
+    ]
+    assert len(cells) == 6
+    tops = [cell.mapTo(table.widget(), cell.rect().topLeft()).y() for cell in cells]
+    for cell, top, below in zip(cells, tops, tops[1:]):
+        assert below >= top + cell.sizeHint().height()  # no row over the next
+        assert not cell.wordWrap()
+    # Six rows and the header fit without scrolling.
+    assert table.viewport().height() >= table.widget().sizeHint().height()
+    window.close()
+
+
+def test_a_tall_details_table_scrolls_inside_the_card(qapp):
+    from PyQt5.QtWidgets import QScrollArea
+
+    card = AgentCard()
+    request = _request()
+    request["actions"][0]["details"]["rows"] = [
+        [f"Setting {i}", "1", "2"] for i in range(30)
+    ]
+    card.set_request(request)
+    card.details_link.click()
+    (table,) = card.findChildren(QScrollArea, "agentDetails")
+    assert table.height() < table.widget().sizeHint().height()
+    card.deleteLater()
+
+
+# --- the level as a menu, keep on top (FIB-1418) ---------------------------------
+
+
+def test_the_level_is_drawn_as_the_chip_and_opens_a_menu_of_the_four(qapp):
+    from PyQt5.QtWidgets import QLabel
+
+    from fibsem.applications.autolamella.ui.agent_style import LEVEL_STYLES
+
+    card = AgentCard()
+    card.set_level(AgentLevel.ASSIST)
+    menu = card.level_menu
+    assert menu.text() == "Assisting  ▾"
+    assert menu.styleSheet() == LEVEL_STYLES[AgentLevel.ASSIST]
+    # A popover, not a drawer: the card keeps its height.
+    assert menu.menu() is menu.menu_
+    rows = [action.defaultWidget() for action in menu.actions_.values()]
+    shown = [label.text() for row in rows for label in row.findChildren(QLabel)]
+    assert {"No access", "Read only", "Asks first", "Full control"} <= set(shown)
+    chosen = []
+    card.level_chosen.connect(chosen.append)
+    menu.choose(AgentLevel.DRIVE)
+    # The level stays as the window says until it answers.
+    assert chosen == [AgentLevel.DRIVE]
+    assert menu.text() == "Assisting  ▾"
+    assert menu.actions_[AgentLevel.ASSIST].isChecked()
+    card.deleteLater()
+
+
+def test_the_level_and_stop_agent_keep_their_width_at_every_level(qapp):
+    card = AgentCard()
+    widths = set()
+    for level in AgentLevel:
+        card.set_level(level)
+        widths.add(card.level_menu.width())
+    assert len(widths) == 1
+    card.deleteLater()
+
+
+def test_the_floating_card_can_be_kept_on_top_of_every_window(qapp):
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtWidgets import QMainWindow
+
+    window = QMainWindow()
+    chip = AgentLevelChip()
+    window.statusBar().addPermanentWidget(chip)
+    window.show()
+    pin = chip.card.pin_button
+    assert not pin.isVisibleTo(chip.card)  # on the chip, there is nothing to pin
+    chip.float_card()
+    panel = chip.panel
+    assert pin.isVisibleTo(chip.card)
+    assert not panel.windowFlags() & Qt.WindowStaysOnTopHint  # off at first
+    pin.click()
+    assert chip.keep_on_top and panel.windowFlags() & Qt.WindowStaysOnTopHint
+    assert panel.isVisible()
+    # Kept for the session: put back and floated again, it is still on top.
+    chip.dock_card()
+    chip.float_card()
+    assert panel.windowFlags() & Qt.WindowStaysOnTopHint and pin.isChecked()
+    pin.click()
+    assert not panel.windowFlags() & Qt.WindowStaysOnTopHint
+    window.close()
+
+
+# --- Recent (FIB-1414), and the clamped Why (FIB-1412) ---------------------------
+
+
+def _row(text, outcome="done", tone="ok"):
+    from fibsem.applications.autolamella.ui.agent_recent import RecentRow
+
+    return RecentRow("16:08", text, outcome, tone)
+
+
+def test_recent_shows_at_drive_and_is_hidden_below_it_until_asked_for(qapp):
+    card = AgentCard()
+    logs = []
+    card.event_log_clicked.connect(lambda: logs.append(True))
+    card.set_recent([_row("Moved the stage: move relative")])
+    card.set_level(AgentLevel.ASSIST)
+    assert not card.recent_buttons
+    # Folded: its newest line beside the link.
+    assert card.recent_link.text() == "Recent ▸"
+    assert card.recent_last.text() == "last: Moved the stage: move relative, done"
+    card.set_level(AgentLevel.DRIVE)
+    assert card.recent_link.text() == "Recent ▾"
+    assert [b.text() for b in card.recent_buttons] == ["Moved the stage: move relative"]
+    assert "16:08" in _labels(card)
+    assert "done" in _labels(card)
+    card.recent_buttons[0].click()
+    assert logs == [True]
+    # The operator's choice holds at that level for the session.
+    card.recent_link.click()
+    assert not card.recent_buttons
+    card.set_level(AgentLevel.ASSIST)
+    card.recent_link.click()
+    assert card.recent_buttons
+    card.set_level(AgentLevel.DRIVE)
+    assert not card.recent_buttons
+    card.deleteLater()
+
+
+def test_a_long_why_is_clamped_with_more(qapp):
+    card = AgentCard()
+    reason = "The trench floor is high on 01 in the 16:02 FIB image. " * 8
+    card.set_request({**_request(), "reason": reason})
+    line = card.why_label.fontMetrics().lineSpacing()
+    assert card.why_link is not None and card.why_link.text() == "more"
+    assert card.why_label.maximumHeight() == 3 * line
+    card.why_link.click()
+    assert card.why_link.text() == "less"
+    assert card.why_label.maximumHeight() > 3 * line
+    card.set_request(_request())  # a short one: no clamp
+    assert card.why_link is None
+    card.deleteLater()
+
+
+def test_at_drive_what_the_agent_does_shows_in_the_card_now_then_recent(qapp):
+    """FIB-1414 done when: at Drive a move, a mill and an answer each show in
+    the card, Now while running, then in Recent with how it ended."""
+    from types import SimpleNamespace
+
+    from fibsem.acting import AGENT, acting
+    from fibsem.applications.autolamella.server.events import EventBuffer
+    from fibsem.applications.autolamella.ui.agent_activity import AgentActivity
+    from fibsem.control import Control
+    from fibsem.ui.widgets.status_bar import FibsemStatusBar
+
+    bar = FibsemStatusBar()
+    activity = AgentActivity(bar)
+    control = Control()
+    activity.set_microscope(SimpleNamespace(control=control))
+    chip = AgentLevelChip()
+    activity.now_changed.connect(chip.set_now)
+    activity.recent_changed.connect(chip.set_recent)
+    chip.set_level(AgentLevel.DRIVE)
+    buffer = EventBuffer(stamp=lambda kind, payload: {"actor": AGENT})
+    activity.follow_events(buffer)
+    with acting(AGENT), control.take(AGENT, "move stage relative"):
+        assert "move stage relative" in _labels(chip.card)
+        buffer.append("stage_moved", {"move": "move_relative"})
+    buffer.append(
+        "milling", {"milling_task_name": "agent test mill", "status": "completed"}
+    )
+    buffer.append(
+        "prompt_answered", {"question_id": "q", "response": True, "answered_by": AGENT}
+    )
+    qapp.processEvents()
+    texts = [b.text() for b in chip.card.recent_buttons]
+    assert texts == [
+        "Answered 'the run's question': yes",
+        "Milled 'agent test mill'",
+        "Moved the stage: move relative",
+    ]
+    assert "move stage relative" not in _labels(chip.card)
+    activity.follow_events(None)
+    activity.set_microscope(None)
+    chip.deleteLater()
+    bar.deleteLater()

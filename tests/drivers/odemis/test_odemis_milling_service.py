@@ -1,7 +1,7 @@
 """Odemis milling through the milling service, against the calls it always made.
 
 Each case runs on an ``OdemisThermoMicroscope`` built as it is when created, over the
-recording fake client of tests/test_odemis_devices.py, through ``microscope.milling``
+recording fake client of tests/drivers/odemis/test_odemis_devices.py, through ``microscope.milling``
 (OdemisMilling). tests/fixtures/odemis_milling_calls.json holds what the microscope's
 own milling code returned and called for the same cases before that code moved into
 the service; the service must make the same odemis calls and return the same. What
@@ -22,7 +22,12 @@ from fibsem.structures import (
     FibsemRectangleSettings,
     MillingState,
 )
-from tests.test_odemis_devices import READS, make, odemis_cls, run  # noqa: F401
+from tests.drivers.odemis.test_odemis_devices import (  # noqa: F401
+    READS,
+    make,
+    odemis_cls,
+    run,
+)
 
 SETTINGS = FibsemMillingSettings(
     milling_current=1e-9,
@@ -49,7 +54,7 @@ def patterning(monkeypatch):
     monkeypatch.setitem(READS, "create_circle", {"id": 3, "time": 1.0})
 
 
-with open(Path(__file__).parent / "fixtures" / "odemis_milling_calls.json") as f:
+with open(Path(__file__).parents[2] / "fixtures" / "odemis_milling_calls.json") as f:
     OLD_CALLS = json.load(f)
 
 

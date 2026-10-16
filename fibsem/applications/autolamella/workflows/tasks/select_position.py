@@ -18,12 +18,10 @@ from fibsem.applications.autolamella.proposals import (
     DecisionOutcome,
     Proposal,
 )
-from fibsem.applications.autolamella.protocol.constants import FIDUCIAL_KEY
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 from fibsem.applications.autolamella.workflows.tasks.fiducial import (
-    MillFiducialTaskConfig,
-    fiducial_point_in_alignment_area,
+    sync_fiducial_to_alignment_area,
 )
 from fibsem.applications.autolamella.workflows.ui import ask_user, select_poi_ui
 from fibsem.structures import BeamType, Display, ImageSettings, Point, field_meta
@@ -353,27 +351,7 @@ class SelectMillingPositionTask(AutoLamellaTask):
         image = self._last_fib_image
         if image is None:
             return
-        for task_name, task_config in self.lamella.task_config.items():
-            if task_config.task_type != MillFiducialTaskConfig.task_type:
-                continue
-            milling_config = task_config.milling.get(FIDUCIAL_KEY)
-            if milling_config is None or not milling_config.stages:
-                continue
-            point = fiducial_point_in_alignment_area(
-                milling_config, self.lamella.alignment_area, image
-            )
-            if point is None:
-                logging.warning(
-                    f"The fiducial for {task_name} does not fit in the alignment "
-                    f"area {self.lamella.alignment_area}; keeping its configured position."
-                )
-                continue
-            diff = point - milling_config.stages[0].pattern.point
-            for stage in milling_config.stages:
-                stage.pattern.point = stage.pattern.point + diff
-            logging.info(
-                f"Synced {task_name} fiducial position to the alignment area: {point}"
-            )
+        sync_fiducial_to_alignment_area(self.lamella, image)
 
     def _stage_position_now(self) -> Dict[str, Any]:
         return {"stage_position": self.microscope.get_stage_position()}

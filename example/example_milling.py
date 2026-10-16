@@ -1,6 +1,6 @@
 import logging
 
-from fibsem import milling, utils
+from fibsem import utils
 from fibsem.milling import FibsemMillingStage, MillingAlignment
 from fibsem.milling.patterning.patterns import RectanglePattern
 from fibsem.structures import (
@@ -19,7 +19,8 @@ The script will:
     - setup milling
     - draw a rectangle and two lines
     - run milling
-    - finish milling (restore ion beam current)
+    - finish milling (restore the ion beam)
+    - run a whole milling stage through the milling service
 
 """
 
@@ -81,27 +82,25 @@ def main():
     # setup patterns in a list
     patterns = [rectangle_shape, circle_shape, line_shape]
 
-    milling.setup_milling(microscope, stage)
+    # setup milling: the beam conditions and patterning defaults
+    microscope.setup_milling(stage.milling)
 
     # draw patterns
-    milling.draw_patterns(microscope, patterns)
+    microscope.draw_patterns(patterns)
 
-    # run milling
-    milling.run_milling(
-        microscope,
-        stage.milling.milling_current,
-        milling_voltage=stage.milling.milling_voltage,
-    )
+    # run milling, returning when the mill ends
+    microscope.run_milling()
 
-    # finish milling
-    milling.finish_milling(microscope, microscope.system.ion.beam.beam_current)
+    # finish milling: clear the patterns, put the ion beam back as setup found it
+    microscope.finish_milling()
 
+    # or run a whole milling stage (setup, draw, mill, finish) through the milling service
     rect = RectanglePattern(
         width=10e-6, height=10e-6, depth=2e-6, rotation=0, point=Point(0, 0)
     )
     stage.pattern = rect
 
-    milling.mill_stages(microscope, stage)
+    microscope.milling.run_stage(stage)
 
 
 if __name__ == "__main__":

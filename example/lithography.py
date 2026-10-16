@@ -2,13 +2,10 @@ import os
 from pprint import pprint
 
 import numpy as np
-from autoscript_sdb_microscope_client.structures import (
-    BitmapPatternDefinition,
-    StagePosition,
-)
 from PIL import Image
 
-from fibsem import acquire, milling, movement, utils
+from fibsem import utils
+from fibsem.structures import FibsemBitmapSettings, FibsemMillingSettings
 
 # from fibsem.ui import windows
 
@@ -30,15 +27,12 @@ def main():
     PROTOCOL_PATH = os.path.join(BASE_PATH, "protocol_lithography.yaml")
     microscope, settings = utils.setup_session(protocol_path=PROTOCOL_PATH)
 
-    # lens plane
-    microscope.system.electron.column_tilt = 0
-
     # move to the milling angle
-    # stage_position = StagePosition(
+    # stage_position = FibsemStagePosition(
     #     r=np.deg2rad(settings.protocol["stage_rotation"]),
     #     t=np.deg2rad(settings.protocol["stage_tilt"]),
     # )
-    # movement.safe_absolute_stage_movement(microscope, stage_position)
+    # microscope.safe_absolute_stage_movement(stage_position)
 
     microscope.move_to_orientation("FIB")
 
@@ -63,36 +57,31 @@ def main():
     # save profile to bmp
     save_profile_to_bmp(profile, bmp_path)
 
-    # load bmp pattern
-    bitmap_pattern = BitmapPatternDefinition()
-    bitmap_pattern.load(bmp_path)
-
     # milling setup
-    milling.setup_milling(
-        microscope, application_file=settings.protocol["application_file"]
+    microscope.setup_milling(
+        FibsemMillingSettings(
+            milling_current=settings.protocol["milling"]["milling_current"],
+            application_file=settings.protocol["application_file"],
+        )
     )
 
-    # surface milling
-    microscope.patterning.create_bitmap(
-        center_x=0,
-        centre_y=0,
-        width=lens_width,
-        height=lens_height,
-        depth=settings.protocol["initial_depth"],
-        bitmap_pattern_definition=bitmap_pattern,
-    )
-
-    # mill bitmap
-    microscope.patterning.create_bitmap(
-        center_x=0,
-        centre_y=0,
-        width=lens_width,
-        height=lens_height,
-        depth=settings.protocol["milling"]["milling_depth"],
-        bitmap_pattern_definition=bitmap_pattern,
-    )
-    milling.run_milling(microscope, settings.protocol["milling"]["milling_current"])
-    milling.finish_milling(microscope)
+    # surface milling, then the lens itself, from the same bitmap
+    for depth in (
+        settings.protocol["milling"]["initial_depth"],
+        settings.protocol["milling"]["milling_depth"],
+    ):
+        microscope.draw_pattern(
+            FibsemBitmapSettings(
+                width=lens_width,
+                height=lens_height,
+                depth=depth,
+                centre_x=0,
+                centre_y=0,
+                path=bmp_path,
+            )
+        )
+    microscope.run_milling()
+    microscope.finish_milling()
 
 
 if __name__ == "__main__":

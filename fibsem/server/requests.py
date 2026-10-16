@@ -19,6 +19,7 @@ with what expiry does, for Drive's countdown (FIB-1267).
 
 import asyncio
 import json
+import os
 import re
 import secrets
 import threading
@@ -102,6 +103,9 @@ class AgentRequest:
     # For Drive's countdown (FIB-1267): when it lapses, and what lapsing does.
     expires_at: Optional[float] = None
     on_expiry: str = "reject"
+    # The image the agent's evidence is in (a path inside the experiment): the
+    # card shows it under Why, the actions' values drawn on it (FIB-1411).
+    image: Optional[str] = None
     # Set when the level changes or the operator stops the agent mid-batch: the
     # actions not yet run are not run.
     _abort: Optional[str] = field(default=None, repr=False)
@@ -121,6 +125,7 @@ class AgentRequest:
             "results": list(self.results),
             "expires_at": self.expires_at,
             "on_expiry": self.on_expiry if self.expires_at is not None else None,
+            "image": self.image,
         }
 
 
@@ -188,6 +193,22 @@ def _call_named(spec: ToolSpec, tool: str, arguments: Dict[str, Any]) -> str:
     return f"{tool} {target}" if target else tool
 
 
+def _argument_problem(spec: ToolSpec, unknown: List[str], missing: List[str]) -> str:
+    """What is wrong with a request's arguments for *spec*, in the agent's terms:
+    the names it does not take, the ones it needs, and what it takes (FIB-1425).
+    Checked at filing, so the operator never reads an action with a value left
+    out ("Load 'None'")."""
+    parts = []
+    if unknown:
+        parts.append(f"{spec.name} takes no {', '.join(unknown)}")
+    if missing:
+        parts.append(f"{spec.name} needs {', '.join(missing)}")
+    takes = ", ".join(
+        f"{name} (optional)" if name in spec.optional else name for name in spec.params
+    )
+    return f"{'; '.join(parts)}. It takes: {takes or 'no arguments'}."
+
+
 def _cut_short(answer: Any) -> bool:
     """Whether an action ran but was stopped part way: a mill answers
     ``cancelled`` rather than failing (FIB-1377). Applied, but the operator and
@@ -217,8 +238,11 @@ class RequestStore:
         emit: Optional[Callable[[str, Dict[str, Any]], Any]] = None,
         describe: Optional[Describer] = None,
         not_allowed: Optional[Callable[[str, str], Optional[str]]] = None,
+        image_refused: Optional[Callable[[str], Optional[str]]] = None,
     ) -> None:
         self._app = app
+        # Why a request's image path is refused (outside the experiment), or None.
+        self._image_refused = image_refused or (lambda path: None)
         self._describe = describe
         self._auth = auth
         self._mounted = mounted
@@ -264,14 +288,33 @@ class RequestStore:
 
     # --- the agent files one ---
 
+    def _check_image(self, image: Any) -> Optional[str]:
+        """A request's image: None, or the path of an image file inside the
+        open experiment."""
+        if image is None or image == "":
+            return None
+        if not isinstance(image, str) or not os.path.isfile(image):
+            raise RequestRefused(
+                422,
+                "invalid",
+                "image is the path of an image file you took or read (as the "
+                "image tools answered it), or left out.",
+            )
+        why = self._image_refused(image)
+        if why:
+            raise RequestRefused(403, "not_allowed", f"image: {why}.")
+        return image
+
     def create(
         self,
         actions: Any,
         reason: Any,
         expires_at: Optional[float] = None,
         on_expiry: str = "reject",
+        image: Any = None,
     ) -> AgentRequest:
         resolved = self._resolve(actions)
+        image = self._check_image(image)
         if (
             not isinstance(reason, str)
             or not reason.strip()
@@ -285,14 +328,7 @@ class RequestStore:
             )
         if on_expiry not in ("approve", "reject"):
             raise ValueError("on_expiry is 'approve' or 'reject'")
-        lines = describe_actions(
-            [(a.tool, a.arguments, a.path) for a in resolved],
-            read=self._read,
-            describe=self._describe,
-        )
-        for action, line in zip(resolved, lines):
-            action.what, action.change = line["what"], line["change"]
-            action.details = line.get("details")
+        self._describe_actions(resolved)
         with self._lock:
             waiting = self._pending_locked()
             if waiting is not None:
@@ -309,6 +345,7 @@ class RequestStore:
                 reason=reason.strip(),
                 expires_at=expires_at,
                 on_expiry=on_expiry,
+                image=image,
             )
             self._requests[request.id] = request
             self._trim_locked()
@@ -320,6 +357,7 @@ class RequestStore:
                 "actions": [
                     {"tool": a.tool, "arguments": a.arguments} for a in resolved
                 ],
+                **({"image": image} if image else {}),
             },
         )
         self._changed(request)
@@ -372,6 +410,22 @@ class RequestStore:
                     422,
                     "invalid_arguments",
                     f"Action {index + 1}: arguments must be an object.",
+                )
+            unknown = sorted(set(arguments) - set(spec.params))
+            missing = [
+                name
+                for name in spec.params
+                if name not in spec.optional and arguments.get(name) is None
+            ]
+            if unknown or missing:
+                raise RequestRefused(
+                    422,
+                    "invalid_arguments",
+                    f"Action {index + 1}: {_argument_problem(spec, unknown, missing)}",
+                    tool=tool,
+                    unknown=unknown,
+                    missing=missing,
+                    takes=list(spec.params),
                 )
             try:
                 method, path, body = route_call(spec, arguments)
@@ -554,12 +608,41 @@ class RequestStore:
             )
         self._changed(request)
 
+    def refresh(self, request_id: str) -> bool:
+        """Describe a waiting request's actions again: the values now, read when
+        the operator looks, not when it was filed (FIB-1412). Reads the routes
+        it describes, so never on the GUI thread. False when it no longer
+        waits."""
+        request = self.get(request_id)
+        if request is None or request.status != PENDING:
+            return False
+        before = [(a.what, a.change, a.details) for a in request.actions]
+        self._describe_actions(request.actions)
+        if [(a.what, a.change, a.details) for a in request.actions] != before:
+            self._changed(request)
+        return True
+
     # --- helpers ---
 
+    def _describe_actions(self, actions: List[Action]) -> None:
+        lines = describe_actions(
+            [(a.tool, a.arguments, a.path) for a in actions],
+            read=self._read,
+            describe=self._describe,
+        )
+        for action, line in zip(actions, lines):
+            action.what, action.change = line["what"], line["change"]
+            action.details = line.get("details")
+
     def _read(self, path: str) -> Optional[Dict[str, Any]]:
-        """GET a route in this process: the document a config edit patches."""
+        """Read a route in this process: the document a config edit patches, or
+        a service query's answer (a query moves nothing), such as which grid an
+        exchange unloads."""
+        method, body = (
+            ("POST", {"kwargs": {}}) if "/queries/" in path else ("GET", None)
+        )
         code, answer = asyncio.run(
-            _asgi_call(self._app, "GET", path, None, self._auth.token)
+            _asgi_call(self._app, method, path, body, self._auth.token)
         )
         return answer if code < 400 and isinstance(answer, dict) else None
 
@@ -639,7 +722,9 @@ def build_request_router(store: RequestStore) -> APIRouter:
                 },
             )
         try:
-            created = store.create(body.get("actions"), body.get("reason"))
+            created = store.create(
+                body.get("actions"), body.get("reason"), image=body.get("image")
+            )
         except RequestRefused as refusal:
             raise _refused(refusal)
         return created.to_dict()

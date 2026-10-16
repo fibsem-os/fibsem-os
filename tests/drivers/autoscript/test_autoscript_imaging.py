@@ -26,8 +26,8 @@ import pytest
 from tests.fixtures.autoscript_recording import load
 from tests.fixtures.demoted_messages import as_logged_now
 
-SCRIPT = Path(__file__).parent / "fixtures" / "autoscript_imaging_parity.py"
-RECORDED = Path(__file__).parent / "fixtures" / "autoscript_old_calls.json"
+SCRIPT = Path(__file__).parents[2] / "fixtures" / "autoscript_imaging_parity.py"
+RECORDED = Path(__file__).parents[2] / "fixtures" / "autoscript_old_calls.json"
 
 
 @pytest.fixture(scope="module")
