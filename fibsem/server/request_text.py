@@ -19,6 +19,7 @@ import math
 import os
 from dataclasses import fields as dataclass_fields
 from dataclasses import is_dataclass
+from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence, Tuple
 
@@ -982,6 +983,30 @@ def _experiment_name(path: str) -> str:
     return name or "an experiment"
 
 
+def _recent_experiment_about(get, path: str) -> Optional[str]:
+    """'5 lamellae, created 15 Oct' for a path on the recents list, else None."""
+    recent = get("/app/experiment/recent")
+    items = recent.get("items") if isinstance(recent, dict) else None
+    wanted = path.replace("\\", "/").rstrip("/")
+    for entry in items or []:
+        if not isinstance(entry, dict):
+            continue
+        entry_path = str(entry.get("path") or "").replace("\\", "/").rstrip("/")
+        if wanted not in (entry_path, os.path.dirname(entry_path)):
+            continue
+        count = entry.get("num_items")
+        parts = []
+        if isinstance(count, int):
+            parts.append(f"{count} lamell{'a' if count == 1 else 'ae'}")
+        try:
+            created = datetime.fromisoformat(str(entry.get("created_at")))
+            parts.append(f"created {created.day} {created:%b}")
+        except ValueError:
+            pass
+        return ", ".join(parts) or None
+    return None
+
+
 def _review_item(reviews: Any, item_id: Any) -> Optional[str]:
     if not isinstance(reviews, dict):
         return None
@@ -1482,9 +1507,11 @@ def _line(
     if tool == "experiment_load":
         path = str(a.get("path") or "")
         replaces = _open_experiment(get)
+        about = _recent_experiment_about(get, path)
         return {
             "what": "Experiment",
             "change": f"Open '{_experiment_name(path)}'"
+            + (f" ({about})" if about else "")
             + (f" in place of '{replaces}'" if replaces else ""),
             "details": _table(
                 ("Setting", "Value"),
