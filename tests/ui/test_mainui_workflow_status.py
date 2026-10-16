@@ -30,12 +30,12 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem.applications.autolamella.workflows.tasks.status import (
+from fibsem.imaging.spot import SpotBurnProgress, SpotBurnStatus
+from fibsem.workflows.run_status import (
     Hold,
     HoldKind,
     WorkflowStatusUpdate,
 )
-from fibsem.imaging.spot import SpotBurnProgress, SpotBurnStatus
 from fibsem.workflows.status import TaskStatus
 
 
@@ -64,7 +64,7 @@ def main_ui(qapp):
 
 
 def test_a_status_event_report_shows_the_run_on_the_status_bar(main_ui):
-    from fibsem.applications.autolamella.workflows.tasks.status import (
+    from fibsem.workflows.run_status import (
         WorkflowStatusEvent,
     )
 
@@ -90,7 +90,7 @@ def test_a_status_event_report_shows_the_run_on_the_status_bar(main_ui):
 
 
 def test_a_status_event_carries_transient_status_bar_text(main_ui):
-    from fibsem.applications.autolamella.workflows.tasks.status import (
+    from fibsem.workflows.run_status import (
         WorkflowStatusEvent,
     )
 
@@ -106,8 +106,8 @@ def test_a_status_event_snapshot_reaches_the_windows_own_timeline(main_ui):
     # rows alone — so none of them would notice the handler dropping the
     # update_from_status call. This one hands over a real snapshot and reads the
     # window's own timeline rows back.
-    from fibsem.applications.autolamella.workflows.tasks.queue import WorkItem
-    from fibsem.applications.autolamella.workflows.tasks.status import (
+    from fibsem.workflows.queue import WorkItem
+    from fibsem.workflows.run_status import (
         WorkflowStatusEvent,
     )
 
@@ -148,7 +148,7 @@ def test_a_status_event_refreshes_the_waiting_indicators(main_ui):
     # run from the status handler too: a status event arriving while a question
     # is pending must not take the waiting chrome down — and one arriving after
     # the answer must.
-    from fibsem.applications.autolamella.workflows.tasks.status import (
+    from fibsem.workflows.run_status import (
         WorkflowStatusEvent,
     )
 
@@ -166,7 +166,7 @@ def test_a_status_event_refreshes_the_waiting_indicators(main_ui):
 def test_a_run_parked_on_reviews_shows_the_waiting_chrome_and_leads_to_the_tab(
     main_ui,
 ):
-    from fibsem.applications.autolamella.workflows.tasks.status import (
+    from fibsem.workflows.run_status import (
         WorkflowStatusEvent,
     )
 
@@ -248,7 +248,7 @@ def test_a_terminal_report_is_recognised_as_terminal(main_ui):
 
 
 def test_an_event_without_status_bar_text_leaves_the_bar_alone(main_ui):
-    from fibsem.applications.autolamella.workflows.tasks.status import (
+    from fibsem.workflows.run_status import (
         WorkflowStatusEvent,
     )
 

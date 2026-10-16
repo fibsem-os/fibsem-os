@@ -440,7 +440,7 @@ def window(qapp, tmp_path):
 
 @pytest.mark.parametrize("source", ["overview acquired", "workflow status"])
 def test_the_window_tells_the_page_to_look_for_new_overviews(window, source):
-    from fibsem.applications.autolamella.workflows.tasks.status import (
+    from fibsem.workflows.run_status import (
         WorkflowStatusEvent,
     )
 

@@ -126,7 +126,7 @@ if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
         AutoLamellaSingleWindowUI,
     )
-    from fibsem.applications.autolamella.workflows.tasks.status import (
+    from fibsem.workflows.run_status import (
         Hold,
         WorkflowStatusEvent,
     )
@@ -2975,7 +2975,7 @@ class AutoLamellaUI(QMainWindow):
         message and one button. Continue records the operator's confirmation
         through ``Experiment.decide``, the one write path; the task then reads
         the instrument for the position as confirmed."""
-        from fibsem.applications.autolamella.workflows.tasks.status import (
+        from fibsem.workflows.run_status import (
             WorkflowStatusEvent,
         )
 
@@ -2993,7 +2993,7 @@ class AutoLamellaUI(QMainWindow):
         shown = self._state_question
         if shown is None or shown[:2] != (item_id, task_name):
             return
-        from fibsem.applications.autolamella.workflows.tasks.status import (
+        from fibsem.workflows.run_status import (
             WorkflowStatusEvent,
         )
 

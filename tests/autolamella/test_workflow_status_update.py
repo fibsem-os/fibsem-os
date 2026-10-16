@@ -12,8 +12,8 @@ import pathlib
 
 import pytest
 
-from fibsem.applications.autolamella.workflows.tasks.queue import WorkItem
-from fibsem.applications.autolamella.workflows.tasks.status import WorkflowStatusUpdate
+from fibsem.workflows.queue import WorkItem
+from fibsem.workflows.run_status import WorkflowStatusUpdate
 from fibsem.workflows.status import TaskStatus
 
 

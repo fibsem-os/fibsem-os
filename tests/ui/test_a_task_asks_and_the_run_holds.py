@@ -38,8 +38,8 @@ from fibsem.applications.autolamella.workflows.tasks.rough import (
     MillRoughTask,
     MillRoughTaskConfig,
 )
-from fibsem.applications.autolamella.workflows.tasks.status import HoldKind
 from fibsem.structures import Point
+from fibsem.workflows.run_status import HoldKind
 from fibsem.workflows.status import TaskStatus
 
 ROUGH = "Rough Milling"

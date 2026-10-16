@@ -21,7 +21,7 @@ from fibsem.util.timestamps import now
 from fibsem.workflows.status import TaskStatus
 
 if TYPE_CHECKING:
-    from fibsem.applications.autolamella.workflows.tasks.queue import WorkItem
+    from fibsem.workflows.queue import WorkItem
 
 
 @dataclass(frozen=True, eq=False)

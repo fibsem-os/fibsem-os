@@ -27,6 +27,7 @@ from fibsem.structures import (
     ImageSettings,
     Point,
 )
+from fibsem.workflows.run_status import WorkflowStatusEvent
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
@@ -196,12 +197,6 @@ def update_status_ui(
 
     if check_abort:
         _check_for_abort(parent_ui)
-
-    # Local import: the tasks package pulls this module in through its manager,
-    # so a top-level import of tasks.status is a cycle.
-    from fibsem.applications.autolamella.workflows.tasks.status import (
-        WorkflowStatusEvent,
-    )
 
     parent_ui.workflow_status_signal.emit(
         WorkflowStatusEvent(

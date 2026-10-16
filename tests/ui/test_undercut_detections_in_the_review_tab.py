@@ -44,12 +44,12 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
-from fibsem.applications.autolamella.workflows.tasks.status import HoldKind
 from fibsem.applications.autolamella.workflows.tasks.undercut import (
     MillUndercutTask,
     MillUndercutTaskConfig,
 )
 from fibsem.structures import FibsemImage, Point
+from fibsem.workflows.run_status import HoldKind
 from fibsem.workflows.status import TaskStatus
 
 UNDERCUT = "Mill Undercut"

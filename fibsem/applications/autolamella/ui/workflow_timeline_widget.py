@@ -886,7 +886,7 @@ class WorkflowProgressWidget(QWidget):
 
         Reads queue_items snapshot to update all row statuses directly.
         """
-        from fibsem.applications.autolamella.workflows.tasks.status import (
+        from fibsem.workflows.run_status import (
             WorkflowStatusUpdate,
         )
         from fibsem.workflows.status import TaskStatus

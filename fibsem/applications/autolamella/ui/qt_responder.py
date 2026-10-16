@@ -63,12 +63,12 @@ from fibsem.applications.autolamella.workflows.question_adapters import (
     answered,
     proposal_for,
 )
-from fibsem.applications.autolamella.workflows.tasks.status import (
+from fibsem.structures import BeamType
+from fibsem.workflows.run_status import (
     Hold,
     HoldKind,
     WorkflowStatusEvent,
 )
-from fibsem.structures import BeamType
 
 if TYPE_CHECKING:
     from concurrent.futures import Future

@@ -44,8 +44,8 @@ from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
     SpotBurnFiducialTask,
     SpotBurnFiducialTaskConfig,
 )
-from fibsem.applications.autolamella.workflows.tasks.status import HoldKind
 from fibsem.structures import Point
+from fibsem.workflows.run_status import HoldKind
 
 SPOT = "Spot Burn Fiducial"
 FIRST_HINT = "Press Run Spot Burn to burn, or Skip to go on without burning."

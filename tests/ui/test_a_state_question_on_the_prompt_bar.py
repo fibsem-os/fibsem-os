@@ -38,8 +38,8 @@ from fibsem.applications.autolamella.workflows.tasks.reference_image import (
     AcquireReferenceImageConfig,
     AcquireReferenceImageTask,
 )
-from fibsem.applications.autolamella.workflows.tasks.status import HoldKind
 from fibsem.structures import FibsemStagePosition
+from fibsem.workflows.run_status import HoldKind
 from fibsem.workflows.status import TaskStatus
 
 REF = "Acquire Reference Image"

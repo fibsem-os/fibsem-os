@@ -24,9 +24,9 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem.applications.autolamella.workflows.tasks.status import Hold, HoldKind
 from fibsem.applications.autolamella.workflows.ui import select_poi_ui
 from fibsem.structures import BeamType, Point
+from fibsem.workflows.run_status import Hold, HoldKind
 
 
 @pytest.fixture(scope="module")

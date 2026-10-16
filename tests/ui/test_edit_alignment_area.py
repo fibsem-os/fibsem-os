@@ -24,9 +24,9 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem.applications.autolamella.workflows.tasks.status import Hold, HoldKind
 from fibsem.applications.autolamella.workflows.ui import update_alignment_area_ui
 from fibsem.structures import FibsemRectangle
+from fibsem.workflows.run_status import Hold, HoldKind
 
 INITIAL = FibsemRectangle(left=0.3, top=0.3, width=0.2, height=0.25)
 

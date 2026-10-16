@@ -106,17 +106,6 @@ from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     grid_rename_refusal,
     plan_grid_run,
 )
-from fibsem.applications.autolamella.workflows.tasks.queue import (
-    QUEUE_ACTIONS,
-    QueueOp,
-    QueueResult,
-)
-from fibsem.applications.autolamella.workflows.tasks.status import (
-    Hold,
-    HoldKind,
-    WorkflowStatusEvent,
-    WorkflowStatusUpdate,
-)
 from fibsem.applications.autolamella.workflows.tasks.tasks import get_task_supervision
 from fibsem.applications.autolamella.workflows.workflow_estimate import (
     AdditionEstimate,
@@ -159,6 +148,17 @@ from fibsem.ui.widgets.status_bar import FibsemStatusBar
 from fibsem.util.durations import format_duration_rounded
 from fibsem.util.timestamps import format_time, now
 from fibsem.versioning import get_version_string
+from fibsem.workflows.queue import (
+    QUEUE_ACTIONS,
+    QueueOp,
+    QueueResult,
+)
+from fibsem.workflows.run_status import (
+    Hold,
+    HoldKind,
+    WorkflowStatusEvent,
+    WorkflowStatusUpdate,
+)
 from fibsem.workflows.status import TaskStatus
 
 # How wide the experiment name button in the tab corner is allowed to grow. Wide

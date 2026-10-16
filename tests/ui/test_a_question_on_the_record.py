@@ -46,7 +46,6 @@ from fibsem.applications.autolamella.workflows.interaction import (
     ReviewDetection,
     ask,
 )
-from fibsem.applications.autolamella.workflows.tasks.status import HoldKind
 from fibsem.detection.detection import DetectedFeatures, LamellaCentre
 from fibsem.structures import (
     BeamType,
@@ -56,6 +55,7 @@ from fibsem.structures import (
     MicroscopeState,
     Point,
 )
+from fibsem.workflows.run_status import HoldKind
 from fibsem.workflows.status import TaskStatus
 
 TASK = "Mill Undercut"
