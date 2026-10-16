@@ -73,6 +73,21 @@ def test_each_tool_takes_the_arguments_its_catalog_entry_names():
         ), spec.name
 
 
+def test_each_argument_carries_its_catalog_description():
+    """The catalog's words for an argument reach the client in the input
+    schema, where an agent reads them, not only in the catalog."""
+    client = _make_client("drive")
+    listed = asyncio.run(build_sidecar(client, None).list_tools())
+    schemas = {
+        t.name: getattr(t, "input_schema", None) or t.inputSchema
+        for t in getattr(listed, "tools", listed)
+    }
+    for spec in CATALOG:
+        properties = schemas[spec.name].get("properties", {})
+        for name, text in spec.params.items():
+            assert properties[name].get("description") == text, (spec.name, name)
+
+
 def test_hardware_tools_are_offered_at_watch():
     """Tools don't follow the level (FIB-1035): the server's 403 is the gate,
     so hardware tools are offered at Watch too, and refused there."""

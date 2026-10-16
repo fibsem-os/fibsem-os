@@ -1460,10 +1460,14 @@ class AutoLamellaAppContext:
     def set_item_pose(self, item_name: str, pose_name: str) -> Dict[str, Any]:
         """Set the stage position now as one of a lamella's poses, as the tab's
         Set pose does. Setting MILLING moves the lamella: its milling angle and
-        fluorescence pose follow. Saved."""
+        fluorescence pose follow. Saved. Not while a run is on: the run moves
+        the stage, so "now" is wherever it happens to be."""
         from fibsem.applications.autolamella.poses import set_lamella_pose
 
         experiment, microscope, refusal = self._editable()
+        if refusal:
+            return refusal
+        refusal = self._not_while_running("set a pose from the stage")
         if refusal:
             return refusal
         lamella, refusal = find_item(experiment, item_name)

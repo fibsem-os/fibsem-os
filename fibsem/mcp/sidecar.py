@@ -30,7 +30,7 @@ import math
 import os
 import re
 import sys
-from typing import Any, List, Optional, Tuple
+from typing import Annotated, Any, List, Optional, Tuple
 from urllib.parse import quote, urlencode
 
 from fibsem.server.catalog import CATALOG, route_call, tools_for_capabilities
@@ -806,7 +806,7 @@ def build_sidecar(client, capabilities):
     def item_get_task_config(item_name: str, task_name: str):
         return _app_get(f"/app/experiment/items/{item_name}/task_config/{task_name}")
 
-    def experiment_add_note(text: str, item_name=None):
+    def experiment_add_note(text: str, item_name: Optional[str] = None):
         return _app_post(
             "/app/agent/notes", {"text": str(text), "item_name": item_name}
         )
@@ -867,7 +867,7 @@ def build_sidecar(client, capabilities):
             f"/app/experiment/items/{quote(item_name, safe='')}/objective_position"
         )
 
-    def item_apply_protocol(item_name: str, task_names=None):
+    def item_apply_protocol(item_name: str, task_names: Optional[List[str]] = None):
         return _app_post(
             f"/app/experiment/items/{item_name}/apply_protocol",
             {"task_names": list(task_names) if task_names else None},
@@ -889,7 +889,7 @@ def build_sidecar(client, capabilities):
             {"milling_key": milling_key, "order": list(order), "version": version},
         )
 
-    def protocol_set_schedule(task_name: str, scheduled_at=None):
+    def protocol_set_schedule(task_name: str, scheduled_at: Optional[str] = None):
         return _app_post(
             "/app/workflow/schedule",
             {"task_name": task_name, "scheduled_at": scheduled_at},
@@ -1181,7 +1181,7 @@ def build_sidecar(client, capabilities):
         if name in offered:
             spec = by_name[name]
             mcp.add_tool(
-                _flag_failures(fn),
+                _described(_flag_failures(fn), spec.params),
                 name=name,
                 title=spec.title,
                 description=spec.full_description,
@@ -1194,6 +1194,29 @@ def build_sidecar(client, capabilities):
                 ),
             )
     return mcp
+
+
+def _described(fn, params):
+    """*fn*, each argument carrying the catalog's words for it
+    (`ToolSpec.params`), so the client's input schema describes it."""
+    import inspect
+
+    from pydantic import Field
+
+    signature = inspect.signature(fn, eval_str=True)
+    fn.__signature__ = signature.replace(
+        parameters=[
+            parameter.replace(
+                annotation=Annotated[
+                    parameter.annotation, Field(description=params[parameter.name])
+                ]
+            )
+            if parameter.name in params
+            else parameter
+            for parameter in signature.parameters.values()
+        ]
+    )
+    return fn
 
 
 def _flag_failures(fn):
