@@ -6,7 +6,7 @@ the record now rides inside :class:`WorkflowStatusEvent`. This record is
 independent of that work in both directions and can land before or after it.
 
 Unlike the other progress signals, there was no vocabulary to design here. ``status``
-has always been a real ``AutoLamellaTaskStatus`` on the wire; what was missing was a
+has always been a real ``TaskStatus`` on the wire; what was missing was a
 declared shape around it.
 """
 
@@ -17,8 +17,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
-from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
 from fibsem.util.timestamps import now
+from fibsem.workflows.status import TaskStatus
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.workflows.tasks.queue import WorkItem
@@ -38,7 +38,7 @@ class WorkflowStatusUpdate:
 
     task_name: str = "Unknown Task"
     item_name: str = "Unknown Lamella"
-    status: AutoLamellaTaskStatus = AutoLamellaTaskStatus.NotStarted
+    status: TaskStatus = TaskStatus.NotStarted
     timestamp: Optional[float] = None
     error_message: Optional[str] = None
     task_duration: Optional[float] = None
@@ -95,11 +95,11 @@ class WorkflowStatusUpdate:
             return cls()
 
         status = payload.get("status")
-        if not isinstance(status, AutoLamellaTaskStatus):
+        if not isinstance(status, TaskStatus):
             # Not a lie worth telling loudly: `NotStarted` fires no consumer branch,
             # so an unrecognised value renders as "nothing in particular happened"
             # rather than crashing or picking a wrong outcome.
-            status = AutoLamellaTaskStatus.NotStarted
+            status = TaskStatus.NotStarted
 
         return cls(
             task_name=payload.get("task_name") or "Unknown Task",
@@ -179,9 +179,7 @@ class Hold:
     items: Tuple[str, ...] = ()
 
 
-def take_back_finish(
-    item: Any, task_id: str, status: AutoLamellaTaskStatus, message: str
-) -> None:
+def take_back_finish(item: Any, task_id: str, status: TaskStatus, message: str) -> None:
     """Record that a run which finished did not end Completed after all: what
     came after its work -- settling its result, saving the experiment -- failed
     (FIB-1374). The item's task_state says so, and so does the run's history

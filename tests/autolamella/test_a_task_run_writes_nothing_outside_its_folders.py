@@ -27,12 +27,12 @@ from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskStatus,
     AutoLamellaWorkflowConfig,
     Experiment,
 )
 from fibsem.applications.autolamella.workflows.tasks import get_tasks
 from fibsem.applications.autolamella.workflows.tasks.manager import run_tasks
+from fibsem.workflows.status import TaskStatus
 
 CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
 
@@ -127,7 +127,7 @@ def test_a_task_run_writes_only_into_its_lamella_folder(
     run_tasks(microscope, exp, [exp.task_protocol.workflow_config.tasks[0].name])
 
     # a task that stopped early wrote nothing, and would pass for that reason
-    assert lamella.task_state.status is AutoLamellaTaskStatus.Completed, (
+    assert lamella.task_state.status is TaskStatus.Completed, (
         f"{task_type} did not run headless on Demo "
         f"({lamella.task_state.status_message!r}); "
         "if it cannot, list it in CANNOT_RUN_HERE with the reason"

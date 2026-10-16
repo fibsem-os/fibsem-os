@@ -26,7 +26,6 @@ from fibsem.applications.autolamella.proposals import (
 )
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskStatus,
     Experiment,
 )
 from fibsem.applications.autolamella.workflows.question_adapters import (
@@ -35,6 +34,7 @@ from fibsem.applications.autolamella.workflows.question_adapters import (
 )
 from fibsem.detection.detection import DetectedFeatures, LamellaCentre
 from fibsem.structures import FibsemStagePosition, MicroscopeState, Point
+from fibsem.workflows.status import TaskStatus
 
 TASK = "Setup Lamella Position"
 RUN = "run-1"
@@ -57,7 +57,7 @@ def experiment(tmp_path):
     lamella = exp.positions[0]
     lamella.task_state.name = TASK
     lamella.task_state.task_id = RUN
-    lamella.task_state.status = AutoLamellaTaskStatus.Completed
+    lamella.task_state.status = TaskStatus.Completed
     return exp
 
 
@@ -185,7 +185,7 @@ def test_a_question_is_recorded_and_so_is_the_position_it_was_confirmed_at(
     """A state asked mid-run, confirmed "as it stands" from the prompt bar:
     the task fills in the position afterwards, and that is recorded too."""
     lamella = experiment.positions[0]
-    lamella.task_state.status = AutoLamellaTaskStatus.InProgress
+    lamella.task_state.status = TaskStatus.InProgress
     asked_at = FibsemStagePosition(x=1e-3, y=0, z=0, r=0, t=0, name="asked")
     moved_to = FibsemStagePosition(x=1.002e-3, y=0, z=0, r=0, t=0, name="moved")
     proposal = Proposal(
@@ -227,7 +227,7 @@ def test_what_nobody_decided_is_recorded_as_the_task_s(experiment, recorder):
         lamella.id, "Acquire Reference Image", unasked, "not supervised"
     )
     # A question whose run stopped before it was answered.
-    lamella.task_state.status = AutoLamellaTaskStatus.InProgress
+    lamella.task_state.status = TaskStatus.InProgress
     withdrawn = Proposal(kind=STATE, values={}, provenance={"task_id": RUN})
     assert experiment.ask_proposal(lamella.id, TASK, withdrawn)
     assert experiment.withdraw_proposal(lamella.id, TASK, "the run stopped").applied

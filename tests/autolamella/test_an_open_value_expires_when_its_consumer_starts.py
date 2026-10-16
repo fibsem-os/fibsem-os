@@ -23,12 +23,12 @@ from fibsem.applications.autolamella.proposals import (
 )
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskState,
-    AutoLamellaTaskStatus,
     Experiment,
     standing,
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.structures import Point
+from fibsem.workflows.status import TaskStatus
 from tests.autolamella.test_task_manager_status import (
     NoMicroscope,
     RecordingUI,
@@ -87,7 +87,7 @@ def test_a_result_the_run_is_holding_for_is_not_expired(experiment):
     lamella = experiment.positions[0]
     lamella.task_history.append(
         AutoLamellaTaskState(
-            name="Trench", task_id=RUN, status=AutoLamellaTaskStatus.AwaitingDecision
+            name="Trench", task_id=RUN, status=TaskStatus.AwaitingDecision
         )
     )
     proposal = lamella.record_proposal("Trench", _proposal())
@@ -144,7 +144,7 @@ def test_the_manager_expires_what_a_task_consumes_when_it_starts(tmp_path):
             # what a real run leaves: the completed entry the requirement reads
             lam.task_history.append(
                 AutoLamellaTaskState(
-                    name="Trench", task_id=RUN, status=AutoLamellaTaskStatus.Completed
+                    name="Trench", task_id=RUN, status=TaskStatus.Completed
                 )
             )
         if task_name == "Undercut":
@@ -173,9 +173,7 @@ def test_a_task_downstream_through_another_consumes_it_too(tmp_path):
     lamella.record_proposal("Trench", _proposal(POINT_OF_INTEREST, poi=Point(0, 0)))
     for name in ("Trench", "Undercut"):
         lamella.task_history.append(
-            AutoLamellaTaskState(
-                name=name, task_id=RUN, status=AutoLamellaTaskStatus.Completed
-            )
+            AutoLamellaTaskState(name=name, task_id=RUN, status=TaskStatus.Completed)
         )
     m.queue.build_from_matrix(["Polishing"], ["L1"])
     seen = {}

@@ -15,7 +15,6 @@ pytest.importorskip("PyQt5")
 
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskStatus,
     Experiment,
 )
 from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
@@ -23,6 +22,7 @@ from fibsem.applications.autolamella.workflows.tasks.manager import (
     WorkflowStatusUpdate,
 )
 from fibsem.structures import FibsemStagePosition
+from fibsem.workflows.status import TaskStatus
 
 
 @pytest.fixture
@@ -73,12 +73,12 @@ def test_a_status_report_reaches_both_overview_lists(main_ui, tmp_path):
     # What the workflow writes, then reports, for a running task.
     one = exp.positions[0]
     one.task_state.name = "Trench"
-    one.task_state.status = AutoLamellaTaskStatus.InProgress
+    one.task_state.status = TaskStatus.InProgress
     main_ui._apply_status_report(
         WorkflowStatusUpdate(
             task_name="Trench",
             item_name="one",
-            status=AutoLamellaTaskStatus.InProgress,
+            status=TaskStatus.InProgress,
             queue_position=1,
             queue_total=2,
         )

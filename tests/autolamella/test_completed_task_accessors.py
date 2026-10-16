@@ -14,10 +14,10 @@ import pytest
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
     AutoLamellaTaskState,
-    AutoLamellaTaskStatus,
     AutoLamellaWorkflowConfig,
     Lamella,
 )
+from fibsem.workflows.status import TaskStatus
 
 
 @pytest.fixture
@@ -38,29 +38,25 @@ def workflow() -> AutoLamellaWorkflowConfig:
     )
 
 
-def _finished(name: str, status: AutoLamellaTaskStatus) -> AutoLamellaTaskState:
+def _finished(name: str, status: TaskStatus) -> AutoLamellaTaskState:
     return AutoLamellaTaskState(name=name, status=status)
 
 
 def test_a_failed_task_is_not_a_completed_task(lamella: Lamella) -> None:
-    lamella.task_history.append(_finished("MillTrench", AutoLamellaTaskStatus.Failed))
+    lamella.task_history.append(_finished("MillTrench", TaskStatus.Failed))
 
     assert lamella.completed_tasks == []
     assert not lamella.has_completed_task("MillTrench")
 
 
 def test_a_cancelled_task_is_not_a_completed_task(lamella: Lamella) -> None:
-    lamella.task_history.append(
-        _finished("MillTrench", AutoLamellaTaskStatus.Cancelled)
-    )
+    lamella.task_history.append(_finished("MillTrench", TaskStatus.Cancelled))
 
     assert not lamella.has_completed_task("MillTrench")
 
 
 def test_a_completed_task_still_counts(lamella: Lamella) -> None:
-    lamella.task_history.append(
-        _finished("MillTrench", AutoLamellaTaskStatus.Completed)
-    )
+    lamella.task_history.append(_finished("MillTrench", TaskStatus.Completed))
 
     assert lamella.completed_tasks == ["MillTrench"]
     assert lamella.has_completed_task("MillTrench")
@@ -72,7 +68,7 @@ def test_a_failed_prerequisite_does_not_satisfy_the_gate(
     """The blocking case: TaskManager._should_skip gates on has_completed_task, and
     nothing else stops it -- is_failure reads defect.state, which only a human
     clicking in the UI ever sets. A failed trench must not license an undercut."""
-    lamella.task_history.append(_finished("MillTrench", AutoLamellaTaskStatus.Failed))
+    lamella.task_history.append(_finished("MillTrench", TaskStatus.Failed))
 
     requirements = workflow.requirements("MillUndercut")
     assert requirements == ["MillTrench"]
@@ -83,10 +79,8 @@ def test_a_failed_required_task_leaves_the_workflow_incomplete(
     lamella: Lamella, workflow: AutoLamellaWorkflowConfig
 ) -> None:
     """Feeds ITEM_COMPLETED / EXPERIMENT_COMPLETED and the is_completed report column."""
-    lamella.task_history.append(_finished("MillTrench", AutoLamellaTaskStatus.Failed))
-    lamella.task_history.append(
-        _finished("MillUndercut", AutoLamellaTaskStatus.Completed)
-    )
+    lamella.task_history.append(_finished("MillTrench", TaskStatus.Failed))
+    lamella.task_history.append(_finished("MillUndercut", TaskStatus.Completed))
 
     assert not workflow.is_completed(lamella)
     assert workflow.get_completed_tasks(lamella) == ["MillUndercut"]
@@ -96,10 +90,8 @@ def test_a_failed_required_task_leaves_the_workflow_incomplete(
 def test_last_completed_task_skips_a_failed_entry(lamella: Lamella) -> None:
     """Reported as last_completed / last_completed_at in the experiment summary, so a
     failure landing last would otherwise be presented as the lamella's latest progress."""
-    lamella.task_history.append(
-        _finished("MillTrench", AutoLamellaTaskStatus.Completed)
-    )
-    lamella.task_history.append(_finished("MillUndercut", AutoLamellaTaskStatus.Failed))
+    lamella.task_history.append(_finished("MillTrench", TaskStatus.Completed))
+    lamella.task_history.append(_finished("MillUndercut", TaskStatus.Failed))
 
     last = lamella.last_completed_task
     assert last is not None
@@ -108,7 +100,7 @@ def test_last_completed_task_skips_a_failed_entry(lamella: Lamella) -> None:
 
 def test_the_history_still_holds_the_failure(lamella: Lamella) -> None:
     """Filtering the accessors must not undo FIB-490 -- the record itself stays."""
-    lamella.task_history.append(_finished("MillTrench", AutoLamellaTaskStatus.Failed))
+    lamella.task_history.append(_finished("MillTrench", TaskStatus.Failed))
 
     assert len(lamella.task_history) == 1
-    assert lamella.task_history[0].status is AutoLamellaTaskStatus.Failed
+    assert lamella.task_history[0].status is TaskStatus.Failed

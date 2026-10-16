@@ -232,10 +232,8 @@ def test_a_lamella_with_no_position_shows_nothing(scene):
 def test_a_run_s_images_in_its_own_folder_are_offered_and_chosen(scene):
     """Each run keeps its images in its own folder (FIB-1275): the pickers list
     them with the run's time, and land on the last completed task's latest run."""
-    from fibsem.applications.autolamella.structures import (
-        AutoLamellaTaskState,
-        AutoLamellaTaskStatus,
-    )
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+    from fibsem.workflows.status import TaskStatus
 
     lamella = scene["lamella"]
     folder = os.path.join("Rough Milling", "20261014-093012")
@@ -249,7 +247,7 @@ def test_a_run_s_images_in_its_own_folder_are_offered_and_chosen(scene):
     lamella.task_history.append(
         AutoLamellaTaskState(
             name="Rough Milling",
-            status=AutoLamellaTaskStatus.Completed,
+            status=TaskStatus.Completed,
             outputs={"final_fib": [run_ib], "final_sem": [run_eb]},
         )
     )

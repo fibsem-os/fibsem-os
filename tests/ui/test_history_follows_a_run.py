@@ -21,7 +21,6 @@ from PyQt5.QtWidgets import QApplication, QLabel  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
     AutoLamellaTaskState,
-    AutoLamellaTaskStatus,
     Experiment,
 )
 from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module  # noqa: E402
@@ -36,6 +35,7 @@ from fibsem.structures import (  # noqa: E402
     FibsemStagePosition,
     MicroscopeState,
 )
+from fibsem.workflows.status import TaskStatus  # noqa: E402
 
 TASK = "Trench"
 
@@ -91,7 +91,7 @@ def _finish(lamella, task_name=TASK, value=0):
     lamella.task_history.append(
         AutoLamellaTaskState(
             name=task_name,
-            status=AutoLamellaTaskStatus.Completed,
+            status=TaskStatus.Completed,
             end_timestamp=datetime.now().timestamp(),
         )
     )
@@ -126,7 +126,7 @@ def test_a_finished_task_shows_in_the_history_of_the_selected_lamella(
     assert "No task runs yet." in _texts(history)
 
     _finish(one)
-    main_ui._apply_status_report(_report("one", AutoLamellaTaskStatus.Completed))
+    main_ui._apply_status_report(_report("one", TaskStatus.Completed))
 
     assert TASK in _texts(history)
     assert "No task runs yet." not in _texts(history)
@@ -142,7 +142,7 @@ def test_another_lamella_s_task_leaves_the_history_alone(main_ui, experiment):
     shown = _labels(history)
 
     _finish(two)
-    main_ui._apply_status_report(_report("two", AutoLamellaTaskStatus.Completed))
+    main_ui._apply_status_report(_report("two", TaskStatus.Completed))
 
     assert _labels(history) == shown
 
@@ -153,7 +153,7 @@ def test_a_task_starting_leaves_the_history_alone(main_ui, experiment):
     history = main_ui.lamella_task_image_widget
     shown = _labels(history)
 
-    main_ui._apply_status_report(_report("one", AutoLamellaTaskStatus.InProgress))
+    main_ui._apply_status_report(_report("one", TaskStatus.InProgress))
 
     assert _labels(history) == shown
 

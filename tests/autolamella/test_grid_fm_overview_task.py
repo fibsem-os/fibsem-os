@@ -14,7 +14,6 @@ import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskStatus,
     Experiment,
     GridRecord,
 )
@@ -32,6 +31,7 @@ from fibsem.fm.acquisition import OverviewDestination, acquire_fm_tiled_overview
 from fibsem.fm.structures import ChannelSettings, OverviewParameters, ZParameters
 from fibsem.services.sample_handling import BUILTIN_SLOT_NAME
 from fibsem.structures import InsertableDeviceState, SampleGrid
+from fibsem.workflows.status import TaskStatus
 
 
 @pytest.fixture
@@ -100,7 +100,7 @@ class TestRun:
         run_grid_task(microscope, "overview_fm", experiment, grid)
 
         entry = grid.task_history[-1]
-        assert entry.status is AutoLamellaTaskStatus.Completed
+        assert entry.status is TaskStatus.Completed
         assert set(entry.outputs) == {"overview_fm", "overview_fm_thumbnail"}
         (mosaic,) = grid_outputs(experiment, grid, "overview_fm")
         assert mosaic.startswith(
@@ -147,7 +147,7 @@ class TestRun:
         grid = experiment.get_grid_by_name("grid-aspen")
         with pytest.raises(RuntimeError, match="no fluorescence microscope"):
             run_grid_task(plain, "overview_fm", experiment, grid)
-        assert grid.task_state.status is AutoLamellaTaskStatus.Failed
+        assert grid.task_state.status is TaskStatus.Failed
 
 
 class TestProgressEndsTheRun:

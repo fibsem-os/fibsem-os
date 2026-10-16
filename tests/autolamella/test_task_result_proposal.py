@@ -29,7 +29,6 @@ from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskStatus,
     AutoLamellaWorkflowConfig,
     Experiment,
 )
@@ -42,6 +41,7 @@ from fibsem.applications.autolamella.workflows.tasks.rough import (
     MillRoughTaskConfig,
 )
 from fibsem.structures import Point
+from fibsem.workflows.status import TaskStatus
 
 ROUGH = "Rough Milling"
 POLISH = "Polishing"
@@ -180,7 +180,7 @@ def test_a_failed_task_records_its_result_with_the_failure(microscope, tmp_path)
     assert proposal.provenance["status"] == "Failed"
     assert proposal.provenance["failure"] == "stage timeout"
     assert proposal.provenance["reference_image"], "what was acquired before it failed"
-    assert lamella.task_state.status is AutoLamellaTaskStatus.Failed
+    assert lamella.task_state.status is TaskStatus.Failed
 
 
 def test_not_gated_the_result_is_recorded_and_the_run_goes_on(microscope, tmp_path):
@@ -408,10 +408,10 @@ def test_a_task_whose_result_cannot_be_saved_ends_failed(microscope, tmp_path):
     finally:
         type(task).proposer = TaskResultProposer()
 
-    assert lamella.task_state.status is AutoLamellaTaskStatus.Failed
+    assert lamella.task_state.status is TaskStatus.Failed
     assert "could not be recorded" in lamella.task_state.status_message
     runs = [t for t in lamella.task_history if t.task_id == task.task_id]
-    assert [t.status for t in runs] == [AutoLamellaTaskStatus.Failed], "one entry"
+    assert [t.status for t in runs] == [TaskStatus.Failed], "one entry"
     assert [c.event for c in fired] == ["task_started", "task_failed"]
 
     os.rmdir(blocker)
@@ -419,7 +419,7 @@ def test_a_task_whose_result_cannot_be_saved_ends_failed(microscope, tmp_path):
     saved = Experiment.load(os.path.join(exp.path, "experiment.yaml"))
     last = saved.positions[0].task_history[-1]
     assert last.task_id == task.task_id
-    assert last.status is AutoLamellaTaskStatus.Failed, "the file says it failed"
+    assert last.status is TaskStatus.Failed, "the file says it failed"
 
 
 def test_a_task_the_run_cannot_save_after_ends_failed(
@@ -440,7 +440,7 @@ def test_a_task_the_run_cannot_save_after_ends_failed(
     with pytest.raises(OSError):
         manager._run_single_task(ROUGH, lamella)
 
-    assert lamella.task_state.status is AutoLamellaTaskStatus.Failed
+    assert lamella.task_state.status is TaskStatus.Failed
     assert "could not be saved" in lamella.task_state.status_message
-    assert lamella.task_history[-1].status is AutoLamellaTaskStatus.Failed
+    assert lamella.task_history[-1].status is TaskStatus.Failed
     assert [c.event for c in fired] == ["task_started", "task_completed", "task_failed"]

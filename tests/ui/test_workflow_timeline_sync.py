@@ -24,7 +24,6 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtCore import QObject, pyqtSignal
 
-from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus as Status
 from fibsem.applications.autolamella.structures import Experiment, Lamella
 from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
     StepStatus,
@@ -32,6 +31,7 @@ from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.applications.autolamella.workflows.tasks.queue import TaskQueue
+from fibsem.workflows.status import TaskStatus as Status
 
 
 @pytest.fixture

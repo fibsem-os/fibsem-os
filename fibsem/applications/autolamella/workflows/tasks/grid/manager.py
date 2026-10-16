@@ -66,11 +66,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 import pandas as pd
 
-from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskState,
-    AutoLamellaTaskStatus,
-    GridRecord,
-)
+from fibsem.applications.autolamella.structures import AutoLamellaTaskState, GridRecord
 from fibsem.applications.autolamella.workflows.tasks.grid.registry import (
     run_grid_task,
 )
@@ -83,6 +79,7 @@ from fibsem.devices.sample_loader import GridExchangeError
 from fibsem.hooks import HookEvent, HookManager
 from fibsem.structures import SampleGrid
 from fibsem.util import timestamps
+from fibsem.workflows.status import TaskStatus
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment
@@ -251,8 +248,8 @@ class GridTaskManager(BaseTaskManager):
             completed_at = ""
             duration = None
             if grid is not None and item.status not in (
-                AutoLamellaTaskStatus.Skipped,
-                AutoLamellaTaskStatus.NotStarted,
+                TaskStatus.Skipped,
+                TaskStatus.NotStarted,
             ):
                 for task in reversed(grid.task_history):
                     if task.name == item.task_name:
@@ -268,7 +265,7 @@ class GridTaskManager(BaseTaskManager):
                     # the beam for it": blank, not the last load's outcome.
                     "loaded": (
                         None
-                        if item.status is AutoLamellaTaskStatus.NotStarted
+                        if item.status is TaskStatus.NotStarted
                         else item.item_name not in self._not_loaded
                     ),
                     "completed_at": completed_at,
@@ -361,11 +358,11 @@ class GridTaskManager(BaseTaskManager):
             "grid protocol."
         )
         logging.info(msg)
-        self.queue.mark_done(item, AutoLamellaTaskStatus.Skipped)
+        self.queue.mark_done(item, TaskStatus.Skipped)
         self._emit_report(
             item=item,
             item_name=grid.name,
-            status=AutoLamellaTaskStatus.Skipped,
+            status=TaskStatus.Skipped,
             msg=msg,
             skip_reason=SKIP_TASK_REMOVED,
         )
@@ -437,11 +434,11 @@ class GridTaskManager(BaseTaskManager):
                     "in the experiment."
                 )
                 logging.warning(msg)
-                self.queue.mark_done(item, AutoLamellaTaskStatus.Skipped)
+                self.queue.mark_done(item, TaskStatus.Skipped)
                 self._emit_report(
                     item=item,
                     item_name=item.item_name,
-                    status=AutoLamellaTaskStatus.Skipped,
+                    status=TaskStatus.Skipped,
                     msg=msg,
                     skip_reason=SKIP_GRID_NOT_FOUND,
                 )
@@ -465,11 +462,11 @@ class GridTaskManager(BaseTaskManager):
                     f"{', '.join(missing)} did not complete."
                 )
                 logging.info(msg)
-                self.queue.mark_done(item, AutoLamellaTaskStatus.Skipped)
+                self.queue.mark_done(item, TaskStatus.Skipped)
                 self._emit_report(
                     item=item,
                     item_name=grid.name,
-                    status=AutoLamellaTaskStatus.Skipped,
+                    status=TaskStatus.Skipped,
                     msg=msg,
                     skip_reason=SKIP_MISSING_PREREQS,
                 )
@@ -493,11 +490,11 @@ class GridTaskManager(BaseTaskManager):
                 reason = self._not_loaded[grid.name]
                 msg = f"Skipping {item.task_name} on {grid.name}: grid not loaded."
                 logging.info(f"{msg} {reason}")
-                self.queue.mark_done(item, AutoLamellaTaskStatus.Skipped)
+                self.queue.mark_done(item, TaskStatus.Skipped)
                 self._emit_report(
                     item=item,
                     item_name=grid.name,
-                    status=AutoLamellaTaskStatus.Skipped,
+                    status=TaskStatus.Skipped,
                     msg=msg,
                     error_message=reason,
                     skip_reason=SKIP_GRID_NOT_LOADED,
@@ -516,13 +513,13 @@ class GridTaskManager(BaseTaskManager):
             self._emit_report(
                 item=item,
                 item_name=grid.name,
-                status=AutoLamellaTaskStatus.InProgress,
+                status=TaskStatus.InProgress,
                 msg=f"Starting {item.task_name} on grid {grid.name}.",
             )
             err = self._run_single_task(item.task_name, grid)
             final_status = grid.task_state.status
             self.queue.mark_done(item, final_status)
-            if err is None and final_status is AutoLamellaTaskStatus.AwaitingDecision:
+            if err is None and final_status is TaskStatus.AwaitingDecision:
                 msg = (
                     f"{item.task_name} on grid {grid.name} awaits a decision "
                     "in the Review tab."
@@ -575,25 +572,25 @@ class GridTaskManager(BaseTaskManager):
         self._emit_report(
             item=item,
             item_name=occupant,
-            status=AutoLamellaTaskStatus.InProgress,
+            status=TaskStatus.InProgress,
             msg=f"Unloading grid {occupant}.",
         )
         self._say(status_bar=f"Unloading grid {occupant}...")
         entry = AutoLamellaTaskState(
             name=UNLOAD_ENTRY_NAME,
             task_type=UNLOAD_TASK_TYPE,
-            status=AutoLamellaTaskStatus.InProgress,
+            status=TaskStatus.InProgress,
         )
         try:
             stage.unload()
         except Exception as e:  # noqa: BLE001 - the run is over; said, not raised
-            entry.status = AutoLamellaTaskStatus.Failed
+            entry.status = TaskStatus.Failed
             entry.status_message = str(e)
             msg = f"Grid {occupant} could not be unloaded at the end of the run: {e}"
             logging.warning(msg)
             self._notify(msg, "warning")
         else:
-            entry.status = AutoLamellaTaskStatus.Completed
+            entry.status = TaskStatus.Completed
             entry.status_message = "Returned to the magazine."
             msg = f"Grid {occupant} is unloaded."
             logging.info(msg)
@@ -607,9 +604,7 @@ class GridTaskManager(BaseTaskManager):
             item_name=occupant,
             status=entry.status,
             error_message=(
-                entry.status_message
-                if entry.status is AutoLamellaTaskStatus.Failed
-                else None
+                entry.status_message if entry.status is TaskStatus.Failed else None
             ),
             task_duration=entry.duration,
             msg=msg,
@@ -664,11 +659,11 @@ class GridTaskManager(BaseTaskManager):
                 "complete)."
             )
             logging.info(msg)
-            self.queue.mark_done(item, AutoLamellaTaskStatus.Skipped)
+            self.queue.mark_done(item, TaskStatus.Skipped)
             self._emit_report(
                 item=item,
                 item_name=grid.name,
-                status=AutoLamellaTaskStatus.Skipped,
+                status=TaskStatus.Skipped,
                 msg=msg,
                 skip_reason=SKIP_NOTHING_TO_RUN,
             )
@@ -676,7 +671,7 @@ class GridTaskManager(BaseTaskManager):
         self._emit_report(
             item=item,
             item_name=grid.name,
-            status=AutoLamellaTaskStatus.InProgress,
+            status=TaskStatus.InProgress,
             msg=f"Loading grid {grid.name}.",
         )
         try:
@@ -684,9 +679,7 @@ class GridTaskManager(BaseTaskManager):
         except OperationCancelledError as e:
             self._cancel_load(item, grid, str(e))
             return
-        status = (
-            AutoLamellaTaskStatus.Completed if loaded else AutoLamellaTaskStatus.Failed
-        )
+        status = TaskStatus.Completed if loaded else TaskStatus.Failed
         self.queue.mark_done(item, status)
         self._emit_report(
             item=item,
@@ -704,11 +697,11 @@ class GridTaskManager(BaseTaskManager):
         """A Stop landed inside the exchange: the queue item ends Cancelled, not
         Failed, and the loop ends the run at its next check."""
         logging.info(msg)
-        self.queue.mark_done(item, AutoLamellaTaskStatus.Cancelled)
+        self.queue.mark_done(item, TaskStatus.Cancelled)
         self._emit_report(
             item=item,
             item_name=grid.name,
-            status=AutoLamellaTaskStatus.Cancelled,
+            status=TaskStatus.Cancelled,
             msg=msg,
         )
 
@@ -734,7 +727,7 @@ class GridTaskManager(BaseTaskManager):
         entry = AutoLamellaTaskState(
             name=LOAD_ENTRY_NAME,
             task_type=LOAD_TASK_TYPE,
-            status=AutoLamellaTaskStatus.InProgress,
+            status=TaskStatus.InProgress,
         )
         try:
             if not loaded:
@@ -757,7 +750,7 @@ class GridTaskManager(BaseTaskManager):
             slot = stage.ensure_loaded(grid.name)
         except GridExchangeError as e:
             self._not_loaded[grid.name] = str(e)
-            entry.status = AutoLamellaTaskStatus.Failed
+            entry.status = TaskStatus.Failed
             entry.status_message = str(e)
             entry.end_timestamp = timestamps.now()
             grid.task_history.append(entry)
@@ -768,7 +761,7 @@ class GridTaskManager(BaseTaskManager):
             )
             return False
         if not loaded:
-            entry.status = AutoLamellaTaskStatus.Completed
+            entry.status = TaskStatus.Completed
             entry.status_message = f"Loaded into {slot.name}."
             entry.end_timestamp = timestamps.now()
             grid.task_history.append(entry)
@@ -794,7 +787,7 @@ class GridTaskManager(BaseTaskManager):
         has been asked for since the loop last looked."""
         if not self.is_stopped:
             return
-        entry.status = AutoLamellaTaskStatus.Cancelled
+        entry.status = TaskStatus.Cancelled
         entry.status_message = msg
         entry.end_timestamp = timestamps.now()
         grid.task_history.append(entry)
@@ -822,13 +815,13 @@ class GridTaskManager(BaseTaskManager):
                 e, (OperationCancelledError, InterruptedError)
             ):
                 logging.info(f"Task {task_name} on grid {grid.name} cancelled by user.")
-                grid.task_state.status = AutoLamellaTaskStatus.Cancelled
+                grid.task_state.status = TaskStatus.Cancelled
                 grid.task_state.status_message = "Cancelled by user."
             else:
                 logging.warning(
                     f"Error running {task_name} on grid {grid.name}: {e}", exc_info=True
                 )
-                grid.task_state.status = AutoLamellaTaskStatus.Failed
+                grid.task_state.status = TaskStatus.Failed
                 grid.task_state.status_message = str(e)
             # A task freezes its own outcome into the history. One that failed
             # before it existed left nothing there, so Results and the report would
@@ -894,14 +887,12 @@ class GridTaskManager(BaseTaskManager):
         failed = sum(
             1
             for i in items
-            if i.status is AutoLamellaTaskStatus.Failed
-            and i.task_name not in EXCHANGE_ENTRY_NAMES
+            if i.status is TaskStatus.Failed and i.task_name not in EXCHANGE_ENTRY_NAMES
         )
         not_unloaded = [
             i.item_name
             for i in items
-            if i.task_name == UNLOAD_ENTRY_NAME
-            and i.status is AutoLamellaTaskStatus.Failed
+            if i.task_name == UNLOAD_ENTRY_NAME and i.status is TaskStatus.Failed
         ]
         parts = [f"{len(grids) - len(not_loaded)} of {len(grids)} grids run"]
         if not_loaded:

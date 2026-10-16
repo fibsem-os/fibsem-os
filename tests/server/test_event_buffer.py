@@ -247,8 +247,8 @@ def test_to_plain_handles_the_awkward_types():
         to_plain(MillingProgressStatus.TASK_STARTED)
         == MillingProgressStatus.TASK_STARTED.value
     )
-    from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
+    from fibsem.workflows.status import TaskStatus
 
-    assert to_plain(AutoLamellaTaskStatus.InProgress) == "InProgress"
+    assert to_plain(TaskStatus.InProgress) == "InProgress"
     assert to_plain(np.float64(1.5)) == 1.5
     assert to_plain({"a": (1, 2)}) == {"a": [1, 2]}

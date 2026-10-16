@@ -31,7 +31,6 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
     AutoLamellaTaskState,
-    AutoLamellaTaskStatus,
     AutoLamellaWorkflowConfig,
     Experiment,
 )
@@ -49,6 +48,7 @@ from fibsem.structures import (  # noqa: E402
     MicroscopeState,
     Point,
 )
+from fibsem.workflows.status import TaskStatus  # noqa: E402
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -103,7 +103,7 @@ def ui(qapp, monkeypatch, tmp_path):
     _fib_image().save(ref)
     # A waiting proposal: its task ended waiting for the decision.
     lamella.task_history.append(
-        AutoLamellaTaskState(name=SETUP, status=AutoLamellaTaskStatus.AwaitingDecision)
+        AutoLamellaTaskState(name=SETUP, status=TaskStatus.AwaitingDecision)
     )
     lamella.proposals[SETUP] = [
         Proposal(
@@ -261,7 +261,7 @@ def test_confirm_from_a_worker_writes_through_as_the_agent(ui, qapp):
 def test_reject_needs_a_reason_and_fails_the_task(ui, qapp):
     lamella = ui.experiment.positions[0]
     lamella.task_history.append(
-        AutoLamellaTaskState(name=SETUP, status=AutoLamellaTaskStatus.AwaitingDecision)
+        AutoLamellaTaskState(name=SETUP, status=TaskStatus.AwaitingDecision)
     )
     with _client(ui) as client:
         resp = _post_on_worker(
@@ -291,7 +291,7 @@ def test_reject_needs_a_reason_and_fails_the_task(ui, qapp):
             },
         )
         assert resp.status_code == 200, resp.text
-    assert lamella.task_history[-1].status is AutoLamellaTaskStatus.Failed
+    assert lamella.task_history[-1].status is TaskStatus.Failed
     assert lamella.task_history[-1].status_message == (
         "Rejected by agent · remote: no usable site"
     )
@@ -299,7 +299,7 @@ def test_reject_needs_a_reason_and_fails_the_task(ui, qapp):
 
 
 def test_decide_refuses_what_is_not_pending_or_is_running(ui, qapp):
-    from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
+    from fibsem.workflows.status import TaskStatus
 
     lamella = ui.experiment.positions[0]
     with _client(ui) as client:
@@ -320,7 +320,7 @@ def test_decide_refuses_what_is_not_pending_or_is_running(ui, qapp):
         # a look at an earlier task's result, while a later one runs, lands:
         # only the task being decided, or a value, is refused under a run
         lamella.task_state.name = ROUGH
-        lamella.task_state.status = AutoLamellaTaskStatus.InProgress
+        lamella.task_state.status = TaskStatus.InProgress
         resp = _post_on_worker(
             qapp,
             client,

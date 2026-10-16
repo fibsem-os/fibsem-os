@@ -17,12 +17,12 @@ from PyQt5.QtWidgets import (
 
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskState,
-    AutoLamellaTaskStatus,
     DefectState,
     DefectType,
     Lamella,
 )
 from fibsem.applications.autolamella.ui.lamella_card_widget import LamellaCardContainer
+from fibsem.workflows.status import TaskStatus
 
 
 def _make_lamella(
@@ -30,14 +30,12 @@ def _make_lamella(
 ):
     lamella = Lamella(path=Path(f"/tmp/test/{petname}"), number=number, petname=petname)
     if last_task:
-        state = AutoLamellaTaskState(
-            name=last_task, status=AutoLamellaTaskStatus.Completed
-        )
+        state = AutoLamellaTaskState(name=last_task, status=TaskStatus.Completed)
         state.end_timestamp = time.time()
         lamella.task_history.append(state)
     if in_progress:
         lamella.task_state.name = in_progress
-        lamella.task_state.status = AutoLamellaTaskStatus.InProgress
+        lamella.task_state.status = TaskStatus.InProgress
     if defect_state != DefectType.NONE:
         lamella.defect = DefectState(state=defect_state, description="test defect")
     return lamella

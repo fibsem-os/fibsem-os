@@ -30,7 +30,6 @@ from fibsem.applications.autolamella.proposals import (
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     AutoLamellaTaskState,
-    AutoLamellaTaskStatus,
     Experiment,
 )
 from fibsem.structures import (
@@ -42,6 +41,7 @@ from fibsem.structures import (
     MicroscopeState,
     Point,
 )
+from fibsem.workflows.status import TaskStatus
 
 TASK = "Mill Rough"
 RUN = "run-1"
@@ -70,11 +70,11 @@ def experiment(tmp_path) -> Experiment:
     # The task's record: waiting on the decision, as a question's is once the
     # task is no longer parked on it; the live task_state below is InProgress.
     lamella.task_history.append(
-        AutoLamellaTaskState(name=TASK, status=AutoLamellaTaskStatus.AwaitingDecision)
+        AutoLamellaTaskState(name=TASK, status=TaskStatus.AwaitingDecision)
     )
     lamella.task_state.name = TASK
     lamella.task_state.task_id = RUN
-    lamella.task_state.status = AutoLamellaTaskStatus.InProgress
+    lamella.task_state.status = TaskStatus.InProgress
     lamella.proposals[TASK] = [
         Proposal(
             kind=DETECTION,
@@ -333,7 +333,7 @@ def test_an_answer_made_by_dragging_can_be_saved(tab, experiment):
         ),
     )
     lamella = experiment.positions[0]
-    lamella.task_state.status = AutoLamellaTaskStatus.Completed
+    lamella.task_state.status = TaskStatus.Completed
 
     result = experiment.decide(
         lamella.id,

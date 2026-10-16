@@ -25,17 +25,14 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskState,
-    AutoLamellaTaskStatus,
-    Lamella,
-)
+from fibsem.applications.autolamella.structures import AutoLamellaTaskState, Lamella
 from fibsem.applications.autolamella.task_outputs import (
     final_reference_images,
     fluorescence_images,
 )
 from fibsem.cancellation import CANCELLED, COMPLETED, FAILED, SKIPPED
 from fibsem.util.timestamps import to_datetime
+from fibsem.workflows.status import TaskStatus
 
 # The event kinds that are a run's operations. A record written before
 # operations said how they ended has no status: it was only ever written for a
@@ -114,7 +111,7 @@ class HistoryRun:
     task_id: str
     task_name: str
     task_type: str
-    status: AutoLamellaTaskStatus
+    status: TaskStatus
     status_message: str
     started_at: Optional[datetime]
     ended_at: Optional[datetime]
@@ -171,8 +168,8 @@ class HistoryFilter:
 
 
 _STATUS_OF_FILTER = {
-    "failed": AutoLamellaTaskStatus.Failed,
-    "cancelled": AutoLamellaTaskStatus.Cancelled,
+    "failed": TaskStatus.Failed,
+    "cancelled": TaskStatus.Cancelled,
 }
 
 
@@ -210,8 +207,7 @@ def history_rows(
     if (
         current is not None
         and current.task_id not in known
-        and current.status
-        in (AutoLamellaTaskStatus.InProgress, AutoLamellaTaskStatus.AwaitingDecision)
+        and current.status in (TaskStatus.InProgress, TaskStatus.AwaitingDecision)
     ):
         runs.append(current)
 
@@ -266,7 +262,7 @@ def history_rows(
             task_id=f"session:{session}",
             task_name=OUTSIDE_A_TASK,
             task_type="",
-            status=AutoLamellaTaskStatus.Completed,
+            status=TaskStatus.Completed,
             status_message="",
             started_at=ops[0].started_at or ops[0].ended_at,
             ended_at=max(

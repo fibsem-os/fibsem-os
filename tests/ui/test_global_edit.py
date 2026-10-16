@@ -22,7 +22,6 @@ from psygnal.containers import EventedDict  # noqa: E402
 
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskStatus,
     Experiment,
 )
 from fibsem.applications.autolamella.ui import (  # noqa: E402
@@ -35,6 +34,7 @@ from fibsem.applications.autolamella.workflows.tasks.rough import (  # noqa: E40
     MillRoughTaskConfig,
 )
 from fibsem.structures import MicroscopeState, Point  # noqa: E402
+from fibsem.workflows.status import TaskStatus  # noqa: E402
 
 ROUGH = "Rough Milling"
 POLISH = "Polishing"
@@ -158,7 +158,7 @@ def test_the_task_running_on_a_lamella_is_left_alone(window, experiment, monkeyp
     task's next save on the Arctis (2026-10-12)."""
     running, other = experiment.positions
     running.task_state.name = ROUGH
-    running.task_state.status = AutoLamellaTaskStatus.InProgress
+    running.task_state.status = TaskStatus.InProgress
     before = running.task_config[ROUGH].to_dict()
     said = []
 

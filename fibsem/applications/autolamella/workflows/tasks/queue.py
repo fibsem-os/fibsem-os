@@ -23,7 +23,7 @@ from enum import Enum, auto
 from typing import Callable, List, Optional, Tuple
 from uuid import uuid4
 
-from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
+from fibsem.workflows.status import TaskStatus
 
 
 @dataclass
@@ -37,7 +37,7 @@ class WorkItem:
 
     item_name: str
     task_name: str
-    status: AutoLamellaTaskStatus = AutoLamellaTaskStatus.NotStarted
+    status: TaskStatus = TaskStatus.NotStarted
     id: str = field(default_factory=lambda: str(uuid4()))
 
     @property
@@ -48,7 +48,7 @@ class WorkItem:
     @property
     def is_pending(self) -> bool:
         """Whether this item is still waiting to run — the only mutable state."""
-        return self.status is AutoLamellaTaskStatus.NotStarted
+        return self.status is TaskStatus.NotStarted
 
 
 # The edits the timeline's menu makes on a pending item (TaskQueue.apply).
@@ -270,7 +270,7 @@ class TaskQueue:
                 return QueueResult(QueueOp.NOT_FOUND, self._version)
             if not item.is_pending:
                 return QueueResult(QueueOp.NOT_PENDING, self._version)
-            item.status = AutoLamellaTaskStatus.Removed
+            item.status = TaskStatus.Removed
             self._version += 1
             return QueueResult(QueueOp.OK, self._version)
 
@@ -375,7 +375,7 @@ class TaskQueue:
         with self._lock:
             for item in self._items:
                 if item.is_pending and not (skip is not None and skip(item)):
-                    item.status = AutoLamellaTaskStatus.InProgress
+                    item.status = TaskStatus.InProgress
                     self._active = item
                     self._version += 1
                     return item
@@ -400,7 +400,7 @@ class TaskQueue:
             found = waiting[0] if waiting else (matches[-1] if matches else None)
             return copy.copy(found) if found is not None else None
 
-    def mark_done(self, item: WorkItem, status: AutoLamellaTaskStatus) -> None:
+    def mark_done(self, item: WorkItem, status: TaskStatus) -> None:
         """Mark item as completed/failed/skipped.
 
         Looked up by id, so it also works with a copy taken from ``items``.

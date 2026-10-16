@@ -241,13 +241,11 @@ def test_an_empty_workflow_finishes_now(tmp_path):
 # `estimate_queue` answers the same question as `estimate_workflow` from the other end:
 # against a queue that is part-way through rather than an experiment about to start.
 
-from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskStatus,  # noqa: E402
-)
 from fibsem.applications.autolamella.workflows.tasks.queue import WorkItem  # noqa: E402
 from fibsem.applications.autolamella.workflows.workflow_estimate import (  # noqa: E402
     estimate_queue,
 )
+from fibsem.workflows.status import TaskStatus  # noqa: E402
 
 
 def _items(*spec) -> list:
@@ -256,7 +254,7 @@ def _items(*spec) -> list:
         WorkItem(
             item_name=s[0],
             task_name=s[1],
-            status=s[2] if len(s) > 2 else AutoLamellaTaskStatus.NotStarted,
+            status=s[2] if len(s) > 2 else TaskStatus.NotStarted,
         )
         for s in spec
     ]
@@ -282,10 +280,10 @@ def test_work_already_done_costs_nothing():
     """The whole point of asking again mid-workflow: the finish converges on its own,
     without anything being re-learned from how the finished rows actually went."""
     items = _items(
-        ("01", "A", AutoLamellaTaskStatus.Completed),
-        ("02", "A", AutoLamellaTaskStatus.Failed),
-        ("03", "A", AutoLamellaTaskStatus.Skipped),
-        ("04", "A", AutoLamellaTaskStatus.Cancelled),
+        ("01", "A", TaskStatus.Completed),
+        ("02", "A", TaskStatus.Failed),
+        ("03", "A", TaskStatus.Skipped),
+        ("04", "A", TaskStatus.Cancelled),
         ("05", "A"),
     )
     est = estimate_queue(items, _flat(60.0), now=NOW)
@@ -306,7 +304,7 @@ def test_an_item_with_no_estimate_contributes_nothing():
 
 
 def test_the_running_task_contributes_only_what_is_left_of_it():
-    items = _items(("01", "A", AutoLamellaTaskStatus.InProgress), ("02", "A"))
+    items = _items(("01", "A", TaskStatus.InProgress), ("02", "A"))
     est = estimate_queue(items, _flat(100.0), now=NOW, active_elapsed=40.0)
     assert est.active_remaining == pytest.approx(60.0)
     assert est.remaining_seconds == pytest.approx(160.0)
@@ -317,7 +315,7 @@ def test_a_task_past_its_estimate_contributes_zero_not_a_negative():
     """The total must not go backwards. It slides later by a second per second instead,
     which is the honest answer once the task's end is unknown -- a total that stalls or
     goes negative is the FIB-522 failure."""
-    items = _items(("01", "A", AutoLamellaTaskStatus.InProgress), ("02", "A"))
+    items = _items(("01", "A", TaskStatus.InProgress), ("02", "A"))
     est = estimate_queue(items, _flat(100.0), now=NOW, active_elapsed=250.0)
     assert est.active_remaining == 0.0
     assert est.active_estimate_spent is True
@@ -335,7 +333,7 @@ def test_nothing_running_reports_no_active_remaining():
 def test_a_running_task_with_no_elapsed_yet_is_not_guessed_at():
     """Before the first tick there is nothing to subtract from, so the task is left out
     rather than counted at its full estimate and then jumping."""
-    items = _items(("01", "A", AutoLamellaTaskStatus.InProgress))
+    items = _items(("01", "A", TaskStatus.InProgress))
     assert estimate_queue(items, _flat(100.0), now=NOW).active_remaining is None
 
 
@@ -467,8 +465,8 @@ def test_run_next_lands_the_batch_ahead_of_the_pending_work_not_of_history():
     )
 
     items = _items(
-        ("01", "A", AutoLamellaTaskStatus.Completed),
-        ("02", "A", AutoLamellaTaskStatus.InProgress),
+        ("01", "A", TaskStatus.Completed),
+        ("02", "A", TaskStatus.InProgress),
         ("03", "A"),
     )
     order = [
@@ -516,7 +514,7 @@ def test_the_delay_is_exact_even_when_the_running_task_cannot_be_priced():
     """Both walks treat the active task identically, so whatever `active_elapsed` fails
     to account for cancels in the subtraction. The absolute finish may be optimistic;
     the delay is not."""
-    items = _items(("01", "A", AutoLamellaTaskStatus.InProgress), ("02", "A"))
+    items = _items(("01", "A", TaskStatus.InProgress), ("02", "A"))
     known = estimate_addition(
         items, [("03", "A")], _flat(60.0), now=NOW, active_elapsed=10.0
     )

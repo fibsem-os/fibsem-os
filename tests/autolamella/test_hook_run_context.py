@@ -11,13 +11,13 @@ import pytest
 
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskStatus,
     DefectType,
     Experiment,
     Lamella,
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.hooks import FunctionHook, HookContext, HookEvent, HookManager
+from fibsem.workflows.status import TaskStatus
 
 
 @pytest.fixture
@@ -128,7 +128,9 @@ def test_the_event_task_id_joins_to_the_task_history_entry(recorder, tmp_path):
     task = MillTrenchTask(
         microscope=microscope, config=MillTrenchTaskConfig(), lamella=lamella
     )
-    task.task_manager = type("_M", (), {"hook_manager": hook_manager, "is_stopped": False})()
+    task.task_manager = type(
+        "_M", (), {"hook_manager": hook_manager, "is_stopped": False}
+    )()
 
     task._run = lambda: (_ for _ in ()).throw(RuntimeError("stage timeout"))
     with pytest.raises(RuntimeError):
@@ -138,7 +140,7 @@ def test_the_event_task_id_joins_to_the_task_history_entry(recorder, tmp_path):
     assert failed.task_id == lamella.task_history[-1].task_id
     assert failed.item_id == lamella.id
     # and the snapshot is of the terminal state, not the InProgress it started in
-    assert failed.task_state.status is AutoLamellaTaskStatus.Failed
+    assert failed.task_state.status is TaskStatus.Failed
 
 
 def test_hook_run_context_is_a_snapshot_not_a_live_view(experiment, recorder):
@@ -147,7 +149,7 @@ def test_hook_run_context_is_a_snapshot_not_a_live_view(experiment, recorder):
     items = manager.queue.build_from_matrix(["MillTrench"], ["lam-1", "lam-2"])
 
     before = manager.hook_run_context()
-    manager.queue.mark_done(items[0], AutoLamellaTaskStatus.Completed)
+    manager.queue.mark_done(items[0], TaskStatus.Completed)
     after = manager.hook_run_context()
 
     assert before["tasks_remaining"] == 2

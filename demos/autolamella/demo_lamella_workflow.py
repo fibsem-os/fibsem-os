@@ -17,7 +17,6 @@ from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskDescription,
     AutoLamellaTaskState,
-    AutoLamellaTaskStatus,
     AutoLamellaWorkflowConfig,
     DefectState,
     DefectType,
@@ -27,6 +26,7 @@ from fibsem.applications.autolamella.ui.lamella_workflow_widget import (
     LamellaWorkflowWidget,
 )
 from fibsem.ui.stylesheets import NAPARI_STYLE
+from fibsem.workflows.status import TaskStatus
 
 # ── sample data ──────────────────────────────────────────────────────────────
 
@@ -56,14 +56,12 @@ def _make_lamella(
 ):
     lam = Lamella(path=Path(f"/tmp/test/{petname}"), number=number, petname=petname)
     if last_task:
-        state = AutoLamellaTaskState(
-            name=last_task, status=AutoLamellaTaskStatus.Completed
-        )
+        state = AutoLamellaTaskState(name=last_task, status=TaskStatus.Completed)
         state.end_timestamp = time.time()
         lam.task_history.append(state)
     if in_progress:
         lam.task_state.name = in_progress
-        lam.task_state.status = AutoLamellaTaskStatus.InProgress
+        lam.task_state.status = TaskStatus.InProgress
     if defect_state != DefectType.NONE:
         lam.defect = DefectState(state=defect_state, description="test defect")
     return lam

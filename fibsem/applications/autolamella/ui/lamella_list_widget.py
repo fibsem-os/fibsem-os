@@ -25,7 +25,6 @@ from superqt import ensure_main_thread
 
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskState,
-    AutoLamellaTaskStatus,
     Lamella,
     QualityRecord,
     Verdict,
@@ -47,6 +46,7 @@ from fibsem.ui.tokens import (
 from fibsem.ui.widgets.custom_widgets import ElidedLabel, IconToolButton
 from fibsem.ui.widgets.preflight import format_clock
 from fibsem.util.timestamps import now
+from fibsem.workflows.status import TaskStatus
 
 _NAME_MIN_WIDTH = 160
 
@@ -288,7 +288,7 @@ def completed_text(task: AutoLamellaTaskState) -> str:
 def _status_text(lamella: Lamella) -> tuple[str, str]:
     """Return (text, stylesheet) for the status column."""
     ts = lamella.task_state
-    if ts and ts.status == AutoLamellaTaskStatus.InProgress:
+    if ts and ts.status == TaskStatus.InProgress:
         return (
             f"{ts.name}",
             f"color: {stylesheets.PRIMARY_COLOR}; background: transparent;",

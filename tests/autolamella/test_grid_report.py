@@ -18,7 +18,6 @@ from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     AutoLamellaTaskState,
-    AutoLamellaTaskStatus,
     Experiment,
     GridRecord,
     Lamella,
@@ -47,6 +46,7 @@ from fibsem.structures import (
     OverviewAcquisitionSettings,
     SampleGrid,
 )
+from fibsem.workflows.status import TaskStatus
 
 
 def _settings(beam=BeamType.ELECTRON) -> OverviewAcquisitionSettings:
@@ -113,7 +113,7 @@ def screened(tmp_path_factory):
     aspen.quality.author = "human:operator"
     aspen.description = "Even ice, cells on the east half."
     aspen.task_history.append(
-        _entry(LOAD_ENTRY_NAME, AutoLamellaTaskStatus.Completed, "Loaded into Slot-01.")
+        _entry(LOAD_ENTRY_NAME, TaskStatus.Completed, "Loaded into Slot-01.")
     )
     slot.loaded_grid = SampleGrid(name="grid-aspen")
     for task in ("overview_sem", "overview_fib", "overview_fm"):
@@ -154,14 +154,14 @@ def screened(tmp_path_factory):
     birch.quality.verdict = Verdict.FAILED
     birch.description = "Cracked film, thick ice."
     birch.task_history.append(
-        _entry(LOAD_ENTRY_NAME, AutoLamellaTaskStatus.Completed, "Loaded into Slot-01.")
+        _entry(LOAD_ENTRY_NAME, TaskStatus.Completed, "Loaded into Slot-01.")
     )
     slot.loaded_grid = SampleGrid(name="grid-birch")
     run_grid_task(microscope, "overview_sem", exp, birch)
     birch.task_history.append(
         _entry(
             "overview_fib",
-            AutoLamellaTaskStatus.Failed,
+            TaskStatus.Failed,
             "Grid 'grid-birch' is not in a holder slot. Load it first.",
         )
     )
@@ -171,7 +171,7 @@ def screened(tmp_path_factory):
     cedar.task_history.append(
         _entry(
             LOAD_ENTRY_NAME,
-            AutoLamellaTaskStatus.Failed,
+            TaskStatus.Failed,
             "grid-cedar could not be gripped from Slot-03.",
         )
     )
@@ -257,7 +257,7 @@ class TestOverviews:
             "overview_fib",
         ]
         failed = birch.overviews[1]
-        assert failed.status is AutoLamellaTaskStatus.Failed
+        assert failed.status is TaskStatus.Failed
         assert failed.path is None
         assert failed.modality == "FIB"  # from the protocol, since it recorded nothing
         assert "Load it first" in failed.status_message
@@ -270,7 +270,7 @@ class TestOverviews:
         try:
             entry = collect_grid_report(screened).sections[1].overviews[0]
             assert entry.task_name == "overview_sem" and entry.path is None
-            assert entry.status is AutoLamellaTaskStatus.Completed
+            assert entry.status is TaskStatus.Completed
         finally:
             os.rename(path + ".gone", path)
 
@@ -330,12 +330,12 @@ class TestOutcomes:
     def test_latest_status_and_run_count_per_task(self, report):
         aspen = report.outcomes["grid-aspen"]
         assert {k: v.status for k, v in aspen.items()} == {
-            "overview_sem": AutoLamellaTaskStatus.Completed,
-            "overview_fib": AutoLamellaTaskStatus.Completed,
-            "overview_fm": AutoLamellaTaskStatus.Completed,
+            "overview_sem": TaskStatus.Completed,
+            "overview_fib": TaskStatus.Completed,
+            "overview_fm": TaskStatus.Completed,
         }
         birch = report.outcomes["grid-birch"]
-        assert birch["overview_fib"].status is AutoLamellaTaskStatus.Failed
+        assert birch["overview_fib"].status is TaskStatus.Failed
         assert birch["overview_fm"].status is None and birch["overview_fm"].runs == 0
         cedar = report.outcomes["grid-cedar"]
         assert all(v.status is None for v in cedar.values())

@@ -13,10 +13,7 @@ from typing import List
 import pytest
 
 from fibsem import utils
-from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskStatus,
-    Lamella,
-)
+from fibsem.applications.autolamella.structures import Lamella
 from fibsem.applications.autolamella.workflows.tasks.trench import (
     MillTrenchTask,
     MillTrenchTaskConfig,
@@ -24,6 +21,7 @@ from fibsem.applications.autolamella.workflows.tasks.trench import (
 from fibsem.cancellation import OperationCancelledError
 from fibsem.hooks import FunctionHook, HookContext, HookManager
 from fibsem.microscope import FibsemMicroscope
+from fibsem.workflows.status import TaskStatus
 
 
 @pytest.fixture
@@ -54,7 +52,7 @@ def test_a_failed_task_is_recorded_in_the_history(
 
     assert len(task.lamella.task_history) == 1
     entry = task.lamella.task_history[0]
-    assert entry.status is AutoLamellaTaskStatus.Failed
+    assert entry.status is TaskStatus.Failed
     assert entry.status_message == "stage timeout"
     assert entry.end_timestamp is not None
 
@@ -66,7 +64,7 @@ def test_a_cancelled_task_is_recorded_as_cancelled_not_failed(
     _run_raising(task, OperationCancelledError("stopped"))
 
     assert len(task.lamella.task_history) == 1
-    assert task.lamella.task_history[0].status is AutoLamellaTaskStatus.Cancelled
+    assert task.lamella.task_history[0].status is TaskStatus.Cancelled
 
 
 def test_a_successful_task_still_records_exactly_one_entry(
@@ -79,7 +77,7 @@ def test_a_successful_task_still_records_exactly_one_entry(
 
     assert len(task.lamella.task_history) == 1
     entry = task.lamella.task_history[0]
-    assert entry.status is AutoLamellaTaskStatus.Completed
+    assert entry.status is TaskStatus.Completed
     assert entry.end_timestamp is not None
 
 
@@ -97,8 +95,8 @@ def test_the_history_entry_survives_the_next_task_on_that_lamella(
     )
     next_task.pre_task()
 
-    assert task.lamella.task_state.status is AutoLamellaTaskStatus.InProgress
-    assert task.lamella.task_history[0].status is AutoLamellaTaskStatus.Failed
+    assert task.lamella.task_state.status is TaskStatus.InProgress
+    assert task.lamella.task_history[0].status is TaskStatus.Failed
     assert task.lamella.task_history[0].status_message == "stage timeout"
 
 
@@ -134,5 +132,5 @@ def test_the_failure_hook_sees_the_terminal_status(
     _run_raising(task, RuntimeError("stage timeout"))
 
     assert len(seen) == 1
-    assert seen[0].task_state.status is AutoLamellaTaskStatus.Failed
+    assert seen[0].task_state.status is TaskStatus.Failed
     assert seen[0].error == "stage timeout"

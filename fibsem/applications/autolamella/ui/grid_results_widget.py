@@ -30,7 +30,6 @@ from PyQt5.QtWidgets import (
 
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskState,
-    AutoLamellaTaskStatus,
     Experiment,
     GridRecord,
 )
@@ -54,16 +53,17 @@ from fibsem.ui.tokens import (
 from fibsem.ui.widgets.custom_widgets import ElidedLabel, IconToolButton
 from fibsem.ui.widgets.image_viewer_dialog import ViewerItem, open_image_viewer
 from fibsem.util.timestamps import format_time
+from fibsem.workflows.status import TaskStatus
 
 _TILE_W, _TILE_H = 320, 213  # 3:2, the Review tab's proportions at a card-friendly size
 
 _STATUS_COLOUR = {
-    AutoLamellaTaskStatus.Completed: OK_COLOR,
-    AutoLamellaTaskStatus.AwaitingDecision: stylesheets.DEFECT_ORANGE_COLOR,
-    AutoLamellaTaskStatus.Failed: ERROR_COLOR,
-    AutoLamellaTaskStatus.Cancelled: stylesheets.DEFECT_ORANGE_COLOR,
-    AutoLamellaTaskStatus.Skipped: NEUTRAL_550,
-    AutoLamellaTaskStatus.InProgress: stylesheets.GREEN_COLOR,
+    TaskStatus.Completed: OK_COLOR,
+    TaskStatus.AwaitingDecision: stylesheets.DEFECT_ORANGE_COLOR,
+    TaskStatus.Failed: ERROR_COLOR,
+    TaskStatus.Cancelled: stylesheets.DEFECT_ORANGE_COLOR,
+    TaskStatus.Skipped: NEUTRAL_550,
+    TaskStatus.InProgress: stylesheets.GREEN_COLOR,
 }
 
 
@@ -199,7 +199,7 @@ class _HistoryRow(QWidget):
             layout.addWidget(self.tile, 0, Qt.AlignLeft)
         elif (
             state.name not in _EXCHANGE_ENTRY_NAMES
-            and state.status is AutoLamellaTaskStatus.Completed
+            and state.status is TaskStatus.Completed
         ):
             note = QLabel("No image recorded.")
             note.setStyleSheet(
@@ -306,7 +306,7 @@ class GridResultsWidget(QWidget):
                 t
                 for t in reversed(grid.task_history)
                 if t.name not in _EXCHANGE_ENTRY_NAMES
-                and t.status is AutoLamellaTaskStatus.Completed
+                and t.status is TaskStatus.Completed
             ),
             None,
         )

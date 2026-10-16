@@ -16,12 +16,12 @@ from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskStatus,
     AutoLamellaWorkflowConfig,
     Experiment,
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import run_tasks
 from fibsem.applications.autolamella.workflows.tasks.rough import MillRoughTaskConfig
+from fibsem.workflows.status import TaskStatus
 
 ROUGH = "Rough Milling"
 CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
@@ -66,5 +66,5 @@ def test_a_rejected_mill_fails_the_task(microscope, experiment):
 
     lamella = experiment.positions[0]
     assert len(milled) == 1, "the stages after the rejected one do not mill"
-    assert lamella.task_state.status is AutoLamellaTaskStatus.Failed
+    assert lamella.task_state.status is TaskStatus.Failed
     assert ROUGH not in lamella.completed_tasks

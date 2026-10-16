@@ -12,12 +12,12 @@ import pytest
 
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskStatus,
     Experiment,
     Lamella,
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.hooks import HookContext
+from fibsem.workflows.status import TaskStatus
 
 
 class _FakeSignal:
@@ -55,7 +55,7 @@ def _emit(manager: TaskManager, name: str = "lam-1") -> dict:
     manager._emit_status(
         item=items[0],
         lamella=lamella,
-        status=AutoLamellaTaskStatus.InProgress,
+        status=TaskStatus.InProgress,
     )
     return manager.parent_ui.workflow_status_signal.payloads[-1].report
 

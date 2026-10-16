@@ -33,7 +33,6 @@ from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskStatus,
     AutoLamellaWorkflowConfig,
     Experiment,
 )
@@ -46,6 +45,7 @@ from fibsem.applications.autolamella.workflows.tasks.undercut import (
     MillUndercutTaskConfig,
 )
 from fibsem.structures import Point
+from fibsem.workflows.status import TaskStatus
 
 UNDERCUT = "Mill Undercut"
 CHECKPOINT = "autolamella-waffle-20240107.pt"
@@ -160,7 +160,7 @@ def test_headless_every_detection_goes_on_the_record_unreviewed(
     assert detections[0].provenance["reference_image"].endswith("_eb.tif"), (
         "the first coincident detection is on the electron image"
     )
-    assert lamella.task_state.status is AutoLamellaTaskStatus.Completed
+    assert lamella.task_state.status is TaskStatus.Completed
 
 
 def test_with_the_preference_off_the_detection_tab_prompt_asks_as_before(
@@ -209,4 +209,4 @@ def test_a_rejected_detection_fails_the_task(
     with pytest.raises(RuntimeError, match="rejected: off target"):
         _task(microscope, exp).run()
 
-    assert lamella.task_state.status is AutoLamellaTaskStatus.Failed
+    assert lamella.task_state.status is TaskStatus.Failed

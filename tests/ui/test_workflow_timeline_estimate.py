@@ -25,12 +25,12 @@ from datetime import datetime, timedelta
 
 from PyQt5.QtWidgets import QLabel
 
-from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus as Status
 from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
     WorkflowProgressWidget,
 )
 from fibsem.applications.autolamella.workflows.tasks.queue import TaskQueue
 from fibsem.ui.stylesheets import NAPARI_STYLE
+from fibsem.workflows.status import TaskStatus as Status
 
 START = 1000.0  # the fake clock every status payload is stamped with
 

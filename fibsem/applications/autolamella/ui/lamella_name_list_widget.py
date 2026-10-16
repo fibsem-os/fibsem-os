@@ -36,14 +36,12 @@ from PyQt5.QtWidgets import (
 )
 from superqt import ensure_main_thread
 
-from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskStatus,
-    Verdict,
-)
+from fibsem.applications.autolamella.structures import Verdict
 from fibsem.ui import stylesheets as stylesheets
 from fibsem.ui.icon import ICON_MOVE_TO_POSITION, ICON_UPDATE_POSITION, fibsem_icon
 from fibsem.ui.tokens import CANVAS_BG, NEUTRAL_550
 from fibsem.ui.widgets.custom_widgets import ElidedLabel, IconToolButton
+from fibsem.workflows.status import TaskStatus
 
 _LAMELLA_NAME_MIN_WIDTH = 160
 _LAMELLA_ROW_HEIGHT = 30
@@ -59,7 +57,7 @@ def _lamella_status_text(lamella) -> tuple[str, str]:
     """
     ts = getattr(lamella, "task_state", None)
     if ts and getattr(ts, "status", None) is not None:
-        if ts.status == AutoLamellaTaskStatus.InProgress:
+        if ts.status == TaskStatus.InProgress:
             return f"{ts.name}", "color: #6aabdf; background: transparent;"
     last = getattr(lamella, "last_completed_task", None)
     if last:

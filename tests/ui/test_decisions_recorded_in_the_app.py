@@ -23,10 +23,10 @@ from fibsem.applications.autolamella.proposals import (  # noqa: E402
 )
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskStatus,
     Experiment,
 )
 from fibsem.structures import MicroscopeState, Point  # noqa: E402
+from fibsem.workflows.status import TaskStatus  # noqa: E402
 
 TASK = "Setup Lamella Position"
 RUN = "run-1"
@@ -57,7 +57,7 @@ def _experiment(path, name):
     lamella = exp.positions[0]
     lamella.task_state.name = TASK
     lamella.task_state.task_id = RUN
-    lamella.task_state.status = AutoLamellaTaskStatus.Completed
+    lamella.task_state.status = TaskStatus.Completed
     return exp
 
 

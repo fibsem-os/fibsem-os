@@ -46,7 +46,6 @@ import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella.proposals import STATE
 from fibsem.applications.autolamella.structures import (
     Attention,
-    AutoLamellaTaskStatus,
     Experiment,
     GridRecord,
     Lamella,
@@ -160,6 +159,7 @@ from fibsem.ui.widgets.status_bar import FibsemStatusBar
 from fibsem.util.durations import format_duration_rounded
 from fibsem.util.timestamps import format_time, now
 from fibsem.versioning import get_version_string
+from fibsem.workflows.status import TaskStatus
 
 # How wide the experiment name button in the tab corner is allowed to grow. Wide
 # enough that a default name -- "AutoLamella-" plus a date stamp -- is never elided;
@@ -3693,7 +3693,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.set_workflow_running()
         if queue_total:
             self._run_total = queue_total
-        if status is AutoLamellaTaskStatus.Failed:
+        if status is TaskStatus.Failed:
             # Said for a moment under its own name -- the run moves on to the next
             # item -- and kept for the line the run leaves when it ends.
             what = f"{lamella_name} › {task_name}"
@@ -3707,7 +3707,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._current_task_name = task_name
 
         # Lock editor when the active lamella/task is being processed
-        if status is AutoLamellaTaskStatus.InProgress:
+        if status is TaskStatus.InProgress:
             self.lamella_widget.set_active_lamella_name(lamella_name, task_name)
         else:
             self.lamella_widget.set_active_lamella_name(None)
@@ -3769,10 +3769,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             and selected.id == lamella.id
             and status
             in (
-                AutoLamellaTaskStatus.Completed,
-                AutoLamellaTaskStatus.Failed,
-                AutoLamellaTaskStatus.Cancelled,
-                AutoLamellaTaskStatus.AwaitingDecision,
+                TaskStatus.Completed,
+                TaskStatus.Failed,
+                TaskStatus.Cancelled,
+                TaskStatus.AwaitingDecision,
             )
             and hasattr(self, "lamella_task_image_widget")
         ):

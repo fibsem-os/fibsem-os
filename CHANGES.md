@@ -67,6 +67,10 @@ lists where each key went.
 - A backend no longer implements `_get`/`_set`; its devices are the whole contract.
   The key tables (`fibsem.devices.BEAM_ROUTES`, `STAGE_ROUTES`, `CHAMBER_ROUTES`,
   `MANIPULATOR_ROUTES` and their command tables) are gone with them.
+- **`AutoLamellaTaskStatus` is now `TaskStatus`, in `fibsem.workflows.status`.** The
+  values are unchanged, and saved experiments load as before. A plugin task that
+  imports the old name from `fibsem.applications.autolamella.structures` imports
+  `from fibsem.workflows.status import TaskStatus` instead.
 
 ### Workflow (early access)
 

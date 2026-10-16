@@ -60,7 +60,6 @@ from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskConfig,
     AutoLamellaTaskState,
-    AutoLamellaTaskStatus,
     Lamella,
 )
 from fibsem.applications.autolamella.task_outputs import run_folder
@@ -134,6 +133,7 @@ from fibsem.structures import (
     Point,
 )
 from fibsem.util.timestamps import now, now_iso
+from fibsem.workflows.status import TaskStatus
 
 if TYPE_CHECKING:
     from fibsem.alignment import AlignmentResult
@@ -306,9 +306,7 @@ class AutoLamellaTask(ABC):
             # exception with this one, losing what actually went wrong.
             try:
                 self.lamella.task_state.status = (
-                    AutoLamellaTaskStatus.Cancelled
-                    if cancelled
-                    else AutoLamellaTaskStatus.Failed
+                    TaskStatus.Cancelled if cancelled else TaskStatus.Failed
                 )
                 self.lamella.task_state.status_message = (
                     "Cancelled by user." if cancelled else str(e)
@@ -342,9 +340,7 @@ class AutoLamellaTask(ABC):
                 take_back_finish(
                     self.lamella,
                     self.task_id,
-                    AutoLamellaTaskStatus.Cancelled
-                    if cancelled
-                    else AutoLamellaTaskStatus.Failed,
+                    TaskStatus.Cancelled if cancelled else TaskStatus.Failed,
                     "Cancelled by user."
                     if cancelled
                     else f"Finished, but its result could not be recorded: {e}",
@@ -425,7 +421,7 @@ class AutoLamellaTask(ABC):
         self.lamella.task_state.end_timestamp = None
         self.lamella.task_state.task_id = self.task_id
         self.lamella.task_state.task_type = self.task_type
-        self.lamella.task_state.status = AutoLamellaTaskStatus.InProgress
+        self.lamella.task_state.status = TaskStatus.InProgress
         self.lamella.task_state.status_message = ""
         self.lamella.task_state.outputs = {}
 
@@ -466,7 +462,7 @@ class AutoLamellaTask(ABC):
                 logging.warning(
                     f"Could not save the thumbnail for {self.lamella.name}: {e}"
                 )
-        self.lamella.task_state.status = AutoLamellaTaskStatus.Completed
+        self.lamella.task_state.status = TaskStatus.Completed
         self.lamella.task_state.status_message = ""
         self.log_status_message(message="FINISHED", display_message="Finished")
         self.log_task_config()

@@ -30,7 +30,6 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
     AutoLamellaTaskState,
-    AutoLamellaTaskStatus,
     AutoLamellaWorkflowConfig,
     Experiment,
     Lamella,
@@ -40,6 +39,7 @@ from fibsem.applications.autolamella.workflows.tasks.rough import MillRoughTaskC
 from fibsem.applications.autolamella.workflows.tasks.select_position import (
     SelectMillingPositionTaskConfig,
 )
+from fibsem.workflows.status import TaskStatus
 
 SETUP, ROUGH = "Setup Lamella Position", "Rough Milling"
 T0 = datetime(2026, 7, 29, 18, 0, tzinfo=timezone(timedelta(hours=10)))
@@ -87,7 +87,7 @@ def test_a_real_run_reads_back_as_one_row_per_run_with_its_alignment(tmp_path):
         microscope.disconnect()
 
     assert [r.task_name for r in rows] == [SETUP, ROUGH]
-    assert all(r.status is AutoLamellaTaskStatus.Completed for r in rows)
+    assert all(r.status is TaskStatus.Completed for r in rows)
     setup, rough = rows
     assert setup.operations == []
     (align,) = [op for op in rough.operations if op.kind == "alignment"]
@@ -179,7 +179,7 @@ def _image(lamella, name):
     return name
 
 
-def _run(name, task_id, minute, status=AutoLamellaTaskStatus.Completed, **outputs):
+def _run(name, task_id, minute, status=TaskStatus.Completed, **outputs):
     return AutoLamellaTaskState(
         name=name,
         task_id=task_id,
@@ -223,13 +223,13 @@ def test_a_failed_run_does_not_borrow_an_earlier_runs_images(tmp_path):
     ref = _image(lamella, f"ref_{ROUGH}_final_res_01_ib.tif")
     lamella.task_history = [
         _run(ROUGH, "ok", 0, final_fib=[ref]),
-        _run(ROUGH, "broke", 10, status=AutoLamellaTaskStatus.Failed),
+        _run(ROUGH, "broke", 10, status=TaskStatus.Failed),
     ]
 
     ok, broke = history_rows(lamella, [])
 
     assert ok.images == [str(lamella.path / ref)]
-    assert broke.images == [] and broke.status is AutoLamellaTaskStatus.Failed
+    assert broke.images == [] and broke.status is TaskStatus.Failed
     assert ok.images_replaced_by is None, "it recorded none, so it replaced none"
 
 
@@ -248,13 +248,13 @@ def test_an_experiment_from_before_recorded_outputs_still_shows_its_images(tmp_p
 def test_the_run_still_going_is_a_row(tmp_path):
     lamella = _lamella(tmp_path)
     lamella.task_history = [_run(SETUP, "done", 0)]
-    lamella.task_state = _run(ROUGH, "now", 10, status=AutoLamellaTaskStatus.InProgress)
+    lamella.task_state = _run(ROUGH, "now", 10, status=TaskStatus.InProgress)
 
     rows = history_rows(lamella, [_event(lamella, "now", "alignment", results=[])])
 
     assert [(r.task_name, r.status) for r in rows] == [
-        (SETUP, AutoLamellaTaskStatus.Completed),
-        (ROUGH, AutoLamellaTaskStatus.InProgress),
+        (SETUP, TaskStatus.Completed),
+        (ROUGH, TaskStatus.InProgress),
     ]
     assert len(rows[1].operations) == 1
 
@@ -424,8 +424,8 @@ def _runs(tmp_path):
     ref = _image(lamella, f"ref_{SETUP}_final_res_01_ib.tif")
     lamella.task_history = [
         _run(SETUP, "s", 0, final_fib=[ref]),
-        _run(ROUGH, "r1", 10, status=AutoLamellaTaskStatus.Failed),
-        _run(ROUGH, "r2", 20, status=AutoLamellaTaskStatus.Cancelled),
+        _run(ROUGH, "r1", 10, status=TaskStatus.Failed),
+        _run(ROUGH, "r2", 20, status=TaskStatus.Cancelled),
     ]
     return history_rows(lamella, [_event(lamella, "r1", "alignment", results=[])])
 

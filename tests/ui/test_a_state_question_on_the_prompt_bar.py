@@ -30,7 +30,6 @@ from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskStatus,
     AutoLamellaWorkflowConfig,
     Experiment,
 )
@@ -41,6 +40,7 @@ from fibsem.applications.autolamella.workflows.tasks.reference_image import (
 )
 from fibsem.applications.autolamella.workflows.tasks.status import HoldKind
 from fibsem.structures import FibsemStagePosition
+from fibsem.workflows.status import TaskStatus
 
 REF = "Acquire Reference Image"
 
@@ -188,7 +188,7 @@ def test_the_question_is_asked_on_the_prompt_bar_and_continue_decides_it(window,
     assert (pose.x, pose.y, pose.z) == pytest.approx((here.x, here.y, here.z))
     assert _prompt_is_down(ui), "the prompt came down"
     assert ui.hold is None
-    assert lamella.task_state.status is AutoLamellaTaskStatus.AwaitingDecision, (
+    assert lamella.task_state.status is TaskStatus.AwaitingDecision, (
         "its own result still waits for a look, as any supervised task's does"
     )
 

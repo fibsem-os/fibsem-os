@@ -97,22 +97,22 @@ _TRAILING_W = 78
 
 # ── Status mapping ───────────────────────────────────────────────────────────
 def _queue_status_to_step_status(s) -> "StepStatus":
-    """Map AutoLamellaTaskStatus → StepStatus for display."""
-    from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
+    """Map TaskStatus → StepStatus for display."""
+    from fibsem.workflows.status import TaskStatus
 
     return {
-        AutoLamellaTaskStatus.NotStarted: StepStatus.PENDING,
-        AutoLamellaTaskStatus.InProgress: StepStatus.ACTIVE,
-        AutoLamellaTaskStatus.Completed: StepStatus.COMPLETED,
+        TaskStatus.NotStarted: StepStatus.PENDING,
+        TaskStatus.InProgress: StepStatus.ACTIVE,
+        TaskStatus.Completed: StepStatus.COMPLETED,
         # Ran, not finished: the record waits in the Review tab. Drawn as done
         # in the timeline, which shows the run; the History list says awaiting.
-        AutoLamellaTaskStatus.AwaitingDecision: StepStatus.COMPLETED,
-        AutoLamellaTaskStatus.Failed: StepStatus.FAILED,
-        AutoLamellaTaskStatus.Skipped: StepStatus.SKIPPED,
-        AutoLamellaTaskStatus.Cancelled: StepStatus.CANCELLED,
+        TaskStatus.AwaitingDecision: StepStatus.COMPLETED,
+        TaskStatus.Failed: StepStatus.FAILED,
+        TaskStatus.Skipped: StepStatus.SKIPPED,
+        TaskStatus.Cancelled: StepStatus.CANCELLED,
         # Removed items are filtered out before they reach the timeline; mapped
         # anyway so any other caller gets the struck-through look, not a crash.
-        AutoLamellaTaskStatus.Removed: StepStatus.SKIPPED,
+        TaskStatus.Removed: StepStatus.SKIPPED,
     }.get(s, StepStatus.PENDING)  # unknown status must never crash the timeline
 
 
@@ -886,10 +886,10 @@ class WorkflowProgressWidget(QWidget):
 
         Reads queue_items snapshot to update all row statuses directly.
         """
-        from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
         from fibsem.applications.autolamella.workflows.tasks.status import (
             WorkflowStatusUpdate,
         )
+        from fibsem.workflows.status import TaskStatus
 
         # One decode at the boundary: accepts the dict the signal still carries and the
         # typed report the producer will send (FIB-827).
@@ -909,7 +909,7 @@ class WorkflowProgressWidget(QWidget):
         self._sync(queue_items)
 
         active_id = next(
-            (i.id for i in self._items if i.status == AutoLamellaTaskStatus.InProgress),
+            (i.id for i in self._items if i.status == TaskStatus.InProgress),
             None,
         )
 
@@ -937,10 +937,10 @@ class WorkflowProgressWidget(QWidget):
 
         # Completion/failure/cancel — set subtitle, hide inner, resolve last inner step
         if task_status in (
-            AutoLamellaTaskStatus.Completed,
-            AutoLamellaTaskStatus.AwaitingDecision,
-            AutoLamellaTaskStatus.Failed,
-            AutoLamellaTaskStatus.Cancelled,
+            TaskStatus.Completed,
+            TaskStatus.AwaitingDecision,
+            TaskStatus.Failed,
+            TaskStatus.Cancelled,
         ):
             self._elapsed_timer.stop()
             self._active_start_time = None
@@ -953,16 +953,16 @@ class WorkflowProgressWidget(QWidget):
                     idx, task_duration, task_name, completed_at=report.timestamp
                 )
                 # Show error message on failed rows, before the refresh that renders it
-                if task_status == AutoLamellaTaskStatus.Failed:
+                if task_status == TaskStatus.Failed:
                     error_msg = report.error_message
                     if error_msg:
                         self._outer._rows[idx].set_error(error_msg)
                 # Refresh the row so the updated subtitle is rendered
                 self._outer._rows[idx].refresh(self._outer._steps[idx])
                 self._outer._rows[idx].set_inner_visible(False)
-            self._finish_inner(failed=(task_status == AutoLamellaTaskStatus.Failed))
+            self._finish_inner(failed=(task_status == TaskStatus.Failed))
 
-        elif task_status == AutoLamellaTaskStatus.Skipped:
+        elif task_status == TaskStatus.Skipped:
             skip_reason = report.skip_reason
             task_name = report.task_name
             item_name = report.item_name
@@ -981,11 +981,9 @@ class WorkflowProgressWidget(QWidget):
         overstate how much work is left and make a move past one look like it
         jumped two rows. They stay in the queue itself for the run summary.
         """
-        from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
+        from fibsem.workflows.status import TaskStatus
 
-        self._items = [
-            i for i in items if i.status is not AutoLamellaTaskStatus.Removed
-        ]
+        self._items = [i for i in items if i.status is not TaskStatus.Removed]
         self._outer.sync_steps(
             [i.id for i in self._items],
             [
@@ -1186,12 +1184,12 @@ class WorkflowProgressWidget(QWidget):
         is what it actually took; both have superseded the estimate, and rewriting it
         over them would undo that.
         """
-        from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
+        from fibsem.workflows.status import TaskStatus
 
         for i, item in enumerate(self._items):
             if i >= len(self._outer._steps):
                 break
-            if item.status is not AutoLamellaTaskStatus.NotStarted:
+            if item.status is not TaskStatus.NotStarted:
                 continue
             seconds = self._estimate_for(item)
             step = self._outer._steps[i]
@@ -1239,7 +1237,7 @@ class WorkflowProgressWidget(QWidget):
 
     def _update_header(self, queue_items: list) -> None:
         """Update the header label with progress counts."""
-        from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
+        from fibsem.workflows.status import TaskStatus
 
         total = len(queue_items)
         if total == 0:
@@ -1254,16 +1252,14 @@ class WorkflowProgressWidget(QWidget):
             for i in queue_items
             if i.status
             in (
-                AutoLamellaTaskStatus.Completed,
-                AutoLamellaTaskStatus.AwaitingDecision,
-                AutoLamellaTaskStatus.Skipped,
-                AutoLamellaTaskStatus.Cancelled,
+                TaskStatus.Completed,
+                TaskStatus.AwaitingDecision,
+                TaskStatus.Skipped,
+                TaskStatus.Cancelled,
             )
         )
-        failed = sum(1 for i in queue_items if i.status == AutoLamellaTaskStatus.Failed)
-        cancelled = sum(
-            1 for i in queue_items if i.status == AutoLamellaTaskStatus.Cancelled
-        )
+        failed = sum(1 for i in queue_items if i.status == TaskStatus.Failed)
+        cancelled = sum(1 for i in queue_items if i.status == TaskStatus.Cancelled)
         text = f"Workflow — {done}/{total}"
         # A run that ended with tasks abandoned should not read like one that did not.
         notes = [

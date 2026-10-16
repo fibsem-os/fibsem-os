@@ -11,7 +11,6 @@ pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is delibe
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     AutoLamellaTaskState,
-    AutoLamellaTaskStatus,
     Experiment,
     GridRecord,
 )
@@ -30,6 +29,7 @@ from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     LOAD_ENTRY_NAME,
 )
 from fibsem.imaging.thumbnail import write_thumbnail
+from fibsem.workflows.status import TaskStatus
 
 
 def entry(name, status, message="", outputs=None, seconds=60):
@@ -67,21 +67,19 @@ def grid(experiment):
     grid.task_history += [
         entry(
             LOAD_ENTRY_NAME,
-            AutoLamellaTaskStatus.Completed,
+            TaskStatus.Completed,
             "Loaded into Slot-01.",
             seconds=218,
         ),
         entry(
             "overview_sem",
-            AutoLamellaTaskStatus.Completed,
+            TaskStatus.Completed,
             outputs={
                 "overview_sem": ["overview_sem/overview.tif"],
                 "overview_sem_thumbnail": ["overview_sem/overview-thumbnail.png"],
             },
         ),
-        entry(
-            "overview_fm", AutoLamellaTaskStatus.Failed, "autofocus timeout on tile 7"
-        ),
+        entry("overview_fm", TaskStatus.Failed, "autofocus timeout on tile 7"),
     ]
     return grid
 
@@ -188,7 +186,7 @@ def grid_with_two_overviews(experiment, grid):
     grid.task_history.append(
         entry(
             "overview_fib",
-            AutoLamellaTaskStatus.Completed,
+            TaskStatus.Completed,
             outputs={
                 "overview_fib": ["overview_fib/overview.tif"],
                 "overview_fib_thumbnail": ["overview_fib/overview-thumbnail.png"],

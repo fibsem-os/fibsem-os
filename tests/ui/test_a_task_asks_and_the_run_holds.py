@@ -30,7 +30,6 @@ from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskStatus,
     AutoLamellaWorkflowConfig,
     Experiment,
 )
@@ -41,6 +40,7 @@ from fibsem.applications.autolamella.workflows.tasks.rough import (
 )
 from fibsem.applications.autolamella.workflows.tasks.status import HoldKind
 from fibsem.structures import Point
+from fibsem.workflows.status import TaskStatus
 
 ROUGH = "Rough Milling"
 PROPOSED = {"features": [{"name": "LamellaCentre", "px": Point(10, 20)}]}
@@ -200,7 +200,7 @@ def test_the_run_holds_on_the_question_until_it_is_decided(window, qapp):
     question, result_proposal = lamella.proposals[ROUGH]
     assert question is proposal and result_proposal.kind == "task_result"
     assert not question.pending and result_proposal.pending
-    assert lamella.task_state.status is AutoLamellaTaskStatus.AwaitingDecision
+    assert lamella.task_state.status is TaskStatus.AwaitingDecision
 
 
 def test_stop_withdraws_the_question_and_cancels_the_task(window, qapp):
@@ -217,7 +217,7 @@ def test_stop_withdraws_the_question_and_cancels_the_task(window, qapp):
     assert isinstance(seen.get("error"), InterruptedError)
     assert proposal.withdrawn
     assert ui.hold is None
-    assert lamella.task_state.status is AutoLamellaTaskStatus.Cancelled
+    assert lamella.task_state.status is TaskStatus.Cancelled
 
 
 def test_every_declared_question_has_a_renderer_to_answer_it_in():

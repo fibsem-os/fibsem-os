@@ -8,11 +8,9 @@ from datetime import datetime, timedelta, timezone
 import pytest
 import yaml
 
-from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskState,
-    AutoLamellaTaskStatus,
-)
+from fibsem.applications.autolamella.structures import AutoLamellaTaskState
 from fibsem.constants import TIME_DISPLAY_AMPM_SHORT
+from fibsem.workflows.status import TaskStatus
 
 # A completed Rough Milling run, as an older experiment.yaml holds it.
 OLDER = {
@@ -93,7 +91,7 @@ def test_a_caller_passing_a_posix_float_gets_an_aware_time():
     state = AutoLamellaTaskState(
         name="Coincidence",
         end_timestamp=1789356212.25,
-        status=AutoLamellaTaskStatus.Completed,
+        status=TaskStatus.Completed,
     )
     assert state.end_timestamp == datetime.fromtimestamp(1789356212.25, tz=timezone.utc)
 

@@ -33,7 +33,6 @@ from fibsem.applications.autolamella.proposals import (
 from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskStatus,
     Experiment,
     GridTaskProtocol,
     Lamella,
@@ -48,6 +47,7 @@ from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     GridTaskManager,
 )
 from fibsem.structures import BeamType, ImageSettings, OverviewAcquisitionSettings
+from fibsem.workflows.status import TaskStatus
 
 GRID = "Grid-01"
 OTHER_GRID = "Grid-02"
@@ -192,7 +192,7 @@ class TestAGridTaskProposes:
         _run(microscope, experiment, review_enabled=True)
         grid = experiment.get_grid_by_name(GRID)
 
-        assert grid.task_history[-1].status is AutoLamellaTaskStatus.Completed
+        assert grid.task_history[-1].status is TaskStatus.Completed
         proposal = grid.proposal(OVERVIEW)
         assert proposal.kind == OVERVIEW_POSITIONS
         assert standing(grid, OVERVIEW, proposal) is Standing.Open
@@ -218,7 +218,7 @@ class TestAGridTaskProposes:
         grid = experiment.get_grid_by_name(GRID)
 
         assert grid.is_awaiting_decision(OVERVIEW)
-        assert grid.task_state.status is AutoLamellaTaskStatus.AwaitingDecision
+        assert grid.task_state.status is TaskStatus.AwaitingDecision
         assert grid.proposal(OVERVIEW).pending
         assert not grid.has_completed_task(OVERVIEW)
         assert grid.proposal(OVERVIEW).task_id == grid.task_history[-1].task_id
@@ -243,11 +243,9 @@ class TestAGridTaskProposes:
         _run(microscope, experiment, review_enabled=False)
         grid = experiment.get_grid_by_name(GRID)
 
-        assert grid.task_history[-1].status is AutoLamellaTaskStatus.Completed
+        assert grid.task_history[-1].status is TaskStatus.Completed
         assert grid.proposal(OVERVIEW).pending, "open, as under automated"
-        assert (
-            grid.task_history[-1].status is not AutoLamellaTaskStatus.AwaitingDecision
-        )
+        assert grid.task_history[-1].status is not TaskStatus.AwaitingDecision
 
     def test_a_failed_task_proposes_its_failure_and_stays_failed(
         self, microscope, experiment
@@ -260,7 +258,7 @@ class TestAGridTaskProposes:
 
         _run(microscope, experiment, review_enabled=True)
 
-        assert grid.task_history[-1].status is AutoLamellaTaskStatus.Failed
+        assert grid.task_history[-1].status is TaskStatus.Failed
         proposal = grid.proposal(OVERVIEW)
         assert proposal.provenance["failure"]
         assert proposal.provenance["reference_image"] == ""
@@ -398,9 +396,7 @@ class TestTheGridRunWaitsOnADecision:
         assert time.monotonic() - started < 25, "woke on the decision, not the timeout"
         assert manager.stalled is False
         assert grid.has_completed_task(OVERVIEW)
-        assert [t.status for t in _ran(grid, LATER)] == [
-            AutoLamellaTaskStatus.Completed
-        ]
+        assert [t.status for t in _ran(grid, LATER)] == [TaskStatus.Completed]
         assert manager.closing_note() == ""
 
     def test_a_reject_fails_the_task_and_skips_what_requires_it(
@@ -427,11 +423,11 @@ class TestTheGridRunWaitsOnADecision:
         manager.run([OVERVIEW, LATER], [GRID])
         thread.join(5)
 
-        assert _ran(grid, OVERVIEW)[-1].status is AutoLamellaTaskStatus.Failed
+        assert _ran(grid, OVERVIEW)[-1].status is TaskStatus.Failed
         assert "all ice" in _ran(grid, OVERVIEW)[-1].status_message
         assert _ran(grid, LATER) == [], "skipped, never run"
         (later,) = [i for i in manager.queue.items if i.task_name == LATER]
-        assert later.status is AutoLamellaTaskStatus.Skipped
+        assert later.status is TaskStatus.Skipped
         skipped = [c for c in fired if c.event == "task_skipped"]
         assert [(c.task_name, c.skip_reason) for c in skipped] == [
             (LATER, "missing_prereqs")
@@ -529,7 +525,7 @@ class TestTheGridRunWaitsOnADecision:
         manager.run([OVERVIEW, LATER], [GRID])
 
         grid = experiment.get_grid_by_name(GRID)
-        assert _ran(grid, OVERVIEW)[-1].status is AutoLamellaTaskStatus.Failed
+        assert _ran(grid, OVERVIEW)[-1].status is TaskStatus.Failed
         assert _ran(grid, LATER) == []
         assert not manager.stalled
 
@@ -567,7 +563,7 @@ class TestTheLatestRunOfARequirementCounts:
 
         _manager(microscope, experiment).run([OVERVIEW, LATER], [GRID])
 
-        assert _ran(grid, OVERVIEW)[-1].status is AutoLamellaTaskStatus.Failed
+        assert _ran(grid, OVERVIEW)[-1].status is TaskStatus.Failed
         assert _ran(grid, LATER) == [], "the old success did not license it"
 
     def test_a_rejected_rerun_skips_the_task_that_requires_it(
@@ -587,7 +583,7 @@ class TestTheLatestRunOfARequirementCounts:
         manager.run([OVERVIEW, LATER], [GRID])
         thread.join(5)
 
-        assert _ran(grid, OVERVIEW)[-1].status is AutoLamellaTaskStatus.Failed
+        assert _ran(grid, OVERVIEW)[-1].status is TaskStatus.Failed
         assert _ran(grid, LATER) == []
 
     def test_a_rerun_queued_after_its_consumer_is_waited_for(
@@ -599,10 +595,10 @@ class TestTheLatestRunOfARequirementCounts:
 
         manager.run([LATER, OVERVIEW], [GRID])
 
-        assert _ran(grid, OVERVIEW)[-1].status is AutoLamellaTaskStatus.Failed
+        assert _ran(grid, OVERVIEW)[-1].status is TaskStatus.Failed
         assert _ran(grid, LATER) == [], "waited for the rerun, then skipped"
         (later,) = [i for i in manager.queue.items if i.task_name == LATER]
-        assert later.status is AutoLamellaTaskStatus.Skipped
+        assert later.status is TaskStatus.Skipped
 
 
 # ---------------------------------------------------------------------------
@@ -632,8 +628,8 @@ class TestAGridIsLoadedForWorkThatCanRun:
         assert _ran(second, LOAD_ENTRY_NAME) == [], "no exchange was attempted"
         statuses = {i.task_name: i.status for i in manager.queue.items}
         assert statuses == {
-            LOAD_ENTRY_NAME: AutoLamellaTaskStatus.Skipped,
-            LATER: AutoLamellaTaskStatus.Skipped,
+            LOAD_ENTRY_NAME: TaskStatus.Skipped,
+            LATER: TaskStatus.Skipped,
         }
         assert not manager.stalled
 
@@ -668,7 +664,7 @@ class TestAGridIsLoadedForWorkThatCanRun:
         assert seen == {"grid_01_in": True, "loads": loads_before}, (
             "while it waited, nothing was exchanged"
         )
-        assert _ran(second, LATER)[-1].status is AutoLamellaTaskStatus.Completed
+        assert _ran(second, LATER)[-1].status is TaskStatus.Completed
         assert len(_ran(second, LOAD_ENTRY_NAME)) == loads_before + 1
         waiting = [r for i, r in manager.deferred_items()]
         assert waiting == []

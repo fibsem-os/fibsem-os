@@ -19,7 +19,6 @@ from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskProtocol,
     AutoLamellaTaskState,
-    AutoLamellaTaskStatus,
     Experiment,
     GridRecord,
 )
@@ -44,6 +43,7 @@ from fibsem.structures import (
     SampleGrid,
     SlotCalibration,
 )
+from fibsem.workflows.status import TaskStatus
 
 
 def _small_settings(beam=BeamType.ELECTRON) -> OverviewAcquisitionSettings:
@@ -692,7 +692,7 @@ def test_a_grid_run_from_the_window_on_a_fixed_holder(main_ui, tmp_path, monkeyp
     grid = exp.get_grid_by_name("grid-aspen")
     # a fixed holder: the grid was loaded already, so no load entry
     assert [t.name for t in grid.task_history] == ["overview_sem"]
-    assert grid.task_history[-1].status is AutoLamellaTaskStatus.Completed
+    assert grid.task_history[-1].status is TaskStatus.Completed
     assert len(grid_outputs(exp, grid, "overview_sem")) == 1
     assert main_ui.grids_tab.btn_inventory.isEnabled()
     assert ui._last_run_summary is not None  # the grid summary, for the App Server

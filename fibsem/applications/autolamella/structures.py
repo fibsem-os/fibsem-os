@@ -81,6 +81,7 @@ from fibsem.structures import (
 from fibsem.util.durations import format_duration_precise
 from fibsem.util.timestamps import format_time, now, to_datetime, to_iso
 from fibsem.utils import configure_logging as _configure_logging
+from fibsem.workflows.status import TaskStatus
 
 if TYPE_CHECKING:
     import numpy as np
@@ -89,20 +90,6 @@ if TYPE_CHECKING:
         GridTaskConfig,
     )
     from fibsem.microscope import FibsemMicroscope
-
-
-class AutoLamellaTaskStatus(Enum):
-    NotStarted = auto()
-    InProgress = auto()
-    # The microscope work is done and the task's record waits on a decision in
-    # the Review tab. Not finished: nothing that requires this task runs until
-    # a decision moves it to Completed (confirmed) or Failed (rejected).
-    AwaitingDecision = auto()
-    Completed = auto()
-    Failed = auto()
-    Skipped = auto()
-    Cancelled = auto()  # aborted by the user (Stop), distinct from a genuine Failure
-    Removed = auto()  # pulled from the queue by the user before it ran
 
 
 class Attention(str, Enum):
@@ -147,7 +134,7 @@ class AutoLamellaTaskState:
     # read as this machine's zone -- the clock time they always displayed.
     start_timestamp: Optional[datetime] = field(default_factory=now)
     end_timestamp: Optional[datetime] = None
-    status: AutoLamellaTaskStatus = AutoLamellaTaskStatus.NotStarted
+    status: TaskStatus = TaskStatus.NotStarted
     status_message: str = ""
     # files this run produced, keyed by role, as paths relative to lamella.path.
     # roles mirror the naming convention the files already carry: phase x modality,
@@ -203,7 +190,7 @@ class AutoLamellaTaskState:
         if data is None:
             return cls()
         data = data.copy()
-        data["status"] = AutoLamellaTaskStatus[data.get("status", "NotStarted")]
+        data["status"] = TaskStatus[data.get("status", "NotStarted")]
         # Either form: ISO with offset, or the POSIX float written before FIB-1197.
         for key in ("start_timestamp", "end_timestamp"):
             if key in data:
@@ -490,7 +477,7 @@ class AutoLamellaWorkflowConfig:
         """
         completed_tasks = []
         for task in lamella.task_history:
-            if task.status is not AutoLamellaTaskStatus.Completed:
+            if task.status is not TaskStatus.Completed:
                 continue
             if task.name in self.workflow:
                 txt = task.name
@@ -1191,7 +1178,7 @@ _THUMBNAIL_PLACEHOLDER = None
 
 def _latest_status(
     task_history: List[AutoLamellaTaskState], task_name: str
-) -> Optional[AutoLamellaTaskStatus]:
+) -> Optional[TaskStatus]:
     """How the latest run of ``task_name`` ended; None if it never ran."""
     for task in reversed(task_history):
         if task.name == task_name:
@@ -1204,17 +1191,14 @@ def _is_awaiting_decision(
 ) -> bool:
     """Whether the latest run of ``task_name`` ended waiting on a decision. The
     same rule for a lamella and a grid record."""
-    return (
-        _latest_status(task_history, task_name)
-        is AutoLamellaTaskStatus.AwaitingDecision
-    )
+    return _latest_status(task_history, task_name) is TaskStatus.AwaitingDecision
 
 
 def _set_task_status(
     task_history: List[AutoLamellaTaskState],
     task_state: Optional[AutoLamellaTaskState],
     task_name: str,
-    status: AutoLamellaTaskStatus,
+    status: TaskStatus,
     message: str = "",
 ) -> None:
     """Move the latest run of ``task_name`` to ``status``, in the history and
@@ -1377,13 +1361,10 @@ class Lamella:
         """Whether the latest run of ``task_name`` completed: what a task that
         requires it needs. Not ``has_completed_task``, which an old success
         satisfies after a rerun failed or was rejected."""
-        return (
-            _latest_status(self.task_history, task_name)
-            is AutoLamellaTaskStatus.Completed
-        )
+        return _latest_status(self.task_history, task_name) is TaskStatus.Completed
 
     def set_task_status(
-        self, task_name: str, status: AutoLamellaTaskStatus, message: str = ""
+        self, task_name: str, status: TaskStatus, message: str = ""
     ) -> None:
         """Move the latest run of ``task_name`` to ``status``; see
         ``_set_task_status``."""
@@ -1401,7 +1382,7 @@ class Lamella:
         return [
             task.name
             for task in self.task_history
-            if task.status is AutoLamellaTaskStatus.Completed
+            if task.status is TaskStatus.Completed
         ]
 
     @property
@@ -1413,7 +1394,7 @@ class Lamella:
         experiment summary.
         """
         for task in reversed(self.task_history):
-            if task.status is AutoLamellaTaskStatus.Completed:
+            if task.status is TaskStatus.Completed:
                 return task
         return None
 
@@ -1822,7 +1803,7 @@ class GridRecord:
 
     def has_completed_task(self, task_name: str) -> bool:
         return any(
-            t.name == task_name and t.status is AutoLamellaTaskStatus.Completed
+            t.name == task_name and t.status is TaskStatus.Completed
             for t in self.task_history
         )
 
@@ -1847,13 +1828,10 @@ class GridRecord:
 
     def latest_run_completed(self, task_name: str) -> bool:
         """Whether the latest run of ``task_name`` completed; see Lamella's."""
-        return (
-            _latest_status(self.task_history, task_name)
-            is AutoLamellaTaskStatus.Completed
-        )
+        return _latest_status(self.task_history, task_name) is TaskStatus.Completed
 
     def set_task_status(
-        self, task_name: str, status: AutoLamellaTaskStatus, message: str = ""
+        self, task_name: str, status: TaskStatus, message: str = ""
     ) -> None:
         """Move the latest run of ``task_name`` to ``status``; see
         ``_set_task_status``."""
@@ -1864,7 +1842,7 @@ class GridRecord:
         """Whether the latest run on this grid ended in failure. Not a verdict on
         the grid -- see `quality` for that, which a person sets and a task never
         does, same as a lamella."""
-        return self.task_state.status is AutoLamellaTaskStatus.Failed
+        return self.task_state.status is TaskStatus.Failed
 
     def to_dict(self) -> dict:
         return {
@@ -2265,7 +2243,7 @@ class Experiment:
             # result is looked at, and that look writes nothing. A grid's tasks
             # run back to back, so anything stricter refuses the ordinary case
             # (FIB-1008).
-            running = item.task_state.status is AutoLamellaTaskStatus.InProgress
+            running = item.task_state.status is TaskStatus.InProgress
             # An open value was written through when its task ended. Confirming
             # it as it stands writes nothing again, so it is a look and lands
             # even while the item is busy with another task; a changed value
@@ -2440,11 +2418,11 @@ class Experiment:
                     result.synced_tasks.extend(apply_values.apply())
                 if item.is_awaiting_decision(task_name):
                     if decision.outcome is DecisionOutcome.Confirmed:
-                        item.set_task_status(task_name, AutoLamellaTaskStatus.Completed)
+                        item.set_task_status(task_name, TaskStatus.Completed)
                     else:
                         item.set_task_status(
                             task_name,
-                            AutoLamellaTaskStatus.Failed,
+                            TaskStatus.Failed,
                             f"Rejected by {decision.author.label}: {decision.reason}",
                         )
             except Exception as e:

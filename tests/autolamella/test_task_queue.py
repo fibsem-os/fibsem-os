@@ -11,12 +11,12 @@ import threading
 
 import pytest
 
-from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus as Status
 from fibsem.applications.autolamella.workflows.tasks.queue import (
     QueueOp,
     TaskQueue,
     WorkItem,
 )
+from fibsem.workflows.status import TaskStatus as Status
 
 
 @pytest.fixture

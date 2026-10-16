@@ -2266,10 +2266,8 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         image = self._latest_fib_image
         if lamella is None or self.experiment is None or image is None:
             return
-        from fibsem.applications.autolamella.structures import (
-            AutoLamellaTaskState,
-            AutoLamellaTaskStatus,
-        )
+        from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+        from fibsem.workflows.status import TaskStatus
 
         try:
             now = timestamps.now()
@@ -2285,7 +2283,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
                     task_type="MILL_COINCIDENT",
                     lamella_id=lamella.id,
                     end_timestamp=now,
-                    status=AutoLamellaTaskStatus.Completed,
+                    status=TaskStatus.Completed,
                     status_message="Coincidence milling (recorded from viewer)",
                     outputs={"final_fib": [os.path.relpath(written, lamella.path)]},
                 )

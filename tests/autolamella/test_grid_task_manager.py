@@ -20,7 +20,6 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
     GridRecord,
 )
-from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus as Status
 from fibsem.applications.autolamella.task_outputs import grid_outputs
 from fibsem.applications.autolamella.workflows.tasks.grid import (
     BeamOverviewGridTaskConfig,
@@ -44,6 +43,7 @@ from fibsem.applications.autolamella.workflows.tasks.status import WorkflowStatu
 from fibsem.cancellation import OperationCancelledError
 from fibsem.services.sample_handling import BUILTIN_SLOT_NAME
 from fibsem.structures import BeamType, ImageSettings, OverviewAcquisitionSettings
+from fibsem.workflows.status import TaskStatus as Status
 
 GRIDS = ["Grid-01", "Grid-02", "Grid-03"]  # what the sim magazine holds
 
