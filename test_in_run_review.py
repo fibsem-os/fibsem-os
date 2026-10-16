@@ -50,14 +50,13 @@ from PyQt5.QtWidgets import QApplication
 from fibsem import acquire, utils
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskState,
     Experiment,
 )
 from fibsem.applications.autolamella.ui import AutoLamellaMainUI as main_ui_module
 from fibsem.detection.detection import DetectedFeatures, ImageCentre, LamellaCentre
 from fibsem.structures import BeamType, ImageSettings, MicroscopeState, Point
 from fibsem.workflows.interaction import ReviewDetection, ask
-from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.status import TaskState, TaskStatus
 
 TASK = "Mill Rough"
 RUN = "harness-run-1"
@@ -177,7 +176,7 @@ def main() -> int:
     # The task is mid-flight: what makes this an in-run question rather than a
     # result left for later, and what the decision has to name.
     lamella.task_history.append(
-        AutoLamellaTaskState(name=TASK, status=TaskStatus.InProgress)
+        TaskState(name=TASK, status=TaskStatus.InProgress)
     )
     lamella.task_state.name = TASK
     lamella.task_state.task_id = RUN
