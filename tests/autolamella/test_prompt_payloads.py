@@ -303,6 +303,7 @@ def test_an_answer_says_what_it_decided():
 
 def test_a_suggestion_at_a_mill_again_question_says_what_it_decides():
     """Sim session 2026-10-16: "Answer: Continue" for "don't mill again"."""
+    pytest.importorskip("PyQt5")
     from fibsem.applications.autolamella.ui.qt_responder import QtResponder
     from fibsem.applications.autolamella.workflows.interaction import MillingEdit
 
