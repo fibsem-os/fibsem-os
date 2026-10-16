@@ -15,6 +15,7 @@ from fibsem.applications.autolamella.ui.agent_level_chip import (  # noqa: E402
     last_heard_text,
     request_outcome,
 )
+from fibsem.applications.autolamella.ui.agent_recent import RecentRow  # noqa: E402
 from fibsem.server.levels import AgentLevel  # noqa: E402
 from fibsem.structures import BeamType  # noqa: E402
 
@@ -130,6 +131,31 @@ def test_the_card_opens_the_event_log_and_offers_to_connect_an_agent(qapp):
     assert not card.connect_link.isVisibleTo(card)
     assert card.heard_label.text() == "Agent · last heard 4 s ago"
     chip.deleteLater()
+
+
+def test_the_operator_messages_the_agent_once_one_is_heard_from(qapp):
+    # FIB-1423: a line on the card; Enter or Send says what was written.
+    card = AgentCard()
+    assert not card.message_row.isVisibleTo(card)  # no one listens yet
+    card.set_last_heard("Agent · last heard 4 s ago", heard=True)
+    assert card.message_row.isVisibleTo(card)
+    sent = []
+    card.message_sent.connect(sent.append)
+    card.message_edit.setText("   ")
+    card.send_button.click()
+    card.message_edit.setText("  skip 03 ")
+    card.message_edit.returnPressed.emit()
+    assert sent == ["skip 03"]
+    assert card.message_edit.text() == ""
+    card.deleteLater()
+
+
+def test_folded_recent_adds_no_outcome_a_message_does_not_have(qapp):
+    card = AgentCard()
+    card.set_level(AgentLevel.ASSIST)
+    card.set_recent([RecentRow("06:12", "Reply: skipping 03", "", "muted", "drive")])
+    assert card.recent_last.text() == "last: Reply: skipping 03"
+    card.deleteLater()
 
 
 def test_the_last_heard_line():

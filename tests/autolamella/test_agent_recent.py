@@ -298,3 +298,19 @@ def test_a_request_the_agent_took_back_reads_withdrawn():
             payload["withdrawn"] = True
         recent.add(_record("request_cancelled", payload))
     assert [row[1] for row in _rows(recent)] == ["cancelled", "withdrawn"]
+
+
+def test_the_operator_s_message_and_the_agent_s_reply_are_rows():
+    # FIB-1423: the operator writes from the card; the agent answers with a note.
+    recent = RecentActions()
+    recent.add(_record("agent_level_set", {"level": "drive"}, actor=OPERATOR))
+    recent.add(
+        _record("operator_message", {"id": "ab12", "text": "skip 03"}, actor=OPERATOR)
+    )
+    recent.add(_record("agent_note", {"text": "skipping 03", "reply_to": "ab12"}))
+    assert _rows(recent) == [
+        ("Reply: skipping 03", "", MUTED),
+        ("You: skip 03", "", MUTED),
+    ]
+    # The operator's line is at no level; the agent's reply at its own.
+    assert [row.level for row in recent.rows] == ["drive", ""]

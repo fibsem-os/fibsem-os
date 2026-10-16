@@ -1077,10 +1077,13 @@ def build_sidecar(client, capabilities):
     def item_get_task_config(item_name: str, task_name: str):
         return _app_get(f"/app/experiment/items/{item_name}/task_config/{task_name}")
 
-    def experiment_add_note(text: str, item_name: Optional[str] = None):
-        return _app_post(
-            "/app/experiment/notes", {"text": str(text), "item_name": item_name}
-        )
+    def experiment_add_note(
+        text: str, item_name: Optional[str] = None, reply_to: Optional[str] = None
+    ):
+        body = {"text": str(text), "item_name": item_name}
+        if reply_to:
+            body["reply_to"] = str(reply_to)
+        return _app_post("/app/experiment/notes", body)
 
     def request_create(actions: list, reason: str, image: Optional[str] = None):
         body = {"actions": list(actions), "reason": str(reason)}

@@ -12,6 +12,8 @@ The chip in the status bar opens it. It holds, top to bottom:
 * what the agent did lately, Recent: open at first at Drive, where it acts
   without asking, folded to its last line below it (FIB-1414); the event log
   at its right;
+* a line to message the agent, once one has been heard from, which it hears
+  from its watch and answers with a note (FIB-1423);
 * the controls: the level, drawn as the chip draws it, a menu of the four with
   what each allows (FIB-1418); Stop agent, drawn the same way; who the agent is
   and when it was last heard from.
@@ -104,6 +106,8 @@ _TONES = {
 STACK_BELOW = 600
 # The narrowest the stacked card goes.
 NARROWEST = 360
+# The longest message to the agent, in characters (FIB-1423).
+MESSAGE_LIMIT = 2000
 
 _CARD = f"""
     #agentCard {{ background: {SURFACE_COLOR}; }}
@@ -114,7 +118,8 @@ _CARD = f"""
     }}
     #agentRule {{ background: {BORDER_COLOR}; }}
     #agentCard QLineEdit {{
-        border: 1px solid {BORDER_COLOR}; border-radius: 3px; padding: 4px 6px;
+        background: {PANEL_COLOR}; border: 1px solid {BORDER_COLOR}; border-radius: 3px;
+        padding: 4px 6px;
         color: {TEXT_STRONG_COLOR};
     }}
     #agentLink {{
@@ -468,6 +473,7 @@ class AgentCard(QFrame):
     dismiss_clicked = pyqtSignal(str)  # the suggestion shown, the operator's why
     float_clicked = pyqtSignal()  # float the card, or put it back on the chip
     keep_on_top_toggled = pyqtSignal(bool)  # the floating card over every window
+    message_sent = pyqtSignal(str)  # the operator's message to the agent
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -560,6 +566,27 @@ class AgentCard(QFrame):
         self._recent_rows = QVBoxLayout()
         self._recent_rows.setSpacing(2)
         layout.addLayout(self._recent_rows)
+
+        # A message to the agent (FIB-1423): it hears it from its watch and
+        # answers with a note. It is not an approval: the level still decides.
+        # Shown once an agent has been heard from: until then no one listens.
+        self.message_row = QWidget()
+        message = QHBoxLayout(self.message_row)
+        message.setContentsMargins(0, 0, 0, 0)
+        message.setSpacing(8)
+        self.message_edit = QLineEdit()
+        self.message_edit.setPlaceholderText("Message the agent")
+        self.message_edit.setMaxLength(MESSAGE_LIMIT)
+        self.message_edit.setToolTip(
+            "The agent reads it and answers with a note. It is not an approval: "
+            "what the agent may do still depends on its level."
+        )
+        self.message_edit.returnPressed.connect(self._send_message)
+        message.addWidget(self.message_edit, 1)
+        self.send_button = _button("Send")
+        self.send_button.clicked.connect(self._send_message)
+        message.addWidget(self.send_button)
+        layout.addWidget(self.message_row)
 
         rule = QFrame()
         rule.setObjectName("agentRule")
@@ -733,6 +760,7 @@ class AgentCard(QFrame):
         card offers to connect one instead."""
         self.heard_label.setText(text or last_heard_text(None))
         self.connect_link.setVisible(not heard)
+        self.message_row.setVisible(heard)
 
     # --- layout ---------------------------------------------------------------
 
@@ -1098,11 +1126,12 @@ class AgentCard(QFrame):
         shown = self.recent_shown
         self.recent_link.setText("Recent ▾" if shown else "Recent ▸")
         newest = self._recent[0] if self._recent else None
-        self.recent_last.setText(
-            f"last: {newest.text}, {newest.outcome}"
-            if newest is not None and not shown
-            else ""
-        )
+        last = ""
+        if newest is not None and not shown:
+            # A message or a note has no outcome to add.
+            last = ", ".join(t for t in (newest.text, newest.outcome) if t)
+            last = f"last: {last}"
+        self.recent_last.setText(last)
         self.recent_buttons = []
         if not shown:
             self.updateGeometry()
@@ -1139,6 +1168,13 @@ class AgentCard(QFrame):
             self.recent_buttons.append(button)
         self._recent_rows.addWidget(box)
         self.updateGeometry()
+
+    def _send_message(self) -> None:
+        text = self.message_edit.text().strip()
+        if not text:
+            return
+        self.message_edit.clear()
+        self.message_sent.emit(text)
 
     def _toggle_details(self) -> None:
         self._details_open = not self._details_open

@@ -1919,8 +1919,14 @@ class AutoLamellaAppContext:
                 )
         return doc
 
-    def add_note(self, text: str, item_name: Optional[str] = None) -> Dict[str, Any]:
-        """Put an agent observation on the record.
+    def add_note(
+        self,
+        text: str,
+        item_name: Optional[str] = None,
+        reply_to: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Put an agent observation on the record, or its answer to the
+        operator's message (``reply_to``, the message's id, FIB-1423).
 
         The agent's judgments otherwise live only in its chat: this writes
         them where the run's story is told — the event stream (live consumers:
@@ -1944,10 +1950,10 @@ class AutoLamellaAppContext:
         if self._event_buffer is not None:
             # With the item's id, so the record files the note under the item
             # it is about, not whichever one is running (FIB-1328).
-            self._event_buffer.append(
-                "agent_note",
-                {"text": text, "item_name": item_name, "item_id": item_id},
-            )
+            payload = {"text": text, "item_name": item_name, "item_id": item_id}
+            if reply_to:
+                payload["reply_to"] = reply_to
+            self._event_buffer.append("agent_note", payload)
         return {"available": True, "recorded": True}
 
     def record_event(self, kind: str, payload: Dict[str, Any]) -> None:

@@ -3,7 +3,8 @@
 The agent card's Recent list: the agent's requests (asked, then approved,
 applying, then applied or failed, or rejected with the operator's why), its
 suggested answers (taken, dropped or dismissed), and what it does itself at
-Drive or was refused. Read from the session's record, the event stream the event
+Drive or was refused. The operator's messages to it are rows too, "You: ...",
+and its answers "Reply: ..." (FIB-1423). Read from the session's record, the event stream the event
 log shows, so the list and the log never disagree; only the agent's own entries
 make a row. Each row says the level it was done at (FIB-1426).
 
@@ -174,7 +175,7 @@ class RecentActions:
         tone: str,
         level: Any = None,
     ):
-        level = str(level or self._level)
+        level = str(self._level if level is None else level)
         self._rows.pop(key, None)
         self._rows[key] = RecentRow(_when(record), _cut(text), outcome, tone, level)
         while len(self._rows) > self._size:
@@ -371,8 +372,25 @@ class RecentActions:
         return self._put(("mill", p.get("milling_run_id")), record, text, outcome, tone)
 
     def _on_agent_note(self, record, p, agent):
+        # Its answer to the operator's message (FIB-1423), or an observation.
+        head = "Reply" if p.get("reply_to") else "Note"
         return self._put(
-            ("note", record.get("seq")), record, f"Note: {p.get('text', '')}", "", MUTED
+            ("note", record.get("seq")),
+            record,
+            f"{head}: {p.get('text', '')}",
+            "",
+            MUTED,
+        )
+
+    def _on_operator_message(self, record, p, agent):
+        # The operator's own line, at no level: the agent answers with a note.
+        return self._put(
+            ("message", record.get("seq")),
+            record,
+            f"You: {p.get('text', '')}",
+            "",
+            MUTED,
+            level="",
         )
 
     def _on_agent_stop(self, record, p, agent):
