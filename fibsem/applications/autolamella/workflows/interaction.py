@@ -886,15 +886,16 @@ class RunSpotBurn(RunAgainQuestion, Request[Optional[SpotBurnDecision]]):
     last_error: Optional[str] = None
 
     def describe(self) -> Dict[str, Any]:
-        from fibsem.imaging.spot import EXPOSURE_LIMITS
+        from fibsem.imaging.spot import SpotBurnSettings
 
+        exposure = SpotBurnSettings.params["exposure_time"].limits
         settings = self.settings
         return {
             **self._loop_state(off="", ran="The spot burn has run"),
             "points": [pt.to_dict() for pt in getattr(settings, "coordinates", [])],
             "milling_current": getattr(settings, "milling_current", None),
             "exposure_time": getattr(settings, "exposure_time", None),
-            "exposure_limits": list(EXPOSURE_LIMITS),
+            "exposure_limits": [exposure.min, exposure.max],
             "coordinates": "points are fractions of the frame (origin "
             "top-left, +y down), so they need no rescaling against the "
             "preview; milling_current is in amps, exposure_time in seconds "
@@ -905,7 +906,7 @@ class RunSpotBurn(RunAgainQuestion, Request[Optional[SpotBurnDecision]]):
     def parse_value(self, value: Dict[str, Any]) -> SpotBurnEdit:
         import math
 
-        from fibsem.imaging.spot import EXPOSURE_LIMITS
+        from fibsem.imaging.spot import SpotBurnSettings
         from fibsem.services.spot_burn import in_frame
         from fibsem.structures import Point
 
@@ -948,7 +949,8 @@ class RunSpotBurn(RunAgainQuestion, Request[Optional[SpotBurnDecision]]):
             ):
                 raise InvalidAnswerValue(f"{key} is a positive number.")
             numbers[key] = float(number)
-        low, high = EXPOSURE_LIMITS
+        limits = SpotBurnSettings.params["exposure_time"].limits
+        low, high = limits.min, limits.max
         exposure = numbers["exposure_time"]
         if exposure is not None and not low <= exposure <= high:
             raise InvalidAnswerValue(

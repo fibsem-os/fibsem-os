@@ -14,7 +14,6 @@ from PyQt5.QtWidgets import (
 from superqt import ensure_main_thread
 
 from fibsem.imaging.spot import (
-    EXPOSURE_LIMITS,
     SpotBurnProgress,
     SpotBurnSettings,
     SpotBurnStatus,
@@ -28,11 +27,11 @@ from fibsem.ui import notification_service, stylesheets
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.utils import beam_choices
 from fibsem.ui.widgets.custom_widgets import ValueComboBox, ValueSpinBox
+from fibsem.ui.widgets.form_builder import configure_spinbox
 from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
 from fibsem.ui.widgets.spot_burn_coordinates_widget import SpotBurnCoordinatesWidget
 from fibsem.utils import format_value
 
-DEFAULT_BEAM_CURRENT = 100e-12  # 100 pA
 HIDE_PROGRESS_DELAY_MS = 2000  # how long the "Done" bar stays up before hiding
 
 
@@ -114,23 +113,24 @@ class FibsemSpotBurnWidget(QWidget):
 
         # beam current + exposure
         beam_currents = beam_choices(self.microscope, "current", BeamType.ION)
-        closest = min(beam_currents, key=lambda x: abs(x - DEFAULT_BEAM_CURRENT))
+        closest = min(
+            beam_currents, key=lambda x: abs(x - SpotBurnSettings().milling_current)
+        )
         self.comboBox_beam_current = ValueComboBox(
             items=beam_currents,
             value=closest,
             unit="A",
             decimals=1,
         )
-        self.doubleSpinBox_exposure_time = ValueSpinBox(
-            suffix="s",
-            minimum=EXPOSURE_LIMITS[0],
-            maximum=EXPOSURE_LIMITS[1],
-            decimals=3,
-        )
-        self.doubleSpinBox_exposure_time.setValue(10)
+        exposure = SpotBurnSettings.params["exposure_time"]
+        self.doubleSpinBox_exposure_time = ValueSpinBox()
+        configure_spinbox(self.doubleSpinBox_exposure_time, exposure)
+        self.doubleSpinBox_exposure_time.setValue(SpotBurnSettings().exposure_time)
         form = QFormLayout()
-        form.addRow("Beam Current", self.comboBox_beam_current)
-        form.addRow("Exposure Time", self.doubleSpinBox_exposure_time)
+        form.addRow(
+            SpotBurnSettings.params["milling_current"].label, self.comboBox_beam_current
+        )
+        form.addRow(exposure.label, self.doubleSpinBox_exposure_time)
         layout.addLayout(form)
 
         # info
