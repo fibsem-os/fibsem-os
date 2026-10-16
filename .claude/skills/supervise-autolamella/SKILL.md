@@ -553,7 +553,9 @@ the task, one `milling_run_stage` per step:
 - Preview every step's patterns on a fresh ion image first
   (`milling_preview_patterns`), and look at where they land.
 - Re-align to the reference before every step. Below about 300 nm, if the
-  alignment methods disagree, align again before milling.
+  alignment methods disagree, align again before milling. For polish
+  passes, set the Polishing task's `alignment.full_frame_below` (80 pA,
+  say) rather than re-aligning by hand.
 - Measure the band, don't trust the gap. Track the pattern gap you asked
   for and the band you measure on a FIB image, and stop on whichever
   reaches the target first: on the Arctis the band ran at 0.53-0.73× the
