@@ -27,15 +27,15 @@ from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module  # no
 from fibsem.applications.autolamella.ui.lamella_task_image_widget import (  # noqa: E402
     LamellaTaskImageWidget,
 )
-from fibsem.applications.autolamella.workflows.tasks.manager import (  # noqa: E402
-    WorkflowStatusUpdate,
-)
 from fibsem.structures import (  # noqa: E402
     FibsemImage,
     FibsemStagePosition,
     MicroscopeState,
 )
-from fibsem.workflows.status import TaskStatus  # noqa: E402
+from fibsem.workflows.status import (
+    TaskStatus,  # noqa: E402
+    WorkflowStatusUpdate,  # noqa: E402
+)
 
 TASK = "Trench"
 

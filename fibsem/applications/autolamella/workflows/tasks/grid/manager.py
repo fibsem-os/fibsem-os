@@ -70,7 +70,6 @@ from fibsem.applications.autolamella.structures import AutoLamellaTaskState, Gri
 from fibsem.applications.autolamella.workflows.tasks.grid.registry import (
     run_grid_task,
 )
-from fibsem.applications.autolamella.workflows.tasks.manager import BaseTaskManager
 from fibsem.applications.autolamella.workflows.ui import update_status_ui
 from fibsem.cancellation import OperationCancelledError
 from fibsem.control import WORKFLOW
@@ -78,6 +77,7 @@ from fibsem.devices.sample_loader import GridExchangeError
 from fibsem.hooks import HookEvent, HookManager
 from fibsem.structures import SampleGrid
 from fibsem.util import timestamps
+from fibsem.workflows.manager import BaseTaskManager
 from fibsem.workflows.queue import WorkItem
 from fibsem.workflows.status import TaskStatus
 
@@ -209,6 +209,11 @@ class GridTaskManager(BaseTaskManager):
         # task, which would only re-run the same failure in front of a queue of
         # grids that might load fine.
         self._not_loaded: Dict[str, str] = {}
+
+    def _run_recorder(self):
+        from fibsem.applications.autolamella.event_recording import run_recorder
+
+        return run_recorder(self.microscope, self.experiment)
 
     # --- Public API ---
 

@@ -47,12 +47,12 @@ from fibsem.applications.autolamella.tools.event_tables import (
     event_tables,
     read_event_tables,
 )
-from fibsem.applications.autolamella.workflows.tasks import manager as manager_module
 from fibsem.applications.autolamella.workflows.tasks.manager import run_tasks
 from fibsem.applications.autolamella.workflows.tasks.rough import MillRoughTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.select_position import (
     SelectMillingPositionTaskConfig,
 )
+from fibsem.workflows import manager as manager_module
 
 SETUP = "Setup Lamella Position"
 ROUGH = "Rough Milling"

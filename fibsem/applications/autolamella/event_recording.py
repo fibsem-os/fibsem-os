@@ -70,6 +70,27 @@ def recorder_for(microscope: Any) -> Optional["EventRecorder"]:
     )
 
 
+def run_recorder(
+    microscope: Any, experiment: Any
+) -> Tuple[Optional["EventRecorder"], Optional["EventRecorder"]]:
+    """The recorder a workflow run records through, and the one made for the
+    run, which its caller closes after it (None when the app's own was used).
+    The microscope's own recorder when something keeps one, else one made for
+    the run, recording to the experiment. A recorder that cannot be made is a
+    run without one: recording must not cost the run."""
+    recorder = recorder_for(microscope)
+    if recorder is not None:
+        return recorder, None
+    try:
+        made = EventRecorder(
+            microscope, experiment_path=experiment.path, experiment=experiment
+        )
+    except Exception:  # noqa: BLE001 - recording must not cost the run
+        logging.warning("This run's events are not recorded.", exc_info=True)
+        return None, None
+    return made, made
+
+
 class EventFileWriter:
     """Appends records to a JSON Lines file, from a thread of its own.
 

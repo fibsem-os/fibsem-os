@@ -27,7 +27,7 @@ from fibsem.workflows.interaction import (
     SetImages,
     ask,
 )
-from fibsem.workflows.status import WorkflowStatusEvent
+from fibsem.workflows.status import post_status
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
@@ -191,18 +191,9 @@ def update_status_ui(
     the manager's closing line after a Stop -- "Workflow cancelled by user." -- which is
     the one status that has to get out precisely because the run was aborted.
     """
-    if parent_ui is None:
-        logging.info(msg or status_bar or "")
-        return
-
     if check_abort:
         _check_for_abort(parent_ui)
-
-    parent_ui.workflow_status_signal.emit(
-        WorkflowStatusEvent(
-            message=msg, workflow_info=workflow_info, status_bar=status_bar
-        )
-    )
+    post_status(parent_ui, msg, workflow_info=workflow_info, status_bar=status_bar)
 
 
 def ask_user(
