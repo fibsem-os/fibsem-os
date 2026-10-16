@@ -16,10 +16,10 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from fibsem import config as fcfg  # noqa: E402
 from fibsem import utils  # noqa: E402
+from fibsem.devices.runs import ended_as  # noqa: E402
 from fibsem.milling.base import FibsemMillingStage  # noqa: E402
 from fibsem.milling.tasks import FibsemMillingTaskConfig  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.devices.runs import ended_as  # noqa: E402
 from fibsem.structures import BeamType, ImageSettings  # noqa: E402
 
 TOKEN = "test-token"
