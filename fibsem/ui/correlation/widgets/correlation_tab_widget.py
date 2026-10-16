@@ -217,6 +217,9 @@ _AUTO_ACCEPT_MAX_Z = 5.0  # Z displacement (slices)
 # The FIB hole fit's window half-width, px (hole_fitting_FIB's default); the fit
 # panel starts there.
 FIB_HOLE_WINDOW = 15
+# The planes below and above the clicked one the reflection fit searches
+# (hole_fitting_reflection's default); the fit panel starts there.
+REFLECTION_PLANES = (10, 4)
 
 # Run-bar RMS cue. The badge FLAGS problems; it never certifies quality. The RMS
 # is a fit residual over the fiducials, so a low value cannot promise the POI —
@@ -5121,6 +5124,12 @@ class CorrelationTabWidget(QWidget):
                 refit=lambda changed, c=coord: self._run_point_fit(c, changed),
                 channel_names=self._fm_channel_names(),
                 position=(index, len(points)),
+                stack=(
+                    (lambda ch: self._fm_image.data[ch])
+                    if self._fm_image is not None
+                    and self._point_specs[coord.point_type].adapter.side != "fib"
+                    else None
+                ),
                 parent=self,
             )
             answer = dialog.exec_()
@@ -5195,6 +5204,7 @@ class CorrelationTabWidget(QWidget):
             window_label="Depth box ±",
             channel=channel,
             looks=cl._fm_fid_looks_combo.value() if is_fid else None,
+            planes=REFLECTION_PLANES,
         )
 
     def _run_point_fit(
@@ -5258,6 +5268,7 @@ class CorrelationTabWidget(QWidget):
                             z=int(z),  # sub-pixel x/y (FIB-282)
                             cutout=inputs.window,
                             polarity=Polarity(inputs.looks or "dark"),
+                            planes=inputs.planes or REFLECTION_PLANES,
                         )
                         fitted = PointXYZ(float(xr), float(yr), float(zr))
                     elif method == "Gaussian":

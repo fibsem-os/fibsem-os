@@ -15,9 +15,11 @@ point's fit with the inputs given and returns a
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Callable, Optional, Sequence
+from typing import Callable, Optional, Sequence, Tuple
 
-from PyQt5.QtCore import Qt
+import numpy as np
+from PyQt5.QtCore import QPointF, Qt
+from PyQt5.QtGui import QColor, QImage, QPainter, QPen, QPixmap
 from PyQt5.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -26,11 +28,13 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QSlider,
     QSpinBox,
     QVBoxLayout,
     QWidget,
 )
 
+from fibsem.correlation.structures import PointXYZ
 from fibsem.ui import stylesheets
 from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
     _STATUS_STYLE,
@@ -42,6 +46,7 @@ from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
     _status_text,
 )
 from fibsem.ui.tokens import (
+    ACCENT_COLOR,
     BODY_MUTED_STYLE,
     BODY_STYLE,
     CANVAS_BG,
@@ -56,6 +61,10 @@ from fibsem.ui.widgets.custom_widgets import ValueComboBox
 WINDOW_RANGE = (2, 40)
 # The figure's area keeps this size with no figure in it.
 FIGURE_MIN_SIZE = (560, 340)
+# The plane preview: this many px either side of the point, drawn this much bigger.
+PREVIEW_HALF, PREVIEW_SCALE = 20, 5
+# The method suffix of a result whose z was set by hand in the panel.
+Z_BY_HAND = "z by hand"
 
 
 @dataclass(frozen=True)
@@ -68,6 +77,7 @@ class FitInputs:
     channel: Optional[int] = None  # FM only: index into the stack's channels
     looks: Optional[str] = None  # FM fiducial only: "dark" or "bright"
     fit_xy: Optional[bool] = None  # FM target only: fit x, y too, or keep them
+    planes: Optional[Tuple[int, int]] = None  # FM fiducial only: below, above
 
 
 # exec_() returns this when the user keeps their click (Keep click), so a caller
@@ -93,12 +103,15 @@ class FitPanelDialog(QDialog):
         refit: Callable[[FitInputs], Optional[PointFitResult]],
         channel_names: Sequence[str] = (),
         position: Optional[tuple] = None,
+        stack: Optional[Callable[[int], np.ndarray]] = None,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self._result = result
+        self._fitted = result  # the last fit, under any z set by hand
         self._inputs = inputs
         self._refit = refit
+        self._stack = stack  # FM: the z-stack of a channel, for browsing planes
         self._canvas = None
         point = result.coordinate.point_type.value
         self.setWindowTitle(f"Fit {point}")
@@ -166,6 +179,7 @@ class FitPanelDialog(QDialog):
         self._channel_combo = None
         if inputs.channel is not None:
             self._channel_combo = QComboBox()
+            self._channel_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
             self._channel_combo.addItems(list(channel_names))
             self._channel_combo.setCurrentIndex(inputs.channel)
             self._channel_combo.currentIndexChanged.connect(self._on_input_changed)
@@ -190,7 +204,40 @@ class FitPanelDialog(QDialog):
             )
             self._fit_xy_check.toggled.connect(self._on_input_changed)
             form.addRow(self._fit_xy_check)
+
+        self._planes_spins = None
+        if inputs.planes is not None:
+            below, above = QSpinBox(), QSpinBox()
+            for spin, value in ((below, inputs.planes[0]), (above, inputs.planes[1])):
+                spin.setRange(1, 50)
+                spin.setValue(value)
+                spin.setKeyboardTracking(False)
+                spin.valueChanged.connect(self._on_input_changed)
+            below.setSuffix(" below")
+            above.setSuffix(" above")
+            self._planes_spins = (below, above)
+            form.addRow(_muted("Planes searched"), below)
+            form.addRow(_muted(""), above)
         side.addLayout(form)
+
+        # z by eye: browse the stack's planes around the point, and take one as
+        # z when the fit can't (FIB-1218).
+        self._plane_slider = None
+        if stack is not None and inputs.channel is not None:
+            side.addWidget(_muted("z · browse planes"))
+            self._preview = QLabel()
+            self._preview.setFixedSize(
+                (2 * PREVIEW_HALF + 1) * PREVIEW_SCALE,
+                (2 * PREVIEW_HALF + 1) * PREVIEW_SCALE,
+            )
+            side.addWidget(self._preview)
+            self._plane_slider = QSlider(Qt.Orientation.Horizontal)
+            self._plane_slider.valueChanged.connect(self._on_plane_changed)
+            side.addWidget(self._plane_slider)
+            self._use_plane_btn = QPushButton()
+            self._use_plane_btn.setAutoDefault(False)
+            self._use_plane_btn.clicked.connect(self._use_plane)
+            side.addWidget(self._use_plane_btn)
 
         self._details = QVBoxLayout()
         self._details.setSpacing(4)
@@ -235,8 +282,9 @@ class FitPanelDialog(QDialog):
         return self._inputs
 
     def _show(self, result: PointFitResult) -> None:
-        tone = _STATUS_STYLE[result.status]
-        self._status.setText(_status_text(result))
+        by_hand = result.method.endswith(Z_BY_HAND)
+        tone = ACCENT_COLOR if by_hand else _STATUS_STYLE[result.status]
+        self._status.setText("z set by hand" if by_hand else _status_text(result))
         self._status.setStyleSheet(
             f"{BODY_STYLE} color: {tone}; background: {PANEL_COLOR}; "
             f"border: 1px solid {tone}; border-radius: 10px; padding: 4px 12px;"
@@ -265,6 +313,46 @@ class FitPanelDialog(QDialog):
             )
 
         self._show_figure(result.diagnostic)
+        if self._plane_slider is not None and not by_hand:
+            self._follow_plane(result)
+
+    # -- planes ---------------------------------------------------------------
+
+    def _channel_stack(self) -> np.ndarray:
+        return np.asarray(self._stack(self._inputs.channel))
+
+    def _follow_plane(self, result: PointFitResult) -> None:
+        """Show the plane the fit landed on (or the clicked one)."""
+        nz = self._channel_stack().shape[0]
+        point = result.fitted or result.initial
+        self._plane_slider.blockSignals(True)
+        self._plane_slider.setRange(0, nz - 1)
+        self._plane_slider.setValue(min(max(int(round(point.z)), 0), nz - 1))
+        self._plane_slider.blockSignals(False)
+        self._on_plane_changed(self._plane_slider.value())
+
+    def _on_plane_changed(self, plane: int) -> None:
+        self._use_plane_btn.setText(f"Use plane {plane} as z")
+        stack = self._channel_stack()
+        point = self._result.fitted or self._result.initial
+        self._preview.setPixmap(
+            _plane_pixmap(stack, plane, self._result.initial, point)
+        )
+
+    def _use_plane(self) -> None:
+        """z = the plane on show; x, y from the last fit, or the click."""
+        plane = self._plane_slider.value()
+        base = self._fitted.fitted or self._fitted.initial
+        fitted = PointXYZ(base.x, base.y, float(plane))
+        self._result = replace(
+            self._fitted,
+            fitted=fitted,
+            status=PointFitResult.classify(self._fitted.initial, fitted),
+            method=f"{self._fitted.method} · {Z_BY_HAND}",
+            message=None,
+            detail=None,
+        )
+        self._show(self._result)
 
     def _show_figure(self, diagnostic) -> None:
         if self._canvas is not None:
@@ -306,6 +394,11 @@ class FitPanelDialog(QDialog):
                 if self._fit_xy_check is not None
                 else None
             ),
+            planes=(
+                tuple(s.value() for s in self._planes_spins)
+                if self._planes_spins is not None
+                else None
+            ),
         )
 
     def _on_input_changed(self, *_) -> None:
@@ -315,8 +408,39 @@ class FitPanelDialog(QDialog):
         if result is None:  # nothing to fit with these inputs
             return
         self._inputs = inputs
-        self._result = result
+        self._result = self._fitted = result
         self._show(result)
+
+
+def _plane_pixmap(stack, plane, click: PointXYZ, point: PointXYZ) -> QPixmap:
+    """One plane of ``stack`` around ``point``, the click (red) and the answer
+    (green) marked. The contrast is the crop's through every plane, so planes
+    compare."""
+    nz, height, width = stack.shape
+    h, s = PREVIEW_HALF, PREVIEW_SCALE
+    cx, cy = int(round(point.x)), int(round(point.y))
+    x0, y0 = (
+        min(max(cx - h, 0), max(width - 2 * h - 1, 0)),
+        min(max(cy - h, 0), max(height - 2 * h - 1, 0)),
+    )
+    crop = np.asarray(stack[:, y0 : y0 + 2 * h + 1, x0 : x0 + 2 * h + 1], dtype=float)
+    lo, hi = np.percentile(crop, 1), np.percentile(crop, 99.5)
+    view = np.clip((crop[plane] - lo) / (hi - lo or 1.0), 0, 1) * 255
+    view = np.ascontiguousarray(
+        np.kron(view.astype(np.uint8), np.ones((s, s), np.uint8))
+    )
+    image = QImage(
+        view.data, view.shape[1], view.shape[0], view.shape[1], QImage.Format_Grayscale8
+    )
+    pixmap = QPixmap.fromImage(image.copy())
+    painter = QPainter(pixmap)
+    for p, colour in ((click, "#ff5050"), (point, "#4caf50")):
+        painter.setPen(QPen(QColor(colour), 2))
+        c = QPointF((p.x - x0 + 0.5) * s, (p.y - y0 + 0.5) * s)
+        painter.drawLine(c - QPointF(8, 0), c + QPointF(8, 0))
+        painter.drawLine(c - QPointF(0, 8), c + QPointF(0, 8))
+    painter.end()
+    return pixmap
 
 
 def _muted(text: str) -> QLabel:
