@@ -18,7 +18,6 @@ from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
-    GridRecord,
     GridTaskProtocol,
 )
 from fibsem.applications.autolamella.workflows.tasks.grid import (
@@ -29,6 +28,7 @@ from fibsem.applications.autolamella.workflows.tasks.grid import (
     register_grid_task,
     run_grid_task,
 )
+from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.status import TaskStatus
 
 # ---------------------------------------------------------------------------

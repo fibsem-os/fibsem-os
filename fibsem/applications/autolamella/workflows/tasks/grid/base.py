@@ -32,11 +32,11 @@ from typing import (
 from fibsem.applications.autolamella.structures import (
     Attention,
     Configurable,
-    GridRecord,
     Parameter,
     attention_from,
     field_specs,
 )
+from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.status import TaskStatus
 from fibsem.workflows.task import BaseTask
 

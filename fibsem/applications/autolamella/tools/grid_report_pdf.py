@@ -24,7 +24,7 @@ from typing import List, Optional, Sequence, Tuple
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from fibsem.applications.autolamella.structures import Experiment, Verdict
+from fibsem.applications.autolamella.structures import Experiment
 from fibsem.applications.autolamella.tools.grid_report import (
     GridReport,
     GridSection,
@@ -35,6 +35,7 @@ from fibsem.fm.preview import is_fluorescence_image, load_projection
 from fibsem.structures import FibsemImage
 from fibsem.util.timestamps import to_datetime, zone_label
 from fibsem.workflows.proposals import Author
+from fibsem.workflows.quality import Verdict
 from fibsem.workflows.status import TaskStatus
 
 logger = logging.getLogger(__name__)

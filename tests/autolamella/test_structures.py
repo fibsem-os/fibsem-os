@@ -147,7 +147,10 @@ def test_quality_record_reads_the_defect_state_shape_and_the_bare_grid_name():
     """Experiments written before QualityRecord: a lamella wrote the DefectState
     keys, a grid wrote just the GridQuality name. Both still load, and the old
     names map onto the new verdicts."""
-    from fibsem.applications.autolamella.structures import QualityRecord, Verdict
+    from fibsem.workflows.quality import (
+        QualityRecord,
+        Verdict,
+    )
 
     old_lamella = {
         "state": "FAILURE",
@@ -167,7 +170,10 @@ def test_quality_record_reads_the_defect_state_shape_and_the_bare_grid_name():
 
 
 def test_quality_record_round_trips_author_and_decision_id():
-    from fibsem.applications.autolamella.structures import QualityRecord, Verdict
+    from fibsem.workflows.quality import (
+        QualityRecord,
+        Verdict,
+    )
 
     q = QualityRecord(
         verdict=Verdict.FAILED,
@@ -191,6 +197,8 @@ def test_old_enum_names_are_aliases():
         DefectState,
         DefectType,
         GridQuality,
+    )
+    from fibsem.workflows.quality import (
         QualityRecord,
         Verdict,
     )
@@ -206,7 +214,7 @@ def test_old_enum_names_are_aliases():
 def test_lamella_quality_is_the_defect_record():
     from pathlib import Path
 
-    from fibsem.applications.autolamella.structures import Verdict
+    from fibsem.workflows.quality import Verdict
 
     lam = Lamella(path=Path("/tmp/test/lam"), number=1, petname="test-lam")
     assert lam.quality is lam.defect

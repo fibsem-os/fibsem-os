@@ -22,7 +22,6 @@ import fibsem.config as fibsem_config
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
-    GridRecord,
 )
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
 from fibsem.applications.autolamella.ui.grid_positions_widget import (
@@ -40,6 +39,7 @@ from fibsem.fm.structures import (
 )
 from fibsem.structures import BeamType, FibsemImage, FibsemStagePosition, ImageSettings
 from fibsem.ui.widgets.stored_overview_canvas import VIEW_FM
+from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.status import TaskState, TaskStatus
 
 _app = QApplication.instance() or QApplication([])

@@ -19,8 +19,9 @@ from fibsem.applications.autolamella.workflows.tasks.grid.imaging import (
 from fibsem.plugins.loader import PluginRegistry, subclass_of
 
 if TYPE_CHECKING:
-    from fibsem.applications.autolamella.structures import Experiment, GridRecord
+    from fibsem.applications.autolamella.structures import Experiment
     from fibsem.microscope import FibsemMicroscope
+    from fibsem.workflows.grids import GridRecord
 
 BUILTIN_GRID_TASKS: Dict[str, Type[GridTask]] = {
     cls.config_cls.task_type: cls

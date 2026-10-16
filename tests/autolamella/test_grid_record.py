@@ -11,11 +11,11 @@ from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     Experiment,
     GridQuality,
-    GridRecord,
     Lamella,
 )
 from fibsem.services.sample_handling import bind_sample_handling
 from fibsem.structures import SampleGrid
+from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.status import TaskState, TaskStatus
 from tests.fixtures.demo_stage import demo_grid_loader
 

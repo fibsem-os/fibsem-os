@@ -18,9 +18,9 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 from fibsem.applications.autolamella.structures import (
     Experiment,
-    GridRecord,
     Lamella,
 )
+from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.status import TaskState
 
 # Characters a folder name cannot hold on Windows (and ``/`` anywhere).

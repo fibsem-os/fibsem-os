@@ -37,12 +37,13 @@ from typing import TYPE_CHECKING, Optional
 from PyQt5.QtWidgets import QWidget
 
 from fibsem.applications.autolamella.poses import sync_fluorescence_pose
-from fibsem.applications.autolamella.structures import DefectType, OverlayRecord
+from fibsem.applications.autolamella.structures import DefectType
 from fibsem.applications.autolamella.ui.overview_tab_base import (
     AutoLamellaOverviewTabBase,
 )
 from fibsem.ui import notification_service
 from fibsem.ui.widgets.overview_widget import FibsemOverviewWidget
+from fibsem.workflows.grids import OverlayRecord
 
 if TYPE_CHECKING:  # pragma: no cover - annotation only
     from fibsem.structures import FibsemStagePosition

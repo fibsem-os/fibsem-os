@@ -17,7 +17,6 @@ from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
-    GridRecord,
 )
 from fibsem.applications.autolamella.task_outputs import (
     grid_outputs,
@@ -40,6 +39,7 @@ from fibsem.structures import (
     SampleGrid,
     SlotCalibration,
 )
+from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.status import TaskStatus
 
 

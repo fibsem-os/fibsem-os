@@ -17,8 +17,6 @@ from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
-    GridRecord,
-    Verdict,
 )
 from fibsem.applications.autolamella.workflows.tasks.rough import MillRoughTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.select_position import (
@@ -31,6 +29,7 @@ from fibsem.structures import (
     Point,
 )
 from fibsem.workflows.experiment import EXPERIMENT_WRITE_LOCK
+from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.proposals import (
     ALIGNMENT_AREA,
     PROPOSAL_KINDS,
@@ -49,6 +48,7 @@ from fibsem.workflows.proposals import (
     prepare_values,
     register_proposal_kind,
 )
+from fibsem.workflows.quality import Verdict
 from fibsem.workflows.review import standing
 from fibsem.workflows.status import TaskState, TaskStatus
 

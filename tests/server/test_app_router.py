@@ -547,15 +547,13 @@ def test_agent_notes_need_only_the_read_scope(client):
 def grid_with_overview(host, microscope):
     """A grid whose history recorded a real Demo SEM overview, one lamella
     linked to it posed at the overview's centre and one posed far outside."""
-    from fibsem.applications.autolamella.structures import (
-        GridRecord,
-    )
     from fibsem.structures import (
         BeamType,
         FibsemStagePosition,
         ImageSettings,
         MicroscopeState,
     )
+    from fibsem.workflows.grids import GridRecord
     from fibsem.workflows.status import TaskState, TaskStatus
 
     experiment = host.experiment
@@ -788,13 +786,13 @@ def test_grid_markers_report_unplaceable_items(client, host, grid_with_overview)
 
 
 def test_grid_workflow_plan_is_the_preflight_without_hardware(client, host):
-    from fibsem.applications.autolamella.structures import GridRecord
     from fibsem.applications.autolamella.workflows.tasks.grid.imaging import (
         BeamOverviewGridTaskConfig,
     )
     from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
         LOAD_ENTRY_NAME,
     )
+    from fibsem.workflows.grids import GridRecord
 
     experiment = host.experiment
     experiment.grid_protocol.add(BeamOverviewGridTaskConfig(task_name="overview_sem"))
@@ -965,7 +963,7 @@ def test_fm_overview_previews_in_colour_and_places_markers(
 def test_unlinked_items_fall_back_only_on_a_single_grid_experiment(
     client, host, grid_with_overview
 ):
-    from fibsem.applications.autolamella.structures import GridRecord
+    from fibsem.workflows.grids import GridRecord
 
     experiment = host.experiment
     for lamella in experiment.positions:

@@ -14,7 +14,6 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
     GridQuality,
-    GridRecord,
 )
 from fibsem.applications.autolamella.ui.grid_card_widget import grid_headline
 from fibsem.applications.autolamella.ui.grids_tab_widget import GridsTabWidget
@@ -23,6 +22,7 @@ from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
 )
 from fibsem.services.sample_handling import bind_sample_handling
 from fibsem.structures import SampleGrid
+from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.status import TaskState, TaskStatus
 
 
