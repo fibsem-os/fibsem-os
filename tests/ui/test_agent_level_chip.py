@@ -347,6 +347,10 @@ def test_a_suggestion_turns_the_chip_and_the_card_offers_accept(qapp):
     chip.set_level(AgentLevel.ASSIST)
     chip.set_suggestion(_SUGGESTION)
     assert chip.text() == "Agent suggests"
+    # In the level's look, not amber: the run's Attention Required is.
+    from fibsem.applications.autolamella.ui.agent_style import LEVEL_STYLES
+
+    assert chip.styleSheet() == LEVEL_STYLES[AgentLevel.ASSIST]
     card = chip.card
     assert card.accept_button is not None and card.approve_button is None
     assert {
@@ -1263,3 +1267,15 @@ def test_the_chip_pulses_while_the_agent_acts_and_ends_a_whole_cycle(qapp):
     chip._on_pulse()
     assert chip.text() == "Agent asks"
     chip.deleteLater()
+
+
+def test_attention_required_brings_up_the_card_with_a_suggestion(main_ui, monkeypatch):
+    shown = []
+    monkeypatch.setattr(main_ui.agent_chip, "show_card", lambda: shown.append(True))
+    main_ui._on_user_attention_clicked()
+    assert shown == []
+    main_ui.agent_chip.set_suggestion(_SUGGESTION)
+    shown.clear()
+    main_ui._on_user_attention_clicked()
+    assert shown == [True]
+    main_ui.agent_chip.set_suggestion(None)

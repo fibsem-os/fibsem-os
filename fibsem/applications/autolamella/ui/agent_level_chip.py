@@ -10,7 +10,8 @@ log). No menu and no dialog.
 At Assist the agent acts by asking (FIB-1283). While its request waits, the chip
 turns amber, "Agent asks", and the card shows the request. Only one request waits
 at a time, so the chip carries no count. A suggested answer to the run's question
-turns it amber too, "Agent suggests", and the card shows it with Accept
+says "Agent suggests" in its level's look, not amber (the run's Attention
+Required already is), and the card shows it with Accept
 (FIB-1407). Either one opens the card on its own, floating, so it is seen without
 a click (`show_card`).
 
@@ -345,7 +346,9 @@ class AgentLevelChip(QPushButton):
             text, style = chip_request_text(self._request), REQUEST_CHIP
             tooltip = "The agent is asking: click to see what, and decide"
         elif self._suggestion is not None:
-            text, style = "Agent suggests", REQUEST_CHIP
+            # Not amber: the run's Attention Required already is, for the same
+            # question, and the card opens itself with the suggestion.
+            text = "Agent suggests"
             tooltip = (
                 "The agent suggests an answer to the run's question: click to see it"
             )
