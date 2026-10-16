@@ -101,6 +101,22 @@ def test_each_description_names_the_level_it_needs(armed_sidecar):
     assert "(409)" in described["stage_move_relative"]
 
 
+def test_each_tool_has_a_title_and_says_whether_it_changes_anything(armed_sidecar):
+    listed = asyncio.run(armed_sidecar.list_tools())
+    tools = {t.name: t for t in getattr(listed, "tools", listed)}
+    move = tools["stage_move_absolute"]
+    assert move.title == "Stage: Move absolute"
+    assert move.annotations.read_only_hint is False
+    assert move.annotations.destructive_hint is True
+    position = tools["stage_get_position"]
+    assert position.title == "Stage: Get position"
+    assert position.annotations.read_only_hint is True
+    assert tools["fm_acquire_image"].title == "FM: Acquire image"
+    assert tools["device_set_parameter"].annotations.idempotent_hint is True
+    assert move.annotations.idempotent_hint is False
+    assert all(t.annotations.open_world_hint is False for t in tools.values())
+
+
 def test_read_tool_round_trip(armed_sidecar):
     result = asyncio.run(armed_sidecar.call_tool("stage_get_position", {}))
     text = "".join(getattr(c, "text", "") for c in _contents(result))

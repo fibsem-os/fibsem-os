@@ -64,6 +64,72 @@ class ToolSpec:
     def full_description(self) -> str:
         return f"{self.description} {self.level_note}"
 
+    @property
+    def title(self) -> str:
+        """The name a client shows: "Stage: Move absolute" for stage_move_absolute."""
+        if self.name in _TITLES:
+            return _TITLES[self.name]
+        group, _, rest = self.name.partition("_")
+        return f"{GROUP_TITLES[group]}: {rest.replace('_', ' ').capitalize()}"
+
+    @property
+    def read_only(self) -> bool:
+        """Changes nothing: a Watch tool other than the few that write a record."""
+        return self.level == "watch" and self.name not in _WRITES_AT_WATCH
+
+    @property
+    def destructive(self) -> bool:
+        """Changes or removes what is there, as MCP means it: every write but
+        the few that only add. A client may ask before one."""
+        return not self.read_only and self.name not in _ADDITIVE
+
+    @property
+    def idempotent(self) -> bool:
+        """Calling it twice with the same arguments does no more than once."""
+        return self.read_only or self.method == "PUT"
+
+
+# Group first, then verb (plans: mcp-tool-naming). A new tool joins a group
+# here, or the group is added on purpose; the title names it.
+GROUP_TITLES: Dict[str, str] = {
+    "server": "Server",
+    "microscope": "Microscope",
+    "device": "Device",
+    "service": "Service",
+    "stage": "Stage",
+    "beam": "Beam",
+    "fm": "FM",
+    "milling": "Milling",
+    "alignment": "Alignment",
+    "app": "App",
+    "experiment": "Experiment",
+    "protocol": "Protocol",
+    "item": "Item",
+    "grid": "Grid",
+    "workflow": "Workflow",
+    "prompt": "Prompt",
+    "review": "Review",
+    "request": "Request",
+}
+
+# Watch tools that write a record (a note, a request) rather than only read.
+_WRITES_AT_WATCH = frozenset(
+    {"experiment_add_note", "request_create", "request_withdraw"}
+)
+
+# Writes that only add: notes, the agent's own requests and suggestions, a new
+# item or experiment. Every other write changes or removes something.
+_ADDITIVE = _WRITES_AT_WATCH | {
+    "prompt_suggest_answer",
+    "item_add",
+    "experiment_create",
+}
+
+# Titles the name, read out, gets wrong.
+_TITLES: Dict[str, str] = {
+    "beam_auto_brightness_contrast": "Beam: Auto brightness and contrast",
+}
+
 
 CATALOG: Tuple[ToolSpec, ...] = (
     # --- read ---
