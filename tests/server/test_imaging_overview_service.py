@@ -109,8 +109,12 @@ def test_an_overview_runs_on_and_saves_inside_the_experiment(
     assert image["preview"] and image["summary"]["kind"] == "image"
     assert len(result["tile_paths"]) == 4
     assert all(os.path.isfile(path) for path in result["tile_paths"])
-    # Not asked to register: the tiles stay as planned, and the answer says so.
-    assert result["layout"]["registration"] is None
+    # Not asked to register: the tiles stay as planned, and the record says so.
+    overview = result["overview"]
+    assert overview["registration"]["requested"] is False
+    assert overview["registration"]["applied"] is False
+    assert overview["tiles_acquired"] == overview["tiles_total"]
+    assert os.path.isfile(overview["paths"]["record"])
     # The stage comes back to where it started.
     end = microscope.get_stage_position()
     assert abs(end.x - start.x) < 1e-9 and abs(end.y - start.y) < 1e-9
@@ -132,9 +136,8 @@ def test_an_overview_says_what_tile_registration_did(client, experiment):
     assert resp.status_code == 200, resp.text
     ended = _wait(client, resp.json()["result"]["run_id"])
     assert ended["state"] == "done", ended
-    layout = ended["result"]["layout"]
-    assert set(layout) == {"warning", "registration"}
-    registration = layout["registration"]
+    registration = ended["result"]["overview"]["registration"]
+    assert registration["requested"] is True
     assert isinstance(registration["applied"], bool)
     assert registration["note"]
 
@@ -184,6 +187,32 @@ def test_the_estimate_counts_tiles_and_scan_time(client):
     assert estimate["tiles"] == 3
     assert estimate["scan_time"] == pytest.approx(settings.scan_time)
     assert estimate["fov"][0] == pytest.approx(100e-6)
+
+
+def test_the_estimate_says_the_resolution_scanned_and_the_tiles_out_of_reach(
+    client, microscope, monkeypatch
+):
+    """A size the beam doesn't scan comes back as the one it does, and a grid
+    wider than the stage's travel names the tiles it can't reach, before anything
+    moves."""
+    beam = microscope.beams[BeamType.ELECTRON]
+    monkeypatch.setattr(beam, "scan_resolution", lambda resolution: (64, 48))
+    settings = _overview()
+    settings.nrows, settings.ncols = 1, 3
+    # The demo stage travels 100 mm each way: 150 mm tiles put the outer two past it.
+    settings.image_settings.hfw = 0.15
+    start = microscope.get_stage_position()
+    resp = client.post(
+        f"{IMAGING}/queries/estimate_overview",
+        json={"kwargs": {"settings": settings.to_dict()}},
+    )
+    assert resp.status_code == 200, resp.text
+    estimate = resp.json()["result"]
+    assert estimate["resolution"] == [64, 48]
+    assert estimate["requested_resolution"] == [64, 64]
+    assert estimate["unreachable"] == [[0, 0], [0, 2]]
+    end = microscope.get_stage_position()
+    assert abs(end.x - start.x) < 1e-12 and abs(end.y - start.y) < 1e-12
 
 
 def test_a_focus_stack_saves_inside_the_experiment(client, experiment):

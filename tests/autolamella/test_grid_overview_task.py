@@ -238,15 +238,14 @@ class TestRun:
         assert grid.task_state.status is AutoLamellaTaskStatus.Cancelled
 
     def test_the_operation_is_callable_standalone(self, microscope, tmp_path):
-        tiles = []
-        image = acquire_tiled_overview(
+        result = acquire_tiled_overview(
             microscope,
             _small_settings(),
             str(tmp_path / "standalone"),
             stamped_overview_name("ov"),
             centre_position=microscope.get_stage_position(),
-            tile_paths=tiles,
         )
+        image, tiles = result.image, result.tile_paths
         assert len(tiles) == 4 and all(Path(t).is_file() for t in tiles)
         assert image.filepath
         assert Path(image.filepath).parent.name == "standalone"

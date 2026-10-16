@@ -625,8 +625,12 @@ imaging `stop`, with a reason, ends either one. `fm_acquire_overview` is the
 fluorescence one, from the FM pose with the objective in; `fm_estimate_overview`
 gives its whole run time, stage moves included, and the same `stop` ends it.
 `register_tiles` (experimental, off by default) places each tile where its
-picture says it is rather than where the stage step put it; the answer's
-`layout` says whether it moved the tiles and why not when it didn't.
+picture says it is rather than where the stage step put it, when no tile moves
+more than 15 µm. The answer's `overview` says the resolution used, which tiles
+were skipped, how far the steps were off, whether it moved the tiles (and the
+largest move) and why not when it didn't; its `paths.record` file has every
+tile's planned and read-back stage position. `beam_estimate_overview` answers the
+resolution the beam will scan and any tiles out of the stage's reach.
 
 Set an overview up as the app does. Give the tile size in `image_settings`
 (`hfw`, `resolution`, `dwell_time` belong there, not at the top level of the

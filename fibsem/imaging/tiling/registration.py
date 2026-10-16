@@ -11,15 +11,17 @@ its centre is still the grid centre its metadata records, and its size and pixel
 do not change. Only the tiles move, relative to each other.
 
 What this does not correct is a scale error in the stage model: a click on the mosaic
-is converted back through that model, so registered tiles are off by the scale error
-times their distance from the centre. `registered_positions` therefore refuses a run
-whose layout check warns, and the caller keeps the planned mosaic.
+is converted back through that model, so a registered tile is off by about as far as
+it was moved. `measure_registration` therefore applies it only while the largest move
+is within `MAX_SHIFT`, and records the moves either way, so a run says how far its
+tiles were off whether or not it was asked to align them.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from dataclasses import dataclass, field
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -27,7 +29,7 @@ from fibsem.imaging.tiling.layout_check import (
     DEFAULT_MIN_SCORE,
     PairMeasurement,
     TileKey,
-    TileLayoutSummary,
+    TileLayoutCheck,
 )
 
 PixelPosition = Tuple[float, float]  # (y, x): top-left corner on the canvas
@@ -47,33 +49,41 @@ PRIOR_WEIGHT = 0.01
 # a loop disagree by a few pixels.
 MAX_RESIDUAL = 0.02
 
+# The largest move, in metres, a tile may get from its planned place for the aligned
+# mosaic to be used (Patrick, 2026-10-16). A point picked on an aligned mosaic is off
+# by about as far as its tile moved, so beyond this the plan is kept and the run warns.
+# The Arctis's 104 % x 107 % y steps moved the corners of a 3 x 3 of 150 um tiles
+# about 9 um.
+MAX_SHIFT = 15e-6
+
 
 def registered_positions(
     planned: Mapping[TileKey, PixelPosition],
     pairs: Sequence[PairMeasurement],
-    summary: TileLayoutSummary,
     tile_size: int,
     min_score: float = DEFAULT_MIN_SCORE,
-) -> Tuple[Optional[Dict[TileKey, PixelPosition]], str]:
-    """Each tile's registered top-left on the canvas, or None to keep the plan.
+) -> Tuple[Optional[Dict[TileKey, PixelPosition]], int, str]:
+    """Each tile's registered top-left on the canvas, or None when too few pairs
+    matched to say.
 
-    Returns the positions (or None) and a sentence saying what was done, for the log
-    and the operator.
+    Returns the positions (or None), how many pairs they were solved from, and a
+    sentence saying why when None.
 
     Args:
         planned: Each acquired tile's planned top-left, (y, x) in pixels.
         pairs: The layout check's pair measurements.
-        summary: The layout check's summary of them.
         tile_size: The tile's longer side in pixels, which scales `MAX_RESIDUAL`.
         min_score: Pairs below this are not used.
     """
-    if summary.warning:
-        return None, "Tiles were left as planned, because they do not match the stage."
     used = [p for p in pairs if p.is_confident(min_score)]
     if len(used) < MIN_PAIRS:
-        return None, (
-            f"Tiles were left as planned: {len(used)} tile pairs could be matched, "
-            f"and aligning them needs {MIN_PAIRS}."
+        return (
+            None,
+            len(used),
+            (
+                f"{len(used)} tile pairs could be matched, and aligning them "
+                f"needs {MIN_PAIRS}."
+            ),
         )
 
     keys = list(planned)
@@ -89,17 +99,117 @@ def registered_positions(
         )
         used.remove(worst)
         positions = _solve(keys, planned, used)
+    return positions, len(used), ""
 
-    shift = max(
-        float(
-            np.hypot(positions[k][0] - planned[k][0], positions[k][1] - planned[k][1])
+
+@dataclass
+class Registration:
+    """Where a run's tiles were measured to be, and whether the mosaic used it.
+
+    ``shifts`` is each tile's move from its planned place, ``"row,col": [dy, dx]`` in
+    metres (y down, as on the canvas), recorded whether or not the tiles were moved.
+    ``positions`` is what the mosaic is composed from when ``applied``; it is in
+    canvas pixels and not part of the record.
+    """
+
+    requested: bool
+    applied: bool = False
+    note: str = ""
+    pairs_used: int = 0
+    shifts: Dict[str, List[float]] = field(default_factory=dict)
+    largest_shift: Optional[float] = None
+    limit: float = MAX_SHIFT
+    positions: Optional[Dict[TileKey, PixelPosition]] = field(
+        default=None, repr=False, compare=False
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "requested": self.requested,
+            "applied": self.applied,
+            "note": self.note,
+            "pairs_used": self.pairs_used,
+            "largest_shift": self.largest_shift,
+            "limit": self.limit,
+            "shifts": self.shifts,
+        }
+
+    def summary(self) -> Dict[str, Any]:
+        """The record without the per-tile shifts."""
+        out = self.to_dict()
+        del out["shifts"]
+        return out
+
+
+def measure_registration(
+    check: Optional[TileLayoutCheck],
+    planned: Mapping[TileKey, PixelPosition],
+    tile_size: int,
+    pixel_size: Optional[float],
+    requested: bool,
+    limit: float = MAX_SHIFT,
+) -> Registration:
+    """Solve where a run's tiles are from its layout check, and decide whether the
+    mosaic uses it: only when ``requested`` (``register_tiles``) and the largest move
+    is within ``limit`` metres. The one step both tiled runners take.
+
+    Never raises: a run's tiles are worth more than its registration, so a failure is
+    a note in the record, and the plan is kept.
+    """
+    registration = Registration(requested=requested, limit=limit)
+    if check is None:
+        registration.note = "Tiles were left as planned: the layout check did not run."
+        return _logged(registration)
+    try:
+        positions, registration.pairs_used, why = registered_positions(
+            planned, check.pairs, tile_size=tile_size
         )
-        for k in keys
-    )
-    return positions, (
-        f"Tiles aligned from {len(used)} matched pairs; the largest move was "
-        f"{shift:.0f} px."
-    )
+        if positions is None:
+            registration.note = f"Tiles were left as planned: {why}"
+            return _logged(registration)
+        scale = pixel_size or 0.0
+        moves = {
+            key: (y - planned[key][0], x - planned[key][1])
+            for key, (y, x) in positions.items()
+        }
+        registration.shifts = {
+            f"{r},{c}": [dy * scale, dx * scale] for (r, c), (dy, dx) in moves.items()
+        }
+        largest = max(float(np.hypot(dy, dx)) for dy, dx in moves.values())
+        if not pixel_size:
+            registration.note = (
+                "Tiles were left as planned: the pixel size is unknown, so how far "
+                "they would move cannot be checked."
+            )
+            return _logged(registration)
+        registration.largest_shift = largest * pixel_size
+        moved = (
+            f"the largest move is {registration.largest_shift * 1e6:.1f} µm "
+            f"({len(moves)} tiles, {registration.pairs_used} matched pairs)"
+        )
+        if not requested:
+            registration.note = f"Tiles were left as planned, as asked; {moved}."
+        elif registration.largest_shift > limit:
+            registration.note = (
+                f"Tiles were left as planned: {moved}, more than the "
+                f"{limit * 1e6:.0f} µm limit. The stage or the pixel size is off for "
+                "this view by more than aligning can fix."
+            )
+        else:
+            registration.applied = True
+            registration.positions = positions
+            registration.note = f"Tiles aligned: {moved}."
+    except Exception as e:  # noqa: BLE001 - the tiles are worth more than this
+        registration.note = f"Tiles were left as planned: aligning them failed ({e})."
+        logging.warning(registration.note)
+        return registration
+    return _logged(registration)
+
+
+def _logged(registration: Registration) -> Registration:
+    refused = registration.requested and not registration.applied
+    logging.log(logging.WARNING if refused else logging.INFO, registration.note)
+    return registration
 
 
 def _residual(
@@ -196,19 +306,3 @@ def _paste(canvas: np.ndarray, tile: np.ndarray, position: PixelPosition, crop) 
         top + cy0 - y0 : top + cy1 - y0,
         left + cx0 - x0 : left + cx1 - x0,
     ]
-
-
-def layout_summary(runner) -> Dict[str, Optional[object]]:
-    """What a finished tiled run's layout came to, for a caller that is not
-    watching its progress signal: the layout check's warning, and whether
-    `register_tiles` moved the tiles (``applied``) and why (``note``). None
-    for each that did not run."""
-    registration = getattr(runner, "registration", None)
-    return {
-        "warning": getattr(runner, "layout_warning", None),
-        "registration": (
-            {"applied": registration["applied"], "note": registration["note"]}
-            if registration
-            else None
-        ),
-    }

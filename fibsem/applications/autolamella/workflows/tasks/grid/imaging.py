@@ -36,10 +36,9 @@ from fibsem.applications.autolamella.workflows.tasks.grid.base import (
 from fibsem.applications.autolamella.workflows.tasks.grid.registry import (
     register_grid_task,
 )
-from fibsem.geometry.projection import BeamStageProjection
 from fibsem.imaging.thumbnail import write_thumbnail
 from fibsem.imaging.tiled import acquire_tiled_overview, stamped_overview_name
-from fibsem.imaging.tiling.geometry import compute_tile_grid, unreachable_tiles
+from fibsem.imaging.tiling.reach import reachable_overview
 from fibsem.services.sample_handling import uncalibrated_message
 from fibsem.structures import (
     BeamType,
@@ -53,74 +52,6 @@ if TYPE_CHECKING:
 # The output roles a results card, the Overview tab and the App Server read
 # (FIB-876). One per beam, plus the thumbnail and the tiles beside it.
 ROLE_BY_BEAM = {BeamType.ELECTRON: "overview_sem", BeamType.ION: "overview_fib"}
-
-
-# ---------------------------------------------------------------------------
-# Reach
-# ---------------------------------------------------------------------------
-
-
-def disable_tiles(
-    mask: Optional[List[List[bool]]],
-    nrows: int,
-    ncols: int,
-    tiles: Iterable[Tuple[int, int]],
-) -> List[List[bool]]:
-    """A new tile mask: *mask* (None: every tile on) with each (row, col) in *tiles*
-    turned off. How the tiles `unreachable_tiles` names are dropped, so that the
-    runner's `raise_if_outside_stage_limits` then passes on what is left."""
-    out = (
-        [[True] * ncols for _ in range(nrows)]
-        if mask is None
-        else [list(row) for row in mask]
-    )
-    for row, col in tiles:
-        out[row][col] = False
-    return out
-
-
-def reachable_overview(
-    microscope: "FibsemMicroscope",
-    settings: OverviewAcquisitionSettings,
-    centre: FibsemStagePosition,
-    projection: Optional[BeamStageProjection] = None,
-) -> Tuple[OverviewAcquisitionSettings, List[Tuple[int, int]]]:
-    """*settings* with the tiles the stage cannot reach from *centre* turned off, and
-    which tiles they were.
-
-    The tile runner refuses a grid with any tile past the stage's travel, but only at
-    acquire time (`raise_if_outside_stage_limits`). For a grid overview that is after
-    the exchange, and again on every grid (FIB-1131), so the tiles out of reach are
-    turned off first and the rest acquired. It is the question the Overview tab asks
-    before it draws a tile as unreachable, through the same helper and projection, so
-    the runner's own check passes on what is left. Reach is judged by tile centre, as
-    there. Returns *settings* unchanged when every tile is reachable or the limits
-    cannot be read.
-
-    *projection* is one already built for this beam, by a caller asking repeatedly
-    (the Grid page, on every edit): building it reads the scan rotation.
-    """
-    stage = microscope.stage
-    limits = stage.position.limits if stage is not None else None
-    if projection is None:
-        projection = BeamStageProjection.from_microscope(
-            microscope, settings.image_settings.beam_type
-        )
-    if not limits or projection is None:
-        return settings, []
-    skipped = unreachable_tiles(
-        compute_tile_grid(settings, mask=settings.tile_mask),
-        settings.tile_order,
-        lambda dx, dy: projection.from_plane(dx, dy, centre),
-        limits,
-    )
-    if not skipped:
-        return settings, []
-    settings = deepcopy(settings)
-    settings.tile_mask = disable_tiles(
-        settings.tile_mask, settings.nrows, settings.ncols, skipped
-    )
-    return settings, skipped
 
 
 # ---------------------------------------------------------------------------
@@ -231,20 +162,19 @@ class BeamOverviewGridTask(GridTask):
             f"Acquiring {beam} overview: {settings.nrows} x "
             f"{settings.ncols} tiles{out_of_reach}",
         )
-        tiles: List[str] = []
-        image = acquire_tiled_overview(
+        overview = acquire_tiled_overview(
             self.microscope,
             settings,
             str(self.output_dir),
             stamped_overview_name(self.config.filename),
             centre_position=centre,
             stop_event=self._stop_event,
-            tile_paths=tiles,
         )
+        image = overview.image
         self.record_output(self.config.role, image)
         # The tiles too, for what reads single frames rather than the stitch: the
         # targeting model was trained on tiles (FIB-939).
-        for tile in tiles:
+        for tile in overview.tile_paths:
             self.record_output(f"{self.config.role}_tiles", tile)
 
         # Beside the stitched image, named after it, so a card can show it without

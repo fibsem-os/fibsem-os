@@ -737,8 +737,10 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "experiment. beam_estimate_overview first: a big grid at a long dwell runs "
             "for hours. A long command: it answers with its run at once; "
             "service_wait_for_run imaging gives the stitched image (summary, path, "
-            "preview), the tiles' paths and the layout (the layout check's warning, "
-            "and whether register_tiles moved the tiles and why); "
+            "preview), the tiles' paths and the overview: the resolution used, tiles "
+            "taken and skipped, how far the tiles' steps were off, whether "
+            "register_tiles moved them (largest_shift, metres) and why, the warning, "
+            "and the record file with every tile's planned and read-back position; "
             "service_call_command imaging stop, "
             "with a reason, ends it before the next tile."
         ),
@@ -751,7 +753,8 @@ CATALOG: Tuple[ToolSpec, ...] = (
                 "OverviewAcquisitionSettings dict: image_settings, nrows, ncols, "
                 "overlap, autofocus_mode, autocontrast_mode, focus_stack_settings, "
                 "register_tiles (experimental: place each tile where its picture "
-                "says it is, not where the stage step put it; default false)"
+                "says it is, not where the stage step put it, when no tile moves "
+                "more than 15 µm; default false)"
             ),
             "path": "a folder inside the open experiment to save it in",
             "name": "the file name, stamped with the time (default overview)",
@@ -762,9 +765,12 @@ CATALOG: Tuple[ToolSpec, ...] = (
         name="beam_estimate_overview",
         description=(
             "What beam_acquire_overview with these settings would do: how many tiles, "
-            "the beam-on scan time in seconds and the field of view in metres. "
-            "Not the run's length: the stage moves between tiles add to it, "
-            "often more than the scanning. Moves nothing."
+            "the beam-on scan time in seconds, the field of view in metres, the "
+            "resolution the beam scans the tiles at (requested_resolution when "
+            "it is not the one asked), and the tiles the stage can't reach from "
+            "where it is (unreachable, [row, col]: turn them off in tile_mask or "
+            "the run is refused). Not the run's length: the stage moves between "
+            "tiles add to it, often more than the scanning. Moves nothing."
         ),
         method="POST",
         path="/microscope/services/imaging/queries/estimate_overview",
@@ -859,7 +865,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "use. path must be a folder inside the open experiment. "
             "fm_estimate_overview first: tiles take seconds to minutes each. A "
             "long command: it answers with its run at once; service_wait_for_run imaging "
-            "gives the mosaic's path and summary, the tiles' paths and the layout, "
+            "gives the mosaic's path and summary, the tiles' paths and the overview, "
             "as beam_acquire_overview's; "
             "service_call_command imaging stop, with a reason, ends it before the "
             "next tile."

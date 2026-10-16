@@ -127,15 +127,12 @@ def test_a_sparse_run_only_pairs_the_tiles_it_acquires():
     assert check._held == {}
 
 
-def test_save_writes_the_summary_and_every_pair(tmp_path):
+def test_the_record_has_the_summary_and_every_pair():
     check = _run(*_tileset(2, 3, scale=(1.0, 0.95)))
-    path = tmp_path / "tile-layout.json"
 
-    check.save(str(path), pixel_size=3.3e-7)
+    record = json.loads(json.dumps(check.record()))
 
-    record = json.loads(path.read_text())
     assert record["warning"] == check.summary().warning
-    assert record["pixel_size"] == 3.3e-7
     assert record["summary"]["x"]["step_fraction"] == pytest.approx(0.95, abs=0.01)
     assert len(record["pairs"]) == 7
     assert {"a", "b", "planned", "measured", "score", "axis"} <= set(record["pairs"][0])

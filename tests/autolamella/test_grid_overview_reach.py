@@ -23,14 +23,11 @@ from fibsem.applications.autolamella.workflows.tasks.grid import (
     BeamOverviewGridTaskConfig,
     FluorescenceOverviewGridTaskConfig,
 )
-from fibsem.applications.autolamella.workflows.tasks.grid.imaging import (
-    disable_tiles,
-    reachable_overview,
-)
 from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     run_grid_tasks,
 )
 from fibsem.fm.structures import ChannelSettings, OverviewParameters
+from fibsem.imaging.tiling.reach import disable_tiles, reachable_overview
 from fibsem.services.sample_handling import BUILTIN_SLOT_NAME
 from fibsem.structures import BeamType, ImageSettings, OverviewAcquisitionSettings
 
