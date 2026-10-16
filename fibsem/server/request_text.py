@@ -17,6 +17,7 @@ An action may also carry ``details``, a small table the operator can open
 
 import math
 import os
+import re
 from dataclasses import fields as dataclass_fields
 from dataclasses import is_dataclass
 from datetime import datetime
@@ -1049,7 +1050,6 @@ def _pose_of(detail: Any, pose: Any) -> Optional[Dict[str, Any]]:
 def _overview_name(overview: Dict[str, Any]) -> str:
     """ "the Grid-01 overview (04:58)": whose, and when it was taken, which the
     file's stamp says; the file name only when it has no stamp."""
-    import re
 
     grid = overview.get("grid_name")
     filename = str(overview.get("filename") or "")
@@ -1251,7 +1251,8 @@ def _grid_line(
         if slot is not None:
             change += f", in {slot.get('name')}"
         elif slots:
-            change += ": it is not on the stage, so it will be refused"
+            # As of now: an earlier step of the same request may load it.
+            change += " (not on the stage yet)"
     else:
         name = str(a.get("slot_name"))
         change = f"Move to slot '{name}'"
@@ -1269,12 +1270,28 @@ def describe_actions(
     patterns an earlier action prepares take."""
     described = []
     estimate: Optional[Tuple[Optional[float], Any]] = None
+    unloaded = False
     for tool, arguments, path in actions:
         line = _describe(tool, arguments, path, read, describe, estimate)
         if "_estimate" in line:
             estimate = line.pop("_estimate")
+        if unloaded and _grid_tool(tool, arguments) == "grid_load":
+            # An earlier step unloads it: the load's own "(unloads 'G1'
+            # first)", read from the stage as it is now, says it twice.
+            line["change"] = _UNLOADS_FIRST.sub("", str(line.get("change")))
+        unloaded = unloaded or _grid_tool(tool, arguments) == "grid_unload"
         described.append(line)
     return described
+
+
+_UNLOADS_FIRST = re.compile(r" \(unloads '[^']*' first\)")
+
+
+def _grid_tool(tool: str, arguments: Dict[str, Any]) -> str:
+    """A grid command by its tool's name, called either way."""
+    if tool == "service_call_command" and arguments.get("service") == "sample_handling":
+        return _GRID_COMMANDS.get(str(arguments.get("command")), tool)
+    return tool
 
 
 def describe_action(
