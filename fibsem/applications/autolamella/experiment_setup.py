@@ -79,6 +79,18 @@ def protocol_by_name(name: str) -> Optional[str]:
     return next((p["path"] for p in list_protocols() if p["name"] == name), None)
 
 
+def protocol_file_for(name: str) -> str:
+    """The path in the protocol folder a protocol saved as *name* goes to: a
+    plain file name, ``.yaml`` added when it has no extension. Raises
+    ValueError for a name that is a path."""
+    name = name.strip()
+    if not name or os.path.basename(name) != name or name in (".", ".."):
+        raise ValueError(f"A protocol file name, not a path: {name!r}.")
+    if not name.endswith((".yaml", ".yml")):
+        name += ".yaml"
+    return os.path.join(protocol_directory(), name)
+
+
 def record_recent(experiment: Experiment) -> None:
     """Make *experiment* the last one used, at the top of the recents."""
     prefs = load_user_preferences()

@@ -113,8 +113,17 @@ class _AliveThread:
 def test_grid_start_validates_and_starts_on_the_gui_thread(ui, qapp):
     calls = []
 
-    def fake_start(task_names, grid_names, inventory_first):
+    ends = []
+
+    def fake_start(
+        task_names,
+        grid_names,
+        inventory_first,
+        unload_at_end=False,
+        report_at_end=False,
+    ):
         calls.append((task_names, grid_names, inventory_first))
+        ends.append((unload_at_end, report_at_end))
         ui._task_worker_thread = _AliveThread()
 
     ui._start_run_grid_workflow_thread = fake_start
@@ -191,6 +200,22 @@ def test_grid_start_validates_and_starts_on_the_gui_thread(ui, qapp):
         ).json()
         assert screened == {"available": True, "started": True, "screen_all": True}
         assert calls[-1] == (["overview_sem"], None, True)
+        ui._task_worker_thread = None
+
+        # The confirmation's end-of-run options reach the run.
+        assert ends[-1] == (False, False)
+        ended = _post(
+            qapp,
+            client,
+            "/app/workflow/grids/start",
+            {
+                "task_names": ["overview_sem"],
+                "unload_at_end": True,
+                "report_at_end": True,
+            },
+        ).json()
+        assert ended["started"] is True
+        assert ends[-1] == (True, True)
         ui._task_worker_thread = None
 
 

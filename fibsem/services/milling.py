@@ -576,6 +576,49 @@ class Milling(Service):
             },
         )
 
+    @query
+    def check_stages(
+        self, stages: List[FibsemMillingStage], aspect: float = 2 / 3
+    ) -> List[Dict[str, Any]]:
+        """Each of *stages* checked before anything is drawn: how long it would
+        mill, in seconds (``estimate_stage``), and its patterns that reach past
+        the field, its milling hfw wide and *aspect* of that high (an image's
+        height over width), which a real instrument refuses to mill. A stage
+        that cannot define its patterns answers why. Moves nothing."""
+        from fibsem.milling.patterning.utils import pattern_extent, stage_outside_field
+
+        checked = []
+        for stage in stages:
+            try:
+                outside = stage_outside_field(stage, aspect)
+                seconds = self.estimate_stage(stage)
+            except Exception as exc:  # noqa: BLE001 - a stage's own trouble
+                checked.append({"name": stage.name, "error": str(exc)})
+                continue
+            checked.append(
+                {
+                    "name": stage.name,
+                    "estimated_seconds": float(seconds),
+                    "field_m": [stage.milling.hfw, stage.milling.hfw * aspect],
+                    "outside_field": [
+                        {
+                            "pattern": type(pattern).__name__,
+                            "extent_m": list(pattern_extent(pattern) or ()),
+                        }
+                        for pattern in outside
+                    ],
+                }
+            )
+        return checked
+
+    @query
+    def list_options(self) -> Dict[str, List[str]]:
+        """The names a stage's ``pattern.name`` and ``strategy.name`` take."""
+        from fibsem.milling.patterning import get_pattern_names
+        from fibsem.milling.strategy import get_strategy_names
+
+        return {"patterns": get_pattern_names(), "strategies": get_strategy_names()}
+
     @contextmanager
     def part_of(
         self, report: Optional[Callable[[MillingProgress], None]] = None

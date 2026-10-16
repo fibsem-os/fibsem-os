@@ -172,6 +172,10 @@ def _stop_gate(request: Request) -> None:
         _drive(request)
 
 
+# The app's stop routes and what each stops, as the operator's own stops record it.
+_APP_STOPS = {"/app/workflow/stop": "workflow", "/app/workflow/stop_task": "task"}
+
+
 async def _stop_reason(request: Request):
     """Every agent stop carries a reason: refused without one, and recorded as
     ``agent_stop`` (what was stopped, why, whether it was the agent's own) once
@@ -196,7 +200,10 @@ async def _stop_reason(request: Request):
         )
     own = _agents_own_action(request)
     yield
-    action = action_name(request) if command is not None else "workflow"
+    if command is not None:
+        action = action_name(request)
+    else:
+        action = _APP_STOPS.get(request.url.path, "workflow")
     request.app.state.microscope.record_event(
         "agent_stop", {"action": action, "reason": reason.strip(), "own": own}
     )

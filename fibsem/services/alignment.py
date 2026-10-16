@@ -26,7 +26,8 @@ _A = TypeVar("_A", bound="Alignment")
 
 class Alignment(Service):
     """Alignment to saved reference images: ``align_to_reference`` corrects the view onto
-    one, ``measure_shift`` measures the shift between two, ``stop`` ends an
+    one, ``measure_shift`` measures the shift between two, ``compare_methods``
+    measures it by every method, ``stop`` ends an
     ``align_to_reference`` between steps."""
 
     def __init__(self, name: str = "alignment", **kwargs: Any):
@@ -41,11 +42,17 @@ class Alignment(Service):
         subsystem: str = "beam-shift",
         use_autocontrast: bool = False,
         path: Optional[str] = None,
+        use_autofocus: bool = False,
+        method: str = "cross-correlation",
+        validate: bool = True,
     ) -> Dict[str, Any]:
         """Align the view onto the saved reference image at *reference_path*:
         acquire with its settings, measure the shift and correct it, *steps*
         times. *subsystem* corrects with the ``beam-shift`` (fine, small range),
         the ``stage`` (a stable move) or ``stage-vertical`` (a vertical move).
+        *use_autofocus* focuses before each acquisition; *method* measures the
+        shift (as ``measure_shift``); *validate* takes a final image and checks
+        that the methods agree on what is left.
 
         Saves the run (each image, the measurements and a plot) under *path*,
         by default beside the reference, in ``Alignment``. Answers each step's
@@ -53,7 +60,11 @@ class Alignment(Service):
         on what is left, and the folder; the run is on the record as an
         ``alignment`` event. ``stop`` ends it between steps, ``cancelled``.
         """
-        from fibsem.alignment import AlignmentSubsystem, multi_step_alignment_v2
+        from fibsem.alignment import (
+            AlignmentMethod,
+            AlignmentSubsystem,
+            multi_step_alignment_v2,
+        )
 
         reference = FibsemImage.load(reference_path)
         if path is None:
@@ -64,7 +75,10 @@ class Alignment(Service):
             reference,
             steps=steps,
             use_autocontrast=use_autocontrast,
+            use_autofocus=use_autofocus,
             subsystem=AlignmentSubsystem(subsystem),
+            method=AlignmentMethod(method),
+            validate=validate,
             stop_event=self._stop_requested,
             run_name=os.path.splitext(os.path.basename(reference_path))[0],
             path=path,
@@ -101,6 +115,26 @@ class Alignment(Service):
             AlignmentMethod(method),
         )
         return result.to_dict()
+
+    @query
+    def compare_methods(
+        self,
+        reference_path: str,
+        image_path: str,
+        agreement_px: float = 2.0,
+    ) -> Dict[str, Any]:
+        """The shift of the saved image at *image_path* from the one at
+        *reference_path* by every method, how far apart they are in pixels, and
+        whether they agree (within *agreement_px*): the check
+        ``align_to_reference`` validates with. Reads the files and moves
+        nothing."""
+        from fibsem.alignment import compare_alignment_methods
+
+        return compare_alignment_methods(
+            FibsemImage.load(reference_path),
+            FibsemImage.load(image_path),
+            agreement_threshold_px=agreement_px,
+        ).to_dict()
 
 
 def bind_alignment(service: Type[_A], microscope: Any) -> Optional[_A]:

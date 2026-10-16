@@ -139,10 +139,10 @@ def request_outside_field(
     The Demo mills them; a real instrument refuses (FIB-1411). *stages* in
     place of the request's own run_stage and run_task stages."""
     from fibsem.milling.base import FibsemMillingStage
-    from fibsem.milling.patterning.utils import outside_field
+    from fibsem.milling.patterning.utils import outside_field, stage_outside_field
     from fibsem.structures import FibsemMillingSettings
 
-    fields = []  # (hfw, patterns)
+    outside = []
     for command, kwargs in _milling_commands(request):
         if command != "prepare":
             continue
@@ -150,19 +150,18 @@ def request_outside_field(
             hfw = FibsemMillingSettings.from_dict(dict(kwargs["settings"])).hfw
         except Exception:  # noqa: BLE001 - no field to check against
             continue
-        fields.append((hfw, parse_patterns(kwargs.get("patterns"))))
+        outside.extend(
+            pattern
+            for pattern in parse_patterns(kwargs.get("patterns"))
+            if outside_field(pattern, hfw, hfw * aspect)
+        )
     for stage in request_stages(request) if stages is None else stages:
         if isinstance(stage, FibsemMillingStage):
             try:
-                fields.append((stage.milling.hfw, stage.define_patterns()))
+                outside.extend(stage_outside_field(stage, aspect))
             except Exception:  # noqa: BLE001 - a stage that cannot define them
                 continue
-    return [
-        pattern
-        for hfw, patterns in fields
-        for pattern in patterns
-        if outside_field(pattern, hfw, hfw * aspect)
-    ]
+    return outside
 
 
 def request_targets(request: Dict[str, Any]) -> List[Tuple[BeamType, Point]]:
