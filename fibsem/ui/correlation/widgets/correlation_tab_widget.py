@@ -33,7 +33,6 @@ from __future__ import annotations
 
 import contextlib
 import copy
-import dataclasses
 import io
 import logging
 import os
@@ -88,7 +87,9 @@ from fibsem.correlation.config import (
     FitSettings,
     RISettings,
 )
-from fibsem.correlation.correlation_v2 import run_correlation_from_data
+from fibsem.correlation.fit import Seed, fit, prior_transform, seed_for
+from fibsem.correlation.history import CORRELATION_FILENAME, save_run
+from fibsem.correlation.point_fit import FitStatus, PointFitResult, fit_point
 from fibsem.correlation.prediction import (
     Projection,
     build_projection,
@@ -128,9 +129,6 @@ from fibsem.ui.correlation.widgets.correlation_fm_canvas_widget import (
 from fibsem.ui.correlation.widgets.correlation_point_overlay import POINT_COLORS
 from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
     FitConfirmationDialog,
-    FitStatus,
-    PointFitResult,
-    humanize_fit_error,
 )
 from fibsem.ui.correlation.widgets.refractive_index_widget import RefractiveIndexWidget
 from fibsem.ui.icon import fibsem_icon
@@ -199,9 +197,8 @@ def _volume_bytes(image, n_slices: int) -> int:
 # longer channel name still grows its own combo.
 _CHOICE_COMBO_WIDTH = 150
 
-# Consolidated project file (FIB-264). The two legacy names are still *read* for
+# The project file before it was consolidated (FIB-264): still *read* for
 # back-compat with projects saved by earlier versions; nothing writes them now.
-CORRELATION_FILENAME = "correlation.json"
 _LEGACY_DATA_FILENAME = "correlation_data.json"
 _LEGACY_RESULT_FILENAME = "correlation_result.json"
 
@@ -375,7 +372,7 @@ class _CorrelationWorker(QThread):
         self,
         input_data: CorrelationInputData,
         parent: Optional[QWidget] = None,
-        nominal=None,
+        seed: Optional[Seed] = None,
         rows: Optional[List[int]] = None,
         generation: int = 0,
     ) -> None:
@@ -383,56 +380,18 @@ class _CorrelationWorker(QThread):
         self._data = input_data
         # The widget's result generation when this run started (FIB-1242).
         self.generation = generation
-        # A NominalTransform built from the images' geometry, or None to fit
-        # unseeded (FIB-881). Built on the GUI thread, before the run.
-        self._nominal = nominal
+        # The transform to fit from, built on the GUI thread before the run;
+        # None fits unseeded (FIB-881).
+        self._seed = seed
         # Each fitted pair's row in the user's lists (the fit skips rejected
         # pairs), so the verdict names the row the user sees.
         self._rows = rows
 
     def run(self) -> None:
         try:
-            result = run_correlation_from_data(self._data, nominal=self._nominal)
-            result.diagnostics = _diagnostics_for(
-                self._data, self._nominal, rows=self._rows
-            )
-            self.result_ready.emit(result)
+            self.result_ready.emit(fit(self._data, self._seed, rows=self._rows))
         except Exception as exc:
             self.errored.emit(str(exc))
-
-
-def _diagnostics_for(
-    data: CorrelationInputData, nominal, rows: Optional[List[int]] = None
-) -> Optional[dict]:
-    """The fit verdict's evidence for a seeded fit, or None when it cannot be
-    computed (no seed, too few pairs, no pixel sizes). Never raises: the
-    verdict is an aid, the result is the product."""
-    if nominal is None or len(data.fib_coordinates) < 4:
-        return None
-    try:
-        from fibsem.correlation.verdict import diagnose
-
-        fm_md = getattr(data.fm_image, "metadata", None)
-        fib_px = data.fib_image_pixel_size
-        fm_px = getattr(fm_md, "pixel_size_x", None)
-        fm_pz = getattr(fm_md, "pixel_size_z", None)
-        if not (fib_px and fm_px and fm_pz):
-            return None
-        poi = data.poi_coordinates[0].point if data.poi_coordinates else None
-        return diagnose(
-            [[c.point.x, c.point.y] for c in data.fib_coordinates],
-            [[c.point.x, c.point.y, c.point.z] for c in data.fm_coordinates],
-            nominal,
-            fib_pixel_size=fib_px,
-            fm_pixel_size=fm_px,
-            fm_pixel_size_z=fm_pz,
-            poi=[poi.x, poi.y, poi.z] if poi is not None else None,
-            accepted=[c.status == PointStatus.ACCEPTED for c in data.fm_coordinates],
-            indices=rows,
-        ).to_dict()
-    except Exception as exc:
-        logging.warning(f"Fit diagnostics not computed: {exc}")
-        return None
 
 
 class _ProgressRelay(QObject):
@@ -3638,10 +3597,9 @@ class CorrelationTabWidget(QWidget):
         if self._result is None and not os.path.isdir(self._project_dir):
             return
         try:
-            CorrelationState(input_data=self.data, result=self._result).save(
-                self._ensure_dir_for(
-                    os.path.join(self._project_dir, CORRELATION_FILENAME)
-                )
+            save_run(
+                self._project_dir,
+                CorrelationState(input_data=self.data, result=self._result),
             )
         except Exception as exc:
             # Never let this pass unseen: it is the only persistence path, so a
@@ -3847,11 +3805,11 @@ class CorrelationTabWidget(QWidget):
         self._lbl_status.setText("Running…")
         # a run in flight has no live result yet; a failed run leaves it that way
         self._set_result_live(False)
-        nominal, self._seed_note = self._nominal_transform()
-        self._run_nominal = nominal
+        seed = self._seed()
+        self._seed_note = seed.note
         self._worker = _CorrelationWorker(
             copy.deepcopy(self.fit_data),
-            nominal=nominal,
+            seed=seed,
             rows=self._fit_rows(),
             generation=self._result_generation,
         )
@@ -3886,49 +3844,19 @@ class CorrelationTabWidget(QWidget):
         if self._fib_image is not None and self._fm_image is not None:
             self.data_changed.emit(self.data)
 
-    # A previous run's rotation further than this from the geometry's is not
-    # a better prior but a different answer: the one Arctis run checked was an
-    # unseeded fit 62 degrees off (its depth column a tenth of the geometry's),
-    # while the METEOR fits sit 5-6 degrees from their derived geometry.
-    MAX_PRIOR_ANGLE_DEG = 15.0
-
     def _prior_transform(self, translation=None):
         """The fitted transform of a previous run, in this pair's units, or None.
 
-        A run whose rotation disagrees with the geometry by more than
-        :attr:`MAX_PRIOR_ANGLE_DEG` is passed over (``_prior_rejected`` says
-        which and by how much, for the Method panel); the geometry is used.
+        A run passed over for disagreeing with the geometry is kept in
+        ``_prior_rejected`` for the Method panel (see :func:`prior_transform`).
         """
-        from fibsem.correlation.prior import prior_from_runs
-
-        self._prior_rejected = None
-        runs = getattr(self, "_prior_runs", None)
-        if not runs:
-            return None
-        fm_md = self._fm_image.metadata
-        fib_md = self._fib_image.metadata
-        fm_px = getattr(fm_md, "pixel_size_x", None)
-        fm_pz = getattr(fm_md, "pixel_size_z", None)
-        fib_px = getattr(getattr(fib_md, "pixel_size", None), "x", None)
-        if not (fm_px and fm_pz and fib_px):
-            return None
-        prior = prior_from_runs(
-            runs,
-            fm_pixel_size=fm_px,
-            fm_pixel_size_z=fm_pz,
-            fib_pixel_size=fib_px,
+        prior, self._prior_rejected = prior_transform(
+            self._fib_image,
+            self._fm_image,
+            getattr(self, "_prior_runs", None) or (),
             translation=translation,
+            assumed_fm_transform=getattr(self, "_fm_transform_assumed", None),
         )
-        geometry = self._geometry_transform()[0] if prior is not None else None
-        if geometry is not None:
-            angle = geometry.angle_to(prior.transform.rotation)
-            if angle > self.MAX_PRIOR_ANGLE_DEG:
-                logging.info(
-                    f"prior from {prior.source} is {angle:.0f} deg from the geometry; "
-                    "using the geometry"
-                )
-                self._prior_rejected = (prior.source, angle)
-                return None
         return prior
 
     def _placement_offset(self):
@@ -4044,81 +3972,31 @@ class CorrelationTabWidget(QWidget):
             return ""
         return f"assuming camera transform {assumed.value or 'none'}"
 
-    def _geometry_transform(self):
-        """The geometry's own FM->FIB transform, or ``(None, why)``; no prior, no offset."""
-        from fibsem.correlation.geometry import (
-            NominalTransformError,
-            fm_geometry_for,
-            nominal_transform,
-        )
+    def _seed(self) -> Seed:
+        """The transform a run of the loaded images starts from (see :func:`seed_for`).
 
-        if self._fib_image is None or self._fm_image is None:
-            return None, ""
-        fm_geometry = None
-        assumed = getattr(self, "_fm_transform_assumed", None)
-        fib_geometry = getattr(self._fib_image.metadata, "hardware_geometry", None)
-        if (
-            assumed is not None
-            and fib_geometry is not None
-            and getattr(self._fm_image.metadata, "geometry", None) is None
-        ):
-            fm_geometry = fm_geometry_for(fib_geometry, assumed)
-        try:
-            return (
-                nominal_transform(
-                    self._fib_image, self._fm_image, fm_geometry=fm_geometry
-                ),
-                "",
-            )
-        except NominalTransformError as exc:
-            logging.info(f"Correlation fit not seeded from geometry: {exc}")
-            return None, str(exc)
-        except Exception as exc:  # a seed is an aid; never block the run on it
-            logging.warning(f"Could not build the nominal correlation transform: {exc}")
-            return None, "the nominal transform could not be built"
+        Keeps any previous run passed over (``_prior_rejected``) for the Method
+        panel.
+        """
+        seed = seed_for(
+            self._fib_image,
+            self._fm_image,
+            getattr(self, "_prior_runs", None) or (),
+            assumed_fm_transform=getattr(self, "_fm_transform_assumed", None),
+            use_placement_offset=not getattr(self, "_ignore_placement_offset", False),
+        )
+        if self._fib_image is not None and self._fm_image is not None:
+            self._prior_rejected = seed.prior_rejected
+        return seed
 
     def _nominal_transform(self):
         """The geometry's FM->FIB transform for the loaded images, or why there is none.
 
         Returns ``(nominal, note)``: ``note`` is empty when a seed was built and
-        otherwise says what the images did not record, for the status line. An
-        image that records no geometry gets the unseeded fit it always had rather
-        than a seed built on a guess (FIB-881) -- unless the host has assumed a
-        camera transform (:meth:`set_assumed_fm_transform`), in which case the
-        FM geometry is the FIB image's with that transform and the derived
-        camera tilt.
+        otherwise says what the images did not record, for the status line.
         """
-        if self._fib_image is None or self._fm_image is None:
-            return None, ""
-        geometry, note = self._geometry_transform()
-        # The stage metadata misses by microns to tens of microns; a previous
-        # run measured that miss, so the first placement adds it (FIB-979).
-        # The bare metadata translation is kept to measure this run's miss.
-        self._metadata_translation = (
-            np.asarray(geometry.translation, dtype=float)
-            if geometry is not None
-            else None
-        )
-        offset = self._placement_offset()
-        if (
-            geometry is not None
-            and offset is not None
-            and not getattr(self, "_ignore_placement_offset", False)
-            and geometry.fib_pixel_size
-        ):
-            geometry = dataclasses.replace(
-                geometry,
-                translation=self._metadata_translation
-                + offset.offset_um / (geometry.fib_pixel_size * 1e6),
-            )
-        # A previous run's fitted rotation and scale beat the geometry's; its
-        # translation is that run's stage offset, so the geometry's is used.
-        prior = self._prior_transform(
-            translation=geometry.translation if geometry is not None else None
-        )
-        if prior is not None:
-            return prior.transform, ""
-        return geometry, note
+        seed = self._seed()
+        return seed.transform, seed.note
 
     @staticmethod
     def _seed_status(result: CorrelationResult) -> str:
@@ -4169,37 +4047,7 @@ class CorrelationTabWidget(QWidget):
         if worker is not None and worker.generation != self._result_generation:
             self._update_run_button()
             return
-        result.placement_offset = self._measure_placement_offset(result)
         self._on_result_ready(result, live=result.matches_inputs(self.fit_data))
-
-    def _measure_placement_offset(self, result: CorrelationResult) -> Optional[list]:
-        """This run's placement miss: where its fiducials put FM (0, 0) in the FIB
-        image minus where the stage metadata put it, in microns (FIB-979).
-
-        Measured with the prior's rotation and scale, the way the next lamella
-        will apply it, from the pairs the user placed: an accepted prediction
-        sits exactly where the previous offset put it and would only echo that
-        offset back. None when the run was not seeded or no pair was placed.
-        """
-        nominal = getattr(self, "_run_nominal", None)
-        metadata_t = getattr(self, "_metadata_translation", None)
-        data = result.input_data
-        if nominal is None or metadata_t is None or data is None:
-            return None
-        pairs = independent_pairs(data.fib_coordinates, data.fm_coordinates)
-        fib_px = data.fib_image_pixel_size
-        if not pairs or not fib_px:
-            return None
-        try:
-            zan = nominal.z_anisotropy
-            fib = np.array([[a.point.x, a.point.y] for a, _ in pairs])
-            fm = np.array([[b.point.x, b.point.y, b.point.z * zan] for _, b in pairs])
-            t_pairs = np.mean(fib - (nominal.projection @ fm.T).T, axis=0)
-            offset_um = (t_pairs - metadata_t) * fib_px * 1e6
-            return [float(offset_um[0]), float(offset_um[1])]
-        except Exception as exc:  # a record for the next lamella; never block
-            logging.debug(f"placement offset not measured: {exc}")
-            return None
 
     def _on_result_ready(self, result: CorrelationResult, live: bool = True) -> None:
         """Adopt a result. ``live`` is False for a result that no longer describes
@@ -5123,87 +4971,32 @@ class CorrelationTabWidget(QWidget):
         )
 
     def _run_point_fit(self, coord: Coordinate) -> Optional[PointFitResult]:
-        """Compute an auto-fit for ``coord`` WITHOUT mutating it.
-
-        Returns None when no fit is applicable (method "None" / image missing);
-        otherwise a PointFitResult carrying the proposed position, coarse status,
-        and the diagnostic figure.
+        """Compute an auto-fit for ``coord`` WITHOUT mutating it, with the
+        method and channel chosen on the Coordinates tab (see :func:`fit_point`).
         """
-        from fibsem.correlation.util import (
-            hole_fitting_FIB,
-            hole_fitting_reflection,
-            target_fitting_fluorescence,
-        )
-
         cl = self._coords_tab
         spec = self._point_specs[coord.point_type]
-        x, y, z = coord.point.x, coord.point.y, coord.point.z
-        initial = PointXYZ(x, y, z)
-        method, channel, channel_name = "", None, None
-        fitted, diag, error, error_detail, attempted = None, None, None, None, False
-
-        try:
-            if spec.adapter.side == "fib":
-                method = cl._fib_method_combo.currentText()
-                if method == "Hole" and self._fib_image is not None:
-                    attempted = True
-                    # pass the sub-pixel click (not int) so the diagnostic's
-                    # input marker lands where the user clicked — FIB-282.
-                    xr, yr, diag = hole_fitting_FIB(self._fib_image.filtered_data, x, y)
-                    fitted = PointXYZ(float(xr), float(yr), z)
-            else:
-                # The FM surface is typically picked in the reflection channel,
-                # so it shares the fiducial method/channel settings.
-                is_fid = spec.fm_fit_role == "fid"
-                method = (
-                    cl._fm_fid_method_combo if is_fid else cl._fm_poi_method_combo
-                ).currentText()
-                ch_combo = cl._fm_fid_ch_combo if is_fid else cl._fm_poi_ch_combo
-                channel = ch_combo.currentIndex()
-                channel_name = ch_combo.currentText()
-                if method != "None" and self._fm_image is not None and channel >= 0:
-                    img = self._fm_image.data[channel]
-                    if method == "Hole":
-                        attempted = True
-                        xr, yr, zr, diag = hole_fitting_reflection(
-                            img,
-                            x,
-                            y,
-                            z=int(z),  # sub-pixel x/y (FIB-282)
-                            cutout=self._correlation_config.fit.reflection_cutout,
-                        )
-                        fitted = PointXYZ(float(xr), float(yr), float(zr))
-                    elif method == "Gaussian":
-                        attempted = True
-                        xr, yr, zr, diag = target_fitting_fluorescence(
-                            img,
-                            x,
-                            y,
-                            int(z),  # sub-pixel x/y (FIB-282)
-                            cutout=self._correlation_config.fit.fluorescence_cutout,
-                        )
-                        fitted = PointXYZ(float(xr), float(yr), float(zr))
-        except Exception as exc:
-            logging.exception("Point fit failed")
-            error_detail = str(exc)  # raw text -> log + tooltip
-            error = humanize_fit_error(exc)  # user-facing, actionable
-            attempted = True
-
-        if not attempted:
-            return None
-
-        status = PointFitResult.classify(initial, fitted, error=error)
-        return PointFitResult(
-            coordinate=coord,
-            method=method,
-            channel=channel,
-            channel_name=channel_name,
-            initial=initial,
-            fitted=fitted,
-            status=status,
-            message=error,
-            detail=error_detail,
-            diagnostic=diag,
+        if spec.adapter.side == "fib":
+            return fit_point(
+                coord,
+                "fib",
+                cl._fib_method_combo.currentText(),
+                fib_image=self._fib_image,
+                settings=self._correlation_config.fit,
+            )
+        # The FM surface is typically picked in the reflection channel,
+        # so it shares the fiducial method/channel settings.
+        is_fid = spec.fm_fit_role == "fid"
+        method_combo = cl._fm_fid_method_combo if is_fid else cl._fm_poi_method_combo
+        ch_combo = cl._fm_fid_ch_combo if is_fid else cl._fm_poi_ch_combo
+        return fit_point(
+            coord,
+            "fm",
+            method_combo.currentText(),
+            fm_image=self._fm_image,
+            channel=ch_combo.currentIndex(),
+            channel_name=ch_combo.currentText(),
+            settings=self._correlation_config.fit,
         )
 
     def _apply_fit_result(self, result: PointFitResult) -> None:

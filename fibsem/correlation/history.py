@@ -1,23 +1,56 @@
-"""A lamella's correlation history — a read-only view over the on-disk run folders.
+"""A lamella's correlation history — the on-disk run folders.
 
-Each open of the correlation dialog writes a run to
-``<lamella>/Correlation/<timestamp>/correlation.json`` (FIB-264); the app has
-always created these folders and thrown away the pointer. This reconstructs the
+Each correlation that records a result writes a run to
+``<lamella>/Correlation/<timestamp>/correlation.json`` (FIB-264). This names and
+writes those folders (:func:`new_run_dir`, :func:`save_run`) and reconstructs the
 history from them so a new correlation can seed from the previous one (FIB-299).
-Nothing new is persisted — the history *is* the folders.
+Nothing else is persisted — the history *is* the folders.
 """
+
 from __future__ import annotations
 
+import datetime
 import glob
 import logging
 import os
 from dataclasses import dataclass, field
 from typing import List, Optional
 
+from fibsem.constants import DATETIME_FILE
 from fibsem.correlation.structures import CorrelationState, load_correlation_file
 
+CORRELATION_DIRNAME = "Correlation"
+CORRELATION_FILENAME = "correlation.json"
+
 # Preference order within a run folder: the consolidated file, then either legacy.
-_RUN_FILES = ("correlation.json", "correlation_result.json", "correlation_data.json")
+_RUN_FILES = (CORRELATION_FILENAME, "correlation_result.json", "correlation_data.json")
+
+
+def correlation_dir(lamella_path: str) -> str:
+    """Where a lamella's correlation runs live: ``<lamella>/Correlation``."""
+    return os.path.join(lamella_path, CORRELATION_DIRNAME)
+
+
+def new_run_dir(lamella_path: str, now: Optional[datetime.datetime] = None) -> str:
+    """A new run folder for a lamella, named for ``now`` but NOT created.
+
+    It is created only when the run records something (:func:`save_run`):
+    creating it on open made every open a run, and an abandoned session became
+    the next open's starting coordinates (FIB-320).
+    """
+    now = now or datetime.datetime.now()
+    return os.path.join(correlation_dir(lamella_path), now.strftime(DATETIME_FILE))
+
+
+def save_run(run_dir: str, state: CorrelationState) -> str:
+    """Write ``state`` as the run's ``correlation.json``, creating the folder.
+
+    Returns the file written.
+    """
+    os.makedirs(run_dir, exist_ok=True)
+    path = os.path.join(run_dir, CORRELATION_FILENAME)
+    state.save(path)
+    return path
 
 
 def _run_file(folder: str) -> Optional[str]:
@@ -32,8 +65,8 @@ def _run_file(folder: str) -> Optional[str]:
 class CorrelationRun:
     """One saved correlation, loaded from its timestamped folder."""
 
-    path: str          # the run folder
-    name: str          # folder basename (the timestamp)
+    path: str  # the run folder
+    name: str  # folder basename (the timestamp)
     state: CorrelationState
 
 
