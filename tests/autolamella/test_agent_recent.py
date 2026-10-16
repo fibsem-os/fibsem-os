@@ -62,7 +62,7 @@ def test_at_drive_a_move_a_mill_and_an_answer_each_make_a_row():
         )
     )
     assert _rows(recent) == [
-        ("Answered 'Is the lamella centred?': Yes", "done", OK),
+        ("Yes to 'Is the lamella centred?'", "done", OK),
         ("Milled 'agent test mill'", "done", OK),
         ("Stage · Move by x 2 µm", "done", OK),
     ]
@@ -233,3 +233,23 @@ def test_a_long_line_is_kept_whole_for_the_card_to_wrap():
     reason = "the trench is through the lamella and the next pass would cut the top"
     recent.add(_called(f"Workflow · Stop the run: {reason}"))
     assert _rows(recent)[0][0].endswith(reason)
+
+
+def test_an_answer_says_what_it_decided_and_for_which_lamella():
+    """Sim session 2026-10-16: "Answered 'Move the marker to the point of
+    interest for 02-tough-shiner. Press Continue wh…': done"."""
+    recent = RecentActions()
+    record = _record(
+        "prompt_answered",
+        {
+            "question_id": "q1",
+            "response": True,
+            "answered_by": AGENT,
+            "decided": "Point of interest at (+5.0, −2.0) µm",
+        },
+    )
+    record["item"] = {"id": "i2", "name": "02-tough-shiner"}
+    recent.add(record)
+    assert _rows(recent)[0][0] == (
+        "02-tough-shiner · Point of interest at (+5.0, −2.0) µm"
+    )

@@ -1039,7 +1039,7 @@ def test_at_drive_what_the_agent_does_shows_in_the_card_now_then_recent(qapp):
     qapp.processEvents()
     texts = [b.text() for b in chip.card.recent_buttons]
     assert texts == [
-        "Answered 'the run's question': yes",
+        "Yes to 'the run's question'",
         "Milled 'agent test mill'",
         "Stage · Move by x 2 µm",
     ]

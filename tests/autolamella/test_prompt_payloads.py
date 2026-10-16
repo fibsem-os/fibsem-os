@@ -271,3 +271,31 @@ def test_a_spot_burn_value_is_an_action_and_its_edits():
     assert after.parse_value({"action": "accept"}).action == "accept"
     with pytest.raises(InvalidAnswerValue):
         after.parse_value({"action": "skip"})
+
+
+def test_an_answer_says_what_it_decided():
+    """Sim session 2026-10-16: the agent card's Recent says what an answer
+    decided, not the prompt's instructions."""
+    from fibsem.applications.autolamella.workflows.interaction import (
+        Confirm,
+        MillingDecision,
+    )
+
+    image = FibsemImage.generate_blank_image(resolution=(64, 64), hfw=100e-6)
+    poi = PickPOI(image=image)
+    assert poi.decided(Point(5e-6, -2e-6)) == "Point of interest at (+5.0, −2.0) µm"
+    assert poi.decided(None) == "No point of interest"
+    area = EditAlignmentArea(initial=FibsemRectangle(0, 0, 1, 1))
+    assert area.decided(FibsemRectangle(0.25, 0.5, 0.5, 0.25)) == (
+        "Alignment area 50% × 25% of the frame"
+    )
+    assert Confirm("Go on?").decided(True) is None
+    first = RunMillingTask(config=None)
+    assert first.decided(MillingDecision(action="skip", config=None)) == (
+        "Skip, without milling"
+    )
+    again = RunMillingTask(config=None, passes=6)
+    assert again.decided(MillingDecision(action="accept", config=None)) == (
+        "Accept: don't mill again"
+    )
+    assert again.decided(MillingDecision(action="run", config=None)) == "Mill Again"

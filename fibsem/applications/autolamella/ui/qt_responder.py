@@ -1262,14 +1262,24 @@ class QtResponder(QObject):
             answered_payload["adjusted"] = True
         if suggested_by:
             answered_payload["suggested_by"] = suggested_by
+        try:
+            answer = self._answer(request, clicked_yes, value)
+        except Exception as exc:  # noqa: BLE001 - the caller owns the failure
+            answer, failure = None, exc
+        else:
+            failure = None
+            # What it decided, for a line about it (the agent card's Recent).
+            decided = request.decided(answer)
+            if decided:
+                answered_payload["decided"] = decided
         self._emit_question_event("prompt_answered", answered_payload)
         # And to the asker, which records the decision the answer makes.
         mark_answered_by(future, source)
         self._ui.workflow_status_signal.emit(WorkflowStatusEvent(message=""))
-        try:
-            self._deliver(future, self._answer(request, clicked_yes, value))
-        except Exception as exc:  # noqa: BLE001 - the caller owns the failure
-            self._fail(future, exc)
+        if failure is not None:
+            self._fail(future, failure)
+        else:
+            self._deliver(future, answer)
         return True
 
     def _answer(self, request: Request, clicked_yes: bool, value: object = None):

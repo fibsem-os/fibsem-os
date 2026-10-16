@@ -261,10 +261,16 @@ class RecentActions:
         ) and row.tone == WAITING:
             changed = self._end(("suggestion", question_id), "dropped", MUTED)
         if p.get("answered_by") == AGENT:
-            text = (
-                f"Answered '{self._question(question_id, p)}': "
-                f"{self._button(question_id, p.get('response'))}"
+            # What it decided, not the prompt's instructions (sim session
+            # 2026-10-16): "02-tough-shiner · Point of interest at (+5, −2) µm".
+            text = str(p.get("decided") or "").strip() or (
+                f"{self._button(question_id, p.get('response'))} to "
+                f"'{_cut(self._question(question_id, p), 60)}'"
             )
+            text = text[:1].upper() + text[1:]
+            item = (record.get("item") or {}).get("name")
+            if item:
+                text = f"{item} · {text}"
             changed = self._put(
                 ("answer", question_id), record, text, "done", OK, DRIVE
             )
