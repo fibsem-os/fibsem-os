@@ -13,14 +13,17 @@ it would block the agent from acting on what it prints.
 The lines: ``PROMPT``, ``ANSWERED``, ``PROMPT WITHDRAWN``, ``QUESTION``,
 ``QUESTION RELEASED``, ``REQUEST`` (the agent's request decided, finished or
 cancelled, FIB-1283), ``COMMAND ENDED``, task ``EVENT`` lines,
-``WORKFLOW STARTED``, ``WORKFLOW ENDED``, ``GAP`` and ``RESTARTED``.
+``WORKFLOW STARTED``, ``WORKFLOW ENDED``, ``GAP``, ``RESTARTED`` and
+``AGENT OFF``/``AGENT BACK``.
 
 It follows the whole session, not one workflow: the agent starts and stops
 workflows itself, and between them it still has to hear the app (FIB-1431). A
 workflow's end is a line, not the end of the watch, and so is one that stops
 without an end event: ``WORKFLOW ENDED (stopped without an end event)``, once
 ``/app/workflow/status`` says nothing is running. It exits only when the
-server cannot be watched (1), or when it is stopped.
+server cannot be watched (1), or when it is stopped. While the operator has the
+agent level at Off the app refuses the agent, but it is still running: the
+watch says so once and waits for the level to come back (FIB-1429).
 
 It finds the server the way the sidecar does (``--url``/``--token``, the
 environment, the discovery file) and follows a restarted server the same way
@@ -68,6 +71,15 @@ GAP_LINE = (
 # it is news (FIB-1421).
 RESTARTED_LINE = (
     "RESTARTED: the app restarted (new session); following its events from the start."
+)
+# The operator set the level to Off: the app is running but refuses the agent
+# (403 agent_off), so the watch waits for the level to come back (FIB-1429).
+AGENT_OFF = "agent_off"
+AGENT_OFF_LINE = (
+    "AGENT OFF: the operator set the agent level to Off; waiting for it to be raised."
+)
+AGENT_BACK_LINE = (
+    "AGENT BACK: the operator raised the agent level; following events again."
 )
 
 
@@ -126,11 +138,22 @@ def _poll(client, since, timeout):
     except (OSError, HTTPException, ValueError) as error:
         return None, f"unreachable ({error})"
     if response.status_code >= 400:
+        if _error_type(response) == AGENT_OFF:
+            return None, AGENT_OFF
         return None, f"HTTP {response.status_code}"
     try:
         return response.json(), None
     except ValueError:
         return None, "a reply that is not JSON"
+
+
+def _error_type(response):
+    """A refusal's ``error_type`` (``agent_off``, ``level``), or None."""
+    try:
+        detail = response.json().get("detail")
+    except (ValueError, AttributeError):
+        return None
+    return detail.get("error_type") if isinstance(detail, dict) else None
 
 
 def _print_events(events, since, out):
@@ -264,6 +287,13 @@ def watch(client, out=None, sleep_fn=None, poll_s=POLL_S, clock=None, since=None
     # 0 would replay history -- stale PROMPT lines, and a previous workflow's
     # end reported as news.
     snapshot, failure = _poll(client, since=0, timeout=0.0)
+    if failure == AGENT_OFF:
+        out(AGENT_OFF_LINE)
+        while failure == AGENT_OFF:
+            sleep_fn(RETRY_DELAY_S)
+            snapshot, failure = _poll(client, since=0, timeout=0.0)
+        if failure is None:
+            out(AGENT_BACK_LINE)
     if failure is not None:
         out(f"SERVER UNAVAILABLE: /app/events gave {failure}. Is the app running?")
         return 1
@@ -284,8 +314,18 @@ def watch(client, out=None, sleep_fn=None, poll_s=POLL_S, clock=None, since=None
     checked_at = clock()
 
     failures = 0
+    agent_off = False
     while True:
         payload, failure = _poll(client, since=since, timeout=poll_s)
+        if failure == AGENT_OFF:
+            # The app is up; its events wait in the buffer for the level to
+            # come back, so the cursor holds and nothing is missed.
+            if not agent_off:
+                out(AGENT_OFF_LINE)
+                agent_off = True
+            failures = 0
+            sleep_fn(RETRY_DELAY_S)
+            continue
         if failure is not None:
             # A refusal is usually a restart that has not rewritten the
             # discovery file yet: the next request re-reads it.
@@ -296,6 +336,9 @@ def watch(client, out=None, sleep_fn=None, poll_s=POLL_S, clock=None, since=None
             sleep_fn(RETRY_DELAY_S)
             continue
         failures = 0
+        if agent_off:
+            out(AGENT_BACK_LINE)
+            agent_off = False
 
         if not payload.get("available"):
             out("NO EVENTS: the server's event stream went away. Stopping.")

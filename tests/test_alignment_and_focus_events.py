@@ -105,6 +105,45 @@ def test_an_alignment_stopped_before_its_first_step_is_recorded_cancelled(
     assert alignment["results"] == [] and alignment["path"] is None
 
 
+def test_a_stop_mid_alignment_takes_no_more_images(
+    microscope, recorded, monkeypatch, tmp_path
+):
+    """A stop during a step ends the run there: no later step and no final
+    image to check it, so a stop means no more beam (FIB-1430)."""
+    import fibsem.alignment as alignment_module
+
+    stop = threading.Event()
+    step = alignment_module.beam_shift_alignment_v2
+    acquire_from = alignment_module._acquire_from_reference_image
+    images = []
+
+    def stopped_during(**kwargs):
+        result = step(**kwargs)
+        stop.set()  # the operator pressed Stop while this step ran
+        return result
+
+    def counted(**kwargs):
+        images.append(kwargs)
+        return acquire_from(**kwargs)
+
+    monkeypatch.setattr(alignment_module, "beam_shift_alignment_v2", stopped_during)
+    monkeypatch.setattr(alignment_module, "_acquire_from_reference_image", counted)
+
+    run = multi_step_alignment_v2(
+        microscope,
+        _reference(microscope),
+        steps=3,
+        stop_event=stop,
+        path=str(tmp_path / "alignment"),
+    )
+
+    assert len(run.results) == 1
+    assert len(images) == 1  # the stopped step's own; no final image after it
+    assert run.final_image is None and run.validation is None
+    (alignment,) = recorded("alignment")
+    assert alignment["status"] == "cancelled"
+
+
 def test_an_alignment_that_raises_is_recorded_failed_and_still_raises(
     microscope, recorded, monkeypatch
 ):

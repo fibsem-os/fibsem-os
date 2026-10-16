@@ -219,11 +219,7 @@ class _LazyClient:
         with self._lock:
             if self._client is None:
                 client, capabilities = self._connect()
-                print(
-                    f"fibsem-mcp: connected to {client.base_url} "
-                    f"(agent level {capabilities.get('level')})",
-                    file=sys.stderr,
-                )
+                _say_connected(client.base_url, capabilities)
                 if self._user_agent is not None:
                     client.set_user_agent(self._user_agent)
                 self._client = client
@@ -241,6 +237,31 @@ class _LazyClient:
     def close(self):
         if self._client is not None:
             self._client.close()
+
+
+def _connected_lines(base_url, capabilities):
+    """What ``--check`` and the first call print: where the sidecar connected,
+    the agent level when the server says one, and a warning when the app runs
+    other ``fibsem`` code than this sidecar imports (FIB-1429)."""
+    from fibsem.server.discovery import fibsem_folder
+
+    level = capabilities.get("level")
+    line = f"fibsem-mcp: connected to {base_url}"
+    lines = [f"{line} (agent level {level})" if level else line]
+    served = (capabilities.get("fibsem") or {}).get("path")
+    ours = fibsem_folder()
+    if served and os.path.normcase(served) != os.path.normcase(ours):
+        lines.append(
+            f"fibsem-mcp: warning: the app runs fibsem from {served}, but this "
+            f"sidecar imports it from {ours}. Register the sidecar with "
+            f"PYTHONPATH={os.path.dirname(served)} so its tools match the app."
+        )
+    return lines
+
+
+def _say_connected(base_url, capabilities):
+    for line in _connected_lines(base_url, capabilities):
+        print(line, file=sys.stderr)
 
 
 def _probe(client_factory, url, token):
@@ -1295,11 +1316,7 @@ def main(argv=None):
             )
         except ServerUnreachable as exc:
             sys.exit(str(exc))
-        print(
-            f"fibsem-mcp: connected to {client.base_url} "
-            f"(agent level {capabilities.get('level')})",
-            file=sys.stderr,
-        )
+        _say_connected(client.base_url, capabilities)
         return
     # Answer the MCP client's handshake first, and wait for a server in the
     # first call (FIB-1416).

@@ -30,6 +30,7 @@ from PyQt5.QtWidgets import (
 
 from fibsem.applications.autolamella.ui.agent_level_chip import LEVEL_WORDS
 from fibsem.applications.autolamella.ui.app_server_dialog import note, section
+from fibsem.server.discovery import dev_checkout
 from fibsem.server.levels import AgentLevel
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import fibsem_icon
@@ -81,26 +82,45 @@ def desktop_config_path(platform: Optional[str] = None) -> str:
 
 
 def agent_setup_text(
-    path: Path, url: Optional[str] = None, platform: Optional[str] = None
+    path: Path,
+    url: Optional[str] = None,
+    platform: Optional[str] = None,
+    pythonpath: Optional[str] = None,
 ) -> str:
     """Setup the agent runs itself: register the sidecar, check it, report the level.
 
     ``-s user`` registers it for every project; without it ``claude mcp add``
     covers only the current directory's. Claude Desktop can't edit its own
     config, so its line is for the person, and says to merge, not replace.
+    ``pythonpath`` is the checkout the app runs from when it came from
+    ``PYTHONPATH`` (:func:`~fibsem.server.discovery.dev_checkout`): the sidecar
+    gets it too, or it imports the environment's own ``fibsem`` (FIB-1429).
     """
+    platform = platform or sys.platform
     url = url or DEFAULT_URL
-    entry = json.dumps({"command": str(path)})
+    config: dict = {"command": str(path)}
+    env = ""
+    check = f'"{path}" --check'
+    if pythonpath:
+        config["env"] = {"PYTHONPATH": pythonpath}
+        env = f'-e PYTHONPATH="{pythonpath}" '
+        check = (
+            f'{check} with PYTHONPATH set to "{pythonpath}"'
+            if platform.startswith("win")
+            else f'PYTHONPATH="{pythonpath}" {check}'
+        )
+    entry = json.dumps(config)
     return (
         "Connect to my AutoLamella App Server (same machine).\n"
         "1. Register the fibsem MCP server for all my projects:\n"
-        f'   claude mcp add -s user fibsem -- "{path}"\n'
+        f'   claude mcp add -s user {env}fibsem -- "{path}"\n'
+        "   If fibsem is already registered, remove it first: "
+        "claude mcp remove -s user fibsem\n"
         "   (If you're Claude Desktop instead: add "
         f'"fibsem": {entry} under "mcpServers" in '
         f"{desktop_config_path(platform)}. Merge it into the servers already "
         "there; don't replace the file.)\n"
-        f'2. Check the connection: "{path}" --check should print '
-        f'"connected to {url}".\n'
+        f'2. Check the connection: {check} should print "connected to {url}".\n'
         "3. Tell me to start a new session, or reconnect fibsem in /mcp, so the "
         "tools load.\n"
         "4. Then call server_get_capabilities and tell me your agent level. I set it "
@@ -256,7 +276,11 @@ class ConnectAgentDialog(QDialog):
         if self._sidecar is None:
             return
         host = self._host()
-        self._copy(agent_setup_text(self._sidecar, getattr(host, "url", None)))
+        self._copy(
+            agent_setup_text(
+                self._sidecar, getattr(host, "url", None), pythonpath=dev_checkout()
+            )
+        )
 
     def _on_reveal_toggled(self, show: bool) -> None:
         self._token_edit.setEchoMode(QLineEdit.Normal if show else QLineEdit.Password)

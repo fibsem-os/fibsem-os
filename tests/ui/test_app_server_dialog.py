@@ -21,6 +21,7 @@ from fibsem.applications.autolamella.ui.connect_agent_dialog import (  # noqa: E
     sidecar_path,
 )
 from fibsem.server.auth import AgentLevel, AuthConfig  # noqa: E402
+from fibsem.server.discovery import dev_checkout  # noqa: E402
 
 
 class _Host:
@@ -241,6 +242,40 @@ def test_the_agent_text_names_the_windows_desktop_config():
     assert json.loads(entry) == {"command": r"C:\env\Scripts\fibsem-mcp.exe"}
 
 
+def test_the_agent_text_says_what_to_do_when_fibsem_is_registered(tmp_path):
+    text = agent_setup_text(tmp_path / "fibsem-mcp")
+    assert "claude mcp remove -s user fibsem" in text
+
+
+def test_a_worktree_on_pythonpath_goes_to_the_sidecar_too(tmp_path):
+    """Registered bare, the sidecar imports the environment's fibsem, not the
+    worktree the app runs (FIB-1429)."""
+    path = tmp_path / "env" / "bin" / "fibsem-mcp"
+    worktree = str(tmp_path / "worktree")
+    text = agent_setup_text(path, platform="darwin", pythonpath=worktree)
+    assert (
+        f'claude mcp add -s user -e PYTHONPATH="{worktree}" fibsem -- "{path}"' in text
+    )
+    assert f'PYTHONPATH="{worktree}" "{path}" --check' in text
+    entry = text.split('"fibsem": ', 1)[1].split(" under", 1)[0]
+    assert json.loads(entry) == {
+        "command": str(path),
+        "env": {"PYTHONPATH": worktree},
+    }
+
+
+def test_the_running_checkout_is_named_only_when_it_came_from_pythonpath():
+    from pathlib import Path
+
+    from fibsem.server.discovery import dev_checkout, fibsem_folder
+
+    checkout = str(Path(fibsem_folder()).parent)
+    assert dev_checkout({"PYTHONPATH": ""}) is None
+    assert dev_checkout({"PYTHONPATH": os.pathsep.join(["/elsewhere", checkout])}) == (
+        checkout
+    )
+
+
 def test_copy_for_your_agent_fills_in_the_running_server(qapp, host, tmp_path):
     from PyQt5.QtWidgets import QApplication
 
@@ -249,7 +284,7 @@ def test_copy_for_your_agent_fills_in_the_running_server(qapp, host, tmp_path):
     assert not hasattr(dialog, "_btn_copy_code")
     dialog._btn_copy_setup.click()
     copied = QApplication.clipboard().text()
-    assert copied == agent_setup_text(path, host.url)
+    assert copied == agent_setup_text(path, host.url, pythonpath=dev_checkout())
     assert host.auth.token not in copied
     dialog.deleteLater()
 

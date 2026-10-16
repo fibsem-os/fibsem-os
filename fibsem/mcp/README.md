@@ -89,7 +89,8 @@ prints `PROMPT`, `ANSWERED`, `PROMPT WITHDRAWN`, `QUESTION`,
 prompt and status). A workflow ends completed, cancelled, stalled or failed;
 one that stops without recording an end is reported as
 `WORKFLOW ENDED (stopped without an end event)`. A workflow's end does not end
-the watch: the agent may start the next one. It exits 1 when the app cannot be
+the watch: the agent may start the next one. While the operator has the agent
+level at Off it prints `AGENT OFF` and waits, then `AGENT BACK`. It exits 1 when the app cannot be
 watched, and otherwise runs until it is stopped. It needs only fibsem, not the `[mcp]` extra; where
 `fibsem-mcp` is not on the PATH, `python -m fibsem.mcp.sidecar watch` is the
 same thing.

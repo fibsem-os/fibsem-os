@@ -4111,7 +4111,13 @@
   "events": [
    "safe_absolute_stage_movement"
   ],
-  "result": null
+  "result": {
+   "r": 3.141592653589793,
+   "t": 0.3490658503988659,
+   "x": 0.001,
+   "y": 0.002,
+   "z": 0.003
+  }
  },
  "arctis safe_absolute_stage_movement full @FM": {
   "commands": [
@@ -4137,7 +4143,13 @@
   "events": [
    "safe_absolute_stage_movement"
   ],
-  "result": null
+  "result": {
+   "r": 3.141592653589793,
+   "t": 0.3490658503988659,
+   "x": 0.001,
+   "y": 0.002,
+   "z": 0.003
+  }
  },
  "arctis safe_absolute_stage_movement full @MILLING": {
   "commands": [
@@ -4163,7 +4175,13 @@
   "events": [
    "safe_absolute_stage_movement"
   ],
-  "result": null
+  "result": {
+   "r": 3.141592653589793,
+   "t": 0.3490658503988659,
+   "x": 0.001,
+   "y": 0.002,
+   "z": 0.003
+  }
  },
  "arctis safe_absolute_stage_movement full @SEM": {
   "commands": [
@@ -4189,7 +4207,13 @@
   "events": [
    "safe_absolute_stage_movement"
   ],
-  "result": null
+  "result": {
+   "r": 3.141592653589793,
+   "t": 0.3490658503988659,
+   "x": 0.001,
+   "y": 0.002,
+   "z": 0.003
+  }
  },
  "arctis safe_absolute_stage_movement small turn @FIB": {
   "commands": [
@@ -4215,7 +4239,13 @@
   "events": [
    "safe_absolute_stage_movement"
   ],
-  "result": null
+  "result": {
+   "r": 0.17453292519943295,
+   "t": 0.2,
+   "x": 0.001,
+   "y": 0.002,
+   "z": 0.003
+  }
  },
  "arctis safe_absolute_stage_movement small turn @FM": {
   "commands": [
@@ -4241,7 +4271,13 @@
   "events": [
    "safe_absolute_stage_movement"
   ],
-  "result": null
+  "result": {
+   "r": 0.17453292519943295,
+   "t": 0.2,
+   "x": 0.001,
+   "y": 0.002,
+   "z": 0.003
+  }
  },
  "arctis safe_absolute_stage_movement small turn @MILLING": {
   "commands": [
@@ -4267,7 +4303,13 @@
   "events": [
    "safe_absolute_stage_movement"
   ],
-  "result": null
+  "result": {
+   "r": 0.17453292519943295,
+   "t": 0.2,
+   "x": 0.001,
+   "y": 0.002,
+   "z": 0.003
+  }
  },
  "arctis safe_absolute_stage_movement small turn @SEM": {
   "commands": [
@@ -4293,7 +4335,13 @@
   "events": [
    "safe_absolute_stage_movement"
   ],
-  "result": null
+  "result": {
+   "r": 0.17453292519943295,
+   "t": 0.2,
+   "x": 0.001,
+   "y": 0.002,
+   "z": 0.003
+  }
  },
  "arctis safe_absolute_stage_movement xy only @FIB": {
   "commands": [
@@ -4319,7 +4367,13 @@
   "events": [
    "safe_absolute_stage_movement"
   ],
-  "result": null
+  "result": {
+   "r": 0.0,
+   "t": -2.234021442552742,
+   "x": -0.001,
+   "y": 0.0005,
+   "z": 0.001
+  }
  },
  "arctis safe_absolute_stage_movement xy only @FM": {
   "commands": [
@@ -4345,7 +4399,13 @@
   "events": [
    "safe_absolute_stage_movement"
   ],
-  "result": null
+  "result": {
+   "r": 0.0,
+   "t": -3.141592653589793,
+   "x": -0.001,
+   "y": 0.0005,
+   "z": 0.001
+  }
  },
  "arctis safe_absolute_stage_movement xy only @MILLING": {
   "commands": [
@@ -4371,7 +4431,13 @@
   "events": [
    "safe_absolute_stage_movement"
   ],
-  "result": null
+  "result": {
+   "r": 0.0,
+   "t": -0.4014257279586957,
+   "x": -0.001,
+   "y": 0.0005,
+   "z": 0.001
+  }
  },
  "arctis safe_absolute_stage_movement xy only @SEM": {
   "commands": [
@@ -4397,7 +4463,13 @@
   "events": [
    "safe_absolute_stage_movement"
   ],
-  "result": null
+  "result": {
+   "r": 0.0,
+   "t": 0.0,
+   "x": -0.001,
+   "y": 0.0005,
+   "z": 0.001
+  }
  },
  "arctis stable_move ELECTRON -1.5e-05 7.5e-06 static_wd=False @FIB": {
   "commands": [
@@ -8482,7 +8554,13 @@
   "events": [
    "safe_absolute_stage_movement"
   ],
-  "result": null
+  "result": {
+   "r": 3.141592653589793,
+   "t": 0.3490658503988659,
+   "x": 0.001,
+   "y": 0.002,
+   "z": 0.003
+  }
  },
  "default safe_absolute_stage_movement full @MILLING": {
   "commands": [
@@ -8528,7 +8606,13 @@
   "events": [
    "safe_absolute_stage_movement"
   ],
-  "result": null
+  "result": {
+   "r": 3.141592653589793,
+   "t": 0.3490658503988659,
+   "x": 0.001,
+   "y": 0.002,
+   "z": 0.003
+  }
  },
  "default safe_absolute_stage_movement full @SEM": {
   "commands": [
@@ -8574,7 +8658,13 @@
   "events": [
    "safe_absolute_stage_movement"
   ],
-  "result": null
+  "result": {
+   "r": 3.141592653589793,
+   "t": 0.3490658503988659,
+   "x": 0.001,
+   "y": 0.002,
+   "z": 0.003
+  }
  },
  "default safe_absolute_stage_movement small turn @FIB": {
   "commands": [
@@ -8620,7 +8710,13 @@
   "events": [
    "safe_absolute_stage_movement"
   ],
-  "result": null
+  "result": {
+   "r": 0.17453292519943295,
+   "t": 0.2,
+   "x": 0.001,
+   "y": 0.002,
+   "z": 0.003
+  }
  },
  "default safe_absolute_stage_movement small turn @MILLING": {
   "commands": [
@@ -8656,7 +8752,13 @@
   "events": [
    "safe_absolute_stage_movement"
   ],
-  "result": null
+  "result": {
+   "r": 0.17453292519943295,
+   "t": 0.2,
+   "x": 0.001,
+   "y": 0.002,
+   "z": 0.003
+  }
  },
  "default safe_absolute_stage_movement small turn @SEM": {
   "commands": [
@@ -8692,7 +8794,13 @@
   "events": [
    "safe_absolute_stage_movement"
   ],
-  "result": null
+  "result": {
+   "r": 0.17453292519943295,
+   "t": 0.2,
+   "x": 0.001,
+   "y": 0.002,
+   "z": 0.003
+  }
  },
  "default safe_absolute_stage_movement xy only @FIB": {
   "commands": [
@@ -8718,7 +8826,13 @@
   "events": [
    "safe_absolute_stage_movement"
   ],
-  "result": null
+  "result": {
+   "r": 3.141592653589793,
+   "t": 0.29670597283903605,
+   "x": -0.001,
+   "y": 0.0005,
+   "z": 0.001
+  }
  },
  "default safe_absolute_stage_movement xy only @MILLING": {
   "commands": [
@@ -8744,7 +8858,13 @@
   "events": [
    "safe_absolute_stage_movement"
   ],
-  "result": null
+  "result": {
+   "r": 0.0,
+   "t": 0.20943951023931962,
+   "x": -0.001,
+   "y": 0.0005,
+   "z": 0.001
+  }
  },
  "default safe_absolute_stage_movement xy only @SEM": {
   "commands": [
@@ -8770,7 +8890,13 @@
   "events": [
    "safe_absolute_stage_movement"
   ],
-  "result": null
+  "result": {
+   "r": 0.0,
+   "t": 0.6108652381980153,
+   "x": -0.001,
+   "y": 0.0005,
+   "z": 0.001
+  }
  },
  "default stable_move ELECTRON -1.5e-05 7.5e-06 static_wd=False @FIB": {
   "commands": [
@@ -14468,7 +14594,13 @@
   "events": [
    "safe_absolute_stage_movement"
   ],
-  "result": null
+  "result": {
+   "r": 3.141592653589793,
+   "t": 0.3490658503988659,
+   "x": 0.001,
+   "y": 0.002,
+   "z": 0.003
+  }
  },
  "iflm safe_absolute_stage_movement full @MILLING": {
   "commands": [
@@ -14514,7 +14646,13 @@
   "events": [
    "safe_absolute_stage_movement"
   ],
-  "result": null
+  "result": {
+   "r": 3.141592653589793,
+   "t": 0.3490658503988659,
+   "x": 0.001,
+   "y": 0.002,
+   "z": 0.003
+  }
  },
  "iflm safe_absolute_stage_movement full @SEM": {
   "commands": [
@@ -14560,7 +14698,13 @@
   "events": [
    "safe_absolute_stage_movement"
   ],
-  "result": null
+  "result": {
+   "r": 3.141592653589793,
+   "t": 0.3490658503988659,
+   "x": 0.001,
+   "y": 0.002,
+   "z": 0.003
+  }
  },
  "iflm safe_absolute_stage_movement small turn @FIB": {
   "commands": [
@@ -14606,7 +14750,13 @@
   "events": [
    "safe_absolute_stage_movement"
   ],
-  "result": null
+  "result": {
+   "r": 0.17453292519943295,
+   "t": 0.2,
+   "x": 0.001,
+   "y": 0.002,
+   "z": 0.003
+  }
  },
  "iflm safe_absolute_stage_movement small turn @MILLING": {
   "commands": [
@@ -14642,7 +14792,13 @@
   "events": [
    "safe_absolute_stage_movement"
   ],
-  "result": null
+  "result": {
+   "r": 0.17453292519943295,
+   "t": 0.2,
+   "x": 0.001,
+   "y": 0.002,
+   "z": 0.003
+  }
  },
  "iflm safe_absolute_stage_movement small turn @SEM": {
   "commands": [
@@ -14678,7 +14834,13 @@
   "events": [
    "safe_absolute_stage_movement"
   ],
-  "result": null
+  "result": {
+   "r": 0.17453292519943295,
+   "t": 0.2,
+   "x": 0.001,
+   "y": 0.002,
+   "z": 0.003
+  }
  },
  "iflm safe_absolute_stage_movement xy only @FIB": {
   "commands": [
@@ -14704,7 +14866,13 @@
   "events": [
    "safe_absolute_stage_movement"
   ],
-  "result": null
+  "result": {
+   "r": 3.141592653589793,
+   "t": 0.29670597283903605,
+   "x": -0.001,
+   "y": 0.0005,
+   "z": 0.001
+  }
  },
  "iflm safe_absolute_stage_movement xy only @MILLING": {
   "commands": [
@@ -14730,7 +14898,13 @@
   "events": [
    "safe_absolute_stage_movement"
   ],
-  "result": null
+  "result": {
+   "r": 0.0,
+   "t": 0.20943951023931962,
+   "x": -0.001,
+   "y": 0.0005,
+   "z": 0.001
+  }
  },
  "iflm safe_absolute_stage_movement xy only @SEM": {
   "commands": [
@@ -14756,7 +14930,13 @@
   "events": [
    "safe_absolute_stage_movement"
   ],
-  "result": null
+  "result": {
+   "r": 0.0,
+   "t": 0.6108652381980153,
+   "x": -0.001,
+   "y": 0.0005,
+   "z": 0.001
+  }
  },
  "iflm stable_move ELECTRON -1.5e-05 7.5e-06 static_wd=False @FIB": {
   "commands": [
@@ -17466,7 +17646,13 @@
   "events": [
    "safe_absolute_stage_movement"
   ],
-  "result": null
+  "result": {
+   "r": 3.141592653589793,
+   "t": 0.3,
+   "x": 0.001,
+   "y": 0.0019999999999999987,
+   "z": 0.0029999999999999957
+  }
  },
  "tescan safe_absolute_stage_movement full @SEM": {
   "commands": [
@@ -17486,7 +17672,13 @@
   "events": [
    "safe_absolute_stage_movement"
   ],
-  "result": null
+  "result": {
+   "r": 3.141592653589793,
+   "t": 0.3,
+   "x": 0.001,
+   "y": 0.0019999999999999987,
+   "z": 0.0029999999999999957
+  }
  },
  "tescan stable_move ELECTRON -1.5e-05 7.5e-06 @FIB": {
   "commands": [
