@@ -1999,7 +1999,7 @@ class OverviewParameters(Configurable):
         0.1,
         limits=RangeLimit(0.0, 0.9),
         doc="How much neighbouring tiles overlap, as a fraction of a tile.",
-        display=Display("Overlap", scale=100, unit="%", step=1.0, decimals=0),
+        display=Display("Overlap", scale=100, unit="%", step=5.0, decimals=0),
     )
     use_zstack: bool = param(
         False,

@@ -28,10 +28,12 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem import constants
+from fibsem.fm.structures import OverviewParameters
 from fibsem.structures import TileOrderStrategy
 from fibsem.ui.tokens import TEXT_MUTED_COLOR
 from fibsem.ui.utils import install_wheel_blocker
 from fibsem.ui.widgets.custom_widgets import TitledPanel, ValueComboBox, ValueSpinBox
+from fibsem.ui.widgets.form_builder import configure_spinbox
 from fibsem.ui.widgets.tile_mask_widget import TileMaskWidget
 
 _MUTED = f"color: {TEXT_MUTED_COLOR}; font-size: 11px;"
@@ -58,6 +60,11 @@ TILE_ORDER_TOOLTIPS = {
 }
 
 
+# The grid's bounds and how its boxes show them. Both tabs edit the same three values;
+# OverviewParameters (FM) and OverviewAcquisitionSettings (beam) declare them alike.
+_GRID = OverviewParameters.params
+
+
 class OverviewGridSettingsWidget(QWidget):
     """Grid shape, overlap, order and the per-tile mask, as one titled panel."""
 
@@ -73,20 +80,17 @@ class OverviewGridSettingsWidget(QWidget):
     # ── construction ─────────────────────────────────────────────────────
 
     def _build(self) -> None:
-        self.spin_rows = self._field(
-            ValueSpinBox(minimum=1, maximum=100, step=1, decimals=0)
-        )
+        self.spin_rows = self._field(ValueSpinBox(step=1, decimals=0))
+        configure_spinbox(self.spin_rows, _GRID["rows"])
         self.spin_rows.setValue(3)
-        self.spin_cols = self._field(
-            ValueSpinBox(minimum=1, maximum=100, step=1, decimals=0)
-        )
+        self.spin_cols = self._field(ValueSpinBox(step=1, decimals=0))
+        configure_spinbox(self.spin_cols, _GRID["cols"])
         self.spin_cols.setValue(3)
 
         # Percent, not the stored fraction. `0.10` reads as a coefficient; `10 %` reads
         # as what it is. The two tabs disagreed about this, of one stored number.
-        self.spin_overlap = self._field(
-            ValueSpinBox(suffix=" %", minimum=0.0, maximum=90.0, step=5.0, decimals=0)
-        )
+        self.spin_overlap = self._field(ValueSpinBox())
+        configure_spinbox(self.spin_overlap, _GRID["overlap"])
 
         self.combo_tile_order = self._field(ValueComboBox(
             items=list(TileOrderStrategy),
@@ -214,7 +218,7 @@ class OverviewGridSettingsWidget(QWidget):
     @property
     def overlap(self) -> float:
         """The stored fraction, not the percent shown."""
-        return self.spin_overlap.value() / 100.0
+        return self.spin_overlap.value() / _GRID["overlap"].scale
 
     @property
     def tile_order(self) -> TileOrderStrategy:
@@ -297,7 +301,7 @@ class OverviewGridSettingsWidget(QWidget):
         try:
             self.spin_rows.setValue(int(rows))
             self.spin_cols.setValue(int(cols))
-            self.spin_overlap.setValue(overlap * 100.0)
+            self.spin_overlap.setValue(overlap * _GRID["overlap"].scale)
             self.combo_tile_order.set_value(tile_order)
         finally:
             for widget in widgets:

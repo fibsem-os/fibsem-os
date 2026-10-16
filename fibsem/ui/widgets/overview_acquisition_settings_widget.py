@@ -29,6 +29,7 @@ from fibsem.ui.widgets.custom_widgets import (
     ValueComboBox,
     ValueSpinBox,
 )
+from fibsem.ui.widgets.form_builder import configure_spinbox
 from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
 
 # What an overview run looks like before anyone touches it.
@@ -44,6 +45,10 @@ from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
 OVERVIEW_TILE_HFW = 500e-6  # m
 OVERVIEW_TILE_DWELL_TIME = 1e-6  # s
 DEFAULT_OVERVIEW_FILENAME = "overview-image"
+
+
+# How the tile grid's boxes show their values, and their bounds.
+_SPECS = OverviewAcquisitionSettings.params
 
 
 # Re-exported: it lives with the runners that make the folder from it, and both
@@ -138,8 +143,10 @@ class OverviewAcquisitionSettingsWidget(QWidget):
         # Rows / cols
         grid_layout.addWidget(QLabel("Tiles (rows x cols)"), 1, 0)
         # Values come from the seed in `__init__`, not from here.
-        self.nrows_spinbox = ValueSpinBox(minimum=1, maximum=15, step=1, decimals=0)
-        self.ncols_spinbox = ValueSpinBox(minimum=1, maximum=15, step=1, decimals=0)
+        self.nrows_spinbox = ValueSpinBox(step=1, decimals=0)
+        self.ncols_spinbox = ValueSpinBox(step=1, decimals=0)
+        configure_spinbox(self.nrows_spinbox, _SPECS["nrows"])
+        configure_spinbox(self.ncols_spinbox, _SPECS["ncols"])
         # Two spinboxes share one grid cell here, so they are the first thing a narrow
         # column squeezes -- and below about 80px the +/- buttons take the whole
         # control and the number stops being drawn at all, leaving what looks like a
@@ -160,9 +167,8 @@ class OverviewAcquisitionSettingsWidget(QWidget):
 
         # Overlap
         grid_layout.addWidget(QLabel("Overlap (%)"), 2, 0)
-        self.overlap_spinbox = ValueSpinBox(
-            suffix="%", minimum=0.0, maximum=50.0, step=5.0, decimals=0
-        )
+        self.overlap_spinbox = ValueSpinBox()
+        configure_spinbox(self.overlap_spinbox, _SPECS["overlap"])
         grid_layout.addWidget(self.overlap_spinbox, 2, 1, 1, 2)
 
         # Total FOV label (read-only, auto-updated)
@@ -178,8 +184,9 @@ class OverviewAcquisitionSettingsWidget(QWidget):
 
         self._label_focus_stack_steps = QLabel("Focus Stack Steps")
         grid_layout.addWidget(self._label_focus_stack_steps, 5, 0)
-        self.focus_stack_steps = ValueSpinBox(minimum=1, maximum=10, step=1, decimals=0)
-        self.focus_stack_steps.setValue(3)
+        self.focus_stack_steps = ValueSpinBox(step=1, decimals=0)
+        configure_spinbox(self.focus_stack_steps, FocusStackSettings.params["n_steps"])
+        self.focus_stack_steps.setValue(FocusStackSettings().n_steps)
         grid_layout.addWidget(self.focus_stack_steps, 5, 1, 1, 2)
 
         self._label_focus_stack_autofocus = QLabel("Focus Stack Autofocus")
@@ -365,7 +372,7 @@ class OverviewAcquisitionSettingsWidget(QWidget):
             image_settings=image_settings,
             nrows=int(self.nrows_spinbox.value()),
             ncols=int(self.ncols_spinbox.value()),
-            overlap=self.overlap_spinbox.value() / 100.0,
+            overlap=self.overlap_spinbox.value() / _SPECS["overlap"].scale,
             focus_stack_settings=FocusStackSettings(
                 enabled=self.focus_stack_enabled.isChecked(),
                 n_steps=int(self.focus_stack_steps.value()),
@@ -415,7 +422,7 @@ class OverviewAcquisitionSettingsWidget(QWidget):
         self.beam_type_combo.set_value(settings.image_settings.beam_type)
         self.nrows_spinbox.setValue(settings.nrows)
         self.ncols_spinbox.setValue(settings.ncols)
-        self.overlap_spinbox.setValue(settings.overlap * 100.0)
+        self.overlap_spinbox.setValue(settings.overlap * _SPECS["overlap"].scale)
         self.focus_stack_enabled.setChecked(settings.focus_stack_settings.enabled)
         self.focus_stack_steps.setValue(settings.focus_stack_settings.n_steps)
         self.focus_stack_autofocus.setChecked(settings.focus_stack_settings.auto_focus)
