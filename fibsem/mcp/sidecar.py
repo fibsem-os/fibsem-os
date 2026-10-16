@@ -480,7 +480,11 @@ def build_sidecar(client, capabilities):
         }
 
     def milling_estimate_time():
-        return _service_call("milling_estimate_time", {}, "seconds")
+        # Answers seconds, milling_current and warning itself.
+        data, err = _call(
+            client, "POST", by_name["milling_estimate_time"].path, {"kwargs": {}}
+        )
+        return err if err else data["result"]
 
     def milling_preview_patterns(image_path: str, stages: Optional[list] = None):
         return _routed("milling_preview_patterns", image_path=image_path, stages=stages)
@@ -624,8 +628,20 @@ def build_sidecar(client, capabilities):
     def beam_auto_contrast(beam_type: str = "ELECTRON"):
         return _routed("beam_auto_contrast", beam_type=beam_type)
 
-    def beam_auto_focus(beam_type: str = "ELECTRON"):
-        return _routed("beam_auto_focus", "result", beam_type=beam_type)
+    def beam_auto_focus(
+        beam_type: str = "ELECTRON",
+        method: str = "sweep",
+        hfw: Optional[float] = None,
+        settings: Optional[dict] = None,
+    ):
+        return _routed(
+            "beam_auto_focus",
+            "result",
+            beam_type=beam_type,
+            method=method,
+            hfw=hfw,
+            settings=settings,
+        )
 
     def fm_auto_focus(channel_name: Optional[str] = None, path: Optional[str] = None):
         return _routed("fm_auto_focus", "run", channel_name=channel_name, path=path)
