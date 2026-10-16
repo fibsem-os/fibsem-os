@@ -9,7 +9,7 @@ import logging
 import threading
 import time
 from contextlib import contextmanager
-from typing import Any, Dict, List, Optional, Protocol, Tuple
+from typing import Any, Dict, List, Optional, Protocol, Set, Tuple
 
 from fibsem import config as fibsem_cfg
 from fibsem.cancellation import AnyStopEvent, OperationCancelledError
@@ -126,6 +126,9 @@ class BaseTaskManager:
         # run by whoever launched it.
         self.stalled = False
         self.stall_reason = ""
+        # (item, last round) pairs the app said have no next round: asked once,
+        # not again on every pass of the loop.
+        self._rounds_ended: Set[Tuple[str, Optional[int]]] = set()
 
     def _prepare(self) -> None:
         """The run's own set-up, done inside the run, after workflow_started:
@@ -363,6 +366,56 @@ class BaseTaskManager:
                 item_id, req, f"{task_name} started before anyone looked"
             )
 
+    # --- Rounds: items that repeat their tasks ---
+
+    def _next_round(
+        self, item_name: str, finished: Optional[int]
+    ) -> Optional[Tuple[int, List[str]]]:
+        """The next round of ``item_name``'s tasks, as (round, task names), now
+        that the round ``finished`` has drained (None: its queued work had no
+        round), or None when it has no more.
+
+        An app whose items repeat their tasks -- a volume position, once per
+        slice -- says here what comes next. By default an item runs its tasks
+        once, as queued."""
+        return None
+
+    def _refill(self) -> bool:
+        """Queue the next round for every item with nothing left waiting or
+        running. Only one round per item is queued at a time, so a hold on one
+        item's round parks that item while the others go on, and the queue
+        never holds every round up front. True when anything was queued."""
+        busy = set()
+        rounds: Dict[str, List[int]] = {}
+        for work in self.queue.items:
+            if work.is_pending or work.status is TaskStatus.InProgress:
+                busy.add(work.item_name)
+            rounds.setdefault(work.item_name, [])
+            if work.round is not None:
+                rounds[work.item_name].append(work.round)
+        added = False
+        for item_name, queued in rounds.items():
+            last = max(queued) if queued else None
+            if item_name in busy or (item_name, last) in self._rounds_ended:
+                continue
+            following = self._next_round(item_name, last)
+            if following is None:
+                self._rounds_ended.add((item_name, last))
+                continue
+            round_, task_names = following
+            for task_name in task_names:
+                self.queue.add(item_name, task_name, round=round_)
+            added = added or bool(task_names)
+        if added:
+            self.notify_queue_changed()
+        return added
+
+    def _next_item(self) -> Optional[WorkItem]:
+        """The next runnable work item, or None: the queue, refilled first with
+        any item's next round."""
+        self._refill()
+        return self.queue.next(skip=self._is_deferred)
+
     # --- Deferral: what cannot run yet, and why ---
 
     # How many of the items a hold names read, past three: "4 lamellae".
@@ -484,11 +537,13 @@ class BaseTaskManager:
         the pending set on every path, skips included.
         """
         pending, total = self.queue.counts
+        active = self.queue.active
         return {
             "experiment_id": self.experiment.id,
             "experiment_name": self.experiment.name,
             "tasks_remaining": pending,
             "tasks_total": total,
+            "round": active.round if active is not None else None,
         }
 
     def _fire_workflow_hook(self, event: HookEvent, **fields) -> None:
@@ -656,6 +711,8 @@ class BaseTaskManager:
             # queue may since have diverged from it.
             task_names=self.queue.task_names,
             lamella_names=self.queue.item_names,
+            work_item_id=item.id,
+            round=item.round,
         )
 
         self.parent_ui.workflow_status_signal.emit(
