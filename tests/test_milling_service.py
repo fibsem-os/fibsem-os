@@ -311,16 +311,17 @@ def test_a_protocol_saved_with_tescan_fields_at_the_top_loads_them_under_tescan(
         {"milling_current": 2e-9, "preset": "30 keV; 1 nA", "rate": 0.3}
     )
     assert recipe.milling_current == 2e-9
-    assert recipe.driver_settings == {"tescan": {"preset": "30 keV; 1 nA", "rate": 0.3}}
+    assert recipe.driver == {"tescan": {"preset": "30 keV; 1 nA", "rate": 0.3}}
     saved = recipe.to_dict()
-    assert saved["tescan.preset"] == "30 keV; 1 nA" and "preset" not in saved
+    assert saved["driver"]["tescan"]["preset"] == "30 keV; 1 nA"
+    assert "preset" not in saved
     assert FibsemMillingSettings.from_dict(saved) == recipe
 
 
 def test_a_driver_reads_its_keys_and_keeps_the_others(microscope):
     milling = microscope.milling
     recipe = FibsemMillingSettings(
-        milling_current=2e-9, driver_settings={"tescan.rate": 0.3}
+        milling_current=2e-9, driver={"tescan": {"rate": 0.3}}
     )
     driver = milling.driver_settings(recipe)
     assert driver.milling_current == 2e-9
@@ -329,7 +330,7 @@ def test_a_driver_reads_its_keys_and_keeps_the_others(microscope):
         recipe, dataclasses.replace(driver, milling_current=4e-9)
     )
     assert edited.milling_current == 4e-9
-    assert edited.driver_settings == {"tescan": {"rate": 0.3}}
+    assert edited.driver == {"tescan": {"rate": 0.3}}
 
 
 def test_the_agent_sees_the_recipe_this_instrument_mills_with(microscope):
@@ -339,8 +340,7 @@ def test_the_agent_sees_the_recipe_this_instrument_mills_with(microscope):
         type(microscope.milling).setup, microscope.milling.schema_defs()
     )
     recipe = schema["$defs"]["FibsemMillingSettings"]["properties"]
-    assert "milling_current" in recipe and "driver_settings" not in recipe
-    assert not any(key.startswith("tescan.") for key in recipe)
+    assert "milling_current" in recipe and "driver" not in recipe
     beam = microscope.milling.ion.current
     assert recipe["milling_current"]["enum"] == list(beam.metadata.choices)
     # a command that takes no recipe has no recipe schema
@@ -365,8 +365,9 @@ def test_a_driver_with_settings_of_its_own_needs_a_prefix():
         settings_class = Own
         settings_prefix = "probe"
 
-    assert Prefixed.setting_key("aperture") == "probe.aperture"
-    assert Prefixed.setting_key("hfw") == "hfw"
+    recipe = Prefixed.with_driver_settings(FibsemMillingSettings(), Own(aperture=2))
+    assert recipe.driver == {"probe": {"aperture": 2}}
+    assert Prefixed.driver_settings(recipe).aperture == 2
 
 
 def test_only_a_shared_field_is_taken_shared():

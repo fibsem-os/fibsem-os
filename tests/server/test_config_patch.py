@@ -93,3 +93,36 @@ def test_a_beam_bound_field_keeps_its_own_limits(config):
     apply_patch(config, {"milling.mill_rough.stages.0.milling.hfw": 400e-6})
     with pytest.raises(PatchError, match="above the maximum"):
         apply_patch(config, {"milling.mill_rough.stages.0.milling.hfw": 2e-3})
+
+
+# -- a milling recipe's driver settings (FIB-1437) -----------------------------------
+
+_DRIVER = "milling.mill_rough.stages.0.milling.driver.tescan"
+
+
+def test_a_driver_setting_not_saved_yet_patches_from_its_default(config):
+    import fibsem.drivers.tescan.services  # noqa: F401 - registers the Tescan block
+
+    milling = config.milling["mill_rough"].stages[0].milling
+    assert "tescan" not in milling.driver
+    changes = apply_patch(config, {f"{_DRIVER}.spot_size": 50e-9})
+    assert changes == [(f"{_DRIVER}.spot_size", 1.0e-6, 50e-9)]
+    assert milling.driver == {"tescan": {"spot_size": 50e-9}}
+    # a saved one patches as any value does, and the driver's limits hold
+    apply_patch(config, {f"{_DRIVER}.spot_size": 60e-9})
+    assert milling.driver["tescan"]["spot_size"] == 60e-9
+    with pytest.raises(PatchError, match="minimum"):
+        apply_patch(config, {f"{_DRIVER}.spot_size": 0.0})
+
+
+def test_a_driver_setting_must_be_declared(config):
+    import fibsem.drivers.tescan.services  # noqa: F401 - registers the Tescan block
+
+    with pytest.raises(PatchError, match="not a setting of the tescan driver"):
+        apply_patch(config, {f"{_DRIVER}.aperture": 1})
+    with pytest.raises(PatchError, match="not a driver"):
+        apply_patch(config, {"milling.mill_rough.stages.0.milling.driver.x.y": 1})
+    # shared fields are the recipe's own, never in a block
+    with pytest.raises(PatchError, match="not a setting"):
+        apply_patch(config, {f"{_DRIVER}.patterning_mode": "Serial"})
+    assert "tescan" not in config.milling["mill_rough"].stages[0].milling.driver

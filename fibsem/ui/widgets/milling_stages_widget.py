@@ -64,13 +64,13 @@ class FibsemMillingStagesWidget(QWidget):
         _mills_by_preset = _milling is not None and "preset" in (
             _milling.supported_settings(BeamType.ION)
         )
-        _preset_key = _milling.setting_key("preset") if _mills_by_preset else None
+        _preset_driver = _milling.settings_prefix if _mills_by_preset else None
         _current_values = beam_choices(self.microscope, "current", BeamType.ION)
         _preset_values = beam_choices(self.microscope, "preset", BeamType.ION)
         self._list = MillingStageListWidget(
             current_values=_current_values,
             preset_values=_preset_values,
-            preset_key=_preset_key,
+            preset_driver=_preset_driver,
         )
         layout.addWidget(self._list)
 

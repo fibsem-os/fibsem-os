@@ -86,6 +86,7 @@ from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.services.core import Service, save_beam_conditions
 from fibsem.structures import (
     ACTIVE_MILLING_STATES,
+    DRIVER_MILLING_SETTINGS,
     BeamType,
     FibsemBitmapSettings,
     FibsemCircleSettings,
@@ -162,7 +163,7 @@ class BeamMillingSettings(DriverMillingSettings):
 
 
 _SHARED_SETTINGS = frozenset(
-    f.name for f in fields(FibsemMillingSettings) if f.name != "driver_settings"
+    f.name for f in fields(FibsemMillingSettings) if f.name != "driver"
 )
 
 
@@ -207,7 +208,7 @@ class Milling(Service):
     stop_timeout: float = 30.0
 
     # What this driver's ``setup`` takes: the shared recipe fields it mills with
-    # and its own, which the recipe saves as ``<settings_prefix>.<field>``. A
+    # and its own, which the recipe saves in its block, ``driver[<settings_prefix>]``. A
     # driver sets both. ``setting_names`` is the class's fields, in order.
     settings_class: Type[DriverMillingSettings] = DriverMillingSettings
     settings_prefix: str = ""
@@ -224,23 +225,17 @@ class Milling(Service):
                 f"{cls.__name__} has settings of its own ({', '.join(own)}), so it "
                 f"needs a settings_prefix to save them under."
             )
+        if own:
+            DRIVER_MILLING_SETTINGS[cls.settings_prefix] = cls.settings_class
 
     # -- the recipe, as this driver reads it ----------------------------------------
 
     @classmethod
-    def setting_key(cls, name: str) -> str:
-        """The key the recipe keeps this driver's setting *name* under: a shared
-        field's own name, else the driver's prefix and the name (tescan.rate)."""
-        if name in _SHARED_SETTINGS:
-            return name
-        return f"{cls.settings_prefix}.{name}"
-
-    @classmethod
     def driver_settings(cls, settings: FibsemMillingSettings) -> DriverMillingSettings:
         """*settings* as this driver mills with them: its settings class, from the
-        recipe's shared fields and its own keys. A key the recipe doesn't have takes
+        recipe's shared fields and its own block. A key the recipe doesn't have takes
         the class's default."""
-        own = settings.driver_settings.get(cls.settings_prefix, {})
+        own = settings.driver.get(cls.settings_prefix, {})
         values: Dict[str, Any] = {}
         for name in cls.setting_names:
             if name in _SHARED_SETTINGS:
@@ -254,7 +249,7 @@ class Milling(Service):
         cls, settings: FibsemMillingSettings, driver: DriverMillingSettings
     ) -> FibsemMillingSettings:
         """*settings* with this driver's settings written back from *driver*; the
-        other drivers' keys and the fields this one doesn't use are kept."""
+        other drivers' blocks and the fields this one doesn't use are kept."""
         shared: Dict[str, Any] = {}
         own: Dict[str, Any] = {}
         for name in cls.setting_names:
@@ -263,12 +258,10 @@ class Milling(Service):
                 shared[name] = value
             else:
                 own[name] = value
-        driver_settings = {
-            prefix: dict(values) for prefix, values in settings.driver_settings.items()
-        }
+        blocks = {prefix: dict(block) for prefix, block in settings.driver.items()}
         if own:
-            driver_settings[cls.settings_prefix] = own
-        return dataclasses.replace(settings, **shared, driver_settings=driver_settings)
+            blocks[cls.settings_prefix] = own
+        return dataclasses.replace(settings, **shared, driver=blocks)
 
     def __init__(self, name: str = "milling", **kwargs: Any):
         super().__init__(name, **kwargs)
@@ -397,8 +390,7 @@ class Milling(Service):
     def schema_defs(self) -> Dict[str, Any]:
         """The recipe's JSON schema on this instrument (`fibsem.schema`), for the
         argument schemas of the commands that take one: the fields this driver
-        mills with on the ion beam, under the keys the recipe keeps them by
-        (tescan.rate), with the instrument's choices and limits; and whether to
+        mills with on the ion beam, its own under ``driver.<prefix>``, with the instrument's choices and limits; and whether to
         acquire images after. The fields it doesn't use are left out, as the
         milling form leaves them out."""
         from fibsem.schema import parameter_schema
@@ -407,11 +399,22 @@ class Milling(Service):
         specs = field_specs(self.settings_class)
         defs: Dict[str, Any] = {}
         properties: Dict[str, Any] = {}
+        own: Dict[str, Any] = {}
         for name in self.setting_names:
             if name not in supported:
                 continue
             spec = specs[name].with_reported(supported[name])
-            properties[self.setting_key(name)] = parameter_schema(spec, defs)
+            target = properties if name in _SHARED_SETTINGS else own
+            target[name] = parameter_schema(spec, defs)
+        if own:
+            properties["driver"] = {
+                "type": "object",
+                "description": f"This driver's own settings, under "
+                f"{self.settings_prefix}.",
+                "properties": {
+                    self.settings_prefix: {"type": "object", "properties": own}
+                },
+            }
         acquire = field_specs(FibsemMillingSettings)["acquire_images"]
         properties["acquire_images"] = parameter_schema(acquire, defs)
         defs["FibsemMillingSettings"] = {

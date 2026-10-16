@@ -144,7 +144,7 @@ def test_a_strategy_checkbox_edit_reaches_the_config(qapp):
 # --- milling settings ---------------------------------------------------------
 
 
-def test_a_driver_setting_edit_reaches_the_recipe_under_its_key(qapp, monkeypatch):
+def test_a_driver_setting_edit_reaches_the_recipe_in_its_block(qapp, monkeypatch):
     # Tescan's own settings (spot size, rate, ...) are number boxes, kept in the
     # recipe under the driver's prefix (FIB-1437)
     from fibsem import config as cfg
@@ -154,7 +154,7 @@ def test_a_driver_setting_edit_reaches_the_recipe_under_its_key(qapp, monkeypatc
         os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
     ).system
     tescan, _ = tescan_sdk.connect(monkeypatch, system)
-    settings = FibsemMillingSettings(driver_settings={"other.key": 1})
+    settings = FibsemMillingSettings(driver={"other": {"key": 1}})
     widget = FibsemMillingSettingsWidget(microscope=tescan, settings=settings)
     emitted = []
     widget.settings_changed.connect(emitted.append)
@@ -166,8 +166,8 @@ def test_a_driver_setting_edit_reaches_the_recipe_under_its_key(qapp, monkeypatc
 
     assert emitted
     recipe = emitted[-1]
-    assert recipe.get_driver_setting(f"tescan.{row.field}") == row.control.read()
-    assert recipe.get_driver_setting("other.key") == 1  # another driver's, kept
+    assert recipe.get_driver_setting("tescan", row.field) == row.control.read()
+    assert recipe.get_driver_setting("other", "key") == 1  # another driver's, kept
 
 
 def test_a_milling_settings_combo_edit_reaches_the_settings(qapp, microscope):

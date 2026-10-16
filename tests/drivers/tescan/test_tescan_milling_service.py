@@ -37,10 +37,8 @@ MILL_PRESET = "30 keV; 1 nA"
 
 
 def _recipe(**kwargs) -> FibsemMillingSettings:
-    """A recipe that mills at MILL_PRESET, kept under the Tescan driver's key."""
-    return FibsemMillingSettings(
-        driver_settings={"tescan.preset": MILL_PRESET}, **kwargs
-    )
+    """A recipe that mills at MILL_PRESET, kept in the Tescan driver's block."""
+    return FibsemMillingSettings(driver={"tescan": {"preset": MILL_PRESET}}, **kwargs)
 
 
 IMAGING_PRESET = "30 keV; 100 pA"
@@ -388,7 +386,7 @@ def test_only_the_ion_beam_mills(connect):
         )
 
 
-def test_the_agent_sees_tescan_settings_under_their_keys(connect):
+def test_the_agent_sees_tescan_settings_in_their_block(connect):
     from fibsem.schema import arguments_schema
 
     microscope, _ = connect()
@@ -396,7 +394,8 @@ def test_the_agent_sees_tescan_settings_under_their_keys(connect):
         type(microscope.milling).setup, microscope.milling.schema_defs()
     )
     recipe = schema["$defs"]["FibsemMillingSettings"]["properties"]
-    assert MILL_PRESET in recipe["tescan.preset"]["enum"]
-    assert "tescan.rate" in recipe
+    tescan = recipe["driver"]["properties"]["tescan"]["properties"]
+    assert MILL_PRESET in tescan["preset"]["enum"]
+    assert "rate" in tescan and "preset" not in recipe
     # the preset sets the current and voltage
     assert "milling_current" not in recipe and "milling_voltage" not in recipe

@@ -2193,13 +2193,10 @@ class FibsemPolygonSettings(FibsemPatternSettings):
         return width * height * self.depth
 
 
-# Saved before the driver keys had a prefix: the Tescan recipe fields, which were
-# top-level keys of every milling recipe. Loading a protocol written then moves
-# each one to the key the Tescan driver now saves it under.
-_UNPREFIXED_MILLING_KEYS = {
-    name: f"tescan.{name}"
-    for name in ("preset", "spot_size", "rate", "dwell_time", "spacing")
-}
+# Saved before each driver had its own block: the Tescan recipe fields, which
+# were top-level keys of every milling recipe. Loading a protocol written then
+# moves them into the Tescan driver's block.
+_TESCAN_MILLING_KEYS = ("preset", "spot_size", "rate", "dwell_time", "spacing")
 
 
 @dataclass
@@ -2211,12 +2208,10 @@ class FibsemMillingSettings:
     (current, voltage, application file, patterning mode). A driver declares its
     own settings class (`Milling.settings_class`) of the shared fields it uses,
     taken with `shared_milling_setting`, and its own fields, which are kept here
-    in ``driver_settings`` by driver prefix (``{"tescan": {"rate": ...}}``). Each
-    driver reads its own and keeps the others, so a recipe saved on one
-    instrument loads, and saves back unchanged, on another.
-
-    A dict is flat: the driver keys sit beside the shared ones, as
-    ``tescan.rate``, and a constructor given that key keeps it the same way.
+    in ``driver``, a block per driver by its prefix (``{"tescan": {"rate": ...}}``),
+    in memory and in the saved file alike. Each driver reads its own block and
+    keeps the others, so a recipe saved on one instrument loads, and saves back
+    unchanged, on another.
     """
 
     milling_channel: BeamType = field(
@@ -2277,11 +2272,12 @@ class FibsemMillingSettings:
             display=Display("Acquire Images", hidden=True),
         ),
     )
-    driver_settings: Dict[str, Dict[str, Any]] = field(
+    driver: Dict[str, Dict[str, Any]] = field(
         default_factory=dict,
         metadata=field_meta(
-            doc="Each driver's own settings, by its prefix and then by name "
-            "(tescan, rate). An instrument reads its driver's and keeps the rest.",
+            doc="Each driver's own settings: a block per driver, by its prefix "
+            "(tescan), of its settings by name. An instrument reads its driver's "
+            "block and keeps the rest.",
             display=Display("Driver Settings", hidden=True),
         ),
     )
@@ -2299,59 +2295,49 @@ class FibsemMillingSettings:
                 raise TypeError(
                     f"{name} must be a string, currently {type(value).__name__}"
                 )
-        nested: Dict[str, Dict[str, Any]] = {}
-        for prefix, value in self.driver_settings.items():
-            if "." in prefix:  # a saved key, tescan.rate
-                prefix, name = prefix.split(".", 1)
-                nested.setdefault(prefix, {})[name] = value
-            elif isinstance(value, dict):
-                nested.setdefault(prefix, {}).update(value)
-            else:
-                raise ValueError(
-                    f"A driver setting is kept under its driver's prefix, as "
-                    f"tescan.rate; got {prefix!r}"
+        for prefix, block in self.driver.items():
+            if not isinstance(block, dict):
+                raise TypeError(
+                    f"driver[{prefix!r}] is a driver's block of settings by name, "
+                    f"as {{'rate': 1.3e-8}}; got {block!r}"
                 )
-        self.driver_settings = nested
 
-    def get_driver_setting(self, key: str, default: Any = None) -> Any:
-        """The driver setting saved as *key* (tescan.rate), or *default*."""
-        prefix, name = key.split(".", 1)
-        return self.driver_settings.get(prefix, {}).get(name, default)
+    def get_driver_setting(self, prefix: str, name: str, default: Any = None) -> Any:
+        """The setting *name* in the *prefix* driver's block, or *default*."""
+        return self.driver.get(prefix, {}).get(name, default)
 
-    def set_driver_setting(self, key: str, value: Any) -> None:
-        """Keep *value* as the driver setting saved as *key* (tescan.rate)."""
-        prefix, name = key.split(".", 1)
-        self.driver_settings.setdefault(prefix, {})[name] = value
+    def set_driver_setting(self, prefix: str, name: str, value: Any) -> None:
+        """Keep *value* as the setting *name* in the *prefix* driver's block."""
+        self.driver.setdefault(prefix, {})[name] = value
 
     def to_dict(self) -> dict:
         settings_dict: Dict[str, Any] = {
-            f.name: getattr(self, f.name)
-            for f in fields(self)
-            if f.name != "driver_settings"
+            f.name: getattr(self, f.name) for f in fields(self) if f.name != "driver"
         }
         settings_dict["milling_channel"] = self.milling_channel.name
-        for prefix, own in self.driver_settings.items():
-            for name, value in own.items():
-                settings_dict[f"{prefix}.{name}"] = value
+        if self.driver:
+            settings_dict["driver"] = {
+                prefix: dict(block) for prefix, block in self.driver.items()
+            }
         return settings_dict
 
     @staticmethod
     def from_dict(settings: dict) -> "FibsemMillingSettings":
         # a key left out takes the field's default, so each default is said once
-        values: Dict[str, Any] = {}
-        driver_settings: Dict[str, Any] = {}
-        names = {f.name for f in fields(FibsemMillingSettings)}
-        for key, value in settings.items():
-            key = _UNPREFIXED_MILLING_KEYS.get(key, key)
-            if "." in key:
-                driver_settings[key] = value
-            elif key in names and key != "driver_settings":
-                values[key] = value
+        names = {f.name for f in fields(FibsemMillingSettings)} - {"driver"}
+        values = {key: value for key, value in settings.items() if key in names}
+        driver = {
+            prefix: dict(block)
+            for prefix, block in (settings.get("driver") or {}).items()
+        }
+        for name in _TESCAN_MILLING_KEYS:
+            if name in settings:
+                driver.setdefault("tescan", {}).setdefault(name, settings[name])
         if "milling_channel" in values:
             values["milling_channel"] = BeamType[values["milling_channel"]]
         if "hfw" in values:
             values["hfw"] = float(values["hfw"])
-        return FibsemMillingSettings(**values, driver_settings=driver_settings)
+        return FibsemMillingSettings(**values, driver=driver)
 
     @property
     def field_specs(self) -> Dict[str, Parameter]:
@@ -2387,7 +2373,7 @@ def shared_milling_setting(name: str) -> Any:
             milling_current: float = shared_milling_setting("milling_current")
     """
     shared = {f.name: f for f in fields(FibsemMillingSettings)}
-    shared.pop("driver_settings")
+    shared.pop("driver")
     if name not in shared:
         raise ValueError(
             f"{name!r} is not a shared milling setting; those are "
@@ -2397,6 +2383,30 @@ def shared_milling_setting(name: str) -> Any:
     if f.default_factory is not MISSING:
         return field(default_factory=f.default_factory, metadata=f.metadata)
     return field(default=f.default, metadata=f.metadata)
+
+
+# Each driver's own milling settings class, by the prefix its block in the recipe is
+# saved under (tescan). A driver's Milling service registers it as it is defined.
+DRIVER_MILLING_SETTINGS: Dict[str, type] = {}
+
+
+def driver_milling_field(prefix: str, name: str) -> Any:
+    """The field the driver saving its block under *prefix* declares for its own
+    setting *name*. Raises KeyError if no such driver or setting is known."""
+    cls = DRIVER_MILLING_SETTINGS.get(prefix)
+    if cls is None:
+        raise KeyError(
+            f"{prefix!r} is not a driver with milling settings of its own; "
+            f"known: {sorted(DRIVER_MILLING_SETTINGS)}"
+        )
+    shared = {f.name for f in fields(FibsemMillingSettings)}
+    own = {f.name: f for f in fields(cls) if f.name not in shared}
+    if name not in own:
+        raise KeyError(
+            f"{name!r} is not a setting of the {prefix} driver; its settings: "
+            f"{sorted(own)}"
+        )
+    return own[name]
 
 
 # The axes a device is allowed to constrain.

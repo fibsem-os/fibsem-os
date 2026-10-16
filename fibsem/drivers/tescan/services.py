@@ -505,7 +505,7 @@ class TescanSpotBurn(SpotBurn):
             milling_channel=BeamType.ION,
             hfw=ion.hfw.get_value(),
             patterning_mode="Serial",
-            driver_settings={TescanMilling.setting_key("preset"): SPOT_BURN_PRESET},
+            driver={TescanMilling.settings_prefix: {"preset": SPOT_BURN_PRESET}},
         )
         self.parent.milling.setup(recipe, name="SpotBurn")
 

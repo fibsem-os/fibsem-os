@@ -123,7 +123,7 @@ class MillingStageRowWidget(QWidget):
         strategy_names: List[str],
         current_values: Optional[List[float]] = None,
         preset_values: Optional[List[str]] = None,
-        preset_key: Optional[str] = None,
+        preset_driver: Optional[str] = None,
         enabled: bool = True,
         parent: Optional[QWidget] = None,
     ) -> None:
@@ -137,10 +137,10 @@ class MillingStageRowWidget(QWidget):
         self._strategy_names = strategy_names
         self._current_values = current_values or []
         self._preset_values = preset_values or []
-        # The recipe key a backend that mills by preset keeps it under
-        # (tescan.preset); None mills by current.
-        self._preset_key = preset_key
-        self._show_preset = preset_key is not None
+        # The driver block a backend that mills by preset keeps it in (tescan);
+        # None mills by current.
+        self._preset_driver = preset_driver
+        self._show_preset = preset_driver is not None
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(4, 3, 4, 3)
@@ -187,8 +187,8 @@ class MillingStageRowWidget(QWidget):
         _preset_items = (
             self._preset_values
             if self._preset_values
-            else [stage.milling.get_driver_setting(preset_key)]
-            if preset_key is not None
+            else [stage.milling.get_driver_setting(preset_driver, "preset")]
+            if preset_driver is not None
             else []
         )
         self.preset_combo = ValueComboBox(items=_preset_items)
@@ -367,15 +367,15 @@ class MillingStageRowWidget(QWidget):
 
     def _preset(self) -> Optional[str]:
         """The stage's preset, on a backend that mills by preset; else None."""
-        if self._preset_key is None:
+        if self._preset_driver is None:
             return None
-        return self.stage.milling.get_driver_setting(self._preset_key)
+        return self.stage.milling.get_driver_setting(self._preset_driver, "preset")
 
     def _on_preset_changed(self) -> None:
         new_preset = self.preset_combo.value()
-        if self._preset_key is None or new_preset in (None, self._preset()):
+        if self._preset_driver is None or new_preset in (None, self._preset()):
             return
-        self.stage.milling.set_driver_setting(self._preset_key, new_preset)
+        self.stage.milling.set_driver_setting(self._preset_driver, "preset", new_preset)
         self.stage_changed.emit(self.stage)
 
     def _on_strategy_changed(self) -> None:
@@ -486,7 +486,7 @@ class MillingStageListWidget(QWidget):
         self,
         current_values: Optional[List[float]] = None,
         preset_values: Optional[List[str]] = None,
-        preset_key: Optional[str] = None,
+        preset_driver: Optional[str] = None,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
@@ -498,8 +498,8 @@ class MillingStageListWidget(QWidget):
         self._strategy_names: List[str] = get_strategy_names()
         self._current_values: List[float] = current_values or []
         self._preset_values: List[str] = preset_values or []
-        self._preset_key: Optional[str] = preset_key
-        self._show_preset: bool = preset_key is not None
+        self._preset_driver: Optional[str] = preset_driver
+        self._show_preset: bool = preset_driver is not None
         self._show_pattern: bool = False
 
         layout = QVBoxLayout(self)
@@ -583,7 +583,7 @@ class MillingStageListWidget(QWidget):
             strategy_names=self._strategy_names,
             current_values=self._current_values,
             preset_values=self._preset_values,
-            preset_key=self._preset_key,
+            preset_driver=self._preset_driver,
             enabled=enabled,
         )
         row.pattern_combo.setVisible(self._show_pattern)
@@ -752,7 +752,7 @@ class MillingStageListWidget(QWidget):
                 strategy_names=self._strategy_names,
                 current_values=self._current_values,
                 preset_values=self._preset_values,
-                preset_key=self._preset_key,
+                preset_driver=self._preset_driver,
                 enabled=enabled,
             )
             row.pattern_combo.setVisible(self._show_pattern)
