@@ -34,6 +34,8 @@ missing_module = "fibsem_test_plugin.nonexistent:Whatever"
 # A driver entry point names a function returning a DriverEntry, not a class.
 [project.entry-points."fibsem.drivers"]
 fixture_driver = "fibsem_test_plugin.drivers:fixture_driver"
+# Builds a device and no microscope, as a scan generator's plugin does.
+fixture_device_driver = "fibsem_test_plugin.drivers:fixture_device_driver"
 # Claims a built-in driver's manufacturer on purpose; the built-in must still win.
 clashing_driver = "fibsem_test_plugin.drivers:clashing_driver"
 # Returns the class path instead of a record, the likeliest mistake.

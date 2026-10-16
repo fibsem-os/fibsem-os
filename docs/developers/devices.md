@@ -804,7 +804,8 @@ every parameter read and checked against its own limits and choices. A driver ad
 steps for `SETTINGS` and `ACQUIRE` by overriding it, calling `super()` first, and
 putting each step in `report.step(...)`; `check_round_trip` changes a setting, reads
 it back and puts it back. No step may move anything, and each puts back what it
-changes. The fake scanner's checks its gain and scans one small frame.
+changes. The fake scanner in
+[fibsem-plugin-example](https://github.com/fibsem-os/fibsem-plugin-example) checks its gain and scans one small frame.
 
 A driver like this one, that only builds devices, has no `microscope_class`. It is
 never offered as a manufacturer, and connecting with it as `info.manufacturer` is
@@ -881,8 +882,8 @@ for that type, when the plugin is installed there too:
 ```python
 DriverEntry(
     manufacturer="FakeScan",
-    devices={"scan_generator": DeviceBuilder("fibsem_fake_scanner.devices:build_fake_scanner")},
-    remote_devices={"scan_generator": "fibsem_fake_scanner.remote:RemoteFakeScanner"},
+    devices={"scan_generator": DeviceBuilder("fibsem_plugin_example.scanner.devices:build_fake_scanner")},
+    remote_devices={"scan_generator": "fibsem_plugin_example.scanner.remote:RemoteFakeScanner"},
 )
 ```
 
@@ -892,7 +893,7 @@ can't drift: `class RemoteFakeScanner(RemoteScanner, FakeScanUnit)`. A command o
 driver's own runs on the server through `call_command`. Without the plugin on the
 coordinator, the entry is the type's interface class, with a warning naming what is not
 available; a type fibsem has no interface for is then not built.
-`examples/plugins/fibsem-fake-scanner` does both.
+The fake scanner in [fibsem-plugin-example](https://github.com/fibsem-os/fibsem-plugin-example) does both.
 
 On the unit's computer, `python -m fibsem.server.devices --config devices.yaml` serves
 what the file's `hardware.devices` lists, in the same shape as a microscope
