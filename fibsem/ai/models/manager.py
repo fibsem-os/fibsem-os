@@ -248,6 +248,8 @@ def _load(entry: ModelEntry, card: ModelCard, source: str, settings: Dict) -> Mo
     backend = backend_class()
     device = "cpu"
     backend.load(entry.ref, card, config, device)
+    # A framework backend picks the GPU when there is one: it says which it took.
+    device = getattr(backend, "device", device)
     return Model(entry, card, source, backend, config, device)
 
 

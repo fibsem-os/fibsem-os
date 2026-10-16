@@ -47,7 +47,9 @@ Homepage = "https://github.com/fibsem-os/fibsem-os"
 "Bug Tracker" = "https://github.com/fibsem-os/fibsem-os/issues"
 
 [project.optional-dependencies]
-ml = [
+# The models (fibsem.ai, the segmentation and detection models). `ml` was its
+# name before; it stays as an alias so existing installs keep working.
+ai = [
     "tqdm>=4.65.0",
     "zarr>=2.13.6",
     "dask>=2023.3.0",
@@ -58,6 +60,7 @@ ml = [
     "kaleido==0.2.0",
     "transformers>=4.36.2",
 ]
+ml = ["fibsem[ai]"]
 # The application UI. napari is NOT here any more: since #778 the main window
 # imports none of it, and it costs ~100 packages and 116 MB. It lives in
 # [labelling] below, for the two widgets that still draw with it.
@@ -73,10 +76,10 @@ odemis = ["pylibtiff", "shapely"]
 
 # Image labelling and model-assisted segmentation (`fibsem_label`,
 # FibsemLabellingUI, FibsemSegmentationModelWidget) -- the one part of the tree
-# that still draws in napari (FIB-407). Pulls in [ui] for Qt and [ml] for the
+# that still draws in napari (FIB-407). Pulls in [ui] for Qt and [ai] for the
 # models, since the labelling UI imports torch at module level.
 labelling = [
-    "fibsem[ui,ml]",
+    "fibsem[ui,ai]",
     "napari>=0.5.1,<=0.5.6", # NumPy 2 well supported from 0.5.1
 ]
 

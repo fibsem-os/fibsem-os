@@ -7,7 +7,11 @@ A backend loads one model and turns an image into a mask; the manager
 from typing import Dict, Type
 
 from fibsem.ai.models.backends.fake import FakeSegmentationModel
+from fibsem.ai.models.backends.nnunet import NnunetModel
+from fibsem.ai.models.backends.smp import SmpModel
 
+# Importing a backend imports no framework: each one imports its own when a
+# model loads, and asks whether its packages are there without importing them.
 BACKENDS: Dict[str, Type] = {
-    FakeSegmentationModel.name: FakeSegmentationModel,
+    backend.name: backend for backend in (FakeSegmentationModel, NnunetModel, SmpModel)
 }
