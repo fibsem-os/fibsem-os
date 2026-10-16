@@ -562,7 +562,7 @@ class FMControlWidget(QWidget):
         * `state == "moving"` -- nothing has emitted a stage move on this signal since
           the workflow emits were deleted in step 1 of this issue. The two remaining
           `state: "moving"` sites in `fm/acquisition.py` belong to the tileset runner
-          and go to `tiled_acquisition_signal`.
+          and go to the imaging service's `tiled_progress`.
         * `state == "autofocus"` -- the sweep-start announcement, deleted in this stack.
           It set "Running Autofocus…" and reset the bar, and the per-step report that
           arrives microseconds later overwrote both with something strictly better,

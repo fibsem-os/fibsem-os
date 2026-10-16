@@ -30,9 +30,11 @@ import math
 import os
 import re
 import sys
+from contextvars import ContextVar
 from typing import Annotated, Any, List, Optional, Tuple
 from urllib.parse import quote, urlencode
 
+from fibsem.server.calls import headers_for
 from fibsem.server.catalog import CATALOG, route_call, tools_for_capabilities
 
 _TIMEOUT_S = 120.0  # acquisitions and moves on real hardware are slow
@@ -280,6 +282,11 @@ def _probe(client_factory, url, token):
         client.close()
 
 
+# The tool running and its arguments, for the server's words (`_flag_failures`).
+_calling: "ContextVar[Optional[Tuple[str, dict]]]" = ContextVar(
+    "fibsem_mcp_calling", default=None
+)
+
 # fibsem.structures.MillingState by value, without importing it: the sidecar
 # stays light. tests/server/test_sidecar.py pins the two in step.
 _MILLING_STATES = ("IDLE", "RUNNING", "STOPPING", "PAUSED", "ERROR", "UNKNOWN")
@@ -308,8 +315,13 @@ def _call(client, method, path, payload=None):
     403 teaches them nothing. A server error comes back as a `_Failure`: it
     says "failed", not "refused", because the call may have done part of its work.
     """
+    kwargs = {"json": payload}
+    tool = _calling.get()
+    if tool is not None and method != "GET":
+        # The server describes the call for the operator from these (FIB-1426).
+        kwargs["headers"] = headers_for(*tool)
     try:
-        resp = client.request(method, path, json=payload)
+        resp = client.request(method, path, **kwargs)
     except ServerUnreachable as exc:
         return None, str(exc)
     if resp.status_code >= 400:
@@ -468,7 +480,11 @@ def build_sidecar(client, capabilities):
         }
 
     def milling_estimate_time():
-        return _service_call("milling_estimate_time", {}, "seconds")
+        # Answers seconds, milling_current and warning itself.
+        data, err = _call(
+            client, "POST", by_name["milling_estimate_time"].path, {"kwargs": {}}
+        )
+        return err if err else data["result"]
 
     def milling_preview_patterns(image_path: str, stages: Optional[list] = None):
         return _routed("milling_preview_patterns", image_path=image_path, stages=stages)
@@ -612,8 +628,20 @@ def build_sidecar(client, capabilities):
     def beam_auto_contrast(beam_type: str = "ELECTRON"):
         return _routed("beam_auto_contrast", beam_type=beam_type)
 
-    def beam_auto_focus(beam_type: str = "ELECTRON"):
-        return _routed("beam_auto_focus", "result", beam_type=beam_type)
+    def beam_auto_focus(
+        beam_type: str = "ELECTRON",
+        method: str = "sweep",
+        hfw: Optional[float] = None,
+        settings: Optional[dict] = None,
+    ):
+        return _routed(
+            "beam_auto_focus",
+            "result",
+            beam_type=beam_type,
+            method=method,
+            hfw=hfw,
+            settings=settings,
+        )
 
     def fm_auto_focus(channel_name: Optional[str] = None, path: Optional[str] = None):
         return _routed("fm_auto_focus", "run", channel_name=channel_name, path=path)
@@ -1064,7 +1092,11 @@ def build_sidecar(client, capabilities):
         return _app_post("/app/workflow/decide", body)
 
     def prompt_suggest_answer(
-        response: bool, question_id: int, reason: str, value: Optional[dict] = None
+        response: bool,
+        question_id: int,
+        reason: str,
+        value: Optional[dict] = None,
+        image: Optional[str] = None,
     ):
         body = {
             "response": bool(response),
@@ -1073,6 +1105,8 @@ def build_sidecar(client, capabilities):
         }
         if value is not None:
             body["value"] = dict(value)
+        if image:
+            body["image"] = str(image)
         return _app_post("/app/workflow/prompt/suggest", body)
 
     def prompt_answer(response: bool, question_id: int, value: Optional[dict] = None):
@@ -1202,7 +1236,7 @@ def build_sidecar(client, capabilities):
         if name in offered:
             spec = by_name[name]
             mcp.add_tool(
-                _described(_flag_failures(fn), spec.params),
+                _described(_flag_failures(fn, name), spec.params),
                 name=name,
                 title=spec.title,
                 description=spec.full_description,
@@ -1240,23 +1274,29 @@ def _described(fn, params):
     return fn
 
 
-def _flag_failures(fn):
+def _flag_failures(fn, name=None):
     """*fn*, with a server error it answers (`_Failure`) raised as the MCP
     ToolError, so the call is flagged an error rather than read as a refusal.
     Any other exception is raised as a ToolError carrying its type and message:
-    the SDK would otherwise tell the agent only "Error executing tool X"."""
+    the SDK would otherwise tell the agent only "Error executing tool X".
+
+    While it runs, its acting calls name the tool *name* and its arguments to
+    the server (`_call`)."""
     import functools
 
     from mcp.server.mcpserver.exceptions import ToolError
 
     @functools.wraps(fn)
     def tool(*args, **kwargs):
+        token = _calling.set((name, kwargs) if name else None)
         try:
             answer = fn(*args, **kwargs)
         except ToolError:
             raise
         except Exception as exc:
             raise ToolError(f"{type(exc).__name__}: {exc}") from exc
+        finally:
+            _calling.reset(token)
         if isinstance(answer, _Failure):
             raise ToolError(str(answer))
         return answer

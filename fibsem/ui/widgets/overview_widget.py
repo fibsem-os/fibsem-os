@@ -568,7 +568,7 @@ class FibsemOverviewWidget(QWidget):
     # step, and never from `set_aligned_image_display`.
     image_display_changed = pyqtSignal(str)
 
-    # Internal hops from a worker thread to the GUI thread. `tiled_acquisition_signal`
+    # Internal hops from a worker thread to the GUI thread. `imaging.tiled_progress`
     # and `stage_position_changed` are psygnals, which call their callbacks
     # synchronously on whichever thread emitted -- during a run, the acquisition
     # worker. Touching widgets from there is a cross-thread GUI access; re-emitting as
@@ -679,7 +679,8 @@ class FibsemOverviewWidget(QWidget):
         # weakref it, cannot match it at disconnect time -- and says nothing when the
         # disconnect therefore removes nothing. Emitting into a widget Qt had already
         # torn down was a segfault.
-        self.microscope.tiled_acquisition_signal.connect(self._on_progress)
+        if self.microscope.imaging is not None:
+            self.microscope.imaging.tiled_progress.connect(self._on_progress)
         self.microscope.stage_position_changed.connect(self._on_stage_signal)
         self.microscope.holder_changed.connect(self._on_holder_changed)
 
@@ -4274,11 +4275,15 @@ class FibsemOverviewWidget(QWidget):
         # objects that `close` has already torn down on the C++ side, so the next emit
         # writes into freed memory. Closing the tab and then moving the stage from
         # anywhere else in the application was a hard segfault, not an exception.
-        for signal, slot in (
-            (self.microscope.tiled_acquisition_signal, self._on_progress),
+        subscriptions = [
             (self.microscope.stage_position_changed, self._on_stage_signal),
             (self.microscope.holder_changed, self._on_holder_changed),
-        ):
+        ]
+        if self.microscope.imaging is not None:
+            subscriptions.append(
+                (self.microscope.imaging.tiled_progress, self._on_progress)
+            )
+        for signal, slot in subscriptions:
             try:
                 signal.disconnect(slot)
             except (TypeError, RuntimeError, ValueError, KeyError):

@@ -1,11 +1,12 @@
 """What a tiled acquisition says about itself while it runs.
 
-`FibsemMicroscope.tiled_acquisition_signal` is shared by the beam tiler and the
-fluorescence tileset runner. It used to carry a bare dict with no declared shape, so
-every consumer worked out what it had received from which keys happened to be present.
-That held while `imaging.tiled` was the only emitter; with a second producer the same
-key came to mean different things depending on who sent it, which is the root of
-FIB-736 and FIB-739.
+The imaging service's ``tiled_progress`` signal is shared by the beam tiler and the
+fluorescence tileset runner, which report on it through `report_tiled_progress`. It
+used to carry a bare dict with no declared shape, so every consumer worked out what
+it had received from which keys happened to be present. That held while
+`imaging.tiled` was the only emitter; with a second producer the same key came to
+mean different things depending on who sent it, which is the root of FIB-736 and
+FIB-739.
 
 `TiledProgress` is the whole contract, and `TiledStatus` is the whole vocabulary.
 
@@ -33,13 +34,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Optional, Tuple, Union
 
 if TYPE_CHECKING:
     # Annotation-only, so this module stays free of a runtime dependency on either image
-    # type. `fibsem.microscope` imports it to type the signal, and it is imported in turn
-    # by both producers -- a runtime import here would put `fibsem.fm.structures` in the
-    # path of every one of them for a name that is never called.
+    # type. `fibsem.services.imaging` imports it to type the signal, and it is
+    # imported in turn by both producers -- a runtime import here would put
+    # `fibsem.fm.structures` in the path of every one of them for a name that is
+    # never called.
     from fibsem.fm.structures import FluorescenceImage
     from fibsem.structures import FibsemImage
 
@@ -54,6 +56,7 @@ __all__ = [
     "MODALITY_FLUORESCENCE",
     "TiledStatus",
     "TiledProgress",
+    "report_tiled_progress",
 ]
 
 
@@ -186,3 +189,12 @@ class TiledProgress:
         if self.row_index is None or self.column_index is None:
             return None
         return self.row_index + 1, self.column_index + 1
+
+
+def report_tiled_progress(microscope: Any, progress: TiledProgress) -> None:
+    """Report tile progress on the microscope's imaging service
+    (``microscope.imaging.tiled_progress``). A microscope with no beam has no imaging
+    service, so its fluorescence overview reports to no one."""
+    imaging = microscope.imaging
+    if imaging is not None:
+        imaging.tiled_progress.emit(progress)

@@ -36,6 +36,8 @@ from typing import (
     Union,
 )
 
+from psygnal import Signal
+
 if TYPE_CHECKING:
     from fibsem.imaging.tiling.result import OverviewResult
 
@@ -68,6 +70,7 @@ from fibsem.fm.structures import (
     OverviewParameters,
     ZParameters,
 )
+from fibsem.imaging.tiling.progress import TiledProgress
 from fibsem.services.core import Service, save_beam_conditions
 from fibsem.structures import (
     BeamType,
@@ -107,6 +110,11 @@ class Imaging(Service):
     electron = Role(Beam, required=False, doc="The electron beam.")
     ion = Role(Beam, required=False, doc="The ion beam.")
     fm = Role(FM, required=False, doc="The fluorescence microscope.")
+
+    # Tile progress (`TiledProgress`) from a beam or fluorescence tiled overview,
+    # however it was started: each tile, the stitch, and how the run ended. Emitted
+    # on the acquiring thread. A Signal, not a Parameter: it carries a preview image.
+    tiled_progress = Signal(TiledProgress)
 
     def __init__(self, name: str = "imaging", **kwargs: Any):
         super().__init__(name, **kwargs)
@@ -403,15 +411,21 @@ class Imaging(Service):
         stop_event: Optional[Union[threading.Event, AnyStopEvent]] = None,
         path: Optional[str] = None,
         name: str = "autofocus",
-    ) -> Optional[AutoFocusResult]:
+    ) -> Union[AutoFocusResult, Dict[str, Any], None]:
         """Focus ``beam_type`` by sweeping its working distance and scoring an image
-        at each step (`fibsem.autofunctions.autofocus.run_auto_focus`).
+        at each step (`fibsem.autofunctions.autofocus.run_auto_focus`). The result
+        has each step's working distance and score, the one it moved to, and
+        ``at_edge`` when the best score was at an end of the range searched.
 
         ``hfw`` is the probe images' field of view, the beam's own when None. A
         ``stop_event`` set, or ``stop`` called, while it runs puts the working
         distance back and raises `OperationCancelledError`. Given a ``path``, the
-        result is saved to ``<path>/<name>``. None when the beam's working distance
-        can't be set, so there was nothing to sweep.
+        result is saved to ``<path>/<name>``.
+
+        Where the beam's working distance can't be set (Tescan's ion beam), there
+        is nothing to sweep: the beam's own autofocus runs instead, and the answer
+        says so (``focused_with: instrument``, the ``reason`` and the working
+        distance after). None when the beam has no autofocus either.
         """
         from fibsem.autofunctions.autofocus import run_auto_focus
 
@@ -420,7 +434,7 @@ class Imaging(Service):
             hfw = beam.hfw.get_value()
         events = [e for e in (stop_event, self._stop_requested) if e is not None]
         with self._routine():
-            return run_auto_focus(
+            result = run_auto_focus(
                 self.parent,
                 beam_type=beam_type,
                 hfw=hfw,
@@ -429,6 +443,18 @@ class Imaging(Service):
                 path=path,
                 name=name,
             )
+        if result is not None or not beam.commands["auto_focus"].available:
+            return result
+        reduced_area = settings.reduced_area if settings is not None else None
+        beam.auto_focus(reduced_area)
+        return {
+            "focused_with": "instrument",
+            "reason": (
+                f"The {beam_type.name} beam's working distance can't be set on "
+                "this system, so its own autofocus ran instead of the sweep."
+            ),
+            "working_distance": beam.working_distance.get_value(),
+        }
 
     def _has_fm(self) -> bool:
         return "fm" in self._roles

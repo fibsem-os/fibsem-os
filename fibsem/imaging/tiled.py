@@ -40,6 +40,7 @@ from fibsem.imaging.tiling.progress import (
     MODALITY_BEAM,
     TiledProgress,
     TiledStatus,
+    report_tiled_progress,
 )
 from fibsem.imaging.tiling.registration import (
     Registration,
@@ -216,14 +217,15 @@ class TiledAcquisitionRunner:
         both "stopped".
         """
         total_tiles = self.settings.n_enabled_tiles
-        self.microscope.tiled_acquisition_signal.emit(
+        report_tiled_progress(
+            self.microscope,
             TiledProgress(
                 status=status,
                 modality=MODALITY_BEAM,
                 completed=getattr(self, "_n_tiles_acquired", 0),
                 total=total_tiles,
                 error=error,
-            )
+            ),
         )
 
     def run_and_stitch(self) -> FibsemImage:
@@ -301,13 +303,14 @@ class TiledAcquisitionRunner:
         self.result.settings = self.settings.to_dict()
 
         # notify the UI immediately so the progress bar appears before the first move
-        self.microscope.tiled_acquisition_signal.emit(
+        report_tiled_progress(
+            self.microscope,
             TiledProgress(
                 status=TiledStatus.STARTING,
                 modality=MODALITY_BEAM,
                 completed=0,
                 total=self.settings.n_enabled_tiles,
-            )
+            ),
         )
 
     def _compute_grid(self) -> None:
@@ -558,8 +561,8 @@ class TiledAcquisitionRunner:
         # What the layout check found, and what `register_tiles` did, once stitched.
         self.layout_warning: Optional[str] = None
         # Measures how far apart neighbouring tiles really are, from the pictures, as
-        # they arrive. It only reports (`_report_layout`); the canvas is painted from
-        # the plan either way.
+        # they arrive. It only reports (`OverviewResult.report_layout`); the
+        # canvas is painted from the plan either way.
         self._layout_check: Optional[TileLayoutCheck] = TileLayoutCheck(
             {(t.row, t.col): (t.canvas_y, t.canvas_x) for t in self._ordered}
         )
@@ -615,7 +618,8 @@ class TiledAcquisitionRunner:
             if self.settings.register_tiles:
                 self._kept_tiles[(tile.row, tile.col)] = image.filtered_data
             self._n_tiles_acquired += 1
-            self.microscope.tiled_acquisition_signal.emit(
+            report_tiled_progress(
+                self.microscope,
                 TiledProgress(
                     status=TiledStatus.TILE_COLLECTED,
                     modality=MODALITY_BEAM,
@@ -636,7 +640,7 @@ class TiledAcquisitionRunner:
                     preview=self._preview_image(),
                     completed=self._n_tiles_acquired,
                     total=total_tiles,
-                )
+                ),
             )
 
     def _acquire_tile(self, tile: TilePosition) -> FibsemImage:
@@ -655,15 +659,15 @@ class TiledAcquisitionRunner:
         if self._first_image is None:
             raise ValueError("No tiles were acquired; cannot stitch.")
 
-        signal = self.microscope.tiled_acquisition_signal
         total_tiles = self.settings.n_enabled_tiles
-        signal.emit(
+        report_tiled_progress(
+            self.microscope,
             TiledProgress(
                 status=TiledStatus.STITCHING,
                 modality=MODALITY_BEAM,
                 completed=total_tiles,
                 total=total_tiles,
-            )
+            ),
         )
         # The metadata `_compute_grid` built, not a patched copy of the first tile's.
         # deepcopy so the stitched image gets its own snapshot rather than sharing the
@@ -690,14 +694,15 @@ class TiledAcquisitionRunner:
         self.result.image = image
         self.result.mosaic_path = image.filepath or filename
         self.layout_warning = self.result.report_layout(self._layout_check)
-        signal.emit(
+        report_tiled_progress(
+            self.microscope,
             TiledProgress(
                 status=TiledStatus.FINISHED,
                 modality=MODALITY_BEAM,
                 completed=total_tiles,
                 total=total_tiles,
                 warning=self.layout_warning,
-            )
+            ),
         )
         return image
 

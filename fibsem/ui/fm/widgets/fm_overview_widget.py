@@ -331,17 +331,19 @@ class FMOverviewWidget(QWidget):
         self._tile_progress_received.connect(self._apply_tile_progress)
         self._fm_progress_received.connect(self._apply_fm_progress)
         # Two scales, two signals, two handlers. The tileset -- tile n of N, the mosaic
-        # so far, and how the run ended -- reports on `tiled_acquisition_signal` beside
-        # the beam tiler's, because it is the same event (FIB-725). The work *inside* a
-        # tile stays on the detector's own progress signal, which is where a z-stack, a
-        # channel acquisition and an autofocus sweep report from whether or not a
-        # tileset is running.
+        # so far, and how the run ended -- reports on the imaging service's
+        # `tiled_progress` beside the beam tiler's, because it is the same event
+        # (FIB-725). The work *inside* a tile stays on the detector's own progress
+        # signal, which is where a z-stack, a channel acquisition and an autofocus
+        # sweep report from whether or not a tileset is running.
         #
         # They were briefly merged into one slot that sorted them back apart by `task`.
         # Sorting a stream that arrived already sorted is work with a failure mode and
         # no benefit: a payload reaching the wrong bar is a mislabelled run, and the
         # only thing keeping them apart was a vocabulary neither producer declares.
-        self.microscope.tiled_acquisition_signal.connect(self._on_tile_progress)
+        # On the imaging service, which a microscope with no beam doesn't have.
+        if self.microscope.imaging is not None:
+            self.microscope.imaging.tiled_progress.connect(self._on_tile_progress)
         self.fm.acquisition_progress_signal.connect(self._on_fm_progress)
         self._stage_moved.connect(self._on_stage_moved)
         # A plain bound method, not `self._stage_moved.emit`, matching how the progress
@@ -3062,10 +3064,8 @@ class FMOverviewWidget(QWidget):
         # objects that `close` has already torn down on the C++ side, so the next emit
         # writes into freed memory. Closing the tab and then moving the stage from
         # anywhere else in the application was a hard segfault, not an exception.
-        for signal, slot in (
+        subscriptions = [
             (self.fm.acquisition_progress_signal, self._on_fm_progress),
-            # Subscribed since FIB-725 and never in this list either.
-            (self.microscope.tiled_acquisition_signal, self._on_tile_progress),
             (self.microscope.stage_position_changed, self._on_stage_signal),
             (self.fm.objective.position_changed, self._on_objective_moved),
             # Subscribed since FIB-441 and never in this list, though the comment above
@@ -3073,7 +3073,13 @@ class FMOverviewWidget(QWidget):
             (self.fm.acquiring_changed, self._on_fm_acquiring_signal),
             (self.fm.transform_changed, self._on_transform_changed),
             (self.microscope.holder_changed, self._on_holder_changed),
-        ):
+        ]
+        # Subscribed since FIB-725, on the imaging service when there is one.
+        if self.microscope.imaging is not None:
+            subscriptions.append(
+                (self.microscope.imaging.tiled_progress, self._on_tile_progress)
+            )
+        for signal, slot in subscriptions:
             try:
                 signal.disconnect(slot)
             except (TypeError, RuntimeError, ValueError, KeyError):

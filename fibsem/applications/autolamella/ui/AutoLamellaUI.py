@@ -2921,6 +2921,11 @@ class AutoLamellaUI(QMainWindow):
         the agent. False when it had gone."""
         return self.ui_responder.take_suggestion()
 
+    def dismiss_suggestion(self, reason: str = "") -> bool:
+        """The operator declines the agent's suggestion, with why if they
+        like; the question stays up. False when it had gone."""
+        return self.ui_responder.dismiss_suggestion(reason)
+
     def push_interaction_button(self):
         """Handle the user interaction with the workflow."""
         self.pushButton_yes.setEnabled(False)

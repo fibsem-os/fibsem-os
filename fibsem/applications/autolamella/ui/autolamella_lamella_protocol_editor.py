@@ -37,7 +37,7 @@ from fibsem.applications.autolamella.structures import (
 )
 from fibsem.applications.autolamella.task_outputs import (
     lamella_images,
-    latest_final_reference_images,
+    latest_task_image,
 )
 from fibsem.applications.autolamella.ui.autolamella_apply_protocol_dialog import (
     ApplyLamellaConfigDialog,
@@ -1541,18 +1541,8 @@ class AutoLamellaProtocolEditorWidget(QWidget):
     @staticmethod
     def _latest_task_image(lamella: Lamella, suffix: str) -> str:
         """The last completed task's most zoomed final image ending in
-        ``suffix``, from its latest run, relative to the lamella folder; empty
-        when it left none. The run's record says which, wherever it saved
-        them (FIB-1275)."""
-        task = lamella.last_completed_task
-        if task is None:
-            return ""
-        finals = [
-            f
-            for f in latest_final_reference_images(lamella, task.name)
-            if f.endswith(suffix)
-        ]
-        return os.path.relpath(finals[-1], lamella.path) if finals else ""
+        ``suffix``; empty when it left none (`latest_task_image`)."""
+        return latest_task_image(lamella, suffix)
 
     @staticmethod
     def _image_path(lamella: Lamella, filename: str) -> str:

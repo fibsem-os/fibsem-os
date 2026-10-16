@@ -209,7 +209,7 @@ def test_a_suggested_point_is_previewed_and_accepted_on_one_frame(window, ui, qa
         responder = ui.ui_responder
         _, question_id = responder.pending_question_and_id()
         responder._apply_agent_suggestion(
-            True, question_id, suggested, "the cell", Future()
+            True, question_id, suggested, "the cell", None, Future()
         )
         assert ui.suggestion_shown["point"] == pytest.approx(_pixel(old, suggested))
 

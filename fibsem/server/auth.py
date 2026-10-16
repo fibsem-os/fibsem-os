@@ -37,6 +37,7 @@ from fastapi import HTTPException, Request
 
 from fibsem.acting import AGENT, current_actor
 from fibsem.control import MicroscopeBusy
+from fibsem.server.calls import current_call
 
 # Re-exported: AgentLevel lives where the GUI can import it without FastAPI.
 from fibsem.server.levels import AgentLevel
@@ -337,6 +338,15 @@ def action_name(request: Request) -> str:
     return words[-1] if words else request.url.path
 
 
+def described_action(request: Request) -> str:
+    """The agent's call as the line an operator reads (FIB-1426): its tool and
+    arguments described as a request's card says them, else :func:`action_name`."""
+    call = current_call()
+    if call is not None and call.action:
+        return call.action
+    return action_name(request)
+
+
 def take_control(request: Request):
     """Take control of the microscope for this request (FIB-1270), or 409.
 
@@ -349,7 +359,7 @@ def take_control(request: Request):
     request borrows it.
     """
     control = request.app.state.microscope.control
-    taking = control.take(current_actor() or AGENT, action_name(request))
+    taking = control.take(current_actor() or AGENT, described_action(request))
     try:
         taking.__enter__()
     except MicroscopeBusy as busy:
