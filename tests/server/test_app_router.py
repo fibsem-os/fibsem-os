@@ -1095,6 +1095,20 @@ def test_a_pose_is_set_from_the_stage_and_moved_back_to(driver, host, microscope
     assert name in unknown.json()["detail"]["item_names"]
 
 
+def test_a_pose_is_not_set_from_the_stage_while_a_run_is_on(driver, host):
+    """The run moves the stage, so the pose would be wherever it left it."""
+    name = host.experiment.positions[0].name
+    before = host.experiment.get_lamella_by_name(name).milling_pose
+    host.is_workflow_running = True
+    try:
+        refused = driver.post(f"/app/experiment/items/{name}/poses/MILLING")
+        assert refused.status_code == 409
+        assert refused.json()["detail"]["error_type"] == "task_running"
+    finally:
+        host.is_workflow_running = False
+    assert host.experiment.get_lamella_by_name(name).milling_pose is before
+
+
 def test_an_item_is_removed_but_not_while_a_run_is_on(driver, host):
     host.experiment.add_new_lamella(MicroscopeState(), EventedDict(), name="spare")
     host.is_workflow_running = True

@@ -419,7 +419,9 @@ operator changes it (the Agent chip for the level; Tools → App Server,
 way in. A hardware tool missing from your tool list means the same thing.
 
 **Get your bearings once, before the first move.** On an instrument you
-have not used this session:
+have not used this session (every read here works at Watch):
+- `microscope_get_info` says which microscope it is: manufacturer, model,
+  software version and the optional hardware fitted.
 - `device_list` shows what it has: the beams, detectors, stage and an FM.
 - Read `device_get_parameter` `on` for the electron and ion beams. If one is off,
   stop and tell the operator: switching a beam on is theirs. Note it if a
@@ -430,6 +432,13 @@ have not used this session:
   axis makes, and which way raw +z goes. If a view says
   `scan_rotation_handled: false`, its image axes are not the stage's: don't
   `stage_stable_move` from it.
+- `grid_get_holder_slots` gives each holder slot's stage position and its
+  calibration. A slot whose `position` is null is not calibrated, or was
+  calibrated against a pre-tilt or rotation reference the system no longer
+  has. Say which slots are not calibrated: the operator calibrates them with
+  the app's wizard, never you, and nothing moves to an uncalibrated slot.
+- `grid_get_inventory` and `grid_get_current` say which grid is on the stage
+  and whether the stage is at a slot.
 - `microscope_get_state` gives each beam's voltage, current, working
   distance and scan rotation, the detectors' type and mode, and the stage
   position. Say what you read, and anything that looks wrong for the task
