@@ -2079,6 +2079,7 @@ NOT_TOOLS: Dict[str, str] = {
     "GET /health": "Open liveness check, no token; the agent's first read is server_get_capabilities.",
     "GET /dashboard": "The operator's monitor page, HTML.",
     "GET /dashboard/log": "The operator's event log page, HTML; app_get_events is the agent's read.",
+    "POST /app/experiment/evidence": "Every acting tool's evidence argument: the sidecar keeps it here first, then the call cites it.",
     "GET /app/events/history": "The event log page's read of the run before the live buffer; an agent reads a finished run from its experiment folder.",
     "GET /microscope/devices/{device}": "device_list carries every device's description.",
     "GET /microscope/devices/{device}/{parameter}/metadata": "device_list carries limits, choices and settable.",

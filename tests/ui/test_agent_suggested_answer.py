@@ -79,11 +79,13 @@ def _spin_until(qapp, predicate, timeout_s=10.0):
         time.sleep(0.01)
 
 
-def _post(qapp, client, path, body):
+def _post(qapp, client, path, body, headers=None):
     posted = {}
 
     def do_post():
-        posted["response"] = client.post(path, headers=AUTH, json=body)
+        posted["response"] = client.post(
+            path, headers={**AUTH, **(headers or {})}, json=body
+        )
 
     threading.Thread(target=do_post, daemon=True).start()
     _spin_until(qapp, lambda: "response" in posted)
@@ -269,25 +271,31 @@ def test_a_suggestion_needs_a_live_question_a_reason_and_the_agent_acting(
     thread.join(timeout=5)
 
 
-def test_a_suggestion_carries_the_image_its_evidence_is_in(
+def test_a_suggestion_cites_the_evidence_it_rests_on(
     ui, qapp, auth, tmp_path, monkeypatch
 ):
-    """FIB-1424: as a request does, a suggestion names the image the agent
-    judged on, inside the experiment; the card shows it."""
+    """As a request does, a suggestion cites the agent's evidence, kept in the
+    experiment; the card shows it."""
     monkeypatch.setattr(
         AutoLamellaAppContext, "experiment_path", property(lambda self: str(tmp_path))
     )
     inside = tmp_path / "ref_setup_ib.tif"
     inside.write_bytes(b"tif")
-    outside = tmp_path.parent / "elsewhere.tif"
-    outside.write_bytes(b"tif")
     app = build_server(ui.microscope, app_context=AutoLamellaAppContext(ui), auth=auth)
     events = _record(ui)
     with TestClient(app, raise_server_exceptions=False) as client:
         thread, outcome = _ask_on_worker(ui, qapp)
         question_id = ui.ui_responder.pending_question_and_id()[1]
+        kept = _post(
+            qapp,
+            client,
+            "/app/experiment/evidence",
+            {"text": "centred in both beams", "image": str(inside)},
+        )
+        assert kept.status_code == 200, kept.text
+        evidence_id = kept.json()["evidence_id"]
 
-        def suggest(image):
+        def suggest(cited):
             return _post(
                 qapp,
                 client,
@@ -296,19 +304,16 @@ def test_a_suggestion_carries_the_image_its_evidence_is_in(
                     "response": True,
                     "question_id": question_id,
                     "reason": "centred in both beams",
-                    "image": image,
                 },
+                headers={"X-Agent-Evidence": cited},
             )
 
-        refused = suggest(str(outside))
-        assert refused.status_code == 403
-        assert refused.json()["detail"]["error_type"] == "not_allowed"
-        missing = suggest(str(tmp_path / "none.tif"))
-        assert missing.json()["detail"]["error_type"] == "invalid"
-        assert suggest(str(inside)).status_code == 200
-        assert ui.ui_responder.suggestion[4] == str(inside)
+        assert suggest("00000000").status_code == 404
+        assert suggest(evidence_id).status_code == 200
+        assert ui.ui_responder.suggestion[4]["evidence_id"] == evidence_id
+        assert ui.suggestion_shown["evidence"]["image"] == str(inside.resolve())
         suggested = [p for kind, p, _ in events if kind == "prompt_suggested"]
-        assert suggested[-1]["image"] == str(inside)
+        assert suggested[-1]["evidence"] == evidence_id
         assert ui.take_suggestion() is True
         _spin_until(qapp, lambda: "answer" in outcome or "error" in outcome)
         thread.join(timeout=5)
