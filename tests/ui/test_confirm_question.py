@@ -25,7 +25,7 @@ pytest.importorskip("PyQt5")
 
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
 from fibsem.applications.autolamella.workflows.ui import ask_user
-from fibsem.workflows.run_status import Hold, HoldKind
+from fibsem.workflows.status import Hold, HoldKind
 
 
 @pytest.fixture

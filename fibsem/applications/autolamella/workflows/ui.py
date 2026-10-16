@@ -27,7 +27,7 @@ from fibsem.structures import (
     ImageSettings,
     Point,
 )
-from fibsem.workflows.run_status import WorkflowStatusEvent
+from fibsem.workflows.status import WorkflowStatusEvent
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI

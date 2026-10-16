@@ -16,7 +16,7 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
-from fibsem.workflows.run_status import Hold, HoldKind
+from fibsem.workflows.status import Hold, HoldKind
 
 
 @pytest.fixture
@@ -36,7 +36,7 @@ def ui(qapp):
 
 
 def _status_event(msg="", workflow_info=None):
-    from fibsem.workflows.run_status import (
+    from fibsem.workflows.status import (
         WorkflowStatusEvent,
     )
 

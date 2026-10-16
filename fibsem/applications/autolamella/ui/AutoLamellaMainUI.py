@@ -153,13 +153,13 @@ from fibsem.workflows.queue import (
     QueueOp,
     QueueResult,
 )
-from fibsem.workflows.run_status import (
+from fibsem.workflows.status import (
     Hold,
     HoldKind,
+    TaskStatus,
     WorkflowStatusEvent,
     WorkflowStatusUpdate,
 )
-from fibsem.workflows.status import TaskStatus
 
 # How wide the experiment name button in the tab corner is allowed to grow. Wide
 # enough that a default name -- "AutoLamella-" plus a date stamp -- is never elided;

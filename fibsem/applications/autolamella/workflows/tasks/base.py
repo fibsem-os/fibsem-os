@@ -132,8 +132,7 @@ from fibsem.structures import (
     Point,
 )
 from fibsem.util.timestamps import now, now_iso
-from fibsem.workflows.run_status import take_back_finish
-from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.status import TaskStatus, take_back_finish
 
 if TYPE_CHECKING:
     from fibsem.alignment import AlignmentResult

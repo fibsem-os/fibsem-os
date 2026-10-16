@@ -55,8 +55,7 @@ from fibsem.structures import (
     MicroscopeState,
     Point,
 )
-from fibsem.workflows.run_status import HoldKind
-from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.status import HoldKind, TaskStatus
 
 TASK = "Mill Undercut"
 RUN = "run-1"

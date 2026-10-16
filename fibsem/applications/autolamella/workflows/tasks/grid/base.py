@@ -44,8 +44,7 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.applications.autolamella.workflows.tasks.proposing import settle
 from fibsem.cancellation import OperationCancelledError
 from fibsem.util.timestamps import now, now_iso
-from fibsem.workflows.run_status import take_back_finish
-from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.status import TaskStatus, take_back_finish
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment

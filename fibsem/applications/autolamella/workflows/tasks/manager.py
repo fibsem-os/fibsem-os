@@ -20,14 +20,14 @@ from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import InsertableDeviceState
 from fibsem.util.durations import format_duration_precise, format_duration_rounded
 from fibsem.workflows.queue import TaskQueue, WorkItem
-from fibsem.workflows.run_status import (
+from fibsem.workflows.status import (
     Hold,
     HoldKind,
+    TaskStatus,
     WorkflowStatusEvent,
     WorkflowStatusUpdate,
     take_back_finish,
 )
-from fibsem.workflows.status import TaskStatus
 
 # Exactly one of these ends every run (FIB-1327).
 _RUN_ENDS = frozenset(

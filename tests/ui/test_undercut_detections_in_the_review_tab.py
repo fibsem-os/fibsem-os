@@ -49,8 +49,7 @@ from fibsem.applications.autolamella.workflows.tasks.undercut import (
     MillUndercutTaskConfig,
 )
 from fibsem.structures import FibsemImage, Point
-from fibsem.workflows.run_status import HoldKind
-from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.status import HoldKind, TaskStatus
 
 UNDERCUT = "Mill Undercut"
 CHECKPOINT = "autolamella-waffle-20240107.pt"

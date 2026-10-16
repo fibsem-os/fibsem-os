@@ -64,7 +64,7 @@ from fibsem.applications.autolamella.workflows.question_adapters import (
     proposal_for,
 )
 from fibsem.structures import BeamType
-from fibsem.workflows.run_status import (
+from fibsem.workflows.status import (
     Hold,
     HoldKind,
     WorkflowStatusEvent,

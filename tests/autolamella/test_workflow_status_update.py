@@ -13,8 +13,7 @@ import pathlib
 import pytest
 
 from fibsem.workflows.queue import WorkItem
-from fibsem.workflows.run_status import WorkflowStatusUpdate
-from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.status import TaskStatus, WorkflowStatusUpdate
 
 
 class TestTheDecodeIsTotal:
