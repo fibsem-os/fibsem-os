@@ -1233,6 +1233,41 @@ def test_the_border_is_the_agent_s_purple_while_it_drives(main_ui, host):
     main_ui._set_border_state("idle")
 
 
+def test_the_agent_s_workflow_stop_turns_the_border_red(main_ui, qapp):
+    """The agent's workflow_stop goes through the app's own stop, from the App
+    Server's thread, and the border shows stopping as for the operator's Stop."""
+    import threading
+
+    from fibsem.applications.autolamella.server import AutoLamellaAppContext
+
+    class _Running:
+        def is_alive(self):
+            return True
+
+    ui = main_ui.autolamella_ui
+    previous = ui._task_worker_thread
+    ui._task_worker_thread = _Running()
+    main_ui._set_border_state("automated")
+    answers = []
+    try:
+        context = AutoLamellaAppContext(ui)
+        server = threading.Thread(
+            target=lambda: answers.append(context.stop_workflow())
+        )
+        server.start()
+        server.join(timeout=5)
+        # Painted on the GUI thread, not the server's: nothing until it runs.
+        assert main_ui._border_frame.property("borderState") == "automated"
+        qapp.processEvents()
+        assert answers == [{"available": True, "stopped": True}]
+        assert main_ui._border_frame.property("borderState") == "stopping"
+    finally:
+        ui._task_worker_thread = previous
+        ui._workflow_stop_event.clear()
+        main_ui._border_state = None
+        main_ui._set_border_state("idle")
+
+
 def test_the_coincidence_viewer_follows_the_border_switch(
     main_ui, tmp_path, monkeypatch
 ):

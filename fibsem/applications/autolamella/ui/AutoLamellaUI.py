@@ -198,6 +198,10 @@ class AutoLamellaUI(QMainWindow):
     queue_changed_signal = pyqtSignal(dict)
     step_update_signal = pyqtSignal(str)  # emits human-readable step label
     _workflow_finished_signal = pyqtSignal(bool)
+    # A stop was asked of the running workflow, by anyone: the operator's Stop,
+    # the agent's workflow_stop (from the App Server's thread), closing the
+    # window. The window shows "stopping" until the run has unwound.
+    workflow_stopping_signal = pyqtSignal()
     experiment_update_signal = pyqtSignal()
     _hook_toast_signal = pyqtSignal(
         str, str
@@ -2215,6 +2219,7 @@ class AutoLamellaUI(QMainWindow):
         if not self.is_workflow_running:
             return
         self._stop_workflow_thread()
+        self.workflow_stopping_signal.emit()
 
     def stop_current_task(self) -> None:
         """Abandon the task now running and carry on with the rest of the queue.

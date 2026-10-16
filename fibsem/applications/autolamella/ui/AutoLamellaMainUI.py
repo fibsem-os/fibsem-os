@@ -1668,8 +1668,14 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         )
         if reply == QMessageBox.Yes and self.autolamella_ui is not None:
             self._record_operator_stop("workflow", "Stop")
+            # The border goes red on workflow_stopping_signal, as for any stop.
             self.autolamella_ui.stop_task_workflow()
-            self._set_border_state("stopping")
+
+    def _on_workflow_stopping(self) -> None:
+        """A stop was asked of the run, from any source. A bound method rather
+        than a lambda, so a stop from the App Server's thread is delivered on
+        this window's (GUI) thread."""
+        self._set_border_state("stopping")
 
     def _listen_for_questions(self, experiment) -> None:
         """A question a task asks mid-run (``AutoLamellaTask.ask``) is answered
@@ -2328,6 +2334,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.autolamella_ui._workflow_finished_signal.connect(
             self._on_workflow_finished
         )
+        # Red while a stop unwinds, whoever asked for it (the agent's too).
+        self.autolamella_ui.workflow_stopping_signal.connect(self._on_workflow_stopping)
         # A grid task records its overview as it finishes, and says so in a status.
         self.autolamella_ui.workflow_status_signal.connect(self._refresh_quad_overviews)
         self.autolamella_ui._workflow_finished_signal.connect(
