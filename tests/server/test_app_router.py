@@ -1149,7 +1149,7 @@ def test_position_edits_need_drive(client, host):
 
 def test_thickness_reads_a_saved_fib_image_over_http_and_mcp(client, host):
     """FIB-1434: the band measured off an item's saved FIB image, around its
-    POI, by the route and by the Watch tool, with the edges drawn on a preview."""
+    POI, by the route and by the Watch tool, with the result's plot."""
     pytest.importorskip("mcp")
     from fibsem.applications.autolamella.structures import AutoLamellaTaskState
     from fibsem.mcp.sidecar import build_sidecar
@@ -1176,11 +1176,14 @@ def test_thickness_reads_a_saved_fib_image_over_http_and_mcp(client, host):
     answer = client.get(route, headers=AUTH).json()
     assert answer["thickness_nm"]["mean"] == pytest.approx(235, abs=10)
     assert answer["angle_deg"] == pytest.approx(0.6, abs=0.05)
+    # This item has no trench patterns, so the window is the default.
     assert answer["window_um"] == [10.0, 4.0]
-    assert answer["preview"]["image_b64_jpeg"]
+    assert answer["window_from"] == "default"
+    assert answer["plot"]["image_b64_jpeg"]
 
     narrow = client.get(route, params={"width_um": 5}, headers=AUTH).json()
     assert narrow["continuity"]["columns"] == 512
+    assert narrow["window_from"] == "given"
 
     unknown = client.get(
         f"/app/experiment/items/{lamella.name}/outputs/nope.tif/thickness",
@@ -1206,4 +1209,33 @@ def test_thickness_reads_a_saved_fib_image_over_http_and_mcp(client, host):
     assert any(getattr(c, "type", None) == "image" for c in contents)
     text = json.loads(contents[0].text)
     assert text["thickness_nm"]["mean"] == pytest.approx(235, abs=10)
-    assert text["preview"]["image_index"] == 0
+    assert text["plot"]["image_index"] == 0
+
+
+def test_the_thickness_window_comes_from_the_trench_patterns():
+    """Along: nine tenths of the narrowest trench pattern; across: the widest
+    gap (the rough slab) and half a micron into each trench."""
+    from types import SimpleNamespace
+
+    from fibsem.applications.autolamella.server.context import _trench_window
+    from fibsem.milling.patterning.patterns.trench import TrenchPattern
+
+    def task(sync, *patterns):
+        stages = [SimpleNamespace(pattern=p) for p in patterns]
+        return SimpleNamespace(
+            sync_to_poi=sync, milling={"mill": SimpleNamespace(stages=stages)}
+        )
+
+    rough = TrenchPattern(width=12e-6, spacing=2e-6)
+    polish = TrenchPattern(width=10e-6, spacing=0.25e-6)
+    lamella = SimpleNamespace(
+        task_config={
+            "Rough Milling": task(True, rough),
+            "Polishing": task(True, polish),
+            "Elsewhere": task(False, TrenchPattern(width=1e-6, spacing=9e-6)),
+        }
+    )
+    width, height = _trench_window(lamella)
+    assert width == pytest.approx(9e-6)
+    assert height == pytest.approx(3e-6)
+    assert _trench_window(SimpleNamespace(task_config={})) is None

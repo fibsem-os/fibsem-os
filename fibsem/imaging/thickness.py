@@ -43,8 +43,10 @@ Region = Union[FibsemRectangle, Point, None]
 
 
 @dataclass
-class LamellaBandMeasurement:
-    """The band, column by column, and what follows from it.
+class LamellaThicknessResult:
+    """The band, column by column, and what follows from it: the numbers
+    (:meth:`to_dict`), the diagnostic plot (:meth:`plot`), and both on disk
+    (:meth:`save`, :meth:`load`), as an autofocus result keeps its run.
 
     Pixel quantities are in the source image's pixels, origin top-left, +y down.
     ``top`` and ``bottom`` are the half-maximum edges of each column of
@@ -61,6 +63,9 @@ class LamellaBandMeasurement:
     bottom: np.ndarray
     band_level: float  # mean brightness inside the band
     trench_level: float  # mean brightness of the darkest trench pixels
+    # The searched region of the image, as it was measured (before averaging):
+    # what the plot draws the edges on, and what save writes as window.tif.
+    window: Optional[np.ndarray] = None
 
     @property
     def measured(self) -> np.ndarray:
@@ -184,6 +189,161 @@ class LamellaBandMeasurement:
         answer["resolution"] = resolution
         return answer
 
+    def plot(self, save_path: Optional[str] = None):
+        """The diagnostic figure: the window with the band's edges on it, and
+        the thickness along the lamella under it. Saved to ``save_path`` when
+        given; the figure is returned either way."""
+        from fibsem.theme.plots import DARK, plot_theme
+
+        with plot_theme(DARK) as theme:
+            fig = _plot_thickness(self, theme)
+            if save_path is not None:
+                fig.savefig(save_path, dpi=120, bbox_inches="tight")
+        return fig
+
+    def plot_jpeg(self) -> bytes:
+        """The figure as JPEG bytes, for an answer that carries it."""
+        import io
+
+        from fibsem.theme.plots import DARK, plot_theme
+
+        buf = io.BytesIO()
+        with plot_theme(DARK) as theme:
+            _plot_thickness(self, theme).savefig(
+                buf, format="jpeg", dpi=100, pil_kwargs={"quality": 85}
+            )
+        return buf.getvalue()
+
+    def save(self, path: str = ".", name: str = "thickness"):
+        """Save the result to ``<path>/<name>/``: ``data.json`` (the numbers and
+        each column's edges), ``window.tif`` (the region measured) and
+        ``plot.png``. Returns the folder."""
+        import json
+        from pathlib import Path
+
+        from fibsem.structures import save_tiff
+
+        folder = Path(path) / name
+        folder.mkdir(parents=True, exist_ok=True)
+        data = {
+            **self.to_dict(),
+            "data": {
+                "pixel_size": self.pixel_size,
+                "image_width": self.image_width,
+                "region": list(self.region),
+                "reference": list(self.reference),
+                "top": [None if math.isnan(v) else float(v) for v in self.top],
+                "bottom": [None if math.isnan(v) else float(v) for v in self.bottom],
+                "band_level": self.band_level,
+                "trench_level": self.trench_level,
+            },
+        }
+        with open(folder / "data.json", "w") as f:
+            json.dump(data, f, indent=2)
+        if self.window is not None:
+            save_tiff(self.window, folder / "window.tif")
+        self.plot(save_path=str(folder / "plot.png"))
+        return folder
+
+    @classmethod
+    def load(cls, folder: str) -> "LamellaThicknessResult":
+        """A result :meth:`save` wrote."""
+        import json
+        from pathlib import Path
+
+        from fibsem.structures import load_tiff
+
+        folder = Path(folder)
+        with open(folder / "data.json") as f:
+            data = json.load(f)["data"]
+        x0, _, x1, _ = data["region"]
+        window = folder / "window.tif"
+        return cls(
+            pixel_size=data["pixel_size"],
+            image_width=data["image_width"],
+            region=tuple(data["region"]),
+            reference=tuple(data["reference"]),
+            columns=np.arange(x0, x1),
+            top=np.array([np.nan if v is None else v for v in data["top"]]),
+            bottom=np.array([np.nan if v is None else v for v in data["bottom"]]),
+            band_level=data["band_level"],
+            trench_level=data["trench_level"],
+            window=load_tiff(window) if window.exists() else None,
+        )
+
+
+def _plot_thickness(result: LamellaThicknessResult, theme):
+    from matplotlib.figure import Figure
+
+    x0, y0, x1, y1 = result.region
+    um = result.pixel_size * 1e6
+    along = (result.columns - x0) * um  # um along the window
+    measured = result.measured
+    answer = result.to_dict()
+
+    fig = Figure(figsize=(7.5, 5.0), layout="constrained")
+    top_ax, profile_ax = fig.subplots(
+        2, 1, sharex=True, gridspec_kw={"height_ratios": [1, 1.2]}
+    )
+    if result.window is not None:
+        top_ax.imshow(
+            result.window,
+            cmap="gray",
+            aspect="auto",
+            extent=(0, (x1 - x0) * um, (y1 - y0) * um, 0),
+        )
+    top_edge = np.where(measured, result.top - y0, np.nan) * um
+    bottom_edge = np.where(measured, result.bottom - y0, np.nan) * um
+    top_ax.plot(along, top_edge, color=theme.series[0], lw=1)
+    top_ax.plot(along, bottom_edge, color=theme.series[1], lw=1)
+    for first, last in result.gaps():
+        for ax in (top_ax, profile_ax):
+            ax.axvspan(
+                (first - x0) * um, (last + 1 - x0) * um, color=theme.bad, alpha=0.3
+            )
+    top_ax.set_ylabel("across (um)")
+    top_ax.set_title("Band edges at half maximum", fontsize=9)
+
+    thick = np.where(
+        measured, (result.bottom - result.top) * result.pixel_size * 1e9, np.nan
+    )
+    profile_ax.plot(along, thick, color=theme.series[2], lw=1, label="per column")
+    stats = answer.get("thickness_nm")
+    if stats:
+        profile_ax.axhline(
+            stats["mean"],
+            color=theme.text_muted,
+            ls="--",
+            lw=1,
+            label=f"mean {stats['mean']:.0f} nm",
+        )
+        edges = np.linspace(0, (x1 - x0) * um, 4)
+        for (lo, hi), value in zip(zip(edges[:-1], edges[1:]), answer["thirds_nm"]):
+            if value is not None:
+                profile_ax.hlines(value, lo, hi, color=theme.series[3], lw=2)
+        profile_ax.plot([], [], color=theme.series[3], lw=2, label="thirds")
+        title = (
+            f"{stats['mean']:.0f} ± {answer['uncertainty_nm']:.0f} nm "
+            f"({stats['min']:.0f}-{stats['max']:.0f}), "
+            f"wedge {answer.get('wedge', {}).get('across_band_nm', 0):.0f} nm, "
+            f"angle {answer['angle_deg']:.2f}°, "
+            f"dropped {answer['continuity']['dropped']}/{answer['continuity']['columns']}"
+        )
+        if answer["resolution"]["under_resolved"]:
+            title += f"; band {answer['resolution']['band_px']:.0f} px: under-resolved"
+        profile_ax.set_title(title, fontsize=9)
+        # At least two pixels either side of the mean, so pixel-level noise on
+        # an even band does not fill the axis.
+        two_px = 2 * answer["uncertainty_nm"]
+        profile_ax.set_ylim(
+            min(stats["min"], stats["mean"] - two_px) - 5,
+            max(stats["max"], stats["mean"] + two_px) + 5,
+        )
+        profile_ax.legend(fontsize=7, loc="best")
+    profile_ax.set_xlabel("along the lamella (um)")
+    profile_ax.set_ylabel("thickness (nm)")
+    return fig
+
 
 def _nm(value) -> float:
     return round(float(value), 1) + 0.0  # no -0.0
@@ -286,7 +446,7 @@ def measure_lamella_band(
     region: Region = None,
     window: Tuple[float, float] = DEFAULT_WINDOW,
     average_along: float = DEFAULT_AVERAGE_ALONG,
-) -> LamellaBandMeasurement:
+) -> LamellaThicknessResult:
     """Measure the bright lamella band of a FIB image, column by column.
 
     The band runs across the image, as AutoLamella mills it. ``region`` limits the
@@ -350,7 +510,7 @@ def measure_lamella_band(
     ]
     band_level = float(np.concatenate(band).mean()) if band else math.nan
     trench_level = float(np.nanmean(trench[ok])) if ok.any() else math.nan
-    return LamellaBandMeasurement(
+    return LamellaThicknessResult(
         pixel_size=pixel_size,
         image_width=data.shape[1],
         region=(x0, y0, x1, y1),
@@ -360,28 +520,5 @@ def measure_lamella_band(
         bottom=bottom + y0,
         band_level=band_level,
         trench_level=trench_level,
+        window=np.asarray(image.data)[y0:y1, x0:x1].copy(),
     )
-
-
-def draw_band_edges(image: FibsemImage, measurement: LamellaBandMeasurement):
-    """The searched region of *image* as RGB, with the band's edges drawn on it:
-    what the measurement saw, for a person or an agent to check."""
-    from fibsem.imaging.drawing import _ensure_rgb
-
-    x0, y0, x1, y1 = measurement.region
-    crop = np.asarray(image.data[y0:y1, x0:x1], dtype=float)
-    lo, hi = float(crop.min()), float(crop.max())
-    scaled = (crop - lo) / (hi - lo) * 255 if hi > lo else np.zeros_like(crop)
-    rgb = _ensure_rgb(scaled.astype(np.uint8)).copy()
-    # Each edge is a line just outside the band, so the band itself stays in
-    # view; thick enough to survive the preview's downscale.
-    line = max(1, (x1 - x0) // 256)
-    for i, ok in enumerate(measurement.measured):
-        if not ok:
-            rgb[:, i] = (rgb[:, i] * 0.5 + np.array([128, 0, 0])).astype(np.uint8)
-            continue
-        top = int(math.floor(measurement.top[i])) - y0
-        bottom = int(math.ceil(measurement.bottom[i])) - y0
-        rgb[max(0, top - line + 1) : top + 1, i] = (0, 255, 255)
-        rgb[bottom : bottom + line, i] = (255, 0, 255)
-    return rgb

@@ -213,6 +213,27 @@ def _rendered_preview(path: str, filename: str, max_width: int) -> Dict[str, Any
     }
 
 
+def _trench_window(lamella):
+    """The window to measure a lamella's band in, from its own trench patterns
+    (those that follow its POI): along the lamella, nine tenths of the
+    narrowest pattern, so the trench ends stay out; across it, the widest
+    gap between trenches (the rough slab) and half a micron into each trench.
+    None when it has no trench pattern."""
+    widths, gaps = [], []
+    for config in lamella.task_config.values():
+        if not getattr(config, "sync_to_poi", False):
+            continue
+        for milling in (getattr(config, "milling", None) or {}).values():
+            for stage in milling.stages:
+                pattern = stage.pattern
+                if hasattr(pattern, "spacing") and hasattr(pattern, "width"):
+                    widths.append(pattern.width)
+                    gaps.append(pattern.spacing)
+    if not widths:
+        return None
+    return 0.9 * min(widths), max(gaps) + 1e-6
+
+
 def find_item(experiment, item_name: str):
     """The item named *item_name*, and None; or None and why not, in the words
     every route refuses an unknown item with, and the names there are. Each
@@ -827,17 +848,13 @@ class AutoLamellaAppContext:
         The bright band between the trenches, measured column by column at half
         its peak brightness (:func:`fibsem.imaging.thickness.measure_lamella_band`)
         in a window around the item's POI: ``width_um`` along the lamella,
-        ``height_um`` across it. Reads the file only. The answer carries a preview
-        of the window with the band's edges drawn.
+        ``height_um`` across it, each by default from the item's own trench
+        patterns (:func:`_trench_window`). Reads the file only. The answer
+        carries the result's diagnostic plot.
         """
         import base64
 
-        from fibsem.imaging.thickness import (
-            DEFAULT_WINDOW,
-            draw_band_edges,
-            measure_lamella_band,
-        )
-        from fibsem.server.images import preview_jpeg_bytes
+        from fibsem.imaging.thickness import DEFAULT_WINDOW, measure_lamella_band
         from fibsem.structures import BeamType, FibsemImage, Point
 
         experiment = self._experiment
@@ -859,29 +876,28 @@ class AutoLamellaAppContext:
                 "error_type": "invalid",
                 "error": f"{filename!r} is an SEM image; the band is read off a FIB image.",
             }
+        default, source = _trench_window(lamella), "patterns"
+        if default is None:
+            default, source = DEFAULT_WINDOW, "default"
         window = (
-            DEFAULT_WINDOW[0] if width_um is None else width_um * 1e-6,
-            DEFAULT_WINDOW[1] if height_um is None else height_um * 1e-6,
+            default[0] if width_um is None else width_um * 1e-6,
+            default[1] if height_um is None else height_um * 1e-6,
         )
+        if width_um is not None or height_um is not None:
+            source = "given"
         poi = lamella.poi if lamella.poi is not None else Point(0, 0)
         try:
-            measurement = measure_lamella_band(image, poi, window)
+            result = measure_lamella_band(image, poi, window)
         except ValueError as exc:
             return {"error_type": "invalid", "error": str(exc)}
-        jpeg, width, height = preview_jpeg_bytes(
-            draw_band_edges(image, measurement), max_width=512
-        )
         return {
             "item_name": item_name,
             "filename": filename,
             "poi": {"x": poi.x, "y": poi.y},
             "window_um": [round(window[0] * 1e6, 3), round(window[1] * 1e6, 3)],
-            **measurement.to_dict(),
-            "preview": {
-                "image_b64_jpeg": base64.b64encode(jpeg).decode(),
-                "width": width,
-                "height": height,
-            },
+            "window_from": source,
+            **result.to_dict(),
+            "plot": {"image_b64_jpeg": base64.b64encode(result.plot_jpeg()).decode()},
         }
 
     # --- grids: the screening read model (FIB-876) ----------------------------

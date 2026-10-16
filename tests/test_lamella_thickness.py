@@ -11,7 +11,7 @@ import pytest
 
 from fibsem.imaging.thickness import (
     MIN_BAND_PX,
-    draw_band_edges,
+    LamellaThicknessResult,
     measure_lamella_band,
 )
 from fibsem.structures import FibsemImage, FibsemRectangle, Point
@@ -100,9 +100,20 @@ def test_a_hole_is_dropped_and_named():
     assert first == pytest.approx(700, abs=1) and last == pytest.approx(719, abs=1)
     assert answer["thickness_nm"]["mean"] == pytest.approx(235, abs=10)
 
-    preview = draw_band_edges(band_image(235, hole=(700, 719)), measurement)
-    x0, y0, x1, y1 = measurement.region
-    assert preview.shape == (y1 - y0, x1 - x0, 3)
+
+def test_the_result_plots_saves_and_loads(tmp_path):
+    """As an autofocus result does: the numbers, a diagnostic plot, and both on
+    disk to read back."""
+    result = measure_lamella_band(band_image(235, hole=(700, 719)), Point(0, 0))
+    x0, y0, x1, y1 = result.region
+    assert result.window.shape == (y1 - y0, x1 - x0)
+    assert result.plot_jpeg()[:2] == b"\xff\xd8"  # JPEG magic
+
+    folder = result.save(str(tmp_path), "thickness")
+    assert {p.name for p in folder.iterdir()} == {"data.json", "window.tif", "plot.png"}
+    loaded = LamellaThicknessResult.load(folder)
+    assert loaded.to_dict() == result.to_dict()
+    assert np.array_equal(loaded.window, result.window)
 
 
 def test_coarse_pixels_flag_the_band_and_suggest_a_field_of_view():
