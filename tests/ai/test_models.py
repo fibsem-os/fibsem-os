@@ -167,3 +167,22 @@ def test_regions_are_largest_first_with_centres():
     assert areas == sorted(areas, reverse=True)
     x, y = regions[0]["centre_px"]
     assert 0 <= x < 256 and 0 <= y < 256
+
+
+@pytest.mark.parametrize(
+    "backend, packages", [("nnunet", "nnunetv2"), ("smp", "torch")]
+)
+def test_a_framework_model_says_what_it_is_missing_without_importing_it(
+    backend, packages
+):
+    import importlib.util
+
+    card = {**FakeSegmentationModel.default_card().to_dict(), "backend": backend}
+    entry = ModelEntry("real", "D:/models/real", card=card)
+    status = _manager(entry).status("real")
+    assert status["backend"] == backend and status["card_source"] == "registry"
+    if importlib.util.find_spec(packages) is None:
+        assert status["status"] == "missing packages"
+        assert packages in status["missing"]
+        with pytest.raises(ModelUnavailable, match=packages):
+            _manager(entry).get("real")
