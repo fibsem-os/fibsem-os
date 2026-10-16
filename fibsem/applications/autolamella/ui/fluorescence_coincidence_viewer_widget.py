@@ -621,6 +621,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self._border_frame.setProperty("borderState", "idle")
         self._border_state: str = "idle"
         self._border_enabled: bool = True
+        self._agent_driving: bool = False
         _frame_layout = QVBoxLayout(self._border_frame)
         _frame_layout.setContentsMargins(0, 0, 0, 0)
         _frame_layout.setSpacing(0)
@@ -2381,8 +2382,17 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self._border_state = state
         self._apply_border(state)
 
+    def set_agent_driving(self, driving: bool) -> None:
+        """The agent's purple on the border while it drives, as on the main
+        window's (see `stylesheets.shown_border_state`)."""
+        if driving == self._agent_driving:
+            return
+        self._agent_driving = driving
+        self._apply_border(self._border_state)
+
     def _apply_border(self, state: str) -> None:
         """Push *state* (or 'idle' when disabled) to the QFrame property."""
+        state = stylesheets.shown_border_state(state, self._agent_driving)
         effective = state if self._border_enabled else "idle"
         self._border_frame.setProperty("borderState", effective)
         style = self._border_frame.style()

@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 
+from fibsem.server import allowlist, files
 from fibsem.server.auth import take_control
 
 try:  # Protocol is typing-only; keep import robust on the 3.8 floor
@@ -96,6 +97,14 @@ class AppContext(Protocol):
 
     def output_image(self, item_name: str, filename: str) -> Dict[str, Any]: ...
 
+    def measure_thickness(
+        self,
+        item_name: str,
+        filename: str,
+        width_um: Optional[float] = None,
+        height_um: Optional[float] = None,
+    ) -> Dict[str, Any]: ...
+
     def grids(self) -> Dict[str, Any]: ...
 
     def grid_detail(self, grid_name: str) -> Dict[str, Any]: ...
@@ -109,6 +118,9 @@ class AppContext(Protocol):
     def rename_grid(self, grid_name: str, name: str) -> Dict[str, Any]: ...
 
     def image_metadata(self, path: str) -> Dict[str, Any]: ...
+
+    @property
+    def experiment_path(self) -> Optional[str]: ...
 
     def protocol_task_config(self, task_name: str) -> Dict[str, Any]: ...
 
@@ -328,6 +340,7 @@ _REFUSAL_STATUS = {
     "task_running": 409,
     "not_pending": 409,
     "not_allowed": 403,
+    "no_experiment": 409,
 }
 
 
@@ -353,6 +366,22 @@ def _names(body: Dict[str, Any], key: str, what: str) -> List[str]:
     if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
         raise _missing_field(f"Pass {key}: {what} (a list of strings).")
     return value
+
+
+def _numbers(text: Optional[str]) -> Optional[List[float]]:
+    """A comma-separated list of numbers from a query, or the 422 saying so."""
+    if text is None:
+        return None
+    try:
+        return [float(part) for part in text.split(",")]
+    except ValueError:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error_type": "invalid",
+                "message": f"A region is four numbers, x,y,width,height; not {text!r}.",
+            },
+        )
 
 
 def _answer_or_refusal(result: Dict[str, Any]) -> Dict[str, Any]:
@@ -449,6 +478,25 @@ def build_app_router(context: AppContext) -> APIRouter:
         # outputs listing names — the context refuses anything else.
         return _jpeg_or_404(context.output_image(item_name, filename))
 
+    @router.post("/experiment/items/{item_name}/outputs/{filename}/thickness")
+    def measure_thickness(
+        item_name: str, filename: str, body: Optional[Dict[str, Any]] = None
+    ):
+        # Computed over the saved file, nothing moves; a POST because the result
+        # is saved beside the image, as an autofocus run is.
+        window = {}
+        for key in ("width_um", "height_um"):
+            value = (body or {}).get(key)
+            if value is None:
+                continue
+            try:
+                window[key] = float(value)
+            except (TypeError, ValueError):
+                raise _missing_field(f"{key} is a number of microns.") from None
+        return _answer_or_refusal(
+            context.measure_thickness(item_name, filename, **window)
+        )
+
     @router.get("/experiment/grids")
     def grids():
         return context.grids()
@@ -536,6 +584,25 @@ def build_app_router(context: AppContext) -> APIRouter:
                 "({x, y, z, r, t, coordinate_system})."
             )
         return _answer_or_refusal(context.image_pixels(path, positions))
+
+    # -- the experiment's own files: previews and text, never raw bytes --------
+
+    def _files_answer(read, *args, **kwargs):
+        try:
+            return read(context.experiment_path, *args, **kwargs)
+        except files.FileRefusal as refusal:
+            raise HTTPException(status_code=refusal.status, detail=refusal.detail)
+
+    @router.get("/experiment/files")
+    def list_files(dir: str = ""):
+        return _files_answer(files.list_folder, dir)
+
+    @router.get("/experiment/files/{path:path}")
+    def read_file(path: str, box: Optional[str] = None, fraction: Optional[str] = None):
+        # A region is "x,y,width,height": source pixels (box) or 0-1 (fraction).
+        return _files_answer(
+            files.read, path, box=_numbers(box), fraction=_numbers(fraction)
+        )
 
     @router.get("/workflow/prompt")
     def pending_prompt():
@@ -628,10 +695,8 @@ def build_app_control_router(context: AppContext) -> APIRouter:
                 status_code=422,
                 detail={
                     "error_type": "invalid_value",
-                    "message": "value, when given, must be a JSON object: "
-                    "{left, top, width, height} for EditAlignmentArea, "
-                    "{x, y} for PickPOI, {features: [...]} for "
-                    "ConfirmDetection, {points: [...]} for RunSpotBurn.",
+                    "message": "value, when given, must be a JSON object, in "
+                    "the shape the prompt's value field gives.",
                 },
             )
         result = context.answer_prompt(
@@ -838,12 +903,22 @@ def build_app_suggest_router(context: AppContext) -> APIRouter:
                 status_code=422,
                 detail={
                     "error_type": "invalid_value",
-                    "message": "value, when given, must be a JSON object: "
-                    "{left, top, width, height} for EditAlignmentArea, "
-                    "{x, y} for PickPOI, {features: [...]} for "
-                    "ConfirmDetection, {points: [...]} for RunSpotBurn.",
+                    "message": "value, when given, must be a JSON object, in "
+                    "the shape the prompt's value field gives.",
                 },
             )
+        image = body.get("image") or None
+        if image is not None:
+            # The image the agent's evidence is in, shown on the card (FIB-1424).
+            refusal = allowlist.image_refusal(
+                image, lambda: getattr(context, "experiment_path", None)
+            )
+            if refusal is not None:
+                status, error_type, message = refusal
+                raise HTTPException(
+                    status_code=status,
+                    detail={"error_type": error_type, "message": message},
+                )
         suggest = getattr(context, "suggest_answer", None)
         if suggest is None:
             return {"available": False, "suggested": False, "stale": False}
@@ -852,6 +927,7 @@ def build_app_suggest_router(context: AppContext) -> APIRouter:
             question_id,
             reason.strip(),
             value=value,
+            **({"image": image} if image else {}),
         )
         if result.get("stale"):
             raise HTTPException(

@@ -4,6 +4,7 @@ from PyQt5.QtWidgets import QCheckBox, QGridLayout, QLabel, QSpinBox, QWidget
 from fibsem.structures import MillingAlignment
 from fibsem.ui.widgets.custom_widgets import (
     IntegerValueSpinBox,
+    ValueSpinBox,
     align_form,
 )
 from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
@@ -26,6 +27,11 @@ WIDGET_CONFIG = {
         "tooltip": "Autofocus before acquiring alignment image",
     },
     "steps": {"range": (1, 9), "default": 3},
+    "full_frame_below": {
+        "label": "Full Frame At Or Below",
+        "tooltip": "Align on the whole frame instead of the alignment area when the "
+        "milling current is at or below this. Off at 0.",
+    },
 }
 
 
@@ -105,13 +111,29 @@ class FibsemMillingAlignmentWidget(QWidget):
         self.steps_spinbox.setValue(steps_config["default"])
         layout.addWidget(self.steps_spinbox, 3, 1)
 
+        # Full frame below a current: shown in pA, stored in amps
+        full_frame_config = WIDGET_CONFIG["full_frame_below"]
+        self.full_frame_label = QLabel(full_frame_config["label"])
+        self.full_frame_label.setToolTip(full_frame_config["tooltip"])
+        layout.addWidget(self.full_frame_label, 4, 0)
+        self.full_frame_spinbox = ValueSpinBox(
+            suffix="pA",
+            minimum=0,
+            maximum=100000,
+            step=10,
+            decimals=0,
+            tooltip=full_frame_config["tooltip"],
+        )
+        self.full_frame_spinbox.setSpecialValueText("Off")
+        layout.addWidget(self.full_frame_spinbox, 4, 1)
+
         # Image settings widget
         self.image_settings_widget = ImageSettingsWidget(show_advanced=False)
         # Hide HFW, autocontrast, and drift correction - only show resolution and dwell time
         self.image_settings_widget.show_field_of_view(False)
         self.image_settings_widget.set_show_autocontrast(False)
         self.image_settings_widget.drift_correction_check.setVisible(False)
-        layout.addWidget(self.image_settings_widget, 4, 0, 1, 2)
+        layout.addWidget(self.image_settings_widget, 5, 0, 1, 2)
 
     def _connect_signals(self):
         """Connect widget signals to their respective handlers.
@@ -125,6 +147,7 @@ class FibsemMillingAlignmentWidget(QWidget):
         self.autocontrast_checkbox.toggled.connect(self._emit_settings_changed)
         self.autofocus_checkbox.toggled.connect(self._emit_settings_changed)
         self.steps_spinbox.valueChanged.connect(self._emit_settings_changed)
+        self.full_frame_spinbox.valueChanged.connect(self._emit_settings_changed)
         self.image_settings_widget.settings_changed.connect(self._emit_settings_changed)
 
     def _update_advanced_visibility(self):
@@ -145,6 +168,8 @@ class FibsemMillingAlignmentWidget(QWidget):
         self.autofocus_checkbox.setEnabled(enabled)
         self.steps_label.setEnabled(enabled)
         self.steps_spinbox.setEnabled(enabled)
+        self.full_frame_label.setEnabled(enabled)
+        self.full_frame_spinbox.setEnabled(enabled)
         self.image_settings_widget.setEnabled(enabled)
 
     def _emit_settings_changed(self):
@@ -169,6 +194,7 @@ class FibsemMillingAlignmentWidget(QWidget):
         self._settings.use_autocontrast = self.autocontrast_checkbox.isChecked()
         self._settings.use_autofocus = self.autofocus_checkbox.isChecked()
         self._settings.steps = self.steps_spinbox.value()
+        self._settings.full_frame_below = self.full_frame_spinbox.value() * 1e-12
         self._settings.imaging = self.image_settings_widget.get_settings()
         # interval_enabled, interval, and rect are preserved from stored settings
         return self._settings
@@ -187,11 +213,13 @@ class FibsemMillingAlignmentWidget(QWidget):
         self.autocontrast_checkbox.blockSignals(True)
         self.autofocus_checkbox.blockSignals(True)
         self.steps_spinbox.blockSignals(True)
+        self.full_frame_spinbox.blockSignals(True)
 
         self.enabled_checkbox.setChecked(settings.enabled)
         self.autocontrast_checkbox.setChecked(settings.use_autocontrast)
         self.autofocus_checkbox.setChecked(settings.use_autofocus)
         self.steps_spinbox.setValue(settings.steps)
+        self.full_frame_spinbox.setValue(settings.full_frame_below * 1e12)
 
         # Update image settings widget
         self.image_settings_widget.update_from_settings(settings.imaging)
@@ -206,6 +234,7 @@ class FibsemMillingAlignmentWidget(QWidget):
         self.autocontrast_checkbox.blockSignals(False)
         self.autofocus_checkbox.blockSignals(False)
         self.steps_spinbox.blockSignals(False)
+        self.full_frame_spinbox.blockSignals(False)
 
     def set_show_advanced(self, show_advanced: bool):
         """Set the visibility of advanced settings.

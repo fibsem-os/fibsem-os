@@ -53,6 +53,10 @@ class FibsemMillingWidget2(QWidget):
         self._milling_label = MillingMessageTracker()
         # What the instrument last said it was doing. See `pause_resume_milling`.
         self._milling_state: Optional[MillingState] = None
+        # A milling task someone else runs on the milling service is in progress:
+        # the workflow's mill, which runs on the workflow thread (FIB-1236). Set by
+        # its task start and cleared by its end, so the controls follow it too.
+        self._service_task = False
         layout = QGridLayout()
 
         # pushbutton for run milling
@@ -102,7 +106,12 @@ class FibsemMillingWidget2(QWidget):
 
     @property
     def is_milling(self) -> bool:
-        """Check if a milling task is currently running."""
+        """Check if a milling task is currently running: this widget's own, or
+        the workflow's on the milling service."""
+        return self._own_run or self._service_task
+
+    @property
+    def _own_run(self) -> bool:
         return self._milling_thread is not None and self._milling_thread.is_alive()
 
     @ensure_main_thread
@@ -116,6 +125,10 @@ class FibsemMillingWidget2(QWidget):
 
         if report.milling_state is not None:
             self._milling_state = report.milling_state
+        if report.status is MillingProgressStatus.TASK_STARTED:
+            self._service_task = not self._own_run
+        elif report.status.is_terminal:
+            self._service_task = False
 
         # update the UI based on the progress information
         self._update_button_states()
@@ -249,9 +262,15 @@ class FibsemMillingWidget2(QWidget):
             self._milling_thread = None
 
     def stop_milling(self):
-        if self.is_milling:
+        if self._own_run:
             self._milling_stop_event.set()
             self.microscope.stop_milling()
+        elif self._service_task:
+            # The workflow's mill: the service's stop ends the whole task.
+            try:
+                self.microscope.milling.stop()
+            except Exception as e:  # noqa: BLE001 - already ended
+                logging.info(f"Nothing to stop: {e}")
 
     def pause_resume_milling(self):
         # The last state a progress report carried, not a fresh `get_milling_state()`.

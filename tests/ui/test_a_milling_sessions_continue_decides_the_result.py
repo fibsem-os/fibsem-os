@@ -1,12 +1,13 @@
-"""A supervised milling task's closing Continue is the decision on its result.
+"""A supervised milling task's closing answer (Accept, or Skip) is the decision
+on its result.
 
-The operator watched the mill and pressed Continue: that is their judgement on
+The operator watched the mill and answered: that is their judgement on
 what the task produced, and it is recorded as theirs. Before this the record
 said the producer agreed with itself (``auto:<task>``), and with the review
 preference on the task would then have waited a second time in the Review tab
 for a look it had already had.
 
-Under Automated there is no session and no Continue, so nothing changes there.
+Under Automated there is no session and no question, so nothing changes there.
 """
 
 import os
@@ -15,6 +16,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import threading
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -45,15 +47,16 @@ from fibsem.milling.tasks import FibsemMillingTaskConfig
 
 ROUGH = "Rough Milling"
 MSG = "Run the rough mill."
+FIRST = f"{MSG} Press Run Milling to mill, or Skip to go on without milling."
 
 
 @pytest.fixture
 def ui(qapp, monkeypatch, tmp_path):
     """A real AutoLamellaUI (Demo) holding an experiment whose Rough Milling is
-    supervised, with the beam time of the mill itself stubbed at the widget."""
-    from fibsem.ui.widgets import milling_widget as mw
+    supervised, with the beam time of the mill itself stubbed at the task."""
+    from fibsem.applications.autolamella.workflows.tasks import base
 
-    monkeypatch.setattr(mw, "run_milling_task", lambda *a, **k: time.sleep(0.05))
+    monkeypatch.setattr(base, "run_milling_task", _mill)
     widget = AutoLamellaUI(parent_ui=None)
     widget.system_widget.connect_to_microscope()
     experiment = Experiment(path=tmp_path, name="continue-exp")
@@ -77,6 +80,11 @@ def ui(qapp, monkeypatch, tmp_path):
     if widget.microscope is not None:
         widget.microscope.disconnect()
     widget.close()
+
+
+def _mill(*args, **kwargs):
+    time.sleep(0.05)
+    return SimpleNamespace(error=None)
 
 
 def _task(ui, review_enabled: bool) -> MillRoughTask:
@@ -114,7 +122,7 @@ def _run_on_worker_thread(task, ui, qapp):
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline:
         qapp.processEvents()
-        if ui.label_instructions.text() == MSG and ui.pushButton_no.isEnabled():
+        if ui.label_instructions.text() == FIRST and ui.pushButton_no.isEnabled():
             return thread, outcome
         time.sleep(0.01)
     raise AssertionError("the mill prompt never appeared")
@@ -133,7 +141,7 @@ def test_continue_after_the_mill_is_the_operators_decision_on_the_result(ui, qap
     task = _task(ui, review_enabled=True)
     thread, outcome = _run_on_worker_thread(task, ui, qapp)
 
-    ui.pushButton_no.click()  # Continue
+    ui.pushButton_no.click()  # Skip
     _finish(thread, qapp)
 
     assert "error" not in outcome
@@ -165,17 +173,16 @@ def test_with_the_preference_off_the_record_is_still_theirs(ui, qapp):
 def test_the_mill_the_task_asks_for_writes_under_the_task_s_folder(
     ui, qapp, monkeypatch
 ):
-    """The supervised mill is run by the milling widget, not the task, and is
-    still handed the task's output folder (FIB-1253)."""
-    from fibsem.ui.widgets import milling_widget as mw
+    """The supervised mill is handed the task's output folder (FIB-1253)."""
+    from fibsem.applications.autolamella.workflows.tasks import base
 
     folders = []
 
     def run(*args, **kwargs):
         folders.append(kwargs.get("output_dir"))
-        time.sleep(0.05)
+        return _mill()
 
-    monkeypatch.setattr(mw, "run_milling_task", run)
+    monkeypatch.setattr(base, "run_milling_task", run)
     task = _task(ui, review_enabled=False)
     thread, outcome = _run_on_worker_thread(task, ui, qapp)
 
@@ -185,7 +192,7 @@ def test_the_mill_the_task_asks_for_writes_under_the_task_s_folder(
         assert time.monotonic() < deadline, "the mill never ran"
         qapp.processEvents()
         time.sleep(0.01)
-    ui.pushButton_no.click()  # Continue
+    ui.pushButton_no.click()  # Accept
     _finish(thread, qapp)
 
     assert "error" not in outcome

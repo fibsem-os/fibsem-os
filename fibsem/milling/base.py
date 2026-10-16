@@ -34,6 +34,7 @@ from fibsem.structures import (
     ImageSettings,
     MillingAlignment,
     Parameter,
+    field_meta,
     field_specs,
     flagged_fields,
 )
@@ -200,13 +201,22 @@ class FibsemMillingStage:
     enabled: bool = True
     milling: FibsemMillingSettings = field(default_factory=FibsemMillingSettings)
     pattern: BasePattern = field(default_factory=DEFAULT_MILLING_PATTERN)
-    patterns: Optional[List[BasePattern]] = None  # unused
+    patterns: Optional[List[BasePattern]] = field(
+        default=None,
+        metadata=field_meta(
+            not_used="a stage mills its one pattern; nothing reads patterns",
+        ),
+    )
     strategy: MillingStrategy[Any] = field(default_factory=get_strategy)
     alignment: MillingAlignment = field(default_factory=MillingAlignment)
     imaging: ImageSettings = field(
         default_factory=ImageSettings
     )  # settings for post-milling acquisition
     reference_image: Optional[FibsemImage] = None
+    # The whole-frame reference, for a stage that aligns full frame at a low
+    # current (``alignment.full_frame_below``). Set with reference_image, never
+    # saved with the stage.
+    reference_image_full_frame: Optional[FibsemImage] = None
     # Where this stage's run writes: its alignment reference, the drift
     # correction, anything a strategy saves. Set by FibsemMillingTask before the
     # strategy runs, like reference_image, and never saved with the stage -- it

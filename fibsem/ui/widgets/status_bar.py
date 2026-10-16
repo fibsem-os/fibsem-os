@@ -288,10 +288,12 @@ class FibsemStatusBar(QStatusBar):
                 signal.connect(slot)
 
     def _subscriptions(self, microscope: "FibsemMicroscope"):
-        subscriptions = [
-            (microscope.tiled_acquisition_signal, self._on_tiled_progress),
-        ]
-        # On the services, which a system without an ion beam doesn't have.
+        subscriptions = []
+        # On the services: no imaging without a beam, no milling or spot burn
+        # without an ion beam.
+        imaging = getattr(microscope, "imaging", None)
+        if imaging is not None:
+            subscriptions.append((imaging.tiled_progress, self._on_tiled_progress))
         milling = getattr(microscope, "milling", None)
         if milling is not None:
             subscriptions.append((milling.progress.changed, self._on_milling_progress))

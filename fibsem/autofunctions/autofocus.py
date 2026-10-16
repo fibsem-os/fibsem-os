@@ -231,6 +231,15 @@ class AutoFocusResult:
     def n_iterations(self) -> int:
         return len(self.iterations)
 
+    @property
+    def at_edge(self) -> bool:
+        """Whether the best working distance is the nearest or the farthest the
+        sweep tried: the sharpest focus may lie beyond the range searched."""
+        if not self.iterations:
+            return False
+        tried = [it.working_distance for it in self.iterations]
+        return self.working_distance in (min(tried), max(tried))
+
     def to_dict(self) -> dict:
         """The result without its images: the working distances, scores and
         settings, each iteration naming the file its image is saved as. What
@@ -239,6 +248,7 @@ class AutoFocusResult:
             "working_distance": self.working_distance,
             "initial_working_distance": self.initial_working_distance,
             "focus_score": self.focus_score,
+            "at_edge": self.at_edge,
             "n_iterations": self.n_iterations,
             "method": self.method,
             "settings": self.settings.to_dict() if self.settings is not None else None,

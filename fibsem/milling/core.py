@@ -39,18 +39,43 @@ def setup_milling(
     """
 
     # acquire reference image for drift correction
-    if milling_stage.alignment.enabled:
+    alignment_settings = milling_stage.alignment
+    full_frame_reference: Optional[FibsemImage] = None
+    if alignment_settings.enabled:
         raise_if_cancelled(stop_event)  # no beam after a stop (FIB-1430)
         reference_image = get_stage_reference_image(
             microscope=microscope, milling_stage=milling_stage
         )
+        # Taken now, at the imaging current, as the area's reference is: whether
+        # it is used is only known once the milling current is set.
+        if alignment_settings.full_frame_below > 0:
+            full_frame_reference = get_stage_reference_image(
+                microscope=microscope, milling_stage=milling_stage, full_frame=True
+            )
 
     # set up milling settings
     microscope.setup_milling(mill_settings=milling_stage.milling)
 
     # align at the milling current to correct for shift
-    if milling_stage.alignment.enabled:
+    if alignment_settings.enabled:
         from fibsem import alignment
+
+        if full_frame_reference is not None:
+            # The current the column reads back, not the configured one: a
+            # Tescan sets its ion current by preset and ignores milling_current.
+            current = microscope.get_beam_current(milling_stage.milling.milling_channel)
+            if current <= alignment_settings.full_frame_below:
+                reference_image = full_frame_reference
+            used = (
+                "full frame"
+                if reference_image is full_frame_reference
+                else "alignment area"
+            )
+            logging.info(
+                f"{milling_stage.name}: aligning on the {used} at "
+                f"{current * 1e12:.0f} pA (full frame at or below "
+                f"{alignment_settings.full_frame_below * 1e12:.0f} pA)"
+            )
 
         logging.debug(
             f"FIB Aligning at Milling Current: {milling_stage.milling.milling_current:.2e}"
@@ -77,9 +102,18 @@ def setup_milling(
 
 
 def get_stage_reference_image(
-    microscope: FibsemMicroscope, milling_stage: FibsemMillingStage
+    microscope: FibsemMicroscope,
+    milling_stage: FibsemMillingStage,
+    full_frame: bool = False,
 ) -> FibsemImage:
-    ref_image = milling_stage.reference_image
+    """The stage's alignment reference: the one its task took, else one taken
+    now. ``full_frame`` asks for the whole-frame reference instead of the
+    alignment area's."""
+    ref_image = (
+        milling_stage.reference_image_full_frame
+        if full_frame
+        else milling_stage.reference_image
+    )
     if isinstance(ref_image, FibsemImage):
         return ref_image
     elif ref_image is None:
@@ -93,10 +127,10 @@ def get_stage_reference_image(
             dwell_time=1e-6,
             resolution=(1536, 1024),
             beam_type=milling_stage.milling.milling_channel,
-            reduced_area=milling_stage.alignment.rect,
+            reduced_area=None if full_frame else milling_stage.alignment.rect,
             save=True,
             path=path,
-            filename=f"ref_{milling_stage.name}_initial_alignment_{current_timestamp_v2()}",
+            filename=f"ref_{milling_stage.name}_initial_alignment{'_full-frame' if full_frame else ''}_{current_timestamp_v2()}",
         )
         # Imported here rather than at module scope: `fibsem.acquire` imports
         # `fibsem.microscope`, which is the other half of the cycle the

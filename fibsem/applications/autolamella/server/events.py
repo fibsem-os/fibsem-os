@@ -226,9 +226,15 @@ def attach_microscope_taps(buffer: EventBuffer, microscope) -> List[Callable[[],
         except Exception:  # noqa: BLE001
             logging.debug(f"could not record a {kind} event", exc_info=True)
 
-    def tap(signal, kind: str, serialize: Callable[[Any], Dict[str, Any]]):
+    def tap(
+        signal,
+        kind: str,
+        serialize: Callable[[Any], Dict[str, Any]],
+        keep: Callable[[Any], bool] = lambda value: True,
+    ):
         def callback(value):
-            append(kind, serialize, value)
+            if keep(value):
+                append(kind, serialize, value)
 
         signal.connect(callback)
         disposers.append(lambda: signal.disconnect(callback))
@@ -241,14 +247,29 @@ def attach_microscope_taps(buffer: EventBuffer, microscope) -> List[Callable[[],
     microscope.session.record_signal.connect(on_record)
     disposers.append(lambda: microscope.session.record_signal.disconnect(on_record))
 
-    # On the services, which a system without an ion beam doesn't have.
+    # On the services: no imaging without a beam, no milling or spot burn
+    # without an ion beam.
+    imaging = getattr(microscope, "imaging", None)
+    if imaging is not None:
+        tap(imaging.tiled_progress, "tiled_acquisition", to_plain)
     milling = getattr(microscope, "milling", None)
     if milling is not None:
-        tap(milling.progress.changed, "milling_progress", to_plain)
+        from fibsem.milling.progress import MillingProgressStatus
+
+        # The transitions only: a stage's countdown ticks once a second and
+        # nothing reads it from the log. The milling service's `progress`
+        # parameter answers it on demand.
+        tap(
+            milling.progress.changed,
+            "milling_progress",
+            to_plain,
+            keep=lambda progress: (
+                getattr(progress, "status", None) != MillingProgressStatus.STAGE_UPDATE
+            ),
+        )
     spot_burn = getattr(microscope, "spot_burn", None)
     if spot_burn is not None:
         tap(spot_burn.progress.changed, "spot_burn_progress", to_plain)
-    tap(microscope.tiled_acquisition_signal, "tiled_acquisition", to_plain)
     tap(
         microscope.stage_position_changed,
         "stage_position_changed",

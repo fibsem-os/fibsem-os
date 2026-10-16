@@ -1,4 +1,4 @@
-"""The typed contract carried by ``tiled_acquisition_signal`` (FIB-402).
+"""The typed contract carried by ``imaging.tiled_progress`` (FIB-402).
 
 Nothing emits or reads a ``TiledProgress`` yet -- the producers still build dicts and the
 consumers still read them. What is worth pinning before either moves is the shape itself,

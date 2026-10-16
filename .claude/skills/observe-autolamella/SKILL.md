@@ -78,6 +78,7 @@ and stop.
 | What's it asking? | `prompt_get`, `review_list` |
 | How has the run gone? | `experiment_get_task_history`; `workflow_get_run_summary` for the last run started in this app session |
 | One lamella | `item_get`, `item_list_outputs`, `item_get_output_image` |
+| How thick is it? | `item_measure_thickness` on a FIB image from `item_list_outputs` |
 | The plan | `protocol_get`, `item_get_task_config`, `protocol_get_task_config` |
 | Grids | `grid_list`, `grid_get`, `grid_get_markers` |
 | Grids on the hardware now | `grid_get_inventory` (magazine or holder: which grid is loaded), `grid_get_current` |

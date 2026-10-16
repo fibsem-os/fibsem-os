@@ -203,13 +203,9 @@ class MillCoincidentTask(AutoLamellaTask):
             # 4. the per-site setup onto the milling config
             milling_task_config = self._apply_setup(setup)
 
-            # 5. the mill. Headless it runs right here with our abort token; with a
-            # UI the milling widget runs it (Run Milling gate when supervised).
+            # 5. the mill, on this thread (asked first when supervised).
             self.log_status_message("MILL_COINCIDENT", "Milling Coincident Lamella...")
-            msg = (
-                f"Press Run Milling to coincidence mill {self.lamella.name}. "
-                "Press Continue when done."
-            )
+            msg = f"Coincidence mill {self.lamella.name}."
             milling_task_config = self.update_milling_config_ui(
                 milling_task_config, msg=msg
             )

@@ -485,3 +485,135 @@ def test_a_cancelled_command_is_409_cancelled(armed_client, microscope, monkeypa
         "message": "AutoFocus cancelled by user.",
         "status": "cancelled",
     }
+
+
+def test_a_key_its_structure_does_not_have_is_422_naming_where_it_belongs(
+    read_client,
+):
+    """An overview's hfw at the top of its settings, not in image_settings, was
+    dropped by from_dict and the default used without a word."""
+    path = "/microscope/services/imaging/queries/estimate_overview"
+    resp = read_client.post(
+        path, json={"kwargs": {"settings": {"hfw": 400e-6, "nrows": 2}}}
+    )
+    assert resp.status_code == 422, resp.text
+    detail = resp.json()["detail"]
+    assert detail["error_type"] == "ArgumentError"
+    assert detail["parameter"] == "settings.hfw"
+    assert "did you mean settings.image_settings.hfw?" in detail["message"]
+
+
+def test_an_unknown_key_is_refused_at_any_depth(read_client):
+    path = "/microscope/services/imaging/queries/estimate_overview"
+    passes = [{"search_range": 10e-6, "step_size": 1e-6, "steps": 10}]
+    nested = {"autofocus_settings": {"passes": passes}}
+    resp = read_client.post(path, json={"kwargs": {"settings": nested}})
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["detail"]["parameter"] == (
+        "settings.autofocus_settings.passes[0].steps"
+    )
+    misspelt = {"image_settings": {"dwell": 1e-6}}
+    resp = read_client.post(path, json={"kwargs": {"settings": misspelt}})
+    detail = resp.json()["detail"]
+    assert detail["parameter"] == "settings.image_settings.dwell"
+    assert "did you mean settings.image_settings.dwell_time?" in detail["message"]
+
+
+def test_what_a_structure_writes_it_reads_back(read_client):
+    from fibsem.structures import OverviewAcquisitionSettings
+
+    path = "/microscope/services/imaging/queries/estimate_overview"
+    settings = to_wire(OverviewAcquisitionSettings(nrows=2))
+    resp = read_client.post(path, json={"kwargs": {"settings": settings}})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["result"]["nrows"] == 2
+
+
+def _tool(client, name, arguments):
+    from fibsem.server.catalog import CATALOG, route_call
+
+    spec = next(spec for spec in CATALOG if spec.name == name)
+    method, path, body = route_call(spec, arguments)
+    return path, client.request(method, path, json=body)
+
+
+def test_beam_auto_focus_sweeps_and_answers_each_step(armed_client, microscope):
+    settings = {
+        "passes": [{"search_range": 20e-6, "step_size": 10e-6}],
+        "probe_resolution": [64, 64],
+        "use_autocontrast": False,
+    }
+    path, resp = _tool(
+        armed_client, "beam_auto_focus", {"beam_type": "ELECTRON", "settings": settings}
+    )
+    assert path.endswith("/imaging/commands/focus_sweep")
+    assert resp.status_code == 200, resp.text
+    result = resp.json()["result"]
+    steps = result["iterations"]
+    assert len(steps) == 3
+    assert all({"working_distance", "focus_score"} <= set(step) for step in steps)
+    tried = [step["working_distance"] for step in steps]
+    best = result["working_distance"]
+    assert result["at_edge"] is (best in (min(tried), max(tried)))
+    beam = microscope.beams[BeamType.ELECTRON]
+    assert beam.working_distance.get_value() == pytest.approx(best)
+
+
+def test_beam_auto_focus_asks_the_instrument_with_method_instrument(armed_client):
+    path, resp = _tool(armed_client, "beam_auto_focus", {"method": "instrument"})
+    assert path.endswith("/imaging/commands/auto_focus")
+    assert resp.status_code == 200, resp.text
+    with pytest.raises(ValueError, match="method sweep"):
+        _tool(armed_client, "beam_auto_focus", {"method": "instrument", "hfw": 1e-4})
+
+
+def test_a_sweep_that_cannot_set_the_working_distance_asks_the_instrument(
+    armed_client, microscope, monkeypatch
+):
+    """Tescan's ion beam: nothing to sweep, so its own autofocus, and it says so."""
+    monkeypatch.setattr(
+        microscope, "is_working_distance_settable", lambda beam_type: False
+    )
+    _, resp = _tool(armed_client, "beam_auto_focus", {"beam_type": "ION"})
+    assert resp.status_code == 200, resp.text
+    result = resp.json()["result"]
+    assert result["focused_with"] == "instrument"
+    assert "ION beam's working distance can't be set" in result["reason"]
+    beam = microscope.beams[BeamType.ION]
+    assert result["working_distance"] == pytest.approx(beam.working_distance.cached)
+
+
+def test_milling_answers_the_current_and_warns_on_one_the_beam_does_not_list(
+    armed_client, microscope
+):
+    from fibsem.structures import FibsemMillingSettings, FibsemRectangleSettings
+
+    listed = sorted(microscope.beams[BeamType.ION].current.choices)
+    between = (listed[0] + listed[1]) / 2
+    rectangle = FibsemRectangleSettings(
+        width=1e-6, height=2e-6, depth=1e-6, centre_x=0.0, centre_y=0.0
+    )
+    try:
+        for current, warned in ((listed[1], False), (between, True)):
+            settings = FibsemMillingSettings(milling_current=current)
+            resp = armed_client.post(
+                "/microscope/services/milling/commands/prepare",
+                json={
+                    "kwargs": {
+                        "settings": settings.to_dict(),
+                        "patterns": [{**rectangle.to_dict(), "type": "Rectangle"}],
+                    }
+                },
+            )
+            assert resp.status_code == 200, resp.text
+            prepared = resp.json()["result"]
+            assert prepared["milling_current"] == pytest.approx(current)
+            assert (prepared["warning"] is not None) is warned
+            _, resp = _tool(armed_client, "milling_estimate_time", {})
+            estimate = resp.json()["result"]
+            assert estimate["seconds"] > 0
+            assert estimate["milling_current"] == pytest.approx(current)
+            assert estimate["warning"] == prepared["warning"]
+    finally:
+        microscope.milling.clear()
+        microscope.milling.restore()

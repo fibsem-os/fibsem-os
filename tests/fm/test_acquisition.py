@@ -798,7 +798,7 @@ def test_an_overview_saves_its_tiles_and_mosaic_and_reports_the_save(
     microscope = fm_microscope
     destination = OverviewDestination.create(str(tmp_path), "run")
     tile_paths, reports, acquired = [], [], []
-    microscope.tiled_acquisition_signal.connect(reports.append)
+    microscope.imaging.tiled_progress.connect(reports.append)
     try:
         mosaic, path = acquire_fm_tiled_overview(
             microscope,
@@ -809,7 +809,7 @@ def test_an_overview_saves_its_tiles_and_mosaic_and_reports_the_save(
             on_acquired=lambda image, saved: acquired.append((image, saved)),
         )
     finally:
-        microscope.tiled_acquisition_signal.disconnect(reports.append)
+        microscope.imaging.tiled_progress.disconnect(reports.append)
 
     assert path == destination.mosaic_path and os.path.isfile(path)
     assert tile_paths == [
@@ -1124,7 +1124,7 @@ def test_an_overview_reports_a_cancel_as_cancelled_not_failed(
     _record_tile_positions(microscope, monkeypatch)
     monkeypatch.setattr("fibsem.fm.acquisition.acquire_image", lambda *a, **k: None)
     reports = []
-    microscope.tiled_acquisition_signal.connect(reports.append)
+    microscope.imaging.tiled_progress.connect(reports.append)
     try:
         with pytest.raises(OperationCancelledError):
             _stitched(
@@ -1133,7 +1133,7 @@ def test_an_overview_reports_a_cancel_as_cancelled_not_failed(
                 OverviewParameters(rows=2, cols=2, overlap=0.1),
             )
     finally:
-        microscope.tiled_acquisition_signal.disconnect(reports.append)
+        microscope.imaging.tiled_progress.disconnect(reports.append)
     assert reports[-1].status is TiledStatus.CANCELLED
 
 
@@ -1244,7 +1244,7 @@ def test_progress_totals_count_enabled_tiles_not_grid_cells(fm_microscope, monke
     """A bar that stops at 9/25 on a successful run reads as a failure."""
     _record_tile_positions(fm_microscope, monkeypatch)
     emitted = []
-    fm_microscope.tiled_acquisition_signal.connect(emitted.append)
+    fm_microscope.imaging.tiled_progress.connect(emitted.append)
 
     _sparse_runner(fm_microscope, 5, 5, mask=_plus_mask(5)).run()
 
@@ -1463,7 +1463,7 @@ def test_stitching_demands_to_be_told_where_the_mosaic_is():
 
 def _preview_frames(microscope, rows, cols, mask=None, channels=1):
     frames = []
-    microscope.tiled_acquisition_signal.connect(
+    microscope.imaging.tiled_progress.connect(
         lambda d: frames.append(d) if d.status is TiledStatus.TILE_COLLECTED else None
     )
     channel_settings = [
@@ -1631,7 +1631,7 @@ def test_a_cancelled_sweep_does_not_start_the_next_pass(fm_microscope, monkeypat
     stop_event = threading.Event()
     seen = []
     # Still the detector's signal: an autofocus sweep is work *inside* a tile, which is
-    # the scale that stayed there when the tileset moved to `tiled_acquisition_signal`.
+    # the scale that stayed there when the tileset moved to `imaging.tiled_progress`.
     fm_microscope.fm.acquisition_progress_signal.connect(
         lambda d: (
             seen.append(d)
@@ -2338,7 +2338,7 @@ def test_the_stitch_is_announced_between_the_last_tile_and_the_mosaic(fm_microsc
     drive. The beam tiler has always said "Stitching Tiles" here (FIB-725).
     """
     emitted = []
-    fm_microscope.tiled_acquisition_signal.connect(emitted.append)
+    fm_microscope.imaging.tiled_progress.connect(emitted.append)
 
     acquisition.FMTiledAcquisitionRunner(
         microscope=fm_microscope,
@@ -2360,7 +2360,7 @@ def test_the_stitch_announcement_carries_no_counts(fm_microscope):
     mosaic is being built, and rendering this as indeterminate would paint a *full* bar
     — exactly the "it finished" impression the phase exists to correct."""
     emitted = []
-    fm_microscope.tiled_acquisition_signal.connect(emitted.append)
+    fm_microscope.imaging.tiled_progress.connect(emitted.append)
 
     acquisition.FMTiledAcquisitionRunner(
         microscope=fm_microscope,
@@ -2378,7 +2378,7 @@ def test_a_run_that_never_reaches_the_stitch_does_not_announce_one(fm_microscope
     """`run()` on its own acquires without stitching — a caller wanting the tiles. It
     must not claim a mosaic is being built that nobody asked for."""
     emitted = []
-    fm_microscope.tiled_acquisition_signal.connect(emitted.append)
+    fm_microscope.imaging.tiled_progress.connect(emitted.append)
 
     acquisition.FMTiledAcquisitionRunner(
         microscope=fm_microscope,
@@ -2399,7 +2399,7 @@ def test_the_count_reaches_the_last_tile(fm_microscope):
     ended (FIB-736).
     """
     emitted = []
-    fm_microscope.tiled_acquisition_signal.connect(emitted.append)
+    fm_microscope.imaging.tiled_progress.connect(emitted.append)
 
     acquisition.FMTiledAcquisitionRunner(
         microscope=fm_microscope,
@@ -2416,7 +2416,7 @@ def test_the_announcement_carries_no_progress(fm_microscope):
     """It is emitted before its tile, so any count or estimate on it is a claim about
     work not yet done. Its job is saying *where* the run is."""
     emitted = []
-    fm_microscope.tiled_acquisition_signal.connect(emitted.append)
+    fm_microscope.imaging.tiled_progress.connect(emitted.append)
 
     acquisition.FMTiledAcquisitionRunner(
         microscope=fm_microscope,
@@ -2440,7 +2440,7 @@ def test_every_counted_payload_carries_an_estimate(fm_microscope):
     """One payload, the whole picture. Splitting the count from the estimate is what let
     a consumer render two different bars in one widget (FIB-739)."""
     emitted = []
-    fm_microscope.tiled_acquisition_signal.connect(emitted.append)
+    fm_microscope.imaging.tiled_progress.connect(emitted.append)
 
     acquisition.FMTiledAcquisitionRunner(
         microscope=fm_microscope,

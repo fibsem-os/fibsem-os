@@ -209,15 +209,29 @@ message; it may be a position instruction ("double click to move… press
 Continue") — for an already-placed item, Continue is safe; for a *new*
 placement, that is the operator's decision (see the ladder).
 
-**`RunMillingTask`** — two distinct moments share this type; `passes` in
-the payload tells them apart:
-- *Start* (`passes: 0`): yes runs the mill with the config as shown; check
-  `task_name` and `num_stages` look right first. **No continues without
-  milling.** That is the operator's call; escalate rather than answer no
-  here.
-- *Inspect re-ask* (`passes` ≥ 1, after a mill pass): **yes mills AGAIN, no
-  accepts.** Pull the fresh post-mill image (rules 2–3), judge it, and answer
-  no to accept. Do not re-mill without a reason you can state.
+**`RunMillingTask`** — the milling question. Answer with an action in
+`value` (required): `run`, `edit`, `skip` or `accept`; the payload's
+`actions` lists the ones allowed now, and `passes` says how many times the
+mill has run for this question.
+- *Before a pass* (`passes: 0`): `run` mills the config as shown; check
+  `task_name` and the stages look right first, on `image` (the FIB view
+  with the patterns drawn). **`skip` goes on without milling.** That is
+  the operator's call; escalate rather than skip.
+- *After a pass* (`passes` ≥ 1): **`run` mills AGAIN, `accept` goes on.**
+  Pull a fresh image (rules 2–3), judge it, and accept. Do not re-mill
+  without a reason you can state. `last_error` says why the last run
+  failed, if it did.
+- *Edits*: `config` is the task's milling config, and `fields` explains
+  every option, with `unit` and `not_used` for one nothing reads (a patch
+  to it is refused, with why). Change it by `patch` (dotted paths, SI
+  units, a stage by name or index: `{"action": "run", "patch":
+  {"stages.Polish 1.milling.milling_current": 1e-11}}`) or by a whole
+  `config` (add, remove, reorder stages, change a pattern type). `edit`
+  applies the change and asks again without milling, so you can see it
+  land on the drawn patterns first. Edits are the operator's call unless
+  delegated, like any placement.
+- Between passes the question lends control, as any other does: image,
+  move or re-align before the next `run`. Never during a mill.
 
 **`EditAlignmentArea`** — the payload's `current` is the live rectangle
 (fractions of the frame), and `image` is the frame it sits on (the post-mill
@@ -365,6 +379,7 @@ The argument selects a variation on the same loop:
   /app/experiment/grids/{grid}/outputs/{file}`) is the preview and `.../markers` places the experiment's items on it in
   source pixels with their status — use it for "which items sit near the
   edge / off the grid" judgments, never re-derive stage geometry yourself.
+  For any other file, `experiment_list_files` and `experiment_read_file` list and read the open experiment's folder (text as text, images as previews with metadata), and `experiment_crop_image` shows one region of an image at full resolution.
   `quality` is the operator's verdict, not yours: say what you see, propose,
   and leave the verdict to them. Starting a screening run is a control
   action: `POST /app/workflow/grids/plan` first and show the operator the
@@ -456,6 +471,24 @@ a script may have moved it since you last looked. Before a move, read
 image (`beam_acquire_image`) rather than trusting the last one. Say what
 you read when you act on it.
 
+**A blank or black image.** Work through it in order, and stop at the step
+that explains it:
+1. Read the beam's `on`. If it is off, tell the operator: switching a beam
+   on is theirs.
+2. Read `blanked`. If the beam is blanked, set `blanked` to false with
+   `device_set_parameter`.
+3. Run `beam_auto_brightness_contrast` for that beam. The detector levels
+   often stay as another pose or current left them: on the Arctis, a FIB
+   image at stage tilt 0° came back black after milling until the levels were
+   reset.
+4. Take the image again, once. If it is still blank, stop and tell the
+   operator what you read at each step.
+
+**Check what an autofocus did.** Read the working distance before
+`beam_auto_focus` and after it. A change of more than about 0.1 mm is worth
+a fresh image and a sentence to the operator before you go on. On a coated
+or tilted surface that one focus can't hold, use a focus stack.
+
 **Move with `stage_stable_move`.** To bring something you see to the centre of
 an image, call `stage_stable_move` with its offset from the image centre in
 metres, x to the right and y up, and the beam the image came from. From a
@@ -530,6 +563,26 @@ says running, before you `clear`. It ends `done` (`result: completed`),
 `cancelled` or `failed` with its error. `service_get_parameter` milling
 `progress` shows how far it has got. A spot burn `run` works the same way.
 
+**Polishing by hand.** When the operator asks you to thin a lamella outside
+the task, one `milling_run_stage` per step:
+- Preview every step's patterns on a fresh ion image first
+  (`milling_preview_patterns`), and look at where they land.
+- Re-align to the reference before every step. Below about 300 nm, if the
+  alignment methods disagree, align again before milling. For polish
+  passes, set the Polishing task's `alignment.full_frame_below` (80 pA,
+  say) rather than re-aligning by hand.
+- Measure the band, don't trust the gap. Track the pattern gap you asked
+  for and the band you measure on a FIB image, and stop on whichever
+  reaches the target first: on the Arctis the band ran at 0.53-0.73× the
+  gap. Measure on enough pixels: once the band is under about 400 nm, image
+  at a narrower FIB field of view (15 µm, not 30 µm).
+- After rough milling, measure the band's tilt and rotate the polishing
+  patterns to match. A 0.6° mismatch left a 55 nm wedge along the lamella.
+- Check the SEM view of the face after each step as a second opinion:
+  contrast changes, cracks, bending.
+- Report each step: current, gap, time, the alignment residual, the band
+  measured.
+
 **Aligning to a reference.** To bring the view back onto a saved image (a
 task's reference from `item_list_outputs`, or one you saved), `alignment_measure_shift`
 the reference against a fresh saved image to see how far off you are, then
@@ -538,6 +591,13 @@ the beam shift's range. It is a long command; `service_wait_for_run` alignment g
 each step's shift and whether the methods agree on what is left. If they don't
 agree, or the score stays low, the view has changed (milled, drifted out of
 frame): stop and tell the operator rather than aligning again.
+
+**How thick is the lamella?** `item_measure_thickness` with a FIB image from
+`item_list_outputs` measures the band between the trenches on the full-resolution
+file, around the item's POI: thickness, wedge, the band's angle, where it sits
+against the POI, and any holes. Use it instead of measuring a preview yourself.
+When `resolution.under_resolved` is true the band is under 8 px: take the next
+image at the suggested field width before trusting the number.
 
 **Overviews and focus stacks.** `beam_acquire_overview` images a grid of tiles
 around where the stage is and stitches them; the stage moves to each tile and
@@ -553,6 +613,37 @@ gives its whole run time, stage moves included, and the same `stop` ends it.
 `register_tiles` (experimental, off by default) places each tile where its
 picture says it is rather than where the stage step put it; the answer's
 `layout` says whether it moved the tiles and why not when it didn't.
+
+Set an overview up as the app does. Give the tile size in `image_settings`
+(`hfw`, `resolution`, `dwell_time` belong there, not at the top level of the
+settings) and use 3:2 tiles (e.g. 1536 × 1024). The instrument snaps a size it
+doesn't list to one it does, so a square 2048 × 2048 came back as
+2048 × 1768 and the stitch failed. Keep at least 15 % overlap. A grid
+that runs past the stage's travel is refused only once it starts, so keep
+it near the middle of the travel, and keep it small: a 3 × 3 worked on the
+Arctis where a 6 × 6 failed twice.
+
+A point picked on an overview is only as good as the stitch. The tiles are
+placed where the stage was told to go, and a stage that overshoots puts
+features a few µm off (about 4 % in x and 7 % in y per step on the Arctis).
+After moving to a point picked on an overview, take a fresh image and
+centre on the feature itself before acting, as an operator would.
+
+**Finding sites.** When you pick sites (cells, squares) on an overview:
+- Start with what worked on a real grid: GrabCut on the holey film,
+  tracing the grid bars by hand where shading defeats a threshold, and a
+  piece of debris as an anchor to find the same place again. Say how sure
+  you are of each detection, not only where it is.
+- Look at the tile seams. A feature on a seam can be cut in two, doubled or
+  hidden under the next tile; check it in the tiles on both sides before
+  you count it.
+- A square you haven't looked at is unassessed, never "empty" or "bad".
+- Confirm shorthand before acting on it. "3:3" or "C2" can name a square, a
+  cell or a rank; ask which the operator means.
+- Leave the lamella's name to the app: `item_add` without `name` gives it
+  the app's usual name. Put what the operator needs to find it again (grid,
+  square, rank, why you chose it) in its description:
+  `item_update` with `{"patch": {"description": "..."}}`.
 
 **`409 microscope_busy` is someone else working.** Its
 `detail.in_control` names who (`workflow`, `script`, or another command)
@@ -626,3 +717,8 @@ and the end-of-run summary (items, durations, outcomes — `/app/workflow/run_su
 survives the run's end).
 Every answer you give is attributed on the timeline in the app; write nothing
 the timeline would contradict.
+
+During a live run, keep each update to a line or two: what just happened and
+what is next. Summarise a long log with a short script rather than reading
+it out. Say what the log shows, and call a cause a guess until you have
+checked it.

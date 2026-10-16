@@ -8,7 +8,7 @@ A universal API for FIBSEM Control, Development and Automation
 
 fibsemOS is a Python package for controlling and automating FIB/SEM microscopes. It provides a universal API for FIBSEM control, development and automation, abstracting away the details of the microscope hardware to provide a simple, intuitive interface. The package includes reusable modules for common workflows and operations, and is extensible to support new microscopes.
 
-We currently aim to support  [ThermoFisher AutoScript](https://www.thermofisher.com/at/en/home/electron-microscopy/products/software-em-3d-vis/autoscript-4-software.html), [TESCAN Automation SDK](https://tescan.com/product-portfolio/fib-sem), and [Zeiss Python API](https://www.zeiss.com/metrology/en/software/zeiss-inspect/features/python-interface.html). Support for other FIBSEM systems is planned.
+We currently aim to support  [ThermoFisher AutoScript](https://www.thermofisher.com/at/en/home/electron-microscopy/products/software-em-3d-vis/autoscript-4-software.html), [TESCAN Automation SDK](https://tescan.com/product-portfolio/fib-sem), and Delmic Odemis (for the METEOR). A [Zeiss Python API](https://www.zeiss.com/metrology/en/software/zeiss-inspect/features/python-interface.html) driver is planned, as is support for other FIBSEM systems.
 
 For more information see the [website](https://www.fibsemos.org).
 
@@ -92,7 +92,7 @@ For a complete walkthrough of the AutoLamella workflow, see the [user guide](htt
 
 To get started with the fibsemOS API, see the example/example.py:
 
-You can start an offline demo microscope by specifying manufacturer: "Demo" in the configuration yaml file (fibsem/config/microscope-configuration.yaml). This will start a demo microscope that you can use to test the API without connecting to a real microscope. To connect to a real microscope, set the ip_address and manufacturer of your microscope in the configuration file or alternatively, you can pass these arguments to utils.setup_session() directly. The simulator can also image a synthetic cryo-grid instead of noise; see [docs/simulator.md](docs/simulator.md).
+You can start an offline demo microscope by setting `info.manufacturer: Demo` in the configuration yaml file (fibsem/config/microscope-configuration.yaml), as the shipped file does. The file's `hardware.devices` list says which devices the microscope builds and how; see [Configuring devices](docs/developers/devices.md#configuring-devices). This will start a demo microscope that you can use to test the API without connecting to a real microscope. To connect to a real microscope, set the ip_address and manufacturer of your microscope in the configuration file or alternatively, you can pass these arguments to utils.setup_session() directly. The simulator can also image a synthetic cryo-grid instead of noise; see [docs/simulator.md](docs/simulator.md).
 
 This example shows you how to connect to the microscope, take an image with both beams, and plot the results.
 

@@ -61,3 +61,12 @@ def test_every_border_frame_gets_the_same_states():
         for name in BORDER_FRAME_NAMES
     ]
     assert all(states == per_frame[0] for states in per_frame)
+
+
+def test_the_agent_s_purple_shows_over_every_state_but_stopping():
+    from fibsem.ui.stylesheets import shown_border_state
+
+    for state in BORDER_STATE_COLOURS:
+        assert shown_border_state(state, agent_driving=False) == state
+        expected = "stopping" if state == "stopping" else "agent"
+        assert shown_border_state(state, agent_driving=True) == expected

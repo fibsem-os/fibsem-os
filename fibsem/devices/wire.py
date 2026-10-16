@@ -8,6 +8,8 @@ local read returns: a tuple stays a tuple, a ``Point`` stays a ``Point``.
 from __future__ import annotations
 
 import collections.abc
+import dataclasses
+import difflib
 import logging
 import types
 import typing
@@ -187,8 +189,13 @@ def decode_kwargs(func: Callable[..., Any], kwargs: Dict[str, Any]) -> Dict[str,
     sent as a dict arrives as a ``Point``. Arguments without a usable hint pass as
     they came.
 
+    A structure sent as a dict must name only keys it has, at any depth: its
+    ``from_dict`` would drop any other without a word and use the default in its
+    place (`refuse_unknown_keys`).
+
     Raises:
-        ArgumentError: an argument does not decode; it names which.
+        ArgumentError: an argument does not decode, or names a key its structure
+            doesn't have; it names which (``settings.hfw``).
     """
     hints = type_hints(func)
     decoded = {}
@@ -200,4 +207,82 @@ def decode_kwargs(func: Callable[..., Any], kwargs: Dict[str, Any]) -> Dict[str,
             decoded[name] = from_wire(_declared_type(hints[name]), value)
         except Exception as error:
             raise ArgumentError(name, error) from error
+        refuse_unknown_keys(name, value, decoded[name])
     return decoded
+
+
+def _is_structure(value: Any) -> bool:
+    """A decoded structure: a dataclass, or anything else that writes ``to_dict``."""
+    if isinstance(value, type):
+        return False
+    return dataclasses.is_dataclass(value) or hasattr(value, "to_dict")
+
+
+def _known_keys(structure: Any) -> List[str]:
+    """The keys ``structure`` reads from a dict: its dataclass fields, the keys its
+    ``to_dict`` writes (so what it sends comes back in), and any it names in
+    ``FROM_DICT_KEYS`` (a pattern's ``type``, which picks its class)."""
+    keys = set(getattr(type(structure), "FROM_DICT_KEYS", ()))
+    if dataclasses.is_dataclass(structure):
+        keys.update(f.name for f in dataclasses.fields(structure))
+    try:
+        written = structure.to_dict()
+    except Exception:  # a structure that can't write itself is checked by fields
+        written = None
+    if isinstance(written, dict):
+        keys.update(written)
+    return sorted(keys)
+
+
+def _home_of(key: str, structure: Any, path: str, depth: int = 3) -> Any:
+    """Where ``key`` belongs when it was sent one or more levels too high: the path
+    of the nearest structure inside ``structure`` that has it, else None."""
+    if depth == 0:
+        return None
+    children = []
+    for name in _known_keys(structure):
+        child = getattr(structure, name, None)
+        if _is_structure(child):
+            if key in _known_keys(child):
+                return f"{path}.{name}.{key}"
+            children.append((name, child))
+    for name, child in children:
+        home = _home_of(key, child, f"{path}.{name}", depth - 1)
+        if home is not None:
+            return home
+    return None
+
+
+def refuse_unknown_keys(path: str, sent: Any, decoded: Any) -> None:
+    """Raise `ArgumentError` for the first key in ``sent``, at any depth, that the
+    structure it decoded into doesn't have. The error names the key's path
+    (``settings.hfw``) and, when a structure inside has that key, where it belongs
+    (``settings.image_settings.hfw``), else the closest key it does have.
+
+    Checked against what was decoded, not the declared type, so a list of patterns
+    is checked against each pattern's own class.
+    """
+    if isinstance(sent, list) and isinstance(decoded, (list, tuple)):
+        for index, (item, structure) in enumerate(zip(sent, decoded)):
+            refuse_unknown_keys(f"{path}[{index}]", item, structure)
+        return
+    if not isinstance(sent, dict) or not _is_structure(decoded):
+        return
+    known = _known_keys(decoded)
+    if not known:
+        return
+    for key, value in sent.items():
+        if key not in known:
+            where = _home_of(key, decoded, path)
+            if where is None:
+                close = difflib.get_close_matches(str(key), known, n=1)
+                where = f"{path}.{close[0]}" if close else None
+            message = f"{type(decoded).__name__} has no '{key}'"
+            message += "." if where is None else f"; did you mean {where}?"
+            message += f" It takes: {', '.join(known)}."
+            raise ArgumentError(f"{path}.{key}", UnknownKeyError(message))
+        refuse_unknown_keys(f"{path}.{key}", value, getattr(decoded, key, None))
+
+
+class UnknownKeyError(ValueError):
+    """A key in a structure's dict that the structure doesn't have."""

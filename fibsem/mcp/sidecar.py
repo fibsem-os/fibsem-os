@@ -30,9 +30,11 @@ import math
 import os
 import re
 import sys
+from contextvars import ContextVar
 from typing import Annotated, Any, List, Optional, Tuple
 from urllib.parse import quote, urlencode
 
+from fibsem.server.calls import headers_for
 from fibsem.server.catalog import CATALOG, route_call, tools_for_capabilities
 
 _TIMEOUT_S = 120.0  # acquisitions and moves on real hardware are slow
@@ -225,6 +227,11 @@ class _LazyClient:
                 self._client = client
             return self._client
 
+    @property
+    def connected(self) -> bool:
+        """Whether a server was found yet, so a call would not wait for one."""
+        return self._client is not None
+
     def request(self, method, path, **kwargs):
         return self._connected().request(method, path, **kwargs)
 
@@ -280,6 +287,11 @@ def _probe(client_factory, url, token):
         client.close()
 
 
+# The tool running and its arguments, for the server's words (`_flag_failures`).
+_calling: "ContextVar[Optional[Tuple[str, dict]]]" = ContextVar(
+    "fibsem_mcp_calling", default=None
+)
+
 # fibsem.structures.MillingState by value, without importing it: the sidecar
 # stays light. tests/server/test_sidecar.py pins the two in step.
 _MILLING_STATES = ("IDLE", "RUNNING", "STOPPING", "PAUSED", "ERROR", "UNKNOWN")
@@ -289,6 +301,45 @@ class _Failure(str):
     """The server's own error (5xx), as text: unlike a refusal, the call may have
     done part of its work (a stage move that failed partway has moved). A tool
     that answers one is flagged an error (`_flag_failures`)."""
+
+
+def _pop_previews(data) -> List[bytes]:
+    """Take every base64 preview out of *data*, in place, and answer the JPEGs.
+
+    Each preview's place in the JSON keeps ``image_index``, its position among
+    the JPEGs answered.
+    """
+    images = []
+
+    def walk(node):
+        if isinstance(node, dict):
+            b64 = node.pop("image_b64_jpeg", None)
+            if isinstance(b64, str):
+                node["image_index"] = len(images)
+                images.append(base64.b64decode(b64))
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    walk(data)
+    return images
+
+
+EXPERIMENT_URI = "experiment://"
+
+
+def _with_blobs(content):
+    """An experiment resource's JSON *content*, its previews moved out into
+    image/jpeg contents after it (as :func:`_pop_previews` places them)."""
+    from mcp.server.lowlevel.helper_types import ReadResourceContents
+
+    data = json.loads(content.content)
+    images = _pop_previews(data)
+    yield ReadResourceContents(content=json.dumps(data), mime_type=content.mime_type)
+    for jpeg in images:
+        yield ReadResourceContents(content=jpeg, mime_type="image/jpeg")
 
 
 def _refusal(resp):
@@ -308,8 +359,13 @@ def _call(client, method, path, payload=None):
     403 teaches them nothing. A server error comes back as a `_Failure`: it
     says "failed", not "refused", because the call may have done part of its work.
     """
+    kwargs = {"json": payload}
+    tool = _calling.get()
+    if tool is not None and method != "GET":
+        # The server describes the call for the operator from these (FIB-1426).
+        kwargs["headers"] = headers_for(*tool)
     try:
-        resp = client.request(method, path, json=payload)
+        resp = client.request(method, path, **kwargs)
     except ServerUnreachable as exc:
         return None, str(exc)
     if resp.status_code >= 400:
@@ -361,8 +417,6 @@ def build_sidecar(client, capabilities):
     from mcp.server.mcpserver import Image, MCPServer
     from mcp.types import ToolAnnotations
 
-    mcp = MCPServer("fibsem")
-    _name_the_client(mcp, client)
     offered = {
         t.name
         for t in (
@@ -370,6 +424,29 @@ def build_sidecar(client, capabilities):
         )
     }
     by_name = {t.name: t for t in CATALOG}
+    # The open experiment's files as resources, beside the tools that read them.
+    files_offered = "experiment_read_file" in offered
+
+    class Sidecar(MCPServer):
+        """The MCP server: resources/list adds the experiment's top level, and
+        an experiment resource's previews are read as images."""
+
+        async def list_resources(self):
+            listed = await super().list_resources()
+            if not files_offered:
+                return listed
+            import anyio
+
+            return listed + await anyio.to_thread.run_sync(_experiment_resources)
+
+        async def read_resource(self, uri, context=None):
+            contents = await super().read_resource(uri, context)
+            if not str(uri).startswith(EXPERIMENT_URI):
+                return contents
+            return [part for content in contents for part in _with_blobs(content)]
+
+    mcp = Sidecar("fibsem")
+    _name_the_client(mcp, client)
 
     def _json_tool(name, payload_fn=None):
         spec = by_name[name]
@@ -407,21 +484,7 @@ def build_sidecar(client, capabilities):
         characters). Each preview's place in the JSON keeps ``image_index``,
         its position among the images that follow.
         """
-        images = []
-
-        def walk(node):
-            if isinstance(node, dict):
-                b64 = node.pop("image_b64_jpeg", None)
-                if isinstance(b64, str):
-                    node["image_index"] = len(images)
-                    images.append(Image(data=base64.b64decode(b64), format="jpeg"))
-                for value in node.values():
-                    walk(value)
-            elif isinstance(node, list):
-                for value in node:
-                    walk(value)
-
-        walk(data)
+        images = [Image(data=jpeg, format="jpeg") for jpeg in _pop_previews(data)]
         if not images:
             return data
         return [json.dumps(data), *images]
@@ -468,7 +531,11 @@ def build_sidecar(client, capabilities):
         }
 
     def milling_estimate_time():
-        return _service_call("milling_estimate_time", {}, "seconds")
+        # Answers seconds, milling_current and warning itself.
+        data, err = _call(
+            client, "POST", by_name["milling_estimate_time"].path, {"kwargs": {}}
+        )
+        return err if err else data["result"]
 
     def milling_preview_patterns(image_path: str, stages: Optional[list] = None):
         return _routed("milling_preview_patterns", image_path=image_path, stages=stages)
@@ -643,8 +710,20 @@ def build_sidecar(client, capabilities):
     def beam_auto_contrast(beam_type: str = "ELECTRON"):
         return _routed("beam_auto_contrast", beam_type=beam_type)
 
-    def beam_auto_focus(beam_type: str = "ELECTRON"):
-        return _routed("beam_auto_focus", "result", beam_type=beam_type)
+    def beam_auto_focus(
+        beam_type: str = "ELECTRON",
+        method: str = "sweep",
+        hfw: Optional[float] = None,
+        settings: Optional[dict] = None,
+    ):
+        return _routed(
+            "beam_auto_focus",
+            "result",
+            beam_type=beam_type,
+            method=method,
+            hfw=hfw,
+            settings=settings,
+        )
 
     def fm_auto_focus(channel_name: Optional[str] = None, path: Optional[str] = None):
         return _routed("fm_auto_focus", "run", channel_name=channel_name, path=path)
@@ -813,6 +892,22 @@ def build_sidecar(client, capabilities):
         meta = {"item_name": item_name, "filename": filename, **_image_header(resp)}
         return [json.dumps(meta), Image(data=resp.content, format="jpeg")]
 
+    def item_measure_thickness(
+        item_name: str,
+        filename: str,
+        width_um: Optional[float] = None,
+        height_um: Optional[float] = None,
+    ):
+        body = {"width_um": width_um, "height_um": height_um}
+        data, err = _call(
+            client,
+            "POST",
+            f"/app/experiment/items/{quote(item_name, safe='')}/outputs/"
+            f"{quote(filename, safe='')}/thickness",
+            {k: v for k, v in body.items() if v is not None},
+        )
+        return err if err else _with_images(data)
+
     def experiment_get_image_metadata(path: str):
         return _app_get("/app/experiment/images/metadata?" + urlencode({"path": path}))
 
@@ -834,6 +929,72 @@ def build_sidecar(client, capabilities):
             "/app/experiment/images/pixels",
             {"path": path, "stage_positions": [dict(p) for p in stage_positions]},
         )
+
+    def _region(values):
+        return None if values is None else ",".join(str(float(v)) for v in values)
+
+    def _read_file(path, box=None, fraction=None):
+        """The file route's answer for *path*: (data, err)."""
+        query = _query(box=_region(box), fraction=_region(fraction))
+        # Every character quoted, so an absolute path an image answer gave
+        # reaches the route whole.
+        url = "/app/experiment/files/" + quote(str(path), safe="")
+        return _call(client, "GET", url + ("?" + query if query else ""))
+
+    def experiment_list_files(dir: Optional[str] = None):
+        return _app_get("/app/experiment/files?" + _query(dir=dir))
+
+    def experiment_read_file(path: str):
+        data, err = _read_file(path)
+        return err if err else _with_images(data)
+
+    def experiment_crop_image(
+        path: str, box: Optional[list] = None, fraction: Optional[list] = None
+    ):
+        data, err = _read_file(path, box=box, fraction=fraction)
+        return err if err else _with_images(data)
+
+    def _experiment_resources():
+        """The experiment's top-level files and folders, as resources: not every
+        tile under them, which a read of a folder lists."""
+        from mcp.types import Resource
+
+        if capabilities is None and not getattr(client, "connected", True):
+            # No server answered at start-up: never wait for one here; the
+            # first tool call does.
+            return []
+        try:
+            data, err = _call(client, "GET", "/app/experiment/files")
+        except Exception:  # noqa: BLE001 - no server: a listing with no files
+            return []
+        if err:
+            return []  # no experiment open, or no app
+        return [
+            Resource(
+                uri=EXPERIMENT_URI + quote(entry["path"]),
+                name=entry["name"],
+                description=f"{entry['kind']} in the open experiment",
+                mime_type="application/json",
+                size=entry["size"],
+            )
+            for entry in data["entries"]
+        ]
+
+    if files_offered:
+        from mcp.server.mcpserver.exceptions import ResourceError
+
+        @mcp.resource(
+            EXPERIMENT_URI + "{+path}",
+            name="experiment_file",
+            title="Experiment file",
+            description=by_name["experiment_read_file"].description,
+            mime_type="application/json",
+        )
+        def experiment_file(path: str):
+            data, err = _read_file(path)
+            if err:
+                raise ResourceError(err)
+            return data
 
     def item_get(item_name: str):
         return _app_get(f"/app/experiment/items/{item_name}")
@@ -1245,7 +1406,11 @@ def build_sidecar(client, capabilities):
         return _app_post("/app/workflow/decide", body)
 
     def prompt_suggest_answer(
-        response: bool, question_id: int, reason: str, value: Optional[dict] = None
+        response: bool,
+        question_id: int,
+        reason: str,
+        value: Optional[dict] = None,
+        image: Optional[str] = None,
     ):
         body = {
             "response": bool(response),
@@ -1254,6 +1419,8 @@ def build_sidecar(client, capabilities):
         }
         if value is not None:
             body["value"] = dict(value)
+        if image:
+            body["image"] = str(image)
         return _app_post("/app/workflow/prompt/suggest", body)
 
     def prompt_answer(response: bool, question_id: int, value: Optional[dict] = None):
@@ -1339,7 +1506,11 @@ def build_sidecar(client, capabilities):
             protocol_get,
             item_list_outputs,
             item_get_output_image,
+            item_measure_thickness,
             experiment_get_image_metadata,
+            experiment_list_files,
+            experiment_read_file,
+            experiment_crop_image,
             item_get,
             grid_list,
             grid_get,
@@ -1406,7 +1577,7 @@ def build_sidecar(client, capabilities):
         if name in offered:
             spec = by_name[name]
             mcp.add_tool(
-                _described(_flag_failures(fn), spec.params),
+                _described(_flag_failures(fn, name), spec.params),
                 name=name,
                 title=spec.title,
                 description=spec.full_description,
@@ -1444,23 +1615,29 @@ def _described(fn, params):
     return fn
 
 
-def _flag_failures(fn):
+def _flag_failures(fn, name=None):
     """*fn*, with a server error it answers (`_Failure`) raised as the MCP
     ToolError, so the call is flagged an error rather than read as a refusal.
     Any other exception is raised as a ToolError carrying its type and message:
-    the SDK would otherwise tell the agent only "Error executing tool X"."""
+    the SDK would otherwise tell the agent only "Error executing tool X".
+
+    While it runs, its acting calls name the tool *name* and its arguments to
+    the server (`_call`)."""
     import functools
 
     from mcp.server.mcpserver.exceptions import ToolError
 
     @functools.wraps(fn)
     def tool(*args, **kwargs):
+        token = _calling.set((name, kwargs) if name else None)
         try:
             answer = fn(*args, **kwargs)
         except ToolError:
             raise
         except Exception as exc:
             raise ToolError(f"{type(exc).__name__}: {exc}") from exc
+        finally:
+            _calling.reset(token)
         if isinstance(answer, _Failure):
             raise ToolError(str(answer))
         return answer

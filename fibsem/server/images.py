@@ -56,13 +56,25 @@ def preview_jpeg_bytes(
 
 def preview_payload(image, max_width: int = 768) -> dict:
     """Build the JSON payload for a preview endpoint from a FibsemImage."""
-    jpeg, width, height = preview_jpeg_bytes(image.data, max_width=max_width)
+    return array_preview_payload(image.data, image.metadata, max_width=max_width)
+
+
+def array_preview_payload(
+    data: "np.ndarray",
+    metadata=None,
+    max_width: int = 768,
+    pixel_size: Optional[float] = None,
+) -> dict:
+    """:func:`preview_payload` for *data* (2-D, or RGB) and the beam image
+    *metadata* it came with, if any: a region of an image, or one that is not a
+    beam image (*pixel_size* in metres then gives its scale)."""
+    jpeg, width, height = preview_jpeg_bytes(data, max_width=max_width)
     payload = {
         "image_b64_jpeg": base64.b64encode(jpeg).decode(),
         "width": width,
         "height": height,
-        "full_width": int(image.data.shape[1]),
-        "full_height": int(image.data.shape[0]),
+        "full_width": int(data.shape[1]),
+        "full_height": int(data.shape[0]),
         "beam_type": None,
         "hfw": None,
         # metres per SOURCE pixel (full_width, not the downscaled preview):
@@ -70,22 +82,23 @@ def preview_payload(image, max_width: int = 768) -> dict:
         # coordinates using an assumed field of view.
         "pixelsize": None,
     }
-    md = image.metadata
+    md = metadata
     if md is not None and md.image_settings is not None:
         payload["hfw"] = _maybe_float(md.image_settings.hfw)
         beam_type = md.image_settings.beam_type
         payload["beam_type"] = beam_type.name if beam_type is not None else None
-    pixel_size = getattr(md, "pixel_size", None)
-    if pixel_size is not None:
+    md_pixel_size = getattr(md, "pixel_size", None)
+    if md_pixel_size is not None:
         payload["pixelsize"] = {
-            "x": _maybe_float(pixel_size.x),
-            "y": _maybe_float(pixel_size.y),
+            "x": _maybe_float(md_pixel_size.x),
+            "y": _maybe_float(md_pixel_size.y),
         }
-        if pixel_size.x is not None and width:
-            # metres per PREVIEW pixel: what a measurement on the preview uses.
-            payload["preview_pixelsize"] = (
-                float(pixel_size.x) * payload["full_width"] / width
-            )
+    elif pixel_size is not None:
+        payload["pixelsize"] = {"x": float(pixel_size), "y": float(pixel_size)}
+    size_x = (payload["pixelsize"] or {}).get("x")
+    if size_x is not None and width:
+        # metres per PREVIEW pixel: what a measurement on the preview uses.
+        payload["preview_pixelsize"] = size_x * payload["full_width"] / width
     return payload
 
 

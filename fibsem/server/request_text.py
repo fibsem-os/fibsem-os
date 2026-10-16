@@ -19,6 +19,7 @@ import math
 import os
 from dataclasses import fields as dataclass_fields
 from dataclasses import is_dataclass
+from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence, Tuple
 
@@ -59,8 +60,30 @@ def _clip(text: str, limit: int = _LINE_VALUE) -> str:
 
 
 def _number(value: float) -> str:
-    """3 significant figures, no trailing zeros: 2.5, 20, 0.2."""
-    return f"{value:.3g}"
+    """3 significant figures, no trailing zeros: 2.5, 20, 0.2, −3."""
+    return _minus(f"{value:.3g}")
+
+
+def _minus(text: str) -> str:
+    """A typeset minus sign, as the operator reads one: −3, not -3."""
+    return "−" + text[1:] if text.startswith("-") else text
+
+
+def _coordinate(metres: Any) -> str:
+    """A place on the stage to 0.1 µm, which 3 significant figures of a
+    millimetre lose: 1.2345 mm, −9.5 µm."""
+    try:
+        metres = float(metres)
+    except (TypeError, ValueError):
+        return _short(metres)
+    if abs(metres) >= 1e-3:
+        text, unit = f"{metres * 1e3:.4f}", "mm"
+    else:
+        text, unit = f"{metres * 1e6:.1f}", "µm"
+    text = text.rstrip("0").rstrip(".")
+    if float(text) == 0:
+        text = "0"
+    return f"{_minus(text)} {unit}"
 
 
 def _distance(metres: Any) -> str:
@@ -113,7 +136,9 @@ def _kwargs_table(kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 def _display(value: Any, spec: Optional["Parameter"]) -> str:
     """``value`` as the field's form shows it: 2e-06 with scale 1e6 and unit m
-    reads "2 µm"."""
+    reads "2 µm". No value reads "(none)"."""
+    if value is None:
+        return "(none)"
     if isinstance(value, Enum):
         return value.name
     if isinstance(value, bool):
@@ -534,17 +559,24 @@ def _item_patch_lines(patch: Any, document: Optional[Dict[str, Any]]) -> str:
             continue
         old = {p: _walk(document or {}, f"{field}.{p}") for p in parts}
         new = {p: flat.pop(f"{field}.{p}", old[p]) for p in parts}
-        line = f"{words}: {_item_place(field, new)}"
+        unit = " µm" if field == "poi" else ""
+        line = f"{words}: {_item_place(field, new)}{unit}"
         if all(v is not _MISSING for v in old.values()):
-            line = f"{words}: {_item_place(field, old)} → {_item_place(field, new)}"
+            before = (
+                "(none)"
+                if all(v is None for v in old.values())
+                else _item_place(field, old)
+            )
+            line = f"{words}: {before} → {_item_place(field, new)}{unit}"
         lines.append(line)
     rest = _patch_lines(flat, document, _item_setting, _item_value) if flat else ""
     return "\n".join(lines + ([rest] if rest else []))
 
 
 def _item_place(field: str, values: Dict[str, Any]) -> str:
-    """A point of interest as "(1, -3) µm"; an alignment area as "30 × 20% at
-    (25, 50)%". A value not known reads "?"."""
+    """A point of interest as "(+1, −3.2)", in µm from the image's centre to
+    0.1 µm; an alignment area as "30 × 20% at (25, 50)%". A value not known
+    reads "?"."""
 
     def number(value: Any, scale: float) -> str:
         try:
@@ -552,8 +584,15 @@ def _item_place(field: str, values: Dict[str, Any]) -> str:
         except (TypeError, ValueError):
             return "?"
 
+    def offset(value: Any) -> str:
+        try:
+            text = f"{float(value) * 1e6:+.1f}".rstrip("0").rstrip(".")
+        except (TypeError, ValueError):
+            return "?"
+        return "0" if float(text) == 0 else _minus(text)
+
     if field == "poi":
-        return f"({number(values['x'], 1e6)}, {number(values['y'], 1e6)}) µm"
+        return f"({offset(values['x'])}, {offset(values['y'])})"
     return (
         f"{number(values['width'], 100)} × {number(values['height'], 100)}% at "
         f"({number(values['left'], 100)}, {number(values['top'], 100)})%"
@@ -575,7 +614,8 @@ def _patch_lines(
         if old is _MISSING:
             lines.append(f"{name(str(path))}: {after}")
         else:
-            lines.append(f"{name(str(path))}: {value(str(path), old)} → {after}")
+            before = "(none)" if old is None else value(str(path), old)
+            lines.append(f"{name(str(path))}: {before} → {after}")
     return "\n".join(lines)
 
 
@@ -622,7 +662,7 @@ def _position(p: Any) -> str:
     if not isinstance(p, dict):
         return _short(p)
     parts = [
-        f"{axis} {_distance(p[axis])}" for axis in "xyz" if p.get(axis) is not None
+        f"{axis} {_coordinate(p[axis])}" for axis in "xyz" if p.get(axis) is not None
     ]
     for axis, word in (("t", "tilt"), ("r", "rotation")):
         if p.get(axis) is not None:
@@ -653,12 +693,66 @@ def _resolution(value: Any) -> str:
 _IMAGE_DEFAULTS = {"hfw": 150e-6, "resolution": [1536, 1024], "dwell_time": 1e-6}
 
 
-def _image_settings(settings: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
-    """An image's field of view, resolution and dwell, as one phrase and a table."""
+# An image's settings as the imaging panel labels them, in display units.
+_IMAGE_LABELS = {
+    "beam_type": "Beam",
+    "hfw": "Field of view",
+    "resolution": "Resolution",
+    "dwell_time": "Dwell time",
+    "autocontrast": "Autocontrast",
+    "autogamma": "Auto gamma",
+    "save": "Save",
+    "path": "Saved in",
+    "filename": "File name",
+    "line_integration": "Line integration",
+    "frame_integration": "Frame integration",
+    "scan_interlacing": "Scan interlacing",
+    "drift_correction": "Drift correction",
+    "reduced_area": "Reduced area",
+    "scan_rotation": "Scan rotation",
+    "nrows": "Rows",
+    "ncols": "Columns",
+    "overlap": "Overlap",
+}
+
+# The beam's settings an image changes, by the beam device's parameter names.
+_BEAM_PARAMETERS = ("hfw", "resolution", "dwell_time")
+
+
+def _image_value(key: str, value: Any) -> str:
+    if key == "hfw":
+        return _distance(value)
+    if key == "dwell_time":
+        return _dwell(value)
+    if key == "resolution":
+        return _resolution(value)
+    if key == "scan_rotation":
+        return _deg(value)
+    if key == "beam_type":
+        return _beam_short(value)
+    if key == "overlap" and isinstance(value, (int, float)):
+        return f"{_number(value * 100)}%"
+    if key == "path":
+        return _folder(value)
+    return _short(value)
+
+
+def _image_label(key: str) -> str:
+    return _IMAGE_LABELS.get(key) or _words(key).capitalize()
+
+
+def _folder(path: Any) -> str:
+    """A folder as its last part: the experiment's folders are long."""
+    text = str(path or "").rstrip("/\\").replace("\\", "/")
+    return os.path.basename(text) or text or "none"
+
+
+def _image_settings(settings: Dict[str, Any]) -> str:
+    """An image's field of view, resolution and dwell, as one phrase."""
     hfw = settings.get("hfw")
     resolution = settings.get("resolution")
     dwell = settings.get("dwell_time")
-    phrase = ", ".join(
+    return ", ".join(
         part
         for part in (
             f"{_distance(hfw)} wide" if hfw is not None else "",
@@ -667,23 +761,42 @@ def _image_settings(settings: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
         )
         if part
     )
-    rows = [
-        (_words(key), _short(value))
+
+
+def _image_rows(settings: Dict[str, Any], skip: Sequence[str] = ()) -> List[tuple]:
+    """An image's settings as (label, value) rows, in display units."""
+    return [
+        (_image_label(key), _image_value(key, value))
         for key, value in settings.items()
-        if key != "beam_type"
+        if key not in skip and value is not None
     ]
-    return phrase, _table(("Setting", "Value"), rows)
 
 
-def _acquire_image(a: Dict[str, Any]) -> Dict[str, Any]:
+def _acquire_image(a: Dict[str, Any], get: Callable[[str], Any]) -> Dict[str, Any]:
     settings = a.get("image_settings")
     if not isinstance(settings, dict) or not settings:
         return {"what": _beam(a), "change": "Take an image, as the beam is set now"}
-    phrase, details = _image_settings({**_IMAGE_DEFAULTS, **settings})
+    settings = {**_IMAGE_DEFAULTS, **settings}
+    beam = "ion" if str(a.get("beam_type", "")).upper() == "ION" else "electron"
+    rows = []
+    for key, value in settings.items():
+        if key == "beam_type" or value is None:
+            continue
+        new = _image_value(key, value)
+        now = (
+            get(f"/microscope/devices/{beam}/{key}")
+            if key in _BEAM_PARAMETERS
+            else None
+        )
+        if isinstance(now, dict) and "value" in now:
+            rows.append((_image_label(key), _image_value(key, now["value"]), new))
+        else:
+            rows.append((_image_label(key), "", new))
     return {
         "what": _beam(a),
-        "change": f"Take an image: {phrase}. These settings stay on the beam",
-        "details": details,
+        "change": f"Take an image: {_image_settings(settings)}. "
+        "These settings stay on the beam",
+        "details": _table(("Setting", "Now", "New"), rows),
     }
 
 
@@ -695,25 +808,41 @@ def _overview(a: Dict[str, Any]) -> Dict[str, Any]:
     hfw = image.get("hfw")
     grid = f"{rows} × {cols} " if rows and cols else ""
     change = f"Take a {grid}{beam} overview"
-    try:
-        overlap = float(settings.get("overlap") or 0.0)
-        if hfw is not None and rows and cols:
-            across = float(hfw) * (max(int(rows), int(cols)) * (1 - overlap) + overlap)
-            change += f", {_distance(hfw)} tiles (about {_distance(across)} across)"
-    except (TypeError, ValueError):
-        pass
+    size = _overview_size(settings)
+    if hfw is not None and size:
+        change += f", {_distance(hfw)} tiles ({size})"
     change += ", here"
-    table = [
-        (_words(k), _short(v)) for k, v in settings.items() if k != "image_settings"
-    ]
-    table += [(_words(k), _short(v)) for k, v in image.items()]
+    table = _image_rows(
+        {
+            k: v
+            for k, v in settings.items()
+            if not isinstance(v, dict) and k != "tile_mask"
+        }
+    ) + _image_rows(image)
     if a.get("path"):
-        table.append(("saved in", f"{a['path']} as {a.get('name') or 'overview'}"))
+        table.append(
+            ("Saved as", f"{a.get('name') or 'overview'} in {_folder(a['path'])}")
+        )
     return {
         "what": "Overview",
         "change": change,
         "details": _table(("Setting", "Value"), table),
     }
+
+
+def _overview_size(settings: Dict[str, Any]) -> Optional[str]:
+    """What an overview covers, as its estimate says: "about 420 × 280 µm"."""
+    from fibsem.structures import OverviewAcquisitionSettings
+
+    try:
+        parsed = OverviewAcquisitionSettings.from_dict(settings)
+        across, down = float(parsed.total_fov_x), float(parsed.total_fov_y)
+    except Exception:  # noqa: BLE001 - a partial settings dict says less
+        return None
+    width, height = _distance(across), _distance(down)
+    if width.split()[-1] == height.split()[-1]:
+        width = width.split()[0]
+    return f"about {width} × {height}"
 
 
 def _focus_stack(a: Dict[str, Any]) -> Dict[str, Any]:
@@ -725,6 +854,29 @@ def _focus_stack(a: Dict[str, Any]) -> Dict[str, Any]:
     if a.get("auto_focus", True):
         change += ", each strip focused first"
     return {"what": _beam(image), "change": change}
+
+
+def _auto_focus(a: Dict[str, Any]) -> Dict[str, Any]:
+    """The sweep's passes, as the operator reads them: "50 µm in 5 µm steps"."""
+    if str(a.get("method") or "sweep").lower() == "instrument":
+        return {"what": _beam(a), "change": "Autofocus with the instrument's routine"}
+    settings = a.get("settings") if isinstance(a.get("settings"), dict) else {}
+    passes = settings.get("passes")
+    if not isinstance(passes, list) or not passes:
+        from fibsem.autofunctions.autofocus import AutoFocusSettings
+
+        passes = [vars(p) for p in AutoFocusSettings().passes]
+    steps = [
+        f"{_distance(p.get('search_range'))} in {_distance(p.get('step_size'))} steps"
+        for p in passes
+        if isinstance(p, dict) and p.get("enabled", True)
+    ]
+    change = "Focus by sweeping the working distance"
+    if steps:
+        change += ": " + ", then ".join(steps)
+    if a.get("hfw") is not None:
+        change += f", images {_distance(a['hfw'])} wide"
+    return {"what": _beam(a), "change": change}
 
 
 def _fm_channels(a: Dict[str, Any], change: str) -> Dict[str, Any]:
@@ -821,28 +973,23 @@ def _add_item(a: Dict[str, Any], stage_now: Optional[Dict[str, Any]]) -> Dict[st
     named = f" '{a['name']}'" if a.get("name") else ""
     overview = a.get("overview")
     position = a.get("stage_position")
-    rows = []
     if isinstance(overview, dict):
         where = overview.get("filename") or "the overview"
+        if overview.get("grid_name"):
+            where += f" of {overview['grid_name']}"
         if overview.get("fraction") is not None:
             fx, fy = (list(overview["fraction"]) + [None, None])[:2]
             at = f"{_number(float(fx) * 100)}% across, {_number(float(fy) * 100)}% down"
         else:
             at = f"pixel {_short(overview.get('px'))}"
         change = f"Add{named} on {where}, at {at}"
-        rows.append(("Grid", _short(overview.get("grid_name"))))
     elif isinstance(position, dict):
         change = f"Add{named} at {_position(position)}"
     else:
         change = f"Add{named} at the stage position now"
         if stage_now:
             change += f": {_position(stage_now)}"
-    if isinstance(position, dict) and position.get("coordinate_system"):
-        rows.append(("Coordinates", str(position["coordinate_system"])))
-    line = {"what": "Lamella", "change": change}
-    if rows:
-        line["details"] = _table(("", ""), rows)
-    return line
+    return {"what": "Lamella", "change": change}
 
 
 def _open_experiment(get) -> Optional[str]:
@@ -859,6 +1006,30 @@ def _experiment_name(path: str) -> str:
     if os.path.splitext(name)[1].lower() in (".yaml", ".yml"):
         name = os.path.basename(os.path.dirname(path.replace("\\", "/")))
     return name or "an experiment"
+
+
+def _recent_experiment_about(get, path: str) -> Optional[str]:
+    """'5 lamellae, created 15 Oct' for a path on the recents list, else None."""
+    recent = get("/app/experiment/recent")
+    items = recent.get("items") if isinstance(recent, dict) else None
+    wanted = path.replace("\\", "/").rstrip("/")
+    for entry in items or []:
+        if not isinstance(entry, dict):
+            continue
+        entry_path = str(entry.get("path") or "").replace("\\", "/").rstrip("/")
+        if wanted not in (entry_path, os.path.dirname(entry_path)):
+            continue
+        count = entry.get("num_items")
+        parts = []
+        if isinstance(count, int):
+            parts.append(f"{count} lamell{'a' if count == 1 else 'ae'}")
+        try:
+            created = datetime.fromisoformat(str(entry.get("created_at")))
+            parts.append(f"created {created.day} {created:%b}")
+        except ValueError:
+            pass
+        return ", ".join(parts) or None
+    return None
 
 
 def _review_item(reviews: Any, item_id: Any) -> Optional[str]:
@@ -1159,7 +1330,7 @@ def _line(
             ),
         }
     if tool == "beam_acquire_image":
-        return _acquire_image(a)
+        return _acquire_image(a, get)
     if tool == "last_image_preview":
         return {"what": _beam(a), "change": "Show the last image"}
     if tool == "beam_auto_contrast":
@@ -1167,7 +1338,7 @@ def _line(
     if tool == "beam_auto_brightness_contrast":
         return {"what": _beam(a), "change": "Auto brightness and contrast"}
     if tool == "beam_auto_focus":
-        return {"what": _beam(a), "change": "Autofocus"}
+        return _auto_focus(a)
     if tool == "beam_acquire_overview":
         return _overview(a)
     if tool == "beam_acquire_focus_stack":
@@ -1450,7 +1621,7 @@ def _line(
             "change": f"Create and open '{a.get('name')}', with "
             + (f"protocol {protocol}" if protocol else "the default protocol"),
             "details": _table(
-                ("", ""),
+                ("Setting", "Value"),
                 [
                     ("Folder", _short(a.get("name"))),
                     ("Protocol", protocol or "the default"),
@@ -1462,12 +1633,15 @@ def _line(
     if tool == "experiment_load":
         path = str(a.get("path") or "")
         replaces = _open_experiment(get)
+        about = _recent_experiment_about(get, path)
         return {
             "what": "Experiment",
             "change": f"Open '{_experiment_name(path)}'"
+            + (f" ({about})" if about else "")
             + (f" in place of '{replaces}'" if replaces else ""),
             "details": _table(
-                ("", ""), [("Path", path), ("Replaces", replaces or "none open")]
+                ("Setting", "Value"),
+                [("Path", path), ("Replaces", replaces or "none open")],
             ),
         }
     if tool == "protocol_load":

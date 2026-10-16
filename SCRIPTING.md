@@ -288,7 +288,7 @@ def run(ctx):
     return f"imaged {len(ctx.experiment.positions)} positions"
 ```
 
-Use `fibsem.acquire.acquire_image(microscope, settings)`, not `microscope.acquire_image(settings)`. The method on the microscope is the raw grab and **ignores `save=True`** — the module-level function is the one that applies autocontrast, auto-gamma and writes the file.
+Use `fibsem.acquire.acquire_image(microscope, settings)`, not `microscope.acquire_image(settings)`. The method on the microscope is the raw grab and **ignores `save=True`** — the module-level function goes to the imaging service (`microscope.imaging.acquire_image`), which autocontrasts when the settings ask, writes the file and records it.
 
 ### How these differ from data scripts
 

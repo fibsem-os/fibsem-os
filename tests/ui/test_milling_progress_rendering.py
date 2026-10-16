@@ -100,6 +100,7 @@ class _MillingWidgetHost:
     _on_milling_progress = FibsemMillingWidget2._on_milling_progress
     _update_button_states = FibsemMillingWidget2._update_button_states
     is_milling = FibsemMillingWidget2.is_milling
+    _own_run = FibsemMillingWidget2._own_run
 
     def __init__(self):
         from PyQt5.QtWidgets import QProgressBar, QPushButton, QWidget
@@ -110,6 +111,7 @@ class _MillingWidgetHost:
         self.pushButton_stop_milling = QPushButton()
         self.pushButton_pause_milling = QPushButton()
         self._milling_thread = None
+        self._service_task = False
         self._has_stages = True
         self._milling_label = MillingMessageTracker()
 
@@ -400,6 +402,36 @@ class TestATaskEnding:
         milling_widget._on_milling_progress(task_finished())
         assert not milling_widget.progressBar_milling.isVisible()
         assert not milling_widget.progressBar_milling_stages.isVisible()
+
+    def test_the_workflows_mill_locks_the_controls_until_it_ends(self, milling_widget):
+        """The workflow mills on its own thread (FIB-1236), not the widget's: its
+        task start locks the editor and offers Stop, and its end unlocks them."""
+        milling_widget._on_milling_progress(
+            MillingProgress(MillingProgressStatus.TASK_STARTED, total_stages=1)
+        )
+        assert milling_widget.is_milling
+        assert not milling_widget.parent_widget.config_widget.isEnabled()
+        assert milling_widget.pushButton_stop_milling.isEnabled()
+        milling_widget._on_milling_progress(task_finished())
+        assert not milling_widget.is_milling
+        assert milling_widget.parent_widget.config_widget.isEnabled()
+
+    def test_stop_stops_the_workflows_mill_on_the_service(self, milling_widget):
+        """Stop on the Milling tab during the workflow's mill: the service's
+        stop, which ends the whole task (FIB-1398)."""
+        from types import SimpleNamespace
+
+        from fibsem.ui.widgets.milling_widget import FibsemMillingWidget2
+
+        stops = []
+        milling_widget.microscope = SimpleNamespace(
+            milling=SimpleNamespace(stop=lambda: stops.append(True))
+        )
+        milling_widget._on_milling_progress(
+            MillingProgress(MillingProgressStatus.TASK_STARTED, total_stages=1)
+        )
+        FibsemMillingWidget2.stop_milling(milling_widget)
+        assert stops == [True]
 
     def test_the_main_window_hides_its_bar(self, main_window):
         main_window._on_milling_progress(stage_start())
