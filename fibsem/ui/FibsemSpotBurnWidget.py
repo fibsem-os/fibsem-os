@@ -14,10 +14,12 @@ from PyQt5.QtWidgets import (
 from superqt import ensure_main_thread
 
 from fibsem.imaging.spot import (
+    EXPOSURE_LIMITS,
     SpotBurnProgress,
     SpotBurnSettings,
     SpotBurnStatus,
     run_spot_burn,
+    show_after_burn,
 )
 from fibsem.microscope import FibsemMicroscope
 from fibsem.services.spot_burn import in_frame
@@ -121,8 +123,8 @@ class FibsemSpotBurnWidget(QWidget):
         )
         self.doubleSpinBox_exposure_time = ValueSpinBox(
             suffix="s",
-            minimum=0.1,
-            maximum=60,
+            minimum=EXPOSURE_LIMITS[0],
+            maximum=EXPOSURE_LIMITS[1],
             decimals=3,
         )
         self.doubleSpinBox_exposure_time.setValue(10)
@@ -387,9 +389,7 @@ class FibsemSpotBurnWidget(QWidget):
             beam_type=BeamType.ION,
             stop_event=self.stop_event,
         )
-        # acquire a post-burn fib image and push it to the view (off the GUI thread)
-        image = self.microscope.acquire_image(beam_type=BeamType.ION)
-        self.microscope.fib_acquisition_signal.emit(image)
+        show_after_burn(self.microscope)
 
     def spot_burn_finished(self, result) -> None:
         """Called when the spot burn completes successfully."""

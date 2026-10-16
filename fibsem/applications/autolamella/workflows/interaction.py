@@ -81,11 +81,16 @@ __all__ = [
     "RunMillingTask",
     "MillingDecision",
     "MillingEdit",
-    "MILL_RUN",
-    "MILL_EDIT",
-    "MILL_SKIP",
-    "MILL_ACCEPT",
+    "ACTION_RUN",
+    "ACTION_EDIT",
+    "ACTION_SKIP",
+    "ACTION_ACCEPT",
     "RunSpotBurn",
+    "SpotBurnDecision",
+    "SpotBurnEdit",
+    "RunAgainQuestion",
+    "LOOP_ACTIONS",
+    "ClearSpotBurn",
     "SetImages",
     "SetMillingConfig",
     "ClearMillingConfig",
@@ -94,6 +99,7 @@ __all__ = [
     "InvalidAnswerValue",
     "StalePromptError",
     "apply_milling_edit",
+    "apply_spot_burn_edit",
     "answered_by",
     "ask",
     "mark_answered_by",
@@ -444,11 +450,144 @@ class PickPOI(Request[Optional["Point"]]):
 # What can be decided at a milling question (FIB-1297). Each has one meaning,
 # whenever it is asked: the yes/no it replaced meant "mill" at the first ask and
 # "mill again" after a pass, and an answerer reading one for the other milled twice.
-MILL_RUN = "run"  # mill the config as it then stands, then ask again
-MILL_EDIT = "edit"  # take the config as it then stands and ask again; nothing mills
-MILL_SKIP = "skip"  # go on without milling (before any pass)
-MILL_ACCEPT = "accept"  # go on with what was milled (after a pass)
-MILL_ACTIONS = (MILL_RUN, MILL_EDIT, MILL_SKIP, MILL_ACCEPT)
+# The answers to a question whose asker runs something and asks again (the mill,
+# the spot burn): see :class:`RunAgainQuestion`.
+ACTION_RUN = "run"  # run it as it then stands, then ask again
+ACTION_EDIT = "edit"  # take it as it then stands and ask again; nothing runs
+ACTION_SKIP = "skip"  # go on without running it (before any pass)
+ACTION_ACCEPT = "accept"  # go on with what was run (after a pass)
+LOOP_ACTIONS = (ACTION_RUN, ACTION_EDIT, ACTION_SKIP, ACTION_ACCEPT)
+
+
+class RunAgainQuestion:
+    """What a run-and-ask-again question shares: the mill's and the spot burn's.
+
+    The asker owns the loop (FIB-1236): it runs on its own thread when the
+    answer is ``run``, then asks again with the pass counted and the run's
+    error, if it failed. The answer is an action and what was shown as it then
+    stood, so whoever answers (the operator in the widget, an agent over the
+    App Server) changes what runs the same way: by answering with it. While
+    the question stands it lends the run's control, as any question does; the
+    run itself is never under the question.
+
+    A subclass is a frozen dataclass with ``message``, ``passes`` (runs for
+    this question, failed ones included: 0 at the first ask) and
+    ``last_error`` (the last run's error, if it failed), and optionally
+    ``enabled`` (False: confirm what is shown; nothing runs). It names its
+    buttons and words below.
+    """
+
+    lends_control = True
+    requires_value = True
+    run_label: ClassVar[str] = "Run"
+    again_label: ClassVar[str] = "Run Again"
+    noun: ClassVar[str] = "run"  # "Press Run Milling to mill"
+    without: ClassVar[str] = "without running it"  # "or Skip to go on ..."
+    failed_label: ClassVar[str] = "Failed"
+    off_hint: ClassVar[str] = "Press Continue when it is right."
+
+    @property
+    def _enabled(self) -> bool:
+        return getattr(self, "enabled", True)
+
+    @property
+    def actions(self) -> Tuple[str, ...]:
+        """What may be decided now."""
+        if not self._enabled:
+            return (ACTION_EDIT, ACTION_ACCEPT)
+        if self.passes == 0:
+            return (ACTION_RUN, ACTION_EDIT, ACTION_SKIP)
+        return (ACTION_RUN, ACTION_EDIT, ACTION_ACCEPT)
+
+    @property
+    def positive(self) -> str:
+        if not self._enabled:
+            return "Continue"
+        return self.run_label if self.passes == 0 else self.again_label
+
+    @property
+    def negative(self) -> Optional[str]:
+        if not self._enabled:
+            return None
+        return "Skip" if self.passes == 0 else "Accept"
+
+    def label_for(self, action: str) -> str:
+        """The button, or what it does, for ``action``: a suggestion's label."""
+        if action == ACTION_EDIT:
+            return "Apply Edits"
+        if action == ACTION_RUN:
+            return self.positive
+        return self.negative or self.positive
+
+    def action_for(self, clicked_yes: bool) -> str:
+        """What a button means here."""
+        if not self._enabled:
+            return ACTION_ACCEPT
+        if clicked_yes:
+            return ACTION_RUN
+        return ACTION_SKIP if self.passes == 0 else ACTION_ACCEPT
+
+    @property
+    def prompt(self) -> str:
+        """The prompt's text: the asker's message, what the buttons do now, and
+        the last run's error."""
+        if not self._enabled:
+            hint = self.off_hint
+        elif self.passes == 0:
+            hint = (
+                f"Press {self.run_label} to {self.noun}, or Skip to go on "
+                f"{self.without}."
+            )
+        else:
+            hint = f"Press {self.again_label} to {self.noun} again, or Accept to go on."
+        text = f"{self.message} {hint}"
+        if self.last_error:
+            return f"{self.failed_label}: {self.last_error}\n\n{text}"
+        return text
+
+    def _loop_state(self, off: str, ran: str) -> Dict[str, Any]:
+        """The loop's half of ``describe``: the state in words, and the fields."""
+        if not self._enabled:
+            state = off
+        elif self.passes == 0:
+            state = "Nothing has run yet."
+        else:
+            state = f"{ran} {self.passes} time(s)."
+            if self.last_error:
+                state += f" The last run failed: {self.last_error}"
+        return {
+            "message": f"{self.message}\n\n{state}",
+            "passes": self.passes,
+            "last_error": self.last_error,
+            "actions": list(self.actions),
+            "positive": self.positive,
+            "negative": self.negative,
+        }
+
+    def _parse_action(self, value: Dict[str, Any], keys: Sequence[str]) -> str:
+        """The value's action, checked against what may be decided now, and its
+        keys against ``keys`` (besides action)."""
+        action = value.get("action")
+        if action not in LOOP_ACTIONS:
+            raise InvalidAnswerValue(
+                f"action is required: one of {list(self.actions)} now."
+            )
+        if action not in self.actions:
+            raise InvalidAnswerValue(
+                f"{action!r} can't be decided now: one of {list(self.actions)}."
+            )
+        unknown = sorted(set(value) - {"action", *keys})
+        if unknown:
+            raise InvalidAnswerValue(
+                f"unknown keys {unknown}: a value has action, {', '.join(keys)}."
+            )
+        return action
+
+    def response_for(self, value: Any) -> bool:
+        """The button the action stands for: yes for the positive one."""
+        if not self._enabled:
+            return True
+        return value.action in (ACTION_RUN, ACTION_EDIT)
 
 
 @dataclass(frozen=True)
@@ -547,29 +686,16 @@ def apply_milling_edit(
 
 
 @dataclass(frozen=True)
-class RunMillingTask(Request[MillingDecision]):
+class RunMillingTask(RunAgainQuestion, Request[MillingDecision]):
     """Ask what to do with a milling config: run it, change it, or go on.
 
-    The asker owns the mill and the loop (FIB-1236): it mills on the workflow
-    thread when the answer is ``run``, and asks again with the pass counted and
-    the run's error, if it failed. The responder only shows the config, takes
-    the edits, and answers with a :class:`MillingDecision` -- the action and
-    the config as it then stood. So what is milled is always the asker's, and
-    whoever answers (the operator in the editor, an agent over the App Server)
-    changes it the same way: by answering with it.
-
-    ``passes`` is how many times the mill has run for this question, failed runs
-    included: 0 at the first ask. ``last_error`` is the last run's error, if it
-    failed. ``enabled`` False is a config to confirm without milling it.
-
-    While the question stands, the run lends its control of the microscope, as
-    any other question does: whoever answers may image, move and re-align
-    between passes. The mill itself is not under the question.
-
-    ``output_dir`` is the asking task's folder, which every run writes under.
+    A :class:`RunAgainQuestion`: the asker mills on the workflow thread
+    (FIB-1236), and the answer is a :class:`MillingDecision`, the action and
+    the config as the editor then held it. ``enabled`` False is a config to
+    confirm without milling it. ``output_dir`` is the asking task's folder,
+    which every run writes under.
     """
 
-    lends_control = True
     value_shape = (
         '{"action": "run" | "edit" | "skip" | "accept", "config": {...}, '
         '"patch": {"<dotted path>": value}}: action is required. run mills the '
@@ -584,8 +710,13 @@ class RunMillingTask(Request[MillingDecision]):
         '"stages.Polish 1.pattern.depth". A field marked not_used in fields '
         "is refused."
     )
-    requires_value = True
     view_frame = VIEW_FRAME_PREFER
+    run_label = "Run Milling"
+    again_label = "Mill Again"
+    noun = "mill"
+    without = "without milling"
+    failed_label = "Milling failed"
+    off_hint = "Press Continue when the config is right."
 
     config: "FibsemMillingTaskConfig"
     enabled: bool = True
@@ -594,77 +725,15 @@ class RunMillingTask(Request[MillingDecision]):
     passes: int = 0
     last_error: Optional[str] = None
 
-    @property
-    def actions(self) -> Tuple[str, ...]:
-        """What may be decided now."""
-        if not self.enabled:
-            return (MILL_EDIT, MILL_ACCEPT)
-        if self.passes == 0:
-            return (MILL_RUN, MILL_EDIT, MILL_SKIP)
-        return (MILL_RUN, MILL_EDIT, MILL_ACCEPT)
-
-    @property
-    def positive(self) -> str:
-        if not self.enabled:
-            return "Continue"
-        return "Run Milling" if self.passes == 0 else "Mill Again"
-
-    @property
-    def negative(self) -> Optional[str]:
-        if not self.enabled:
-            return None
-        return "Skip" if self.passes == 0 else "Accept"
-
-    def label_for(self, action: str) -> str:
-        """The button, or what it does, for ``action``: a suggestion's label."""
-        if action == MILL_EDIT:
-            return "Apply Edits"
-        if action == MILL_RUN:
-            return self.positive
-        return self.negative or self.positive
-
-    def action_for(self, clicked_yes: bool) -> str:
-        """What a button means here."""
-        if not self.enabled:
-            return MILL_ACCEPT
-        if clicked_yes:
-            return MILL_RUN
-        return MILL_SKIP if self.passes == 0 else MILL_ACCEPT
-
-    @property
-    def prompt(self) -> str:
-        """The prompt's text: the asker's message, what the buttons do now, and
-        the last run's error."""
-        if not self.enabled:
-            hint = "Press Continue when the config is right."
-        elif self.passes == 0:
-            hint = "Press Run Milling to mill, or Skip to go on without milling."
-        else:
-            hint = "Press Mill Again to mill again, or Accept to go on."
-        text = f"{self.message} {hint}"
-        if self.last_error:
-            return f"Milling failed: {self.last_error}\n\n{text}"
-        return text
-
     def describe(self) -> Dict[str, Any]:
         from fibsem.milling.tasks import describe_config_fields
 
-        if not self.enabled:
-            state = "Milling is off for this task: confirm the config; nothing mills."
-        elif self.passes == 0:
-            state = "Nothing has been milled yet."
-        else:
-            state = f"The mill has run {self.passes} time(s)."
-            if self.last_error:
-                state += f" The last run failed: {self.last_error}"
         return {
-            "message": f"{self.message}\n\n{state}",
-            "passes": self.passes,
+            **self._loop_state(
+                off="Milling is off for this task: confirm the config; nothing mills.",
+                ran="The mill has run",
+            ),
             "enabled": self.enabled,
-            "last_error": self.last_error,
-            "actions": list(self.actions),
-            "positive": self.positive,
-            "negative": self.negative,
             "task_name": self.config.name,
             "config": self.config.to_dict(),
             "fields": describe_config_fields(self.config),
@@ -675,25 +744,12 @@ class RunMillingTask(Request[MillingDecision]):
         }
 
     def parse_value(self, value: Dict[str, Any]) -> MillingEdit:
-        action = value.get("action")
-        if action not in MILL_ACTIONS:
-            raise InvalidAnswerValue(
-                f"action is required: one of {list(self.actions)} now."
-            )
-        if action not in self.actions:
-            raise InvalidAnswerValue(
-                f"{action!r} can't be decided now: one of {list(self.actions)}."
-            )
+        action = self._parse_action(value, ("config", "patch"))
         config, patch = value.get("config"), value.get("patch")
         if config is not None and not isinstance(config, dict):
             raise InvalidAnswerValue("config is a whole config document (an object).")
         if patch is not None and not isinstance(patch, dict):
             raise InvalidAnswerValue('patch is {"<dotted path>": value}.')
-        unknown = sorted(set(value) - {"action", "config", "patch"})
-        if unknown:
-            raise InvalidAnswerValue(
-                f"unknown keys {unknown}: a value has action, config and patch."
-            )
         edit = MillingEdit(action=action, config=config, patch=patch)
         # Checked against the config as asked; the responder makes the same
         # changes to the config as it stands when the answer lands.
@@ -714,12 +770,6 @@ class RunMillingTask(Request[MillingDecision]):
         except InvalidAnswerValue:
             return False
 
-    def response_for(self, value: MillingEdit) -> bool:
-        """The button the action stands for: yes for the positive one."""
-        if not self.enabled:
-            return True
-        return value.action in (MILL_RUN, MILL_EDIT)
-
     def draw(self, frame: "FibsemImage", live: Any) -> Any:
         """The config's patterns over ``frame``, as the milling editor draws
         them: ``live`` is the config as it now stands, else the one asked."""
@@ -730,81 +780,178 @@ class RunMillingTask(Request[MillingDecision]):
 
 
 @dataclass(frozen=True)
-class RunSpotBurn(Request[Optional["SpotBurnSettings"]]):
-    """Hand over spot-burn settings to place points and run; answer with the
-    settings as actually used — or None without a spot-burn widget (optional
-    hardware must not fail a workflow).
+class SpotBurnDecision:
+    """The answer to a spot burn question: what to do, and the settings (points,
+    current, exposure) as they stood when it was decided."""
 
-    Run Spot Burn runs the widget's current points, the widget's finished
-    signal re-raises the prompt, and Continue answers with ``get_settings()``
-    and clears the widget.
+    action: str
+    settings: "SpotBurnSettings"
 
-    It does not lend control: the responder runs the burn itself, so a burn
-    could start under a borrower. It moves to the asker's loop, as
-    :class:`RunMillingTask` did (FIB-1236), in its own change.
+
+@dataclass(frozen=True)
+class SpotBurnEdit:
+    """A remote answer's value at a spot burn question: the action, and the
+    changes to make first. ``points`` replaces the points; ``milling_current``
+    and ``exposure_time`` set the burn's. None leaves each as it stands."""
+
+    action: str
+    points: Optional[List["Point"]] = None
+    milling_current: Optional[float] = None
+    exposure_time: Optional[float] = None
+
+    @property
+    def changes(self) -> bool:
+        return (
+            self.points is not None
+            or self.milling_current is not None
+            or self.exposure_time is not None
+        )
+
+
+def apply_spot_burn_edit(
+    settings: "SpotBurnSettings", edit: SpotBurnEdit
+) -> "SpotBurnSettings":
+    """``settings`` with ``edit``'s changes made; a new settings."""
+    from dataclasses import replace
+
+    changes: Dict[str, Any] = {"coordinates": list(settings.coordinates)}
+    if edit.points is not None:
+        changes["coordinates"] = list(edit.points)
+    if edit.milling_current is not None:
+        changes["milling_current"] = edit.milling_current
+    if edit.exposure_time is not None:
+        changes["exposure_time"] = edit.exposure_time
+    return replace(settings, **changes)
+
+
+@dataclass(frozen=True)
+class RunSpotBurn(RunAgainQuestion, Request[Optional[SpotBurnDecision]]):
+    """Ask what to do with the spot burn: burn it, change it, or go on.
+
+    A :class:`RunAgainQuestion`: the asker burns on the workflow thread, and
+    the answer is a :class:`SpotBurnDecision`, the action and the settings as
+    the widget then held them. None without a spot-burn widget: optional
+    hardware must not fail a workflow.
     """
 
     value_shape = (
-        '{"points": [{"x", "y"}]}: fractions of the frame, origin top-left, '
-        "+y down; current and exposure stay the protocol's"
+        '{"action": "run" | "edit" | "skip" | "accept", "points": [{"x", "y"}], '
+        '"milling_current": A, "exposure_time": s}: action is required. run '
+        "burns the points as they then stand and asks again; edit makes the "
+        "changes and asks again, nothing burns; skip goes on without burning "
+        "(only before a pass); accept goes on with what was burned (only after "
+        "a pass). points (optional) replaces the points: fractions of the frame, "
+        "origin top-left, +y down. milling_current (amps) and exposure_time "
+        "(seconds per point) are optional."
     )
     view_frame = VIEW_FRAME_FALLBACK
+    run_label = "Run Spot Burn"
+    again_label = "Burn Again"
+    noun = "burn"
+    without = "without burning"
+    failed_label = "Spot burn failed"
 
     settings: "SpotBurnSettings"
     message: str = "Run Spot Burn"
+    passes: int = 0
+    last_error: Optional[str] = None
 
     def describe(self) -> Dict[str, Any]:
+        from fibsem.imaging.spot import EXPOSURE_LIMITS
+
         settings = self.settings
         return {
-            "message": f"{self.message}. Answering yes burns the points "
-            "as currently shown and asks again; answering no continues. A "
-            "value replaces the points first.",
-            "positive": "Run Spot Burn",
-            "negative": "Continue",
+            **self._loop_state(off="", ran="The spot burn has run"),
             "points": [pt.to_dict() for pt in getattr(settings, "coordinates", [])],
             "milling_current": getattr(settings, "milling_current", None),
             "exposure_time": getattr(settings, "exposure_time", None),
+            "exposure_limits": list(EXPOSURE_LIMITS),
             "coordinates": "points are fractions of the frame (origin "
             "top-left, +y down), so they need no rescaling against the "
-            "preview; current and exposure are the protocol's",
+            "preview; milling_current is in amps, exposure_time in seconds "
+            "per point",
             "image": None,
         }
 
-    def parse_value(self, value: Dict[str, Any]) -> List["Point"]:
+    def parse_value(self, value: Dict[str, Any]) -> SpotBurnEdit:
+        import math
+
+        from fibsem.imaging.spot import EXPOSURE_LIMITS
         from fibsem.services.spot_burn import in_frame
         from fibsem.structures import Point
 
+        action = self._parse_action(
+            value, ("points", "milling_current", "exposure_time")
+        )
         points = value.get("points")
-        if not isinstance(points, list):
-            raise InvalidAnswerValue(f"a RunSpotBurn value is {self.value_shape}.")
-        parsed: List[Point] = []
-        for entry in points:
-            try:
-                pt = Point.from_dict(entry)
-            except Exception:
+        parsed: Optional[List[Point]] = None
+        if points is not None:
+            if not isinstance(points, list):
                 raise InvalidAnswerValue(
-                    "each spot burn point needs numeric x, y: fractions of the frame."
-                ) from None
-            if not in_frame(pt):
-                raise InvalidAnswerValue(
-                    f"point ({pt.x:.3f}, {pt.y:.3f}) is outside the frame: x and y "
-                    "are fractions, 0 to 1."
+                    'points is [{"x", "y"}], fractions of the frame.'
                 )
-            parsed.append(pt)
-        return parsed
+            parsed = []
+            for entry in points:
+                try:
+                    pt = Point.from_dict(entry)
+                except Exception:
+                    raise InvalidAnswerValue(
+                        "each spot burn point needs numeric x, y: fractions of "
+                        "the frame."
+                    ) from None
+                if not in_frame(pt):
+                    raise InvalidAnswerValue(
+                        f"point ({pt.x:.3f}, {pt.y:.3f}) is outside the frame: x "
+                        "and y are fractions, 0 to 1."
+                    )
+                parsed.append(pt)
+        numbers: Dict[str, Optional[float]] = {}
+        for key in ("milling_current", "exposure_time"):
+            number = value.get(key)
+            if number is None:
+                numbers[key] = None
+                continue
+            if (
+                isinstance(number, bool)
+                or not isinstance(number, (int, float))
+                or not math.isfinite(number)
+                or number <= 0
+            ):
+                raise InvalidAnswerValue(f"{key} is a positive number.")
+            numbers[key] = float(number)
+        low, high = EXPOSURE_LIMITS
+        exposure = numbers["exposure_time"]
+        if exposure is not None and not low <= exposure <= high:
+            raise InvalidAnswerValue(
+                f"exposure_time {exposure:g} s is outside {low:g} to {high:g} s."
+            )
+        return SpotBurnEdit(action=action, points=parsed, **numbers)
 
-    def value_to_wire(self, value: List["Point"]) -> Dict[str, Any]:
-        return {"points": [point.to_dict() for point in value]}
+    def value_to_wire(self, value: Any) -> Dict[str, Any]:
+        # The live half: the settings as the widget holds them.
+        return {
+            "points": [point.to_dict() for point in value.coordinates],
+            "milling_current": value.milling_current,
+            "exposure_time": value.exposure_time,
+        }
 
     def same_value(self, live: Any, value: Any, frame: Any = None) -> bool:
+        import math
+
+        if not value.changes:
+            return True
+        if live is None:
+            return False
+        edited = apply_spot_burn_edit(live, value)
         # Points are 0-1 fractions of the frame.
         return (
-            live is not None
-            and len(live) == len(value)
+            len(live.coordinates) == len(edited.coordinates)
             and all(
                 abs(a.x - b.x) <= 1e-6 and abs(a.y - b.y) <= 1e-6
-                for a, b in zip(live, value)
+                for a, b in zip(live.coordinates, edited.coordinates)
             )
+            and math.isclose(live.milling_current, edited.milling_current)
+            and math.isclose(live.exposure_time, edited.exposure_time)
         )
 
 
@@ -829,6 +976,11 @@ class SetMillingConfig(Request[None]):
 @dataclass(frozen=True)
 class ClearMillingConfig(Request[None]):
     """Clear the milling editor."""
+
+
+@dataclass(frozen=True)
+class ClearSpotBurn(Request[None]):
+    """Clear the spot burn widget's points and leave workflow mode."""
 
 
 @dataclass(frozen=True)

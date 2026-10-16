@@ -74,9 +74,9 @@ from fibsem.applications.autolamella.workflows.core import (
     update_status_ui,
 )
 from fibsem.applications.autolamella.workflows.interaction import (
-    MILL_ACCEPT,
-    MILL_EDIT,
-    MILL_RUN,
+    ACTION_ACCEPT,
+    ACTION_EDIT,
+    ACTION_RUN,
     ClearMillingConfig,
     RunMillingTask,
     SetFluorescenceChannels,
@@ -815,14 +815,14 @@ class AutoLamellaTask(ABC):
                         ),
                         abort=lambda: _abort_requested(self.parent_ui),
                     )
-                    if decision.action == MILL_ACCEPT and passes:
+                    if decision.action == ACTION_ACCEPT and passes:
                         # The config as milled, not an edit made after it: the
                         # protocol must not claim what never ran (FIB-580).
                         break
                     config = decision.config
-                    if decision.action == MILL_EDIT:
+                    if decision.action == ACTION_EDIT:
                         continue
-                    if decision.action != MILL_RUN:
+                    if decision.action != ACTION_RUN:
                         break
                 elif passes:
                     if error is not None:

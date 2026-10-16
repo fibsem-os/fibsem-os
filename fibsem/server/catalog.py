@@ -198,7 +198,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
         },
     ),
     ToolSpec(
-        name="stage_get_milling_angle",
+        name="stage_get_current_milling_angle",
         description="Current milling angle in degrees: the angle between the ion beam and the sample surface at the stage's rotation and tilt (90 at the FIB pose).",
         method="POST",
         path="/microscope/services/stage_movement/queries/current_milling_angle",
@@ -334,6 +334,62 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "reference_path": "the saved reference image",
             "image_path": "the saved image to measure against it",
         },
+    ),
+    ToolSpec(
+        name="alignment_check_coincidence",
+        description=(
+            "EXPERIMENTAL, to try beside the by-hand loop: take an SEM and a FIB "
+            "image here and find the target centred in one beam (beam, ELECTRON "
+            "by default) in the other beam's view. The target is x, y metres "
+            "from that beam's image centre, +y up; the feature you centred is "
+            "0, 0 (the default). Autocontrasts each beam first unless "
+            "autocontrast is false. Answers an overlay to look at (the patch and "
+            "target beside the match: + where the target was found, x where it "
+            "would be if coincident) and dy for stage_vertical_move with "
+            "beam_type the OTHER beam, the height error dz, and dx: a "
+            "height error cannot move x, so a steady dx is a beam shift or scan "
+            "rotation, never a stage move. Also the score, how well two filter "
+            "scales agree, how close a second match comes and warnings. From the "
+            "FIB a height error shows ~3x larger in the SEM and can leave its "
+            "frame: start from the SEM when it may be large. It moves "
+            "nothing and refuses nothing: judge the overlay before moving. "
+            "path saves the pair and the overlay, for alignment_measure_coincidence "
+            "to replay."
+        ),
+        method="POST",
+        path="/microscope/services/alignment/commands/check_coincidence",
+        level="drive",
+        hardware=True,
+        params={
+            "x": "target x, metres from that beam's image centre (default 0)",
+            "y": "target y, metres from that beam's image centre, +y up (default 0)",
+            "hfw": "field width of both images in metres (default 150e-6)",
+            "autocontrast": "autocontrast each beam first (default true)",
+            "path": "optional folder inside the open experiment to save into",
+            "beam": "the beam the target is centred in: ELECTRON (default) or ION",
+        },
+        optional=("x", "y", "hfw", "autocontrast", "path", "beam"),
+    ),
+    ToolSpec(
+        name="alignment_measure_coincidence",
+        description=(
+            "EXPERIMENTAL: alignment_check_coincidence on a saved SEM and FIB "
+            "pair of the same size and field, both inside the open experiment: "
+            "replays a check, or measures images you took. Same answer: an "
+            "overlay and dy, dz, dx, score and warnings. Reads the files and "
+            "moves nothing."
+        ),
+        method="POST",
+        path="/microscope/services/alignment/queries/measure_coincidence",
+        level="watch",
+        params={
+            "sem_path": "the saved SEM image",
+            "fib_path": "the saved FIB image of the same place",
+            "x": "target x, metres from that beam's image centre (default 0)",
+            "y": "target y, metres from that beam's image centre, +y up (default 0)",
+            "beam": "the beam the target is centred in: ELECTRON (default) or ION",
+        },
+        optional=("x", "y", "beam"),
     ),
     ToolSpec(
         name="milling_stop",
@@ -989,6 +1045,43 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         },
     ),
     ToolSpec(
+        name="experiment_list_files",
+        description="One folder of the open experiment: its folders, then its files, each with name, path (relative to the experiment), kind (folder, text, image, other), size and modified time. Start at the top (no dir) and go down one folder at a time.",
+        method="GET",
+        path="/app/experiment/files",
+        level="watch",
+        router="app",
+        params={
+            "dir": "a folder path from an earlier listing, relative to the experiment (default: the top)"
+        },
+        optional=("dir",),
+    ),
+    ToolSpec(
+        name="experiment_read_file",
+        description="One file of the open experiment: text (yaml, json, log, md, csv) as text, up to 512 KB; an image (tif, png, jpg) as a 768 px preview you can look at, with its metadata block; a folder as its listing. Previews and metadata only, never the raw file. For detail in part of an image, experiment_crop_image. Paths outside the experiment are refused.",
+        method="GET",
+        path="/app/experiment/files/{path}",
+        level="watch",
+        router="app",
+        params={
+            "path": "a path from experiment_list_files, or an image path an image answer gave"
+        },
+    ),
+    ToolSpec(
+        name="experiment_crop_image",
+        description="One region of an image in the open experiment, at native resolution (downscaled only when wider than 768 px): full detail where it matters, without the whole file. Give box in source pixels or fraction (0 to 1, as read off a preview), each [x, y, width, height]. The answer's preview carries the region and its own scale.",
+        method="GET",
+        path="/app/experiment/files/{path}",
+        level="watch",
+        router="app",
+        params={
+            "path": "an image path from experiment_list_files, or one an image answer gave",
+            "box": "[x, y, width, height] in source pixels (instead of fraction)",
+            "fraction": "[left, top, width, height] as fractions of the image, 0 to 1 (instead of box)",
+        },
+        optional=("box", "fraction"),
+    ),
+    ToolSpec(
         name="grid_list",
         description="Every grid the experiment records: quality verdict, task status, completed tasks, linked item count, and the basename of its latest SEM/FIB/FM overview by role. Records only — not the live slot inventory (grid_get_inventory).",
         method="GET",
@@ -1569,7 +1662,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="prompt_answer",
-        description='Answer the pending supervision question, exactly as clicking the matching button would. Not for a question whose prompt says answer_via: "decide" -- that one is refused here, with nothing clicked, and decided with review_decide. True = the positive option. Echo the question_id from prompt_get; if that question is no longer pending the answer is refused (409 stale_prompt) — re-read and answer the current one. A question whose prompt has a value field takes a value in the shape that field gives: the edit the operator could make in that widget, placed into it (the operator sees it land) and then answered through the same click path; value_required means the answer must carry one (the action, at the milling question). For RunSpotBurn, yes burns the points as shown and asks again, no continues. When your value moved the widget, moved_from in the answer is what it showed before, in the same shape as value; absent when it already showed your value. The value is what is stored. An out-of-bounds or wrong-shape value is refused (422 invalid_value) without clicking anything.',
+        description='Answer the pending supervision question, exactly as clicking the matching button would. Not for a question whose prompt says answer_via: "decide" -- that one is refused here, with nothing clicked, and decided with review_decide. True = the positive option. Echo the question_id from prompt_get; if that question is no longer pending the answer is refused (409 stale_prompt) — re-read and answer the current one. A question whose prompt has a value field takes a value in the shape that field gives: the edit the operator could make in that widget, placed into it (the operator sees it land) and then answered through the same click path; value_required means the answer must carry one (the action, at the milling and spot burn questions). When your value moved the widget, moved_from in the answer is what it showed before, in the same shape as value; absent when it already showed your value. The value is what is stored. An out-of-bounds or wrong-shape value is refused (422 invalid_value) without clicking anything.',
         method="POST",
         path="/app/workflow/prompt/answer",
         level="drive",
@@ -1844,6 +1937,29 @@ _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict
             reference_path=str(a["reference_path"]), image_path=str(a["image_path"])
         ),
     ),
+    "alignment_check_coincidence": lambda a: (
+        {},
+        _preview(
+            {
+                "x": float(a.get("x") or 0.0),
+                "y": float(a.get("y") or 0.0),
+                "hfw": float(a.get("hfw") or 150e-6),
+                "autocontrast": a.get("autocontrast") is not False,
+                "path": a.get("path"),
+                "beam": str(a.get("beam") or "ELECTRON"),
+            }
+        ),
+    ),
+    "alignment_measure_coincidence": lambda a: (
+        {},
+        _kwargs(
+            sem_path=str(a["sem_path"]),
+            fib_path=str(a["fib_path"]),
+            x=float(a.get("x") or 0.0),
+            y=float(a.get("y") or 0.0),
+            beam=str(a.get("beam") or "ELECTRON"),
+        ),
+    ),
     "milling_preview_patterns": lambda a: (
         {},
         _kwargs(image_path=str(a["image_path"]), stages=a.get("stages")),
@@ -1857,7 +1973,7 @@ _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict
     "grid_move_to": lambda a: ({}, _kwargs(grid_name=str(a["grid_name"]))),
     "grid_move_to_slot": lambda a: ({}, _kwargs(slot_name=str(a["slot_name"]))),
     "stage_get_orientation": lambda a: ({}, _kwargs()),
-    "stage_get_milling_angle": lambda a: ({}, _kwargs()),
+    "stage_get_current_milling_angle": lambda a: ({}, _kwargs()),
     "stage_get_geometry": lambda a: ({}, _kwargs()),
     "stage_stable_move": lambda a: (
         {},

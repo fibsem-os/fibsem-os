@@ -264,13 +264,17 @@ can state. Where it is a prompt rather than a review, the payload's
 origin top-left; features you leave out stay). The model's points are kept
 beside your correction, as they are when the operator drags one.
 
-**`RunSpotBurn`** — points to burn on the FIB image. Yes burns the points
-as shown and the question comes back after the burn; no continues. The
-payload's `current` is the live points and `image` the frame they sit on.
-Placing points is a placement: held for the operator unless delegated. When
-it is, an answer may carry them: `"value": {"points": [{"x", "y"}]}`
-(fractions of the frame, origin top-left). Current and exposure stay the
-protocol's.
+**`RunSpotBurn`** — points to burn on the FIB image, the same loop as the
+milling question: answer with an `action` in `value` (`run`, `edit`, `skip`
+or `accept`, as `actions` allows), `passes` counts the burns and
+`last_error` says why the last one failed. Before a burn, `run` burns the
+points as shown and **`skip` goes on without burning** (the operator's
+call). After one, `run` burns AGAIN and `accept` goes on; look at the FIB
+image the burn left first. Edits ride the same value: `points`
+(`[{"x", "y"}]`, fractions of the frame, origin top-left; all of them,
+replacing the old), `milling_current` (A) and `exposure_time` (s, within
+`exposure_limits`). Placing points is a placement: held for the operator
+unless delegated. The question lends control between burns.
 
 **A `state` review** — the task's position, "press Continue when ready" on
 the record (rule 5). Confirming carries no values: the task reads the
@@ -379,6 +383,7 @@ The argument selects a variation on the same loop:
   /app/experiment/grids/{grid}/outputs/{file}`) is the preview and `.../markers` places the experiment's items on it in
   source pixels with their status — use it for "which items sit near the
   edge / off the grid" judgments, never re-derive stage geometry yourself.
+  For any other file, `experiment_list_files` and `experiment_read_file` list and read the open experiment's folder (text as text, images as previews with metadata), and `experiment_crop_image` shows one region of an image at full resolution.
   `quality` is the operator's verdict, not yours: say what you see, propose,
   and leave the verdict to them. Starting a screening run is a control
   action: `POST /app/workflow/grids/plan` first and show the operator the
@@ -536,6 +541,16 @@ is centred in both. Work from whichever beam has it centred already. Don't
 use the coincidence commands: this loop worked better on a real instrument.
 A coincidence error shows only as a vertical offset in the image, never
 side to side.
+
+To try (experimental): `alignment_check_coincidence` finds the feature you
+centred in one beam (`beam`, ELECTRON by default) in the other beam's view for
+you. It answers `dy` for `stage_vertical_move` with the other beam's
+`beam_type`, and `dx`: a height error can't cause it, so a steady `dx` is a
+beam shift, never a stage move. Start from the SEM when the error may be
+large: from the FIB it shows about 3x larger in the SEM and can leave the frame. It answers an overlay too.
+Look at it, and use the `dy` only if the `+` sits on your feature; it
+refuses nothing. Give it a `path` so the pair can be replayed, and say in a
+note how it compared with your own measurement.
 
 **A refused move and a failed move are different.** A move refused before it
 starts (outside the stage limits, `microscope_busy`, a bad argument, the

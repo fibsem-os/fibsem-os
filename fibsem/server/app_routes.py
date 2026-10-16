@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 
-from fibsem.server import allowlist
+from fibsem.server import allowlist, files
 from fibsem.server.auth import take_control
 
 try:  # Protocol is typing-only; keep import robust on the 3.8 floor
@@ -118,6 +118,9 @@ class AppContext(Protocol):
     def rename_grid(self, grid_name: str, name: str) -> Dict[str, Any]: ...
 
     def image_metadata(self, path: str) -> Dict[str, Any]: ...
+
+    @property
+    def experiment_path(self) -> Optional[str]: ...
 
     def protocol_task_config(self, task_name: str) -> Dict[str, Any]: ...
 
@@ -298,6 +301,22 @@ def _required_text(body: Dict[str, Any], key: str, what: str) -> str:
     return value
 
 
+def _numbers(text: Optional[str]) -> Optional[List[float]]:
+    """A comma-separated list of numbers from a query, or the 422 saying so."""
+    if text is None:
+        return None
+    try:
+        return [float(part) for part in text.split(",")]
+    except ValueError:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error_type": "invalid",
+                "message": f"A region is four numbers, x,y,width,height; not {text!r}.",
+            },
+        )
+
+
 def _answer_or_refusal(result: Dict[str, Any]) -> Dict[str, Any]:
     """A context answer, or its refusal as an HTTP error: ``error_type`` picks the
     status, ``error`` is the message, and any lists of valid names ride along."""
@@ -460,6 +479,25 @@ def build_app_router(context: AppContext) -> APIRouter:
             status = 403 if error == "not_allowed" else 404
             raise HTTPException(status_code=status, detail=answer)
         return answer
+
+    # -- the experiment's own files: previews and text, never raw bytes --------
+
+    def _files_answer(read, *args, **kwargs):
+        try:
+            return read(context.experiment_path, *args, **kwargs)
+        except files.FileRefusal as refusal:
+            raise HTTPException(status_code=refusal.status, detail=refusal.detail)
+
+    @router.get("/experiment/files")
+    def list_files(dir: str = ""):
+        return _files_answer(files.list_folder, dir)
+
+    @router.get("/experiment/files/{path:path}")
+    def read_file(path: str, box: Optional[str] = None, fraction: Optional[str] = None):
+        # A region is "x,y,width,height": source pixels (box) or 0-1 (fraction).
+        return _files_answer(
+            files.read, path, box=_numbers(box), fraction=_numbers(fraction)
+        )
 
     @router.get("/workflow/prompt")
     def pending_prompt():

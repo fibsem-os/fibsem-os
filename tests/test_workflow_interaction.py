@@ -200,9 +200,9 @@ def test_the_milling_question_lends_the_runs_control():
     assert responder.outcome == "acted"
 
 
-def test_the_spot_burn_question_does_not_lend_the_runs_control():
-    # The responder runs the burn itself, and the burn takes no control of its
-    # own yet: lending would let a command in beside it.
+def test_the_spot_burn_question_lends_the_runs_control():
+    # The burn is the asker's, run after the answer, as the mill is: between
+    # burns whoever answers may act.
     from fibsem.applications.autolamella.workflows.interaction import RunSpotBurn
     from fibsem.control import Control
 
@@ -210,4 +210,4 @@ def test_the_spot_burn_question_does_not_lend_the_runs_control():
     responder = _TryToActResponder(control)
     with control.take("workflow", "a lamella run"):
         ask(responder, RunSpotBurn(settings=None), timeout=5)
-    assert responder.outcome == "refused"
+    assert responder.outcome == "acted"
