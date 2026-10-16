@@ -384,8 +384,11 @@ def test_a_direct_call_is_described_and_recorded(client, auth, microscope):
     try:
         assert client.post(MOVE_RELATIVE, headers=named, json=_NUDGE).status_code == 200
         assert client.post(MOVE_RELATIVE, headers=AGENT, json=_NUDGE).status_code == 200
-        # A read is not on the record.
+        # A read is not on the record, nor a query posted (sim session
+        # 2026-10-16 F2: describing a request filled Recent with these).
         assert client.get("/app/workflow/status", headers=AGENT).status_code == 200
+        query = "/microscope/services/stage_movement/queries/geometry"
+        assert client.post(query, headers=AGENT, json={"kwargs": {}}).status_code < 500
     finally:
         microscope.session.record_signal.disconnect(record)
         microscope.control.changed.disconnect(control)

@@ -294,6 +294,9 @@ def _record_refusal(request: Request, exc: StarletteHTTPException) -> None:
 # and level, its answers and suggestions to the run's questions. A stop says
 # so as it stops (`_stop_reason`).
 _RECORDS_ITSELF = ("/app/agent/", "/app/workflow/prompt/")
+# POST routes that only read: a query, and the grid run's plan. Not the agent
+# acting, and the request store reads them to describe each request.
+_POSTED_READS = ("/queries/", "/app/workflow/grids/plan")
 
 
 class _AgentActs:
@@ -308,7 +311,8 @@ class _AgentActs:
     (FIB-1426): what it did in the operator's words, how it ended, and at which
     level. Not a read, an approved request's call (the request's own events say
     those), a refusal for the agent's permissions (``agent_refused``), a long
-    command (its run's events), or a route that records itself.
+    command (its run's events), a POST that only reads (a query), or a route
+    that records itself.
     """
 
     def __init__(self, app) -> None:
@@ -361,6 +365,7 @@ class _AgentActs:
                 or call.run_id is not None
                 or call.recorded
                 or path.startswith(_RECORDS_ITSELF)
+                or any(read in path for read in _POSTED_READS)
             ):
                 return
             request = Request(scope)
