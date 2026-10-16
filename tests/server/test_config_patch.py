@@ -93,3 +93,32 @@ def test_a_beam_bound_field_keeps_its_own_limits(config):
     apply_patch(config, {"milling.mill_rough.stages.0.milling.hfw": 400e-6})
     with pytest.raises(PatchError, match="above the maximum"):
         apply_patch(config, {"milling.mill_rough.stages.0.milling.hfw": 2e-3})
+
+
+def test_a_field_nothing_reads_is_refused_with_why(config):
+    """An edit to a field marked not_used would do nothing, so it is refused
+    with the field's note rather than accepted silently (FIB-1297)."""
+    path = "milling.mill_rough.alignment.interval"
+    before = config.milling["mill_rough"].alignment.interval
+    with pytest.raises(PatchError, match="not used"):
+        apply_patch(config, {path: 5.0})
+    assert config.milling["mill_rough"].alignment.interval == before
+
+
+def test_the_milling_fields_are_explained_and_the_task_set_ones_marked():
+    from fibsem.milling.tasks import (
+        FibsemMillingTaskConfig,
+        describe_config_fields,
+        task_overridden_path,
+    )
+
+    fields = describe_config_fields(FibsemMillingTaskConfig())
+    assert fields["task"]["alignment.interval"]["unit"] == "s"
+    assert fields["task"]["alignment.interval_enabled"]["not_used"]
+    # Set from the task's own value at each stage start, so a stage's edit
+    # would do nothing.
+    assert "field_of_view" in fields["stage"]["milling.hfw"]["not_used"]
+    assert "set alignment instead" in fields["stage"]["alignment"]["not_used"]
+    assert not any(path.startswith("alignment.") for path in fields["stage"])
+    assert task_overridden_path("stages.0.alignment.enabled")
+    assert not task_overridden_path("stages.0.milling.milling_current")

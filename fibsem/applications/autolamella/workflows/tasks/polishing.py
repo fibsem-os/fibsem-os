@@ -73,7 +73,7 @@ class MillPolishingTask(AutoLamellaTask):
         milling_task_config = self.config.milling[MILL_POLISHING_KEY]
         milling_task_config.alignment.rect = self.lamella.alignment_area
 
-        msg = f"Press Run Milling to mill the polishing for {self.lamella.name}. Press Continue when done."
+        msg = f"Mill the polishing for {self.lamella.name}."
         milling_task_config = self.update_milling_config_ui(
             milling_task_config, msg=msg
         )

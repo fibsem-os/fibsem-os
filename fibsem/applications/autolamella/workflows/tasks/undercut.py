@@ -136,7 +136,7 @@ class MillUndercutTask(AutoLamellaTask):
 
             # mill undercut
             self.log_status_message(f"MILL_UNDERCUT_{nid}")
-            msg = f"Press Run Milling to mill the Undercut for {self.lamella.name}. Press Continue when done."
+            msg = f"Mill the Undercut for {self.lamella.name}."
             milling_task_config = self.update_milling_config_ui(
                 milling_task_config, msg=msg
             )

@@ -98,8 +98,110 @@ class MillingTaskAcquisitionSettings(Configurable):
         )
 
 
+# What a milling task sets on each stage before the stage runs, as stage path: task
+# path. A stage's own value there is never used inside a task, so an edit to it at
+# the milling question is refused, naming the task's field to set instead.
+TASK_SETS_ON_STAGE: Dict[str, str] = {
+    "milling.hfw": "field_of_view",
+    "milling.milling_channel": "channel",
+    "milling.acquire_images": "acquisition.enabled",
+    "imaging": "acquisition.imaging",
+    "alignment": "alignment",
+}
+
+
+def _get_path(obj: Any, path: str) -> Any:
+    for part in path.split("."):
+        obj = getattr(obj, part)
+    return obj
+
+
+def _set_path(obj: Any, path: str, value: Any) -> None:
+    *parents, leaf = path.split(".")
+    for part in parents:
+        obj = getattr(obj, part)
+    setattr(obj, leaf, value)
+
+
+def task_overridden_path(path: str) -> Optional[str]:
+    """Why a dotted path into a milling task config sets nothing, when it is a
+    stage field the task sets itself (``stages.0.milling.hfw``); else None."""
+    parts = path.split(".")
+    if len(parts) < 3 or parts[0] != "stages":
+        return None
+    within = ".".join(parts[2:])
+    for stage_path, task_path in TASK_SETS_ON_STAGE.items():
+        if within == stage_path or within.startswith(stage_path + "."):
+            return (
+                f"the task sets the stage's {stage_path} from its own "
+                f"{task_path}; set {task_path} instead"
+            )
+    return None
+
+
+def describe_config_fields(config: "FibsemMillingTaskConfig") -> Dict[str, Any]:
+    """What each field of ``config`` means, for an agent editing it: the task's
+    fields and the stage's by dotted path, and each pattern's and strategy's
+    fields by its name. Each entry has the field's doc, its SI unit, and
+    ``not_used`` (why setting it does nothing) where that applies; the stage
+    fields the task sets itself say so. Only fields that say something."""
+
+    def walk(cls: type, prefix: str, out: Dict[str, Any], seen: tuple) -> None:
+        from dataclasses import is_dataclass
+
+        from fibsem.structures import field_specs
+
+        if cls in seen:
+            return
+        for name, spec in field_specs(cls).items():
+            path = f"{prefix}{name}"
+            entry = {
+                key: value
+                for key, value in (
+                    ("doc", spec.doc),
+                    ("unit", spec.unit),
+                    ("not_used", spec.not_used),
+                )
+                if value
+            }
+            if entry:
+                out[path] = entry
+            hint = spec.type
+            if isinstance(hint, type) and is_dataclass(hint) and not spec.not_used:
+                walk(hint, f"{path}.", out, seen + (cls,))
+
+    from fibsem.milling.base import FibsemMillingStage
+
+    task: Dict[str, Any] = {}
+    walk(type(config), "", task, ())
+    task.pop("stages", None)
+    stage: Dict[str, Any] = {}
+    walk(FibsemMillingStage, "", stage, ())
+    for path in list(stage):
+        # Inside a section the task sets: the section says so, below.
+        if path not in TASK_SETS_ON_STAGE and task_overridden_path(f"stages.0.{path}"):
+            del stage[path]
+    for path in TASK_SETS_ON_STAGE:
+        note = task_overridden_path(f"stages.0.{path}")
+        stage[path] = {**stage.get(path, {}), "not_used": note}
+    patterns: Dict[str, Any] = {}
+    strategies: Dict[str, Any] = {}
+    for each in config.stages:
+        pattern, strategy = each.pattern, getattr(each.strategy, "config", None)
+        if pattern.name not in patterns:
+            walk(type(pattern), "", patterns.setdefault(pattern.name, {}), ())
+        if strategy is not None and each.strategy.name not in strategies:
+            walk(type(strategy), "", strategies.setdefault(each.strategy.name, {}), ())
+    return {
+        "task": task,
+        "stage": stage,
+        "pattern": patterns,
+        "strategy": strategies,
+    }
+
+
 @dataclass
-class FibsemMillingTaskConfig:
+class FibsemMillingTaskConfig(Configurable):
     """Configuration for a milling task."""
 
     name: str = "Milling Task"
@@ -466,12 +568,8 @@ class FibsemMillingTask:
         stage.reference_image = self.reference_image
         stage.reference_image_full_frame = self.reference_image_full_frame
         stage.output_dir = self.output_dir
-        stage.milling.hfw = self.config.field_of_view
-        stage.milling.milling_channel = self.config.channel
-        stage.milling.acquire_images = self.config.acquisition.enabled
-        stage.imaging.path = self.config.acquisition.imaging.path
-        stage.imaging = self.config.acquisition.imaging
-        stage.alignment = self.config.alignment
+        for stage_path, task_path in TASK_SETS_ON_STAGE.items():
+            _set_path(stage, stage_path, _get_path(self.config, task_path))
         self._record_stage_started(stage, idx)
         result = stage.strategy.run(
             microscope=self.microscope,

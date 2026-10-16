@@ -176,6 +176,9 @@ class Parameter:
     name: str = ""
     device_parameter: Optional[str] = None
     filepath: bool = False
+    # Why setting it does nothing, when it doesn't: nothing reads it yet. A patch to
+    # it is refused with this, and a description says it beside the field.
+    not_used: Optional[str] = None
 
     def _checked(self) -> "Parameter":
         """This Parameter, checked as a field's: the field gives the name and the
@@ -5345,12 +5348,20 @@ DEFAULT_ALIGNMENT_AREA = {"left": 0.7, "top": 0.3, "width": 0.25, "height": 0.4}
 
 
 @dataclass
-class MillingAlignment:
+class MillingAlignment(Configurable):
     """Drift correction settings for milling"""
 
     enabled: bool = True
-    interval_enabled: bool = False
-    interval: int = 30  # seconds
+    interval_enabled: bool = param(
+        False,
+        not_used="drift correction during a mill is not built yet (FIB-13); "
+        "the task aligns before each stage only",
+    )
+    interval: int = param(
+        30,
+        unit="s",
+        not_used="drift correction during a mill is not built yet (FIB-13)",
+    )
     rect: FibsemRectangle = field(
         default_factory=lambda: FibsemRectangle.from_dict(DEFAULT_ALIGNMENT_AREA)
     )

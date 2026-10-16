@@ -1,16 +1,14 @@
-"""The milling question over the Responder seam: RunMillingTask.
+"""The milling question and its loop: the task mills, the question decides.
 
-The old mill loop straddled threads four ways: ``ask_user(mill=...)`` parked on
-the polled flag; the workflow thread emitted ``start_milling_signal`` over a
-BlockingQueuedConnection; it sleep-polled ``widget.is_milling`` across the seam;
-and it read ``get_config()`` back at the end. Now the whole loop — prompt, run
-on Run Milling, wait for the widget's ``finished_milling_signal``, re-prompt,
-read back and clear on Continue — lives in ``QtResponder`` on the GUI thread,
-and the workflow blocks on one future whose answer is the config as used.
+The loop is the task's, on the workflow thread (FIB-1236): it asks
+:class:`RunMillingTask`, mills on ``run``, and asks again with the pass counted
+and the run's error. The responder only shows the config and answers with a
+:class:`MillingDecision`: the action and the config as the editor then held it.
+So whoever answers, the operator at the editor or an agent through a value,
+changes what is milled the same way, by answering with it.
 
-``run_milling_task`` is stubbed at the milling widget's import site: the run
-still goes through the widget's real thread, buttons and finished signal — only
-the beam time is gone.
+``run_milling_task`` is stubbed at the task's import site: the loop, the
+prompt, the editor and the answers are real, only the beam time is gone.
 """
 
 import os
@@ -19,411 +17,463 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import threading
 import time
+from types import SimpleNamespace
 
 import pytest
 
 pytest.importorskip("PyQt5")
 
+from psygnal.containers import EventedDict
+
 from fibsem.acting import TASK, current_actor
+from fibsem.applications.autolamella.structures import (
+    Attention,
+    AutoLamellaTaskDescription,
+    AutoLamellaTaskProtocol,
+    AutoLamellaWorkflowConfig,
+    Experiment,
+)
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
 from fibsem.applications.autolamella.workflows.interaction import (
-    RunMillingTask,
-    ask,
+    MILL_EDIT,
+    MILL_RUN,
+    MillingEdit,
 )
-from fibsem.applications.autolamella.workflows.tasks.status import Hold, HoldKind
+from fibsem.applications.autolamella.workflows.tasks import base
+from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
+from fibsem.applications.autolamella.workflows.tasks.rough import (
+    MillRoughTask,
+    MillRoughTaskConfig,
+)
+from fibsem.applications.autolamella.workflows.tasks.status import HoldKind
 from fibsem.milling import FibsemMillingStage
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 
-MSG = "Check the patterns, then run."
+ROUGH = "Rough Milling"
+MSG = "Mill the lamella."
+FIRST = f"{MSG} Press Run Milling to mill, or Skip to go on without milling."
+AGAIN = f"{MSG} Press Mill Again to mill again, or Accept to go on."
 
 
-def _config(name: str) -> FibsemMillingTaskConfig:
-    # One real stage: the widget's worker refuses a config with none enabled.
-    return FibsemMillingTaskConfig(name=name, stages=[FibsemMillingStage()])
+def _config(name: str = "rough") -> FibsemMillingTaskConfig:
+    return FibsemMillingTaskConfig(
+        name=name,
+        stages=[FibsemMillingStage(name="Rough 1"), FibsemMillingStage(name="Rough 2")],
+    )
 
 
 @pytest.fixture
-def ui(qapp, monkeypatch):
-    """A real AutoLamellaUI, connected (Demo), with the mill run itself stubbed."""
-    from fibsem.ui.widgets import milling_widget as mw
+def ui(qapp, monkeypatch, tmp_path):
+    """A real AutoLamellaUI (Demo) with a supervised Rough Milling item, and
+    the mill itself stubbed where the task calls it."""
+    mills, failures, supervision = [], [], {"supervised": True}
 
-    runs, actors, failures, folders = [], [], [], []
+    def fake_run_milling_task(microscope, config, stop_event=None, **kwargs):
+        mills.append(
+            SimpleNamespace(
+                config=config,
+                actor=current_actor(),
+                thread=threading.current_thread(),
+                output_dir=kwargs.get("output_dir"),
+            )
+        )
+        time.sleep(0.05)
+        for hook in list(on_mill):
+            hook()
+        return SimpleNamespace(error=failures.pop(0) if failures else None)
 
-    def fake_run_milling_task(microscope, config, parent_ui=None, **kwargs):
-        runs.append(config)
-        actors.append(current_actor())  # who the record would say milled
-        folders.append(kwargs.get("output_dir"))  # where the run would write
-        time.sleep(0.05)  # long enough for is_milling to be observable
-        if failures:  # as run_milling_task(raise_on_failure=True) does
-            raise failures.pop(0)
-
-    monkeypatch.setattr(mw, "run_milling_task", fake_run_milling_task)
+    on_mill = []
+    monkeypatch.setattr(base, "run_milling_task", fake_run_milling_task)
+    monkeypatch.setattr(
+        base, "get_task_supervision", lambda *_: supervision["supervised"]
+    )
     widget = AutoLamellaUI(parent_ui=None)
     widget.system_widget.connect_to_microscope()
-    widget._mill_runs = runs  # for the tests to inspect
-    widget._mill_actors = actors
-    widget._mill_failures = failures  # errors the next runs raise, in order
-    widget._mill_folders = folders
+    experiment = Experiment(path=tmp_path, name="milling-question-exp")
+    os.makedirs(experiment.path, exist_ok=True)
+    experiment.task_protocol = AutoLamellaTaskProtocol(
+        workflow_config=AutoLamellaWorkflowConfig(
+            tasks=[
+                AutoLamellaTaskDescription(
+                    name=ROUGH, required=True, attention=Attention.supervised
+                )
+            ]
+        )
+    )
+    experiment.add_new_lamella(
+        widget.microscope.get_microscope_state(),
+        EventedDict({ROUGH: MillRoughTaskConfig(task_name=ROUGH)}),
+    )
+    experiment.positions[0].path.mkdir(parents=True, exist_ok=True)
+    widget.experiment = experiment
+    widget._mills = mills  # for the tests to inspect
+    widget._mill_failures = failures  # errors the next runs end with, in order
+    widget._supervision = supervision
+    widget._on_mill = on_mill  # called at the end of each mill
     yield widget
+    widget._workflow_stop_event.clear()
     if widget.microscope is not None:
         widget.microscope.disconnect()
     widget.close()
 
 
-def _ask_on_worker_thread(ui, qapp, request, wait_for_prompt=True):
+def _task(ui):
+    experiment = ui.experiment
+    lamella = experiment.positions[0]
+    manager = TaskManager(microscope=ui.microscope, experiment=experiment, parent_ui=ui)
+    task = MillRoughTask(
+        microscope=ui.microscope,
+        config=lamella.task_config[ROUGH],
+        lamella=lamella,
+        parent_ui=ui,
+        task_manager=manager,
+    )
+    task._manager = manager
+    return task
+
+
+def _start(ui, qapp, config=None, milling_enabled=True, wait_for=FIRST):
+    """Run the task's mill-and-ask loop on a worker thread, as the workflow
+    does; wait for ``wait_for`` on the prompt (None: don't)."""
+    task = _task(ui)
     outcome = {}
+
+    def _run():
+        outcome["config"] = task.update_milling_config_ui(
+            config or _config(), msg=MSG, milling_enabled=milling_enabled
+        )
+
+    task._run = _run  # type: ignore[method-assign]
 
     def target():
         try:
-            outcome["config"] = ask(
-                ui.ui_responder, request, abort=ui._workflow_stop_event.is_set
-            )
+            task.run()  # as the workflow runs it: for the task (FIB-1062)
         except Exception as exc:  # noqa: BLE001 - the test inspects it
             outcome["error"] = exc
 
     thread = threading.Thread(target=target, daemon=True)
     thread.start()
-    if wait_for_prompt:
-        _wait_for_prompt(ui, qapp, request.message)
-    return thread, outcome
+    if wait_for is not None:
+        _wait_for_prompt(ui, qapp, wait_for)
+    return task, thread, outcome
 
 
-def _wait_for_prompt(ui, qapp, msg, timeout_s=10.0):
+def _wait_for_prompt(ui, qapp, text, timeout_s=10.0):
+    _wait(
+        qapp,
+        lambda: ui.label_instructions.text() == text and ui.pushButton_yes.isEnabled(),
+        timeout_s,
+        f"the prompt {text!r} never appeared",
+    )
+
+
+def _wait(qapp, ready, timeout_s=10.0, why="timed out"):
     deadline = time.monotonic() + timeout_s
-    while time.monotonic() < deadline:
+    while not ready():
+        assert time.monotonic() < deadline, why
         qapp.processEvents()
-        if ui.label_instructions.text() == msg and ui.pushButton_yes.isEnabled():
-            return
         time.sleep(0.01)
-    raise AssertionError(f"the prompt {msg!r} never appeared")
 
 
 def _finish(thread, qapp, timeout_s=10.0):
-    deadline = time.monotonic() + timeout_s
-    while thread.is_alive() and time.monotonic() < deadline:
+    _wait(qapp, lambda: not thread.is_alive(), timeout_s, "the asker never returned")
+    thread.join(timeout=1.0)
+
+
+def _stop(ui, task):
+    task._manager.stop()
+    ui._workflow_stop_event.set()
+
+
+def _settle(qapp, seconds):
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
         qapp.processEvents()
         time.sleep(0.01)
-    thread.join(timeout=1.0)
-    assert not thread.is_alive(), "the asker never returned"
 
 
-def test_run_then_continue_runs_once_and_answers_the_editor_config(ui, qapp):
-    request = RunMillingTask(config=_config("rough-mill"), message=MSG)
-    thread, outcome = _ask_on_worker_thread(ui, qapp, request)
+def test_run_then_accept_mills_once_on_the_workflow_thread(ui, qapp):
+    task, thread, outcome = _start(ui, qapp)
 
     assert ui.pushButton_yes.text() == "Run Milling"
-    assert ui.pushButton_no.text() == "Continue"
-    # The first ask, before any pass (FIB-1329).
+    assert ui.pushButton_no.text() == "Skip"
     assert ui.ui_responder.pending_question().passes == 0
     assert ui.hold is not None and ui.hold.kind is HoldKind.question
 
     ui.pushButton_yes.click()  # run
-    # The prompt is down while the mill runs, and comes back when it finishes,
-    # as a re-ask that counts the pass.
-    _wait_for_prompt(ui, qapp, MSG)
-    assert len(ui._mill_runs) == 1
+    _wait_for_prompt(ui, qapp, AGAIN)
+    assert len(ui._mills) == 1
+    assert ui._mills[0].thread is thread, "the task mills, not the GUI"
     assert ui.ui_responder.pending_question().passes == 1
+    assert ui.pushButton_yes.text() == "Mill Again"
+    assert ui.pushButton_no.text() == "Accept"
 
-    ui.pushButton_no.click()  # continue
+    ui.pushButton_no.click()  # accept
     _finish(thread, qapp)
 
     assert "error" not in outcome
-    assert isinstance(outcome["config"], FibsemMillingTaskConfig)
-    assert outcome["config"].name == "rough-mill"
+    assert outcome["config"].name == "rough"
+    assert len(ui._mills) == 1
     assert ui.hold is None
-    # The old handshakes are gone, and so is the polled flag.
-    assert not hasattr(ui, "WAITING_FOR_UI_UPDATE")
+
+
+def test_mill_again_runs_a_second_pass(ui, qapp):
+    task, thread, outcome = _start(ui, qapp)
+
+    ui.pushButton_yes.click()
+    _wait_for_prompt(ui, qapp, AGAIN)
+    ui.pushButton_yes.click()  # Mill Again
+    _wait(qapp, lambda: len(ui._mills) == 2)
+    _wait_for_prompt(ui, qapp, AGAIN)
+    assert ui.ui_responder.pending_question().passes == 2
+    ui.pushButton_no.click()
+    _finish(thread, qapp)
+
+    assert "error" not in outcome
 
 
 def test_a_failed_mill_asks_again_with_the_error(ui, qapp):
     """Supervised: the mill failed, so the prompt says so and asks again
-    (FIB-1112). Run Milling retries; Continue is the operator's call."""
+    (FIB-1112). Mill Again retries; Accept is the operator's call."""
     ui._mill_failures.append(RuntimeError("could not load type"))
-    request = RunMillingTask(config=_config("rough-mill"), message=MSG)
-    thread, outcome = _ask_on_worker_thread(ui, qapp, request)
+    task, thread, outcome = _start(ui, qapp)
 
     ui.pushButton_yes.click()  # run, and it fails
-    failed = f"Milling failed: could not load type\n\n{MSG}"
-    _wait_for_prompt(ui, qapp, failed)
-    assert ui.pushButton_yes.text() == "Run Milling"
-    assert ui.pushButton_no.text() == "Continue"
+    _wait_for_prompt(ui, qapp, f"Milling failed: could not load type\n\n{AGAIN}")
     assert thread.is_alive(), "a failed mill does not end the question"
+    assert ui.ui_responder.pending_question().last_error == "could not load type"
 
     ui.pushButton_yes.click()  # retry, and it succeeds
-    _wait_for_prompt(ui, qapp, MSG)
-    assert len(ui._mill_runs) == 2
-    # A failed run counts as a pass too.
+    _wait_for_prompt(ui, qapp, AGAIN)
+    assert len(ui._mills) == 2
     assert ui.ui_responder.pending_question().passes == 2
 
     ui.pushButton_no.click()
     _finish(thread, qapp)
 
     assert "error" not in outcome
-    assert outcome["config"].name == "rough-mill"
 
 
-def test_continue_after_a_failed_mill_accepts_it(ui, qapp):
+def test_accept_after_a_failed_mill_goes_on(ui, qapp):
     ui._mill_failures.append(RuntimeError("could not load type"))
-    request = RunMillingTask(config=_config("accepted"), message=MSG)
-    thread, outcome = _ask_on_worker_thread(ui, qapp, request)
+    task, thread, outcome = _start(ui, qapp)
 
     ui.pushButton_yes.click()
-    _wait_for_prompt(ui, qapp, f"Milling failed: could not load type\n\n{MSG}")
+    _wait_for_prompt(ui, qapp, f"Milling failed: could not load type\n\n{AGAIN}")
     ui.pushButton_no.click()
     _finish(thread, qapp)
 
     assert "error" not in outcome
-    assert outcome["config"].name == "accepted"
 
 
-def test_unsupervised_a_failed_mill_fails_the_ask(ui, qapp):
-    """Nobody to ask: the error reaches the workflow thread, which fails the
-    task, as a headless run does."""
+def test_unsupervised_a_failed_mill_fails_the_task(ui, qapp):
+    """Nobody to ask: the error reaches the task, which fails, as a headless
+    run does."""
     error = RuntimeError("could not load type")
     ui._mill_failures.append(error)
-    request = RunMillingTask(config=_config("auto"), confirm=lambda: False, message=MSG)
-    thread, outcome = _ask_on_worker_thread(ui, qapp, request, wait_for_prompt=False)
+    ui._supervision["supervised"] = False
+    task, thread, outcome = _start(ui, qapp, wait_for=None)
 
     _finish(thread, qapp)
 
     assert outcome.get("error") is error
-    assert len(ui._mill_runs) == 1
+    assert len(ui._mills) == 1
     assert ui.hold is None
 
 
-def test_continue_without_running_answers_without_a_mill(ui, qapp):
-    request = RunMillingTask(config=_config("skip"), message=MSG)
-    thread, outcome = _ask_on_worker_thread(ui, qapp, request)
+def test_skip_goes_on_without_a_mill(ui, qapp):
+    task, thread, outcome = _start(ui, qapp)
 
-    ui.pushButton_no.click()
+    ui.pushButton_no.click()  # skip
     _finish(thread, qapp)
 
     assert "error" not in outcome
-    assert outcome["config"].name == "skip"
-    assert ui._mill_runs == []
+    assert ui._mills == []
 
 
-def test_unsupervised_runs_once_without_a_prompt(ui, qapp):
-    request = RunMillingTask(config=_config("auto"), confirm=lambda: False, message=MSG)
-    thread, outcome = _ask_on_worker_thread(ui, qapp, request, wait_for_prompt=False)
+def test_unsupervised_mills_once_without_a_prompt(ui, qapp):
+    ui._supervision["supervised"] = False
+    task, thread, outcome = _start(ui, qapp, wait_for=None)
 
     _finish(thread, qapp)
 
     assert "error" not in outcome
-    assert outcome["config"].name == "auto"
-    assert len(ui._mill_runs) == 1
-    # No prompt was ever shown for it.
+    assert len(ui._mills) == 1
     assert ui.hold is None
 
 
 def test_disabled_milling_only_confirms_the_patterns(ui, qapp):
-    request = RunMillingTask(config=_config("preview"), enabled=False, message=MSG)
-    thread, outcome = _ask_on_worker_thread(ui, qapp, request)
+    task, thread, outcome = _start(
+        ui,
+        qapp,
+        milling_enabled=False,
+        wait_for=f"{MSG} Press Continue when the config is right.",
+    )
 
-    # Confirm-only: one button, and the positive click must not start a mill.
     assert ui.pushButton_yes.text() == "Continue"
     ui.pushButton_yes.click()
     _finish(thread, qapp)
 
     assert "error" not in outcome
-    assert outcome["config"].name == "preview"
-    assert ui._mill_runs == []
+    assert ui._mills == []
 
 
-def test_the_answer_is_the_editors_config_not_the_requests(ui, qapp):
-    request = RunMillingTask(config=_config("sent"), message=MSG)
-    thread, outcome = _ask_on_worker_thread(ui, qapp, request)
+def test_what_mills_is_what_the_editor_held(ui, qapp):
+    """The operator's edits reach the mill, because the answer carries them."""
+    task, thread, outcome = _start(ui, qapp)
 
-    # The operator edits while the prompt is up; the answer must be the editor's.
     ui.milling_task_config_widget.update_from_settings(_config("edited-by-operator"))
+    ui.pushButton_yes.click()
+    _wait_for_prompt(ui, qapp, AGAIN)
     ui.pushButton_no.click()
     _finish(thread, qapp)
 
+    assert ui._mills[0].config.name == "edited-by-operator"
     assert outcome["config"].name == "edited-by-operator"
 
 
+def test_accept_returns_what_was_milled_not_a_later_edit(ui, qapp):
+    """An edit after the last pass never ran, so the protocol must not
+    claim it (FIB-580)."""
+    task, thread, outcome = _start(ui, qapp)
+
+    ui.pushButton_yes.click()
+    _wait_for_prompt(ui, qapp, AGAIN)
+    ui.milling_task_config_widget.update_from_settings(_config("never-milled"))
+    ui.pushButton_no.click()
+    _finish(thread, qapp)
+
+    assert outcome["config"].name == "rough"
+
+
+def test_an_agents_edit_lands_in_the_editor_and_asks_again(ui, qapp):
+    """``edit`` makes the change and asks again; nothing mills. The edit is
+    in the editor for the operator to see, and in the config the next run
+    mills."""
+    task, thread, outcome = _start(ui, qapp)
+    question_id = ui.ui_responder.pending_question_and_id()[1]
+
+    edit = MillingEdit(
+        action=MILL_EDIT,
+        config=None,
+        patch={"stages.Rough 2.pattern.depth": 2.5e-6},
+    )
+    assert ui.ui_responder.submit_answer(True, question_id, value=edit).result(5)
+    _wait(
+        qapp,
+        lambda: ui.ui_responder.pending_question_and_id()[1] not in (None, question_id),
+    )
+    assert ui._mills == []
+    shown = ui.milling_task_config_widget.get_config()
+    assert shown.stages[1].pattern.depth == pytest.approx(2.5e-6)
+
+    question_id = ui.ui_responder.pending_question_and_id()[1]
+    run = MillingEdit(action=MILL_RUN, config=None, patch=None)
+    assert ui.ui_responder.submit_answer(True, question_id, value=run).result(5)
+    _wait_for_prompt(ui, qapp, AGAIN)
+    assert ui._mills[0].config.stages[1].pattern.depth == pytest.approx(2.5e-6)
+
+    ui.pushButton_no.click()
+    _finish(thread, qapp)
+    assert "error" not in outcome
+
+
 def test_a_stop_interrupts_the_prompt(ui, qapp):
-    request = RunMillingTask(config=_config("stop"), message=MSG)
-    thread, outcome = _ask_on_worker_thread(ui, qapp, request)
+    task, thread, outcome = _start(ui, qapp)
 
-    ui._workflow_stop_event.set()
-    try:
-        _finish(thread, qapp)
-    finally:
-        ui._workflow_stop_event.clear()
+    _stop(ui, task)
+    _finish(thread, qapp)
 
     assert isinstance(outcome.get("error"), InterruptedError)
 
 
-def test_a_stop_during_the_mill_does_not_resurrect_the_prompt(ui, qapp):
-    # The bug from bench testing: Stop mid-mill aborted the waiter, but the
-    # responder still held the question — so when the cancelled mill finished,
-    # the prompt reappeared over a cleared editor, for nobody. Two defences now:
-    # an abandoned ask cancels its future (a finished mill drops a cancelled
-    # question), and the workflow-finished sweep abandons whatever the race
-    # still managed to re-park before the cancel landed.
-    request = RunMillingTask(config=_config("stopped-mid-mill"), message=MSG)
-    thread, outcome = _ask_on_worker_thread(ui, qapp, request)
+def test_a_stop_during_the_mill_ends_the_task_without_asking_again(ui, qapp):
+    task, thread, outcome = _start(ui, qapp)
+    ui._on_mill.append(lambda: _stop(ui, task))  # Stop pressed mid-mill
 
-    ui.pushButton_yes.click()  # run
-    ui._workflow_stop_event.set()
-    try:
-        _finish(thread, qapp)
-    finally:
-        ui._workflow_stop_event.clear()
+    ui.pushButton_yes.click()
+    _finish(thread, qapp)
+    _settle(qapp, 0.3)
+
     assert isinstance(outcome.get("error"), InterruptedError)
-
-    # Let the (still running) stubbed mill finish and its signal land — this is
-    # the window where the resurrect happened.
-    deadline = time.monotonic() + 1.0
-    while time.monotonic() < deadline:
-        qapp.processEvents()
-        time.sleep(0.01)
-
-    # What production does next: the workflow worker exits and fires the
-    # finished signal, whose handler abandons anything the run left behind.
-    ui._workflow_finished_signal.emit(True)
-    deadline = time.monotonic() + 0.5
-    while time.monotonic() < deadline:
-        qapp.processEvents()
-        time.sleep(0.01)
-
-    assert ui.label_instructions.text() != MSG, "the aborted prompt came back"
+    assert len(ui._mills) == 1
+    assert ui.label_instructions.text() != AGAIN, "the aborted prompt came back"
     assert ui.hold is None
 
 
 def test_a_click_after_a_stop_starts_nothing(ui, qapp):
-    # Stop while the prompt stands, then a click lands anyway (the buttons are
-    # still up until the next status arrives). It must only take the stale
-    # prompt down — not start a mill for a question nobody is waiting on.
-    request = RunMillingTask(config=_config("stale-click"), message=MSG)
-    thread, outcome = _ask_on_worker_thread(ui, qapp, request)
+    task, thread, outcome = _start(ui, qapp)
 
-    ui._workflow_stop_event.set()
-    try:
-        _finish(thread, qapp)
-    finally:
-        ui._workflow_stop_event.clear()
+    _stop(ui, task)
+    _finish(thread, qapp)
     assert isinstance(outcome.get("error"), InterruptedError)
 
     ui.pushButton_yes.click()  # "Run Milling", but the asker is gone
-    deadline = time.monotonic() + 0.5
-    while time.monotonic() < deadline:
-        qapp.processEvents()
-        time.sleep(0.01)
+    _settle(qapp, 0.3)
 
-    assert ui._mill_runs == []
-    assert ui.label_instructions.text() == ""
+    assert ui._mills == []
 
 
-def test_flipping_to_auto_mid_mill_continues_without_reasking(ui, qapp):
-    # confirm is a live predicate, not a snapshot: the old loop re-read
-    # self.validate on every iteration, so turning supervision off during a
-    # mill meant no re-prompt at its end — pinned here because the first
-    # conversion snapshotted it and lost the behaviour (bench-found).
-    mode = {"supervised": True}
-    request = RunMillingTask(
-        config=_config("flip-to-auto"),
-        confirm=lambda: mode["supervised"],
-        message=MSG,
-    )
-    thread, outcome = _ask_on_worker_thread(ui, qapp, request)
+def test_flipping_to_auto_mid_mill_goes_on_without_asking_again(ui, qapp):
+    # Supervision is read at each decision: turned off during a mill, the
+    # mill's end goes on rather than asking (bench-found).
+    task, thread, outcome = _start(ui, qapp)
+    ui._on_mill.append(lambda: ui._supervision.update(supervised=False))
 
-    ui.pushButton_yes.click()  # run
-    mode["supervised"] = False  # the operator flips supervision off mid-mill
+    ui.pushButton_yes.click()
     _finish(thread, qapp)
 
     assert "error" not in outcome
-    assert outcome["config"].name == "flip-to-auto"
-    assert len(ui._mill_runs) == 1
+    assert len(ui._mills) == 1
 
 
-def test_flipping_to_supervised_mid_mill_drops_into_the_loop(ui, qapp):
-    # The other direction: an automated run whose operator flips supervision on
-    # while the mill runs gets the prompt when it finishes — "dropping in on a
-    # milling run", as the old loop allowed.
-    mode = {"supervised": False}
-    request = RunMillingTask(
-        config=_config("drop-in"),
-        confirm=lambda: mode["supervised"],
-        message=MSG,
-    )
-    thread, outcome = _ask_on_worker_thread(ui, qapp, request, wait_for_prompt=False)
+def test_flipping_to_supervised_mid_mill_asks_at_its_end(ui, qapp):
+    # The other direction: "dropping in on a milling run".
+    ui._supervision["supervised"] = False
+    ui._on_mill.append(lambda: ui._supervision.update(supervised=True))
+    task, thread, outcome = _start(ui, qapp, wait_for=AGAIN)
 
-    # Flip only once the unprompted mill has actually started — flipping before
-    # the ask dispatches would just make it prompt at entry.
-    deadline = time.monotonic() + 5
-    while time.monotonic() < deadline and not ui._mill_runs:
-        qapp.processEvents()
-        time.sleep(0.005)
-    assert ui._mill_runs, "the unprompted mill never started"
-    mode["supervised"] = True  # flipped while the mill runs
-
-    _wait_for_prompt(ui, qapp, MSG)  # ...so its end asks instead of completing
-    assert len(ui._mill_runs) == 1
-
-    ui.pushButton_no.click()  # continue
+    assert len(ui._mills) == 1
+    ui.pushButton_no.click()  # accept
     _finish(thread, qapp)
 
     assert "error" not in outcome
-    assert outcome["config"].name == "drop-in"
+    assert len(ui._mills) == 1
 
 
-# ── who milled, on the experiment's record (FIB-1062) ────────────────────────
+# ── who milled, and where it wrote (FIB-1062, FIB-1253) ──────────────────────
 
 
-def test_the_mill_it_runs_for_the_task_is_the_task_s(ui, qapp):
-    """The widget runs it on a GUI worker thread, for the task, asked or not."""
-    auto = RunMillingTask(config=_config("auto"), confirm=lambda: False, message=MSG)
-    thread, _ = _ask_on_worker_thread(ui, qapp, auto, wait_for_prompt=False)
-    _finish(thread, qapp)
-
-    request = RunMillingTask(config=_config("asked"), message=MSG)
-    thread, _ = _ask_on_worker_thread(ui, qapp, request)
-    ui.pushButton_yes.click()  # the operator says run; the mill is still the task's
-    _wait_for_prompt(ui, qapp, MSG)
-    ui.pushButton_no.click()
-    _finish(thread, qapp)
-
-    assert ui._mill_actors == [TASK, TASK]
-
-
-def test_a_mill_run_by_hand_is_not_the_task_s(ui, qapp):
-    """The editor's own Run, outside any question: unmarked, the operator's."""
-    ui.ui_responder._milling_widget().milling_widget.run_milling(_config("by-hand"))
-    deadline = time.monotonic() + 10
-    while not ui._mill_runs and time.monotonic() < deadline:
-        qapp.processEvents()
-        time.sleep(0.01)
-
-    assert ui._mill_actors == [None]
-
-
-def test_every_run_of_the_mill_writes_under_the_task_s_folder(ui, qapp, tmp_path):
-    """The asking task's folder reaches the mill, a re-run after a failure
-    included (FIB-1253). A mill run by hand is given none and falls back to the
-    config's imaging path, as before."""
-    folder = str(tmp_path / "rough-milling")
+def test_every_mill_is_the_task_s_and_writes_under_its_folder(ui, qapp):
     ui._mill_failures.append(RuntimeError("could not load type"))
-    request = RunMillingTask(
-        config=_config("rough-mill"), message=MSG, output_dir=folder
-    )
-    thread, _ = _ask_on_worker_thread(ui, qapp, request)
+    task, thread, outcome = _start(ui, qapp)
 
     ui.pushButton_yes.click()  # run, and it fails
-    _wait_for_prompt(ui, qapp, f"Milling failed: could not load type\n\n{MSG}")
+    _wait_for_prompt(ui, qapp, f"Milling failed: could not load type\n\n{AGAIN}")
     ui.pushButton_yes.click()  # the operator's retry
-    _wait_for_prompt(ui, qapp, MSG)
+    _wait_for_prompt(ui, qapp, AGAIN)
     ui.pushButton_no.click()
     _finish(thread, qapp)
 
-    ui.ui_responder._milling_widget().milling_widget.run_milling(_config("by-hand"))
-    deadline = time.monotonic() + 10
-    while len(ui._mill_folders) < 3 and time.monotonic() < deadline:
-        qapp.processEvents()
-        time.sleep(0.01)
+    assert [mill.actor for mill in ui._mills] == [TASK, TASK]
+    assert [mill.output_dir for mill in ui._mills] == [task.output_dir] * 2
 
-    assert ui._mill_folders == [folder, folder, None]
+
+def test_a_mill_run_by_hand_is_not_the_task_s(ui, qapp, monkeypatch):
+    """The editor's own Run, outside any question: unmarked, the operator's,
+    with no task folder."""
+    from fibsem.ui.widgets import milling_widget as mw
+
+    runs = []
+
+    def by_hand(microscope, config, **kwargs):
+        runs.append((current_actor(), kwargs.get("output_dir")))
+
+    monkeypatch.setattr(mw, "run_milling_task", by_hand)
+    ui.ui_responder._milling_widget().milling_widget.run_milling(_config("by-hand"))
+    _wait(qapp, lambda: runs)
+
+    assert runs == [(None, None)]
 
 
 def test_the_question_is_the_task_s_and_the_answer_the_operator_s(ui, qapp, tmp_path):
@@ -441,16 +491,17 @@ def test_the_question_is_the_task_s_and_the_answer_the_operator_s(ui, qapp, tmp_
         default_actor=OPERATOR,
     )
     try:
-        request = RunMillingTask(config=_config("asked"), message=MSG)
-        thread, _ = _ask_on_worker_thread(ui, qapp, request)
-        ui.pushButton_no.click()  # continue, without running
+        task, thread, _ = _start(ui, qapp)
+        ui.pushButton_no.click()  # skip
         _finish(thread, qapp)
     finally:
         recorder.close()
-    actors = {
-        r["kind"]: r["actor"]
+    records = [
+        r
         for r in read_events(tmp_path / EVENTS_FILENAME)
         if r["kind"].startswith("prompt_")
-    }
-    # Raised on the GUI thread, but for the task that asked.
+    ]
+    actors = {r["kind"]: r["actor"] for r in records}
     assert actors == {"prompt_raised": "task", "prompt_answered": "operator"}
+    (answered,) = [r for r in records if r["kind"] == "prompt_answered"]
+    assert answered["payload"]["action"] == "skip"

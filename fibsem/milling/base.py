@@ -37,6 +37,7 @@ from fibsem.structures import (
     Parameter,
     field_specs,
     flagged_fields,
+    param,
 )
 
 if TYPE_CHECKING:
@@ -190,13 +191,15 @@ def get_strategy(
 
 
 @dataclass
-class FibsemMillingStage:
+class FibsemMillingStage(Configurable):
     name: str = "Milling Stage"
     num: int = 0
     enabled: bool = True
     milling: FibsemMillingSettings = field(default_factory=FibsemMillingSettings)
     pattern: BasePattern = field(default_factory=DEFAULT_MILLING_PATTERN)
-    patterns: Optional[List[BasePattern]] = None  # unused
+    patterns: Optional[List[BasePattern]] = param(
+        None, not_used="a stage mills its one pattern; nothing reads patterns"
+    )
     strategy: MillingStrategy[Any] = field(default_factory=get_strategy)
     alignment: MillingAlignment = field(default_factory=MillingAlignment)
     imaging: ImageSettings = field(

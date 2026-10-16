@@ -74,6 +74,9 @@ from fibsem.applications.autolamella.workflows.core import (
     update_status_ui,
 )
 from fibsem.applications.autolamella.workflows.interaction import (
+    MILL_ACCEPT,
+    MILL_EDIT,
+    MILL_RUN,
     ClearMillingConfig,
     RunMillingTask,
     SetFluorescenceChannels,
@@ -765,82 +768,109 @@ class AutoLamellaTask(ABC):
     def update_milling_config_ui(
         self,
         milling_config: FibsemMillingTaskConfig,
-        msg: str = "Run Milling",
+        msg: str = "Mill the task.",
         milling_enabled: bool = True,
     ) -> FibsemMillingTaskConfig:
-        """Hand the config to the UI to edit and (optionally) run; return it as used.
+        """Mill ``milling_config``, asking first when supervised; return the config
+        as last used.
 
-        One question over the Responder. The whole mill loop — prompt, run on
-        Run Milling, wait for the widget's finished signal, re-prompt, read the
-        editor back and clear it on Continue — runs on the GUI thread that owns
-        it; this thread just blocks on the answer. Replaces the
-        ``start_milling_signal`` BlockingQueuedConnection emit, the ``is_milling``
-        sleep-poll, and the ``get_config()`` read-back across the seam.
-        No timeout: milling takes as long as it takes, and a human may hold the
-        prompt; ``abort`` keeps Stop working throughout.
+        The mill and its loop are the task's, on this thread (FIB-1236), headless
+        and with a window alike. Supervised, it asks :class:`RunMillingTask` what
+        to do: run mills the config as answered and asks again with the pass
+        counted (and the error, if the run failed); edit asks again with the
+        config as answered; skip and accept end the loop. Whoever answers, the
+        operator at the editor or an agent over the App Server, changes what is
+        milled by answering with it. Unsupervised, it mills once and a failure
+        fails the task (FIB-1112). Supervision is read at each decision, so a
+        change made during a mill applies when the mill ends.
 
         Each run records how it ended (``FibsemMillingTask``). A task that mills
         nothing records that too, as a skipped ``milling`` event: with milling
-        turned off, or when Continue is pressed without running (FIB-1257).
+        turned off, or skipped at the question (FIB-1257).
         """
         if not milling_enabled:
             record_milling_skipped(
                 self.microscope, milling_config, "milling is turned off for this task"
             )
-        # headless mode
-        if self.parent_ui is None:
-            if milling_enabled:
-                # Raise a failed mill, so the task manager records this task
-                # Failed rather than Completed with nothing milled (FIB-1112).
-                milling_task = run_milling_task(
-                    self.microscope,
-                    milling_config,
-                    stop_event=self._stop_event,
-                    raise_on_failure=True,
-                    output_dir=self.output_dir,
-                )
-                return milling_task.config
-            return milling_config
-
-        # The runs the question started: the prompt reruns the mill until Continue.
-        runs: List[str] = []
-
-        def _count_runs(progress: MillingProgress) -> None:
-            if progress.status is MillingProgressStatus.TASK_STARTED:
-                runs.append(progress.milling_run_id)
-
-        # Without a milling service (no ion beam) nothing runs, so nothing counts.
-        milling = getattr(self.microscope, "milling", None)
-        if milling is not None:
-            milling.progress.changed.connect(_count_runs)
+        responder = getattr(self.parent_ui, "ui_responder", None)
+        # The task's own config until an answer replaces it: an unasked mill
+        # runs it, so what the run records on it (a strategy's end reason)
+        # stays with the task even when the run is stopped. The question only
+        # ever shows, and answers with, copies.
+        config = milling_config
+        passes, error, asked = 0, None, False
         try:
-            config = ask(
-                self.parent_ui.ui_responder,
-                RunMillingTask(
-                    # deepcopy kept from the signal days: the editor's copy must be
-                    # the operator's to edit without the task's own moving under it.
-                    config=deepcopy(milling_config),
-                    enabled=milling_enabled,
-                    # live, not a snapshot: validate re-reads the protocol's
-                    # supervision each call, so a mid-mill flip takes effect at the
-                    # next decision point — as the old loop's re-read did
-                    confirm=lambda: self.validate,
-                    message=msg,
-                    output_dir=self.output_dir,
-                ),
-                abort=lambda: _abort_requested(self.parent_ui),
-            )
+            while True:
+                if responder is not None and self.validate:
+                    asked = True
+                    decision = ask(
+                        responder,
+                        RunMillingTask(
+                            config=deepcopy(config),
+                            enabled=milling_enabled,
+                            message=msg,
+                            output_dir=self.output_dir,
+                            passes=passes,
+                            last_error=None if error is None else str(error),
+                        ),
+                        abort=lambda: _abort_requested(self.parent_ui),
+                    )
+                    if decision.action == MILL_ACCEPT and passes:
+                        # The config as milled, not an edit made after it: the
+                        # protocol must not claim what never ran (FIB-580).
+                        break
+                    config = decision.config
+                    if decision.action == MILL_EDIT:
+                        continue
+                    if decision.action != MILL_RUN:
+                        break
+                elif passes:
+                    if error is not None:
+                        # Nobody to ask: the task fails, rather than recording
+                        # Completed with nothing milled (FIB-1112).
+                        raise error
+                    break
+                elif not milling_enabled:
+                    break
+                elif responder is not None:
+                    self._set_milling_config_ui(config)
+                error = self._mill(config)
+                passes += 1
         finally:
-            if milling is not None:
-                milling.progress.changed.disconnect(_count_runs)
-        if milling_enabled and not runs:
+            if responder is not None:
+                self.clear_milling_config_ui()
+        if milling_enabled and not passes:
             record_milling_skipped(
-                self.microscope, config, "Continue was pressed without running it"
+                self.microscope, config, "skipped at the milling question"
             )
-        if milling_enabled and self.validate:
-            # The operator watched the mill and pressed Continue.
+        if milling_enabled and asked:
+            # Someone watched the mill and accepted it (or skipped it) in the
+            # workflow.
             self._decided_in_the_workflow()
         return config
+
+    def _mill(self, config: FibsemMillingTaskConfig) -> Optional[Exception]:
+        """Run the mill once, under the task's stop; its error if it failed. A
+        Stop of the workflow during it raises once it has ended."""
+        self.log_status_message("MILLING", f"Milling {config.name}...")
+        task = run_milling_task(
+            self.microscope,
+            config,
+            stop_event=self._stop_event,
+            output_dir=self.output_dir,
+        )
+        self._check_for_abort()
+        if task.error is not None:
+            self.log_status_message(
+                "MILLING", f"Milling {config.name} Failed: {task.error}"
+            )
+        else:
+            self.log_status_message(
+                "MILLING",
+                f"Milling {config.name} Complete: "
+                f"{len(config.enabled_stages)} stages completed.",
+            )
+        return task.error
 
     def _decided_in_the_workflow(self) -> None:
         """The operator answered this run's session in the workflow: a mill's

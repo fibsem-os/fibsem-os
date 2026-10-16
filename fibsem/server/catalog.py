@@ -1569,7 +1569,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="prompt_answer",
-        description='Answer the pending supervision question, exactly as clicking the matching button would. Not for a question whose prompt says answer_via: "decide" -- that one is refused here, with nothing clicked, and decided with review_decide. True = the positive option. Echo the question_id from prompt_get; if that question is no longer pending the answer is refused (409 stale_prompt) — re-read and answer the current one. For EditAlignmentArea, PickPOI, ConfirmDetection and RunSpotBurn the answer may carry a value: the edit the operator could make in that widget, placed into it (the operator sees it land) and then answered through the same click path. For RunSpotBurn, yes burns the points as shown and asks again, no continues. When your value moved the widget, moved_from in the answer is what it showed before, in the same shape as value; absent when it already showed your value. The value is what is stored. An out-of-bounds or wrong-shape value is refused (422 invalid_value) without clicking anything.',
+        description='Answer the pending supervision question, exactly as clicking the matching button would. Not for a question whose prompt says answer_via: "decide" -- that one is refused here, with nothing clicked, and decided with review_decide. True = the positive option. Echo the question_id from prompt_get; if that question is no longer pending the answer is refused (409 stale_prompt) — re-read and answer the current one. A question whose prompt has a value field takes a value in the shape that field gives: the edit the operator could make in that widget, placed into it (the operator sees it land) and then answered through the same click path; value_required means the answer must carry one (the action, at the milling question). For RunSpotBurn, yes burns the points as shown and asks again, no continues. When your value moved the widget, moved_from in the answer is what it showed before, in the same shape as value; absent when it already showed your value. The value is what is stored. An out-of-bounds or wrong-shape value is refused (422 invalid_value) without clicking anything.',
         method="POST",
         path="/app/workflow/prompt/answer",
         level="drive",
@@ -1577,7 +1577,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "response": "true for the positive option, false for the negative",
             "question_id": "the question_id from prompt_get, naming the question being answered",
-            "value": "optional edit: {left, top, width, height} (fractions of the frame, origin top-left) for EditAlignmentArea; {x, y} (metres, microscope image coordinates, origin centre, +y up) for PickPOI; {features: [{name, px: {x, y}}]} (source-image pixels, origin top-left, only the named features move) for ConfirmDetection; {points: [{x, y}]} (fractions of the frame, origin top-left; current and exposure stay the protocol's) for RunSpotBurn",
+            "value": "the edit, in the shape the prompt's value field gives; only for a question that has one",
         },
         optional=("value",),
     ),
@@ -1592,7 +1592,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "response": "true for the positive option, false for the negative",
             "question_id": "the question_id from prompt_get",
             "reason": "why: shown under the suggestion for the operator",
-            "value": "optional geometry, as for prompt_answer",
+            "value": "the edit, as for prompt_answer",
             "image": "optional: the path of the image your evidence is in, inside the experiment (as the image tools answered it); the card shows it with the suggested value drawn on it",
         },
         optional=("value", "image"),

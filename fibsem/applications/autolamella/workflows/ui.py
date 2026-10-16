@@ -235,16 +235,6 @@ def ask_user(
     )
 
 
-def ask_user_continue_workflow(
-    parent_ui, msg: str = "Continue with the next stage?", validate: bool = True
-):
-
-    ret = True
-    if validate:
-        ret = ask_user(parent_ui=parent_ui, msg=msg, pos="Continue", neg="Exit")
-    return ret
-
-
 def update_alignment_area_ui(
     alignment_area: FibsemRectangle,
     parent_ui: Optional["AutoLamellaUI"],

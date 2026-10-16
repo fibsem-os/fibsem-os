@@ -19,6 +19,8 @@ refuses identically:
 - Where the enclosing dataclass declares ``limits`` for the field (in SI,
   the limits the GUI's forms clamp by), the value must be within them —
   otherwise the server stores a number the form then displays differently.
+- A field whose ``Parameter`` says ``not_used`` (nothing reads it yet) is
+  refused with why, rather than stored to do nothing; so is anything inside one.
 - All-or-nothing: every entry is resolved and validated before anything is
   set, so a failing entry leaves the config untouched.
 
@@ -126,6 +128,9 @@ def _child(obj: Any, part: str, path: str) -> Any:
                 f"{part!r} is not a field of {type(obj).__name__} in {path!r}; "
                 f"fields: {sorted(names)}",
             )
+        not_used = field_specs(type(obj))[part].not_used
+        if not_used:
+            raise PatchError(path, f"{part!r} is not used: {not_used}")
         return getattr(obj, part)
     raise PatchError(
         path, f"cannot descend into {type(obj).__name__} at {part!r} in {path!r}"
