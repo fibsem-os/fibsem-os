@@ -25,7 +25,6 @@ from fibsem.applications.autolamella.proposals import (
 )
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskStatus,
     Experiment,
 )
 from fibsem.structures import (
@@ -38,6 +37,7 @@ from fibsem.structures import (
     MicroscopeState,
     Point,
 )
+from fibsem.workflows.status import TaskStatus
 
 TASK = "Setup Lamella Position"
 RUN = "run-1"
@@ -64,7 +64,7 @@ def experiment(tmp_path) -> Experiment:
     _fib_image().save(os.path.join(str(lamella.path), "ref_post_tilt_ib"))
     lamella.task_state.name = TASK
     lamella.task_state.task_id = RUN
-    lamella.task_state.status = AutoLamellaTaskStatus.InProgress
+    lamella.task_state.status = TaskStatus.InProgress
     question = Proposal(
         kind=ALIGNMENT_AREA,
         values={"alignment_area": PROPOSED},

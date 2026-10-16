@@ -367,7 +367,7 @@ def estimate_queue(
     Returns:
         QueueEstimate: what remains, and when it lands.
     """
-    from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
+    from fibsem.workflows.status import TaskStatus
 
     clock = now if now is not None else datetime.now()
     schedule = schedule or {}
@@ -380,7 +380,7 @@ def estimate_queue(
     # Tracked by walking in order rather than by task, so an interleaved queue -- which a
     # mid-run "run next" can produce -- holds wherever the schedule actually catches it.
     for item in items:
-        if item.status is AutoLamellaTaskStatus.InProgress:
+        if item.status is TaskStatus.InProgress:
             estimate = seconds_for(item)
             if estimate is not None and active_elapsed is not None:
                 active_remaining = max(0.0, estimate - active_elapsed)

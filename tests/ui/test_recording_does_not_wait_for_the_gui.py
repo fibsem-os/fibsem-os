@@ -29,10 +29,10 @@ from fibsem.applications.autolamella.proposals import (  # noqa: E402
 )
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskStatus,
     Experiment,
 )
 from fibsem.structures import MicroscopeState, Point  # noqa: E402
+from fibsem.workflows.status import TaskStatus  # noqa: E402
 
 TASK = "Mill Rough"
 
@@ -46,7 +46,7 @@ def experiment(qapp, tmp_path):
     lamella = exp.positions[0]
     lamella.task_state.name = TASK
     lamella.task_state.task_id = "run-1"
-    lamella.task_state.status = AutoLamellaTaskStatus.InProgress
+    lamella.task_state.status = TaskStatus.InProgress
     return exp
 
 

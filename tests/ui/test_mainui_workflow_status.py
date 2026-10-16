@@ -30,13 +30,13 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
 from fibsem.applications.autolamella.workflows.tasks.status import (
     Hold,
     HoldKind,
     WorkflowStatusUpdate,
 )
 from fibsem.imaging.spot import SpotBurnProgress, SpotBurnStatus
+from fibsem.workflows.status import TaskStatus
 
 
 @pytest.fixture(scope="module")
@@ -71,7 +71,7 @@ def test_a_status_event_report_shows_the_run_on_the_status_bar(main_ui):
     report = WorkflowStatusUpdate(
         task_name="Polishing",
         item_name="lamella-02",
-        status=AutoLamellaTaskStatus.InProgress,
+        status=TaskStatus.InProgress,
         queue_position=3,
         queue_total=4,
         queue_items=None,
@@ -115,14 +115,14 @@ def test_a_status_event_snapshot_reaches_the_windows_own_timeline(main_ui):
         WorkItem(
             item_name="lamella-03",
             task_name="Trench",
-            status=AutoLamellaTaskStatus.InProgress,
+            status=TaskStatus.InProgress,
         ),
         WorkItem(item_name="lamella-04", task_name="Trench"),
     ]
     report = WorkflowStatusUpdate(
         task_name="Trench",
         item_name="lamella-03",
-        status=AutoLamellaTaskStatus.InProgress,
+        status=TaskStatus.InProgress,
         queue_items=items,
     )
 

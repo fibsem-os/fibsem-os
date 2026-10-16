@@ -16,10 +16,10 @@ from fibsem.applications.autolamella.server import AutoLamellaAppContext
 from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskStatus,
     Experiment,
 )
 from fibsem.structures import MicroscopeState
+from fibsem.workflows.status import TaskStatus
 
 
 class Host:
@@ -116,15 +116,11 @@ def test_task_outputs_for_a_real_item_and_a_missing_one(experiment):
 
     # With history: the live-run 500 — the field is `name`, and an empty
     # history hid the read of a field that doesn't exist.
-    from fibsem.applications.autolamella.structures import (
-        AutoLamellaTaskState,
-        AutoLamellaTaskStatus,
-    )
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+    from fibsem.workflows.status import TaskStatus
 
     experiment.positions[0].task_history.append(
-        AutoLamellaTaskState(
-            name="Rough Milling", status=AutoLamellaTaskStatus.Completed
-        )
+        AutoLamellaTaskState(name="Rough Milling", status=TaskStatus.Completed)
     )
     completed = ctx.task_outputs(name)
     assert completed["completed_tasks"] == ["Rough Milling"]
@@ -422,7 +418,7 @@ def test_requeue_task_reruns_a_completed_pair(experiment, microscope):
     assert waiting["error_type"] == "already_queued"
 
     first = next(i for i in manager.queue.items if i.item_name == name)
-    manager.queue.mark_done(first, AutoLamellaTaskStatus.Completed)
+    manager.queue.mark_done(first, TaskStatus.Completed)
     before = len(manager.queue.items)
     queued = ctx.requeue_task(name, "Rough Milling")
     assert queued["queued"] is True
@@ -458,7 +454,7 @@ def test_queue_snapshot_uses_item_name_vocabulary(experiment, microscope):
     first = queue["items"][0]
     assert set(first) == {"id", "item_name", "task_name", "status"}
     assert "lamella_name" not in first  # the deprecated alias never crosses the wire
-    assert first["status"] == AutoLamellaTaskStatus.NotStarted.name
+    assert first["status"] == TaskStatus.NotStarted.name
     assert queue["version"] == manager.queue.version
     _assert_json_safe(queue)
 

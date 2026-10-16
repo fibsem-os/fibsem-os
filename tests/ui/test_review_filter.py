@@ -27,7 +27,6 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
     AutoLamellaTaskState,
-    AutoLamellaTaskStatus,
     AutoLamellaWorkflowConfig,
     Experiment,
     GridRecord,
@@ -48,6 +47,7 @@ from fibsem.structures import (  # noqa: E402
     MicroscopeState,
     Point,
 )
+from fibsem.workflows.status import TaskStatus  # noqa: E402
 
 SETUP = "Setup Lamella Position"
 ROUGH = "Rough Milling"
@@ -106,9 +106,7 @@ def experiment(tmp_path) -> Experiment:
 
     for lamella in exp.positions[:2]:
         lamella.task_history.append(
-            AutoLamellaTaskState(
-                name=ROUGH, status=AutoLamellaTaskStatus.AwaitingDecision
-            )
+            AutoLamellaTaskState(name=ROUGH, status=TaskStatus.AwaitingDecision)
         )
         lamella.proposals[ROUGH] = [
             Proposal(kind=TASK_RESULT, provenance={"task_id": RUN})
@@ -116,7 +114,7 @@ def experiment(tmp_path) -> Experiment:
     # the third is a look, not a decision: it lands in "To check"
     third = exp.positions[2]
     third.task_history.append(
-        AutoLamellaTaskState(name=SETUP, status=AutoLamellaTaskStatus.Completed)
+        AutoLamellaTaskState(name=SETUP, status=TaskStatus.Completed)
     )
     proposal = _poi()
     proposal.decisions.append(
@@ -148,9 +146,7 @@ def experiment(tmp_path) -> Experiment:
         directory.mkdir(parents=True)
         _image(BeamType.ELECTRON).save(str(directory / "overview"))
         grid.task_history.append(
-            AutoLamellaTaskState(
-                name=task, status=AutoLamellaTaskStatus.AwaitingDecision
-            )
+            AutoLamellaTaskState(name=task, status=TaskStatus.AwaitingDecision)
         )
         grid.proposals[task] = [
             Proposal(

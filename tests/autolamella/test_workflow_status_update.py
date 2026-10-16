@@ -12,9 +12,9 @@ import pathlib
 
 import pytest
 
-from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
 from fibsem.applications.autolamella.workflows.tasks.queue import WorkItem
 from fibsem.applications.autolamella.workflows.tasks.status import WorkflowStatusUpdate
+from fibsem.workflows.status import TaskStatus
 
 
 class TestTheDecodeIsTotal:
@@ -39,7 +39,7 @@ class TestTheDecodeIsTotal:
         "nothing in particular happened" beats crashing or picking a wrong outcome."""
         report = WorkflowStatusUpdate.from_payload({"status": "info"})
 
-        assert report.status is AutoLamellaTaskStatus.NotStarted
+        assert report.status is TaskStatus.NotStarted
 
     def test_a_typed_report_passes_straight_through(self):
         original = WorkflowStatusUpdate(task_name="Trench")

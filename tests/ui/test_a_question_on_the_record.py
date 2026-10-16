@@ -39,7 +39,6 @@ from fibsem.applications.autolamella.proposals import (
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     AutoLamellaTaskState,
-    AutoLamellaTaskStatus,
     Experiment,
 )
 from fibsem.applications.autolamella.workflows.interaction import (
@@ -57,6 +56,7 @@ from fibsem.structures import (
     MicroscopeState,
     Point,
 )
+from fibsem.workflows.status import TaskStatus
 
 TASK = "Mill Undercut"
 RUN = "run-1"
@@ -101,11 +101,11 @@ def window(qapp, tmp_path):
     experiment.add_new_lamella(MicroscopeState(), EventedDict())
     lamella = experiment.positions[0]
     lamella.task_history.append(
-        AutoLamellaTaskState(name=TASK, status=AutoLamellaTaskStatus.InProgress)
+        AutoLamellaTaskState(name=TASK, status=TaskStatus.InProgress)
     )
     lamella.task_state.name = TASK
     lamella.task_state.task_id = RUN
-    lamella.task_state.status = AutoLamellaTaskStatus.InProgress
+    lamella.task_state.status = TaskStatus.InProgress
     ui.experiment = experiment
     win._on_experiment_update()
 

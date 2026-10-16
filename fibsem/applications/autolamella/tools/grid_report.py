@@ -29,7 +29,6 @@ import tifffile as tff
 
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskState,
-    AutoLamellaTaskStatus,
     Experiment,
     GridRecord,
     Lamella,
@@ -43,6 +42,7 @@ from fibsem.fm.preview import is_fluorescence_image
 from fibsem.fm.structures import FluorescenceImageMetadata, safe_ome_from_tiff
 from fibsem.geometry.projection import BeamStageProjection, FMStageProjection
 from fibsem.structures import BeamType, FibsemImageMetadata, FibsemStagePosition
+from fibsem.workflows.status import TaskStatus
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +82,7 @@ class OverviewEntry:
     task_name: str
     role: str
     modality: str  # SEM, FIB, FM
-    status: AutoLamellaTaskStatus
+    status: TaskStatus
     status_message: str
     started: Optional[datetime]
     ended: Optional[datetime]
@@ -105,7 +105,7 @@ class OverviewEntry:
 
 @dataclass
 class LoadEntry:
-    status: AutoLamellaTaskStatus
+    status: TaskStatus
     status_message: str
     when: Optional[datetime]
 
@@ -131,14 +131,14 @@ class GridSection:
         """True or False by the latest load entry; None when nothing tried."""
         if self.load is None:
             return None
-        return self.load.status is AutoLamellaTaskStatus.Completed
+        return self.load.status is TaskStatus.Completed
 
 
 @dataclass
 class TaskOutcome:
     """How a grid's runs of one protocol task ended: the latest, and how many."""
 
-    status: Optional[AutoLamellaTaskStatus]  # None: never ran on this grid
+    status: Optional[TaskStatus]  # None: never ran on this grid
     runs: int
 
 

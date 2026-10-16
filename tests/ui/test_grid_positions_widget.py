@@ -22,7 +22,6 @@ import fibsem.config as fibsem_config
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     AutoLamellaTaskState,
-    AutoLamellaTaskStatus,
     Experiment,
     GridRecord,
 )
@@ -42,6 +41,7 @@ from fibsem.fm.structures import (
 )
 from fibsem.structures import BeamType, FibsemImage, FibsemStagePosition, ImageSettings
 from fibsem.ui.widgets.stored_overview_canvas import VIEW_FM
+from fibsem.workflows.status import TaskStatus
 
 _app = QApplication.instance() or QApplication([])
 
@@ -70,7 +70,7 @@ def ui(qapp, monkeypatch, tmp_path):
 
 
 def _entry(name, relpath):
-    state = AutoLamellaTaskState(name=name, status=AutoLamellaTaskStatus.Completed)
+    state = AutoLamellaTaskState(name=name, status=TaskStatus.Completed)
     state.end_timestamp = state.start_timestamp + timedelta(seconds=60)
     state.outputs = {name: [relpath]}
     return state

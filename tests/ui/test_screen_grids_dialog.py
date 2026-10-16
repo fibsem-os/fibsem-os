@@ -284,7 +284,6 @@ def test_screen_all_grids_from_the_window_runs_on_the_named_grids(
     The tasks themselves are stood in for: this is about the wiring."""
     from PyQt5.QtTest import QTest
 
-    from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
     from fibsem.applications.autolamella.ui import AutoLamellaUI as ui_module
     from fibsem.applications.autolamella.workflows.tasks.grid import (
@@ -294,6 +293,7 @@ def test_screen_all_grids_from_the_window_runs_on_the_named_grids(
         LOAD_ENTRY_NAME,
         GridTaskManager,
     )
+    from fibsem.workflows.status import TaskStatus
 
     class _NoDialog:
         def __init__(self, *args, **kwargs):
@@ -308,7 +308,7 @@ def test_screen_all_grids_from_the_window_runs_on_the_named_grids(
     def _run_single_task(self, task_name, grid):
         ran.append((grid.name, task_name))
         grid.task_state.name = task_name
-        grid.task_state.status = AutoLamellaTaskStatus.Completed
+        grid.task_state.status = TaskStatus.Completed
         grid.task_history.append(AutoLamellaTaskState(name=task_name))
         return None
 

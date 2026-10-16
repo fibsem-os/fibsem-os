@@ -36,12 +36,13 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication
 
-from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus, Lamella
+from fibsem.applications.autolamella.structures import Lamella
 from fibsem.applications.autolamella.ui.lamella_card_widget import (
     LamellaCardContainer,
     LamellaCardWidget,
 )
 from fibsem.config import MODE_COMPACT, MODE_COZY, MODE_STANDARD
+from fibsem.workflows.status import TaskStatus
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
@@ -54,7 +55,7 @@ def _lamella(petname="test", task=None):
     lamella = Lamella(path="/tmp", number=0, petname=petname)
     if task:
         lamella.task_state.name = task
-        lamella.task_state.status = AutoLamellaTaskStatus.InProgress
+        lamella.task_state.status = TaskStatus.InProgress
     return lamella
 
 
@@ -201,7 +202,7 @@ def test_a_task_state_write_no_longer_refreshes_the_card():
     before = card._status_label.text()
 
     lamella.task_state.name = "Mill Undercut"
-    lamella.task_state.status = AutoLamellaTaskStatus.InProgress
+    lamella.task_state.status = TaskStatus.InProgress
 
     assert card._status_label.text() == before, (
         "a task_state write reached the card -- the cross-thread subscription is back"

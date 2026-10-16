@@ -27,10 +27,10 @@ from fibsem.applications.autolamella.proposals import (
 )
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskStatus,
     Experiment,
 )
 from fibsem.structures import MicroscopeState, Point
+from fibsem.workflows.status import TaskStatus
 
 TASK = "Setup Lamella Position"
 
@@ -50,7 +50,7 @@ def _asked(experiment, values=None) -> Proposal:
     lamella = experiment.positions[0]
     lamella.task_state.name = TASK
     lamella.task_state.task_id = "run-1"
-    lamella.task_state.status = AutoLamellaTaskStatus.InProgress
+    lamella.task_state.status = TaskStatus.InProgress
     proposal = Proposal(
         kind=POINT_OF_INTEREST,
         values=values if values is not None else {"poi": Point(0.0, 0.0)},
@@ -93,7 +93,7 @@ def test_withdrawing_works_while_the_task_is_running(experiment):
     failing, which is the state ``decide`` refuses a decision in."""
     lamella = experiment.positions[0]
     _asked(experiment)
-    assert lamella.task_state.status is AutoLamellaTaskStatus.InProgress
+    assert lamella.task_state.status is TaskStatus.InProgress
 
     assert experiment.withdraw_proposal(lamella.id, TASK, "aborted").applied
 
@@ -101,7 +101,7 @@ def test_withdrawing_works_while_the_task_is_running(experiment):
 def test_an_answered_proposal_cannot_be_withdrawn(experiment):
     lamella = experiment.positions[0]
     proposal = _asked(experiment)
-    lamella.task_state.status = AutoLamellaTaskStatus.Completed
+    lamella.task_state.status = TaskStatus.Completed
     assert experiment.decide(
         lamella.id,
         TASK,
@@ -138,7 +138,7 @@ def test_a_withdrawn_question_cannot_be_answered_afterwards(experiment):
     lamella = experiment.positions[0]
     _asked(experiment)
     experiment.withdraw_proposal(lamella.id, TASK, "Mill Rough failed")
-    lamella.task_state.status = AutoLamellaTaskStatus.Failed
+    lamella.task_state.status = TaskStatus.Failed
 
     result = experiment.decide(
         lamella.id,
@@ -195,8 +195,8 @@ def test_it_does_not_satisfy_what_requires_the_task(experiment):
     _asked(experiment)
 
     experiment.withdraw_proposal(lamella.id, TASK, "Mill Rough failed")
-    lamella.task_state.status = AutoLamellaTaskStatus.Failed
-    lamella.set_task_status(TASK, AutoLamellaTaskStatus.Failed, "failed")
+    lamella.task_state.status = TaskStatus.Failed
+    lamella.set_task_status(TASK, TaskStatus.Failed, "failed")
 
     assert not lamella.latest_run_completed(TASK)
     assert not lamella.is_awaiting_decision(TASK)
@@ -208,11 +208,11 @@ def test_it_does_not_touch_the_task_status(experiment):
     -- this must not."""
     lamella = experiment.positions[0]
     _asked(experiment)
-    lamella.set_task_status(TASK, AutoLamellaTaskStatus.InProgress)
+    lamella.set_task_status(TASK, TaskStatus.InProgress)
 
     experiment.withdraw_proposal(lamella.id, TASK, "aborted")
 
-    assert lamella.task_state.status is AutoLamellaTaskStatus.InProgress
+    assert lamella.task_state.status is TaskStatus.InProgress
 
 
 # ---------------------------------------------------------------------------

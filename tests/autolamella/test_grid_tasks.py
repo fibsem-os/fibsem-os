@@ -17,7 +17,6 @@ import yaml
 from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskStatus,
     Experiment,
     GridRecord,
     GridTaskProtocol,
@@ -30,6 +29,7 @@ from fibsem.applications.autolamella.workflows.tasks.grid import (
     register_grid_task,
     run_grid_task,
 )
+from fibsem.workflows.status import TaskStatus
 
 # ---------------------------------------------------------------------------
 # A test task: writes one file, can be told to fail or to block on the token
@@ -216,7 +216,7 @@ class TestLifecycle:
         experiment.grid_protocol.task_config["echo"].repeats = 2
         task = run_grid_task(microscope, "echo", experiment, grid)
 
-        assert grid.task_state.status is AutoLamellaTaskStatus.Completed
+        assert grid.task_state.status is TaskStatus.Completed
         assert len(grid.task_history) == 1
         entry = grid.task_history[0]
         assert entry.name == "echo" and entry.task_type == "ECHO_GRID"
@@ -284,9 +284,9 @@ class TestLifecycle:
         experiment.grid_protocol.task_config["echo"].fail = True
         with pytest.raises(RuntimeError, match="on purpose"):
             run_grid_task(microscope, "echo", experiment, grid)
-        assert grid.task_state.status is AutoLamellaTaskStatus.Failed
+        assert grid.task_state.status is TaskStatus.Failed
         assert grid.is_failure
-        assert grid.task_history[-1].status is AutoLamellaTaskStatus.Failed
+        assert grid.task_history[-1].status is TaskStatus.Failed
         assert "on purpose" in grid.task_history[-1].status_message
 
     def test_a_stop_is_a_cancellation_not_a_failure(self, microscope, experiment):
@@ -296,7 +296,7 @@ class TestLifecycle:
         manager.abort_token.set()
         with pytest.raises(InterruptedError):
             run_grid_task(microscope, "echo", experiment, grid, task_manager=manager)
-        assert grid.task_state.status is AutoLamellaTaskStatus.Cancelled
+        assert grid.task_state.status is TaskStatus.Cancelled
         assert not grid.is_failure
 
     def test_run_reads_a_copy_of_the_saved_config(self, microscope, experiment):

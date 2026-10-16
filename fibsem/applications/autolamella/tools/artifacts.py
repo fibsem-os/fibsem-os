@@ -14,8 +14,8 @@ import logging
 import os
 from typing import TYPE_CHECKING, Optional
 
-from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
 from fibsem.util.timestamps import iso_from_posix
+from fibsem.workflows.status import TaskStatus
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import (
@@ -73,7 +73,7 @@ def write_completion_summary(
         "tasks_completed": [
             _task_record(task)
             for task in lamella.task_history
-            if task.status is AutoLamellaTaskStatus.Completed
+            if task.status is TaskStatus.Completed
         ],
     }
 

@@ -40,7 +40,6 @@ from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskStatus,
     AutoLamellaWorkflowConfig,
     Experiment,
 )
@@ -51,6 +50,7 @@ from fibsem.applications.autolamella.workflows.tasks.undercut import (
     MillUndercutTaskConfig,
 )
 from fibsem.structures import FibsemImage, Point
+from fibsem.workflows.status import TaskStatus
 
 UNDERCUT = "Mill Undercut"
 CHECKPOINT = "autolamella-waffle-20240107.pt"
@@ -265,7 +265,7 @@ def test_each_detection_is_answered_in_the_review_tab_and_the_stage_follows(
         assert decision.author.kind is AuthorKind.human
         assert decision.proposal_id == proposal.id, "each names its own"
     assert ui.hold is None
-    assert lamella.task_state.status is AutoLamellaTaskStatus.Completed, (
+    assert lamella.task_state.status is TaskStatus.Completed, (
         "the milling Continue was the decision on the result"
     )
 

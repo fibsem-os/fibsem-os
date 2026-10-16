@@ -25,8 +25,8 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
     Lamella,
 )
-from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus as Status
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
+from fibsem.workflows.status import TaskStatus as Status
 
 
 class RecordingUI:

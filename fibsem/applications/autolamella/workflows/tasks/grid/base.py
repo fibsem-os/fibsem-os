@@ -35,7 +35,6 @@ from fibsem.acting import TASK, acting
 from fibsem.applications.autolamella.proposals import Proposer, TaskResultProposer
 from fibsem.applications.autolamella.structures import (
     Attention,
-    AutoLamellaTaskStatus,
     Configurable,
     GridRecord,
     Parameter,
@@ -46,6 +45,7 @@ from fibsem.applications.autolamella.workflows.tasks.proposing import settle
 from fibsem.applications.autolamella.workflows.tasks.status import take_back_finish
 from fibsem.cancellation import OperationCancelledError
 from fibsem.util.timestamps import now, now_iso
+from fibsem.workflows.status import TaskStatus
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment
@@ -284,9 +284,7 @@ class GridTask(ABC):
             cancelled = self._is_cancellation(e)
             try:
                 self.grid.task_state.status = (
-                    AutoLamellaTaskStatus.Cancelled
-                    if cancelled
-                    else AutoLamellaTaskStatus.Failed
+                    TaskStatus.Cancelled if cancelled else TaskStatus.Failed
                 )
                 self.grid.task_state.status_message = (
                     "Cancelled by user." if cancelled else str(e)
@@ -316,9 +314,7 @@ class GridTask(ABC):
                 take_back_finish(
                     self.grid,
                     self.task_id,
-                    AutoLamellaTaskStatus.Cancelled
-                    if cancelled
-                    else AutoLamellaTaskStatus.Failed,
+                    TaskStatus.Cancelled if cancelled else TaskStatus.Failed,
                     "Cancelled by user."
                     if cancelled
                     else f"Finished, but its result could not be recorded: {e}",
@@ -362,14 +358,14 @@ class GridTask(ABC):
         state.end_timestamp = None
         state.task_id = self.task_id
         state.task_type = self.task_type
-        state.status = AutoLamellaTaskStatus.InProgress
+        state.status = TaskStatus.InProgress
         state.status_message = ""
         state.outputs = {}
         self._set_workflow_metadata()
         self.log_status_message("STARTED", "Started")
 
     def post_task(self) -> None:
-        self.grid.task_state.status = AutoLamellaTaskStatus.Completed
+        self.grid.task_state.status = TaskStatus.Completed
         self.grid.task_state.status_message = ""
         self.log_status_message("FINISHED", self.completion_note or "Finished")
         self._record_outcome()

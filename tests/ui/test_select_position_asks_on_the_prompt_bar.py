@@ -34,7 +34,6 @@ from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskStatus,
     AutoLamellaWorkflowConfig,
     Experiment,
 )
@@ -46,6 +45,7 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
 )
 from fibsem.applications.autolamella.workflows.tasks.status import HoldKind
 from fibsem.structures import FibsemRectangle, FibsemStagePosition
+from fibsem.workflows.status import TaskStatus
 
 SETUP = "Setup Lamella Position"
 ROUGH = "Rough Milling"
@@ -238,5 +238,5 @@ def test_the_tilt_and_the_position_are_confirmed_on_the_prompt_bar(window, qapp)
         POINT_OF_INTEREST,
     ]
     assert lamella.proposal(SETUP, POINT_OF_INTEREST).pending
-    assert lamella.task_state.status is AutoLamellaTaskStatus.AwaitingDecision
+    assert lamella.task_state.status is TaskStatus.AwaitingDecision
     assert task.task_manager._defer_reason(lamella, ROUGH) == "awaiting_decision"

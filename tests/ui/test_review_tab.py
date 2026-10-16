@@ -28,7 +28,6 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
     AutoLamellaTaskState,
-    AutoLamellaTaskStatus,
     AutoLamellaWorkflowConfig,
     Experiment,
 )
@@ -48,6 +47,7 @@ from fibsem.structures import (  # noqa: E402
     MicroscopeState,
     Point,
 )
+from fibsem.workflows.status import TaskStatus  # noqa: E402
 
 SETUP = "Setup Lamella Position"
 FIDUCIAL = "Mill Fiducial"
@@ -91,7 +91,7 @@ def experiment(tmp_path) -> Experiment:
     lamella = exp.positions[0]
     lamella.path.mkdir(parents=True, exist_ok=True)
     lamella.task_history.append(
-        AutoLamellaTaskState(name=SETUP, status=AutoLamellaTaskStatus.AwaitingDecision)
+        AutoLamellaTaskState(name=SETUP, status=TaskStatus.AwaitingDecision)
     )
     ref = os.path.join(str(lamella.path), "ref_setup_ib")
     _fib_image().save(ref)
@@ -236,7 +236,7 @@ def test_reject_needs_a_reason_and_fails_the_task(tab, experiment, monkeypatch):
     )
     tab.reject_current()
     assert not lamella.proposal(SETUP).pending
-    assert lamella.task_history[-1].status is AutoLamellaTaskStatus.Failed
+    assert lamella.task_history[-1].status is TaskStatus.Failed
     assert "no usable site" in lamella.task_history[-1].status_message
     assert not lamella.is_failure, "a failed task is not a defective lamella"
     assert tab.pending_count == 0
@@ -265,9 +265,7 @@ def test_an_unregistered_kind_still_gets_the_two_verbs(tab, experiment, qapp):
         Proposal(kind="site_pick_v9", values={}, provenance={"task_id": RUN})
     ]
     lamella.task_history.append(
-        AutoLamellaTaskState(
-            name="other", status=AutoLamellaTaskStatus.AwaitingDecision
-        )
+        AutoLamellaTaskState(name="other", status=TaskStatus.AwaitingDecision)
     )
     tab.refresh()
     assert tab.pending_count == 2
@@ -438,7 +436,7 @@ def test_mark_all_as_checked_records_a_look_on_every_to_check_row(
         )
     ]
     lamella.task_history.append(
-        AutoLamellaTaskState(name=ROUGH, status=AutoLamellaTaskStatus.AwaitingDecision)
+        AutoLamellaTaskState(name=ROUGH, status=TaskStatus.AwaitingDecision)
     )
     tab.refresh()
     assert tab.check_count == 2 and tab.pending_count == 1
@@ -466,7 +464,7 @@ def test_rejecting_a_checked_proposal_leaves_the_finished_task_alone(
     """The producer confirmed its own result and the task completed; a later
     reject is a note on the record, not a change to the outcome."""
     lamella = experiment.positions[0]
-    lamella.set_task_status(SETUP, AutoLamellaTaskStatus.Completed)
+    lamella.set_task_status(SETUP, TaskStatus.Completed)
     _auto_confirm(lamella.proposal(SETUP))
     tab.refresh()
     from PyQt5.QtWidgets import QInputDialog
@@ -475,7 +473,7 @@ def test_rejecting_a_checked_proposal_leaves_the_finished_task_alone(
         QInputDialog, "getText", staticmethod(lambda *a, **k: ("milled wrong", True))
     )
     tab.reject_current()
-    assert lamella.task_history[-1].status is AutoLamellaTaskStatus.Completed
+    assert lamella.task_history[-1].status is TaskStatus.Completed
     assert not lamella.is_failure
     assert not lamella.proposal(SETUP).to_check
 
@@ -505,7 +503,7 @@ def test_a_task_result_renders_both_images_and_confirms_with_no_values(
     eb = os.path.join(str(lamella.path), "ref_rough_eb")
     _fib_image().save(eb)
     lamella.task_history.append(
-        AutoLamellaTaskState(name=ROUGH, status=AutoLamellaTaskStatus.AwaitingDecision)
+        AutoLamellaTaskState(name=ROUGH, status=TaskStatus.AwaitingDecision)
     )
     lamella.proposals[ROUGH] = [
         Proposal(
@@ -699,9 +697,7 @@ def _grid_waiting(experiment):
     directory.mkdir(parents=True)
     _sem_image().save(str(directory / "overview"))
     grid.task_history.append(
-        AutoLamellaTaskState(
-            name="SEM Overview", status=AutoLamellaTaskStatus.AwaitingDecision
-        )
+        AutoLamellaTaskState(name="SEM Overview", status=TaskStatus.AwaitingDecision)
     )
     grid.proposals["SEM Overview"] = [
         Proposal(
@@ -760,9 +756,7 @@ def _positions_waiting(experiment, positions=(), name="Grid-02"):
     directory.mkdir(parents=True, exist_ok=True)
     _sem_image().save(str(directory / "overview"))
     grid.task_history.append(
-        AutoLamellaTaskState(
-            name="SEM Overview", status=AutoLamellaTaskStatus.AwaitingDecision
-        )
+        AutoLamellaTaskState(name="SEM Overview", status=TaskStatus.AwaitingDecision)
     )
     grid.proposals["SEM Overview"] = [
         Proposal(
@@ -1017,9 +1011,7 @@ def _fm_grid_proposal(experiment, filename="overview.ome.tiff", write=True):
     if write:
         _fluorescence_overview(target)
     grid.task_history.append(
-        AutoLamellaTaskState(
-            name="FM Overview", status=AutoLamellaTaskStatus.AwaitingDecision
-        )
+        AutoLamellaTaskState(name="FM Overview", status=TaskStatus.AwaitingDecision)
     )
     grid.proposals["FM Overview"] = [
         Proposal(
@@ -1099,9 +1091,7 @@ def test_a_result_with_no_image_recorded_says_so(tab, experiment):
 
     grid = experiment.add_grid(GridRecord(name="Grid-None"))
     grid.task_history.append(
-        AutoLamellaTaskState(
-            name="SEM Overview", status=AutoLamellaTaskStatus.AwaitingDecision
-        )
+        AutoLamellaTaskState(name="SEM Overview", status=TaskStatus.AwaitingDecision)
     )
     grid.proposals["SEM Overview"] = [
         Proposal(kind=TASK_RESULT, provenance={"task_id": RUN, "reference_image": ""})

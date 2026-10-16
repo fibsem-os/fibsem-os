@@ -22,8 +22,8 @@ from fibsem.applications.autolamella.proposals import (
     Proposer,
     TaskResultProposer,
 )
-from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
 from fibsem.util.timestamps import to_datetime
+from fibsem.workflows.status import TaskStatus
 
 # Provenance key -> output role, for a lamella task: the last final ion and
 # electron images. The last is the tightest field of view, the one the Review
@@ -166,10 +166,8 @@ def settle(
     decision = inline_decision
     if decision is None:
         if review:
-            if item.task_state.status is AutoLamellaTaskStatus.Completed:
-                item.set_task_status(
-                    task.task_name, AutoLamellaTaskStatus.AwaitingDecision
-                )
+            if item.task_state.status is TaskStatus.Completed:
+                item.set_task_status(task.task_name, TaskStatus.AwaitingDecision)
                 logging.info(
                     f"{item.name}: {task.task_name} awaits a decision "
                     "in the Review tab."

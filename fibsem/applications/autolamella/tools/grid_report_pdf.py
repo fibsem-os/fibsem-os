@@ -25,11 +25,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from fibsem.applications.autolamella.proposals import Author
-from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskStatus,
-    Experiment,
-    Verdict,
-)
+from fibsem.applications.autolamella.structures import Experiment, Verdict
 from fibsem.applications.autolamella.tools.grid_report import (
     GridReport,
     GridSection,
@@ -39,6 +35,7 @@ from fibsem.applications.autolamella.tools.grid_report import (
 from fibsem.fm.preview import is_fluorescence_image, load_projection
 from fibsem.structures import FibsemImage
 from fibsem.util.timestamps import to_datetime, zone_label
+from fibsem.workflows.status import TaskStatus
 
 logger = logging.getLogger(__name__)
 
@@ -53,12 +50,12 @@ _MARK_COLOUR = (255, 210, 31)
 _SCALE_BAR_CHOICES_UM = (5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000)
 
 _STATUS_TEXT = {
-    AutoLamellaTaskStatus.Completed: "Completed",
-    AutoLamellaTaskStatus.Failed: "Failed",
-    AutoLamellaTaskStatus.Cancelled: "Cancelled",
-    AutoLamellaTaskStatus.Skipped: "Skipped",
-    AutoLamellaTaskStatus.InProgress: "In progress",
-    AutoLamellaTaskStatus.NotStarted: "Not started",
+    TaskStatus.Completed: "Completed",
+    TaskStatus.Failed: "Failed",
+    TaskStatus.Cancelled: "Cancelled",
+    TaskStatus.Skipped: "Skipped",
+    TaskStatus.InProgress: "In progress",
+    TaskStatus.NotStarted: "Not started",
 }
 # The app's words for a verdict, so the page says what the Grids tab said. Kept as
 # literals: the app's table lives in a Qt module this report must not import.
@@ -527,7 +524,7 @@ def generate_grid_report(
                 details.append(("Channels", ", ".join(entry.channels)))
             # A run that finished with something to say: an overview that skipped
             # tiles past the stage's reach has blanks there, and this says why.
-            if entry.status is AutoLamellaTaskStatus.Completed and (
+            if entry.status is TaskStatus.Completed and (
                 entry.status_message not in ("", "Finished")
             ):
                 details.append(("Run", entry.status_message))
@@ -562,7 +559,7 @@ def generate_grid_report(
             if right is None:
                 reason = entry.status_message or (
                     "No image was recorded for this run."
-                    if entry.status is AutoLamellaTaskStatus.Completed
+                    if entry.status is TaskStatus.Completed
                     else ""
                 )
                 right = Table(

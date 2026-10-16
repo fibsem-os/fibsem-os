@@ -28,7 +28,6 @@ from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskStatus,
     AutoLamellaWorkflowConfig,
     Experiment,
 )
@@ -41,6 +40,7 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
     consumed_values,
 )
 from fibsem.structures import Point
+from fibsem.workflows.status import TaskStatus
 
 SETUP = "Setup Lamella Position"
 ROUGH = "Rough Milling"
@@ -155,7 +155,7 @@ def test_under_review_the_task_records_a_proposal_and_awaits_a_decision(
     assert lamella.is_awaiting_decision(SETUP) and not lamella.has_completed_task(
         SETUP
     ), "but it is not finished until someone decides"
-    assert lamella.task_state.status is AutoLamellaTaskStatus.AwaitingDecision
+    assert lamella.task_state.status is TaskStatus.AwaitingDecision
 
     # The proposal is what the experiment file carries.
     exp.save()

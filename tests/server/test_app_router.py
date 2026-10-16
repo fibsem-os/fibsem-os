@@ -146,10 +146,8 @@ def test_every_listed_output_is_served_and_only_completed_runs_count(client, hos
     import numpy as np
     import tifffile
 
-    from fibsem.applications.autolamella.structures import (
-        AutoLamellaTaskState,
-        AutoLamellaTaskStatus,
-    )
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+    from fibsem.workflows.status import TaskStatus
 
     lamella = host.experiment.positions[0]
     os.makedirs(lamella.path, exist_ok=True)
@@ -161,12 +159,12 @@ def test_every_listed_output_is_served_and_only_completed_runs_count(client, hos
     lamella.task_history.append(
         AutoLamellaTaskState(
             name="Rough Milling",
-            status=AutoLamellaTaskStatus.Completed,
+            status=TaskStatus.Completed,
             outputs={"start_fib": [start]},
         )
     )
     lamella.task_history.append(
-        AutoLamellaTaskState(name="Polishing", status=AutoLamellaTaskStatus.Cancelled)
+        AutoLamellaTaskState(name="Polishing", status=TaskStatus.Cancelled)
     )
 
     listed = client.get(
@@ -556,7 +554,6 @@ def grid_with_overview(host, microscope):
     linked to it posed at the overview's centre and one posed far outside."""
     from fibsem.applications.autolamella.structures import (
         AutoLamellaTaskState,
-        AutoLamellaTaskStatus,
         GridRecord,
     )
     from fibsem.structures import (
@@ -565,6 +562,7 @@ def grid_with_overview(host, microscope):
         ImageSettings,
         MicroscopeState,
     )
+    from fibsem.workflows.status import TaskStatus
 
     experiment = host.experiment
     grid = experiment.add_grid(GridRecord(name="grid-aspen"))
@@ -577,7 +575,7 @@ def grid_with_overview(host, microscope):
     grid.task_history.append(
         AutoLamellaTaskState(
             name="overview_sem",
-            status=AutoLamellaTaskStatus.Completed,
+            status=TaskStatus.Completed,
             outputs={"overview_sem": ["overview_sem/overview.tif"]},
         )
     )
@@ -865,16 +863,14 @@ def test_fm_overview_previews_in_colour_and_places_markers(
     import numpy as np
     from PIL import Image
 
-    from fibsem.applications.autolamella.structures import (
-        AutoLamellaTaskState,
-        AutoLamellaTaskStatus,
-    )
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
     from fibsem.fm.structures import (
         FluorescenceChannelMetadata,
         FluorescenceImage,
         FluorescenceImageMetadata,
     )
     from fibsem.structures import FibsemHardwareGeometry, FibsemStagePosition
+    from fibsem.workflows.status import TaskStatus
 
     experiment = host.experiment
     grid = grid_with_overview
@@ -926,7 +922,7 @@ def test_fm_overview_previews_in_colour_and_places_markers(
     grid.task_history.append(
         AutoLamellaTaskState(
             name="overview_fm",
-            status=AutoLamellaTaskStatus.Completed,
+            status=TaskStatus.Completed,
             outputs={"overview_fm": ["overview_fm/overview.ome.tiff"]},
         )
     )

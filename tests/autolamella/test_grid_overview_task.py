@@ -16,7 +16,6 @@ import yaml
 from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskStatus,
     Experiment,
     GridRecord,
 )
@@ -41,6 +40,7 @@ from fibsem.structures import (
     SampleGrid,
     SlotCalibration,
 )
+from fibsem.workflows.status import TaskStatus
 
 
 def _small_settings(
@@ -114,7 +114,7 @@ class TestReachability:
         grid = experiment.add_grid(GridRecord(name="grid-nowhere"))
         with pytest.raises(RuntimeError, match="not in a holder slot"):
             run_grid_task(microscope, "overview_sem", experiment, grid)
-        assert grid.task_state.status is AutoLamellaTaskStatus.Failed
+        assert grid.task_state.status is TaskStatus.Failed
 
     def test_refuses_an_uncalibrated_slot(self, microscope, experiment):
         slot = microscope.sample_handling.holder.slots["Slot-01"]
@@ -152,7 +152,7 @@ class TestRun:
         run_grid_task(microscope, "overview_sem", experiment, grid)
 
         entry = grid.task_history[-1]
-        assert entry.status is AutoLamellaTaskStatus.Completed
+        assert entry.status is TaskStatus.Completed
         assert set(entry.outputs) == {
             "overview_sem",
             "overview_sem_tiles",
@@ -235,7 +235,7 @@ class TestRun:
             run_grid_task(
                 microscope, "overview_sem", experiment, grid, task_manager=manager
             )
-        assert grid.task_state.status is AutoLamellaTaskStatus.Cancelled
+        assert grid.task_state.status is TaskStatus.Cancelled
 
     def test_the_operation_is_callable_standalone(self, microscope, tmp_path):
         result = acquire_tiled_overview(

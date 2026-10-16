@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
 import pandas as pd
 
 from fibsem import config as fibsem_cfg
-from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
 from fibsem.applications.autolamella.workflows.tasks.queue import TaskQueue, WorkItem
 from fibsem.applications.autolamella.workflows.tasks.status import (
     Hold,
@@ -28,6 +27,7 @@ from fibsem.hooks import HookEvent, HookManager, fire_event
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import InsertableDeviceState
 from fibsem.util.durations import format_duration_precise, format_duration_rounded
+from fibsem.workflows.status import TaskStatus
 
 # Exactly one of these ends every run (FIB-1327).
 _RUN_ENDS = frozenset(
@@ -597,7 +597,7 @@ class BaseTaskManager:
         take_back_finish(
             item,
             state.task_id,
-            AutoLamellaTaskStatus.Failed,
+            TaskStatus.Failed,
             f"Finished, but its result could not be saved: {error}",
         )
         fire_event(
@@ -629,7 +629,7 @@ class BaseTaskManager:
         self,
         item: WorkItem,
         item_name: str,
-        status: "AutoLamellaTaskStatus",
+        status: "TaskStatus",
         msg: str = "",
         error_message: Optional[str] = None,
         task_duration: Optional[float] = None,
@@ -794,7 +794,7 @@ class TaskManager(BaseTaskManager):
                 logging.warning(
                     f"Skipping {item.task_name}: no lamella named {item.item_name} in the experiment."
                 )
-                self.queue.mark_done(item, AutoLamellaTaskStatus.Skipped)
+                self.queue.mark_done(item, TaskStatus.Skipped)
                 self._fire_skipped_hook(
                     item.task_name, item.item_name, "lamella_not_found"
                 )
@@ -803,11 +803,11 @@ class TaskManager(BaseTaskManager):
             skip_reason = self._should_skip(lamella, item.task_name)
             if skip_reason is not None:
                 msg = f"Skipping {lamella.name} for {item.task_name}: {skip_reason}."
-                self.queue.mark_done(item, AutoLamellaTaskStatus.Skipped)
+                self.queue.mark_done(item, TaskStatus.Skipped)
                 self._emit_status(
                     item=item,
                     lamella=lamella,
-                    status=AutoLamellaTaskStatus.Skipped,
+                    status=TaskStatus.Skipped,
                     msg=msg,
                     skip_reason=skip_reason,
                 )
@@ -841,7 +841,7 @@ class TaskManager(BaseTaskManager):
             self._emit_status(
                 item=item,
                 lamella=lamella,
-                status=AutoLamellaTaskStatus.InProgress,
+                status=TaskStatus.InProgress,
                 msg=f"Starting task {item.task_name} for Lamella {lamella.name}.",
             )
 
@@ -1035,9 +1035,9 @@ class TaskManager(BaseTaskManager):
         ended any other way (cancelled, awaiting a decision) is in none of them."""
         counts = Counter(item.status for item in self.queue.items)
         return {
-            "completed": counts[AutoLamellaTaskStatus.Completed],
-            "failed": counts[AutoLamellaTaskStatus.Failed],
-            "skipped": counts[AutoLamellaTaskStatus.Skipped],
+            "completed": counts[TaskStatus.Completed],
+            "failed": counts[TaskStatus.Failed],
+            "skipped": counts[TaskStatus.Skipped],
         }
 
     def _wait_until_scheduled(
@@ -1156,7 +1156,7 @@ class TaskManager(BaseTaskManager):
         self,
         item: WorkItem,
         lamella: "Lamella",
-        status: "AutoLamellaTaskStatus",
+        status: "TaskStatus",
         msg: str = "",
         error_message: Optional[str] = None,
         task_duration: Optional[float] = None,
@@ -1202,14 +1202,14 @@ class TaskManager(BaseTaskManager):
                 logging.info(
                     f"Task {task_name} for lamella {lamella.name} cancelled by user."
                 )
-                lamella.task_state.status = AutoLamellaTaskStatus.Cancelled
+                lamella.task_state.status = TaskStatus.Cancelled
                 lamella.task_state.status_message = "Cancelled by user."
             else:
                 logging.warning(
                     f"Error running task {task_name} for lamella {lamella.name}: {e}",
                     exc_info=True,
                 )
-                lamella.task_state.status = AutoLamellaTaskStatus.Failed
+                lamella.task_state.status = TaskStatus.Failed
                 lamella.task_state.status_message = str(e)
             self.experiment.save()
             return e

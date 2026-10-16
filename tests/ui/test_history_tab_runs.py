@@ -28,7 +28,6 @@ from fibsem.applications.autolamella.event_recording import (  # noqa: E402
 from fibsem.applications.autolamella.history_rows import HistoryFilter  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskState,
-    AutoLamellaTaskStatus,
     Lamella,
 )
 from fibsem.applications.autolamella.ui.lamella_task_image_widget import (  # noqa: E402
@@ -37,6 +36,7 @@ from fibsem.applications.autolamella.ui.lamella_task_image_widget import (  # no
 )
 from fibsem.structures import FibsemImage, MicroscopeState  # noqa: E402
 from fibsem.util.timestamps import format_time  # noqa: E402
+from fibsem.workflows.status import TaskStatus  # noqa: E402
 
 T0 = datetime(2026, 7, 29, 18, 0, tzinfo=timezone(timedelta(hours=10)))
 ROUGH, POLISH = "Rough Milling", "Polishing"
@@ -55,9 +55,7 @@ def _image(lamella, name):
     return os.path.relpath(image.save(str(lamella.path / name)), lamella.path)
 
 
-def _run(
-    name, task_id, minute, status=AutoLamellaTaskStatus.Completed, message="", **outputs
-):
+def _run(name, task_id, minute, status=TaskStatus.Completed, message="", **outputs):
     return AutoLamellaTaskState(
         name=name,
         task_id=task_id,
@@ -94,7 +92,7 @@ def lamella(tmp_path):
             POLISH,
             "p1",
             10,
-            status=AutoLamellaTaskStatus.Failed,
+            status=TaskStatus.Failed,
             message="the stage stopped",
         ),
         _run(ROUGH, "r2", 20, final_fib=[rough_ref]),

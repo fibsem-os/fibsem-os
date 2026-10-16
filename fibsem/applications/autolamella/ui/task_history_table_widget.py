@@ -13,13 +13,14 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus, Experiment
+from fibsem.applications.autolamella.structures import Experiment
 from fibsem.ui.widgets.dataframe_table_widget import DataFrameTableWidget
 from fibsem.ui.widgets.task_summary_formatting import (
     COLUMN_NAME_MAPPING,
     make_status_cell_formatter,
 )
 from fibsem.util.durations import format_duration_as_clock
+from fibsem.workflows.status import TaskStatus
 
 
 class TaskHistoryTableWidget(QWidget):
@@ -97,7 +98,7 @@ class TaskHistoryTableWidget(QWidget):
         if self.display_errors_only_checkbox.isChecked():
             if "task_status" in df.columns:
                 # Filter for Failed status
-                df = df[df["task_status"] == AutoLamellaTaskStatus.Failed.name]
+                df = df[df["task_status"] == TaskStatus.Failed.name]
 
         # Filter to only include specified columns
         columns_to_include = [

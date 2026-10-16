@@ -27,12 +27,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskStatus,
-    Experiment,
-    GridRecord,
-    Verdict,
-)
+from fibsem.applications.autolamella.structures import Experiment, GridRecord, Verdict
 from fibsem.applications.autolamella.task_outputs import latest_grid_output
 from fibsem.applications.autolamella.ui.lamella_list_widget import (
     VERDICT_LOOK,
@@ -66,6 +61,7 @@ from fibsem.ui.tokens import (
 )
 from fibsem.ui.widgets.custom_widgets import ElidedLabel, chip
 from fibsem.ui.widgets.sample_loader_widget import ICON_LOAD, ICON_UNLOAD
+from fibsem.workflows.status import TaskStatus
 
 _CARD_WIDTH = 300
 _THUMB_PADDING = 6
@@ -120,7 +116,7 @@ def grid_headline(grid: GridRecord) -> Tuple[str, str]:
     says nothing, rather than "Not run" on every grid of a fresh magazine.
     """
     state = grid.task_state
-    if state.status is AutoLamellaTaskStatus.InProgress:
+    if state.status is TaskStatus.InProgress:
         return f"Running {state.name}", ACCENT_COLOR
     history = grid.task_history
     if not history:
@@ -147,12 +143,12 @@ def grid_headline(grid: GridRecord) -> Tuple[str, str]:
             break
     load = history[start] if history[start].name == _LOAD_ENTRY_NAME else None
     tasks = [t for t in history[start:] if t.name not in _EXCHANGE_ENTRY_NAMES]
-    if load is not None and load.status is AutoLamellaTaskStatus.Failed:
+    if load is not None and load.status is TaskStatus.Failed:
         return "Load failed", ERROR_COLOR
     if not tasks:
         return "", NEUTRAL_550
-    failed = sum(1 for t in tasks if t.status is AutoLamellaTaskStatus.Failed)
-    cancelled = sum(1 for t in tasks if t.status is AutoLamellaTaskStatus.Cancelled)
+    failed = sum(1 for t in tasks if t.status is TaskStatus.Failed)
+    cancelled = sum(1 for t in tasks if t.status is TaskStatus.Cancelled)
     if failed:
         return f"{failed} task{'s' if failed != 1 else ''} failed", ERROR_COLOR
     if cancelled:

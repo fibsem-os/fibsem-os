@@ -26,7 +26,6 @@ from fibsem.alignment import AlignmentResult
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskStatus,
     AutoLamellaWorkflowConfig,
     Experiment,
 )
@@ -44,6 +43,7 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
 )
 from fibsem.autofunctions.autofocus import AutoFocusResult
 from fibsem.structures import BeamType
+from fibsem.workflows.status import TaskStatus
 
 CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
 SETUP = "Setup Lamella Position"
@@ -109,7 +109,7 @@ def test_everything_a_task_writes_follows_the_output_folder(
 
     run_tasks(microscope, experiment, [SETUP, ROUGH])
 
-    assert lamella.task_state.status is AutoLamellaTaskStatus.Completed
+    assert lamella.task_state.status is TaskStatus.Completed
     written = _top_level(elsewhere)
     assert {"autofunctions", "Milling"} <= written
     assert any(name.startswith(f"ref_{ROUGH}_final") for name in written)

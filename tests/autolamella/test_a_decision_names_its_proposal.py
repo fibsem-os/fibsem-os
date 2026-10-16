@@ -26,10 +26,10 @@ from fibsem.applications.autolamella.proposals import (
 )
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskStatus,
     Experiment,
 )
 from fibsem.structures import MicroscopeState, Point
+from fibsem.workflows.status import TaskStatus
 
 TASK = "Mill Undercut"
 RUN = "run-1"
@@ -44,7 +44,7 @@ def experiment(tmp_path):
     lamella = exp.positions[0]
     lamella.task_state.name = TASK
     lamella.task_state.task_id = RUN
-    lamella.task_state.status = AutoLamellaTaskStatus.InProgress
+    lamella.task_state.status = TaskStatus.InProgress
     return exp
 
 
@@ -225,14 +225,14 @@ def test_withdrawn_is_refused_as_a_decision(experiment):
 
     assert not result.applied and result.error_type == "invalid_value"
     assert proposal.pending
-    assert lamella.task_state.status is AutoLamellaTaskStatus.InProgress
+    assert lamella.task_state.status is TaskStatus.InProgress
 
 
 def test_a_plain_result_is_named_the_same_way(experiment):
     """Not only questions: the id is on every proposal, so the Review tab and
     the producer's own decision name it too."""
     lamella = experiment.positions[0]
-    lamella.task_state.status = AutoLamellaTaskStatus.Completed
+    lamella.task_state.status = TaskStatus.Completed
     proposal = Proposal(kind=TASK_RESULT, provenance={"task_id": RUN})
     lamella.proposals[TASK] = [proposal]
 

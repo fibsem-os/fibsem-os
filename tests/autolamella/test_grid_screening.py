@@ -16,7 +16,6 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
     GridRecord,
 )
-from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus as Status
 from fibsem.applications.autolamella.tools.grid_report_pdf import REPORT_FILENAME
 from fibsem.applications.autolamella.workflows.tasks.grid import (
     BeamOverviewGridTaskConfig,
@@ -41,6 +40,7 @@ from fibsem.structures import (
     SampleGrid,
     SlotCalibration,
 )
+from fibsem.workflows.status import TaskStatus as Status
 
 
 def _small_settings(beam=BeamType.ELECTRON) -> OverviewAcquisitionSettings:

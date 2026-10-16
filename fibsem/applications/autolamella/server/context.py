@@ -34,9 +34,10 @@ from typing import Any, Dict, List, Optional
 
 import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella import task_outputs as _task_outputs
-from fibsem.applications.autolamella.structures import Attention, AutoLamellaTaskStatus
+from fibsem.applications.autolamella.structures import Attention
 from fibsem.server.files import jpeg_preview
 from fibsem.util.timestamps import to_iso, wall_time_of
+from fibsem.workflows.status import TaskStatus
 
 __all__ = [
     "AutoLamellaAppContext",
@@ -440,7 +441,7 @@ class AutoLamellaAppContext:
             payload["workflow"]["queue_total"] = len(items)
             payload["workflow"]["queue_version"] = manager.queue.version
             active = next(
-                (i for i in items if i.status is AutoLamellaTaskStatus.InProgress),
+                (i for i in items if i.status is TaskStatus.InProgress),
                 None,
             )
             if active is not None:
@@ -660,9 +661,7 @@ class AutoLamellaAppContext:
             "available": True,
             "item_name": item_name,
             "completed_tasks": [
-                state.name
-                for state in history
-                if state.status is AutoLamellaTaskStatus.Completed
+                state.name for state in history if state.status is TaskStatus.Completed
             ],
             "tasks": tasks,
             "final_reference_images": [
@@ -996,9 +995,7 @@ class AutoLamellaAppContext:
         import os
 
         history = list(grid.task_history)
-        completed = [
-            t.name for t in history if t.status is AutoLamellaTaskStatus.Completed
-        ]
+        completed = [t.name for t in history if t.status is TaskStatus.Completed]
         overviews = {}
         for role in GRID_OVERVIEW_ROLES:
             path = _task_outputs.latest_grid_output(experiment, grid, role)
@@ -1988,7 +1985,7 @@ class AutoLamellaAppContext:
                 running = any(
                     item.item_name == item_name
                     and item.task_name == task_name
-                    and item.status is AutoLamellaTaskStatus.InProgress
+                    and item.status is TaskStatus.InProgress
                     for item in manager.queue.items
                 )
                 if running:
@@ -2036,7 +2033,7 @@ class AutoLamellaAppContext:
             running = any(
                 item.item_name == item_name
                 and item.task_name in guard_names
-                and item.status is AutoLamellaTaskStatus.InProgress
+                and item.status is TaskStatus.InProgress
                 for item in manager.queue.items
             )
             if running:
@@ -2122,7 +2119,7 @@ class AutoLamellaAppContext:
             running = any(
                 item.item_name == item_name
                 and item.task_name == task_name
-                and item.status is AutoLamellaTaskStatus.InProgress
+                and item.status is TaskStatus.InProgress
                 for item in manager.queue.items
             )
             if running:
@@ -3107,9 +3104,9 @@ class AutoLamellaAppContext:
             }
         result = manager.queue.apply(item.id, action)
         if result.op is QueueOp.NOT_PENDING:
-            if item.status is AutoLamellaTaskStatus.InProgress:
+            if item.status is TaskStatus.InProgress:
                 state = "is running now; stop it instead"
-            elif item.status is AutoLamellaTaskStatus.Removed:
+            elif item.status is TaskStatus.Removed:
                 state = "was already removed"
             else:
                 state = f"already ran ({item.status.name})"

@@ -35,7 +35,6 @@ from fibsem.applications.autolamella.proposals import (
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     AutoLamellaTaskState,
-    AutoLamellaTaskStatus,
     Experiment,
     GridRecord,
     Verdict,
@@ -51,6 +50,7 @@ from fibsem.structures import (
     MicroscopeState,
     Point,
 )
+from fibsem.workflows.status import TaskStatus
 
 SETUP = "Setup Lamella Position"
 # the run a proposal is from, and that a decision names
@@ -314,7 +314,7 @@ def test_standing_is_one_lifecycle_read_off_the_item(tmp_path):
 
     lamella.task_history.append(
         AutoLamellaTaskState(
-            name=SETUP, task_id=RUN, status=AutoLamellaTaskStatus.AwaitingDecision
+            name=SETUP, task_id=RUN, status=TaskStatus.AwaitingDecision
         )
     )
     assert standing(lamella, SETUP, p) is Standing.Awaiting, "consumers wait"
@@ -483,7 +483,7 @@ def test_a_decision_finishes_a_task_that_was_awaiting_one(tmp_path):
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
     lamella.task_state = AutoLamellaTaskState(
-        name=SETUP, status=AutoLamellaTaskStatus.AwaitingDecision
+        name=SETUP, status=TaskStatus.AwaitingDecision
     )
     lamella.task_history.append(deepcopy(lamella.task_state))
     lamella.proposals[SETUP] = [_proposal()]
@@ -501,7 +501,7 @@ def test_a_decision_finishes_a_task_that_was_awaiting_one(tmp_path):
     )
 
     assert lamella.has_completed_task(SETUP)
-    assert lamella.task_state.status is AutoLamellaTaskStatus.Completed
+    assert lamella.task_state.status is TaskStatus.Completed
     assert not lamella.is_awaiting_decision(SETUP)
 
 
@@ -509,7 +509,7 @@ def test_reject_fails_the_waiting_task_and_leaves_the_lamella_alone(tmp_path):
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
     lamella.task_history.append(
-        AutoLamellaTaskState(name=SETUP, status=AutoLamellaTaskStatus.AwaitingDecision)
+        AutoLamellaTaskState(name=SETUP, status=TaskStatus.AwaitingDecision)
     )
     lamella.proposals[SETUP] = [_proposal()]
 
@@ -526,7 +526,7 @@ def test_reject_fails_the_waiting_task_and_leaves_the_lamella_alone(tmp_path):
 
     assert result.applied is True
     entry = lamella.task_history[-1]
-    assert entry.status is AutoLamellaTaskStatus.Failed
+    assert entry.status is TaskStatus.Failed
     assert entry.status_message == "Rejected by op: no usable site"
     assert not lamella.is_failure, "a failed task is not a defective lamella"
     assert lamella.quality.verdict is Verdict.UNASSESSED
@@ -539,7 +539,7 @@ def test_a_decision_on_a_finished_task_changes_only_the_record(tmp_path):
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
     lamella.task_history.append(
-        AutoLamellaTaskState(name=SETUP, status=AutoLamellaTaskStatus.Completed)
+        AutoLamellaTaskState(name=SETUP, status=TaskStatus.Completed)
     )
     lamella.proposals[SETUP] = [_proposal()]
 
@@ -554,7 +554,7 @@ def test_a_decision_on_a_finished_task_changes_only_the_record(tmp_path):
         ),
     )
 
-    assert lamella.task_history[-1].status is AutoLamellaTaskStatus.Completed
+    assert lamella.task_history[-1].status is TaskStatus.Completed
     assert not lamella.proposal(SETUP).pending
 
 
@@ -591,7 +591,7 @@ def _grid_awaiting(exp: Experiment, task_name: str = "Overview") -> GridRecord:
     state = grid.task_state
     state.name = task_name
     state.task_id = "run-1"
-    state.status = AutoLamellaTaskStatus.AwaitingDecision
+    state.status = TaskStatus.AwaitingDecision
     grid.task_history.append(deepcopy(state))
     grid.proposals[task_name] = [
         Proposal(kind=TASK_RESULT, provenance={"task_id": state.task_id})
@@ -618,7 +618,7 @@ def test_a_decision_finishes_a_grid_task_that_was_awaiting_one(tmp_path):
 
     assert result.applied is True
     assert grid.has_completed_task("Overview")
-    assert grid.task_state.status is AutoLamellaTaskStatus.Completed
+    assert grid.task_state.status is TaskStatus.Completed
     assert not grid.is_awaiting_decision("Overview")
     assert not grid.proposal("Overview").pending
 
@@ -640,9 +640,9 @@ def test_reject_fails_the_waiting_grid_task_and_leaves_its_quality_alone(tmp_pat
 
     assert result.applied is True
     entry = grid.task_history[-1]
-    assert entry.status is AutoLamellaTaskStatus.Failed
+    assert entry.status is TaskStatus.Failed
     assert entry.status_message == "Rejected by op: all ice"
-    assert grid.task_state.status is AutoLamellaTaskStatus.Failed
+    assert grid.task_state.status is TaskStatus.Failed
     assert grid.quality.verdict is Verdict.UNASSESSED, "a person sets the verdict"
 
 
@@ -672,7 +672,7 @@ def test_confirming_values_on_a_grid_is_refused_before_anything_is_written(tmp_p
 def test_a_decision_on_a_finished_grid_task_changes_only_the_record(tmp_path):
     exp = _experiment(tmp_path)
     grid = _grid_awaiting(exp)
-    grid.set_task_status("Overview", AutoLamellaTaskStatus.Completed)
+    grid.set_task_status("Overview", TaskStatus.Completed)
 
     exp.decide(
         grid.id,
@@ -685,7 +685,7 @@ def test_a_decision_on_a_finished_grid_task_changes_only_the_record(tmp_path):
         ),
     )
 
-    assert grid.task_history[-1].status is AutoLamellaTaskStatus.Completed
+    assert grid.task_history[-1].status is TaskStatus.Completed
     assert not grid.proposal("Overview").pending
 
 
@@ -696,12 +696,12 @@ def test_a_grid_status_change_leaves_the_live_state_of_a_later_run_alone(tmp_pat
     grid = _grid_awaiting(exp)
     grid.task_state.name = "Screening"
     grid.task_state.task_id = "run-2"
-    grid.task_state.status = AutoLamellaTaskStatus.InProgress
+    grid.task_state.status = TaskStatus.InProgress
 
-    grid.set_task_status("Overview", AutoLamellaTaskStatus.Completed)
+    grid.set_task_status("Overview", TaskStatus.Completed)
 
-    assert grid.task_history[-1].status is AutoLamellaTaskStatus.Completed
-    assert grid.task_state.status is AutoLamellaTaskStatus.InProgress
+    assert grid.task_history[-1].status is TaskStatus.Completed
+    assert grid.task_state.status is TaskStatus.InProgress
 
 
 def test_a_repeated_grid_task_is_decided_on_its_latest_run_only(tmp_path):
@@ -711,10 +711,10 @@ def test_a_repeated_grid_task_is_decided_on_its_latest_run_only(tmp_path):
     exp = _experiment(tmp_path)
     grid = _grid_awaiting(exp)
     first = grid.task_history[-1]
-    first.status = AutoLamellaTaskStatus.Failed
+    first.status = TaskStatus.Failed
     first.status_message = "first run failed"
     grid.task_state.task_id = "run-2"
-    grid.task_state.status = AutoLamellaTaskStatus.AwaitingDecision
+    grid.task_state.status = TaskStatus.AwaitingDecision
     grid.task_history.append(deepcopy(grid.task_state))
     grid.proposals["Overview"] = [
         Proposal(kind=TASK_RESULT, provenance={"task_id": "run-2"})
@@ -732,9 +732,9 @@ def test_a_repeated_grid_task_is_decided_on_its_latest_run_only(tmp_path):
         ),
     )
 
-    assert grid.task_history[-1].status is AutoLamellaTaskStatus.Completed
-    assert grid.task_state.status is AutoLamellaTaskStatus.Completed
-    assert first.status is AutoLamellaTaskStatus.Failed
+    assert grid.task_history[-1].status is TaskStatus.Completed
+    assert grid.task_state.status is TaskStatus.Completed
+    assert first.status is TaskStatus.Failed
     assert first.status_message == "first run failed"
 
 
@@ -744,7 +744,7 @@ def test_an_earlier_run_awaiting_a_decision_does_not_make_a_later_one_wait(
     exp = _experiment(tmp_path)
     grid = _grid_awaiting(exp)
     grid.task_state.task_id = "run-2"
-    grid.task_state.status = AutoLamellaTaskStatus.Completed
+    grid.task_state.status = TaskStatus.Completed
     grid.task_history.append(deepcopy(grid.task_state))
 
     assert not grid.is_awaiting_decision("Overview")
@@ -758,8 +758,8 @@ def test_an_earlier_run_awaiting_a_decision_does_not_make_a_later_one_wait(
             reason="no",
         ),
     )
-    assert grid.task_history[-1].status is AutoLamellaTaskStatus.Completed
-    assert grid.task_history[0].status is AutoLamellaTaskStatus.AwaitingDecision
+    assert grid.task_history[-1].status is TaskStatus.Completed
+    assert grid.task_history[0].status is TaskStatus.AwaitingDecision
 
 
 def test_reject_needs_a_reason(tmp_path):
@@ -822,9 +822,7 @@ def _snapshot(lamella):
 def _awaiting(exp, kind_proposal, task_name=SETUP):
     lamella = exp.positions[0]
     lamella.task_history.append(
-        AutoLamellaTaskState(
-            name=task_name, status=AutoLamellaTaskStatus.AwaitingDecision
-        )
+        AutoLamellaTaskState(name=task_name, status=TaskStatus.AwaitingDecision)
     )
     lamella.proposals[task_name] = [kind_proposal]
     return lamella
@@ -1047,7 +1045,7 @@ def _running(lamella, task_name, task_id="run-2"):
     """The item has a run in progress: which task, and which run of it."""
     lamella.task_state.name = task_name
     lamella.task_state.task_id = task_id
-    lamella.task_state.status = AutoLamellaTaskStatus.InProgress
+    lamella.task_state.status = TaskStatus.InProgress
 
 
 def test_looking_at_an_earlier_result_is_not_refused_by_a_later_run(tmp_path):
@@ -1057,7 +1055,7 @@ def test_looking_at_an_earlier_result_is_not_refused_by_a_later_run(tmp_path):
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
     lamella.task_history.append(
-        AutoLamellaTaskState(name=SETUP, status=AutoLamellaTaskStatus.Completed)
+        AutoLamellaTaskState(name=SETUP, status=TaskStatus.Completed)
     )
     lamella.proposals[SETUP] = [_proposal()]
     lamella.proposal(SETUP).decisions.append(
@@ -1099,8 +1097,8 @@ def test_rejecting_a_task_that_is_not_the_one_running_lands(tmp_path):
     )
 
     assert result.applied is True
-    assert lamella.task_history[-1].status is AutoLamellaTaskStatus.Failed
-    assert lamella.task_state.status is AutoLamellaTaskStatus.InProgress, (
+    assert lamella.task_history[-1].status is TaskStatus.Failed
+    assert lamella.task_state.status is TaskStatus.InProgress, (
         "the running task is left alone"
     )
 
@@ -1151,7 +1149,7 @@ def test_a_rerun_of_the_same_task_does_not_block_looking_at_the_earlier_run(
     assert result.applied is True and result.running is False
     assert _snapshot(lamella)[:2] == before[:2], "poi and patterns untouched"
     assert lamella.task_state.task_id == "run-2", "the running run is left alone"
-    assert lamella.task_state.status is AutoLamellaTaskStatus.InProgress
+    assert lamella.task_state.status is TaskStatus.InProgress
 
 
 def test_decide_refuses_a_value_written_under_any_running_task(tmp_path):
@@ -1275,7 +1273,7 @@ def test_an_acknowledgement_with_values_is_refused_and_nothing_moves(tmp_path):
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
     lamella.task_history.append(
-        AutoLamellaTaskState(name=SETUP, status=AutoLamellaTaskStatus.Completed)
+        AutoLamellaTaskState(name=SETUP, status=TaskStatus.Completed)
     )
     lamella.proposals[SETUP] = [_proposal(Point(1e-6, 0))]
     assert exp.decide(

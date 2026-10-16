@@ -14,7 +14,6 @@ from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskStatus,
     Experiment,
 )
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI  # noqa: E402
@@ -22,6 +21,7 @@ from fibsem.applications.autolamella.workflows.tasks.manager import (  # noqa: E
     TaskManager,
 )
 from fibsem.structures import MicroscopeState  # noqa: E402
+from fibsem.workflows.status import TaskStatus  # noqa: E402
 
 TASK_NAME = "Mill Fiducial"
 
@@ -94,7 +94,7 @@ def test_the_agent_s_requeue_is_refused_while_the_grid_is_off_the_stage(ui):
     manager = TaskManager(ui.microscope, ui.experiment, parent_ui=None)
     manager.queue.build_from_matrix([TASK_NAME], ["on-two"])
     # Run once already, so asking again is a re-run, not a pair still waiting.
-    manager.queue.mark_done(manager.queue.items[0], AutoLamellaTaskStatus.Completed)
+    manager.queue.mark_done(manager.queue.items[0], TaskStatus.Completed)
     ui._task_manager = manager
     ctx = AutoLamellaAppContext(ui)
     before = len(manager.queue.items)

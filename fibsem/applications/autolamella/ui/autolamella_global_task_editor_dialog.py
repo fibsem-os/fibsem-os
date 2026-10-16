@@ -21,10 +21,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskStatus,
-    Experiment,
-)
+from fibsem.applications.autolamella.structures import Experiment
 from fibsem.constants import SI_TO_MICRO
 from fibsem.structures import (
     BeamType,
@@ -42,6 +39,7 @@ from fibsem.ui.widgets.form_builder import configure_spinbox
 from fibsem.ui.widgets.reference_image_parameters_widget import (
     ReferenceImageParametersWidget,
 )
+from fibsem.workflows.status import TaskStatus
 
 
 class AutoLamellaGlobalTaskEditDialog(QDialog):
@@ -394,5 +392,5 @@ def _is_running(lamella: Any, task_name: str) -> bool:
     return (
         state is not None
         and state.name == task_name
-        and state.status == AutoLamellaTaskStatus.InProgress
+        and state.status == TaskStatus.InProgress
     )

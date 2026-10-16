@@ -50,7 +50,7 @@ class TestTheOrder:
 
         thumbnail = _statement_index(tree, lambda d: "save_thumbnail" in d)
         status = _statement_index(
-            tree, lambda d: "AutoLamellaTaskStatus" in d and "Completed" in d
+            tree, lambda d: "TaskStatus" in d and "Completed" in d
         )
 
         assert thumbnail != -1, "post_task no longer saves a thumbnail"
@@ -125,8 +125,10 @@ class TestItActuallyBehaves:
             f"finished should already be the one on disk when the status is announced"
         )
 
-    def test_a_failing_thumbnail_does_not_stop_the_task_completing(self, task, monkeypatch):
-        from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
+    def test_a_failing_thumbnail_does_not_stop_the_task_completing(
+        self, task, monkeypatch
+    ):
+        from fibsem.workflows.status import TaskStatus
 
         def exploding(self, image):
             raise RuntimeError("disk went away")
@@ -136,7 +138,7 @@ class TestItActuallyBehaves:
 
         task.post_task()
 
-        assert task.lamella.task_state.status is AutoLamellaTaskStatus.Completed, (
+        assert task.lamella.task_state.status is TaskStatus.Completed, (
             "a thumbnail failure stopped a finished task being marked Completed — the "
             "picture is worth far less than an accurate task state"
         )

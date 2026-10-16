@@ -25,11 +25,11 @@ from fibsem.applications.autolamella.proposals import (
 )
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskStatus,
     Experiment,
     standing,
 )
 from fibsem.structures import MicroscopeState, Point
+from fibsem.workflows.status import TaskStatus
 
 SETUP = "Setup Lamella Position"
 ROUGH = "Mill Rough"
@@ -53,7 +53,7 @@ def _ask(experiment, task_name=ROUGH) -> Proposal:
     lamella = experiment.positions[0]
     lamella.task_state.name = task_name
     lamella.task_state.task_id = "run-1"
-    lamella.task_state.status = AutoLamellaTaskStatus.InProgress
+    lamella.task_state.status = TaskStatus.InProgress
     question = Proposal(
         kind=DETECTION,
         values={"features": [{"name": "LamellaCentre", "px": Point(10, 20)}]},
@@ -82,7 +82,7 @@ def test_a_decision_on_it_is_refused_as_stale(experiment):
     question = _ask(experiment)
     again = _saved_and_loaded(experiment)
     lamella = again.positions[0]
-    lamella.task_state.status = AutoLamellaTaskStatus.Completed
+    lamella.task_state.status = TaskStatus.Completed
 
     result = again.decide(
         lamella.id,
