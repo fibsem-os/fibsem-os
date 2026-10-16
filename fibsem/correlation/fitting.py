@@ -305,8 +305,14 @@ def fit_peak_1d(
     # The edge rule, as in fit_spot_2d.
     near_lo = c < max(s, 1.0)
     near_hi = (i1 - i0) - c < max(s, 1.0)
-    at_edge = near_lo or near_hi
     at_data_edge = (near_lo and i0 == 0) or (near_hi and i1 == n - 1)
+    if at_data_edge and _turns_over(seg, c, a, sign, near_lo, near_hi):
+        # A peak near the end of the stack whose fall-off is in the data is a
+        # fit: e.g. a target 5 planes from the end, 40% down by the last plane.
+        near_lo = near_lo and i0 != 0
+        near_hi = near_hi and i1 != n - 1
+        at_data_edge = False
+    at_edge = near_lo or near_hi
     if at_edge and recentre and not at_data_edge:
         return _after_recentre(
             fit_peak_1d(
@@ -371,6 +377,28 @@ def _pixel_noise(data: np.ndarray) -> float:
     high = data - ndimage.gaussian_filter(data, sigma=1.0)
     mad = float(np.median(np.abs(high - np.median(high))))
     return 1.4826 * mad / _HIGH_PASS_STD[data.ndim]
+
+
+# A peak near the end of the data counts as seen when the profile falls by at
+# least this fraction of its fitted amplitude between the peak and the end.
+TURN_OVER = 0.25
+
+
+def _turns_over(seg, c, amplitude, sign, near_lo, near_hi) -> bool:
+    """Whether the profile visibly turns over between the peak at ``c`` and the
+    end of the data it is near: falls (or, for a dark dip, rises) by at least
+    :data:`TURN_OVER` of the amplitude.
+
+    A profile that only rises to the end of a stack has its peak on the last
+    sample and no fall at all. The real FM target fitted bright in a channel
+    where it is dark sits 2 planes from the start with a fall of 2 against an
+    amplitude of 180. Neither turns over; a target 5 planes from the end that is
+    40 % down by the last plane does.
+    """
+    k = int(round(min(max(c, 0), seg.size - 1)))
+    end = 0 if near_lo else seg.size - 1
+    drop = sign * (seg[k] - seg[end])
+    return drop >= TURN_OVER * amplitude
 
 
 def _noise_floor(noise: float, offset: float) -> float:

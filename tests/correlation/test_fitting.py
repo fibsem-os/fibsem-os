@@ -307,3 +307,19 @@ def test_repeated_calls_give_identical_answers():
     first1 = fit_peak_1d(profile, 10, 8, Polarity.BRIGHT)
     for _ in range(20):
         assert fit_peak_1d(profile, 10, 8, Polarity.BRIGHT) == first1
+
+
+def test_a_peak_near_the_end_of_the_stack_counts_when_it_turns_over():
+    """A peak 5 planes from the end, 40% down by the last plane, is a fit; a
+    profile that only rises to the end, or turns over by a sliver, is not."""
+    t = np.arange(33, dtype=float)
+    turns = 300.0 + 1400.0 * np.exp(-((t - 27.0) ** 2) / (2 * 4.0**2))
+    r = fit_peak_1d(turns, 16, 33, Polarity.BRIGHT)
+    assert r.ok, r.reason
+    assert r.position[0] == pytest.approx(27.0, abs=0.5)
+
+    rising = 300.0 + 1400.0 * np.exp(-((t - 40.0) ** 2) / (2 * 6.0**2))
+    assert fit_peak_1d(rising, 16, 33, Polarity.BRIGHT).outcome is FitOutcome.AT_EDGE
+
+    r = fit_peak_1d(CH01, 8, 21, Polarity.BRIGHT)  # the real target, fitted bright
+    assert not r.ok

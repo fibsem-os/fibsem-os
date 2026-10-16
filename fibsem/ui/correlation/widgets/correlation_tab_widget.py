@@ -5226,10 +5226,11 @@ class CorrelationTabWidget(QWidget):
             cl._fm_fid_ch_combo if is_fid else cl._fm_poi_ch_combo
         ).currentIndex()
         if method == "Gaussian":
-            # No x, y control yet: the target's xy fit looks for a dark spot,
-            # so on a bright target it falls back to the click (FIB-1220).
             return FitInputs(
-                window=fit.fluorescence_cutout, window_label="Box ±", channel=channel
+                window=fit.fluorescence_cutout,
+                window_label="Box ±",
+                channel=channel,
+                fit_xy=False,
             )
         return FitInputs(
             window=fit.reflection_cutout,

@@ -8,7 +8,7 @@ from scipy import ndimage
 from scipy.optimize import curve_fit
 
 from fibsem.correlation.fit_diagnostics import FitDiagnostic
-from fibsem.correlation.fitting import Polarity, fit_spot_2d
+from fibsem.correlation.fitting import Polarity, fit_peak_1d, fit_spot_2d
 
 # migrated from tdct.beadPos and refactored
 
@@ -540,68 +540,81 @@ def target_fitting_fluorescence(
     cutout: int = 5,
     use_xy_fitting: bool = False,
 ) -> tuple:
-    """Refine selection of target in fluorescence image.
+    """Refine the FM target, on the bounded fit core (FIB-1218).
+
+    z: the mean of a box ``cutout`` px either side of the click through every
+    plane of the stack, fitted as a bright 1D peak (:func:`fit_peak_1d`) over
+    the whole stack. A peak at the stack's end counts only if the profile
+    visibly turns over before it; a profile that only rises to the end, or a
+    dip fitted as a peak, is not a fit. xy (``use_xy_fitting``): a bright 2D
+    spot (:func:`fit_spot_2d`) in the box on the fitted plane; the old xy fit
+    looked for a dark spot and fell back to the click on a bright target
+    (FIB-1220). When the xy fit finds nothing, x, y stay at the click and the
+    diagnostic says why.
+
     Args:
-        img: 3D numpy array (Z,Y,X), interpolated to isotropic pixel size
+        img: 3D numpy array (Z,Y,X): the raw stack of one channel
         x,y,z initial coordinates from the user click (x, y may be sub-pixel)
-        cutout: size of the cutout around the point in x,y. z uses 3x this value
-        use_xy_fitting: whether to use xy fitting or just return the input x, y
+        cutout: half-size of the box around the point in x,y
+        use_xy_fitting: whether to fit x, y too, or return the click's
     Returns:
         xr, yr, zr: refined x, y, z coordinates
         diagnostic: FitDiagnostic for the z + XY diagnostic figure
+    Raises:
+        FitOutsideWindow: no target peak in the stack.
     """
-    # round the (possibly sub-pixel) click for slicing; keep the fraction for
-    # the input marker so it lands exactly where the user clicked (FIB-282).
     xc, yc = int(round(x)), int(round(y))
-    # Clamped to the image: a plain slice with a negative start wraps to the
-    # far edge, so a click near the top or left edge gave an empty window and
-    # the fit raised on it (FIB-1220, as FIB-980 for the reflection fit). The
-    # offsets keep the fitted x, y absolute.
-    height, width = img.shape[1:]
+    nz, height, width = img.shape
+    # Clamped to the image: a slice with a negative start wraps (FIB-1220).
     y0, y1 = max(0, yc - cutout), min(height, yc + cutout)
     x0, x1 = max(0, xc - cutout), min(width, xc + cutout)
     if y1 <= y0 or x1 <= x0:
         raise ValueError(f"({x:.0f}, {y:.0f}) is outside the image")
-    roi = img[:, y0:y1, x0:x1]
-    intensity = np.mean(roi, axis=(1, 2))
-    popt_z, _ = fit_guass1d(intensity)
-    zi = popt_z[1]
+    profile = np.mean(np.asarray(img[:, y0:y1, x0:x1], dtype=float), axis=(1, 2))
 
-    slc_init = img[int(zi), y0:y1, x0:x1]
-    err = None
+    # The whole stack, as before; the start clamped into it (a click's z can
+    # be another stack's plane).
+    zstart = min(max(int(z), 0), nz - 1)
+    zfit = fit_peak_1d(profile, zstart, nz, Polarity.BRIGHT)
+    if not zfit.ok:
+        raise FitOutsideWindow(
+            f"z fit found no target in the stack: planes 0-{nz - 1} ({zfit.reason})"
+        )
+    (zi,) = zfit.position
+    plane = img[min(max(int(round(zi)), 0), nz - 1)]
+    slc = plane[y0:y1, x0:x1]
+
+    xi, yi, fitted_xy, xy_message = x, y, None, None
     if use_xy_fitting:
-        try:
-            popt_xy, _ = fit_gauss_2d_mod(slc_init, show=False)
-            xopt, yopt = popt_xy[1], popt_xy[2]
-        except Exception as e:
-            logging.warning(f"Error in initial XY fit: {e}")
-            xopt, yopt = xc - x0, yc - y0  # fallback to the click if fit fails
-            err = e
-
-        if not (0 <= xopt < x1 - x0 and 0 <= yopt < y1 - y0):
-            logging.warning(
-                f"XY fit out of bounds, returning original x, y. xopt: {xopt}, yopt: {yopt}, cutout: {cutout}"
+        xyfit = fit_spot_2d(plane, x, y, cutout, Polarity.BRIGHT, start="center")
+        if not xyfit.ok:
+            brightest = fit_spot_2d(
+                plane, x, y, cutout, Polarity.BRIGHT, start="extreme"
             )
-            xopt, yopt = xc - x0, yc - y0
-
-        xi = xopt + x0
-        yi = yopt + y0
-    else:
-        xi, yi = x, y
-        xopt, yopt = xc - x0, yc - y0  # fit result is the click for plotting
+            if brightest.ok:
+                xyfit = brightest
+        if xyfit.ok:
+            xi, yi = xyfit.position
+            fitted_xy = (xi - x0, yi - y0)
+        else:
+            # short: it is drawn across the XY panel
+            xy_message = f"XY: {xyfit.reason.split(':')[0]}"
+            logging.info(f"target xy fit: {xyfit.reason}; keeping the click")
 
     # --- confirmation-friendly diagnostic: z (left) + XY hero (right) ---
-    z_axis = np.arange(len(intensity))
+    z_axis = np.arange(nz)
+    (sz,) = zfit.sigma
+    z_fit = zfit.offset + zfit.amplitude * np.exp(-((z_axis - zi) ** 2) / (2 * sz**2))
     diagnostic = FitDiagnostic(
         title="Fluorescence target fit",
-        roi_xy=slc_init,
+        roi_xy=slc,
         input_xy=(x - x0, y - y0),
-        fitted_xy=(xopt, yopt) if (use_xy_fitting and err is None) else None,
+        fitted_xy=fitted_xy,
         xy_title=f"XY  @ z = {zi:.1f}",
-        xy_message="XY fit failed" if err is not None else None,
+        xy_message=xy_message,
         z_axis=z_axis,
-        z_signal=intensity,
-        z_fit=gauss1d(z_axis, *popt_z) + intensity.min(),
+        z_signal=profile,
+        z_fit=z_fit,
         z_input=z,
         z_fitted=zi,
     )

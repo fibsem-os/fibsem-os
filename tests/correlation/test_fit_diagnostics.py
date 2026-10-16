@@ -382,3 +382,45 @@ def test_plot_fit_diagnostic_dark_vs_light_facecolor():
     assert (
         to_hex(plot_fit_diagnostic(_with_z(), dark=False).get_facecolor()) == "#ffffff"
     )
+
+
+# --- the target fit on the bounded core (FIB-1218 step 5) --------------------
+
+
+def _bright_target(cx, cy, cz=10, nz=21, size=40):
+    yy, xx = np.indices((size, size), dtype=float)
+    vol = np.full((nz, size, size), 100.0, dtype=np.float32)
+    for zi in range(nz):
+        vol[zi] += (
+            200.0
+            * np.exp(-((zi - cz) ** 2) / (2 * 2.0**2))
+            * np.exp(-((xx - cx) ** 2 + (yy - cy) ** 2) / (2 * 2.5**2))
+        )
+    return vol + np.random.default_rng(3).normal(0, 2, vol.shape).astype(np.float32)
+
+
+def test_target_xy_fit_finds_a_bright_target_beside_the_click():
+    """The old xy fit looked for a dark spot, so on a bright target it fell
+    back to the click (FIB-1220). It now finds the target."""
+    vol = _bright_target(23.0, 18.0)
+    xr, yr, zr, d = target_fitting_fluorescence(vol, 20, 20, 10, use_xy_fitting=True)
+    assert (xr, yr, zr) == pytest.approx((23.0, 18.0, 10.0), abs=0.5)
+    assert d.fitted_xy is not None and d.xy_message is None
+    xr, yr, _, d = target_fitting_fluorescence(vol, 20, 20, 10)  # z only
+    assert (xr, yr) == (20, 20) and d.fitted_xy is None
+
+
+def test_target_fit_starts_inside_the_stack_whatever_the_click_z():
+    """A saved z in another stack's planes (41.9 on a 21-plane stack) made the
+    window collapse; the start is clamped into the stack."""
+    vol = _bright_target(20.0, 20.0, cz=8)
+    _, _, zr, _ = target_fitting_fluorescence(vol, 20, 20, 41)
+    assert zr == pytest.approx(8.0, abs=0.5)
+
+
+def test_target_fit_on_a_profile_that_only_rises_is_not_a_fit():
+    vol = np.tile(
+        np.linspace(100, 400, 21, dtype=np.float32)[:, None, None], (1, 40, 40)
+    )
+    with pytest.raises(FitOutsideWindow, match="no target in the stack"):
+        target_fitting_fluorescence(vol, 20, 20, 10)
