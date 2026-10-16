@@ -470,6 +470,9 @@ _SAMPLE_ARGUMENTS = {
         "parameters": {"rows": 1, "cols": 2},
         "path": "experiment",
     },
+    "grid_load": {"grid_name": "G2"},
+    "grid_move_to": {"grid_name": "G2"},
+    "grid_move_to_slot": {"slot_name": "Shuttle"},
     "device_call_command": {"device": "stage", "command": "home"},
     "service_call_command": {"service": "milling", "command": "run"},
 }

@@ -80,6 +80,7 @@ and stop.
 | One lamella | `item_get`, `item_list_outputs`, `item_get_output_image` |
 | The plan | `protocol_get`, `item_get_task_config`, `protocol_get_task_config` |
 | Grids | `grid_list`, `grid_get`, `grid_get_markers` |
+| Grids on the hardware now | `grid_get_inventory` (magazine or holder: which grid is loaded), `grid_get_current` |
 
 `app_get_status` also gives the experiment's folder (`experiment.path`). On the
 microscope PC you can read the record from there with the offline reader

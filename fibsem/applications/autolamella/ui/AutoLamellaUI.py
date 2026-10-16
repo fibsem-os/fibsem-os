@@ -208,6 +208,8 @@ class AutoLamellaUI(QMainWindow):
     # The agent's suggested answer to the question up (a dict, see
     # show_suggestion), or None when it goes.
     suggestion_changed = pyqtSignal(object)
+    # The agent added or renamed grid records (App Server); the grid views redraw.
+    grids_changed = pyqtSignal()
 
     def __init__(
         self,

@@ -1342,6 +1342,92 @@ class AutoLamellaAppContext:
         self._agent_call(lambda: remove_lamella(experiment, lamella))
         return {"applied": True, "item_name": item_name}
 
+    # -- grid records: the Grids tab's inventory read and Rename ----------------
+
+    def _grids_changed(self) -> None:
+        """Tell the app's grid views an agent changed the records."""
+        signal = getattr(self._host, "grids_changed", None)
+        if signal is not None:
+            signal.emit()
+
+    def add_grids(self) -> Dict[str, Any]:
+        """Record every grid in the inventory that the experiment has no record
+        of, as the Grids tab's inventory read does: the loader's last scan,
+        read at once; nothing moves. Saved when anything was added."""
+        experiment, microscope, refusal = self._editable()
+        if refusal:
+            return refusal
+        stage = getattr(microscope, "sample_handling", None)
+        if stage is None:
+            return {"error_type": "not_found", "error": "No sample handling here."}
+        stage.get_inventory()
+
+        def add():
+            added = experiment.sync_grids_from_inventory(stage)
+            if added:
+                experiment.save()
+                self._grids_changed()
+            return [grid.name for grid in added]
+
+        added = self._agent_call(add)
+        return {
+            "applied": True,
+            "added": added,
+            "grid_names": [grid.name for grid in experiment.grids],
+        }
+
+    def rename_grid(self, grid_name: str, name: str) -> Dict[str, Any]:
+        """Rename a grid as the Grids tab's Rename does: the slot that holds it
+        first, then its record. Refused for a grid that has run, a name another
+        grid has, and while a workflow runs (its queue holds grids by name)."""
+        from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+            grid_rename_refusal,
+            rename_grid,
+        )
+
+        name = name.strip()
+        if not name:
+            return {"error_type": "invalid", "error": "A grid needs a name."}
+        experiment, microscope, refusal = self._editable()
+        if refusal:
+            return refusal
+        refusal = self._not_while_running("rename grids")
+        if refusal:
+            return refusal
+        stage = getattr(microscope, "sample_handling", None)
+        present = (
+            [e.name for e in stage.grid_inventory() if e.present and e.name]
+            if stage is not None
+            else []
+        )
+        known = sorted({grid.name for grid in experiment.grids} | set(present))
+        if grid_name not in known:
+            return {
+                "error_type": "not_found",
+                "error": f"No grid named {grid_name!r}.",
+                "grid_names": known,
+            }
+        why = grid_rename_refusal(experiment, grid_name, name)
+        if why:
+            return {"error_type": "invalid", "error": why}
+
+        def rename() -> Optional[str]:
+            try:
+                rename_grid(experiment, stage, grid_name, name)
+            except Exception as exc:  # noqa: BLE001 - the hardware's refusal, said
+                return str(exc)
+            experiment.save()
+            self._grids_changed()
+            return None
+
+        failed = self._agent_call(rename)
+        if failed:
+            return {
+                "error_type": "not_renamed",
+                "error": f"Could not rename {grid_name}: {failed}",
+            }
+        return {"applied": True, "grid_name": name, "was": grid_name}
+
     def move_to_item_pose(self, item_name: str, pose_name: str) -> Dict[str, Any]:
         """Move the stage to one of a lamella's poses, as the tab's Move to does,
         through the safe absolute move (flat before a large rotation). Runs on

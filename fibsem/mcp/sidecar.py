@@ -632,6 +632,30 @@ def build_sidecar(client, capabilities):
             zparams=zparams,
         )
 
+    def grid_get_inventory():
+        return _routed("grid_get_inventory", "inventory")
+
+    def grid_get_current():
+        return _routed("grid_get_current", "current")
+
+    def grid_get_holder_slots():
+        return _routed("grid_get_holder_slots", "slots")
+
+    def grid_run_inventory():
+        return _routed("grid_run_inventory", "run")
+
+    def grid_load(grid_name: str):
+        return _routed("grid_load", "run", grid_name=grid_name)
+
+    def grid_unload():
+        return _routed("grid_unload", "run")
+
+    def grid_move_to(grid_name: str):
+        return _routed("grid_move_to", "position", grid_name=grid_name)
+
+    def grid_move_to_slot(slot_name: str):
+        return _routed("grid_move_to_slot", "position", slot_name=slot_name)
+
     def milling_run_stage(stage: dict, path: Optional[str] = None):
         return _routed("milling_run_stage", "run", stage=stage, path=path)
 
@@ -905,6 +929,14 @@ def build_sidecar(client, capabilities):
             {"name": name, "protocol": protocol, "description": description},
         )
 
+    def grid_add():
+        return _app_post("/app/experiment/grids")
+
+    def grid_rename(grid_name: str, name: str):
+        return _app_post(
+            f"/app/experiment/grids/{quote(grid_name, safe='')}/rename", {"name": name}
+        )
+
     def experiment_load(path: str):
         return _app_post("/app/experiment/load", {"path": path})
 
@@ -1089,6 +1121,16 @@ def build_sidecar(client, capabilities):
             grid_get_output_image,
             grid_get_markers,
             grid_get_stage_position,
+            grid_add,
+            grid_rename,
+            grid_get_inventory,
+            grid_get_current,
+            grid_get_holder_slots,
+            grid_run_inventory,
+            grid_load,
+            grid_unload,
+            grid_move_to,
+            grid_move_to_slot,
             protocol_get_task_config,
             item_get_task_config,
             item_update_task_config,

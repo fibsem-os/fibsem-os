@@ -946,7 +946,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="grid_list",
-        description="Every grid the experiment records: quality verdict, task status, completed tasks, linked item count, and the basename of its latest SEM/FIB/FM overview by role. Records only — not the live slot inventory.",
+        description="Every grid the experiment records: quality verdict, task status, completed tasks, linked item count, and the basename of its latest SEM/FIB/FM overview by role. Records only — not the live slot inventory (grid_get_inventory).",
         method="GET",
         path="/app/experiment/grids",
         level="watch",
@@ -1001,6 +1001,145 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "grid_name": "the grid name",
             "filename": "an overview basename from grid_list / grid_get",
         },
+    ),
+    ToolSpec(
+        name="grid_add",
+        description=(
+            "Record every grid in the inventory that the experiment has no record "
+            "of, as the Grids tab's inventory read does: the loader's last scan "
+            "(grid_run_inventory scans again); nothing moves. Answers the names "
+            "added and every grid the experiment now records."
+        ),
+        method="POST",
+        path="/app/experiment/grids",
+        level="drive",
+        router="app",
+    ),
+    ToolSpec(
+        name="grid_rename",
+        description=(
+            "Rename a grid as the Grids tab's Rename does: the slot that holds it "
+            "first (the loader's slot description, or the holder's record), then "
+            "the experiment's record, with its history and lamellae. Refused for "
+            "a grid that has run (its folder and images carry the name), a name "
+            "another grid has, and while a workflow runs."
+        ),
+        method="POST",
+        path="/app/experiment/grids/{grid_name}/rename",
+        level="drive",
+        router="app",
+        params={
+            "grid_name": "the grid's name now, from grid_list or grid_get_inventory",
+            "name": "its new name",
+        },
+    ),
+    # The grids on the hardware: the sample handling service, which loads them
+    # onto the stage and names them where the loader keeps names.
+    ToolSpec(
+        name="grid_get_inventory",
+        description=(
+            "The grids on the hardware now: every slot of the autoloader's "
+            "magazine (or of the holder, without one), the grid in it by name and "
+            "its state: loaded (on the stage, ready to use), occupied (in the "
+            "magazine), empty, or unknown (not scanned since the magazine was "
+            "docked). The loader's last scan, read at once; grid_run_inventory "
+            "scans again. Not the experiment's records (grid_list)."
+        ),
+        method="POST",
+        path="/microscope/services/sample_handling/queries/get_inventory",
+        level="watch",
+    ),
+    ToolSpec(
+        name="grid_get_current",
+        description=(
+            "Where the stage is among the holder's slots: the slot it is at and "
+            "the grid loaded there, each null when it is at none. Moves nothing."
+        ),
+        method="POST",
+        path="/microscope/services/sample_handling/queries/current",
+        level="watch",
+    ),
+    ToolSpec(
+        name="grid_get_holder_slots",
+        description=(
+            "The holder's slots in order: each one's stage position (null until "
+            "it is calibrated), its calibration and the grid loaded in it. "
+            "grid_move_to_slot goes to one."
+        ),
+        method="POST",
+        path="/microscope/services/sample_handling/queries/holder_slots",
+        level="watch",
+    ),
+    ToolSpec(
+        name="grid_run_inventory",
+        description=(
+            "Scan the magazine slot by slot and answer the inventory, as "
+            "grid_get_inventory gives it. With an autoloader it takes minutes "
+            "and needs the magazine shut; on a fixed holder it is the same "
+            "instant read. A long command: it answers with its run at once; "
+            "service_wait_for_run sample_handling gives the inventory."
+        ),
+        method="POST",
+        path="/microscope/services/sample_handling/commands/run_inventory",
+        level="drive",
+        hardware=True,
+    ),
+    ToolSpec(
+        name="grid_load",
+        description=(
+            "Bring a grid onto the stage, by its name in grid_get_inventory. With "
+            "an autoloader it is an exchange: the grid on the stage goes back to "
+            "the magazine first, then this one is loaded, minutes in all. Already "
+            "loaded, or on a fixed holder (every grid already sits in a slot), "
+            "nothing moves. It does not move the stage: grid_move_to follows it. "
+            "A grid not in the inventory is refused (409). A long command: it "
+            "answers with its run at once; service_wait_for_run sample_handling "
+            "gives the slot it is in."
+        ),
+        method="POST",
+        path="/microscope/services/sample_handling/commands/ensure_loaded",
+        level="drive",
+        hardware=True,
+        params={"grid_name": "the grid's name, from grid_get_inventory"},
+    ),
+    ToolSpec(
+        name="grid_unload",
+        description=(
+            "Return the grid on the stage to the magazine. Nothing to do on a "
+            "fixed holder. A long command: it answers with its run at once; "
+            "service_wait_for_run sample_handling says how it ended."
+        ),
+        method="POST",
+        path="/microscope/services/sample_handling/commands/unload",
+        level="drive",
+        hardware=True,
+    ),
+    ToolSpec(
+        name="grid_move_to",
+        description=(
+            "Move the stage to the holder slot that holds a grid, by name: the "
+            "slot's calibrated position, rotation and tilt included. The grid "
+            "must be on the stage (grid_load first, with an autoloader); a slot "
+            "not calibrated is refused."
+        ),
+        method="POST",
+        path="/microscope/services/sample_handling/commands/move_to_grid",
+        level="drive",
+        hardware=True,
+        params={"grid_name": "the grid's name"},
+    ),
+    ToolSpec(
+        name="grid_move_to_slot",
+        description=(
+            "Move the stage to a holder slot, by name from grid_get_holder_slots: "
+            "its calibrated position, rotation and tilt included. A slot not "
+            "calibrated is refused."
+        ),
+        method="POST",
+        path="/microscope/services/sample_handling/commands/move_to_slot",
+        level="drive",
+        hardware=True,
+        params={"slot_name": "the holder slot's name"},
     ),
     ToolSpec(
         name="protocol_get_task_config",
@@ -1650,6 +1789,14 @@ _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict
         {},
         _kwargs(image_path=str(a["image_path"]), stages=a.get("stages")),
     ),
+    "grid_get_inventory": lambda a: ({}, _kwargs()),
+    "grid_get_current": lambda a: ({}, _kwargs()),
+    "grid_get_holder_slots": lambda a: ({}, _kwargs()),
+    "grid_run_inventory": lambda a: ({}, _kwargs()),
+    "grid_load": lambda a: ({}, _kwargs(grid_name=str(a["grid_name"]))),
+    "grid_unload": lambda a: ({}, _kwargs()),
+    "grid_move_to": lambda a: ({}, _kwargs(grid_name=str(a["grid_name"]))),
+    "grid_move_to_slot": lambda a: ({}, _kwargs(slot_name=str(a["slot_name"]))),
     "stage_get_orientation": lambda a: ({}, _kwargs()),
     "stage_get_milling_angle": lambda a: ({}, _kwargs()),
     "stage_get_geometry": lambda a: ({}, _kwargs()),

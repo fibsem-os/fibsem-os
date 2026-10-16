@@ -14,14 +14,14 @@ from collections import Counter
 from typing import TYPE_CHECKING, Dict, List, Mapping, Optional, Tuple
 
 from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
-    NAME_FIXED_REASON,
     GridTaskManager,
-    grid_has_run,
+    grid_rename_refusal,
+    name_slot_grid,
     plan_grid_run,
     run_grid_tasks,
 )
 from fibsem.hooks import HookManager
-from fibsem.structures import GridInventoryEntry, SampleGrid
+from fibsem.structures import GridInventoryEntry
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment
@@ -84,12 +84,9 @@ def naming_problems(
         new = final.get(entry.slot_name)
         if new is None or new == entry.name:
             continue
-        record = experiment.get_grid_by_name(entry.name)
-        if record is not None and grid_has_run(record):
-            problems.append(f"{entry.name} cannot be renamed. {NAME_FIXED_REASON}")
-        other = experiment.get_grid_by_name(new)
-        if other is not None and other is not record:
-            problems.append(f"There is already a grid named {new}.")
+        why = grid_rename_refusal(experiment, entry.name, new)
+        if why:
+            problems.append(why)
     return problems
 
 
@@ -120,20 +117,9 @@ def name_and_record_grids(
         new = final.get(entry.slot_name)
         if new is None or new == entry.name:
             continue
-        slot = (
-            stage.magazine.slots[entry.slot_name]
-            if stage.magazine is not None
-            else stage.holder.slots[entry.slot_name]
-        )
-        current = slot.loaded_grid
-        grid = SampleGrid(
-            name=new, description=current.description, radius=current.radius
-        )
         try:
-            stage.assign_grid(entry.slot_name, grid, persist=True)
+            name_slot_grid(stage, entry.slot_name, new)
         except Exception as e:  # noqa: BLE001 - whatever the hardware raised, said
-            # The next read would bring the old name back, so keep it now.
-            slot.loaded_grid = current
             raise GridNamingError(
                 f"Could not name the grid in {entry.slot_name} {new}: {e}"
             ) from e

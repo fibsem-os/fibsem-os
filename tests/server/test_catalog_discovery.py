@@ -96,6 +96,10 @@ NAMED_OTHERWISE = {
     # milling_angle is the service's stored-angle parameter.
     "stage_get_milling_angle": "current_milling_angle",
     "stage_get_orientation": "stage_orientation",
+    # The sample handling service's names are what the grid workflows and
+    # scripts call; the tools say what they do in the grid group's words.
+    "grid_load": "ensure_loaded",
+    "grid_move_to": "move_to_grid",
 }
 
 
