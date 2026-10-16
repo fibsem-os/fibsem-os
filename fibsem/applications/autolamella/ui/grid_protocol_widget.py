@@ -36,10 +36,10 @@ from PyQt5.QtWidgets import (
 
 from fibsem.applications.autolamella.structures import Experiment, GridTaskProtocol
 from fibsem.applications.autolamella.workflows.tasks.grid import (
-    GRID_TASK_REGISTRY,
     BeamOverviewGridTaskConfig,
     FluorescenceOverviewGridTaskConfig,
     GridTaskConfig,
+    get_grid_tasks,
 )
 from fibsem.applications.autolamella.workflows.tasks.grid.reach import (
     describe_reach,
@@ -74,7 +74,7 @@ def _config_classes() -> Dict[str, Type[GridTaskConfig]]:
     here without a change."""
     return {
         task_type: task_cls.config_cls
-        for task_type, task_cls in GRID_TASK_REGISTRY.items()
+        for task_type, task_cls in get_grid_tasks().items()
     }
 
 

@@ -19,9 +19,6 @@ from fibsem.applications.autolamella.workflows.tasks.grid.base import (
     GridTask,
     GridTaskConfig,
 )
-from fibsem.applications.autolamella.workflows.tasks.grid.registry import (
-    register_grid_task,
-)
 from fibsem.autofunctions.autofocus import AutoFocusSettings
 from fibsem.fm.acquisition import OverviewDestination, acquire_fm_tiled_overview
 from fibsem.fm.preview import composite_projection
@@ -76,7 +73,6 @@ class FluorescenceOverviewGridTaskConfig(GridTaskConfig):
         return total
 
 
-@register_grid_task
 class FluorescenceOverviewGridTask(GridTask):
     """Move to the FM, put the objective in, acquire, record, and put things back.
 

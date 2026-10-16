@@ -22,9 +22,9 @@ from fibsem.applications.autolamella.structures import (
     GridTaskProtocol,
 )
 from fibsem.applications.autolamella.workflows.tasks.grid import (
-    GRID_TASK_REGISTRY,
     GridTask,
     GridTaskConfig,
+    get_grid_tasks,
     load_grid_task_configs,
     register_grid_task,
     run_grid_task,
@@ -321,7 +321,7 @@ class TestLifecycle:
         assert task.slot.name == "Slot-01"
 
     def test_registry_knows_the_task(self):
-        assert GRID_TASK_REGISTRY["ECHO_GRID"] is EchoTask
+        assert get_grid_tasks()["ECHO_GRID"] is EchoTask
 
 
 # ---------------------------------------------------------------------------
