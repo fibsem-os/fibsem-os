@@ -359,6 +359,7 @@ def build_sidecar(client, capabilities):
     None (no server answered at start-up) registers every tool.
     """
     from mcp.server.mcpserver import Image, MCPServer
+    from mcp.types import ToolAnnotations
 
     mcp = MCPServer("fibsem")
     _name_the_client(mcp, client)
@@ -852,10 +853,10 @@ def build_sidecar(client, capabilities):
             f"/app/experiment/items/{quote(item_name, safe='')}/move_to", {"pose": pose}
         )
 
-    def item_set_pose(item_name: str, pose_name: str):
+    def item_set_pose(item_name: str, pose: str):
         return _app_post(
             f"/app/experiment/items/{quote(item_name, safe='')}"
-            f"/poses/{quote(pose_name, safe='')}"
+            f"/poses/{quote(pose, safe='')}"
         )
 
     def item_set_objective_position(item_name: str):
@@ -1157,10 +1158,19 @@ def build_sidecar(client, capabilities):
 
     for name, fn in implementations.items():
         if name in offered:
+            spec = by_name[name]
             mcp.add_tool(
                 _flag_failures(fn),
                 name=name,
-                description=by_name[name].full_description,
+                title=spec.title,
+                description=spec.full_description,
+                annotations=ToolAnnotations(
+                    title=spec.title,
+                    read_only_hint=spec.read_only,
+                    destructive_hint=spec.destructive,
+                    idempotent_hint=spec.idempotent,
+                    open_world_hint=False,
+                ),
             )
     return mcp
 
