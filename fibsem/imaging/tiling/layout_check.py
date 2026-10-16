@@ -63,9 +63,6 @@ _MATCH_SIZE = 768
 # this (in grey levels) a pair is skipped rather than scored.
 _MIN_STD = 2.0
 
-# Written into the run's tile folder, beside the tiles it describes.
-LAYOUT_FILE = "tile-layout.json"
-
 
 def measure_pair_offset(
     a: np.ndarray,
