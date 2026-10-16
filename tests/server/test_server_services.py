@@ -581,3 +581,39 @@ def test_a_sweep_that_cannot_set_the_working_distance_asks_the_instrument(
     assert "ION beam's working distance can't be set" in result["reason"]
     beam = microscope.beams[BeamType.ION]
     assert result["working_distance"] == pytest.approx(beam.working_distance.cached)
+
+
+def test_milling_answers_the_current_and_warns_on_one_the_beam_does_not_list(
+    armed_client, microscope
+):
+    from fibsem.structures import FibsemMillingSettings, FibsemRectangleSettings
+
+    listed = sorted(microscope.beams[BeamType.ION].current.choices)
+    between = (listed[0] + listed[1]) / 2
+    rectangle = FibsemRectangleSettings(
+        width=1e-6, height=2e-6, depth=1e-6, centre_x=0.0, centre_y=0.0
+    )
+    try:
+        for current, warned in ((listed[1], False), (between, True)):
+            settings = FibsemMillingSettings(milling_current=current)
+            resp = armed_client.post(
+                "/microscope/services/milling/commands/prepare",
+                json={
+                    "kwargs": {
+                        "settings": settings.to_dict(),
+                        "patterns": [{**rectangle.to_dict(), "type": "Rectangle"}],
+                    }
+                },
+            )
+            assert resp.status_code == 200, resp.text
+            prepared = resp.json()["result"]
+            assert prepared["milling_current"] == pytest.approx(current)
+            assert (prepared["warning"] is not None) is warned
+            _, resp = _tool(armed_client, "milling_estimate_time", {})
+            estimate = resp.json()["result"]
+            assert estimate["seconds"] > 0
+            assert estimate["milling_current"] == pytest.approx(current)
+            assert estimate["warning"] == prepared["warning"]
+    finally:
+        microscope.milling.clear()
+        microscope.milling.restore()

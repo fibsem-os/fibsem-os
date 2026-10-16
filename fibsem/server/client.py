@@ -636,7 +636,7 @@ class FibsemClient:
         return MillingState(self.get_service_parameter(MILLING, "state"))
 
     def estimate_milling_time(self) -> float:
-        return self.call_service_query(MILLING, "estimate_time")
+        return self.call_service_query(MILLING, "estimate_time")["seconds"]
 
 
 def _point(value: Optional[Dict[str, Any]]) -> Optional[Point]:

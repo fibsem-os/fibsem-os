@@ -468,7 +468,11 @@ def build_sidecar(client, capabilities):
         }
 
     def milling_estimate_time():
-        return _service_call("milling_estimate_time", {}, "seconds")
+        # Answers seconds, milling_current and warning itself.
+        data, err = _call(
+            client, "POST", by_name["milling_estimate_time"].path, {"kwargs": {}}
+        )
+        return err if err else data["result"]
 
     def milling_preview_patterns(image_path: str, stages: Optional[list] = None):
         return _routed("milling_preview_patterns", image_path=image_path, stages=stages)

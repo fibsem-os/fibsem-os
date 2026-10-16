@@ -215,7 +215,12 @@ CATALOG: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="milling_estimate_time",
-        description="Estimated time in seconds for the currently drawn patterns.",
+        description=(
+            "How long the drawn patterns take to mill, in seconds, and the ion "
+            "current they mill at (milling_current, amps). warning is set when the "
+            "recipe asked for a current the beam does not list; it names the "
+            "nearest listed currents."
+        ),
         method="POST",
         path="/microscope/services/milling/queries/estimate_time",
         level="watch",

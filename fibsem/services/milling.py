@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import math
 import os
 import threading
 import time
@@ -200,6 +201,8 @@ class Milling(Service):
         self._running = False
         # The name the last setup was given, for a run outside a task to go by.
         self._name: Optional[str] = None
+        # The recipe the last setup applied, for the answers to say what it mills at.
+        self._set_up: Optional[FibsemMillingSettings] = None
         # Inside ``part_of``: a run there is part of something with its own record.
         self._part_of = threading.local()
 
@@ -350,6 +353,7 @@ class Milling(Service):
         if self._saved is None:
             self._save(self.beam(settings.milling_channel))
         self._name = name
+        self._set_up = settings
         self._setup(settings, name)
         if self._drawn:
             self._set_drawn([])
@@ -392,10 +396,38 @@ class Milling(Service):
         settings: FibsemMillingSettings,
         patterns: Sequence[FibsemPatternSettings],
         name: Optional[str] = None,
-    ) -> None:
-        """``setup`` with ``settings``, then ``draw`` ``patterns``."""
+    ) -> Dict[str, Any]:
+        """``setup`` with ``settings``, then ``draw`` ``patterns``. Answers the
+        current the milling beam reads after the setup, in amps, and a warning when
+        the recipe asked for a current the beam doesn't list (`milling_current`)."""
         self.setup(settings, name)
         self.draw(patterns)
+        return self._milling_current(live=True)
+
+    def _milling_current(self, live: bool = False) -> Dict[str, Any]:
+        """The current what is drawn mills at: ``milling_current``, the milling
+        beam's current in amps (read now when *live*, else the last one read or
+        written; None before there is one), and ``warning``, set when the last
+        setup asked for a current that is not one of those the beam lists. A beam
+        that lists no currents, or a driver that sets the current another way
+        (Tescan's preset), has no warning."""
+        settings = self._set_up
+        beam = self.beam(settings.milling_channel if settings else BeamType.ION)
+        if beam is None or "current" not in beam.parameters:
+            return {"milling_current": None, "warning": None}
+        parameter = beam.parameters["current"]
+        used = parameter.last_known
+        if live:
+            try:
+                used = parameter.get_value()
+            except Exception as error:  # the answer says what it can
+                logging.debug(f"milling current: could not read it: {error!r}")
+        asked = (
+            settings.milling_current
+            if settings is not None and "milling_current" in self.setting_names
+            else None
+        )
+        return {"milling_current": used, "warning": _unlisted(asked, used, parameter)}
 
     @command
     def start(self) -> None:
@@ -709,10 +741,11 @@ class Milling(Service):
             logging.warning(f"Error stopping milling after a failure: {e}")
 
     @query
-    def estimate_time(self) -> float:
-        """How long milling what is drawn takes, in seconds. Moves nothing, so a
-        query."""
-        return self._estimate()
+    def estimate_time(self) -> Dict[str, Any]:
+        """How long milling what is drawn takes: ``seconds``, with the current it
+        mills at and any warning about it (`_milling_current`, from what the
+        setup wrote, not read again). Moves nothing, so a query."""
+        return {"seconds": self._estimate(), **self._milling_current()}
 
     @classmethod
     def estimate_stage(cls, stage: FibsemMillingStage) -> float:
@@ -843,6 +876,33 @@ class _Drawn:
 
 def _settable(beam: Optional[Beam], name: str) -> bool:
     return beam is not None and name in beam.parameters and getattr(beam, name).settable
+
+
+def _unlisted(asked: Any, used: Any, current: Any) -> Optional[str]:
+    """The warning for a recipe's milling current, *asked*, that the beam's
+    *current* parameter does not list among its choices, naming the listed
+    currents either side of it; None when it is listed, or nothing is listed."""
+    from fibsem.utils import format_current
+
+    if not isinstance(asked, (int, float)) or isinstance(asked, bool):
+        return None
+    listed = sorted(
+        c
+        for c in (current.choices or ())
+        if isinstance(c, (int, float)) and not isinstance(c, bool)
+    )
+    if not listed or any(math.isclose(asked, c, rel_tol=1e-3) for c in listed):
+        return None
+    below = [c for c in listed if c < asked][-1:]
+    above = [c for c in listed if c > asked][:1]
+    nearest = " and ".join(format_current(c) for c in below + above)
+    warning = (
+        f"{format_current(asked)} is not a current the milling beam lists; "
+        f"the nearest it lists: {nearest}."
+    )
+    if isinstance(used, (int, float)) and not math.isclose(used, asked, rel_tol=1e-3):
+        warning += f" The beam is at {format_current(used)}."
+    return warning
 
 
 def bind_milling(service: Type[_M], microscope: Any, **kwargs: Any) -> Optional[_M]:
