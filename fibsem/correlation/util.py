@@ -8,6 +8,7 @@ from scipy import ndimage
 from scipy.optimize import curve_fit
 
 from fibsem.correlation.fit_diagnostics import FitDiagnostic
+from fibsem.correlation.fitting import Polarity, fit_spot_2d
 
 # migrated from tdct.beadPos and refactored
 
@@ -478,41 +479,24 @@ def interpolate_fm_volume(
     )
 
 
-# A spot burn in the FIB image is a dark spot a few pixels across. A fitted
-# Gaussian outside these widths, or bright, is a fit to something else: the
-# trench, the bright halo, a gradient (FIB-1216).
-_BURN_SIGMA_PX = (0.5, 12.0)
-
-
-def _burn_shaped(popt: np.ndarray, shape: Tuple[int, int]) -> bool:
-    """Whether a dark-Gaussian fit landed on something burn-like in its window."""
-    amplitude, xo, yo, sx, sy = popt[:5]
-    lo, hi = _BURN_SIGMA_PX
-    return bool(
-        np.all(np.isfinite(popt[:5]))
-        and amplitude < 0
-        and 0 <= xo < shape[1]
-        and 0 <= yo < shape[0]
-        and lo <= abs(sx) <= hi
-        and lo <= abs(sy) <= hi
-    )
-
-
 def hole_fitting_FIB(
     img: np.ndarray,
     x: float,
     y: float,
     cutout: int = 15,
 ):
-    """Refine selection of hole in FIB image.
+    """Refine selection of hole in FIB image, on the bounded fit core (FIB-1218).
 
-    The fit starts at the click, as it always has, and that answer stands when
-    it is burn-shaped (:func:`_burn_shaped`). From a click more than ~4 px off
-    the burn it is not -- the Gaussian starts 1 px wide at the click and has
-    nothing to pull on -- so the fit starts again at the window's darkest point
-    after smoothing, which finds a burn up to the window's edge. When neither
-    finds a burn the fit fails (:class:`FitOutsideWindow`) rather than handing
-    back the click as an unchanged fit (FIB-1216).
+    A dark 2D Gaussian (:func:`fibsem.correlation.fitting.fit_spot_2d`) in a
+    window ``cutout`` px either side of the click, clamped to the image. The
+    fit starts at the click, and when that finds no burn, again at the
+    window's darkest point after smoothing, which finds a burn up to the
+    window's edge (FIB-1216's order: starting at the darkest point every time
+    moved real picks onto the wrong feature). A fit at the window's edge is
+    re-centred once; one that still sits there, or sits at the image's edge,
+    is not a burn. When neither start finds a burn the fit fails
+    (:class:`FitOutsideWindow`, with the core's reason) rather than handing
+    back the click as an unchanged fit.
 
     Args:
         img: 2D numpy array (Y,X)
@@ -524,52 +508,25 @@ def hole_fitting_FIB(
     Raises:
         FitOutsideWindow: no burn-shaped dark spot in the region searched.
     """
-    # The click may be sub-pixel; round for integer slicing but keep the
-    # fraction so the input marker is drawn exactly where the user clicked
-    # (otherwise a no-change fit shows the markers up to ~1px apart).
-    xi, yi = int(round(x)), int(round(y))
-    # Cut out a box around the point, clamped to the image. A plain slice with
-    # a negative start wraps to the far end of the array: a click within the
-    # cutout of the top or left edge gave an empty window or one from the wrong
-    # side of the image. The offsets are kept so the fit comes back absolute.
-    height, width = img.shape
-    y0, y1 = max(0, yi - cutout), min(height, yi + cutout)
-    x0, x1 = max(0, xi - cutout), min(width, xi + cutout)
-    roi = img[y0:y1, x0:x1]
-
-    def _fit(center):
-        try:
-            popt, _ = fit_gauss_2d_mod(roi, show=False, center=center)
-        except Exception as e:  # maxfev, an empty or flat window
-            logging.debug(f"FIB hole fit from {center}: {e}")
-            return None
-        return popt if _burn_shaped(popt, roi.shape) else None
-
-    # the click, in the clamped window's frame (the window's middle when the
-    # window is not clipped)
-    popt = _fit(center=(xi - x0, yi - y0))
-    if popt is None and roi.size:
-        smooth = ndimage.gaussian_filter(np.asarray(roi, dtype=float), sigma=2)
-        dark_y, dark_x = np.unravel_index(np.argmin(smooth), smooth.shape)
-        popt = _fit(center=(float(dark_x), float(dark_y)))
-    if popt is None:
+    result = fit_spot_2d(img, x, y, cutout, Polarity.DARK, start="center")
+    if not result.ok:
+        darkest = fit_spot_2d(img, x, y, cutout, Polarity.DARK, start="extreme")
+        if darkest.ok:
+            result = darkest
+    (x0, x1), (y0, y1) = result.window
+    if not result.ok:
         raise FitOutsideWindow(
-            f"no burn-shaped dark spot in the region searched: x {x0}-{x1 - 1}, "
-            f"y {y0}-{y1 - 1}"
+            f"no burn-shaped dark spot in the region searched: x {x0}-{x1}, "
+            f"y {y0}-{y1} ({result.reason})"
         )
-    xopt, yopt = popt[1], popt[2]
+    xr, yr = result.position
 
-    # back to the coordinates of the original image; _burn_shaped kept the fit
-    # inside the window, so it is inside the image
-    xr = xopt + x0
-    yr = yopt + y0
-
-    # --- Diagnostic (XY only — no z for the FIB image) ---
+    # --- Diagnostic (XY only — no z for the FIB image), in the final window ---
     diagnostic = FitDiagnostic(
         title="FIB hole fit",
-        roi_xy=roi,
+        roi_xy=np.asarray(img)[y0 : y1 + 1, x0 : x1 + 1],
         input_xy=(x - x0, y - y0),  # the sub-pixel click, in the window's frame
-        fitted_xy=(xopt, yopt),
+        fitted_xy=(xr - x0, yr - y0),
         xy_title="XY",
     )
     return xr, yr, diagnostic
