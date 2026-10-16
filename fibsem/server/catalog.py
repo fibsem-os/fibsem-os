@@ -934,6 +934,21 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         },
     ),
     ToolSpec(
+        name="item_measure_thickness",
+        description="The lamella's thickness, read off one of an item's saved FIB images (a file item_list_outputs lists, full resolution): the bright band between the trenches, its width at half its peak brightness column by column, in a window around the item's POI. Answers thickness in nm (mean, median, min, max, by thirds), wedge (nm per um along the lamella), angle_deg (the band's rotation, counter-clockwise; what the polishing patterns would turn by), straightness, centre_offset_nm (band above the POI is positive), continuity (columns dropped and where: holes or breaks), contrast (band vs trench brightness), resolution (band_px, flagged under 8 px with a suggested field width) and uncertainty_nm (one pixel), plus a preview of the window with the edges drawn. A top-down estimate. Reads the file; nothing moves.",
+        method="GET",
+        path="/app/experiment/items/{item_name}/outputs/{filename}/thickness",
+        level="watch",
+        router="app",
+        params={
+            "item_name": "the item (lamella) name",
+            "filename": "a FIB image basename from item_list_outputs",
+            "width_um": "window along the lamella, um (default 10)",
+            "height_um": "window across the lamella, um (default 4)",
+        },
+        optional=("width_um", "height_um"),
+    ),
+    ToolSpec(
         name="experiment_get_image_metadata",
         description="The full saved metadata of one image file in the experiment folder: the image settings, pixel size, microscope state (stage, both beams, detectors) and the item and task it was taken for. The image tools already carry a short block of this; use this for the rest. Paths outside the experiment are refused.",
         method="GET",

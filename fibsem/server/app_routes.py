@@ -96,6 +96,14 @@ class AppContext(Protocol):
 
     def output_image(self, item_name: str, filename: str) -> Dict[str, Any]: ...
 
+    def measure_thickness(
+        self,
+        item_name: str,
+        filename: str,
+        width_um: Optional[float] = None,
+        height_um: Optional[float] = None,
+    ) -> Dict[str, Any]: ...
+
     def grids(self) -> Dict[str, Any]: ...
 
     def grid_detail(self, grid_name: str) -> Dict[str, Any]: ...
@@ -379,6 +387,18 @@ def build_app_router(context: AppContext) -> APIRouter:
         # can consume it; filename must be a basename the item's own
         # outputs listing names — the context refuses anything else.
         return _jpeg_or_404(context.output_image(item_name, filename))
+
+    @router.get("/experiment/items/{item_name}/outputs/{filename}/thickness")
+    def measure_thickness(
+        item_name: str,
+        filename: str,
+        width_um: Optional[float] = None,
+        height_um: Optional[float] = None,
+    ):
+        # Computed over the saved file; nothing moves.
+        return _answer_or_refusal(
+            context.measure_thickness(item_name, filename, width_um, height_um)
+        )
 
     @router.get("/experiment/grids")
     def grids():

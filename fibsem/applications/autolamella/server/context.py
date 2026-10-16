@@ -788,24 +788,101 @@ class AutoLamellaAppContext:
         own recorded outputs. Stacks and multi-channel images are max-projected
         to something viewable; this is a preview, not the data.
         """
-        import os
-
         experiment = self._experiment
         if experiment is None:
             return {"available": False, "jpeg": None}
         lamella, refusal = find_item(experiment, item_name)
         if refusal:
             return {"available": False, "jpeg": None, **refusal}
-        paths = self._recorded_item_paths(lamella)
-        match = next((p for p in paths if os.path.basename(p) == filename), None)
-        if match is None:
-            return {
-                "available": True,
-                "jpeg": None,
-                "error": f"No output named {filename!r} for {item_name!r}.",
-                "filenames": [os.path.basename(p) for p in paths],
-            }
+        match, refusal = self._recorded_item_file(lamella, filename)
+        if refusal:
+            return {"available": True, "jpeg": None, **refusal}
         return _rendered_preview(match, filename, max_width)
+
+    @classmethod
+    def _recorded_item_file(cls, lamella, filename: str):
+        """The path of the output :meth:`task_outputs` lists as *filename*, and
+        None; or None and the refusal naming the valid ones. Only a listed
+        basename resolves, so no client reaches outside the item's outputs."""
+        import os
+
+        paths = cls._recorded_item_paths(lamella)
+        match = next((p for p in paths if os.path.basename(p) == filename), None)
+        if match is not None:
+            return match, None
+        return None, {
+            "error": f"No output named {filename!r} for {lamella.name!r}.",
+            "filenames": [os.path.basename(p) for p in paths],
+        }
+
+    def measure_thickness(
+        self,
+        item_name: str,
+        filename: str,
+        width_um: Optional[float] = None,
+        height_um: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """The lamella's thickness, read off one of the item's saved FIB images.
+
+        The bright band between the trenches, measured column by column at half
+        its peak brightness (:func:`fibsem.imaging.thickness.measure_lamella_band`)
+        in a window around the item's POI: ``width_um`` along the lamella,
+        ``height_um`` across it. Reads the file only. The answer carries a preview
+        of the window with the band's edges drawn.
+        """
+        import base64
+
+        from fibsem.imaging.thickness import (
+            DEFAULT_WINDOW,
+            draw_band_edges,
+            measure_lamella_band,
+        )
+        from fibsem.server.images import preview_jpeg_bytes
+        from fibsem.structures import BeamType, FibsemImage, Point
+
+        experiment = self._experiment
+        if experiment is None:
+            return {"error_type": "not_found", "error": "No experiment is open."}
+        lamella, refusal = find_item(experiment, item_name)
+        if refusal:
+            return {"error_type": "not_found", **refusal}
+        path, refusal = self._recorded_item_file(lamella, filename)
+        if refusal:
+            return {"error_type": "not_found", **refusal}
+        try:
+            image = FibsemImage.load(path)
+        except Exception as exc:  # noqa: BLE001 - an unreadable file is a data fact
+            return {"error_type": "invalid", "error": f"{filename!r}: {exc}"}
+        settings = getattr(image.metadata, "image_settings", None)
+        if getattr(settings, "beam_type", None) is BeamType.ELECTRON:
+            return {
+                "error_type": "invalid",
+                "error": f"{filename!r} is an SEM image; the band is read off a FIB image.",
+            }
+        window = (
+            DEFAULT_WINDOW[0] if width_um is None else width_um * 1e-6,
+            DEFAULT_WINDOW[1] if height_um is None else height_um * 1e-6,
+        )
+        poi = lamella.poi if lamella.poi is not None else Point(0, 0)
+        try:
+            measurement = measure_lamella_band(image, poi, window)
+        except ValueError as exc:
+            return {"error_type": "invalid", "error": str(exc)}
+        jpeg, width, height = preview_jpeg_bytes(
+            draw_band_edges(image, measurement), max_width=512
+        )
+        return {
+            "item_name": item_name,
+            "filename": filename,
+            "poi": {"x": poi.x, "y": poi.y},
+            "window_um": [round(window[0] * 1e6, 3), round(window[1] * 1e6, 3)],
+            **measurement.to_dict(),
+            "preview": {
+                "image_b64_jpeg": base64.b64encode(jpeg).decode(),
+                "width": width,
+                "height": height,
+            },
+        }
 
     # --- grids: the screening read model (FIB-876) ----------------------------
 

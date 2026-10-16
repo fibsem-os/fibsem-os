@@ -1145,3 +1145,65 @@ def test_position_edits_need_drive(client, host):
         ).status_code
         == 403
     )
+
+
+def test_thickness_reads_a_saved_fib_image_over_http_and_mcp(client, host):
+    """FIB-1434: the band measured off an item's saved FIB image, around its
+    POI, by the route and by the Watch tool, with the edges drawn on a preview."""
+    pytest.importorskip("mcp")
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+    from fibsem.mcp.sidecar import build_sidecar
+    from fibsem.structures import BeamType
+    from tests.test_lamella_thickness import band_image
+
+    lamella = host.experiment.positions[0]
+    os.makedirs(lamella.path, exist_ok=True)
+    fname = "ref_Polishing_final_high_res_ib.tif"
+    image = band_image(235, angle_deg=0.6)
+    image.metadata.microscope_state = MicroscopeState()  # a saved image has one
+    image.metadata.image_settings.beam_type = BeamType.ION
+    image.save(os.path.join(lamella.path, fname))
+    sem = "ref_Polishing_final_high_res_eb.tif"
+    image.metadata.image_settings.beam_type = BeamType.ELECTRON
+    image.save(os.path.join(lamella.path, sem))
+    lamella.task_history.append(
+        AutoLamellaTaskState(
+            name="Polishing", outputs={"final_fib": [fname], "final_sem": [sem]}
+        )
+    )
+    route = f"/app/experiment/items/{lamella.name}/outputs/{fname}/thickness"
+
+    answer = client.get(route, headers=AUTH).json()
+    assert answer["thickness_nm"]["mean"] == pytest.approx(235, abs=10)
+    assert answer["angle_deg"] == pytest.approx(0.6, abs=0.05)
+    assert answer["window_um"] == [10.0, 4.0]
+    assert answer["preview"]["image_b64_jpeg"]
+
+    narrow = client.get(route, params={"width_um": 5}, headers=AUTH).json()
+    assert narrow["continuity"]["columns"] == 512
+
+    unknown = client.get(
+        f"/app/experiment/items/{lamella.name}/outputs/nope.tif/thickness",
+        headers=AUTH,
+    )
+    assert unknown.status_code == 404
+    assert fname in unknown.json()["detail"]["filenames"]
+    refused = client.get(
+        f"/app/experiment/items/{lamella.name}/outputs/{sem}/thickness", headers=AUTH
+    )
+    assert refused.status_code == 422
+
+    client.headers["Authorization"] = f"Bearer {TOKEN}"
+    sidecar = build_sidecar(client, client.get("/capabilities").json())
+    result = asyncio.run(
+        sidecar.call_tool(
+            "item_measure_thickness", {"item_name": lamella.name, "filename": fname}
+        )
+    )
+    if isinstance(result, tuple):
+        result = result[0]
+    contents = list(getattr(result, "content", result))
+    assert any(getattr(c, "type", None) == "image" for c in contents)
+    text = json.loads(contents[0].text)
+    assert text["thickness_nm"]["mean"] == pytest.approx(235, abs=10)
+    assert text["preview"]["image_index"] == 0
