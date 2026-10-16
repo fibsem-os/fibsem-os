@@ -29,6 +29,7 @@ DRIVER = DriverEntry(
             "sample_loader",
             "fm",
             "gis",
+            "sputter_coater",
         )
     },
 )

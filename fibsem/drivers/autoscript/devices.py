@@ -92,6 +92,7 @@ from fibsem.devices.sample_loader import (
     SampleLoader,
     StageSample,
 )
+from fibsem.devices.sputter_coater import SputterCoater
 from fibsem.devices.stage import (
     Stage,
     axis_limits_from_degrees,
@@ -1533,6 +1534,80 @@ class AutoscriptMultichem(_AutoscriptGasInjector):
         self._heated = False
 
 
+class AutoscriptArctisSputterCoater(SputterCoater):
+    """The Arctis sputter coater (xT 28, AutoScript 4.8 and later),
+    ``specimen.sputter_coater``.
+
+    On an Arctis, ``run(time)`` homes the FLM, moves the compustage to the sputter
+    position and back, and sputters whatever is on the stage, so ``coats_grids`` is
+    False. ``prepare()`` and ``recover()`` aren't supported there, and nor is
+    ``is_inserted``: ``inserted`` reads True only while this device's own run is on.
+
+    Around a run, following the AutoScript reference's Arctis example: both beams
+    on (a Hydra Bio refused with "MicroSputter operation cannot start: IonBeam is
+    off"), then ``compustage.home()``. Whether the home is needed is a bench
+    question; AutoScript known issue AST-2132 reads "Arctis - MicroSputter -
+    Sputtering from AS fails under certain conditions". The ion voltage is put back
+    after the run, in a ``finally``, because the coater changes it on a Hydra Bio.
+    The stage's position is read back afterwards, since the run moves it.
+    """
+
+    def __init__(
+        self,
+        parent: ThermoMicroscope,
+        connection: AutoScriptConnection,
+        resources: Optional[Resources] = None,
+    ):
+        super().__init__(parent=parent, resources=resources)
+        self.connection = connection
+        self._running = False
+
+    @property
+    def _coater(self) -> Any:
+        return self.connection.sdk.specimen.sputter_coater
+
+    def is_installed(self) -> Optional[bool]:
+        return bool(self._coater.is_installed)
+
+    def read_current(self) -> float:
+        return float(self._coater.current.value)
+
+    def write_current(self, value: float) -> None:
+        self._coater.current.value = value
+        logging.debug(f"Sputter coater current set to {value} A.")
+
+    def metadata_current(self) -> ParameterMetadata:
+        limits = self._coater.current.limits
+        return ParameterMetadata(limits=RangeLimit(min=limits.min, max=limits.max))
+
+    def read_inserted(self) -> bool:
+        return self._running
+
+    def _run(self, seconds: float, grids: Optional[Tuple[int, ...]]) -> None:
+        whole = int(round(seconds))  # the vendor takes whole seconds
+        if whole < 1:
+            raise ValueError(
+                f"{self.name}: a run lasts whole seconds, not {seconds} s."
+            )
+        sdk = self.connection.sdk
+        ion = sdk.beams.ion_beam
+        voltage = ion.high_voltage.value
+        for beam in (sdk.beams.electron_beam, ion):
+            if not beam.is_on:
+                beam.turn_on()
+        sdk.specimen.compustage.home()
+        logging.info(f"Sputtering for {seconds} s...")
+        self._running = True
+        try:
+            self._coater.run(whole)
+        finally:
+            self._running = False
+            ion.high_voltage.value = voltage
+            stage = self.parent.devices.get("stage")
+            if stage is not None:
+                stage.position.get_value()
+
+
 def gis_fitted(microscope: ThermoMicroscope) -> bool:
     """Whether to build a ``gis`` by default: an Arctis that lists a GIS port or a
     multichem. False when AutoScript can't say."""
@@ -1542,6 +1617,17 @@ def gis_fitted(microscope: ThermoMicroscope) -> bool:
         gas = microscope._connection.sdk.gas
         return bool(gas.list_all_gis_ports()) or bool(gas.list_all_multichem_ports())
     except Exception:  # noqa: BLE001 - no gas API on this instrument, or not ready
+        return False
+
+
+def sputter_coater_fitted(microscope: ThermoMicroscope) -> bool:
+    """Whether to build a ``sputter_coater`` by default: an Arctis whose coater
+    reports installed. False when AutoScript can't say."""
+    if not is_arctis(microscope):
+        return False
+    try:
+        return bool(microscope._connection.sdk.specimen.sputter_coater.is_installed)
+    except Exception:  # noqa: BLE001 - no coater API on this instrument, or not ready
         return False
 
 
@@ -1602,6 +1688,22 @@ def build_autoscript_sample_loader(
 ) -> AutoscriptSampleLoader:
     microscope = context.microscope
     return _named(AutoscriptSampleLoader(microscope, microscope._connection), entry)
+
+
+def build_autoscript_sputter_coater(
+    entry: DeviceEntry, context: BuildContext
+) -> AutoscriptArctisSputterCoater:
+    """The sputter coater, on an Arctis only."""
+    microscope = context.microscope
+    if not is_arctis(microscope):
+        raise ValueError(
+            f"a Thermo sputter coater is supported on an Arctis only, not on "
+            f"{microscope.system.info.model!r}"
+        )
+    device = AutoscriptArctisSputterCoater(microscope, microscope._connection)
+    if not device.is_installed():
+        raise ValueError("the instrument reports no sputter coater")
+    return _named(device, entry)
 
 
 def build_autoscript_gis(
