@@ -1325,6 +1325,11 @@ def _line(
             "what": "Alignment",
             "change": f"Align to {reference}: {_plural(int(steps), 'step')} with {method}",
         }
+    if tool == "alignment_check_coincidence":
+        return {
+            "what": "Alignment",
+            "change": "Take an SEM and a FIB image to measure coincidence (moves nothing)",
+        }
     if tool == "device_set_parameter":
         return _set_parameter(a, "device", path, get)
     if tool == "service_set_parameter":
