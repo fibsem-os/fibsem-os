@@ -20,7 +20,7 @@ from fibsem.correlation.structures import Coordinate, PointXYZ
 __all__ = [
     "FitStatus",
     "PointFitResult",
-    "fit_point",
+    "refine_point",
     "humanize_fit_error",
 ]
 
@@ -132,7 +132,7 @@ def humanize_fit_error(exc: Exception) -> str:
     return "The fit failed unexpectedly (see log for details)."
 
 
-def fit_point(
+def refine_point(
     coord: Coordinate,
     side: str,
     method: str,

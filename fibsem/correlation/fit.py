@@ -7,7 +7,7 @@ outside the tab is seeded, judged and recorded the way the tab's is.
 - :func:`seed_for` builds the transform the fit starts from: a previous run's
   fitted rotation and scale (FIB-956), else the images' geometry (FIB-881),
   placed with a previous run's calibrated offset (FIB-979).
-- :func:`fit` runs the fit from that seed and attaches the verdict's evidence
+- :func:`fit_transform` runs the fit from that seed and attaches the verdict's evidence
   (FIB-956) and the placement offset this run measured (FIB-979).
 """
 
@@ -39,7 +39,7 @@ __all__ = [
     "MAX_PRIOR_ANGLE_DEG",
     "Seed",
     "diagnostics_for",
-    "fit",
+    "fit_transform",
     "geometry_transform",
     "measure_placement_offset",
     "prior_transform",
@@ -282,7 +282,7 @@ def measure_placement_offset(
         return None
 
 
-def fit(
+def fit_transform(
     data: CorrelationInputData,
     seed: Optional[Seed] = None,
     rows: Optional[List[int]] = None,

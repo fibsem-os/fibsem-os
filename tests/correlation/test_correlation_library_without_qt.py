@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import numpy as np
 
 import fibsem.correlation.util as util
-from fibsem.correlation.fit import Seed, fit, seed_for
+from fibsem.correlation.fit import Seed, fit_transform, seed_for
 from fibsem.correlation.history import (
     CORRELATION_FILENAME,
     LamellaCorrelation,
@@ -19,7 +19,7 @@ from fibsem.correlation.history import (
     new_run_dir,
     save_run,
 )
-from fibsem.correlation.point_fit import FitStatus, fit_point
+from fibsem.correlation.point_fit import FitStatus, refine_point
 from fibsem.correlation.structures import (
     Coordinate,
     CorrelationResult,
@@ -43,12 +43,12 @@ def test_the_library_imports_no_qt():
     subprocess.run([sys.executable, "-c", code], check=True, env=env)
 
 
-def test_fit_point_proposes_without_moving_the_point(monkeypatch):
+def test_refine_point_proposes_without_moving_the_point(monkeypatch):
     monkeypatch.setattr(util, "hole_fitting_FIB", lambda img, x, y: (x + 3, y + 4, "d"))
     coord = _coord(20.0, 20.0, 0.0)
     image = SimpleNamespace(filtered_data=np.zeros((64, 64)))
 
-    result = fit_point(coord, "fib", "Hole", fib_image=image)
+    result = refine_point(coord, "fib", "Hole", fib_image=image)
 
     assert (coord.point.x, coord.point.y) == (20.0, 20.0)
     assert result.status is FitStatus.OK
@@ -56,7 +56,7 @@ def test_fit_point_proposes_without_moving_the_point(monkeypatch):
     assert result.channel is None and result.diagnostic == "d"
 
 
-def test_fit_point_uses_the_named_fm_channel_and_cutout(monkeypatch):
+def test_refine_point_uses_the_named_fm_channel_and_cutout(monkeypatch):
     seen = {}
 
     def gaussian(img, x, y, z, cutout):
@@ -66,7 +66,7 @@ def test_fit_point_uses_the_named_fm_channel_and_cutout(monkeypatch):
     monkeypatch.setattr(util, "target_fitting_fluorescence", gaussian)
     fm = SimpleNamespace(data=np.zeros((2, 5, 32, 32)))
 
-    result = fit_point(
+    result = refine_point(
         _coord(10.0, 10.0, 2.0, PointType.FM),
         "fm",
         "Gaussian",
@@ -80,11 +80,11 @@ def test_fit_point_uses_the_named_fm_channel_and_cutout(monkeypatch):
     assert result.fitted.z == 3.0
 
 
-def test_fit_point_returns_none_when_nothing_applies():
+def test_refine_point_returns_none_when_nothing_applies():
     coord = _coord(1.0, 1.0, 0.0)
-    assert fit_point(coord, "fib", "Hole") is None
+    assert refine_point(coord, "fib", "Hole") is None
     fm = SimpleNamespace(data=np.zeros((1, 2, 8, 8)))
-    assert fit_point(coord, "fm", "None", fm_image=fm, channel=0) is None
+    assert refine_point(coord, "fm", "None", fm_image=fm, channel=0) is None
 
 
 def test_a_failed_point_fit_is_a_result_not_an_exception(monkeypatch):
@@ -94,7 +94,7 @@ def test_a_failed_point_fit_is_a_result_not_an_exception(monkeypatch):
     monkeypatch.setattr(util, "hole_fitting_FIB", boom)
     image = SimpleNamespace(filtered_data=np.zeros((8, 8)))
 
-    result = fit_point(_coord(1.0, 1.0, 0.0), "fib", "Hole", fib_image=image)
+    result = refine_point(_coord(1.0, 1.0, 0.0), "fib", "Hole", fib_image=image)
 
     assert result.status is FitStatus.ERROR
     assert "didn't converge" in result.message
@@ -113,7 +113,7 @@ def test_an_unseeded_fit_records_no_offset_or_verdict(monkeypatch):
         fit_module, "run_correlation_from_data", lambda d, nominal: result
     )
 
-    fitted = fit(SimpleNamespace(fib_coordinates=[]))
+    fitted = fit_transform(SimpleNamespace(fib_coordinates=[]))
 
     assert fitted is result
     assert fitted.diagnostics is None and fitted.placement_offset is None

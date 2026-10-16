@@ -1005,7 +1005,7 @@ def test_a_run_records_the_offset_its_fiducials_measured(loaded, monkeypatch):
     monkeypatch.setattr(
         fit_module, "run_correlation_from_data", lambda d, nominal: result
     )
-    fitted = fit_module.fit(loaded.fit_data, seed)
+    fitted = fit_module.fit_transform(loaded.fit_data, seed)
     assert fitted.placement_offset == pytest.approx(list(expected))
 
 

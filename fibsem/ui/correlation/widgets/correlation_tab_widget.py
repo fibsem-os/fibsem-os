@@ -87,9 +87,9 @@ from fibsem.correlation.config import (
     FitSettings,
     RISettings,
 )
-from fibsem.correlation.fit import Seed, fit, prior_transform, seed_for
+from fibsem.correlation.fit import Seed, fit_transform, prior_transform, seed_for
 from fibsem.correlation.history import CORRELATION_FILENAME, save_run
-from fibsem.correlation.point_fit import FitStatus, PointFitResult, fit_point
+from fibsem.correlation.point_fit import FitStatus, PointFitResult, refine_point
 from fibsem.correlation.prediction import (
     Projection,
     build_projection,
@@ -389,7 +389,9 @@ class _CorrelationWorker(QThread):
 
     def run(self) -> None:
         try:
-            self.result_ready.emit(fit(self._data, self._seed, rows=self._rows))
+            self.result_ready.emit(
+                fit_transform(self._data, self._seed, rows=self._rows)
+            )
         except Exception as exc:
             self.errored.emit(str(exc))
 
@@ -4972,12 +4974,12 @@ class CorrelationTabWidget(QWidget):
 
     def _run_point_fit(self, coord: Coordinate) -> Optional[PointFitResult]:
         """Compute an auto-fit for ``coord`` WITHOUT mutating it, with the
-        method and channel chosen on the Coordinates tab (see :func:`fit_point`).
+        method and channel chosen on the Coordinates tab (see :func:`refine_point`).
         """
         cl = self._coords_tab
         spec = self._point_specs[coord.point_type]
         if spec.adapter.side == "fib":
-            return fit_point(
+            return refine_point(
                 coord,
                 "fib",
                 cl._fib_method_combo.currentText(),
@@ -4989,7 +4991,7 @@ class CorrelationTabWidget(QWidget):
         is_fid = spec.fm_fit_role == "fid"
         method_combo = cl._fm_fid_method_combo if is_fid else cl._fm_poi_method_combo
         ch_combo = cl._fm_fid_ch_combo if is_fid else cl._fm_poi_ch_combo
-        return fit_point(
+        return refine_point(
             coord,
             "fm",
             method_combo.currentText(),
