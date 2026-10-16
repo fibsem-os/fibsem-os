@@ -19,6 +19,7 @@ backend says the parameter needs it, makes the write, caches the value, emits
 
 from __future__ import annotations
 
+import functools
 import inspect
 import logging
 import math
@@ -45,6 +46,7 @@ from typing import (
 
 from psygnal import Signal
 
+from fibsem.devices.runs import Runs
 from fibsem.structures import (
     DisplayHint,
     Limits,
@@ -457,18 +459,37 @@ def command(
 
     The mark records only what a UI, the agent API or a remote proxy needs to list it:
     its name, its arguments and whether it is available on this device right now.
-    ``long`` marks a command that runs for minutes (a mill, a spot burn): the App
-    Server answers an agent's call to it at once with a run id and lets it run on
-    (`fibsem.server.runs`). Called directly it is an ordinary method.
+    ``long`` marks a command that runs for minutes (a mill, a spot burn): each
+    call is one run on its device or service, ``self.runs``, whoever made it
+    (`fibsem.devices.runs`), and the App Server answers a call to it at once
+    with the run's id and lets it run on.
     """
 
     def mark(method: Callable) -> Callable:
-        method.__device_command__ = available  # type: ignore[attr-defined]
         if long:
+            method = _tracked(method)
             method.__device_long__ = True  # type: ignore[attr-defined]
+        method.__device_command__ = available  # type: ignore[attr-defined]
         return method
 
     return mark(fn) if fn is not None else mark
+
+
+def _tracked(method: Callable) -> Callable:
+    """*method*, each call of it a run on ``self.runs``."""
+
+    @functools.wraps(method)
+    def tracked(self: Any, *args: Any, **kwargs: Any) -> Any:
+        runs = getattr(self, "runs", None)
+        if not isinstance(runs, Runs):  # an object never initialised as one
+            return method(self, *args, **kwargs)
+        with runs.tracking(method.__name__) as run:
+            result = method(self, *args, **kwargs)
+            if run is not None:
+                run.result = result
+            return result
+
+    return tracked
 
 
 def query(
@@ -695,6 +716,8 @@ class _Controllable:
         # reports to its session.
         self.resources = resources if resources is not None else resources_of(parent)
         self.session = session if session is not None else session_of(parent)
+        # The latest run of a long command on it, whoever started it.
+        self.runs = Runs(self)
         self._bound: Dict[str, BoundParameter] = {}
         self._roles: Dict[str, Device] = {}
         self._select_channel: Optional[Callable[[], None]] = None

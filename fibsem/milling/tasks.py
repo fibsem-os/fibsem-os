@@ -21,6 +21,7 @@ from fibsem.cancellation import (
     ended_by,
     raise_if_cancelled,
 )
+from fibsem.devices.runs import Runs, current_run_id
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.base import FibsemMillingStage, MillingStrategyResult
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
@@ -420,8 +421,28 @@ class FibsemMillingTask:
         self.config.acquisition.imaging.path = self.output_dir
 
     def run(self) -> None:
-        """Run a list of milling stages, with a progress bar and notifications."""
+        """Run a list of milling stages, with a progress bar and notifications.
 
+        The task is one run on the milling service (``microscope.milling.runs``)
+        under its own id, whoever runs it: a workflow task, the operator, the
+        agent. Inside a run already going on there (the App Server's, the
+        service's ``run_task``) it is part of that run, and takes its id.
+        """
+        milling = getattr(self.microscope, "milling", None)
+        runs = getattr(milling, "runs", None)
+        if not isinstance(runs, Runs):
+            self._run()
+            return
+        with runs.tracking("run_task", run_id=self.task_id) as run:
+            self.task_id = current_run_id(milling.name) or self.task_id
+            try:
+                self._run()
+            finally:
+                if run is not None:
+                    # The task catches its own failure: its run says it.
+                    run.result, run.exception = self.ended(), self.error
+
+    def _run(self) -> None:
         logging.info(f"Running milling task: {self.name} with ID: {self.task_id}")
 
         # Read by the `finally` below, which runs whichever way the task ends. Seeded

@@ -42,7 +42,10 @@ A long service command (marked `long: true` in the listing: milling's `run`,
 `fm_focus_sweep` and `fm_tiled_overview`; alignment's `align`; spot burn's `run`) answers at once with its run (`run_id`, `state: running`)
 and runs on in control of the microscope; `GET /microscope/services/{service}/run`
 reads it, waiting up to `?wait=` seconds (at most 60) for the end, and the end is
-a `command_ended` event. `FibsemClient.run_milling` waits for it.
+a `command_ended` event. `FibsemClient.run_milling` waits for it. The run is the
+service's (`fibsem/devices/runs.py`), so the same route reads a run a workflow
+task or the operator started: a milling task is a run under its
+`milling_run_id`.
 A stop (`POST /microscope/services/milling/commands/stop`, a device's or a
 service's `stop` or `stop_live`, or `POST /app/workflow/stop`) never takes control. The
 agent stops its own action (its command holds control) at Assist or Drive; anything

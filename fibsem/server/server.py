@@ -50,7 +50,6 @@ from fibsem.server.devices import ERROR_STATUS, build_device_router, refusal
 from fibsem.server.discovery import fibsem_folder
 from fibsem.server.models import MicroscopeStateRequest
 from fibsem.server.requests import RequestStore, build_request_router
-from fibsem.server.runs import Runs
 from fibsem.structures import BeamType, MicroscopeState
 
 API_VERSION = "0.3.0"
@@ -531,7 +530,7 @@ def build_server(
                 refuse=refuse,
                 noun="service",
                 on_image=lambda image: _show_in_app(microscope, image),
-                runs=Runs(record=microscope.record_event),
+                long_commands=True,
                 adopt_control=adopt_control,
             )
         )

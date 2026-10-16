@@ -393,7 +393,7 @@ def take_control(request: Request):
 
 def adopt_control(request: Request) -> Optional[Callable[[], None]]:
     """Keep the control of the microscope this request took past its answer,
-    for a long command that runs on (`fibsem.server.runs`). Returns what gives
+    for a long command that runs on (`fibsem.devices.runs`). Returns what gives
     it up, which the run calls when it ends; None when the request took none."""
     release = getattr(request.state, "release_control", None)
     if release is not None:
