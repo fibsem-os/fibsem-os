@@ -226,6 +226,27 @@ def test_the_image_shows_beside_the_steps_and_follows_the_card_s_width(qapp):
     card.deleteLater()
 
 
+def test_resizing_after_a_suggestion_with_a_picture_goes_does_not_abort(qapp):
+    # Found in the 2026-10-16 card session: with nothing left waiting, the card
+    # kept its deleted picture, and the next resize aborted the app.
+    from PyQt5.QtCore import QEvent
+    from PyQt5.QtGui import QImage
+
+    card = AgentCard()
+    card.resize(1000, 600)
+    card.show()
+    card.set_suggestion(_SUGGESTION)
+    image = QImage(300, 200, QImage.Format_RGB32)
+    card.set_image(image, "FIB · 05:17", suggestion=True)
+    assert card.image_label is not None
+    card.set_suggestion(None)
+    assert card.image_label is None
+    qapp.sendPostedEvents(None, QEvent.DeferredDelete)
+    card.resize(980, 600)
+    qapp.processEvents()
+    card.deleteLater()
+
+
 # --- the agent's request (FIB-1283, FIB-1404) -----------------------------------
 
 
