@@ -7,8 +7,9 @@ outside the tab is seeded, judged and recorded the way the tab's is.
 - :func:`seed_for` builds the transform the fit starts from: a previous run's
   fitted rotation and scale (FIB-956), else the images' geometry (FIB-881),
   placed with a previous run's calibrated offset (FIB-979).
-- :func:`fit_transform` runs the fit from that seed and attaches the verdict's evidence
-  (FIB-956) and the placement offset this run measured (FIB-979).
+- :func:`fit_transform` runs the fit from that seed and attaches the verdict's
+  evidence (FIB-956) and the placement offset this run measured (FIB-979).
+- :func:`predict` maps more FM points through a fitted result.
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ from fibsem.correlation.prior import (
 )
 from fibsem.correlation.structures import (
     CorrelationInputData,
+    CorrelationPointOfInterest,
     CorrelationResult,
     PointStatus,
 )
@@ -42,6 +44,7 @@ __all__ = [
     "fit_transform",
     "geometry_transform",
     "measure_placement_offset",
+    "predict",
     "prior_transform",
     "seed_for",
 ]
@@ -300,3 +303,31 @@ def fit_transform(
         result, seed.transform, seed.metadata_translation
     )
     return result
+
+
+def predict(
+    result: CorrelationResult, fm_points: Sequence[Sequence[float]]
+) -> List[CorrelationPointOfInterest]:
+    """Where FM points land in the FIB image under a fitted ``result``.
+
+    ``fm_points`` are ``(x, y, z)`` in pixels and slices of the stack the
+    result was fitted on. The answer is in every coordinate system a fitted POI
+    is (image pixels, centred pixels, metres from the image centre). No
+    refractive-index correction is applied: these are points, not a target at
+    depth.
+    """
+    from fibsem.correlation.correlation_v2 import _reproject_poi_via_transform
+
+    points = np.asarray(fm_points, dtype=float).reshape(-1, 3).copy()
+    points[:, 2] *= result.fm_z_scale
+    data = result.input_data
+    return _reproject_poi_via_transform(
+        {
+            "rotation_quaternion": result.rotation_quaternion,
+            "scale": result.scale,
+            "translation_around_rotation_center_zero": result.translation,
+        },
+        points,
+        data.fib_image_shape if data is not None else None,
+        data.fib_image_pixel_size if data is not None else None,
+    )

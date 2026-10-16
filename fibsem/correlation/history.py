@@ -61,6 +61,14 @@ def _run_file(folder: str) -> Optional[str]:
     return None
 
 
+def load_run(run_dir: str) -> CorrelationState:
+    """The correlation saved in a run folder, whichever file it was written as."""
+    path = _run_file(run_dir)
+    if path is None:
+        raise FileNotFoundError(f"no correlation is saved in {run_dir}")
+    return load_correlation_file(path)
+
+
 @dataclass
 class CorrelationRun:
     """One saved correlation, loaded from its timestamped folder."""
