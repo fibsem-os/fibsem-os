@@ -19,11 +19,9 @@ from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.fm.structures import ChannelSettings
 from fibsem.ui.fm.widgets.emission_filter_combo import EmissionFilterComboBox
 from fibsem.ui.fm.widgets.fm_limits import (
-    GAIN_RANGE_PERCENT,
+    channel_range,
     channel_spinbox,
-    exposure_range_ms,
     gain_scale,
-    power_range_percent,
     power_scale,
     show_native_units,
     shown_channel_value,
@@ -97,19 +95,19 @@ class ChannelSettingsWidget(QWidget):
         form.addRow("Emission", self.emission_combo)
 
         # Unit, step and decimals as ChannelSettings declares them (its devices'
-        # display hints); the exposure and power ranges are what the FM reports.
+        # display hints); the ranges are what the FM's devices allow.
         self.exposure_spin = channel_spinbox(
-            "exposure_time", exposure_range_ms(self._fm)
+            "exposure_time", channel_range(self._fm, "exposure_time")
         )
         self.exposure_spin.setToolTip("Exposure time (ms)")
         form.addRow("Exposure", self.exposure_spin)
 
-        self.power_spin = channel_spinbox("power", power_range_percent(self._fm))
+        self.power_spin = channel_spinbox("power", channel_range(self._fm, "power"))
         self.power_spin.setToolTip("Light source power (%)")
         show_native_units(self.power_spin, power_scale(self._fm))
         form.addRow("Power", self.power_spin)
 
-        self.gain_spin = channel_spinbox("gain", GAIN_RANGE_PERCENT)
+        self.gain_spin = channel_spinbox("gain", channel_range(self._fm, "gain"))
         self.gain_spin.setToolTip("Detector gain (%)")
         show_native_units(self.gain_spin, gain_scale(self._fm))
         form.addRow("Gain", self.gain_spin)

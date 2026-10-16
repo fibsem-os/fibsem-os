@@ -1,9 +1,9 @@
 """The ranges and choices the FM widgets offer, as the connected FM reports them.
 
-Every FM answers ``camera.available_binnings``, ``camera.exposure_time_limits`` and
-``light_source.power_limits``; on an FM over devices those come from the device
-parameters' metadata. Each function falls back to the widgets' old fixed range when
-there is no FM or it can't say, so a widget still opens.
+A channel's exposure, power and gain, and the camera's binning, are bound to the FM's
+devices (``ChannelSettings`` declares ``device_parameter="camera.exposure_time"``), so
+``bound_spec`` resolves them the way every bound field is: what the FM's device
+reports, else what the device class declares when there is no FM or it can't say.
 
 Power and gain are percentages of the hardware's maximum. Where the driver knows what
 that maximum is in the hardware's own units (watts, camera gain), the box's tooltip
@@ -14,21 +14,22 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Any, Optional, Tuple
+from typing import Any, Dict, Mapping, Optional, Tuple
 
 from PyQt5.QtCore import QEvent, QObject
 from PyQt5.QtWidgets import QAbstractSpinBox, QToolTip
 
 from fibsem.fm.structures import ChannelSettings
+from fibsem.structures import Parameter
 from fibsem.ui.widgets.custom_widgets import ValueSpinBox
-from fibsem.ui.widgets.form_builder import configure_spinbox
+from fibsem.ui.widgets.form_builder import bound_spec, configure_spinbox
 
 NativeScale = Tuple[float, Optional[str]]
 
-EXPOSURE_RANGE_MS: Tuple[float, float] = (1.0, 10000.0)
-POWER_RANGE_PERCENT: Tuple[float, float] = (0.0, 100.0)
-GAIN_RANGE_PERCENT: Tuple[float, float] = (0.0, 100.0)
-BINNINGS: Tuple[int, ...] = (1, 2, 4, 8)
+# The channel numbers with a box of their own, each bound to one of the FM's devices.
+CHANNEL_NUMBERS = ("exposure_time", "power", "gain")
+
+_BINNING = Parameter(device_parameter="camera.binning")
 
 
 def _in_steps(
@@ -52,26 +53,21 @@ def _read(fm: Any, what: str, read) -> Optional[Any]:
         return None
 
 
-def _in_channel_steps(limits: Tuple[float, float], name: str) -> Tuple[float, float]:
-    """``limits`` as a channel's ``name`` box shows them."""
-    spec = ChannelSettings.params[name]
-    return _in_steps(limits, spec.scale, spec.display.decimals)
+def _devices(fm: Any) -> Mapping[str, Any]:
+    """The FM's devices by name; none without an FM, or when it can't say."""
+    return _read(fm, "devices", lambda fm: getattr(fm, "devices", None)) or {}
 
 
-def exposure_range_ms(fm: Any) -> Tuple[float, float]:
-    """The exposure times the camera takes, in ms."""
-    limits = _read(fm, "exposure limits", lambda fm: fm.camera.exposure_time_limits)
-    if limits is None:
-        return EXPOSURE_RANGE_MS
-    return _in_channel_steps(limits, "exposure_time")
+def channel_range(fm: Any, name: str) -> Tuple[float, float]:
+    """The range a channel's ``name`` box offers, in the units it shows."""
+    spec = bound_spec(ChannelSettings.params[name], _devices(fm))
+    limits = spec.limits
+    return _in_steps((limits.min, limits.max), spec.scale, spec.display.decimals)
 
 
-def power_range_percent(fm: Any) -> Tuple[float, float]:
-    """The light source's power range, in percent of its maximum."""
-    limits = _read(fm, "power limits", lambda fm: fm.light_source.power_limits)
-    if limits is None:
-        return POWER_RANGE_PERCENT
-    return _in_channel_steps(limits, "power")
+def channel_ranges(fm: Any) -> Dict[str, Tuple[float, float]]:
+    """``channel_range`` for each of the channel's numbers."""
+    return {name: channel_range(fm, name) for name in CHANNEL_NUMBERS}
 
 
 def channel_spinbox(name: str, shown_range: Tuple[float, float]) -> ValueSpinBox:
@@ -97,8 +93,7 @@ def stored_channel_value(spinbox: QAbstractSpinBox, name: str) -> float:
 
 def available_binnings(fm: Any) -> Tuple[int, ...]:
     """The binnings the camera takes."""
-    found = _read(fm, "binnings", lambda fm: fm.camera.available_binnings)
-    return tuple(int(b) for b in found) if found else BINNINGS
+    return tuple(int(b) for b in bound_spec(_BINNING, _devices(fm)).choices)
 
 
 def power_scale(fm: Any) -> Optional[NativeScale]:
