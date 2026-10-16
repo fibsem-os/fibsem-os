@@ -21,12 +21,12 @@ from fastapi.testclient import TestClient  # noqa: E402
 from fibsem.acting import current_actor  # noqa: E402
 from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI  # noqa: E402
-from fibsem.applications.autolamella.workflows.interaction import (  # noqa: E402
+from fibsem.server import AuthConfig, build_server  # noqa: E402
+from fibsem.server.auth import AgentLevel  # noqa: E402
+from fibsem.workflows.interaction import (  # noqa: E402
     Confirm,
     ask,
 )
-from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.server.auth import AgentLevel  # noqa: E402
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}

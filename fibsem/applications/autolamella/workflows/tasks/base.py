@@ -72,17 +72,6 @@ from fibsem.applications.autolamella.workflows.core import (
     update_detection_ui,
     update_status_ui,
 )
-from fibsem.applications.autolamella.workflows.interaction import (
-    ACTION_ACCEPT,
-    ACTION_EDIT,
-    ACTION_RUN,
-    ClearMillingConfig,
-    RunMillingTask,
-    SetFluorescenceChannels,
-    SetMillingConfig,
-    answered_by,
-    ask,
-)
 from fibsem.applications.autolamella.workflows.question_adapters import (
     decided_features,
     detection_image_file,
@@ -132,6 +121,17 @@ from fibsem.structures import (
     Point,
 )
 from fibsem.util.timestamps import now, now_iso
+from fibsem.workflows.interaction import (
+    ACTION_ACCEPT,
+    ACTION_EDIT,
+    ACTION_RUN,
+    ClearMillingConfig,
+    RunMillingTask,
+    SetFluorescenceChannels,
+    SetMillingConfig,
+    answered_by,
+    ask,
+)
 from fibsem.workflows.status import TaskStatus, take_back_finish
 
 if TYPE_CHECKING:

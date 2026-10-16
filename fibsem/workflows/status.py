@@ -143,7 +143,7 @@ class WorkflowStatusEvent:
     blocked waiter (the defect the deleted dict ``workflow_update_signal`` had:
     its handler freed *every* waiter on *any* emission). Instructions and
     questions do not ride a signal at all; they are requests to the responder
-    (``workflows/interaction.py``).
+    (``fibsem/workflows/interaction.py``).
 
     Three text destinations and one structured report, and every field optional
     because the emit sites say different subsets:

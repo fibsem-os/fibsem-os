@@ -347,12 +347,12 @@ def test_supervised_an_agent_s_inline_answer_is_the_agent_s_decision(
 ):
     """The agent answered the workflow's point question over the App Server:
     the decision is the agent's, not the operator at the window (FIB-1328)."""
-    from fibsem.applications.autolamella.workflows.interaction import (
+    from fibsem.applications.autolamella.workflows.tasks import select_position as S
+    from fibsem.workflows.interaction import (
         PickPOI,
         ask,
         mark_answered_by,
     )
-    from fibsem.applications.autolamella.workflows.tasks import select_position as S
 
     class AgentAnswers:
         def submit(self, request, future):

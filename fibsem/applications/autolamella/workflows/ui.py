@@ -6,15 +6,6 @@ from typing import TYPE_CHECKING, List, Optional, Sequence
 
 from fibsem import milling
 from fibsem.applications.autolamella.structures import Experiment
-from fibsem.applications.autolamella.workflows.interaction import (
-    Confirm,
-    ConfirmDetection,
-    EditAlignmentArea,
-    PickPOI,
-    ReviewDetection,
-    SetImages,
-    ask,
-)
 from fibsem.detection import detection
 from fibsem.detection import utils as det_utils
 from fibsem.detection.detection import DetectedFeatures, Feature
@@ -26,6 +17,15 @@ from fibsem.structures import (
     FibsemStagePosition,
     ImageSettings,
     Point,
+)
+from fibsem.workflows.interaction import (
+    Confirm,
+    ConfirmDetection,
+    EditAlignmentArea,
+    PickPOI,
+    ReviewDetection,
+    SetImages,
+    ask,
 )
 from fibsem.workflows.status import WorkflowStatusEvent
 

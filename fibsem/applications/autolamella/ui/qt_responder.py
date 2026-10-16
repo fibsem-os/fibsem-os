@@ -34,7 +34,13 @@ from PyQt5.QtCore import QObject, pyqtSignal
 
 from fibsem.acting import AGENT, OPERATOR, TASK, acting
 from fibsem.applications.autolamella.proposals import AuthorKind, DecisionOutcome
-from fibsem.applications.autolamella.workflows.interaction import (
+from fibsem.applications.autolamella.workflows.question_adapters import (
+    answer_from,
+    answered,
+    proposal_for,
+)
+from fibsem.structures import BeamType
+from fibsem.workflows.interaction import (
     ClearMillingConfig,
     ClearSpotBurn,
     Confirm,
@@ -58,12 +64,6 @@ from fibsem.applications.autolamella.workflows.interaction import (
     apply_spot_burn_edit,
     mark_answered_by,
 )
-from fibsem.applications.autolamella.workflows.question_adapters import (
-    answer_from,
-    answered,
-    proposal_for,
-)
-from fibsem.structures import BeamType
 from fibsem.workflows.status import (
     Hold,
     HoldKind,

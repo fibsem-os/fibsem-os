@@ -33,11 +33,6 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.workflows.interaction import (
-    Confirm,
-    ConfirmDetection,
-    ReviewDetection,
-)
 from fibsem.applications.autolamella.workflows.question_adapters import (
     answer_from,
     answered,
@@ -51,6 +46,11 @@ from fibsem.structures import (
     ImageSettings,
     MicroscopeState,
     Point,
+)
+from fibsem.workflows.interaction import (
+    Confirm,
+    ConfirmDetection,
+    ReviewDetection,
 )
 from fibsem.workflows.status import TaskStatus
 

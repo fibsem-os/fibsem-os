@@ -8,14 +8,6 @@ from typing import ClassVar, Optional, Type
 
 from fibsem import timing
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
-from fibsem.applications.autolamella.workflows.interaction import (
-    ACTION_ACCEPT,
-    ACTION_EDIT,
-    ACTION_RUN,
-    ClearSpotBurn,
-    RunSpotBurn,
-    ask,
-)
 from fibsem.applications.autolamella.workflows.tasks.base import (
     ALIGNMENT_REFERENCE_IMAGE_FILENAME,
     AutoLamellaTask,
@@ -26,6 +18,14 @@ from fibsem.applications.autolamella.workflows.ui import (
 )
 from fibsem.imaging.spot import SpotBurnSettings, run_spot_burn, show_after_burn
 from fibsem.structures import BeamType, Display, Point, param
+from fibsem.workflows.interaction import (
+    ACTION_ACCEPT,
+    ACTION_EDIT,
+    ACTION_RUN,
+    ClearSpotBurn,
+    RunSpotBurn,
+    ask,
+)
 
 
 @dataclass

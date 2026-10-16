@@ -41,11 +41,6 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskState,
     Experiment,
 )
-from fibsem.applications.autolamella.workflows.interaction import (
-    ConfirmDetection,
-    ReviewDetection,
-    ask,
-)
 from fibsem.detection.detection import DetectedFeatures, LamellaCentre
 from fibsem.structures import (
     BeamType,
@@ -54,6 +49,11 @@ from fibsem.structures import (
     ImageSettings,
     MicroscopeState,
     Point,
+)
+from fibsem.workflows.interaction import (
+    ConfirmDetection,
+    ReviewDetection,
+    ask,
 )
 from fibsem.workflows.status import HoldKind, TaskStatus
 
