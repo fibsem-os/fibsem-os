@@ -3522,6 +3522,7 @@ class AutoLamellaAppContext:
             {
                 "name": summary.name,
                 "path": summary.path,
+                "app": summary.app,
                 "created_at": to_iso(summary.created_at),
                 "num_items": summary.num_lamella,
                 "available": summary.available,
