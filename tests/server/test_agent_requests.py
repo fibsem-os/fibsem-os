@@ -780,7 +780,7 @@ def test_a_run_task_reads_by_its_stages_with_whose_estimate_it_is():
             {"beam_type": "ION", "image_settings": {"hfw": 80e-6}},
             {},
             "Ion beam",
-            "Take an image: 80 µm wide, 1536 × 1024, 1 µs dwell. "
+            "Take an image: 80 µm wide, 1536 × 1024, 1 µs dwell\n"
             "These settings stay on the beam",
         ),
         (

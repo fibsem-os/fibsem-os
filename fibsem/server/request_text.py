@@ -828,7 +828,9 @@ def _acquire_image(a: Dict[str, Any], get: Callable[[str], Any]) -> Dict[str, An
             rows.append((_image_label(key), "", new))
     return {
         "what": _beam(a),
-        "change": f"Take an image: {_image_settings(settings)}. "
+        # The caveat on a line of its own: a line about it after the fact
+        # (Recent) reads the first only.
+        "change": f"Take an image: {_image_settings(settings)}\n"
         "These settings stay on the beam",
         "details": _table(("Setting", "Now", "New"), rows),
     }
