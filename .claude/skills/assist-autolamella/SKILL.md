@@ -237,7 +237,9 @@ commands) go in requests like any other action. They need the devices
 setting (`routers.microscope` true). Without it they are refused when you
 file them (`not_available`). Follow the supervise skill's *Using the
 microscope* rules: read the stage before each move, take a fresh image
-before judging, and treat `409 microscope_busy` as someone else working. If
+before judging, treat `409 microscope_busy` as someone else working, and
+work through a blank image in the order it gives (reads first, then a
+request for each change). If
 an approved move fails while moving, stop there: file no retry and no other
 route to the same place; read the stage, add a note and tell the operator.
 An image costs dose on a real sample, so a fresh one is an action at
@@ -260,6 +262,11 @@ grid.
 keeping that you're not acting on ("02: fiducial out of frame in the start
 image; left for the operator"). A request's reason and a suggestion's
 reason are already on the record. Don't repeat them in a note.
+
+Where a site came from (grid, square, rank, why it was chosen) belongs on the
+lamella, not in a note: ask for `item_update` with
+`{"patch": {"description": "..."}}`. When you ask for `item_add`, leave
+`name` out so the lamella gets the app's usual name.
 
 ## How you report
 
