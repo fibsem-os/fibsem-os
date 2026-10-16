@@ -9,7 +9,7 @@ fit on screen; Keep click applies nothing.
 
 The panel never fits by itself: the caller passes ``refit``, which runs the
 point's fit with the inputs given and returns a
-:class:`~fibsem.ui.correlation.widgets.fit_confirmation_dialog.PointFitResult`.
+:class:`~fibsem.ui.correlation.widgets.fit_result.PointFitResult`.
 """
 
 from __future__ import annotations
@@ -34,9 +34,10 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem.correlation.fit_diagnostics import _C_FIT, _C_IN
 from fibsem.correlation.structures import PointXYZ
 from fibsem.ui import stylesheets
-from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
+from fibsem.ui.correlation.widgets.fit_result import (
     _STATUS_STYLE,
     FitStatus,
     PointFitResult,
@@ -458,7 +459,8 @@ def _plane_pixmap(stack, plane, click: PointXYZ, point: PointXYZ) -> QPixmap:
     )
     pixmap = QPixmap.fromImage(image.copy())
     painter = QPainter(pixmap)
-    for p, colour in ((click, "#ff5050"), (point, "#4caf50")):
+    # the diagnostic figure's input and fit marker colours, so the two match
+    for p, colour in ((click, _C_IN), (point, _C_FIT)):
         painter.setPen(QPen(QColor(colour), 2))
         c = QPointF((p.x - x0 + 0.5) * s, (p.y - y0 + 0.5) * s)
         painter.drawLine(c - QPointF(8, 0), c + QPointF(8, 0))

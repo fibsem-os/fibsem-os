@@ -17,7 +17,8 @@ CHECKED = [
     "coordinate_list_widget.py",
     "correlation_setup_section.py",
     "refractive_index_widget.py",
-    "fit_confirmation_dialog.py",
+    "fit_result.py",
+    "fit_panel.py",
     "fm_interpolate_dialog.py",
 ]
 # Point-type colours live in the overlay on purpose; the canvases are matplotlib.

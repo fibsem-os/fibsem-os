@@ -143,7 +143,7 @@ def _draw_xy_panel(ax, d: FitDiagnostic) -> None:
 
 # --- dark theme -----------------------------------------------------------
 # The napari-dark palette for the confirm dialog. This is the exact re-theming
-# that shipped in #144 (formerly _apply_dark_theme in fit_confirmation_dialog);
+# that shipped in #144 (formerly _apply_dark_theme in the old Confirm fit dialog);
 # it now lives here so the dialog just passes dark=True. Only theme-agnostic
 # chrome is touched — the saturated input/fitted markers and the grayscale image
 # are left as authored (they read correctly on dark).
