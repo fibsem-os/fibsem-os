@@ -1240,21 +1240,25 @@ class FibsemRectangle(Configurable):
         0.0,
         limits=RangeLimit(0.0, 1.0),
         doc="The left edge, from the frame's left, as a fraction of the full frame.",
+        display=Display("Left", step=0.01, decimals=2),
     )
     top: float = param(
         0.0,
         limits=RangeLimit(0.0, 1.0),
         doc="The top edge, from the frame's top, as a fraction of the full frame.",
+        display=Display("Top", step=0.01, decimals=2),
     )
     width: float = param(
         1.0,
         limits=RangeLimit(0.0, 1.0),
         doc="The width, as a fraction of the full frame.",
+        display=Display("Width", step=0.01, decimals=2),
     )
     height: float = param(
         1.0,
         limits=RangeLimit(0.0, 1.0),
         doc="The height, as a fraction of the full frame.",
+        display=Display("Height", step=0.01, decimals=2),
     )
 
     def __post_init__(self):
@@ -2932,8 +2936,14 @@ def _parse_rotation_centre(value) -> Optional[Tuple[float, float]]:
 
 
 @dataclass
-class StageSystemSettings:
-    rotation_reference: float
+class StageSystemSettings(Configurable):
+    rotation_reference: float = param(
+        unit="°",
+        limits=RangeLimit(-360.0, 360.0),
+        doc="The stage rotation the SEM orientation is defined at; on a stage that "
+        "rotates, the FIB orientation is 180° from it.",
+        display=Display("Reference rotation", decimals=2),
+    )
     # Accepted as a constructor keyword, held as `_shuttle_pre_tilt`, and read back
     # through the property below. An `InitVar` rather than a field because the value
     # a caller passes is a *fallback* -- the answer comes from the active holder when
@@ -2963,7 +2973,14 @@ class StageSystemSettings:
     # to sit -- which is exactly what `rotation` had become in the simulator's Arctis
     # configuration before it was read by anything.
     rotation: bool = True
-    milling_angle: float = 15
+    milling_angle: float = param(
+        15,
+        unit="°",
+        limits=RangeLimit(0.0, 45.0),
+        doc="The milling angle is the difference between the stage and the fib "
+        "viewing angle.",
+        display=Display("Milling Angle", step=1.0, decimals=1),
+    )
     # Where the stage travels for each instrument to see the sample. Keyed by device
     # name -- "FIBSEM" and "FM" today -- and separate from `orientations`, which says
     # what pose the sample is held in once the stage is there.
@@ -5503,7 +5520,11 @@ DEFAULT_ALIGNMENT_AREA = {"left": 0.7, "top": 0.3, "width": 0.25, "height": 0.4}
 class MillingAlignment(Configurable):
     """Drift correction settings for milling"""
 
-    enabled: bool = True
+    enabled: bool = param(
+        True,
+        doc="Align between the imaging and milling currents before milling starts.",
+        display=Display("Enable Initial Alignment"),
+    )
     interval_enabled: bool = param(
         False,
         display=Display("Re-align during milling"),
@@ -5519,15 +5540,33 @@ class MillingAlignment(Configurable):
     rect: FibsemRectangle = field(
         default_factory=lambda: FibsemRectangle.from_dict(DEFAULT_ALIGNMENT_AREA)
     )
-    use_autocontrast: bool = True
-    use_autofocus: bool = False
-    steps: int = 3
+    use_autocontrast: bool = param(
+        True,
+        doc="Auto contrast before the alignment image is acquired.",
+        display=Display("Use Auto Contrast"),
+    )
+    use_autofocus: bool = param(
+        False,
+        doc="Auto focus before the alignment image is acquired.",
+        display=Display("Use Auto Focus"),
+    )
+    steps: int = param(
+        3,
+        limits=RangeLimit(1, 9),
+        doc="How many times the alignment is repeated.",
+        display=Display("Alignment Steps"),
+    )
     imaging: ImageSettings = field(default_factory=ImageSettings)
-    # Align on the whole frame, not ``rect``, when the current the column reads
-    # back at the stage's milling current is at or below this (amps); 0 is off.
     # At polishing currents a full frame costs about the dose of an ordinary
     # image and gives the match far more to lock onto than a small area does.
-    full_frame_below: float = 0.0
+    full_frame_below: float = param(
+        0.0,
+        unit="A",
+        limits=RangeLimit(0.0, 100e-9),
+        doc="Align on the whole frame instead of the alignment area when the "
+        "milling current is at or below this. Off at 0.",
+        display=Display("Full Frame At Or Below", scale=1e12, step=10, decimals=0),
+    )
 
     def to_dict(self):
         return {
@@ -5812,7 +5851,12 @@ class SampleHolder(Configurable):
     # `_parent.system.stage.shuttle_pre_tilt`. That direction is now reversed, and
     # both cannot exist: the stage reads the holder, so a holder that read the stage
     # would recurse until the interpreter gave up.
-    pre_tilt: float = param(unit="°", doc="Pre-tilt of this holder, in degrees")
+    pre_tilt: float = param(
+        unit="°",
+        limits=RangeLimit(-90.0, 90.0),
+        doc="Pre-tilt of this holder, in degrees",
+        display=Display(decimals=1),
+    )
     name: str = param("Sample Holder", doc="Name of the sample holder")
     description: str = param("", doc="Description of the sample holder")
     capacity: int = param(

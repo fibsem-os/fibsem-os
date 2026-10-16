@@ -44,6 +44,7 @@ from fibsem.structures import (
     FibsemStagePosition,
     InsertableDeviceState,
     Point,
+    StageSystemSettings,
 )
 from fibsem.ui import notification_service
 from fibsem.ui.qt.threading import thread_worker
@@ -53,6 +54,7 @@ from fibsem.ui.stylesheets import (
     SECONDARY_BUTTON_STYLESHEET,
 )
 from fibsem.ui.utils import install_wheel_blocker
+from fibsem.ui.widgets.form_builder import configure_spinbox
 from fibsem.ui.widgets.stage_position_widget import StagePositionWidget
 
 INSTRUCTIONS_TEXT = (
@@ -191,12 +193,9 @@ class StageControlWidget(QWidget):
         self.doubleSpinBox_milling_angle.setValue(
             self.microscope.system.stage.milling_angle
         )  # deg
-        self.doubleSpinBox_milling_angle.setSuffix(constants.DEGREE_SYMBOL)
-        self.doubleSpinBox_milling_angle.setSingleStep(1.0)
-        self.doubleSpinBox_milling_angle.setDecimals(1)
-        self.doubleSpinBox_milling_angle.setRange(0, 45)
-        self.doubleSpinBox_milling_angle.setToolTip(
-            "The milling angle is the difference between the stage and the fib viewing angle."
+        configure_spinbox(
+            self.doubleSpinBox_milling_angle,
+            StageSystemSettings.params["milling_angle"],
         )
         self.doubleSpinBox_milling_angle.setKeyboardTracking(False)
         self.doubleSpinBox_milling_angle.valueChanged.connect(

@@ -292,6 +292,14 @@ class ValueComboBox(QComboBox):
         return self.currentData()
 
 
+def unit_suffix(unit: Optional[str]) -> str:
+    """A spin box's suffix for ``unit``: after a space ("5 s", "1.0 µm"), except a
+    degree sign, which is written against its number ("12.5°")."""
+    if not unit:
+        return ""
+    return unit if unit == "°" else f" {unit}"
+
+
 class IntegerValueSpinBox(QSpinBox):
     """QSpinBox with sensible defaults, WheelBlocker, and None-safe configuration."""
 
@@ -307,7 +315,7 @@ class IntegerValueSpinBox(QSpinBox):
     ) -> None:
         super().__init__(parent)
         if suffix:
-            self.setSuffix(f" {suffix}")
+            self.setSuffix(unit_suffix(suffix))
         self.setRange(
             minimum if minimum is not None else 0,
             maximum if maximum is not None else 1000000,
@@ -337,7 +345,7 @@ class ValueSpinBox(QDoubleSpinBox):
     ) -> None:
         super().__init__(parent)
         if suffix:
-            self.setSuffix(f" {suffix}")
+            self.setSuffix(unit_suffix(suffix))
         self.setRange(
             minimum if minimum is not None else 0.0,
             maximum if maximum is not None else 1e6,
