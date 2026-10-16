@@ -129,3 +129,43 @@ def test_a_stitched_overview_runs_at_its_tiles_size(client, microscope, experime
     assert result["shape"] == list(overview.image.data.shape)
     cells = result["classes"]["Cell"]
     assert len(cells["regions"]) == min(cells["count"], 20)
+
+
+def test_detect_at_watch_answers_features_and_saves_beside_the_image(
+    client, microscope, experiment
+):
+    path = _saved(microscope, experiment)
+    resp = client.post(
+        f"{INFERENCE}/queries/detect",
+        json={
+            "kwargs": {
+                "image_path": path,
+                "features": ["ImageCentre"],
+                "model": "fake-segmentation",
+            }
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    result = resp.json()["result"]
+    (centre,) = result["features"]
+    assert centre["name"] == "ImageCentre"
+    assert (centre["px"]["x"], centre["px"]["y"]) == (192, 128)
+    assert result["model"]["model"] == "fake-segmentation"
+    assert result["pixel_size_m"] > 0
+    assert os.path.isfile(result["overlay_path"])
+    assert result["overlay_path"].startswith(str(experiment / "inference"))
+
+
+def test_detect_refuses_an_unknown_feature_and_needs_a_model(
+    client, microscope, experiment
+):
+    path = _saved(microscope, experiment)
+    for kwargs in (
+        {"features": ["Nope"], "model": "fake-segmentation"},
+        {"features": ["ImageCentre"]},  # nothing is the default for detection
+    ):
+        resp = client.post(
+            f"{INFERENCE}/queries/detect",
+            json={"kwargs": {"image_path": path, **kwargs}},
+        )
+        assert resp.status_code == 422, resp.text

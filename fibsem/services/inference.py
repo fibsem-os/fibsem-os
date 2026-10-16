@@ -27,7 +27,7 @@ RESULTS_FOLDER = "inference"
 
 class Inference(Service):
     """The registered models: ``list_models`` and ``model_info`` read them,
-    ``segment`` runs one on a saved image."""
+    ``segment`` and ``detect`` run one on a saved image."""
 
     def __init__(self, name: str = "inference", manager: Any = None, **kwargs: Any):
         super().__init__(name, **kwargs)
@@ -81,28 +81,70 @@ class Inference(Service):
 
         A stitched overview (its tiles' folder and record beside it) runs a
         tile at a time, at the tiles' size and pixel size. Moves nothing."""
+        loaded = self._segmentation_model(model, "segmentation")
+        image = FibsemImage.load(image_path)
+        overview = overview_tiles(image_path)
+        result = loaded.segment(image, tile=overview)
+        saved = _save(result, image, image_path, loaded.name, path)
+        answer = {**result.to_dict(), "image_path": image_path, **saved}
+        if overview is not None:
+            answer["tile_px"] = list(overview)
+        return answer
+
+    @query
+    def detect(
+        self,
+        image_path: str,
+        features: List[str],
+        model: str = "",
+        point: Optional[List[float]] = None,
+        path: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Find *features* (names, such as ``LamellaCentre``) in the saved image
+        at *image_path*, in the segmentation of the model registered as *model*
+        (left out, the default for detection). *point* ([x, y] pixels) picks
+        among several of one feature: the closest wins.
+
+        Answers each feature's position in pixels (x, y; +y down) and in metres
+        from the image centre (+y up), the image's pixel size, and which model
+        made it. Saves the mask, an overlay and the result as ``segment`` does.
+        Moves nothing."""
+        from fibsem.ai import detection
+        from fibsem.structures import Point
+
+        if not features:
+            raise ValueError("name at least one feature to detect")
+        found = [detection.feature(name) for name in features]
+        loaded = self._segmentation_model(model, "detection")
+        image = FibsemImage.load(image_path)
+        if point is not None:
+            point = Point(float(point[0]), float(point[1]))
+        det, result = detection.detect(loaded, image, found, point=point)
+        saved = _save(result, image, image_path, loaded.name, path)
+        return {
+            "features": [f.to_dict() for f in det.features],
+            "pixel_size_m": det.pixelsize,
+            "model": result.provenance,
+            "warnings": list(result.warnings),
+            "image_path": image_path,
+            **saved,
+        }
+
+    def _segmentation_model(self, model: str, task: str) -> Any:
+        """The loaded segmentation model registered as *model*, or, left out,
+        the default for *task* (a detection runs on a segmentation model)."""
         if not model:
-            default = self.manager.registry.default_for("segmentation")
+            default = self.manager.registry.default_for(task)
             if default is None:
-                raise ValueError("no model is the default for segmentation; name one")
+                raise ValueError(f"no model is the default for {task}; name one")
             model = default.name
         entry = self._agent_entry(model)
-        image = FibsemImage.load(image_path)
         loaded = self.manager.get(model)
         if loaded.card.task != "segmentation":
             raise ValueError(
                 f"{entry.name} is a {loaded.card.task} model, not segmentation"
             )
-        overview = overview_tiles(image_path)
-        result = loaded.segment(image, tile=overview)
-        if path is None:
-            path = os.path.join(os.path.dirname(image_path), RESULTS_FOLDER)
-        stem = f"{os.path.splitext(os.path.basename(image_path))[0]}-{entry.name}"
-        saved = result.save(path, stem, image=image.data)
-        answer = {**result.to_dict(), "image_path": image_path, **saved}
-        if overview is not None:
-            answer["tile_px"] = list(overview)
-        return answer
+        return loaded
 
     def _agent_entry(self, model: str) -> Any:
         """The entry for *model*. One kept from the agent (``agent: false``) is
@@ -113,6 +155,17 @@ class Inference(Service):
 
             raise ModelNotFound(f"no model '{entry.name}' is registered for the agent")
         return entry
+
+
+def _save(
+    result: Any, image: FibsemImage, image_path: str, model: str, path: Optional[str]
+) -> Dict[str, str]:
+    """Save *result* in *path*, by default the ``inference`` folder beside the
+    image, named after the image and the model. Answers the saved paths."""
+    if path is None:
+        path = os.path.join(os.path.dirname(image_path), RESULTS_FOLDER)
+    stem = f"{os.path.splitext(os.path.basename(image_path))[0]}-{model}"
+    return result.save(path, stem, image=image.data)
 
 
 def overview_tiles(image_path: str) -> Optional[Tuple[int, int]]:

@@ -634,6 +634,21 @@ def build_sidecar(client, capabilities):
             "inference_segment", "segmentation", image_path=image_path, model=model
         )
 
+    def inference_detect(
+        image_path: str,
+        features: List[str],
+        model: str = "",
+        point: Optional[List[float]] = None,
+    ):
+        return _routed(
+            "inference_detect",
+            "detection",
+            image_path=image_path,
+            features=list(features),
+            model=model,
+            point=list(point) if point else None,
+        )
+
     def milling_stop(reason: str):
         data, err = _route("milling_stop", reason=reason)
         return err if err else {"status": "ok"}
@@ -1501,6 +1516,7 @@ def build_sidecar(client, capabilities):
             inference_list_models,
             inference_model_info,
             inference_segment,
+            inference_detect,
             milling_check_stages,
             milling_list_options,
             device_call_query,

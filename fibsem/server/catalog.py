@@ -122,6 +122,7 @@ _WRITES_AT_WATCH = frozenset(
         "request_withdraw",
         "item_measure_thickness",  # saves its result beside the image
         "inference_segment",  # saves its mask and overlay beside the image
+        "inference_detect",  # saves its mask and overlay beside the image
     }
 )
 
@@ -449,7 +450,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "The models you may run: each one's name, task (segmentation), "
             "version, backend, class names, the tasks it is the default for, and "
             "whether it is ready (ready, missing packages, unavailable) and loaded. "
-            "Name one of these to inference_segment; you can't name a file. Loads nothing."
+            "Name one of these to inference_segment or inference_detect; you can't name a file. Loads nothing."
         ),
         method="POST",
         path="/microscope/services/inference/queries/list_models",
@@ -488,6 +489,30 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "model": "a model name from inference_list_models, name@version to pin one (default: the segmentation default)",
         },
         optional=("model",),
+    ),
+    ToolSpec(
+        name="inference_detect",
+        description=(
+            "Find features (LamellaCentre, NeedleTip, LamellaLeftEdge, ...) in a "
+            "saved image (inside the open experiment), in a registered segmentation "
+            "model's mask, as the workflow's detections do: each feature's position "
+            "in pixels (+y down) and in metres from the image centre (+y up), the "
+            "pixel size, and which model made it. point [x, y] in pixels picks among "
+            "several of one feature (the closest wins). Refused 422 for an unknown "
+            "feature or an image the model was not trained on, 404 for a model not "
+            "registered. Saves the mask and an overlay (overlay_path) in an inference "
+            "folder beside the image. Moves nothing."
+        ),
+        method="POST",
+        path="/microscope/services/inference/queries/detect",
+        level="watch",
+        params={
+            "image_path": "a saved image inside the open experiment",
+            "features": 'feature names, such as ["LamellaCentre"]',
+            "model": "a model name from inference_list_models, name@version to pin one (default: the detection default)",
+            "point": "[x, y] in pixels: the closest of several of one feature wins",
+        },
+        optional=("model", "point"),
     ),
     ToolSpec(
         name="milling_stop",
