@@ -647,20 +647,24 @@ CATALOG: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="service_wait_for_run",
         description=(
-            "How a long command you started (a milling or spot burn run, an "
-            "alignment, an FM auto-focus, an overview or a focus stack) is going: "
-            "its run with state running, done, failed or cancelled, and when it has "
-            "ended its result or error. Waits up to wait seconds (at most 60) for "
-            "it to end, so call it again while it says running. With run_id, waits "
-            "for that run; a later run on the service answers at once. The same end "
-            "comes as a command_ended event on app_get_events."
+            "How a long command on a service is going (a mill, a spot burn, an "
+            "alignment, an FM auto-focus, an overview or a focus stack), whoever "
+            "started it: you, a workflow task or the operator. A workflow's "
+            "milling task is a run on milling, its run_id the milling_run_id "
+            "its milling events carry. Answers its run with state running, "
+            "done, failed or cancelled, and when it has ended its result or "
+            "error. Waits up to wait seconds (at most 60) for it to end, so call "
+            "it again while it says running. Without run_id, the run going on, "
+            "else the service's last; with run_id, waits for that run, and a "
+            "later run on the service answers at once. The same end comes as a "
+            "command_ended event on app_get_events."
         ),
         method="GET",
         path="/microscope/services/{service}/run",
         level="watch",
         params={
             "service": "required: the service the command ran on, e.g. milling, imaging or alignment",
-            "run_id": "the run_id the command answered with",
+            "run_id": "the run_id the command answered with, or a milling_run_id",
             "wait": "seconds to wait for the end, at most 60 (default 60)",
         },
         optional=("run_id", "wait"),
