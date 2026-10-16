@@ -143,6 +143,7 @@ from fibsem.ui.stylesheets import (
     SECONDARY_BUTTON_STYLESHEET,
     STATUS_BAR_STYLESHEET,
     border_stylesheet,
+    shown_border_state,
 )
 from fibsem.ui.tokens import (
     ACCENT_COLOR,
@@ -504,6 +505,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # process abort (FIB-329), not a missing border. The attribute alone -- the
         # frame is unstyled until _set_border_state changes it, which is idle's look.
         self._border_state = "idle"
+        # Whether the agent drives: the border turns its purple (see
+        # shown_border_state). Follows the level with the agent chip.
+        self._agent_driving = False
         self.dev_mode = self._preferences.display.dev_mode
 
         # create menus, status bar, and tabs
@@ -980,7 +984,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._preferences = fibsem_cfg.update_user_preferences(
             lambda p: setattr(p.display, "border_enabled", checked)
         )
-        self._set_border_state("idle")
+        self._apply_border()
 
     def _on_open_preferences(self):
         """Open the preferences dialog."""
@@ -1004,6 +1008,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         d = self._preferences.display
         self._sound_enabled = d.sound_enabled
         self._border_enabled = d.border_enabled
+        self._apply_border()
         self.dev_mode = d.dev_mode
         # The lamella strip's density. Guarded because _apply_preferences also runs
         # before the Lamella tab is built.
@@ -2157,6 +2162,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if state == getattr(self, "_border_state", None):
             return
         self._border_state = state
+        self._apply_border()
+
+    def _apply_border(self) -> None:
+        """Paint the border for the run's state, and the agent driving."""
+        state = shown_border_state(self._border_state, self._agent_driving)
         effective = state if self._border_enabled else "idle"
         self._border_frame.setProperty("borderState", effective)
         style = self._border_frame.style()
@@ -3837,14 +3847,27 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self._watch_agent_requests(None)
             self.agent_previews.show_request(None)
             self.agent_chip.hide()
+            self._set_agent_driving(False)
             return
         level = host.auth.level or AgentLevel.WATCH
         if self.agent_chip.level is not level:
             self.agent_chip.set_level(level)
+        self._set_agent_driving(level is AgentLevel.DRIVE)
         store = getattr(host, "requests", None)
         self._watch_agent_requests(store)
         self._show_agent_request(store)
         self.agent_chip.show()
+
+    def _set_agent_driving(self, driving: bool) -> None:
+        """The agent's purple on the border while it drives, here and on the
+        coincidence viewer's border."""
+        viewer = getattr(self.autolamella_ui, "_coincidence_viewer_window", None)
+        if viewer is not None:
+            viewer.set_agent_driving(driving)
+        if driving == self._agent_driving:
+            return
+        self._agent_driving = driving
+        self._apply_border()
 
     def _watch_agent_requests(self, store) -> None:
         """Follow *store*'s changes, so the chip moves as a request is filed and
