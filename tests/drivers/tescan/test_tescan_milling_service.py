@@ -389,10 +389,12 @@ def test_only_the_ion_beam_mills(connect):
 
 
 def test_the_agent_sees_tescan_settings_under_their_keys(connect):
-    from fibsem.server.devices import _arguments
+    from fibsem.schema import arguments_schema
 
     microscope, _ = connect()
-    schema = _arguments(microscope.milling, "setup")
+    schema = arguments_schema(
+        type(microscope.milling).setup, microscope.milling.schema_defs()
+    )
     recipe = schema["$defs"]["FibsemMillingSettings"]["properties"]
     assert MILL_PRESET in recipe["tescan.preset"]["enum"]
     assert "tescan.rate" in recipe

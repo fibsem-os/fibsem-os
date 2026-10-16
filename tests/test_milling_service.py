@@ -333,16 +333,20 @@ def test_a_driver_reads_its_keys_and_keeps_the_others(microscope):
 
 
 def test_the_agent_sees_the_recipe_this_instrument_mills_with(microscope):
-    from fibsem.server.devices import _arguments
+    from fibsem.schema import arguments_schema
 
-    schema = _arguments(microscope.milling, "setup")
+    schema = arguments_schema(
+        type(microscope.milling).setup, microscope.milling.schema_defs()
+    )
     recipe = schema["$defs"]["FibsemMillingSettings"]["properties"]
     assert "milling_current" in recipe and "driver_settings" not in recipe
     assert not any(key.startswith("tescan.") for key in recipe)
     beam = microscope.milling.ion.current
     assert recipe["milling_current"]["enum"] == list(beam.metadata.choices)
     # a command that takes no recipe has no recipe schema
-    assert "$defs" not in _arguments(microscope.milling, "estimate_time")
+    assert "$defs" not in arguments_schema(
+        type(microscope.milling).estimate_time, microscope.milling.schema_defs()
+    )
 
 
 def test_a_driver_with_settings_of_its_own_needs_a_prefix():
