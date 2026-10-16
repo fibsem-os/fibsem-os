@@ -2,19 +2,30 @@
 from __future__ import annotations
 
 import logging
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import ClassVar, Optional, Type
 
 from fibsem import config as fcfg
 from fibsem import timing
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
-from fibsem.applications.autolamella.workflows.interaction import RunSpotBurn, ask
+from fibsem.applications.autolamella.workflows.interaction import (
+    ACTION_ACCEPT,
+    ACTION_EDIT,
+    ACTION_RUN,
+    ClearSpotBurn,
+    RunSpotBurn,
+    ask,
+)
 from fibsem.applications.autolamella.workflows.tasks.base import (
     ALIGNMENT_REFERENCE_IMAGE_FILENAME,
     AutoLamellaTask,
 )
-from fibsem.applications.autolamella.workflows.ui import _abort_requested
-from fibsem.imaging.spot import SpotBurnSettings, run_spot_burn
+from fibsem.applications.autolamella.workflows.ui import (
+    INSTRUCTION_TIMEOUT_S,
+    _abort_requested,
+)
+from fibsem.imaging.spot import SpotBurnSettings, run_spot_burn, show_after_burn
 from fibsem.structures import BeamType, Display, Point, field_meta
 
 
@@ -158,50 +169,90 @@ class SpotBurnFiducialTask(AutoLamellaTask):
         self._acquire_set_of_reference_images(image_settings)
 
     def update_spot_burn_parameters_ui(self):
-        """Run the spot burn automatically (unsupervised/headless), or hand off to the UI.
+        """Burn the points, asking first when supervised, and keep the settings
+        as last used.
 
-        Supervised runs let the user place/adjust points and run the burn in the spot
-        burn widget; unsupervised/headless runs burn the stored coordinates directly.
+        The loop is the task's, on this thread, as the mill's is (FIB-1236).
+        Supervised, it asks :class:`RunSpotBurn` what to do: run burns the
+        settings as answered and asks again with the pass counted (and the
+        error, if the burn failed); edit asks again with the settings as
+        answered; skip and accept end the loop. A run with no points burns
+        nothing and asks again, saying so. Unsupervised or headless, it
+        burns the stored points once, and a failure fails the task; with no
+        points it skips. Supervision is read at each decision.
         """
-        # automatic path: no user in the loop (unsupervised or headless). Skip (rather than
-        # block on the interactive prompt) when there are no coordinates to burn.
-        if not self.validate or self.parent_ui is None:
-            if not self.config.coordinates:
-                logging.warning(
-                    f"No spot burn coordinates set for {self.lamella.name}; skipping spot burn."
+        responder = getattr(self.parent_ui, "ui_responder", None)
+        settings = self.config.to_settings()
+        msg = f"Place points for the spot burn of {self.lamella.name}."
+        burned, passes, error, refused = settings, 0, None, None
+        try:
+            while True:
+                if responder is not None and self.validate:
+                    decision = ask(
+                        responder,
+                        RunSpotBurn(
+                            settings=deepcopy(settings),
+                            message=msg,
+                            passes=passes,
+                            last_error=refused
+                            or (None if error is None else str(error)),
+                        ),
+                        abort=lambda: _abort_requested(self.parent_ui),
+                    )
+                    if decision is None:
+                        # No spot-burn widget: optional hardware must not fail
+                        # a workflow.
+                        return
+                    if decision.action == ACTION_ACCEPT and passes:
+                        settings = burned  # not an edit made after the burn
+                        break
+                    settings, refused = decision.settings, None
+                    if decision.action == ACTION_EDIT:
+                        continue
+                    if decision.action != ACTION_RUN:
+                        break
+                    if not settings.coordinates:
+                        refused = "No points to burn: place some first."
+                        continue
+                elif passes:
+                    if error is not None:
+                        raise error
+                    break
+                elif not settings.coordinates:
+                    logging.warning(
+                        f"No spot burn coordinates set for {self.lamella.name}; "
+                        "skipping spot burn."
+                    )
+                    return
+                error = self._burn(settings, show=responder is not None)
+                burned, passes = settings, passes + 1
+        finally:
+            # After a Stop the workflow's end clears the widget instead.
+            if responder is not None and not _abort_requested(self.parent_ui):
+                ask(
+                    responder,
+                    ClearSpotBurn(),
+                    abort=lambda: _abort_requested(self.parent_ui),
+                    timeout=INSTRUCTION_TIMEOUT_S,
                 )
-                return
-            # burn the stored coordinates directly (progress via the microscope signal)
+        self.config.apply_settings(settings)
+
+    def _burn(self, settings: SpotBurnSettings, show: bool) -> Optional[Exception]:
+        """Burn once, under the task's stop; the error if it failed. With a
+        window, the FIB view then shows what the burn left. A Stop of the
+        workflow during it raises once it has ended."""
+        error: Optional[Exception] = None
+        try:
             run_spot_burn(
                 microscope=self.microscope,
-                settings=self.config.to_settings(),
+                settings=settings,
                 beam_type=BeamType.ION,
                 stop_event=self._stop_event,
             )
-            return
-
-        # supervised path: one question over the Responder, mirroring milling. The
-        # whole run/wait/re-prompt loop lives on the GUI thread that owns the
-        # widget; this thread blocks on the answer — the settings as actually used
-        # (coordinates + current/exposure), with the widget already cleared. None
-        # means no spot-burn widget: optional hardware must not fail a workflow.
-        msg = f"Place points and run the spot burn for {self.lamella.name}. Press Continue when finished."
-        try:
-            settings = ask(
-                self.parent_ui.ui_responder,
-                RunSpotBurn(settings=self.config.to_settings(), message=msg),
-                abort=lambda: _abort_requested(self.parent_ui),
-            )
-        except InterruptedError:
-            # workflow stopped: take a running burn down with the task. Covers the
-            # race where the burn starts after the Stop click already ran cancel
-            # (the worker clears its stop_event on start). cancel_spot_burn only
-            # sets a threading.Event, so it is safe to call from the task thread.
-            spot_burn_widget = self.parent_ui.spot_burn_widget
-            if spot_burn_widget is not None:
-                spot_burn_widget.cancel_spot_burn()
-            raise
-
-        if settings is not None:
-            # store the user's settings back to the config
-            self.config.apply_settings(settings)
+        except Exception as exc:  # noqa: BLE001 - asked again, or raised, by the loop
+            logging.error(f"Spot burn failed: {exc}", exc_info=True)
+            error = exc
+        self._check_for_abort()
+        if error is None and show:
+            show_after_burn(self.microscope)
+        return error

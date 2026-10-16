@@ -499,6 +499,7 @@ def test_a_suggested_area_and_spot_burn_points_are_drawn_on_the_card():
     from fibsem.applications.autolamella.workflows.interaction import (
         EditAlignmentArea,
         RunSpotBurn,
+        SpotBurnEdit,
     )
     from fibsem.structures import FibsemRectangle
 
@@ -513,7 +514,9 @@ def test_a_suggested_area_and_spot_burn_points_are_drawn_on_the_card():
     assert layer.keys == [("area", "alignment area")]
 
     points = [Point(0.5, 0.5), Point(0.75, 0.25)]
-    previews.show_suggestion(RunSpotBurn(settings=None), points)
+    previews.show_suggestion(
+        RunSpotBurn(settings=None), SpotBurnEdit(action="run", points=points)
+    )
     _, layer = _layer(previews.suggestion_picture)
     assert layer.areas == []
     # Spot burn points are dots.

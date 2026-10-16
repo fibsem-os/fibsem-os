@@ -2609,10 +2609,10 @@ class AutoLamellaAppContext:
         ``EditAlignmentArea``; a point (``{"x", "y"}``, metres in microscope
         image coordinates, origin centre, +y up) for ``PickPOI``; moved
         features (``{"features": [{"name", "px": {"x", "y"}}]}``, source-image
-        pixels, only the named ones move) for ``ConfirmDetection``; the points
-        to burn (``{"points": [{"x", "y"}]}``, fractions of the frame, origin
-        top-left; current and exposure stay the protocol's) for
-        ``RunSpotBurn``. The value is
+        pixels, only the named ones move) for ``ConfirmDetection``; the action
+        and any edits (``{"action", "points": [{"x", "y"}], "milling_current",
+        "exposure_time"}``, points as fractions of the frame, origin top-left)
+        for ``RunSpotBurn``. The value is
         validated here — in bounds, non-degenerate, the right shape for the
         pending question — and refused as ``invalid_value`` without clicking
         anything when it is not. A valid value is placed into the widget as if

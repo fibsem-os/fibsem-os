@@ -36,6 +36,7 @@ from fibsem.acting import AGENT, OPERATOR, TASK, acting
 from fibsem.applications.autolamella.proposals import AuthorKind, DecisionOutcome
 from fibsem.applications.autolamella.workflows.interaction import (
     ClearMillingConfig,
+    ClearSpotBurn,
     Confirm,
     ConfirmDetection,
     EditAlignmentArea,
@@ -44,13 +45,17 @@ from fibsem.applications.autolamella.workflows.interaction import (
     PickPOI,
     Request,
     ReviewDetection,
+    RunAgainQuestion,
     RunMillingTask,
     RunSpotBurn,
     SetFluorescenceChannels,
     SetImages,
     SetMillingConfig,
+    SpotBurnDecision,
+    SpotBurnEdit,
     StalePromptError,
     apply_milling_edit,
+    apply_spot_burn_edit,
     mark_answered_by,
 )
 from fibsem.applications.autolamella.workflows.question_adapters import (
@@ -74,10 +79,10 @@ if TYPE_CHECKING:
 __all__ = ["QtResponder"]
 
 
-def _milling_action(request: RunMillingTask, clicked_yes: bool, value: object) -> str:
-    """What an answer to the milling question decides: its value's action when
-    it carries one (an agent's), else the button's."""
-    if isinstance(value, MillingEdit):
+def _loop_action(request: RunAgainQuestion, clicked_yes: bool, value: object) -> str:
+    """What an answer to a run-again question (milling, spot burn) decides: its
+    value's action when it carries one (an agent's), else the button's."""
+    if isinstance(value, (MillingEdit, SpotBurnEdit)):
         return value.action
     return request.action_for(clicked_yes)
 
@@ -138,6 +143,7 @@ class QtResponder(QObject):
             SetImages: self._set_images,
             SetMillingConfig: self._set_milling_config,
             ClearMillingConfig: self._clear_milling_config,
+            ClearSpotBurn: self._clear_spot_burn,
             SetFluorescenceChannels: self._set_fluorescence_channels,
         }
         # Deferred: the handler shows the prompt and someone else completes the
@@ -165,10 +171,6 @@ class QtResponder(QObject):
         # is only a prompt. One attribute, read cross-thread by the agent
         # server the same way _pending_question is.
         self._recorded: Optional[Tuple[object, str, str, str]] = None
-        # A RunSpotBurn whose burn is currently running: the prompt is down, the
-        # future is pending, and finished_spot_burn_signal decides what next.
-        self._active_spot_burn: Optional[Tuple[RunSpotBurn, "Future"]] = None
-        self._spot_burn_finished_wired: Optional[object] = None
         # The frame a pending PickPOI's marker was placed on, and the image
         # widget whose frame changes it follows (FIB-1410).
         self._poi_marker_frame: Optional["FibsemImage"] = None
@@ -284,8 +286,8 @@ class QtResponder(QObject):
         from live widget state — a :class:`FibsemRectangle` for
         ``EditAlignmentArea``, a :class:`Point` (microscope image coordinates)
         for ``PickPOI``, ``{name: Point}`` in image pixels for
-        ``ConfirmDetection``, a list of :class:`Point` (0-1 fractions of the
-        frame) for ``RunSpotBurn``. It is applied to the widget first, exactly as if the
+        ``ConfirmDetection``, a :class:`MillingEdit` for ``RunMillingTask``
+        and a :class:`SpotBurnEdit` for ``RunSpotBurn``. It is applied to the widget first, exactly as if the
         operator had dragged it there, and then the ordinary click path reads
         it back — so the proposed geometry lands on screen, and attribution,
         the question id, and first-writer-wins all hold unchanged. A value on any
@@ -511,7 +513,7 @@ class QtResponder(QObject):
         pending = self._pending_question
         label = self._button_label(pending[0], response, value) if pending else None
         shown = self._buttons[0 if response else 1]
-        if not isinstance(value, MillingEdit):
+        if not isinstance(value, (MillingEdit, SpotBurnEdit)):
             # An action-carrying value names its own button; else the one shown.
             label = shown or label
         point = None
@@ -562,7 +564,9 @@ class QtResponder(QObject):
         request: "Request", response: bool, value: object = None
     ) -> Optional[str]:
         """The prompt button the suggested answer stands for."""
-        if isinstance(request, RunMillingTask) and isinstance(value, MillingEdit):
+        if isinstance(request, RunAgainQuestion) and isinstance(
+            value, (MillingEdit, SpotBurnEdit)
+        ):
             return request.label_for(value.action)
         return getattr(request, "positive" if response else "negative", None)
 
@@ -607,14 +611,13 @@ class QtResponder(QObject):
             det_widget.move_features(value)
             return
         if isinstance(request, RunSpotBurn):
-            if not isinstance(value, list) or not all(
-                isinstance(pt, Point) for pt in value
-            ):
-                raise ValueError("a RunSpotBurn value must be a list of Points")
+            if not isinstance(value, SpotBurnEdit):
+                raise ValueError("a RunSpotBurn value must be a SpotBurnEdit")
             widget = self._ui.spot_burn_widget
             if widget is None:
                 raise RuntimeError("No spot burn widget to place the points on.")
-            widget.set_coordinates(value)
+            # On the settings as the widget holds them now, as for milling.
+            widget.set_settings(apply_spot_burn_edit(widget.get_settings(), value))
             return
         if isinstance(request, RunMillingTask):
             if not isinstance(value, MillingEdit):
@@ -685,7 +688,7 @@ class QtResponder(QObject):
             widget = self._ui.spot_burn_widget
             if widget is None:
                 return question_id, None
-            return question_id, deepcopy(widget.get_coordinates())
+            return question_id, deepcopy(widget.get_settings())
         if isinstance(request, RunMillingTask):
             try:
                 return question_id, deepcopy(self._milling_widget().get_config())
@@ -777,6 +780,15 @@ class QtResponder(QObject):
     def _clear_milling_config(self, request: ClearMillingConfig) -> None:
         """Clear the milling editor. Moved from handle_workflow_update."""
         self._milling_widget().clear()
+
+    def _clear_spot_burn(self, request: ClearSpotBurn) -> None:
+        """Clear the spot-burn widget's points and leave workflow mode, if
+        there is one."""
+        widget = self._ui.spot_burn_widget
+        if widget is None:
+            return
+        widget.clear_points_layer()
+        widget.set_workflow_mode(False)
 
     # Unlike the image and milling widgets, whose absence is a defect, the FM and
     # spot-burn widgets legitimately do not exist on systems without the hardware —
@@ -1145,19 +1157,14 @@ class QtResponder(QObject):
     def abandon(self) -> None:
         """Drop whatever a finished run left behind. GUI thread, workflow end.
 
-        An abort races the GUI: a cancelled burn that finishes quickly re-parks
-        the prompt in the gap before the aborting waiter cancels its future.
         The run is over when this is called — the workflow thread has exited —
-        so a question still parked, or a run still tracked, belongs to nobody:
-        cancel it and take the prompt down.
+        so a question still parked belongs to nobody: cancel it and take the
+        prompt down.
         """
         self._stop_listening()
         pending, self._pending_question = self._pending_question, None
-        burning, self._active_spot_burn = self._active_spot_burn, None
-        for pair in (pending, burning):
-            if pair is not None:
-                pair[1].cancel()
         if pending is not None:
+            pending[1].cancel()
             self._ui.hold = None
             self._ui.workflow_status_signal.emit(WorkflowStatusEvent(message=""))
             self._emit_question_event(
@@ -1166,70 +1173,23 @@ class QtResponder(QObject):
             )
 
     def _run_spot_burn(self, request: RunSpotBurn, future: "Future") -> None:
-        """Place-points-and-burn, mirroring the milling question.
+        """Show the points in the spot-burn widget and ask what to do with them.
 
-        Without a spot-burn widget the answer is None immediately: optional
-        hardware must not fail a workflow, same as the spot-burn instructions.
+        The burn is the asker's (FIB-1236), as the mill is: this shows the
+        settings, takes the edits and answers with the decision and the
+        settings as the widget then holds them. Without a spot-burn widget the
+        answer is None: optional hardware must not fail a workflow.
         """
         widget = self._ui.spot_burn_widget
         if widget is None:
             self._deliver(future, None)
             return
         widget.set_settings(request.settings)
-        # Front the tab and enter workflow mode (moved from
-        # handle_workflow_update's spot_burn branch).
         self._ui.set_spot_burn_widget_active(True)
         widget.set_workflow_mode(True)
-        self._wire_spot_burn_finished(widget)
         self._park_question(
-            request, future, request.message, "Run Spot Burn", "Continue"
+            request, future, request.prompt, request.positive, request.negative
         )
-
-    def _wire_spot_burn_finished(self, widget) -> None:
-        """Connect the (possibly rebuilt) spot-burn widget's finished signal, once."""
-        if self._spot_burn_finished_wired is widget:
-            return
-        widget.finished_spot_burn_signal.connect(self._on_spot_burn_finished)
-        self._spot_burn_finished_wired = widget
-
-    def _start_spot_burn_run(self, request: RunSpotBurn, future: "Future") -> None:
-        """Run the widget's current points; the finished signal re-asks."""
-        self._active_spot_burn = (request, future)
-        self._ui.workflow_status_signal.emit(
-            WorkflowStatusEvent(message="Running Spot Burn...")
-        )
-        widget = self._ui.spot_burn_widget
-        with acting(TASK):  # the task's burn, run on its behalf
-            widget.run_spot_burn_worker()
-        if not widget.is_burning:
-            # Refused — no in-bounds points — so no finished signal will come.
-            # The old is_milling-style poll fell straight through and re-asked;
-            # do the same now.
-            self._active_spot_burn = None
-            self._park_question(
-                request, future, request.message, "Run Spot Burn", "Continue"
-            )
-
-    def _on_spot_burn_finished(self) -> None:
-        """GUI thread, from finished_spot_burn_signal — success and failure alike."""
-        active = self._active_spot_burn
-        if active is None:
-            return  # a burn the operator ran outside a question
-        self._active_spot_burn = None
-        request, future = active
-        if future.cancelled():
-            return
-        self._park_question(
-            request, future, request.message, "Run Spot Burn", "Continue"
-        )
-
-    def _finish_spot_burn_question(self):
-        """The answer: the settings as the widget holds them, widget cleared."""
-        widget = self._ui.spot_burn_widget
-        settings = widget.get_settings()
-        widget.clear_points_layer()
-        widget.set_workflow_mode(False)
-        return settings
 
     def answer_confirm(
         self,
@@ -1296,8 +1256,8 @@ class QtResponder(QObject):
             "answered_by": source,
             "question_id": pending[2],
         }
-        if isinstance(request, RunMillingTask):
-            answered_payload["action"] = _milling_action(request, clicked_yes, value)
+        if isinstance(request, RunAgainQuestion):
+            answered_payload["action"] = _loop_action(request, clicked_yes, value)
         if adjusted:
             answered_payload["adjusted"] = True
         if suggested_by:
@@ -1305,10 +1265,6 @@ class QtResponder(QObject):
         self._emit_question_event("prompt_answered", answered_payload)
         # And to the asker, which records the decision the answer makes.
         mark_answered_by(future, source)
-        if isinstance(request, RunSpotBurn) and clicked_yes:
-            # Run Spot Burn: same shape — the finished signal re-asks.
-            self._start_spot_burn_run(request, future)
-            return True
         self._ui.workflow_status_signal.emit(WorkflowStatusEvent(message=""))
         try:
             self._deliver(future, self._answer(request, clicked_yes, value))
@@ -1322,12 +1278,14 @@ class QtResponder(QObject):
             # The decision, and the config as the editor holds it: what the
             # operator dragged and what an agent's value placed there.
             return MillingDecision(
-                action=_milling_action(request, clicked_yes, value),
+                action=_loop_action(request, clicked_yes, value),
                 config=deepcopy(self._milling_widget().get_config()),
             )
         if isinstance(request, RunSpotBurn):
-            # Only Continue reaches here; Run Spot Burn is intercepted above.
-            return self._finish_spot_burn_question()
+            return SpotBurnDecision(
+                action=_loop_action(request, clicked_yes, value),
+                settings=deepcopy(self._ui.spot_burn_widget.get_settings()),
+            )
         if isinstance(request, ConfirmDetection):
             # Both the read-back and the save used to straddle threads: the
             # workflow thread called _get_detected_features across the seam, then

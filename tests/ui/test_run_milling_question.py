@@ -35,8 +35,8 @@ from fibsem.applications.autolamella.structures import (
 )
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
 from fibsem.applications.autolamella.workflows.interaction import (
-    MILL_EDIT,
-    MILL_RUN,
+    ACTION_EDIT,
+    ACTION_RUN,
     MillingEdit,
 )
 from fibsem.applications.autolamella.workflows.tasks import base
@@ -354,7 +354,7 @@ def test_an_agents_edit_lands_in_the_editor_and_asks_again(ui, qapp):
     question_id = ui.ui_responder.pending_question_and_id()[1]
 
     edit = MillingEdit(
-        action=MILL_EDIT,
+        action=ACTION_EDIT,
         config=None,
         patch={"stages.Rough 2.pattern.depth": 2.5e-6},
     )
@@ -368,7 +368,7 @@ def test_an_agents_edit_lands_in_the_editor_and_asks_again(ui, qapp):
     assert shown.stages[1].pattern.depth == pytest.approx(2.5e-6)
 
     question_id = ui.ui_responder.pending_question_and_id()[1]
-    run = MillingEdit(action=MILL_RUN, config=None, patch=None)
+    run = MillingEdit(action=ACTION_RUN, config=None, patch=None)
     assert ui.ui_responder.submit_answer(True, question_id, value=run).result(5)
     _wait_for_prompt(ui, qapp, AGAIN)
     assert ui._mills[0].config.stages[1].pattern.depth == pytest.approx(2.5e-6)

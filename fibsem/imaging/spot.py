@@ -16,6 +16,11 @@ if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
 
 
+# The exposure per point a burn may take, in seconds: the spot burn widget's range,
+# and what an answer at the spot burn question is checked against.
+EXPOSURE_LIMITS = (0.1, 60.0)
+
+
 @dataclass
 class SpotBurnSettings:
     """The payload for a spot-burn run: where to burn, and with what.
@@ -99,6 +104,13 @@ class SpotBurnProgress:
     total_estimated_time: Optional[float] = None
     # Only on FAILED. The text of the exception that ended the run.
     error: Optional[str] = None
+
+
+def show_after_burn(microscope: FibsemMicroscope) -> None:
+    """Take a FIB image of what a burn left and push it to the view, so whoever
+    looks next sees the marks."""
+    image = microscope.acquire_image(beam_type=BeamType.ION)
+    microscope.fib_acquisition_signal.emit(image)
 
 
 def run_spot_burn(

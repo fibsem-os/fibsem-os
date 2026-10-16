@@ -174,6 +174,10 @@ def test_spot_burn_payload_carries_points_and_settings():
     assert payload["milling_current"] == pytest.approx(60e-12)
     assert payload["exposure_time"] == 5.0
     assert payload["positive"] == "Run Spot Burn"
+    assert payload["negative"] == "Skip"
+    assert payload["actions"] == ["run", "edit", "skip"]
+    assert payload["passes"] == 0
+    assert payload["exposure_limits"] == [0.1, 60.0]
     assert "fractions of the frame" in payload["coordinates"]
     json.dumps(payload)
 
@@ -213,20 +217,57 @@ def test_a_detection_value_moves_named_features_inside_the_image():
             request.parse_value(bad)
 
 
-def test_a_spot_burn_value_is_points_inside_the_frame():
+def test_a_spot_burn_value_is_an_action_and_its_edits():
     from fibsem.applications.autolamella.workflows.interaction import (
         InvalidAnswerValue,
+        SpotBurnEdit,
+        apply_spot_burn_edit,
     )
 
-    request = RunSpotBurn(settings=SpotBurnSettings(coordinates=[]))
-    points = request.parse_value({"points": [{"x": 0, "y": 1}, {"x": 0.5, "y": 0.25}]})
-    assert points == [Point(0.0, 1.0), Point(0.5, 0.25)]
+    settings = SpotBurnSettings(
+        coordinates=[Point(0.5, 0.5)], milling_current=60e-12, exposure_time=5.0
+    )
+    request = RunSpotBurn(settings=settings)
+    edit = request.parse_value(
+        {
+            "action": "edit",
+            "points": [{"x": 0, "y": 1}, {"x": 0.5, "y": 0.25}],
+            "milling_current": 1e-10,
+            "exposure_time": 2,
+        }
+    )
+    assert edit == SpotBurnEdit(
+        action="edit",
+        points=[Point(0.0, 1.0), Point(0.5, 0.25)],
+        milling_current=1e-10,
+        exposure_time=2.0,
+    )
+    edited = apply_spot_burn_edit(settings, edit)
+    assert edited.coordinates == [Point(0.0, 1.0), Point(0.5, 0.25)]
+    assert (edited.milling_current, edited.exposure_time) == (1e-10, 2.0)
+    assert settings.coordinates == [Point(0.5, 0.5)]  # a new settings
+
+    # Only the action: everything stays as it stands.
+    assert request.parse_value({"action": "run"}) == SpotBurnEdit(action="run")
+    assert request.same_value(settings, SpotBurnEdit(action="run"))
 
     for bad in (
         {},
-        {"points": [{"x": 1.2, "y": 0.5}]},
-        {"points": [{"x": "a", "y": 0.5}]},
-        {"points": [{"x": float("nan"), "y": 0.5}]},
+        {"points": []},  # no action
+        {"action": "accept"},  # not before a burn
+        {"action": "run", "points": [{"x": 1.2, "y": 0.5}]},
+        {"action": "run", "points": [{"x": "a", "y": 0.5}]},
+        {"action": "run", "points": [{"x": float("nan"), "y": 0.5}]},
+        {"action": "run", "exposure_time": 0},
+        {"action": "run", "exposure_time": 600},
+        {"action": "run", "milling_current": True},
+        {"action": "run", "milling_current": -1e-10},
+        {"action": "run", "dwell": 1},
     ):
         with pytest.raises(InvalidAnswerValue):
             request.parse_value(bad)
+
+    after = RunSpotBurn(settings=settings, passes=1)
+    assert after.parse_value({"action": "accept"}).action == "accept"
+    with pytest.raises(InvalidAnswerValue):
+        after.parse_value({"action": "skip"})
