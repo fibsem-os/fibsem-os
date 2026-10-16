@@ -24,3 +24,6 @@ CLASHING_PATTERN_NAME = "Rectangle"
 FAILING_ENTRY_POINTS = ("wrong_base_class", "missing_module")
 
 DRIVER_MANUFACTURER = "Fixture Microscopes"
+
+# A driver that builds a device and no microscope (``drivers.fixture_device_driver``).
+DEVICE_DRIVER = "Fixture Scanners"

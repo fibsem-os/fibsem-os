@@ -114,7 +114,8 @@ Each group contributes one kind of object:
   [Adding a driver](devices.md#adding-a-driver) shows one that adds a device type;
   a plugin's device can also be served from another computer and checked from the
   application, as [Devices on another computer](devices.md#devices-on-another-computer)
-  describes (`examples/plugins/fibsem-fake-scanner` does it end to end).
+  describes (the fake scanner in
+  [fibsem-plugin-example](https://github.com/fibsem-os/fibsem-plugin-example) does it end to end).
 
 When a built-in, a runtime registration and a plugin claim the same name, the
 built-in is used, then the runtime registration, then the plugin.

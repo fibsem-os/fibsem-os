@@ -36,6 +36,7 @@ TASK_TYPE = "FIXTURE_TASK"
 CLASHING_PATTERN_NAME = "Rectangle"  # a built-in name the fixture claims on purpose
 FAILING_ENTRY_POINTS = ("wrong_base_class", "missing_module")  # declared to fail
 DRIVER_MANUFACTURER = "Fixture Microscopes"
+DEVICE_DRIVER = "Fixture Scanners"  # builds a scan generator and no microscope
 
 
 def _fixture_installed() -> bool:
@@ -356,6 +357,62 @@ def test_driver_plugins_record_what_they_could_not_register():
     assert get_driver("Demo").microscope_class == (
         "fibsem.drivers.demo.microscope:DemoMicroscope"
     )
+
+
+def test_a_device_driver_plugin_is_found_and_is_no_manufacturer():
+    from fibsem.drivers.registry import (
+        device_setups,
+        get_driver,
+        get_driver_plugin_records,
+        registered_manufacturers,
+    )
+
+    records = {r.entry_point: r for r in get_driver_plugin_records()}
+    assert records["fixture_device_driver"].loaded
+    assert set(get_driver(DEVICE_DRIVER).devices) == {"scan_generator"}
+    assert DEVICE_DRIVER not in registered_manufacturers()
+    offered = {driver: device.type for driver, device in device_setups()}
+    assert offered[DEVICE_DRIVER] == "scan_generator"
+
+
+def _connect_with_scanner(tmp_path, **keys):
+    """The Demo, with the fixture's scan generator as the electron beam's scanner."""
+    import yaml
+
+    import fibsem.config as cfg
+    from fibsem import utils
+
+    with open(cfg.DEFAULT_CONFIGURATION_PATH) as f:
+        config = yaml.safe_load(f)
+    config["info"]["manufacturer"] = "Demo"
+    devices = config["hardware"]["devices"]
+    entry = {"name": "plugin_scanner", "type": "scan_generator"}
+    devices.append({**entry, "driver": DEVICE_DRIVER, **keys})
+    electron = next(e for e in devices if e.get("name") == "electron")
+    electron["roles"] = {"scanner": "plugin_scanner"}
+    path = tmp_path / "configuration.yaml"
+    path.write_text(yaml.safe_dump(config))
+    microscope, _ = utils.setup_session(setup_logging=False, config_path=str(path))
+    return microscope
+
+
+def test_an_entry_naming_a_device_driver_plugin_builds_and_binds_the_beam(tmp_path):
+    from fibsem.structures import BeamType
+
+    microscope = _connect_with_scanner(tmp_path, address="10.0.0.2")
+    try:
+        scanner = microscope.devices["plugin_scanner"]
+        assert microscope.beams[BeamType.ELECTRON].scanner is scanner
+        assert scanner.driver == DEVICE_DRIVER
+    finally:
+        microscope.disconnect()
+
+
+def test_an_entry_naming_a_device_driver_plugin_is_checked_against_its_keys(tmp_path):
+    from fibsem.devices.entries import DeviceBuildError
+
+    with pytest.raises(DeviceBuildError, match="unknown keys"):
+        _connect_with_scanner(tmp_path, adress="10.0.0.2")
 
 
 def test_the_report_says_why_a_driver_plugin_is_inactive():
