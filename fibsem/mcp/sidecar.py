@@ -623,6 +623,17 @@ def build_sidecar(client, capabilities):
             beam=beam,
         )
 
+    def inference_list_models():
+        return _routed("inference_list_models", "models")
+
+    def inference_model_info(model: str):
+        return _routed("inference_model_info", "card", model=model)
+
+    def inference_segment(image_path: str, model: str = ""):
+        return _routed(
+            "inference_segment", "segmentation", image_path=image_path, model=model
+        )
+
     def milling_stop(reason: str):
         data, err = _route("milling_stop", reason=reason)
         return err if err else {"status": "ok"}
@@ -1487,6 +1498,9 @@ def build_sidecar(client, capabilities):
             alignment_align_to_reference,
             alignment_measure_shift,
             alignment_compare_methods,
+            inference_list_models,
+            inference_model_info,
+            inference_segment,
             milling_check_stages,
             milling_list_options,
             device_call_query,

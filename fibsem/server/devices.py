@@ -83,6 +83,7 @@ from fastapi import (
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
 
+from fibsem.ai.models.manager import ModelNotFound, ModelUnavailable
 from fibsem.cancellation import NothingToStop, OperationCancelledError
 from fibsem.devices.core import (
     Device,
@@ -126,6 +127,8 @@ WS_PROTOCOL = "websockets-sansio"
 # An error keeps its type across the wire; anything else is a plain failure. These
 # are refusals and outcomes, not faults: each is logged as one line, no traceback.
 ERROR_STATUS = {
+    ModelNotFound: 404,  # no model registered by that name
+    ModelUnavailable: 409,  # registered, but it can't run here
     ParameterUnavailable: 404,
     ParameterReadOnly: 409,
     OperationCancelledError: 409,  # stopped: a sweep, a mill (FIB-1355)
