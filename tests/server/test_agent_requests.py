@@ -232,9 +232,17 @@ def test_hardware_needs_the_devices_service(microscope, context, auth):
     assert _detail(refused)["error_type"] == "not_available"
 
 
-def test_approve_runs_each_action_through_its_route(client, app, auth, microscope):
+def test_approve_runs_each_action_through_its_route(
+    client, app, auth, microscope, context
+):
     before = microscope.get_stage_position()
-    filed = _file(client, NUDGE, SUPERVISE).json()
+    # A task the protocol has: one it lacks is answered applied: false, a failure.
+    context._host.experiment.task_protocol = AutoLamellaTaskProtocol.load(_PROTOCOL)
+    supervise = {
+        "tool": "protocol_set_supervision",
+        "arguments": {"task_name": "Rough Milling", "supervise": True},
+    }
+    filed = _file(client, NUDGE, supervise).json()
     heard = auth.last_seen_monotonic
 
     store = app.state.requests
@@ -371,6 +379,36 @@ def test_a_request_whose_mill_was_stopped_says_so(
     assert done.results[0]["cancelled"] is True
     finished = [p for kind, p, _ in context.recorded if kind == "request_finished"]
     assert finished[-1]["cancelled"] == 1
+
+
+def test_an_action_answered_200_but_turned_away_fails_with_its_reason(
+    client, app, context
+):
+    """workflow_start answers 200 with ``started: false`` and a reason when it is
+    turned away: that step failed, and says why, rather than reading applied."""
+    from concurrent.futures import Future
+
+    def request_start_workflow(task_names, item_names):
+        outcome = Future()
+        outcome.set_result({"started": False, "reason": "Grid-01 is not on the stage"})
+        return outcome
+
+    context._host.request_start_workflow = request_start_workflow
+    start = {"tool": "workflow_start", "arguments": {"task_names": ["MILL_ROUGH"]}}
+    filed = _file(client, start, NUDGE).json()
+    store = app.state.requests
+    store.approve(filed["request_id"])
+    done = store.wait(filed["request_id"], timeout=10)
+
+    assert done.status == "failed", done.results
+    assert [r["ok"] for r in done.results] == [False]
+    assert done.results[0]["status_code"] == 200
+    assert done.results[0]["error"] == {
+        "error_type": "not_started",
+        "message": "Grid-01 is not on the stage",
+    }
+    finished = [p for kind, p, _ in context.recorded if kind == "request_finished"]
+    assert finished[-1]["applied"] == 0
 
 
 @pytest.mark.parametrize("stop_agent", [False, True])
