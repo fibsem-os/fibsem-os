@@ -15,6 +15,7 @@ being invisible everywhere else in the column, so hiding it behind a disclosure 
 make the thing that is already easy to forget harder to see. Folded away, the header
 carries the count instead.
 """
+
 from typing import List, Optional, Tuple
 
 from PyQt5.QtCore import Qt, pyqtSignal
@@ -54,9 +55,9 @@ TILE_ORDER_LABELS = {
 TILE_ORDER_TOOLTIPS = {
     TileOrderStrategy.TYPEWRITER: "Every row runs left to right.",
     TileOrderStrategy.SERPENTINE: "Rows alternate direction, so the stage does not "
-                                  "travel back across the grid between them.",
+    "travel back across the grid between them.",
     TileOrderStrategy.SPIRAL: "Outward from the centre tile, so the tiles nearest "
-                              "the starting position are acquired first.",
+    "the starting position are acquired first.",
 }
 
 
@@ -92,10 +93,12 @@ class OverviewGridSettingsWidget(QWidget):
         self.spin_overlap = self._field(ValueSpinBox())
         configure_spinbox(self.spin_overlap, _GRID["overlap"])
 
-        self.combo_tile_order = self._field(ValueComboBox(
-            items=list(TileOrderStrategy),
-            format_fn=lambda s: TILE_ORDER_LABELS.get(s, s.value.title()),
-        ))
+        self.combo_tile_order = self._field(
+            ValueComboBox(
+                items=list(TileOrderStrategy),
+                format_fn=lambda s: TILE_ORDER_LABELS.get(s, s.value.title()),
+            )
+        )
         # What each strategy does belongs in a tooltip, not the label: the label is read
         # on every glance and the explanation once.
         for index in range(self.combo_tile_order.count()):
@@ -294,8 +297,12 @@ class OverviewGridSettingsWidget(QWidget):
         mask: Optional[List[List[bool]]],
     ) -> None:
         """Load every value at once, without emitting on the way through."""
-        widgets = (self.spin_rows, self.spin_cols, self.spin_overlap,
-                   self.combo_tile_order)
+        widgets = (
+            self.spin_rows,
+            self.spin_cols,
+            self.spin_overlap,
+            self.combo_tile_order,
+        )
         for widget in widgets:
             widget.blockSignals(True)
         try:
