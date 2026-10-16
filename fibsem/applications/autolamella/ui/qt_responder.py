@@ -187,6 +187,9 @@ class QtResponder(QObject):
         self._suggestion: Optional[
             Tuple[int, bool, Optional[object], str, Optional[str]]
         ] = None
+        # The operator's last Dismiss of a suggestion: (question_id, reason),
+        # for the agent reading the question again (sim session 2026-10-16).
+        self._dismissed: Optional[Tuple[int, str]] = None
         self._submitted.connect(self._dispatch)
         self._agent_suggested.connect(self._apply_agent_suggestion)
         self._agent_answered.connect(self._apply_agent_answer)
@@ -386,6 +389,15 @@ class QtResponder(QObject):
         self._agent_suggested.emit(response, question_id, value, reason, image, outcome)
         return outcome
 
+    def dismissed_reason(self) -> Optional[str]:
+        """Why the operator dismissed the agent's suggestion to the pending
+        question ("" for no reason given); None when they haven't."""
+        dismissed = self._dismissed
+        _, question_id = self.pending_question_and_id()
+        if dismissed is None or dismissed[0] != question_id:
+            return None
+        return dismissed[1]
+
     @property
     def suggestion(
         self,
@@ -492,6 +504,7 @@ class QtResponder(QObject):
         }
         if str(reason or "").strip():
             payload["reason"] = str(reason).strip()
+        self._dismissed = (suggestion[0], str(reason or "").strip())
         self._clear_suggestion()
         self._emit_question_event("prompt_suggestion_dismissed", payload, OPERATOR)
         return True

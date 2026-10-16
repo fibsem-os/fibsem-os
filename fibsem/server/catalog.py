@@ -1932,7 +1932,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="prompt_get",
-        description='The supervision question awaiting an answer, if any — message, options, and context images. A question that is also on the item\'s record says answer_via: "decide" and gives the item_id, task_name and proposal_id: it is decided with review_decide, like any other review, and prompt_answer will refuse it.',
+        description='The supervision question awaiting an answer, if any — message, options, and context images. A question that is also on the item\'s record says answer_via: "decide" and gives the item_id, task_name and proposal_id: it is decided with review_decide, like any other review, and prompt_answer will refuse it. suggestion_dismissed: {reason} when the operator dismissed your suggested answer to it.',
         method="GET",
         path="/app/workflow/prompt",
         level="watch",
