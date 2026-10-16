@@ -30,6 +30,10 @@ DELETE_FIDUCIAL_CHOICES = (
 )
 
 
+# The values FitSettings.fm_fiducial_polarity takes; anything else reads as dark.
+FM_FIDUCIAL_POLARITIES = ("dark", "bright")
+
+
 @dataclass
 class FitSettings:
     """Fit method per point-role, and channel *by name* (not index, so it can't
@@ -43,6 +47,10 @@ class FitSettings:
     fm_poi_channel: Optional[str] = None
     reflection_cutout: int = 2
     fluorescence_cutout: int = 5
+    # How a burn looks in the FM fiducial channel: dark on Arctis reflection,
+    # bright on METEOR reflection (FIB-1218). Dark is what the fit always
+    # assumed, so a protocol without the key fits as before.
+    fm_fiducial_polarity: str = "dark"
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -53,6 +61,7 @@ class FitSettings:
             "fm_poi_channel": self.fm_poi_channel,
             "reflection_cutout": self.reflection_cutout,
             "fluorescence_cutout": self.fluorescence_cutout,
+            "fm_fiducial_polarity": self.fm_fiducial_polarity,
         }
 
     @staticmethod
@@ -68,6 +77,11 @@ class FitSettings:
             reflection_cutout=d.get("reflection_cutout", default.reflection_cutout),
             fluorescence_cutout=d.get(
                 "fluorescence_cutout", default.fluorescence_cutout
+            ),
+            fm_fiducial_polarity=(
+                d.get("fm_fiducial_polarity")
+                if d.get("fm_fiducial_polarity") in FM_FIDUCIAL_POLARITIES
+                else default.fm_fiducial_polarity
             ),
         )
 

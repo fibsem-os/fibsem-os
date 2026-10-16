@@ -118,3 +118,17 @@ def test_auto_interpolate_is_off_by_default_and_round_trips():
     older = CorrelationConfig().to_dict()
     del older["auto_interpolate"]
     assert CorrelationConfig.from_dict(older).auto_interpolate is False
+
+
+def test_fm_fiducial_polarity_is_dark_by_default_and_round_trips():
+    """Dark is what the reflection fit always assumed (Arctis); METEOR burns
+    are bright and need the other setting (FIB-1218). A protocol without the
+    key, or with a value that isn't one of the two, fits dark as before."""
+    assert CorrelationConfig().fit.fm_fiducial_polarity == "dark"
+    bright = CorrelationConfig(fit=FitSettings(fm_fiducial_polarity="bright"))
+    assert CorrelationConfig.from_dict(bright.to_dict()) == bright
+    assert FitSettings.from_dict({}).fm_fiducial_polarity == "dark"
+    assert (
+        FitSettings.from_dict({"fm_fiducial_polarity": "x"}).fm_fiducial_polarity
+        == "dark"
+    )

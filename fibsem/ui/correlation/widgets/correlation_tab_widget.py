@@ -84,11 +84,13 @@ from fibsem.correlation.config import (
     DELETE_FIDUCIAL_CHOICES,
     DELETE_FIDUCIAL_ONE,
     DELETE_FIDUCIAL_PAIR,
+    FM_FIDUCIAL_POLARITIES,
     CorrelationConfig,
     FitSettings,
     RISettings,
 )
 from fibsem.correlation.correlation_v2 import run_correlation_from_data
+from fibsem.correlation.fitting import Polarity
 from fibsem.correlation.prediction import (
     Projection,
     build_projection,
@@ -1128,6 +1130,18 @@ class _CoordinatesTab(QWidget):
 
         self._fm_fid_ch_combo = ValueComboBox([])
         fit_form.addRow(_form_label("FM Fid. channel"), self._fm_fid_ch_combo)
+        # Burns are dark in Arctis reflection and bright in METEOR reflection;
+        # the fit can't find one it is told looks the other way (FIB-1218).
+        self._fm_fid_looks_combo = ValueComboBox(
+            list(FM_FIDUCIAL_POLARITIES),
+            value="dark",
+            format_fn={"dark": "Dark", "bright": "Bright"}.get,
+        )
+        self._fm_fid_looks_combo.setToolTip(
+            "How a burn looks in the FM fiducial channel.\nDark on Arctis "
+            "reflection, bright on METEOR reflection."
+        )
+        fit_form.addRow(_form_label("FM Fid. looks"), self._fm_fid_looks_combo)
 
         self._fm_poi_ch_combo = ValueComboBox([])
         fit_form.addRow(_form_label("FM POI channel"), self._fm_poi_ch_combo)
@@ -1170,6 +1184,7 @@ class _CoordinatesTab(QWidget):
             self._fm_poi_method_combo,
             self._fm_fid_ch_combo,
             self._fm_poi_ch_combo,
+            self._fm_fid_looks_combo,
             self._delete_fiducial_combo,
             self._show_diag_check,
             self._auto_accept_check,
@@ -1182,6 +1197,7 @@ class _CoordinatesTab(QWidget):
             self._fm_poi_method_combo,
             self._fm_fid_ch_combo,
             self._fm_poi_ch_combo,
+            self._fm_fid_looks_combo,
             self._delete_fiducial_combo,
         ):
             _combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
@@ -3555,6 +3571,7 @@ class CorrelationTabWidget(QWidget):
             cl._fm_fid_ch_combo.setCurrentText(fit.fm_fiducial_channel)
         if fit.fm_poi_channel:
             cl._fm_poi_ch_combo.setCurrentText(fit.fm_poi_channel)
+        cl._fm_fid_looks_combo.set_value(fit.fm_fiducial_polarity)
 
     @property
     def correlation_config(self) -> CorrelationConfig:
@@ -3571,6 +3588,7 @@ class CorrelationTabWidget(QWidget):
             fm_poi_channel=cl._fm_poi_ch_combo.currentText() or None,
             reflection_cutout=stored.fit.reflection_cutout,
             fluorescence_cutout=stored.fit.fluorescence_cutout,
+            fm_fiducial_polarity=cl._fm_fid_looks_combo.value(),
         )
         ri = RISettings(
             tilt_deg=params.tilt_deg,
@@ -5171,6 +5189,9 @@ class CorrelationTabWidget(QWidget):
                             y,
                             z=int(z),  # sub-pixel x/y (FIB-282)
                             cutout=self._correlation_config.fit.reflection_cutout,
+                            polarity=Polarity(
+                                cl._fm_fid_looks_combo.value() if is_fid else "dark"
+                            ),
                         )
                         fitted = PointXYZ(float(xr), float(yr), float(zr))
                     elif method == "Gaussian":

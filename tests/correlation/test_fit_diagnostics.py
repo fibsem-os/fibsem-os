@@ -238,6 +238,35 @@ def test_reflection_fit_works_at_the_top_plane_and_far_corner():
     assert zr == pytest.approx(19, abs=1.0)
 
 
+def test_reflection_fit_finds_a_bright_burn_when_told_it_is_bright():
+    """METEOR reflection burns are bright; the fit always assumed dark. Told
+    bright, it fits the same burn, and the diagnostic shows the stack as it is,
+    not flipped (FIB-1218)."""
+    from fibsem.correlation.fitting import Polarity
+
+    dark = _refl_vol_at(30, 30, cz=10)
+    bright = 400.0 - dark  # the same burn, bright
+    xr, yr, zr, d = hole_fitting_reflection(
+        bright, 30, 30, 10, 2, polarity=Polarity.BRIGHT
+    )
+    xd, yd, zd, _ = hole_fitting_reflection(dark, 30, 30, 10, 2)
+    assert (xr, yr, zr) == pytest.approx((xd, yd, zd), abs=1e-3)
+    assert (xr, yr, zr) == pytest.approx((30, 30, 10), abs=0.5)
+    assert not d.z_inverted
+    assert d.roi_xy.max() > 300  # the bright burn, not its flipped image
+
+
+def test_reflection_fit_told_dark_is_exactly_the_fit_it_always_was():
+    """The default is unchanged: same answer, same diagnostic data."""
+    vol = _refl_vol_at(31.2, 28.7, cz=9)
+    a = hole_fitting_reflection(vol, 31, 29, 9, 2)
+    from fibsem.correlation.fitting import Polarity
+
+    b = hole_fitting_reflection(vol, 31, 29, 9, 2, polarity=Polarity.DARK)
+    assert a[:3] == b[:3]
+    assert a[3].z_inverted and np.array_equal(a[3].roi_xy, b[3].roi_xy)
+
+
 def test_reflection_fit_refuses_a_stack_too_thin_to_fit_through():
     """Two planes are a line, not a peak: refuse, and say how many there were."""
     vol = _refl_vol_at(30, 30, cz=1, nz=2)

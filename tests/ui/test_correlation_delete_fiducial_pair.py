@@ -184,3 +184,18 @@ def test_the_setting_travels_with_the_correlation_config(tab):
     assert (
         CorrelationConfig.from_dict({"delete_fiducial": "x"}).delete_fiducial == "ask"
     )
+
+
+def test_the_fm_fiducial_looks_setting_travels_with_the_correlation_config(tab):
+    """The Method panel's FM Fid. looks combo reads and writes the experiment's
+    fm_fiducial_polarity (FIB-1218)."""
+    from fibsem.correlation.config import FitSettings
+
+    assert tab._coords_tab._fm_fid_looks_combo.value() == "dark"
+    tab.set_correlation_config(
+        CorrelationConfig(fit=FitSettings(fm_fiducial_polarity="bright"))
+    )
+    assert tab._coords_tab._fm_fid_looks_combo.value() == "bright"
+    assert tab.correlation_config.fit.fm_fiducial_polarity == "bright"
+    tab._coords_tab._fm_fid_looks_combo.set_value("dark")
+    assert tab.correlation_config.fit.fm_fiducial_polarity == "dark"
