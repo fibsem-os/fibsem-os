@@ -365,6 +365,7 @@ The argument selects a variation on the same loop:
   /app/experiment/grids/{grid}/outputs/{file}`) is the preview and `.../markers` places the experiment's items on it in
   source pixels with their status — use it for "which items sit near the
   edge / off the grid" judgments, never re-derive stage geometry yourself.
+  For any other file, `experiment_list_files` and `experiment_read_file` list and read the open experiment's folder (text as text, images as previews with metadata), and `experiment_crop_image` shows one region of an image at full resolution.
   `quality` is the operator's verdict, not yours: say what you see, propose,
   and leave the verdict to them. Starting a screening run is a control
   action: `POST /app/workflow/grids/plan` first and show the operator the

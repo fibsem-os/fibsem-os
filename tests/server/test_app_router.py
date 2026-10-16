@@ -4,6 +4,7 @@ mounted into the server, reached over HTTP and through MCP tools."""
 import asyncio
 import json
 import os
+from pathlib import Path
 
 import pytest
 
@@ -1159,3 +1160,152 @@ def test_position_edits_need_drive(client, host):
         ).status_code
         == 403
     )
+
+
+# --- the experiment's files (D3) ----------------------------------------------
+
+OVERVIEW = "grids/grid-aspen/overview_sem/overview.tif"
+
+
+def test_experiment_files_list_one_folder_at_watch(client, host, grid_with_overview):
+    (Path(host.experiment.path) / "notes.md").write_text("# notes\n")
+    top = client.get("/app/experiment/files", headers=AUTH)
+    assert top.status_code == 200
+    entries = {e["name"]: e for e in top.json()["entries"]}
+    assert entries["grids"]["kind"] == "folder"
+    notes = entries["notes.md"]
+    assert (notes["kind"], notes["size"], notes["path"]) == ("text", 8, "notes.md")
+    assert notes["modified"]
+    below = client.get(
+        "/app/experiment/files",
+        params={"dir": "grids/grid-aspen/overview_sem"},
+        headers=AUTH,
+    ).json()
+    assert below["dir"] == "grids/grid-aspen/overview_sem"
+    assert [(e["path"], e["kind"]) for e in below["entries"]] == [(OVERVIEW, "image")]
+    file = client.get("/app/experiment/files", params={"dir": OVERVIEW}, headers=AUTH)
+    assert file.status_code == 422
+
+
+def test_experiment_files_read_text_and_image_previews(
+    client, host, grid_with_overview
+):
+    (Path(host.experiment.path) / "notes.md").write_text("# notes\n")
+    text = client.get("/app/experiment/files/notes.md", headers=AUTH).json()
+    assert text["text"] == "# notes\n"
+    assert text["truncated"] is False
+
+    image = client.get(f"/app/experiment/files/{OVERVIEW}", headers=AUTH).json()
+    assert image["summary"]["kind"] == "image"
+    assert image["summary"]["beam_type"] == "ELECTRON"
+    assert image["summary"]["pixel_size"] == pytest.approx(200e-6 / 128)
+    preview = image["preview"]
+    assert (preview["width"], preview["full_width"]) == (128, 128)
+    assert preview["image_b64_jpeg"]
+    assert preview["preview_pixelsize"] == pytest.approx(200e-6 / 128)
+    # An absolute path inside the experiment, as an image answer gives it, too.
+    absolute = os.path.join(str(host.experiment.path), OVERVIEW)
+    served = client.get("/app/experiment/files/" + absolute, headers=AUTH)
+    assert served.json()["path"] == os.path.realpath(absolute)
+
+
+def test_experiment_files_crop_at_native_resolution(client, grid_with_overview):
+    url = f"/app/experiment/files/{OVERVIEW}"
+    box = client.get(url, params={"box": "32,16,20,10"}, headers=AUTH).json()
+    preview = box["preview"]
+    assert preview["region"] == {"x": 32, "y": 16, "width": 20, "height": 10}
+    assert (preview["width"], preview["height"]) == (20, 10)
+    # Native resolution: a preview pixel is a source pixel; the field is the region's.
+    assert preview["preview_pixelsize"] == pytest.approx(200e-6 / 128)
+    assert preview["hfw"] == pytest.approx(20 * 200e-6 / 128)
+    assert box["summary"]["shape"] == [128, 128]
+
+    fraction = client.get(
+        url, params={"fraction": "0.5,0.25,0.25,0.5"}, headers=AUTH
+    ).json()
+    assert fraction["preview"]["region"] == {
+        "x": 64,
+        "y": 32,
+        "width": 32,
+        "height": 64,
+    }
+
+    for params in (
+        {"box": "500,500,10,10"},  # misses the image
+        {"fraction": "0.5,0.5,2,1"},  # not a fraction
+        {"box": "1,2,3"},
+        {"box": "a,b,c,d"},
+        {"box": "0,0,8,8", "fraction": "0,0,0.5,0.5"},
+    ):
+        refused = client.get(url, params=params, headers=AUTH)
+        assert refused.status_code == 422, params
+
+
+def test_experiment_files_stay_inside_the_experiment(client, host, tmp_path):
+    outside = tmp_path / "elsewhere.md"
+    outside.write_text("secret")
+    (Path(host.experiment.path) / "link.md").symlink_to(outside)
+    (Path(host.experiment.path) / "notes.md").write_text("# notes\n")
+    for path in ("..%2Felsewhere.md", "link.md", str(outside)):
+        refused = client.get(f"/app/experiment/files/{path}", headers=AUTH)
+        assert refused.status_code == 403, path
+        assert refused.json()["detail"]["error_type"] == "not_allowed"
+    escape = client.get("/app/experiment/files", params={"dir": ".."}, headers=AUTH)
+    assert escape.status_code == 403
+    assert client.get("/app/experiment/files/nope.md", headers=AUTH).status_code == 404
+    # Only an image crops.
+    text = client.get(
+        "/app/experiment/files/notes.md", params={"box": "0,0,1,1"}, headers=AUTH
+    )
+    assert text.status_code == 422
+
+
+def test_experiment_files_need_an_open_experiment(client, host):
+    host.experiment = None
+    for url in ("/app/experiment/files", "/app/experiment/files/notes.md"):
+        refused = client.get(url, headers=AUTH)
+        assert refused.status_code == 409
+        assert refused.json()["detail"]["error_type"] == "no_experiment"
+
+
+def test_sidecar_reads_experiment_files_as_tools_and_resources(
+    client, host, grid_with_overview
+):
+    pytest.importorskip("mcp")
+    from fibsem.mcp.sidecar import build_sidecar
+
+    (Path(host.experiment.path) / "notes.md").write_text("# notes\n")
+    client.headers["Authorization"] = f"Bearer {TOKEN}"
+    sidecar = build_sidecar(client, client.get("/capabilities").json())
+
+    result = asyncio.run(
+        sidecar.call_tool(
+            "experiment_crop_image", {"path": OVERVIEW, "box": [0, 0, 16, 16]}
+        )
+    )
+    if isinstance(result, tuple):
+        result = result[0]
+    contents = list(getattr(result, "content", result))
+    image = next(c for c in contents if getattr(c, "type", None) == "image")
+    assert image.mime_type == "image/jpeg"
+    answer = json.loads(contents[0].text)
+    assert answer["preview"]["region"]["width"] == 16
+    assert answer["preview"]["image_index"] == 0
+
+    # resources/list: the experiment's top level only, not every file below it.
+    listed = {str(r.uri) for r in asyncio.run(sidecar.list_resources())}
+    assert {"experiment://grids", "experiment://notes.md"} <= listed
+    assert not any(OVERVIEW in uri for uri in listed)
+    templates = asyncio.run(sidecar.list_resource_templates())
+    assert [t.uri_template for t in templates] == ["experiment://{+path}"]
+
+    text = list(asyncio.run(sidecar.read_resource("experiment://notes.md")))
+    assert json.loads(text[0].content)["text"] == "# notes\n"
+    read = list(asyncio.run(sidecar.read_resource(f"experiment://{OVERVIEW}")))
+    assert [c.mime_type for c in read] == ["application/json", "image/jpeg"]
+    assert read[1].content[:2] == b"\xff\xd8"
+    assert json.loads(read[0].content)["summary"]["beam_type"] == "ELECTRON"
+    folder = list(asyncio.run(sidecar.read_resource("experiment://grids")))
+    assert [e["name"] for e in json.loads(folder[0].content)["entries"]] == [
+        "grid-aspen"
+    ]

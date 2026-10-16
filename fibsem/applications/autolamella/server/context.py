@@ -35,6 +35,7 @@ from typing import Any, Dict, List, Optional
 import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella import task_outputs as _task_outputs
 from fibsem.applications.autolamella.structures import Attention, AutoLamellaTaskStatus
+from fibsem.server.files import jpeg_preview
 from fibsem.util.timestamps import to_iso, wall_time_of
 
 __all__ = [
@@ -157,62 +158,6 @@ def _records(df) -> List[Dict[str, Any]]:
 GRID_OVERVIEW_ROLES = ("overview_sem", "overview_fib", "overview_fm")
 
 
-def _rendered_preview(path: str, filename: str, max_width: int) -> Dict[str, Any]:
-    """One recorded output file as a downscaled JPEG, or the reason it is not.
-
-    Fluorescence stacks (``.ome.tiff``) composite through the FM canvas's own
-    projection, so each channel keeps its colour; plain TIFFs (every
-    FibsemImage) read through tifffile; anything else (the PNG thumbnails grid
-    tasks write beside their overviews) through PIL. Stacks are max-projected
-    to something viewable; this is a preview, not the data.
-    """
-    try:
-        import numpy as np
-
-        from fibsem.fm.preview import is_fluorescence_image, load_projection
-        from fibsem.server.images import preview_jpeg_bytes
-
-        metadata = None
-        if is_fluorescence_image(path):
-            data, _ = load_projection(path)
-        elif filename.lower().endswith((".tif", ".tiff")):
-            import tifffile
-
-            data = np.squeeze(np.asarray(tifffile.imread(path)))
-            metadata = _beam_image_metadata(path)
-        else:
-            from PIL import Image
-
-            with Image.open(path) as im:
-                data = np.asarray(im.convert("RGB"))
-        # z-stacks / channel stacks project on leading axes; a trailing
-        # RGB(A) axis is colour, not a stack, and stays.
-        while data.ndim > 2 and data.shape[-1] not in (3, 4):
-            data = data.max(axis=0)
-        if data.ndim == 3 and data.shape[-1] == 4:
-            data = data[..., :3]
-        jpeg, width, height = preview_jpeg_bytes(data, max_width=max_width)
-        if metadata is not None and metadata["pixel_size"] and width:
-            # metres per PREVIEW pixel, as image answers carry it.
-            metadata["preview_pixelsize"] = (
-                metadata["pixel_size"] * data.shape[1] / width
-            )
-    except Exception as exc:  # noqa: BLE001 - a broken file is a data fact
-        return {
-            "available": True,
-            "jpeg": None,
-            "error": f"Could not render {filename!r}: {exc}",
-        }
-    return {
-        "available": True,
-        "jpeg": jpeg,
-        "width": width,
-        "height": height,
-        "filename": filename,
-        "metadata": metadata,
-    }
-
-
 def find_item(experiment, item_name: str):
     """The item named *item_name*, and None; or None and why not, in the words
     every route refuses an unknown item with, and the names there are. Each
@@ -262,21 +207,6 @@ def _overview_point_to_stage(path: str, px=None, fraction=None):
         raise ValueError(
             "The overview has no stage geometry to convert from."
         ) from None
-
-
-def _beam_image_metadata(path: str) -> Optional[Dict[str, Any]]:
-    """A saved beam image's metadata block (images.image_metadata), or None for a
-    TIFF that is not one: a plain array, a stack, a file that will not load."""
-    from fibsem.server.images import image_metadata
-    from fibsem.structures import FibsemImage
-
-    try:
-        image = FibsemImage.load(path)
-    except Exception:  # noqa: BLE001 - no metadata is an answer, not a failure
-        return None
-    if image.metadata is None:
-        return None
-    return image_metadata(image, path)
 
 
 def _overview_projector(path: str):
@@ -464,20 +394,15 @@ class AutoLamellaAppContext:
         the short block every image answer carries)."""
         import os
 
+        from fibsem.server.files import FileRefusal, resolve
         from fibsem.structures import FibsemImage
 
-        root = self.experiment_path
-        if root is None:
-            return {"error_type": "not_found", "message": "No experiment is open."}
-        root = os.path.realpath(root)
-        target = os.path.realpath(path)
-        if os.path.commonpath([root, target]) != root:
-            return {
-                "error_type": "not_allowed",
-                "message": f"Only images inside the open experiment ({root}).",
-            }
+        try:
+            target = resolve(self.experiment_path, path)
+        except FileRefusal as refusal:
+            return refusal.detail
         if not os.path.isfile(target):
-            return {"error_type": "not_found", "message": f"No file at {path}."}
+            return {"error_type": "not_found", "message": f"{path} is a folder."}
         image = FibsemImage.load(target)
         if image.metadata is None:
             return {
@@ -805,7 +730,7 @@ class AutoLamellaAppContext:
                 "error": f"No output named {filename!r} for {item_name!r}.",
                 "filenames": [os.path.basename(p) for p in paths],
             }
-        return _rendered_preview(match, filename, max_width)
+        return jpeg_preview(match, filename, max_width)
 
     # --- grids: the screening read model (FIB-876) ----------------------------
 
@@ -890,7 +815,7 @@ class AutoLamellaAppContext:
                 "error": f"No output named {filename!r} for grid {grid_name!r}.",
                 "filenames": self._recorded_grid_basenames(experiment, grid),
             }
-        return _rendered_preview(match, filename, max_width)
+        return jpeg_preview(match, filename, max_width)
 
     def grid_markers(self, grid_name: str, filename: str) -> Dict[str, Any]:
         """Where the experiment's items fall on one recorded overview.
