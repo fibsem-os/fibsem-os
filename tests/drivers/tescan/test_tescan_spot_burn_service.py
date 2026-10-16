@@ -271,12 +271,12 @@ def test_a_failure_is_raised_and_the_preset_put_back(tescan):
 
 def test_the_burn_current_may_be_none(tescan):
     microscope, fake = tescan()
-    recorded = []
+    recorded = {}
     microscope.session.record_signal.connect(
-        lambda kind, payload: recorded.append(payload)
+        lambda kind, payload: recorded.setdefault(kind, payload)
     )
     microscope.run_spot_burn(_settings(*TWO, milling_current=None))
-    assert recorded[0]["milling_current"] is None
+    assert recorded["spot_burn_started"]["milling_current"] is None
     assert "DrawBeam.Start" in drawbeam(fake)
 
 

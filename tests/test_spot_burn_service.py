@@ -141,14 +141,15 @@ def test_points_outside_the_image_are_dropped_and_strings_are_numbers(
 
 
 def test_the_start_is_recorded(microscope):
-    recorded = []
+    recorded = {}
     microscope.session.record_signal.connect(
-        lambda kind, payload: recorded.append(payload)
+        lambda kind, payload: recorded.setdefault(kind, payload)
     )
     microscope.spot_burn.run(_settings(Point(0.5, 0.5), Point(2.0, 2.0)))
-    assert recorded[0]["coordinates"] == [[0.5, 0.5]]
-    assert recorded[0]["milling_current"] == BURN_CURRENT
-    assert recorded[0]["dropped"] == 1
+    started = recorded["spot_burn_started"]
+    assert started["coordinates"] == [[0.5, 0.5]]
+    assert started["milling_current"] == BURN_CURRENT
+    assert started["dropped"] == 1
 
 
 def test_no_points_finishes_and_leaves_the_beam_alone(microscope, reports):
