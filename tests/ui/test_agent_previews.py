@@ -110,6 +110,22 @@ def test_a_new_request_replaces_the_last_one_s_picture():
     assert len(layer.patterns) == 2 and layer.crosses == []
 
 
+def test_a_request_filed_before_the_views_had_images_is_drawn_once_they_do():
+    """Sim session 2026-10-16: no picture came until the request was filed
+    again; the picture was worked out once per request."""
+    controller = _Controller()
+    controller._images = {}
+    card = _Card()
+    previews = AgentPreviews(lambda: controller, show_picture=card)
+    previews.show_request(_request())
+    assert previews.request_picture is None
+    controller._images = _Controller()._images
+    previews.show_request(_request())
+    frame, _ = _layer(previews.request_picture)
+    assert frame is controller.image(BeamType.ION)
+    assert card.shown[False] is not None
+
+
 def test_without_views_nothing_is_drawn():
     card = _Card()
     previews = AgentPreviews(lambda: None, show_picture=card)

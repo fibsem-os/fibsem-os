@@ -698,10 +698,17 @@ class AgentPreviews:
         request being applied or ended) takes the previews down."""
         waiting = request is not None and request.get("status") == "pending"
         request_id = request.get("request_id") if waiting else None
-        if request_id == self._request_id:
+        # Once drawn, a request's picture stays; one that had nothing to draw on
+        # tries again, as the views take images (sim session 2026-10-16: none
+        # came until the request was filed again).
+        if request_id == self._request_id and (
+            request_id is None or self.request_picture is not None
+        ):
             return
+        again = request_id == self._request_id
         self._request_id = request_id
-        self._picture(None, None, [], suggestion=False)
+        if not again:
+            self._picture(None, None, [], suggestion=False)
         if not waiting:
             return
         controller = self._view_controller()
