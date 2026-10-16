@@ -55,8 +55,9 @@ class ToolSpec:
         )
         if self.hardware:
             return (
-                f"{note} Refused (409) while a run or script is in control of "
-                "the microscope."
+                f"{note} Refused (409) while a run or script is in control, "
+                "except while a run waits on a question: then one action at a "
+                "time, and the run waits for it to finish."
             )
         return f"{note} The operator sets the level from the Agent chip in AutoLamella."
 
@@ -1047,10 +1048,10 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         router="app",
     ),
     ToolSpec(
-        name="workflow_get_run_summary",
+        name="workflow_get_summary",
         description="The most recent workflow run's outcome table.",
         method="GET",
-        path="/app/workflow/run_summary",
+        path="/app/workflow/summary",
         level="watch",
         router="app",
     ),
@@ -1456,7 +1457,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         name="experiment_add_note",
         description="Put an observation on the record — the event stream and the experiment log. Use it for judgments worth keeping ('curtaining on 02's face, accepted anyway'); notes change nothing. Optionally name the item it concerns.",
         method="POST",
-        path="/app/agent/notes",
+        path="/app/experiment/notes",
         level="watch",  # Watch adds notes: they change nothing
         router="app",
         params={
@@ -1879,7 +1880,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         name="protocol_set_supervision",
         description="Set whether a task asks for supervision, in the live protocol. Takes effect at the workflow's next prompt-or-proceed decision, mid-run — the same behaviour as the GUI's supervised/automated toggle.",
         method="POST",
-        path="/app/agent/supervision",
+        path="/app/experiment/protocol/supervision",
         level="drive",
         router="app",
         params={

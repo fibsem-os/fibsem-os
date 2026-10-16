@@ -2482,7 +2482,7 @@ def test_a_run_writes_its_tile_layout_beside_the_tiles(fm_microscope, tmp_path):
     )
     runner.run()
 
-    record = json.loads((tmp_path / "tile-layout.json").read_text())
+    record = json.loads((tmp_path / "overview-metadata.json").read_text())
     # Four tiles in a 2x2 are four neighbour pairs, matched or not.
     assert len(record["layout"]["pairs"]) == 4
     assert runner.layout_warning == record["warning"]
@@ -2546,7 +2546,7 @@ def test_a_run_asked_to_align_records_what_it_did(fm_microscope, tmp_path):
     )
     mosaic = runner.run_and_stitch()
 
-    record = json.loads((tmp_path / "tile-layout.json").read_text())
+    record = json.loads((tmp_path / "overview-metadata.json").read_text())
     registration = record["registration"]
     assert set(registration) >= {"applied", "note"}
     # Aligned or not, the mosaic is the planned one's size.

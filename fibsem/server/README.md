@@ -31,15 +31,16 @@ naming why (`level`, `ask_first`, `agent_off`, `agent_stopped`, `not_allowed`).
 Separate from the level, an allowlist (`fibsem/server/allowlist.py`) names what
 the agent may never write or run, at any level and in an approved request too:
 a beam's `on`, `angular_correction`, `tilt_correction` and `plasma_gas`; the
-stage's `home` and `link`; every chamber and manipulator write and command; the
+stage's `home`, `link` and raw `move_absolute` (stage_movement's too: the agent moves with `safe_absolute_stage_movement`); every chamber and manipulator write and command; the
 objective's `limit_position`; the FM's `cancel` (the agent stops a z-stack with
 `imaging`'s `stop`). `GET /microscope/devices` and `/microscope/services` mark those
 `agent: false`. A command's `path` argument must be inside the open experiment. A hardware
-command takes control of the microscope while it runs: when a run, a script or
+command takes control of the microscope while it runs: when a workflow, a script or
 another command is in control it gets `409 microscope_busy`, naming who.
 A long service command (marked `long: true` in the listing: milling's `run`,
-`run_task` and `run_stage`; imaging's `focus_stack`, `tiled_overview`,
-`fm_focus_sweep` and `fm_tiled_overview`; alignment's `align`; spot burn's `run`) answers at once with its run (`run_id`, `state: running`)
+`run_task` and `run_stage`; imaging's `acquire_focus_stack`, `acquire_overview`,
+`fm_auto_focus`, `fm_acquire_image` and `fm_acquire_overview`; alignment's
+`align_to_reference`; spot burn's `run`) answers at once with its run (`run_id`, `state: running`)
 and runs on in control of the microscope; `GET /microscope/services/{service}/run`
 reads it, waiting up to `?wait=` seconds (at most 60) for the end, and the end is
 a `command_ended` event. `FibsemClient.run_milling` waits for it. The run is the
@@ -64,13 +65,13 @@ doc for the trust model.
 The `/app` routes sort by what they act on:
 
 - `/app/experiment`: the open experiment. `GET /app/experiment` summarises it;
-  under it are `recent`, `protocol`, `items/{item}` (with its `task_config`
-  and `outputs`), `grids/{grid}`, `images` and `task_history`.
-- `/app/workflow`: the run. `status`, `queue`, `run_summary`, `start`,
+  under it are `recent`, `protocol` (with `supervision`), `items/{item}` (with
+  its `task_config` and `outputs`), `grids/{grid}`, `images`, `notes` and
+  `task_history`.
+- `/app/workflow`: the workflow. `status`, `queue`, `summary`, `start`,
   `stop`, `schedule`, `options`, and the questions the run asks: `prompt`,
   `prompt/answer`, `prompt/suggest`, `decide`, `reviews`.
-- `/app/agent`: the agent's own records and settings: `notes`, `requests`,
-  `supervision`.
+- `/app/agent`: the agent's own requests: `requests`.
 - `events` and `log` stay at `/app`: they cover the whole session.
 
 Exactly one experiment is open per session, so `/app/experiment` needs no

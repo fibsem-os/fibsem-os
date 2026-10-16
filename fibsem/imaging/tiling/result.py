@@ -2,7 +2,7 @@
 
 `OverviewResult` is filled in as a run goes and handed back when it ends, to the
 Overview tabs, the grid overview tasks and the imaging service alike. Its `to_dict`
-is the full record, written beside the tiles as `tile-layout.json`; `summary` is the
+is the full record, written beside the tiles as `overview-metadata.json`; `summary` is the
 short form the App Server answers an agent with.
 """
 
@@ -15,9 +15,12 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from fibsem.imaging.tiling.layout_check import LAYOUT_FILE, TileLayoutCheck
+from fibsem.imaging.tiling.layout_check import TileLayoutCheck
 from fibsem.imaging.tiling.registration import Registration
 from fibsem.structures import FibsemStagePosition
+
+# Written into the run's tile folder, beside the tiles it describes.
+METADATA_FILE = "overview-metadata.json"
 
 
 @dataclass
@@ -157,7 +160,7 @@ class OverviewResult:
         return (self.ended - self.started).total_seconds()
 
     def to_dict(self) -> Dict[str, Any]:
-        """The full record, as written to ``tile-layout.json``."""
+        """The full record, as written to ``overview-metadata.json``."""
         return {
             "modality": self.modality,
             "status": self.status,
@@ -231,11 +234,11 @@ class OverviewResult:
     # -- write -----------------------------------------------------------------
 
     def save(self, directory: Optional[str], check: Optional[TileLayoutCheck]) -> None:
-        """Write the record into the run's tile folder as `tile-layout.json`, with the
+        """Write the record into the run's tile folder as `overview-metadata.json`, with the
         layout check's pairs. Best effort: a run is not failed by its record."""
         if directory is None:
             return
-        path = os.path.join(directory, LAYOUT_FILE)
+        path = os.path.join(directory, METADATA_FILE)
         try:
             if check is not None:
                 self.layout = check.record()

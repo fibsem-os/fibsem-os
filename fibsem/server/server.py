@@ -290,10 +290,10 @@ def _record_refusal(request: Request, exc: StarletteHTTPException) -> None:
         logging.debug("could not record an agent refusal", exc_info=True)
 
 
-# Routes that put the agent's call on the record themselves: its requests, notes
-# and level, its answers and suggestions to the run's questions. A stop says
+# Routes that put the agent's call on the record themselves: its requests, its
+# notes, its answers and suggestions to the workflow's questions. A stop says
 # so as it stops (`_stop_reason`).
-_RECORDS_ITSELF = ("/app/agent/", "/app/workflow/prompt/")
+_RECORDS_ITSELF = ("/app/agent/", "/app/experiment/notes", "/app/workflow/prompt/")
 # POST routes that only read: a query, and the grid run's plan. Not the agent
 # acting, and the request store reads them to describe each request.
 _POSTED_READS = ("/queries/", "/app/workflow/grids/plan")
