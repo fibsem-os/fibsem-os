@@ -1551,7 +1551,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "value": "optional geometry, as for prompt_answer",
             "image": "optional: the path of the image your evidence is in, inside the experiment (as the image tools answered it); the card shows it with the suggested value drawn on it",
         },
-        optional=("value",),
+        optional=("value", "image"),
         note="Works at Assist and Drive; refused (403) at Watch. At Drive you may prompt_answer directly instead.",
     ),
     ToolSpec(
