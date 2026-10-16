@@ -38,9 +38,8 @@ from fibsem.applications.autolamella.workflows.tasks.rough import (
     MillRoughTask,
     MillRoughTaskConfig,
 )
-from fibsem.applications.autolamella.workflows.tasks.status import HoldKind
 from fibsem.structures import Point
-from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.status import HoldKind, TaskStatus
 
 ROUGH = "Rough Milling"
 PROPOSED = {"features": [{"name": "LamellaCentre", "px": Point(10, 20)}]}

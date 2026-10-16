@@ -1,4 +1,4 @@
-"""Thread-safe task queue for autolamella workflow execution.
+"""Thread-safe task queue for a workflow run.
 
 The queue is ordered ``[history..., active?, pending...]``: items are consumed
 in order, so everything ahead of the active item has already run. All mutation

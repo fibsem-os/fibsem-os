@@ -33,8 +33,8 @@ from fibsem.applications.autolamella.workflows.interaction import (
     ConfirmDetection,
     ask,
 )
-from fibsem.applications.autolamella.workflows.tasks.status import Hold, HoldKind
 from fibsem.detection.detection import DetectedFeatures, LamellaCentre
+from fibsem.workflows.status import Hold, HoldKind
 
 PROMPT = "Confirm Feature Detection. Press Continue to proceed."
 

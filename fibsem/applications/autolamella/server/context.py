@@ -3074,7 +3074,7 @@ class AutoLamellaAppContext:
         is refused (``not_pending``) -- stopping it is ``stop_workflow`` -- and
         so is one that already ran.
         """
-        from fibsem.applications.autolamella.workflows.tasks.queue import (
+        from fibsem.workflows.queue import (
             QUEUE_ACTIONS,
             QueueOp,
         )

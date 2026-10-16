@@ -94,7 +94,6 @@ from fibsem.applications.autolamella.workflows.tasks.proposing import (
     LAMELLA_RESULT_IMAGES,
     settle,
 )
-from fibsem.applications.autolamella.workflows.tasks.status import take_back_finish
 from fibsem.applications.autolamella.workflows.ui import (
     INSTRUCTION_TIMEOUT_S,
     _abort_requested,
@@ -133,7 +132,7 @@ from fibsem.structures import (
     Point,
 )
 from fibsem.util.timestamps import now, now_iso
-from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.status import TaskStatus, take_back_finish
 
 if TYPE_CHECKING:
     from fibsem.alignment import AlignmentResult

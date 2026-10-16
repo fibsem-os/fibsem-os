@@ -39,11 +39,11 @@ from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     plan_grid_run,
     run_grid_tasks,
 )
-from fibsem.applications.autolamella.workflows.tasks.status import WorkflowStatusEvent
 from fibsem.cancellation import OperationCancelledError
 from fibsem.services.sample_handling import BUILTIN_SLOT_NAME
 from fibsem.structures import BeamType, ImageSettings, OverviewAcquisitionSettings
 from fibsem.workflows.status import TaskStatus as Status
+from fibsem.workflows.status import WorkflowStatusEvent
 
 GRIDS = ["Grid-01", "Grid-02", "Grid-03"]  # what the sim magazine holds
 

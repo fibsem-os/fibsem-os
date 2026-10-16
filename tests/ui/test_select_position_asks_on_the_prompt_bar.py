@@ -43,9 +43,8 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
     SelectMillingPositionTask,
     SelectMillingPositionTaskConfig,
 )
-from fibsem.applications.autolamella.workflows.tasks.status import HoldKind
 from fibsem.structures import FibsemRectangle, FibsemStagePosition
-from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.status import HoldKind, TaskStatus
 
 SETUP = "Setup Lamella Position"
 ROUGH = "Rough Milling"

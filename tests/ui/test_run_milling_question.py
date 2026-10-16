@@ -45,9 +45,9 @@ from fibsem.applications.autolamella.workflows.tasks.rough import (
     MillRoughTask,
     MillRoughTaskConfig,
 )
-from fibsem.applications.autolamella.workflows.tasks.status import HoldKind
 from fibsem.milling import FibsemMillingStage
 from fibsem.milling.tasks import FibsemMillingTaskConfig
+from fibsem.workflows.status import HoldKind
 
 ROUGH = "Rough Milling"
 MSG = "Mill the lamella."
