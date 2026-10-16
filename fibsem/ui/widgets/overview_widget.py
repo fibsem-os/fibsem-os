@@ -683,7 +683,10 @@ class FibsemOverviewWidget(QWidget):
             self.microscope.imaging.tiled_progress.connect(self._on_progress)
         if self.microscope.stage is not None:
             self.microscope.stage.position.changed.connect(self._on_stage_signal)
-        self.microscope.holder_changed.connect(self._on_holder_changed)
+        if self.microscope.sample_handling is not None:
+            self.microscope.sample_handling.holder_changed.connect(
+                self._on_holder_changed
+            )
 
         self._refresh_current_position()
         self._refresh_context_overlays()
@@ -4276,12 +4279,17 @@ class FibsemOverviewWidget(QWidget):
         # objects that `close` has already torn down on the C++ side, so the next emit
         # writes into freed memory. Closing the tab and then moving the stage from
         # anywhere else in the application was a hard segfault, not an exception.
-        subscriptions = [
-            (self.microscope.holder_changed, self._on_holder_changed),
-        ]
+        subscriptions = []
         if self.microscope.stage is not None:
             subscriptions.append(
                 (self.microscope.stage.position.changed, self._on_stage_signal)
+            )
+        if self.microscope.sample_handling is not None:
+            subscriptions.append(
+                (
+                    self.microscope.sample_handling.holder_changed,
+                    self._on_holder_changed,
+                )
             )
         if self.microscope.imaging is not None:
             subscriptions.append(

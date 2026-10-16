@@ -70,6 +70,13 @@ def test_a_blocked_entry_is_refused_at_drive_and_stays_readable(client):
         assert f"may not run {device}.{command}" in message
         assert "readable" not in message
 
+    # A mill started bare returns at once, holding no control while it mills.
+    refused = client.post(
+        "/microscope/services/milling/commands/start", json={"kwargs": {}}
+    )
+    assert refused.status_code == 403
+    assert "milling_run_stage" in refused.json()["detail"]["message"]
+
 
 def test_risky_but_legitimate_entries_are_left_to_the_level(client, microscope):
     voltage = microscope.devices["electron"].voltage.get_value()

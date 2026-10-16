@@ -4377,7 +4377,7 @@ def test_recalibrating_a_slot_moves_its_marker_without_a_stage_move(qapp):
     assert before, "no slot marker drawn to move"
 
     slot.position = replace(slot.position, x=slot.position.x + 300e-6)
-    microscope.holder_changed.emit(holder)
+    microscope.sample_handling.holder_changed.emit(holder)
     qapp.processEvents()
 
     assert marker() and marker() != before, "the recalibrated slot did not move"

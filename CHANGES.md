@@ -50,6 +50,11 @@ lists where each key went.
   service instead: `microscope.imaging.tiled_progress.connect(slot)`. It carries the
   same `TiledProgress` reports from beam and fluorescence overviews, on the same
   thread. A microscope with no beam has no imaging service, so nothing reports there.
+- **`microscope.holder_changed` is removed.** Listen on the sample handling service
+  instead: `microscope.sample_handling.holder_changed.connect(slot)`. Applying a
+  configuration that names a holder now loads it into the same service
+  (`sample_handling.load_holder()`) rather than building a new one, so subscribers
+  stay connected.
 - **A stage or manipulator position's `changed` signal ignores moves under 1e-6** on
   every axis (metres and radians), compared with the position it last signalled, so
   readback jitter no longer signals a move. The overviews, the stage readout, the

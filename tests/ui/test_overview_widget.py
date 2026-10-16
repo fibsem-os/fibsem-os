@@ -1816,7 +1816,9 @@ class TestTheHolderIsDrawnOnEveryStage:
         assert before, "no slot marker drawn to move"
 
         slots["Slot-02"] = calibrated("Slot-02", 3.0e-3)
-        widget.microscope.holder_changed.emit(widget.microscope.sample_handling.holder)
+        widget.microscope.sample_handling.holder_changed.emit(
+            widget.microscope.sample_handling.holder
+        )
         _app.processEvents()
 
         after = [(s.cx, s.cy) for s in self._specs(widget, "crosshair", "Slot-02")]
@@ -1832,7 +1834,7 @@ class TestLifecycle:
         signals = (
             microscope.imaging.tiled_progress,
             microscope.stage.position.changed,
-            microscope.holder_changed,
+            microscope.sample_handling.holder_changed,
         )
         before = [len(s) for s in signals]
         widget.close()

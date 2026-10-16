@@ -367,8 +367,12 @@ class FMOverviewWidget(QWidget):
         # rather than re-read, so nothing else would notice it moved (FIB-521).
         self.fm.transform_changed.connect(self._on_transform_changed)
         # Same contract again. The holder's slots are drawn from its calibration, and
-        # a stage move no longer redraws them, so a recalibration has to say so.
-        self.microscope.holder_changed.connect(self._on_holder_changed)
+        # a stage move no longer redraws them, so a recalibration has to say so. On
+        # the sample handling service, which a microscope with no stage doesn't have.
+        if self.microscope.sample_handling is not None:
+            self.microscope.sample_handling.holder_changed.connect(
+                self._on_holder_changed
+            )
         self._refresh_current_position()
         self._refresh_objective_info()
         self._refresh_orientation_banner()
@@ -3072,8 +3076,14 @@ class FMOverviewWidget(QWidget):
             # has always claimed "without exception".
             (self.fm.acquiring_changed, self._on_fm_acquiring_signal),
             (self.fm.transform_changed, self._on_transform_changed),
-            (self.microscope.holder_changed, self._on_holder_changed),
         ]
+        if self.microscope.sample_handling is not None:
+            subscriptions.append(
+                (
+                    self.microscope.sample_handling.holder_changed,
+                    self._on_holder_changed,
+                )
+            )
         # Subscribed since FIB-725, on the imaging service when there is one.
         if self.microscope.imaging is not None:
             subscriptions.append(
