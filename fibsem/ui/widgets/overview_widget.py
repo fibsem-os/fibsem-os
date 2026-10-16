@@ -66,6 +66,7 @@ from fibsem.fm.composite import auto_clim
 from fibsem.geometry.projection import BeamStageProjection
 from fibsem.imaging import tiled
 from fibsem.imaging.reduce import downsample, downsample_mask
+from fibsem.imaging.tiled import stamped_overview_name
 from fibsem.imaging.tiling import unreachable_tiles
 from fibsem.imaging.tiling.progress import (
     MODALITY_BEAM,
@@ -141,9 +142,6 @@ from fibsem.ui.widgets.custom_widgets import (
 )
 from fibsem.ui.widgets.fibsem_overview_settings_widget import (
     FibsemOverviewSettingsWidget,
-)
-from fibsem.ui.widgets.overview_acquisition_settings_widget import (
-    stamped_overview_name,
 )
 from fibsem.ui.widgets.overview_confirmation_dialog import OverviewConfirmationDialog
 from fibsem.ui.widgets.overview_list_widget import OverviewListWidget
@@ -2103,13 +2101,9 @@ class FibsemOverviewWidget(QWidget):
     def _settings(self) -> Optional[OverviewAcquisitionSettings]:
         """The planned acquisition, read from the settings widget.
 
-        Note what `OverviewAcquisitionSettingsWidget.get_settings()` actually does: it
-        *mutates and returns the widget's own* `ImageSettings`, resetting `path` from
-        its text box among other fields. So the object it hands back is shared, and
-        every later call rewrites it.
-
-        That is safe to read from here only because `acquire` deep-copies before giving
-        anything to the runner. Before it did, this exact call -- reached from an
+        `acquire` deep-copies what this returns before giving anything to the runner.
+        Before it did, a settings widget that handed back its own shared
+        `ImageSettings` let this exact call -- reached from an
         overlay refresh when the stage moved between tiles -- reset a running
         acquisition's output path to None, and the second tile died in
         `os.path.join(None, filename)`. The first tile had already succeeded, so it

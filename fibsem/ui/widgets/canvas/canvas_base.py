@@ -25,7 +25,7 @@ on button-press; the canvas clears the flag automatically on button-release.
 
 The overlay classes themselves live in the :mod:`fibsem.ui.widgets.canvas.overlays`
 package (``CanvasOverlay`` base + ``PointsOverlay`` / ``PointOverlay`` /
-``RectOverlay`` / ``RulerOverlay`` / ``PatternOverlay`` / ``ScanDirectionArrowOverlay``
+``RectOverlay`` / ``RulerOverlay`` / ``ScanDirectionArrowOverlay``
 and the milling / mask / alignment / minimap overlays).
 """
 

@@ -1,8 +1,5 @@
 """The FIB/SEM overview's settings column.
 
-Replaces `OverviewAcquisitionSettingsWidget` on the canvas tab. That one stays where it
-is: the napari Overview tab still uses it, and the two go together when that tab does.
-
 Read top to bottom it sets up one tile, then the grid of them: **Imaging** (what a tile
 is), **Focus** (when to focus while walking the grid), **Stack** (whether to take a focus
 stack at each tile), **Grid** (how many, where, which). That is the fluorescence column's
@@ -58,9 +55,6 @@ from fibsem.ui.widgets.custom_widgets import (
     ValueSpinBox,
 )
 from fibsem.ui.widgets.form_builder import configure_spinbox
-from fibsem.ui.widgets.overview_acquisition_settings_widget import (
-    default_overview_acquisition_settings,
-)
 from fibsem.ui.widgets.overview_grid_settings_widget import OverviewGridSettingsWidget
 
 # How a tile's imaging controls are shown: ImageSettings' field metadata, as the
@@ -91,7 +85,7 @@ class FibsemOverviewSettingsWidget(QWidget):
         self._microscope = None
         self._build()
         self._connect()
-        self.update_from_settings(default_overview_acquisition_settings())
+        self.update_from_settings(OverviewAcquisitionSettings())
 
     def set_microscope(self, microscope) -> None:
         """Offer the selected beam's resolutions; without a microscope the standard

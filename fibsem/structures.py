@@ -41,6 +41,7 @@ from numpy.typing import NDArray
 
 import fibsem
 from fibsem.config import (
+    DEFAULT_STANDARD_RESOLUTION_LIST,
     METADATA_VERSION,
     UNVERSIONED_METADATA,
 )
@@ -1652,6 +1653,34 @@ def _default_autofocus_settings() -> "AutoFocusSettings":
     return AutoFocusSettings()
 
 
+# What an overview run looks like before anyone touches it. House defaults rather
+# than physics: a 500 um tile and a 1 us dwell are what the overview has always
+# opened with. The name decides where every overview is written:
+# `TiledAcquisitionRunner._setup` makes the tile sub-folder from it.
+OVERVIEW_TILE_HFW = 500e-6  # m
+OVERVIEW_TILE_DWELL_TIME = 1e-6  # s
+DEFAULT_OVERVIEW_FILENAME = "overview-image"
+
+
+def _default_overview_tile_settings() -> ImageSettings:
+    """The tile settings a new overview starts from.
+
+    The standard 1536x1024 resolution, not a square one: `hfw` is the horizontal
+    field, so the same 500 um tile at 1024x1024 is 0.49 um/px against 0.33 and half
+    again as tall, and overviews worth putting side by side should not differ by it.
+    A `tuple`, not the config list itself, so no two settings share one mutable list.
+    """
+    return ImageSettings(
+        resolution=tuple(DEFAULT_STANDARD_RESOLUTION_LIST),
+        hfw=OVERVIEW_TILE_HFW,
+        dwell_time=OVERVIEW_TILE_DWELL_TIME,
+        beam_type=BeamType.ELECTRON,
+        save=True,
+        path=None,  # whoever owns the experiment fills this in
+        filename=DEFAULT_OVERVIEW_FILENAME,
+    )
+
+
 @dataclass
 class OverviewAcquisitionSettings(Configurable):
     """Settings for a tiled overview acquisition.
@@ -1690,7 +1719,7 @@ class OverviewAcquisitionSettings(Configurable):
 
     image_settings: ImageSettings = param(
         doc="The settings each tile is acquired with; its field of view is the tile's.",
-        default_factory=ImageSettings,
+        default_factory=_default_overview_tile_settings,
     )
     nrows: int = param(
         3,
@@ -1722,8 +1751,10 @@ class OverviewAcquisitionSettings(Configurable):
         doc="How to autofocus: the sweep passes, the method and the probe frame.",
         default_factory=_default_autofocus_settings,
     )
+    # One contrast for the whole mosaic by default; the runner sets the per-image
+    # flag from this.
     autocontrast_mode: AutoContrastMode = param(
-        AutoContrastMode.NONE,
+        AutoContrastMode.ONCE,
         doc="When to set the contrast: never, once at the grid centre, or at each tile. It decides image_settings.autocontrast for the run.",
         display=Display("Auto Contrast"),
     )
