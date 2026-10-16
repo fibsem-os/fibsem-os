@@ -55,6 +55,11 @@ lists where each key went.
   configuration that names a holder now loads it into the same service
   (`sample_handling.load_holder()`) rather than building a new one, so subscribers
   stay connected.
+- **`microscope.stage_position_changed` is removed.** Listen on the stage device
+  instead: `microscope.stage.position.changed.connect(slot)`. It fires on any read or
+  move of the stage, not only from `get_stage_position()`. The last position is
+  `microscope.stage.position.last_known` (no hardware call; None before the first
+  read); the private `microscope._stage_position` cache is gone.
 - **A stage or manipulator position's `changed` signal ignores moves under 1e-6** on
   every axis (metres and radians), compared with the position it last signalled, so
   readback jitter no longer signals a move. The overviews, the stage readout, the

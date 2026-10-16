@@ -2467,8 +2467,8 @@ class TestADraggedGridIsLiftedToTheStage:
     def test_the_run_is_centred_on_the_stage_the_press_found(
         self, widget, at_a_known_height, monkeypatch, tmp_path
     ):
-        """The run-side half of FIB-669. `stage_position_changed` is emitted by
-        `get_stage_position`, so a move nobody polled after never reached the cache --
+        """The run-side half of FIB-669. `stage.position.changed` is emitted by a
+        read or move of the stage device, so a move nobody read after never reached the cache --
         and the runner drives to each tile absolutely, z included. `acquire` reads the
         stage rather than trusting what it was last told.
         """
