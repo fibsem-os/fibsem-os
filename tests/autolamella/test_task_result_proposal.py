@@ -16,15 +16,7 @@ from psygnal.containers import EventedDict
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.applications.autolamella.proposals import (
-    DETECTION,
-    POINT_OF_INTEREST,
-    TASK_RESULT,
-    Decision,
-    DecisionOutcome,
-    Proposal,
-    TaskResultProposer,
-)
+from fibsem.applications.autolamella.proposals import DETECTION, POINT_OF_INTEREST
 from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskDescription,
@@ -41,6 +33,13 @@ from fibsem.applications.autolamella.workflows.tasks.rough import (
     MillRoughTaskConfig,
 )
 from fibsem.structures import Point
+from fibsem.workflows.proposals import (
+    TASK_RESULT,
+    Decision,
+    DecisionOutcome,
+    Proposal,
+    TaskResultProposer,
+)
 from fibsem.workflows.status import TaskStatus
 
 ROUGH = "Rough Milling"

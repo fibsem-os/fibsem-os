@@ -13,14 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from fibsem.applications.autolamella.proposals import (
-    POINT_OF_INTEREST,
-    TASK_RESULT,
-    Decision,
-    DecisionOutcome,
-    Proposal,
-    Standing,
-)
+from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskState,
     Experiment,
@@ -28,6 +21,13 @@ from fibsem.applications.autolamella.structures import (
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.structures import Point
+from fibsem.workflows.proposals import (
+    TASK_RESULT,
+    Decision,
+    DecisionOutcome,
+    Proposal,
+    Standing,
+)
 from fibsem.workflows.status import TaskStatus
 from tests.autolamella.test_task_manager_status import (
     NoMicroscope,

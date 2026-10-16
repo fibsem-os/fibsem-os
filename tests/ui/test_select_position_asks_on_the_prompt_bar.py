@@ -27,8 +27,6 @@ from fibsem.applications.autolamella.proposals import (
     ALIGNMENT_AREA,
     POINT_OF_INTEREST,
     STATE,
-    AuthorKind,
-    DecisionOutcome,
 )
 from fibsem.applications.autolamella.structures import (
     Attention,
@@ -44,6 +42,7 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
     SelectMillingPositionTaskConfig,
 )
 from fibsem.structures import FibsemRectangle, FibsemStagePosition
+from fibsem.workflows.proposals import AuthorKind, DecisionOutcome
 from fibsem.workflows.status import HoldKind, TaskStatus
 
 SETUP = "Setup Lamella Position"

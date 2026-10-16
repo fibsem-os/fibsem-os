@@ -16,13 +16,7 @@ from psygnal.containers import EventedDict
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.applications.autolamella.proposals import (
-    STATE,
-    TASK_RESULT,
-    Decision,
-    DecisionOutcome,
-    compute_delta,
-)
+from fibsem.applications.autolamella.proposals import STATE
 from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskDescription,
@@ -36,6 +30,12 @@ from fibsem.applications.autolamella.workflows.tasks.reference_image import (
     AcquireReferenceImageTask,
 )
 from fibsem.structures import FibsemStagePosition
+from fibsem.workflows.proposals import (
+    TASK_RESULT,
+    Decision,
+    DecisionOutcome,
+    compute_delta,
+)
 
 REF = "Acquire Reference Image"
 CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
@@ -124,10 +124,7 @@ def test_a_confirmed_position_is_checked_and_written_nowhere(microscope, tmp_pat
     """The task uses the position; the writer checks it and touches nothing,
     like a detection's features. A later look at an unreviewed one is
     accepted and carries no values."""
-    from fibsem.applications.autolamella.proposals import (
-        ValueRefused,
-        prepare_values,
-    )
+    from fibsem.workflows.proposals import ValueRefused, prepare_values
 
     exp = _experiment(tmp_path, microscope)
     lamella = exp.positions[0]

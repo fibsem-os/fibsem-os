@@ -35,12 +35,12 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Tuple
 
 from fibsem.acting import AGENT, OPERATOR, TASK, acting, current_actor
-from fibsem.applications.autolamella.proposals import _encode_values
 from fibsem.applications.autolamella.server.events import (
     EventBuffer,
     attach_microscope_taps,
     make_lifecycle_hook,
 )
+from fibsem.workflows.proposals import _encode_values
 
 EVENTS_FILENAME = "events.jsonl"
 

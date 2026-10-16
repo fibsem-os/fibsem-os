@@ -14,7 +14,8 @@ The item is anything with a ``name``, an ``id``, a ``task_state``, a
 import logging
 from typing import Any, Dict, Mapping, Optional
 
-from fibsem.applications.autolamella.proposals import (
+from fibsem.util.timestamps import to_datetime
+from fibsem.workflows.proposals import (
     PROPOSAL_KINDS,
     Decision,
     DecisionOutcome,
@@ -22,7 +23,6 @@ from fibsem.applications.autolamella.proposals import (
     Proposer,
     TaskResultProposer,
 )
-from fibsem.util.timestamps import to_datetime
 from fibsem.workflows.status import TaskStatus
 
 # Provenance key -> output role, for a lamella task: the last final ion and

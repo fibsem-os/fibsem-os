@@ -15,14 +15,7 @@ from psygnal.containers import EventedDict
 
 pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
 
-from fibsem.applications.autolamella.proposals import (  # noqa: E402
-    POINT_OF_INTEREST,
-    TASK_RESULT,
-    AuthorKind,
-    Decision,
-    DecisionOutcome,
-    Proposal,
-)
+from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     Attention,
     AutoLamellaTaskDescription,
@@ -46,6 +39,13 @@ from fibsem.structures import (  # noqa: E402
     ImageSettings,
     MicroscopeState,
     Point,
+)
+from fibsem.workflows.proposals import (  # noqa: E402
+    TASK_RESULT,
+    AuthorKind,
+    Decision,
+    DecisionOutcome,
+    Proposal,
 )
 from fibsem.workflows.status import TaskStatus  # noqa: E402
 
@@ -134,12 +134,8 @@ def test_a_row_names_its_kind_when_it_is_not_the_tasks_result(tab, experiment):
     point for afterwards: three rows under one task name. The kind is what
     tells them apart, so the row says it. The task's own result is the plain
     case and says nothing extra."""
-    from fibsem.applications.autolamella.proposals import (
-        STATE,
-        TASK_RESULT,
-        Decision,
-        DecisionOutcome,
-    )
+    from fibsem.applications.autolamella.proposals import STATE
+    from fibsem.workflows.proposals import TASK_RESULT, Decision, DecisionOutcome
 
     lamella = experiment.positions[0]
     unasked = Decision(
@@ -853,7 +849,7 @@ class TestOverviewPositions:
         offered "Add Position Here" and the click did nothing. A decided
         proposal is looked at, not changed, so the canvas is told to offer
         neither -- an action that silently does nothing reads as broken."""
-        from fibsem.applications.autolamella.proposals import Decision, DecisionOutcome
+        from fibsem.workflows.proposals import Decision, DecisionOutcome
 
         grid = _positions_waiting(experiment)
         renderer = _positions_renderer(tab, grid)

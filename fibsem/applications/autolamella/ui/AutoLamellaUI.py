@@ -3007,10 +3007,7 @@ class AutoLamellaUI(QMainWindow):
         if shown is None or experiment is None:
             return
         item_id, task_name, proposal_id = shown
-        from fibsem.applications.autolamella.proposals import (
-            Decision,
-            DecisionOutcome,
-        )
+        from fibsem.workflows.proposals import Decision, DecisionOutcome
 
         result = experiment.decide(
             item_id,

@@ -20,12 +20,7 @@ pytest.importorskip("PyQt5")
 from psygnal.containers import EventedDict
 from PyQt5.QtCore import QCoreApplication, QEvent
 
-from fibsem.applications.autolamella.proposals import (
-    DETECTION,
-    AuthorKind,
-    Decision,
-    DecisionOutcome,
-)
+from fibsem.applications.autolamella.proposals import DETECTION
 from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskDescription,
@@ -39,6 +34,7 @@ from fibsem.applications.autolamella.workflows.tasks.rough import (
     MillRoughTaskConfig,
 )
 from fibsem.structures import Point
+from fibsem.workflows.proposals import AuthorKind, Decision, DecisionOutcome
 from fibsem.workflows.status import HoldKind, TaskStatus
 
 ROUGH = "Rough Milling"

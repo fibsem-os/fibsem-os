@@ -13,25 +13,7 @@ import pytest
 import yaml
 from psygnal.containers import EventedDict
 
-from fibsem.applications.autolamella.proposals import (
-    ALIGNMENT_AREA,
-    POINT_OF_INTEREST,
-    PROPOSAL_KINDS,
-    TASK_RESULT,
-    Alternative,
-    Author,
-    AuthorKind,
-    Decision,
-    DecisionOutcome,
-    Proposal,
-    ProposalKind,
-    Standing,
-    ValueRefused,
-    auto_author,
-    compute_delta,
-    prepare_values,
-    register_proposal_kind,
-)
+from fibsem.applications.autolamella.proposals import ALIGNMENT_AREA, POINT_OF_INTEREST
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     AutoLamellaTaskState,
@@ -49,6 +31,23 @@ from fibsem.structures import (
     FibsemStagePosition,
     MicroscopeState,
     Point,
+)
+from fibsem.workflows.proposals import (
+    PROPOSAL_KINDS,
+    TASK_RESULT,
+    Alternative,
+    Author,
+    AuthorKind,
+    Decision,
+    DecisionOutcome,
+    Proposal,
+    ProposalKind,
+    Standing,
+    ValueRefused,
+    auto_author,
+    compute_delta,
+    prepare_values,
+    register_proposal_kind,
 )
 from fibsem.workflows.status import TaskStatus
 
@@ -123,7 +122,7 @@ def test_a_decision_records_where_it_was_made():
 
 
 def test_a_tasks_proposals_are_a_list_oldest_first_and_the_last_is_current():
-    from fibsem.applications.autolamella.proposals import (
+    from fibsem.workflows.proposals import (
         current_proposal,
         proposals_from_dict,
         proposals_to_dict,
@@ -171,9 +170,8 @@ def test_a_kind_has_a_name_for_a_person():
         DETECTION,
         OVERVIEW_POSITIONS,
         STATE,
-        TASK_RESULT,
-        kind_label,
     )
+    from fibsem.workflows.proposals import TASK_RESULT, kind_label
 
     assert kind_label(POINT_OF_INTEREST) == "Point of interest"
     assert kind_label(STATE) == "Position"
@@ -191,7 +189,8 @@ def test_a_runs_questions_of_one_kind_all_stand_and_a_rerun_replaces_them():
     question, not a replaced one. A re-run's question of the same kind does
     replace them. A proposal with no run stamped on it goes by the old
     last-of-kind rule."""
-    from fibsem.applications.autolamella.proposals import STATE, current_proposals
+    from fibsem.applications.autolamella.proposals import STATE
+    from fibsem.workflows.proposals import current_proposals
 
     def question(run: str, stamped: bool = True) -> Proposal:
         return Proposal(
@@ -226,7 +225,8 @@ def test_recording_replaces_only_an_unanswered_proposal_of_the_same_kind():
     """A re-run's first question lands after the point the last run left
     open. That point is another kind: it stays for ``expire_open`` to close,
     rather than being dropped as if it were the question asked again."""
-    from fibsem.applications.autolamella.proposals import STATE, record
+    from fibsem.applications.autolamella.proposals import STATE
+    from fibsem.workflows.proposals import record
 
     open_point = _proposal()
     proposals = [open_point]
@@ -243,7 +243,7 @@ def test_recording_replaces_only_an_unanswered_proposal_of_the_same_kind():
 def test_recording_over_an_unanswered_proposal_replaces_it():
     """Nobody answered it, so there is nothing to keep; two open proposals
     for one task would be two questions where one was asked."""
-    from fibsem.applications.autolamella.proposals import record
+    from fibsem.workflows.proposals import record
 
     proposals = []
     record(proposals, _proposal(Point(1e-6, 0)))

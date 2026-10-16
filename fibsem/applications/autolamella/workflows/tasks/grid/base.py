@@ -32,7 +32,6 @@ from typing import (
 )
 
 from fibsem.acting import TASK, acting
-from fibsem.applications.autolamella.proposals import Proposer, TaskResultProposer
 from fibsem.applications.autolamella.structures import (
     Attention,
     Configurable,
@@ -44,6 +43,7 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.applications.autolamella.workflows.tasks.proposing import settle
 from fibsem.cancellation import OperationCancelledError
 from fibsem.util.timestamps import now, now_iso
+from fibsem.workflows.proposals import Proposer, TaskResultProposer
 from fibsem.workflows.status import TaskStatus, take_back_finish
 
 if TYPE_CHECKING:

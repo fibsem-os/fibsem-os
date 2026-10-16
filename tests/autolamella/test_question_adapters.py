@@ -23,12 +23,7 @@ import pytest
 from psygnal.containers import EventedDict
 
 from fibsem import conversions
-from fibsem.applications.autolamella.proposals import (
-    DETECTION,
-    Decision,
-    DecisionOutcome,
-    Proposal,
-)
+from fibsem.applications.autolamella.proposals import DETECTION
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
@@ -52,6 +47,7 @@ from fibsem.workflows.interaction import (
     ConfirmDetection,
     ReviewDetection,
 )
+from fibsem.workflows.proposals import Decision, DecisionOutcome, Proposal
 from fibsem.workflows.status import TaskStatus
 
 TASK = "Mill Rough"

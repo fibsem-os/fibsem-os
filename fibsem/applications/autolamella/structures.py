@@ -28,28 +28,11 @@ import yaml
 from psygnal import Signal, evented
 from psygnal.containers import EventedDict, EventedList
 
+# Registers AutoLamella's proposal kinds and how their values are stored and
+# written: an experiment read from disk decodes its proposals with them.
+import fibsem.applications.autolamella.proposals  # noqa: F401
 from fibsem import timing
 from fibsem.applications.autolamella import config as cfg
-from fibsem.applications.autolamella.proposals import (
-    PROPOSAL_KINDS,
-    Author,
-    Decision,
-    DecisionOutcome,
-    DecisionResult,
-    Proposal,
-    Standing,
-    ValueRefused,
-    _encode_values,
-    _quietly,
-    auto_author,
-    current_proposal,
-    current_proposals,
-    human_author,
-    prepare_values,
-    proposals_from_dict,
-    proposals_to_dict,
-    record,
-)
 from fibsem.applications.autolamella.protocol.constants import (
     FIDUCIAL_KEY,
     MICROEXPANSION_KEY,
@@ -81,6 +64,26 @@ from fibsem.structures import (
 from fibsem.util.durations import format_duration_precise
 from fibsem.util.timestamps import format_time, now, to_datetime, to_iso
 from fibsem.utils import configure_logging as _configure_logging
+from fibsem.workflows.proposals import (
+    PROPOSAL_KINDS,
+    Author,
+    Decision,
+    DecisionOutcome,
+    DecisionResult,
+    Proposal,
+    Standing,
+    ValueRefused,
+    _encode_values,
+    _quietly,
+    auto_author,
+    current_proposal,
+    current_proposals,
+    human_author,
+    prepare_values,
+    proposals_from_dict,
+    proposals_to_dict,
+    record,
+)
 from fibsem.workflows.status import TaskStatus
 
 if TYPE_CHECKING:
