@@ -1996,6 +1996,10 @@ class MicroscopeState:
 ########### Base Pattern Settings
 @dataclass
 class FibsemPatternSettings(ABC):
+    # Keys a dict may carry beyond the fields: the shape it names, which
+    # `from_dict` reads to pick the class (`fibsem.devices.wire` accepts them).
+    FROM_DICT_KEYS: ClassVar[Tuple[str, ...]] = ("type",)
+
     def to_dict(self) -> Dict[str, Any]:
         ddict = asdict(self)
         # Handle any special cases

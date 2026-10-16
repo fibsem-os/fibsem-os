@@ -485,3 +485,45 @@ def test_a_cancelled_command_is_409_cancelled(armed_client, microscope, monkeypa
         "message": "AutoFocus cancelled by user.",
         "status": "cancelled",
     }
+
+
+def test_a_key_its_structure_does_not_have_is_422_naming_where_it_belongs(
+    read_client,
+):
+    """An overview's hfw at the top of its settings, not in image_settings, was
+    dropped by from_dict and the default used without a word."""
+    path = "/microscope/services/imaging/queries/estimate_overview"
+    resp = read_client.post(
+        path, json={"kwargs": {"settings": {"hfw": 400e-6, "nrows": 2}}}
+    )
+    assert resp.status_code == 422, resp.text
+    detail = resp.json()["detail"]
+    assert detail["error_type"] == "ArgumentError"
+    assert detail["parameter"] == "settings.hfw"
+    assert "did you mean settings.image_settings.hfw?" in detail["message"]
+
+
+def test_an_unknown_key_is_refused_at_any_depth(read_client):
+    path = "/microscope/services/imaging/queries/estimate_overview"
+    passes = [{"search_range": 10e-6, "step_size": 1e-6, "steps": 10}]
+    nested = {"autofocus_settings": {"passes": passes}}
+    resp = read_client.post(path, json={"kwargs": {"settings": nested}})
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["detail"]["parameter"] == (
+        "settings.autofocus_settings.passes[0].steps"
+    )
+    misspelt = {"image_settings": {"dwell": 1e-6}}
+    resp = read_client.post(path, json={"kwargs": {"settings": misspelt}})
+    detail = resp.json()["detail"]
+    assert detail["parameter"] == "settings.image_settings.dwell"
+    assert "did you mean settings.image_settings.dwell_time?" in detail["message"]
+
+
+def test_what_a_structure_writes_it_reads_back(read_client):
+    from fibsem.structures import OverviewAcquisitionSettings
+
+    path = "/microscope/services/imaging/queries/estimate_overview"
+    settings = to_wire(OverviewAcquisitionSettings(nrows=2))
+    resp = read_client.post(path, json={"kwargs": {"settings": settings}})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["result"]["nrows"] == 2
