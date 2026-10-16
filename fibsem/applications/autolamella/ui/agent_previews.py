@@ -988,12 +988,16 @@ class AgentPreviews:
                 area=True,
             )
         elif isinstance(request, RunSpotBurn):
+            # The edit's points, or the question's when it moves none.
+            points = getattr(value, "points", None)
+            if points is None:
+                points = request.settings.coordinates
             mark = _Mark(
                 BeamType.ION,
                 "spot burn points",
                 [
                     (None, lambda frame, p=p: _fraction_pixel(frame, (p.x, p.y)))
-                    for p in value
+                    for p in points
                 ],
                 shape=DOT,
             )

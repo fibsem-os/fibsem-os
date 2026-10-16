@@ -264,13 +264,17 @@ can state. Where it is a prompt rather than a review, the payload's
 origin top-left; features you leave out stay). The model's points are kept
 beside your correction, as they are when the operator drags one.
 
-**`RunSpotBurn`** — points to burn on the FIB image. Yes burns the points
-as shown and the question comes back after the burn; no continues. The
-payload's `current` is the live points and `image` the frame they sit on.
-Placing points is a placement: held for the operator unless delegated. When
-it is, an answer may carry them: `"value": {"points": [{"x", "y"}]}`
-(fractions of the frame, origin top-left). Current and exposure stay the
-protocol's.
+**`RunSpotBurn`** — points to burn on the FIB image, the same loop as the
+milling question: answer with an `action` in `value` (`run`, `edit`, `skip`
+or `accept`, as `actions` allows), `passes` counts the burns and
+`last_error` says why the last one failed. Before a burn, `run` burns the
+points as shown and **`skip` goes on without burning** (the operator's
+call). After one, `run` burns AGAIN and `accept` goes on; look at the FIB
+image the burn left first. Edits ride the same value: `points`
+(`[{"x", "y"}]`, fractions of the frame, origin top-left; all of them,
+replacing the old), `milling_current` (A) and `exposure_time` (s, within
+`exposure_limits`). Placing points is a placement: held for the operator
+unless delegated. The question lends control between burns.
 
 **A `state` review** — the task's position, "press Continue when ready" on
 the record (rule 5). Confirming carries no values: the task reads the
