@@ -238,7 +238,7 @@ class FMOverviewWidget(QWidget):
     # hands a slot whatever was emitted. Both marshal to `PyQt_PyObject` regardless, so
     # `object` is the honest declaration rather than a looser one.
     _fm_progress_received = pyqtSignal(object)
-    # Same hop for stage moves: `stage_position_changed` is a psygnal, so it fires
+    # Same hop for stage moves: `stage.position.changed` is a psygnal, so it fires
     # on whichever thread moved the stage -- a worker, during an acquisition.
     _stage_moved = pyqtSignal(object)
     # And for something starting or finishing on the FM, which is reported from
@@ -1740,8 +1740,8 @@ class FMOverviewWidget(QWidget):
     def _current_stage_position(self) -> Optional[FibsemStagePosition]:
         """Where the stage is, polling the microscope only when nothing has said yet.
 
-        `stage_position_changed` fires from *inside* `get_stage_position`, so it means
-        "a poll found it had moved" rather than "the stage moved". Polling here on
+        `stage.position.changed` fires from a read or a move of the stage device, so
+        it means "a read found it had moved" rather than "the stage moved". Polling on
         every use would therefore add a round trip per keystroke on a spin box without
         making the answer any fresher than the last poll anyone did -- so this reads
         what the signal delivered, and everything drawn from the stage position stays
@@ -1900,7 +1900,7 @@ class FMOverviewWidget(QWidget):
             logging.info(f"Moved to the {device} device")
         except Exception as e:
             logging.error(f"Failed to move to the {device} device: {e}")
-        # Not followed by a refresh: the move raises `stage_position_changed`, which
+        # Not followed by a refresh: the move raises `stage.position.changed`, which
         # arrives at `_on_stage_moved` and re-derives everything the pose feeds.
 
     def _where_the_stage_is(self) -> str:
@@ -2292,7 +2292,7 @@ class FMOverviewWidget(QWidget):
             # part-way has still left the stage somewhere, and the marker should say
             # where rather than where it set off from.
             #
-            # Publishes the new position through `stage_position_changed`, which is what
+            # Publishes the new position through `stage.position.changed`, which is what
             # re-marks it -- rather than assuming the stage arrived exactly where it was
             # asked to, which on a real instrument it does not.
             try:

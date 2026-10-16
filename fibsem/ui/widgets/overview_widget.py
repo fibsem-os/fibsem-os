@@ -569,7 +569,7 @@ class FibsemOverviewWidget(QWidget):
     image_display_changed = pyqtSignal(str)
 
     # Internal hops from a worker thread to the GUI thread. `imaging.tiled_progress`
-    # and `stage_position_changed` are psygnals, which call their callbacks
+    # and `stage.position.changed` are psygnals, which call their callbacks
     # synchronously on whichever thread emitted -- during a run, the acquisition
     # worker. Touching widgets from there is a cross-thread GUI access; re-emitting as
     # a Qt signal gets it queued onto the GUI thread, because this widget lives there.
@@ -3633,7 +3633,7 @@ class FibsemOverviewWidget(QWidget):
             # part-way has still left the stage somewhere, and the marker should say
             # where rather than where it set off from.
             #
-            # Publishes the new position through `stage_position_changed`, which is what
+            # Publishes the new position through `stage.position.changed`, which is what
             # re-marks it -- rather than assuming the stage arrived exactly where it was
             # asked to, which on a real instrument it does not.
             try:
@@ -3976,8 +3976,8 @@ class FibsemOverviewWidget(QWidget):
         # SEM @ SEM.
         #
         # Resolved against a **live** read, which is why the read is here. The cache is
-        # refreshed by `stage_position_changed`, and that is emitted by
-        # `get_stage_position` -- so a move nobody polled after is a move this tab never
+        # refreshed by `stage.position.changed`, and that is emitted by a read or move
+        # of the stage device -- so a move nobody read after is a move this tab never
         # heard about (FIB-669). Tolerable for a marker, not for the value a run is
         # centred on: the runner drives to each tile absolutely, z and tilt included, so
         # a stale pose is the stage being pushed back to one the user has since left
