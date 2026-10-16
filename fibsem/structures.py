@@ -5354,12 +5354,14 @@ class MillingAlignment(Configurable):
     enabled: bool = True
     interval_enabled: bool = param(
         False,
+        display=Display("Re-align during milling"),
         not_used="drift correction during a mill is not built yet (FIB-13); "
         "the task aligns before each stage only",
     )
     interval: int = param(
         30,
         unit="s",
+        display=Display("Re-align every"),
         not_used="drift correction during a mill is not built yet (FIB-13)",
     )
     rect: FibsemRectangle = field(

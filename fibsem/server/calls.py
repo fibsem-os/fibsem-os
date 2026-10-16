@@ -3,7 +3,7 @@
 
 The sidecar names the tool it is running and its arguments on each acting call
 (`TOOL_HEADER`, `ARGUMENTS_HEADER`); an approved request names its action. The
-server describes it as a request's card would ("Stage · Move by x 2 µm") for the
+server describes it as a request's card would ("Stage · Move 2 µm in x") for the
 Now line, which shows what holds control of the microscope, and for the record's
 ``agent_called``, from which the card's Recent list reads the agent's direct
 calls. A plain HTTP agent names no tool, and its call reads as its route does.

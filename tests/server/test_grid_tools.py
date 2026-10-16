@@ -203,7 +203,7 @@ SLOTS = {
             "grid_move_to",
             {"grid_name": "G1"},
             SLOTS,
-            "Move to grid 'G1': it is not on the stage, so it will be refused",
+            "Move to grid 'G1' (not on the stage yet)",
         ),
     ],
 )
@@ -221,6 +221,19 @@ def test_a_grid_action_reads_as_what_the_loader_will_do(
         read=answers.get,
     )
     assert generic == described
+
+
+def test_a_load_after_an_unload_step_doesn_t_say_the_unload_again():
+    """Sim session 2026-10-16: "(unloads 'Grid-01' first)" after a step that
+    unloads it."""
+    from fibsem.server.request_text import describe_actions
+
+    unload, load = describe_actions(
+        [("grid_unload", {}, "/x"), ("grid_load", {"grid_name": "G2"}, "/x")],
+        read=EXCHANGE.get,
+    )
+    assert unload["change"] == "Return grid 'G1' to the magazine"
+    assert load["change"] == "Load grid 'G2' from Slot-02"
 
 
 def test_assist_asks_for_an_exchange_and_the_operator_reads_it(arctis, tmp_path):

@@ -274,7 +274,10 @@ def test_every_step_is_on_the_record_with_who_acted(client, app, context):
     ]
     raised = context.recorded[0][1]
     assert raised["reason"] == "checking the trenches"
-    assert raised["actions"] == [NUDGE]
+    # With the card's words, for the app's Recent list (sim session 2026-10-16 F7).
+    (action,) = raised["actions"]
+    assert action.pop("change").startswith("Move 1 µm in x, from x ")
+    assert action == {**NUDGE, "what": "Stage"}
     decided = context.recorded[1][1]
     assert decided["outcome"] == "approved"
     assert decided["decided_by"] == "operator"
@@ -540,8 +543,11 @@ def test_each_action_is_described_by_the_server_with_old_and_new(client, context
     }
     filed = _file(client, NUDGE, edit, SUPERVISE).json()
     lines = [(a["what"], a["change"]) for a in filed["actions"]]
+    # The nudge says from where on the axis (sim session 2026-10-16).
+    assert lines[0][1].startswith("Move 1 µm in x, from x ")
+    lines[0] = ("Stage", "Move 1 µm in x")
     assert lines == [
-        ("Stage", "Move by x 1 µm"),
+        ("Stage", "Move 1 µm in x"),
         (item.name, "description: first pass → trench floor high"),
         ("MILL_ROUGH", "Supervised: ask at each decision"),
     ]
@@ -623,6 +629,33 @@ def test_a_mill_reads_as_its_patterns_and_its_run_as_how_long():
     ]
     assert run["what"] == "Milling"
     assert run["change"].startswith("Run, about ")
+
+
+def test_a_mill_past_the_field_says_so_on_its_line():
+    """Sim session 2026-10-16: the warning lived only in the picture's legend."""
+    from fibsem.server.request_text import describe_action
+    from fibsem.structures import FibsemMillingSettings, FibsemRectangleSettings
+
+    def rectangle(x):
+        pattern = FibsemRectangleSettings(
+            width=2e-6, height=1e-6, depth=0.2e-6, centre_x=x, centre_y=0.0
+        )
+        return {**pattern.to_dict(), "type": "Rectangle"}
+
+    settings = FibsemMillingSettings(milling_current=2e-11, hfw=150e-6).to_dict()
+    line = describe_action(
+        "service_call_command",
+        {
+            "service": "milling",
+            "command": "prepare",
+            "kwargs": {
+                "settings": settings,
+                "patterns": [rectangle(0.0), rectangle(80e-6)],
+            },
+        },
+        "/x",
+    )
+    assert line["change"].endswith(", 1 of them past the 150 µm field")
 
 
 @pytest.mark.parametrize(
@@ -785,7 +818,7 @@ def test_a_run_task_reads_by_its_stages_with_whose_estimate_it_is():
             {"beam_type": "ION", "image_settings": {"hfw": 80e-6}},
             {},
             "Ion beam",
-            "Take an image: 80 µm wide, 1536 × 1024, 1 µs dwell. "
+            "Take an image: 80 µm wide, 1536 × 1024, 1 µs dwell\n"
             "These settings stay on the beam",
         ),
         (
@@ -806,6 +839,24 @@ def test_a_run_task_reads_by_its_stages_with_whose_estimate_it_is():
             {"/x": {"poi": {"x": 1e-6, "y": 0.0}}},
             "01-full-magpie",
             "Point of interest: (+1, 0) → (+2, 0) µm",
+        ),
+        (
+            "fm_acquire_image",
+            {
+                "channels": [
+                    {
+                        "name": "GFP",
+                        "excitation_wavelength": 488,
+                        "power": 0.05,
+                        "exposure_time": 0.1,
+                    }
+                ],
+                "zparams": {"zmin": -10e-6, "zmax": 10e-6, "zstep": 1e-6},
+            },
+            {},
+            "Fluorescence",
+            "Take a z-stack, −10 µm to +10 µm in 1 µm steps (21 planes), "
+            "in 1 channel (GFP), here",
         ),
         (
             "experiment_load",
@@ -975,7 +1026,9 @@ def test_the_agent_withdraws_its_waiting_request_with_a_reason(client, app, cont
     assert withdrawn.json()["status"] == "cancelled"
     assert withdrawn.json()["cancel_reason"] == why
     cancelled = [p for kind, p, _ in context.recorded if kind == "request_cancelled"]
-    assert cancelled == [{"request_id": filed["request_id"], "why": why}]
+    assert cancelled == [
+        {"request_id": filed["request_id"], "why": why, "withdrawn": True}
+    ]
     # A new one can be filed; a decided one can't be withdrawn.
     again = _file(client, NUDGE).json()
     app.state.requests.reject(again["request_id"])
@@ -1117,3 +1170,72 @@ def test_no_details_table_has_blank_headers():
     ):
         details = describe_action(tool, arguments, "").get("details")
         assert details is None or all(details["columns"]), tool
+
+
+def test_fluorescence_channel_settings_read_in_the_fm_panel_s_units():
+    """Sim session 2026-10-16 F5: "power 0.05, exposure time 0.1"."""
+    from fibsem.server.request_text import describe_action
+
+    channel = {
+        "name": "GFP",
+        "excitation_wavelength": 488,
+        "emission_filter": {"name": "GFP 525/50"},
+        "power": 0.05,
+        "exposure_time": 0.1,
+    }
+    line = describe_action("fm_acquire_image", {"channels": [channel]}, "")
+    assert line["details"]["rows"] == [
+        [
+            "GFP",
+            "excitation wavelength 488 nm, emission filter GFP 525/50, "
+            "power 5%, exposure 100 ms",
+        ]
+    ]
+
+
+def test_a_filed_request_and_a_beam_switched_off_read_as_words():
+    """Sim session 2026-10-16: "Request create · Run", "Electron · Set on to off"."""
+    from fibsem.server.request_text import describe_action
+
+    filed = describe_action(
+        "request_create",
+        {"actions": [{"tool": "stage_move_relative", "arguments": {"dx": 1e-6}}]},
+        "",
+    )
+    assert filed == {
+        "what": "Request",
+        "change": "Ask you to approve 1 action: Stage · Move 1 µm in x",
+    }
+    off = describe_action(
+        "device_set_parameter",
+        {"device": "electron", "parameter": "on", "value": False},
+        "",
+    )
+    assert off == {"what": "Electron", "change": "Turn the electron beam off"}
+
+
+def test_a_protocol_s_re_alignment_reads_as_the_milling_panel_says_it():
+    """Sim session 2026-10-16: "Interval enabled off → on / Interval 30 → 60"."""
+    from fibsem.server.request_text import describe_patch
+    from fibsem.structures import MillingAlignment
+
+    line = describe_patch(
+        MillingAlignment(), {"interval_enabled": True, "interval": 60}
+    )
+    assert line["change"] == (
+        "Re-align during milling: off → on\nRe-align every 30 s → 60 s"
+    )
+
+
+def test_a_lamella_added_on_an_overview_names_the_overview_not_its_file():
+    """Sim session 2026-10-16: "Add on overview-04-58-45.tif of Grid-01, at 60%
+    across, 62% down"."""
+    from fibsem.server.request_text import describe_action
+
+    overview = {
+        "grid_name": "Grid-01",
+        "filename": "overview-04-58-45.tif",
+        "fraction": [0.6, 0.62],
+    }
+    line = describe_action("item_add", {"overview": overview}, "")
+    assert line["change"] == "Add on the Grid-01 overview (04:58), 60% across, 62% down"

@@ -2,6 +2,7 @@
 notes, Drive acts on the session and, with the devices service on, on the
 microscope (FIB-1267). The dashboard's token ignores the level."""
 
+import json
 import os
 
 import pytest
@@ -384,16 +385,21 @@ def test_a_direct_call_is_described_and_recorded(client, auth, microscope):
     try:
         assert client.post(MOVE_RELATIVE, headers=named, json=_NUDGE).status_code == 200
         assert client.post(MOVE_RELATIVE, headers=AGENT, json=_NUDGE).status_code == 200
-        # A read is not on the record.
+        # A read is not on the record, nor a query posted (sim session
+        # 2026-10-16 F2: describing a request filled Recent with these).
         assert client.get("/app/workflow/status", headers=AGENT).status_code == 200
+        query = "/microscope/services/stage_movement/queries/geometry"
+        assert client.post(query, headers=AGENT, json={"kwargs": {}}).status_code < 500
     finally:
         microscope.session.record_signal.disconnect(record)
         microscope.control.changed.disconnect(control)
-    assert actions == ["Stage · Move by x 1 µm", "move relative"]
+    # Read from where the stage is: ", from x ..." (sim session 2026-10-16).
+    assert actions[0].startswith("Stage · Move 1 µm in x, from x ")
+    assert actions[1] == "move relative"
     calls = [p for kind, p in recorded if kind == "agent_called"]
+    assert calls[0].pop("action") == actions[0]
     assert calls == [
         {
-            "action": "Stage · Move by x 1 µm",
             "route": f"POST {MOVE_RELATIVE}",
             "status": 200,
             "ok": True,
@@ -430,3 +436,32 @@ def test_a_refused_request_at_watch_says_what_was_tried(client, auth, microscope
     assert refused.status_code == 403
     refusal = next(p for kind, p in recorded if kind == "agent_refused")
     assert refusal["action"] == "file a request"
+
+
+def test_a_direct_call_reads_the_state_it_changes(client, auth, microscope):
+    """Sim session 2026-10-16 F7: a direct set read "Set hfw to 0.0003" in
+    Recent, where its request's card says the field of view, old -> new."""
+    auth.set_level(AgentLevel.DRIVE)
+    before = client.get("/microscope/devices/ion/hfw", headers=AGENT).json()["value"]
+    recorded = []
+
+    def record(kind, payload):
+        recorded.append((kind, payload))
+
+    arguments = {"device": "ion", "parameter": "hfw", "value": before * 2}
+    named = {
+        **AGENT,
+        "X-Agent-Tool": "device_set_parameter",
+        "X-Agent-Arguments": json.dumps(arguments),
+    }
+    microscope.session.record_signal.connect(record)
+    try:
+        answer = client.put(
+            "/microscope/devices/ion/hfw", headers=named, json={"value": before * 2}
+        )
+    finally:
+        microscope.session.record_signal.disconnect(record)
+    assert answer.status_code == 200, answer.text
+    (call,) = [p for kind, p in recorded if kind == "agent_called"]
+    assert call["action"].startswith("Ion · Set ")
+    assert "→" in call["action"] and "hfw" not in call["action"]

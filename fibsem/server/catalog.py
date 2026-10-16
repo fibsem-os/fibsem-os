@@ -926,9 +926,9 @@ CATALOG: Tuple[ToolSpec, ...] = (
         hardware=True,
         params={
             "channels": (
-                "list of ChannelSettings dicts: name, excitation_wavelength, "
+                "list of ChannelSettings dicts: name, excitation_wavelength (nm), "
                 "emission_filter ({name}, a name from the filter set's choices), "
-                "power, exposure_time"
+                "power (fraction of full, 0-1), exposure_time (s)"
             ),
             "path": "a folder inside the open experiment to save it in",
             "name": "the file name, stamped with the time (default image)",
@@ -960,9 +960,9 @@ CATALOG: Tuple[ToolSpec, ...] = (
         hardware=True,
         params={
             "channels": (
-                "list of ChannelSettings dicts: name, excitation_wavelength, "
+                "list of ChannelSettings dicts: name, excitation_wavelength (nm), "
                 "emission_filter ({name}, a name from the filter set's choices), "
-                "power, exposure_time"
+                "power (fraction of full, 0-1), exposure_time (s)"
             ),
             "parameters": (
                 "OverviewParameters dict: rows, cols, overlap, autofocus_mode "
@@ -1938,7 +1938,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="prompt_get",
-        description='The supervision question awaiting an answer, if any — message, options, and context images. A question that is also on the item\'s record says answer_via: "decide" and gives the item_id, task_name and proposal_id: it is decided with review_decide, like any other review, and prompt_answer will refuse it.',
+        description='The supervision question awaiting an answer, if any — message, options, and context images. A question that is also on the item\'s record says answer_via: "decide" and gives the item_id, task_name and proposal_id: it is decided with review_decide, like any other review, and prompt_answer will refuse it. suggestion_dismissed: {reason} when the operator dismissed your suggested answer to it.',
         method="GET",
         path="/app/workflow/prompt",
         level="watch",

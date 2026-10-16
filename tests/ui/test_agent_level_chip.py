@@ -299,7 +299,7 @@ def _request(status="pending", results=(), request_id="ab12"):
             {
                 "tool": "stage_move_relative",
                 "what": "Stage",
-                "change": "Move by x 1 µm",
+                "change": "Move 1 µm in x",
             },
         ],
         "results": list(results),
@@ -348,7 +348,7 @@ def test_approve_and_reject_say_which_request_and_why(qapp):
     card.reject_button.click()
     assert card.reason_edit is not None and card.approve_button is None
     # Re-rendered, the actions are shown once.
-    assert _labels(card).count("Move by x 1 µm") == 1
+    assert _labels(card).count("Move 1 µm in x") == 1
     card.back_button.click()
     assert card.approve_button is not None
     card.reject_button.click()
@@ -1010,6 +1010,24 @@ def test_a_long_recent_line_wraps_rather_than_being_cut(qapp):
     card.deleteLater()
 
 
+def test_the_folded_recent_line_ends_with_an_ellipsis_where_it_is_cut(qapp):
+    """Sim session 2026-10-16: cut mid-word at 440 px, "Stage · Stable move in
+    the", with no sign it went on."""
+    from PyQt5.QtWidgets import QLabel
+
+    card = AgentCard()
+    text = "Stage · Stable move in the ion beam: 33 µm right, 27 µm down"
+    card.set_recent([_row(text)])
+    card.set_level(AgentLevel.ASSIST)
+    card.show()
+    card.recent_last.resize(120, 20)
+    qapp.processEvents()
+    assert card.recent_last.text().startswith("last: Stage")
+    shown = QLabel.text(card.recent_last)
+    assert shown.endswith("…") and len(shown) < len(card.recent_last.text())
+    card.deleteLater()
+
+
 def test_recent_shows_at_drive_and_is_hidden_below_it_until_asked_for(qapp):
     card = AgentCard()
     logs = []
@@ -1076,7 +1094,7 @@ def test_at_drive_what_the_agent_does_shows_in_the_card_now_then_recent(qapp):
     activity.follow_events(buffer)
     with acting(AGENT), control.take(AGENT, "move stage relative"):
         assert "move stage relative" in _labels(chip.card)
-        buffer.append("agent_called", _called("Stage · Move by x 2 µm"))
+        buffer.append("agent_called", _called("Stage · Move 2 µm in x"))
     buffer.append(
         "milling", {"milling_task_name": "agent test mill", "status": "completed"}
     )
@@ -1086,9 +1104,9 @@ def test_at_drive_what_the_agent_does_shows_in_the_card_now_then_recent(qapp):
     qapp.processEvents()
     texts = [b.text() for b in chip.card.recent_buttons]
     assert texts == [
-        "Answered 'the run's question': yes",
+        "Yes to 'the run's question'",
         "Milled 'agent test mill'",
-        "Stage · Move by x 2 µm",
+        "Stage · Move 2 µm in x",
     ]
     assert "move stage relative" not in _labels(chip.card)
     activity.follow_events(None)
@@ -1128,7 +1146,7 @@ def test_at_drive_each_direct_call_shows_in_now_then_recent_with_its_level(qapp)
             else None
         )
 
-    move, image = "Stage · Move by x 2 µm", "FIB · Take an image, 150 µm wide"
+    move, image = "Stage · Move 2 µm in x", "FIB · Take an image, 150 µm wide"
     overview = "FIB · Overview, 3 × 3 tiles"
     with acting(AGENT):
         with control.take(AGENT, move):
@@ -1198,6 +1216,11 @@ def test_a_card_with_no_picture_keeps_no_empty_column(qapp):
     image = QImage(300, 200, QImage.Format_RGB32)
     card.set_image(image, "FIB")
     assert not card._stacked()
+    # Sim session 2026-10-16: a note in the picture's place is a line under
+    # the steps, not the picture's column.
+    card.set_image(None, "No FIB image of 01 yet to draw on")
+    assert card._stacked()
+    assert "No FIB image of 01 yet to draw on" in _labels(card)
     card.deleteLater()
 
 

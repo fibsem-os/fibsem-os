@@ -21,6 +21,7 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import JSONResponse, Response
 from fastapi.routing import APIRoute
+from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import Headers
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -293,6 +294,9 @@ def _record_refusal(request: Request, exc: StarletteHTTPException) -> None:
 # notes, its answers and suggestions to the workflow's questions. A stop says
 # so as it stops (`_stop_reason`).
 _RECORDS_ITSELF = ("/app/agent/", "/app/experiment/notes", "/app/workflow/prompt/")
+# POST routes that only read: a query, and the grid run's plan. Not the agent
+# acting, and the request store reads them to describe each request.
+_POSTED_READS = ("/queries/", "/app/workflow/grids/plan")
 
 
 class _AgentActs:
@@ -307,7 +311,8 @@ class _AgentActs:
     (FIB-1426): what it did in the operator's words, how it ended, and at which
     level. Not a read, an approved request's call (the request's own events say
     those), a refusal for the agent's permissions (``agent_refused``), a long
-    command (its run's events), or a route that records itself.
+    command (its run's events), a POST that only reads (a query), or a route
+    that records itself.
     """
 
     def __init__(self, app) -> None:
@@ -335,12 +340,29 @@ class _AgentActs:
                 answer["body"] += message.get("body", b"")[:65536]
             await send(message)
 
-        with acting(AGENT), calling(from_headers(headers)) as call:
+        call = from_headers(headers)
+        call.action = await self._described(scope, call) or call.action
+        with acting(AGENT), calling(call):
             call.level = self._level(scope)
             try:
                 await self.app(scope, receive, sending)
             finally:
                 self._record(scope, call, answer["status"], answer["body"])
+
+    @staticmethod
+    async def _described(scope, call) -> Optional[str]:
+        """*call* in the card's words, read from the state it changes; None
+        without a named tool or a request store, or when describing fails."""
+        requests = getattr(getattr(scope.get("app"), "state", None), "requests", None)
+        if not call.tool or requests is None:
+            return None
+        try:
+            return await run_in_threadpool(
+                requests.describe_call, call.tool, call.arguments, scope.get("path", "")
+            )
+        except Exception:  # noqa: BLE001 - the plain line stands in
+            logging.debug("could not describe an agent call", exc_info=True)
+            return None
 
     @staticmethod
     def _level(scope) -> Optional[str]:
@@ -360,6 +382,7 @@ class _AgentActs:
                 or call.run_id is not None
                 or call.recorded
                 or path.startswith(_RECORDS_ITSELF)
+                or any(read in path for read in _POSTED_READS)
             ):
                 return
             request = Request(scope)
@@ -381,6 +404,10 @@ class _AgentActs:
                     detail = None
                 if isinstance(detail, dict) and detail.get("error_type"):
                     payload["error_type"] = detail["error_type"]
+                # Why, in the route's words: an exception's name is not a reason.
+                message = detail.get("message") if isinstance(detail, dict) else detail
+                if isinstance(message, str) and message.strip():
+                    payload["message"] = message.strip()
             scope["app"].state.microscope.record_event("agent_called", payload)
         except Exception:  # noqa: BLE001 - recording must not change the answer
             logging.debug("could not record an agent call", exc_info=True)

@@ -271,14 +271,15 @@ def _point(value: Any) -> Optional[Point]:
 
 def _area(patch: Dict[str, Any]) -> Optional[List[Tuple[float, float]]]:
     """An item edit's alignment area as its two corners, fractions of the frame
-    (origin top-left); None when the edit sets no complete area."""
+    (origin top-left), dotted ("alignment_area.left") or nested; None when the
+    edit sets no complete area."""
+    nested = patch.get("alignment_area")
+    area = dict(nested) if isinstance(nested, dict) else {}
+    for key in ("left", "top", "width", "height"):
+        area.setdefault(key, patch.get(f"alignment_area.{key}"))
     try:
-        left, top = (
-            float(patch["alignment_area.left"]),
-            float(patch["alignment_area.top"]),
-        )
-        width = float(patch["alignment_area.width"])
-        height = float(patch["alignment_area.height"])
+        left, top = float(area["left"]), float(area["top"])
+        width, height = float(area["width"]), float(area["height"])
     except (KeyError, TypeError, ValueError):
         return None
     return [(left, top), (left + width, top + height)]
@@ -507,10 +508,12 @@ def draw_picture(frame, layers: List[_Layer]):
     return image
 
 
-def side_by_side(images: List, gap: int = 4):
-    """*images* (QImages) in a row at one height, the shortest's, *gap* apart."""
-    from PyQt5.QtCore import Qt
-    from PyQt5.QtGui import QColor, QImage, QPainter
+def side_by_side(images: List, gap: int = 4, labels: Optional[List[str]] = None):
+    """*images* (QImages) in a row at one height, the shortest's, *gap* apart,
+    each with its label in its top-left corner when *labels* are given (which
+    view is which: "SEM", "FIB")."""
+    from PyQt5.QtCore import QRect, Qt
+    from PyQt5.QtGui import QColor, QFont, QGuiApplication, QImage, QPainter
 
     height = min(image.height() for image in images)
     scaled = [
@@ -525,10 +528,25 @@ def side_by_side(images: List, gap: int = 4):
     width = sum(image.width() for image in scaled) + gap * (len(scaled) - 1)
     row = QImage(width, height, QImage.Format_RGB32)
     row.fill(QColor(0, 0, 0))
+    if QGuiApplication.instance() is None:
+        labels = None  # text needs the app's fonts
     painter = QPainter(row)
+    font = QFont()
+    # About a twelfth of the picture's height: still readable once the card
+    # scales the picture down to its column.
+    font.setPixelSize(max(10, height // 12))
+    font.setBold(True)
+    painter.setFont(font)
+    pad = max(2, height // 60)
     x = 0
-    for image in scaled:
+    for index, image in enumerate(scaled):
         painter.drawImage(x, 0, image)
+        if labels and index < len(labels) and labels[index]:
+            box = painter.fontMetrics().boundingRect(labels[index])
+            back = QRect(x, 0, box.width() + 2 * pad, box.height() + 2 * pad)
+            painter.fillRect(back, QColor(0, 0, 0, 160))
+            painter.setPen(QColor(255, 255, 255))
+            painter.drawText(back, Qt.AlignCenter, labels[index])  # type: ignore
         x += image.width() + gap
     painter.end()
     return row
@@ -680,10 +698,17 @@ class AgentPreviews:
         request being applied or ended) takes the previews down."""
         waiting = request is not None and request.get("status") == "pending"
         request_id = request.get("request_id") if waiting else None
-        if request_id == self._request_id:
+        # Once drawn, a request's picture stays; one that had nothing to draw on
+        # tries again, as the views take images (sim session 2026-10-16: none
+        # came until the request was filed again).
+        if request_id == self._request_id and (
+            request_id is None or self.request_picture is not None
+        ):
             return
+        again = request_id == self._request_id
         self._request_id = request_id
-        self._picture(None, None, [], suggestion=False)
+        if not again:
+            self._picture(None, None, [], suggestion=False)
         if not waiting:
             return
         controller = self._view_controller()
@@ -952,7 +977,9 @@ class AgentPreviews:
             return
         evidence = _agent_image(self._load_image, image)
         if isinstance(request, RunMillingTask):
-            self._show_mill(controller, request, evidence)
+            self._show_mill(
+                controller, request, evidence, getattr(value, "action", None)
+            )
             return
         if isinstance(request, Confirm) and evidence is None:
             self._show_position(controller)
@@ -1023,10 +1050,11 @@ class AgentPreviews:
         )
         self._picture(frame, beam, [layer], suggestion=True, agent_image=own)
 
-    def _show_mill(self, controller, request, evidence=None) -> None:
+    def _show_mill(self, controller, request, evidence=None, action=None) -> None:
         """A mill question's task: its stages' patterns on the FIB view, the
         image the task shows as it asks, or on the agent's own FIB image. What
-        the operator approves by answering Run (FIB-1424)."""
+        the operator approves by answering Run (FIB-1424). A suggestion to go
+        on without milling (more) outlines them: nothing is to be milled."""
         config = getattr(request, "config", None)
         stages = [s for s in getattr(config, "stages", []) or [] if s.enabled]
         own = (
@@ -1038,10 +1066,22 @@ class AgentPreviews:
             self._picture(None, None, [], suggestion=True)
             return
         aspect = frame.data.shape[0] / frame.data.shape[1]
-        purple, red = _Layer(PURPLE_COLOR, fill=True), _Layer(RED_COLOR)
+        from fibsem.applications.autolamella.workflows.interaction import (
+            ACTION_ACCEPT,
+            ACTION_SKIP,
+        )
+
+        mills = action not in (ACTION_ACCEPT, ACTION_SKIP)
+        purple, red = _Layer(PURPLE_COLOR, fill=mills), _Layer(RED_COLOR)
         purple.patterns = _stage_patterns(stages)
-        red.patterns = request_outside_field({}, aspect, stages)
-        purple.key(FILL, "patterns", purple.patterns)
+        red.patterns = request_outside_field({}, aspect, stages) if mills else []
+        if mills:
+            purple.key(FILL, "patterns", purple.patterns)
+        else:
+            milled = action == ACTION_ACCEPT and getattr(request, "passes", 0)
+            purple.key(
+                OUTLINE, "as milled" if milled else "not milled", purple.patterns
+            )
         _key_past_field(frame, red)
         self._picture(
             frame,
@@ -1074,13 +1114,13 @@ class AgentPreviews:
         self.suggestion_picture = _PairPicture(
             (tuple(f for f, _ in frames), tuple(layers))
         )
-        words = " and ".join(
-            "SEM" if beam is BeamType.ELECTRON else "FIB" for _, beam in frames
-        )
+        names = ["SEM" if beam is BeamType.ELECTRON else "FIB" for _, beam in frames]
+        words = " and ".join(names)
         caption = picture_caption(frames[-1][0], frames[-1][1]).split(" · ", 1)
         self._show_picture(
             side_by_side(
-                [draw_picture(f, [layer]) for (f, _), layer in zip(frames, layers)]
+                [draw_picture(f, [layer]) for (f, _), layer in zip(frames, layers)],
+                labels=names,
             ),
             " · ".join([words, *caption[1:]]),
             suggestion=True,

@@ -37,7 +37,7 @@ def _called(action, status=200, level="drive", **extra):
 
 def test_at_drive_a_move_a_mill_and_an_answer_each_make_a_row():
     recent = RecentActions()
-    recent.add(_called("Stage · Move by x 2 µm"))
+    recent.add(_called("Stage · Move 2 µm in x"))
     recent.add(
         _record(
             "milling",
@@ -62,9 +62,9 @@ def test_at_drive_a_move_a_mill_and_an_answer_each_make_a_row():
         )
     )
     assert _rows(recent) == [
-        ("Answered 'Is the lamella centred?': Yes", "done", OK),
+        ("Yes to 'Is the lamella centred?'", "done", OK),
         ("Milled 'agent test mill'", "done", OK),
-        ("Stage · Move by x 2 µm", "done", OK),
+        ("Stage · Move 2 µm in x", "done", OK),
     ]
     assert recent.rows[0].when == "16:08"
     # Each at the level it was done at: the mill's is the agent's last seen.
@@ -89,7 +89,7 @@ def test_a_request_is_one_row_that_follows_it_to_its_end():
     ]
     recent.add(_record("request_raised", {"request_id": "r1", "actions": actions}))
     assert _rows(recent) == [
-        ("Asked: Stage · Move by x 5 µm, and 1 more", "waiting", WAITING)
+        ("Asked: Stage · Move 5 µm in x, and 1 more", "waiting", WAITING)
     ]
     recent.add(
         _record(
@@ -98,13 +98,13 @@ def test_a_request_is_one_row_that_follows_it_to_its_end():
     )
     assert _rows(recent)[0][1:] == ("approved", WAITING)
     # What the approved request does is the request's row, not rows of its own.
-    assert not recent.add(_called("Stage · Move by x 5 µm", level="assist"))
+    assert not recent.add(_called("Stage · Move 5 µm in x", level="assist"))
     recent.add(_record("request_applied", {"request_id": "r1", "index": 0, "ok": True}))
     assert _rows(recent)[0][1:] == ("applying 2 of 2", WAITING)
     recent.add(_record("request_applied", {"request_id": "r1", "index": 1, "ok": True}))
     recent.add(_record("request_finished", {"request_id": "r1", "status": "applied"}))
     assert _rows(recent) == [
-        ("Asked: Stage · Move by x 5 µm, and 1 more", "applied", OK)
+        ("Asked: Stage · Move 5 µm in x, and 1 more", "applied", OK)
     ]
     assert recent.rows[0].level == "assist"
     recent.add(_record("request_raised", {"request_id": "r2", "actions": actions}))
@@ -183,7 +183,7 @@ def test_a_long_command_is_one_row_and_a_refusal_says_why():
 
 def test_a_direct_call_says_how_it_ended():
     recent = RecentActions()
-    recent.add(_called("Stage · Move by x 2 µm", 409, error_type="microscope_busy"))
+    recent.add(_called("Stage · Move 2 µm in x", 409, error_type="microscope_busy"))
     recent.add(_called("FIB · Take an image", 500))
     # A mill started and left running is its mill's row.
     assert not recent.add(
@@ -200,7 +200,7 @@ def test_a_direct_call_says_how_it_ended():
     assert _rows(recent) == [
         ("Stopped the mill: through", "done", OK),
         ("FIB · Take an image", "failed", ERROR),
-        ("Stage · Move by x 2 µm", "refused: busy", ERROR),
+        ("Stage · Move 2 µm in x", "refused: busy", ERROR),
     ]
 
 
@@ -210,6 +210,94 @@ def test_it_keeps_the_last_ten():
         recent.add(_record("agent_note", {"text": f"note {index}"}))
     assert len(recent.rows) == 10
     assert recent.rows[0].text == "Note: note 11"
+
+
+def test_a_request_row_reads_as_its_card_did():
+    """Sim session 2026-10-16 F7: "Set hfw to 0.0003" where the card said the
+    field of view in µm, old -> new."""
+    recent = RecentActions()
+    actions = [
+        {
+            "tool": "device_set_parameter",
+            "arguments": {"device": "ion", "parameter": "hfw", "value": 3e-4},
+            "what": "Ion",
+            "change": "Set Field of View 150 µm → 300 µm",
+        }
+    ]
+    recent.add(_record("request_raised", {"request_id": "r1", "actions": actions}))
+    assert _rows(recent)[0][0] == "Asked: Ion · Set Field of View 150 µm → 300 µm"
+
+
+def test_a_long_line_is_kept_whole_for_the_card_to_wrap():
+    recent = RecentActions()
+    reason = "the trench is through the lamella and the next pass would cut the top"
+    recent.add(_called(f"Workflow · Stop the run: {reason}"))
+    assert _rows(recent)[0][0].endswith(reason)
+
+
+def test_an_answer_says_what_it_decided_and_for_which_lamella():
+    """Sim session 2026-10-16: "Answered 'Move the marker to the point of
+    interest for 02-tough-shiner. Press Continue wh…': done"."""
+    recent = RecentActions()
+    record = _record(
+        "prompt_answered",
+        {
+            "question_id": "q1",
+            "response": True,
+            "answered_by": AGENT,
+            "decided": "Point of interest at (+5.0, −2.0) µm",
+        },
+    )
+    record["item"] = {"id": "i2", "name": "02-tough-shiner"}
+    recent.add(record)
+    assert _rows(recent)[0][0] == (
+        "02-tough-shiner · Point of interest at (+5.0, −2.0) µm"
+    )
+
+
+def test_a_refusal_gives_its_reason_not_an_exception_s_name():
+    """Sim session 2026-10-16: "refused: StageLimitError", "refused: not at
+    drive"."""
+    recent = RecentActions()
+    recent.add(
+        _called(
+            "Stage · Move to x 500 mm",
+            422,
+            error_type="StageLimitError",
+            message="x 500 mm is outside the stage limits\nlimits: ...",
+        )
+    )
+    recent.add(
+        _record(
+            "agent_refused",
+            {"action": "request create", "error_type": "level", "level": "drive"},
+        )
+    )
+    recent.add(
+        _record(
+            "agent_refused",
+            {"action": "stage move", "error_type": "level", "level": "watch"},
+        )
+    )
+    assert [row[1] for row in _rows(recent)] == [
+        "refused: Watch is read-only",
+        "refused: at Drive the agent acts itself",
+        "refused: x 500 mm is outside the stage limits",
+    ]
+
+
+def test_a_request_the_agent_took_back_reads_withdrawn():
+    recent = RecentActions()
+    actions = [{"tool": "stage_move_relative", "arguments": {"dx": 5e-6}}]
+    for request_id, withdrawn in (("r1", True), ("r2", False)):
+        recent.add(
+            _record("request_raised", {"request_id": request_id, "actions": actions})
+        )
+        payload = {"request_id": request_id, "why": "..."}
+        if withdrawn:
+            payload["withdrawn"] = True
+        recent.add(_record("request_cancelled", payload))
+    assert [row[1] for row in _rows(recent)] == ["cancelled", "withdrawn"]
 
 
 def test_the_operator_s_message_and_the_agent_s_reply_are_rows():

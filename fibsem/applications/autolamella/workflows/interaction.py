@@ -162,6 +162,11 @@ class Request(Generic[R]):
     requires_value: ClassVar[bool] = False
     view_frame: ClassVar[Optional[str]] = None
 
+    def decided(self, answer: Any) -> Optional[str]:
+        """What *answer* decided, in a few words for a line about it ("Point of
+        interest at (+5, −2) µm"); None when the button that answered says it."""
+        return None
+
     def describe(self) -> Dict[str, Any]:
         """What a remote answerer is told: the message, the options and the
         context, as plain values. An ``image`` is left an image (a FibsemImage
@@ -351,6 +356,13 @@ class EditAlignmentArea(Request["FibsemRectangle"]):
     initial: "FibsemRectangle"
     message: str = "Edit Alignment Area"
 
+    def decided(self, answer: Any) -> Optional[str]:
+        try:
+            width, height = float(answer.width), float(answer.height)
+        except (AttributeError, TypeError, ValueError):
+            return "Alignment area set"
+        return f"Alignment area {width:.0%} × {height:.0%} of the frame"
+
     def describe(self) -> Dict[str, Any]:
         return {
             "message": "Confirm the alignment area (answering yes accepts "
@@ -402,6 +414,15 @@ class PickPOI(Request[Optional["Point"]]):
     image: "FibsemImage"
     initial: Optional["Point"] = None
     message: str = "Select Point of Interest"
+
+    def decided(self, answer: Any) -> Optional[str]:
+        if answer is None:
+            return "No point of interest"
+        try:
+            x, y = float(answer.x) * 1e6, float(answer.y) * 1e6
+        except (AttributeError, TypeError, ValueError):
+            return "Point of interest set"
+        return f"Point of interest at ({x:+.1f}, {y:+.1f}) µm".replace("-", "−")
 
     def describe(self) -> Dict[str, Any]:
         return {
@@ -518,6 +539,14 @@ class RunAgainQuestion:
         if action == ACTION_RUN:
             return self.positive
         return self.negative or self.positive
+
+    def decided(self, answer: Any) -> Optional[str]:
+        action = getattr(answer, "action", None)
+        if action == ACTION_SKIP:
+            return f"Skip, {self.without}"
+        if action == ACTION_ACCEPT and self.passes:
+            return f"Accept: don't {self.noun} again"
+        return self.label_for(action) if action else None
 
     def action_for(self, clicked_yes: bool) -> str:
         """What a button means here."""

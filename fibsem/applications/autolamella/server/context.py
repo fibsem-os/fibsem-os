@@ -3188,6 +3188,11 @@ class AutoLamellaAppContext:
                 "task_name": recorded[1],
                 "proposal_id": recorded[2],
             }
+        dismissed = getattr(responder, "dismissed_reason", lambda: None)()
+        if dismissed is not None:
+            # The operator dismissed the agent's suggestion: say so, and why,
+            # to an agent reading the question again.
+            payload["suggestion_dismissed"] = {"reason": dismissed}
         live = self._peek_live(responder, request, question_id)
         if live is not None:
             try:

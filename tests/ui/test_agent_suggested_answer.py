@@ -214,6 +214,10 @@ def test_the_operator_dismisses_the_suggestion_with_why(ui, qapp, client):
     assert payload["question_id"] == question_id
     assert payload["reason"] == "the face still curtains"
     assert ui.dismiss_suggestion("again") is False  # gone already
+    # Read again, the question says the suggestion was dismissed, and why
+    # (sim session 2026-10-16).
+    pending = client.get("/app/workflow/prompt", headers=AUTH).json()["pending"]
+    assert pending["suggestion_dismissed"] == {"reason": "the face still curtains"}
 
     # Recent says so, with the reason.
     recent = RecentActions()

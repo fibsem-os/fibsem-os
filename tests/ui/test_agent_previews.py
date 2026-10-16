@@ -110,6 +110,22 @@ def test_a_new_request_replaces_the_last_one_s_picture():
     assert len(layer.patterns) == 2 and layer.crosses == []
 
 
+def test_a_request_filed_before_the_views_had_images_is_drawn_once_they_do():
+    """Sim session 2026-10-16: no picture came until the request was filed
+    again; the picture was worked out once per request."""
+    controller = _Controller()
+    controller._images = {}
+    card = _Card()
+    previews = AgentPreviews(lambda: controller, show_picture=card)
+    previews.show_request(_request())
+    assert previews.request_picture is None
+    controller._images = _Controller()._images
+    previews.show_request(_request())
+    frame, _ = _layer(previews.request_picture)
+    assert frame is controller.image(BeamType.ION)
+    assert card.shown[False] is not None
+
+
 def test_without_views_nothing_is_drawn():
     card = _Card()
     previews = AgentPreviews(lambda: None, show_picture=card)
@@ -417,6 +433,22 @@ def test_an_item_edit_s_point_and_alignment_area_are_drawn_on_the_item_s_image()
     assert caption.startswith("01-full-magpie · FIB")
 
 
+def test_an_item_edit_s_nested_alignment_area_is_drawn_too():
+    # Sim session 2026-10-16 F4: the server takes {"alignment_area": {...}};
+    # only the dotted keys were drawn.
+    item_image = FibsemImage.generate_blank_image(resolution=(200, 100), hfw=100e-6)
+    request = _item_edit()
+    request["actions"][0]["arguments"]["patch"] = {
+        "alignment_area": {"left": 0.25, "top": 0.5, "width": 0.5, "height": 0.25}
+    }
+    previews = AgentPreviews(
+        lambda: _Controller(), item_image=lambda item: item_image, show_picture=_Card()
+    )
+    previews.show_request(request)
+    _, layer = _layer(previews.request_picture)
+    assert layer.areas == [[pytest.approx((50.0, 50.0)), pytest.approx((150.0, 75.0))]]
+
+
 def test_an_item_edit_without_an_image_of_the_item_says_so():
     # Never the live view instead: it may be at another lamella.
     controller = _Controller()
@@ -572,6 +604,27 @@ def test_a_suggested_answer_to_the_mill_question_draws_the_task_s_patterns():
     assert card.shown[True][1].startswith("Rough Milling · FIB")
     previews.show_suggestion(None, None)
     assert card.shown[True] is None
+
+
+def test_a_suggestion_not_to_mill_again_outlines_what_was_milled():
+    """Sim session 2026-10-16: "don't mill again" drew the patterns filled, as
+    if about to be milled."""
+    from fibsem.applications.autolamella.workflows.interaction import (
+        MillingEdit,
+        RunMillingTask,
+    )
+    from fibsem.milling.base import FibsemMillingStage
+    from fibsem.milling.tasks import FibsemMillingTaskConfig
+
+    config = FibsemMillingTaskConfig.from_stages(
+        [FibsemMillingStage(name="Trench")], name="Fiducial"
+    )
+    previews = AgentPreviews(lambda: _Controller(), show_picture=_Card())
+    question = RunMillingTask(config=config, passes=6)
+    previews.show_suggestion(question, MillingEdit(action="accept"))
+    _, layer = _layer(previews.suggestion_picture)
+    assert layer.patterns and not layer.fill
+    assert layer.keys == [("outline", "as milled")]
 
 
 def test_a_suggested_answer_to_a_position_question_shows_both_beams():
@@ -883,3 +936,31 @@ def test_the_agent_s_own_image_is_the_picture_with_the_values_on_it():
     stop["image"] = "/exp/ref_trench.tif"
     previews.show_request(stop)
     assert previews.request_picture[0] is evidence
+
+
+def test_a_pair_of_views_labels_each_half(qapp):
+    """Sim session 2026-10-16: "SEM and FIB · 05:16" captioned two images with
+    no label on either."""
+    from PyQt5.QtGui import QColor, QImage
+
+    from fibsem.applications.autolamella.ui.agent_previews import side_by_side
+
+    def black():
+        image = QImage(200, 120, QImage.Format_RGB32)
+        image.fill(QColor(0, 0, 0))
+        return image
+
+    plain = side_by_side([black(), black()])
+    labelled = side_by_side([black(), black()], labels=["SEM", "FIB"])
+    assert plain.size() == labelled.size()
+
+    def white_in(image, x0, x1):
+        return any(
+            QColor(image.pixel(x, y)).lightness() > 200
+            for x in range(x0, x1)
+            for y in range(0, 30)
+        )
+
+    assert not white_in(plain, 0, 60)
+    assert white_in(labelled, 0, 60)  # "SEM", top-left of the first half
+    assert white_in(labelled, 204, 264)  # "FIB", top-left of the second

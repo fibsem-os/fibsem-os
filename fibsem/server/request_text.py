@@ -17,6 +17,7 @@ An action may also carry ``details``, a small table the operator can open
 
 import math
 import os
+import re
 from dataclasses import fields as dataclass_fields
 from dataclasses import is_dataclass
 from datetime import datetime
@@ -229,7 +230,9 @@ def describe_patch(root: Any, patch: Any) -> Dict[str, Any]:
             rows.append((setting, "", after))
             continue
         before = _display(old, spec)
-        lines.append(f"{setting} {before} → {after}")
+        # A switch reads "Re-align during milling: off → on".
+        joint = ": " if isinstance(old, bool) else " "
+        lines.append(f"{setting}{joint}{before} → {after}")
         rows.append((setting, before, after))
     return {
         "change": "\n".join(lines),
@@ -291,6 +294,23 @@ def _estimate(patterns: List[Any], current: Optional[float]) -> Optional[float]:
         return None
 
 
+def _past_field(patterns: List[Any], settings: Any) -> str:
+    """ "1 of them past the 150 µm field": the patterns a real instrument would
+    refuse, on the step's line and not only in the picture's legend. The field
+    is an image's 2:3, as the picture checks it."""
+    from fibsem.milling.patterning.utils import outside_field
+
+    try:
+        hfw = float(settings["hfw"])
+    except (KeyError, TypeError, ValueError):
+        return ""
+    past = [p for p in patterns if outside_field(p, hfw, hfw * 2 / 3)]
+    if not past:
+        return ""
+    which = "past" if len(patterns) == 1 else f"{len(past)} of them past"
+    return f"{which} the {_distance(hfw)} field"
+
+
 def _prepare(kwargs: Dict[str, Any]) -> Dict[str, Any]:
     patterns = parse_patterns(kwargs.get("patterns"))
     settings = kwargs.get("settings") or {}
@@ -312,6 +332,9 @@ def _prepare(kwargs: Dict[str, Any]) -> Dict[str, Any]:
         if voltage:
             beam += f" at {_number(float(voltage) / 1e3)} kV"
         parts.append(beam)
+    past = _past_field(patterns, settings)
+    if past:
+        parts.append(past)
     name = kwargs.get("name")
     change = (f"Prepare '{name}'" if name else "Prepare") + ": " + ", ".join(parts)
     rows = [
@@ -629,13 +652,24 @@ def _values_text(values: Any) -> str:
     return _short(values)
 
 
-def _stage_relative(a: Dict[str, Any]) -> str:
-    moves = [
-        f"{axis} {_distance(a[k])}"
-        for axis, k in (("x", "dx"), ("y", "dy"), ("z", "dz"))
-        if a.get(k)
+def _stage_relative(a: Dict[str, Any], now: Optional[Dict[str, Any]] = None) -> str:
+    """ "Move 2.5 µm in x, from x 8 µm": by how much along which stage axis, and
+    from where on that axis when the stage's position is known."""
+    axes = [
+        (axis, a[k]) for axis, k in (("x", "dx"), ("y", "dy"), ("z", "dz")) if a.get(k)
     ]
-    return "Move by " + (", ".join(moves) if moves else "nothing")
+    if not axes:
+        return "Move nothing"
+    text = "Move " + ", ".join(f"{_minus(_distance(v))} in {axis}" for axis, v in axes)
+    if now:
+        known = [
+            f"{axis} {_coordinate(now[axis])}"
+            for axis, _ in axes
+            if now.get(axis) is not None
+        ]
+        if known:
+            text += ", from " + ", ".join(known)
+    return text
 
 
 def _beam_words(beam_type: Any, default: str = "ELECTRON") -> str:
@@ -794,7 +828,9 @@ def _acquire_image(a: Dict[str, Any], get: Callable[[str], Any]) -> Dict[str, An
             rows.append((_image_label(key), "", new))
     return {
         "what": _beam(a),
-        "change": f"Take an image: {_image_settings(settings)}. "
+        # The caveat on a line of its own: a line about it after the fact
+        # (Recent) reads the first only.
+        "change": f"Take an image: {_image_settings(settings)}\n"
         "These settings stay on the beam",
         "details": _table(("Setting", "Now", "New"), rows),
     }
@@ -879,6 +915,42 @@ def _auto_focus(a: Dict[str, Any]) -> Dict[str, Any]:
     return {"what": _beam(a), "change": change}
 
 
+def _channel_setting(key: str, value: Any) -> str:
+    """One ChannelSettings field as the FM panel shows it: wavelengths in nm
+    (as stored), the emission filter by name, exposure in ms, power and gain as
+    % of full."""
+    if isinstance(value, dict) and "name" in value:
+        return f"{_words(key)} {_short(value['name'])}"
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return f"{_words(key)} {_short(value)}"
+    if key.endswith("wavelength"):
+        shown = f"{_number(number)} nm"
+    elif key == "exposure_time":
+        shown = f"{_number(number * 1e3)} ms"
+    elif key in ("power", "gain"):
+        shown = f"{_number(number * 100)}%"
+    else:
+        shown = _short(value)
+    return f"{_words(key).replace('time', '').strip()} {shown}"
+
+
+def _z_range(z: Dict[str, Any]) -> str:
+    """A z-stack's range about the objective, "−10 µm to +10 µm in 1 µm steps
+    (21 planes)"; "" when the call doesn't say."""
+    try:
+        zmin, zmax, zstep = float(z["zmin"]), float(z["zmax"]), float(z["zstep"])
+    except (KeyError, TypeError, ValueError):
+        return ""
+    sign = "" if zmax < 0 else "+"
+    text = f"{_minus(_distance(zmin))} to {sign}{_minus(_distance(zmax))}"
+    text += f" in {_distance(zstep)} steps"
+    if zstep > 0 and zmax > zmin:
+        text += f" ({int(round((zmax - zmin) / zstep)) + 1} planes)"
+    return text
+
+
 def _fm_channels(a: Dict[str, Any], change: str) -> Dict[str, Any]:
     """*change* in the channels the call names, with their settings as details."""
     channels = [c for c in a.get("channels") or [] if isinstance(c, dict)]
@@ -890,7 +962,7 @@ def _fm_channels(a: Dict[str, Any], change: str) -> Dict[str, Any]:
     table = [
         (
             str(c.get("name") or ""),
-            ", ".join(f"{_words(k)} {_short(v)}" for k, v in c.items() if k != "name"),
+            ", ".join(_channel_setting(k, v) for k, v in c.items() if k != "name"),
         )
         for c in channels
     ]
@@ -910,7 +982,10 @@ def _fm_overview(a: Dict[str, Any]) -> Dict[str, Any]:
 
 def _fm_image(a: Dict[str, Any]) -> Dict[str, Any]:
     zparams = a.get("zparams") if isinstance(a.get("zparams"), dict) else None
-    return _fm_channels(a, "Take a z-stack" if zparams else "Take an image")
+    if not zparams:
+        return _fm_channels(a, "Take an image")
+    z = _z_range(zparams)
+    return _fm_channels(a, f"Take a z-stack, {z}," if z else "Take a z-stack")
 
 
 _ALIGN_WITH = {
@@ -942,6 +1017,14 @@ def _set_parameter(
     a: Dict[str, Any], owner_key: str, path: str, get: Callable[[str], Any]
 ) -> Dict[str, Any]:
     owner, parameter = a.get(owner_key), str(a.get("parameter"))
+    if parameter == "on" and isinstance(a.get("value"), bool):
+        # "Electron · Set on to off" said nothing (sim session 2026-10-16).
+        name = _words(owner) + (" beam" if owner in ("electron", "ion") else "")
+        state = "on" if a["value"] else "off"
+        return {
+            "what": _words(owner).capitalize(),
+            "change": f"Turn the {name} {state}",
+        }
     spec = None
     listing = get(path.rsplit("/", 1)[0]) if "/" in path else None
     if isinstance(listing, dict):
@@ -969,20 +1052,32 @@ def _pose_of(detail: Any, pose: Any) -> Optional[Dict[str, Any]]:
     return position if isinstance(position, dict) else None
 
 
+def _overview_name(overview: Dict[str, Any]) -> str:
+    """ "the Grid-01 overview (04:58)": whose, and when it was taken, which the
+    file's stamp says; the file name only when it has no stamp."""
+
+    grid = overview.get("grid_name")
+    filename = str(overview.get("filename") or "")
+    stamp = re.search(r"(\d{2})-(\d{2})-\d{2}", os.path.basename(filename))
+    if stamp:
+        name = f"the {grid} overview" if grid else "the overview"
+        return f"{name} ({stamp.group(1)}:{stamp.group(2)})"
+    name = filename or "the overview"
+    return f"{name} of {grid}" if grid else name
+
+
 def _add_item(a: Dict[str, Any], stage_now: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     named = f" '{a['name']}'" if a.get("name") else ""
     overview = a.get("overview")
     position = a.get("stage_position")
     if isinstance(overview, dict):
-        where = overview.get("filename") or "the overview"
-        if overview.get("grid_name"):
-            where += f" of {overview['grid_name']}"
+        where = _overview_name(overview)
         if overview.get("fraction") is not None:
             fx, fy = (list(overview["fraction"]) + [None, None])[:2]
             at = f"{_number(float(fx) * 100)}% across, {_number(float(fy) * 100)}% down"
         else:
             at = f"pixel {_short(overview.get('px'))}"
-        change = f"Add{named} on {where}, at {at}"
+        change = f"Add{named} on {where}, {at}"
     elif isinstance(position, dict):
         change = f"Add{named} at {_position(position)}"
     else:
@@ -1161,7 +1256,8 @@ def _grid_line(
         if slot is not None:
             change += f", in {slot.get('name')}"
         elif slots:
-            change += ": it is not on the stage, so it will be refused"
+            # As of now: an earlier step of the same request may load it.
+            change += " (not on the stage yet)"
     else:
         name = str(a.get("slot_name"))
         change = f"Move to slot '{name}'"
@@ -1179,12 +1275,28 @@ def describe_actions(
     patterns an earlier action prepares take."""
     described = []
     estimate: Optional[Tuple[Optional[float], Any]] = None
+    unloaded = False
     for tool, arguments, path in actions:
         line = _describe(tool, arguments, path, read, describe, estimate)
         if "_estimate" in line:
             estimate = line.pop("_estimate")
+        if unloaded and _grid_tool(tool, arguments) == "grid_load":
+            # An earlier step unloads it: the load's own "(unloads 'G1'
+            # first)", read from the stage as it is now, says it twice.
+            line["change"] = _UNLOADS_FIRST.sub("", str(line.get("change")))
+        unloaded = unloaded or _grid_tool(tool, arguments) == "grid_unload"
         described.append(line)
     return described
+
+
+_UNLOADS_FIRST = re.compile(r" \(unloads '[^']*' first\)")
+
+
+def _grid_tool(tool: str, arguments: Dict[str, Any]) -> str:
+    """A grid command by its tool's name, called either way."""
+    if tool == "service_call_command" and arguments.get("service") == "sample_handling":
+        return _GRID_COMMANDS.get(str(arguments.get("command")), tool)
+    return tool
 
 
 def describe_action(
@@ -1258,7 +1370,7 @@ def _line(
         return value if isinstance(value, dict) else None
 
     if tool == "stage_move_relative":
-        return {"what": "Stage", "change": _stage_relative(a)}
+        return {"what": "Stage", "change": _stage_relative(a, stage_now())}
     if tool == "stage_move_absolute":
         change = f"Safe move to {_position(a)}"
         now = stage_now()
@@ -1380,6 +1492,19 @@ def _line(
             "what": "Alignment",
             "change": "Take an SEM and a FIB image to measure coincidence (moves nothing)",
         }
+    if tool == "request_create":
+        actions = [x for x in a.get("actions") or [] if isinstance(x, dict)]
+        change = "Ask you to approve " + _plural(len(actions), "action")
+        if actions:
+            first = actions[0]
+            line = describe_action(
+                str(first.get("tool")), first.get("arguments") or {}, ""
+            )
+            said = str(line.get("change") or "").split("\n", 1)[0]
+            change += (
+                f": {line.get('what')} · {said}" if line.get("what") else f": {said}"
+            )
+        return {"what": "Request", "change": change}
     if tool == "device_set_parameter":
         return _set_parameter(a, "device", path, get)
     if tool == "service_set_parameter":
