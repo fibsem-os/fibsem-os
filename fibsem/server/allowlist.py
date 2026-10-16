@@ -20,6 +20,7 @@ from fibsem.devices.core import Device
 from fibsem.devices.fm import FM, Objective
 from fibsem.devices.manipulator import Manipulator
 from fibsem.devices.stage import Stage
+from fibsem.services.milling import Milling
 from fibsem.services.stage_movement import StageMovement
 
 # Blocked by the kind of device, not its name: every beam, whatever it is called.
@@ -43,6 +44,10 @@ _BLOCKED: Tuple[Tuple[type, Dict[str, Any]], ...] = (
     # The raw absolute move: the safe one tilts flat for a large rotation and
     # rotates first (Patrick, 2026-10-16).
     (StageMovement, {"command": {"move_absolute"}}),
+    # Starts a mill and returns at once, so nothing holds control while it
+    # mills: a run lending control would carry on beside it. run_stage and
+    # run_task hold control until the mill ends.
+    (Milling, {"command": {"start"}}),
     # A z-stack's cancel: the agent stops the FM through imaging.stop, under
     # the stop rule like every other stop.
     (FM, {"command": {"cancel"}}),
@@ -56,6 +61,7 @@ _WHY = {
     Objective: "the objective's safety limit",
     FM: "stop the FM with the imaging service's stop",
     StageMovement: "move with safe_absolute_stage_movement (stage_move_absolute)",
+    Milling: "mill with milling_run_stage or milling_run_task, which hold control until the mill ends",
 }
 
 
