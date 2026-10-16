@@ -220,7 +220,7 @@ def record_fluorescence_image(
                 {
                     "name": c.name,
                     "excitation_wavelength": c.excitation_wavelength,
-                    "emission_wavelength": c.emission_wavelength,
+                    "emission_filter": c.emission_filter.to_dict(),
                     "exposure_time": c.exposure_time,
                     "power": c.power,
                     "gain": c.gain,

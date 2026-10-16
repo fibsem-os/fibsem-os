@@ -18,7 +18,10 @@ pytest.importorskip("websockets")
 
 from fibsem.drivers.remote.devices import DeviceClient  # noqa: E402
 from fibsem.fm.remote import RemoteFluorescenceMicroscope  # noqa: E402
-from fibsem.fm.structures import ChannelSettings  # noqa: E402
+from fibsem.fm.structures import (
+    REFLECTION,
+    ChannelSettings,  # noqa: E402
+)
 from fibsem.server.devices import DeviceServer  # noqa: E402
 from tests.fm import _odemis_stubs as stubs  # noqa: E402
 
@@ -81,7 +84,7 @@ def test_a_channel_set_up_from_the_client_matches_a_local_one(served):
     far, _, fm = served
     channel = ChannelSettings(
         excitation_wavelength=488,
-        emission_wavelength=None,
+        emission_filter=REFLECTION,
         power=0.1,
         exposure_time=0.01,
     )
@@ -89,4 +92,4 @@ def test_a_channel_set_up_from_the_client_matches_a_local_one(served):
     fm.set_channel(channel)
 
     assert far.filter_set.excitation_wavelength == pytest.approx(450)
-    assert far.filter_set.emission_wavelength is None
+    assert far.filter_set.emission_filter == REFLECTION

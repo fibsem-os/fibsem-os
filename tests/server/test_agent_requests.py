@@ -1179,7 +1179,7 @@ def test_fluorescence_channel_settings_read_in_the_fm_panel_s_units():
     channel = {
         "name": "GFP",
         "excitation_wavelength": 488,
-        "emission_wavelength": 520,
+        "emission_filter": {"name": "GFP 525/50"},
         "power": 0.05,
         "exposure_time": 0.1,
     }
@@ -1187,7 +1187,7 @@ def test_fluorescence_channel_settings_read_in_the_fm_panel_s_units():
     assert line["details"]["rows"] == [
         [
             "GFP",
-            "excitation wavelength 488 nm, emission wavelength 520 nm, "
+            "excitation wavelength 488 nm, emission filter GFP 525/50, "
             "power 5%, exposure 100 ms",
         ]
     ]

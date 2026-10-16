@@ -37,7 +37,7 @@ from fibsem.applications.autolamella.workflows.tasks.setup_coincidence_milling i
     SetupCoincidenceMillingTaskConfig,
 )
 from fibsem.fm.acquisition import acquire_image
-from fibsem.fm.structures import ChannelSettings
+from fibsem.fm.structures import ChannelSettings, EmissionFilter
 from fibsem.milling.base import FibsemMillingSettings
 from fibsem.milling.patterning.patterns import RectanglePattern
 from fibsem.milling.strategy.coincidence import (
@@ -103,7 +103,7 @@ class MillCoincidentTaskConfig(AutoLamellaTaskConfig):
         default_factory=lambda: ChannelSettings(
             name="Monitoring",
             excitation_wavelength=550,
-            emission_wavelength="Fluorescence",
+            emission_filter=EmissionFilter("Fluorescence", multi_band=True),
             power=0.1,
             exposure_time=0.1,
         ),

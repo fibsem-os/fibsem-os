@@ -30,9 +30,12 @@ from ome_types.model import (
     Channel_IlluminationType,
     Color,
     DetectorSettings,
+    Filter_Type,
+    FilterRef,
     Image,
     Instrument,
     LightEmittingDiode,
+    LightPath,
     LightSourceSettings,
     MapAnnotation,
     Objective,
@@ -41,10 +44,14 @@ from ome_types.model import (
     Plane,
     StructuredAnnotations,
     TiffData,
+    TransmittanceRange,
     UnitsLength,
 )
 from ome_types.model import (
     Detector as OME_Detector,
+)
+from ome_types.model import (
+    Filter as OMEFilter,
 )
 
 # Autofocus types are canonical in fibsem.autofunctions.autofocus; re-export here
@@ -337,9 +344,11 @@ def band_name(bands: Sequence[Band]) -> str:
 def emission_filter_for(
     value: Any, edges: Dict[float, Sequence[Sequence[float]]]
 ) -> EmissionFilter:
-    """The filter an FM class's emission value names. ``edges`` maps a filter's
-    bottom edge to its bands, for FM classes that know them; a bare ``(low, high)``
-    pair is read as one band."""
+    """The filter an emission *value* names: the way channels and images saved
+    before FIB-1439 named it (None for reflection, a label for a multi-band filter,
+    or the band's bottom edge in nm), and the way some FM classes still report their
+    filters. ``edges`` maps a filter's bottom edge to its bands, for FM classes that
+    know them; a bare ``(low, high)`` pair is read as one band."""
     if value is None:
         return REFLECTION
     if isinstance(value, str):
@@ -353,43 +362,140 @@ def emission_filter_for(
     return EmissionFilter(band_name(bands), bands=bands)
 
 
-def same_emission_value(a: Any, b: Any) -> bool:
-    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
-        return math.isclose(a, b, rel_tol=1e-6)
-    return a == b
+def is_same_filter(a: EmissionFilter, b: EmissionFilter) -> bool:
+    """Whether ``a`` and ``b`` name the same filter: equal, the same name, or the
+    same bottom edge (a channel saved as "510" is the scope's GFP filter)."""
+    if a == b or a.name == b.name:
+        return True
+    return (
+        a.low is not None
+        and b.low is not None
+        and math.isclose(a.low, b.low, rel_tol=1e-6)
+    )
+
+
+def matching_emission_filter(
+    wanted: EmissionFilter, choices: Sequence[EmissionFilter]
+) -> EmissionFilter:
+    """The filter among ``choices`` that ``wanted`` is, so a channel saved on one
+    scope (or before FIB-1439, as a value) finds its filter on another.
+
+    The same filter, or one of the same name. Reflection is reflection. A banded
+    filter is the band whose bottom edge is closest; a filter set with no bands has
+    only its multi-band filter, which is what such an FM reports a band as. A
+    multi-band filter of unknown bands is the multi-band filter.
+    """
+    found = next((c for c in choices if c == wanted), None) or next(
+        (c for c in choices if c.name == wanted.name), None
+    )
+    if found is not None:
+        return found
+    multi_band = [c for c in choices if c.multi_band]
+    if wanted == REFLECTION:
+        matches = []
+    elif wanted.low is not None:
+        banded = [c for c in choices if c.low is not None]
+        matches = (
+            sorted(banded, key=lambda c: abs(c.low - wanted.low))[:1] or multi_band
+        )
+    else:
+        matches = multi_band
+    if not matches:
+        raise ValueError(f"No emission filter for {wanted.label!r}")
+    return matches[0]
+
+
+def emission_filter_from_dict(data: Dict[str, Any]) -> EmissionFilter:
+    """A saved channel's filter: ``emission_filter``, or the ``emission_wavelength``
+    value of a channel saved before FIB-1439."""
+    if "emission_filter" in data:
+        saved = data["emission_filter"]
+        return (
+            saved
+            if isinstance(saved, EmissionFilter)
+            else EmissionFilter.from_dict(saved)
+        )
+    return emission_filter_for(data.get("emission_wavelength"), {})
+
+
+def ome_emission_wavelength(found: EmissionFilter) -> Optional[float]:
+    """A channel's OME ``EmissionWavelength``, in nm: the band's centre, or its
+    bottom edge when that is all that is known. None for reflection and for a
+    multi-band filter, which has no one wavelength."""
+    if found.multi_band:
+        return None
+    return found.centre if found.centre is not None else found.low
+
+
+def ome_emission_filter(found: EmissionFilter, filter_id: str) -> Optional[OMEFilter]:
+    """The channel's emission filter as an OME ``Filter``: its name, ``MultiPass`` or
+    ``BandPass``, and its range from the lowest edge to the highest where known
+    (OME gives a filter one range). None for reflection, which has no filter."""
+    if found == REFLECTION:
+        return None
+    transmittance = None
+    if found.bands:
+        transmittance = TransmittanceRange(
+            cut_in=found.low,
+            cut_in_unit=UnitsLength.NANOMETER,
+            cut_out=found.high,
+            cut_out_unit=UnitsLength.NANOMETER,
+        )
+    return OMEFilter(
+        id=filter_id,
+        model=found.name,
+        type=Filter_Type.MULTI_PASS if found.multi_band else Filter_Type.BAND_PASS,
+        transmittance_range=transmittance,
+    )
+
+
+def emission_filter_from_ome(
+    channel: Channel, filters: Dict[str, OMEFilter]
+) -> EmissionFilter:
+    """A channel's filter from an OME file: the ``Filter`` its light path names, as
+    ``ome_emission_filter`` writes it, or else its ``EmissionWavelength`` alone
+    (another program's file, or one written before FIB-1439)."""
+    refs = channel.light_path.emission_filters if channel.light_path else []
+    found = filters.get(refs[0].id) if refs else None
+    if found is None:
+        return emission_filter_for(channel.emission_wavelength, {})
+    multi_band = found.type == Filter_Type.MULTI_PASS
+    span = found.transmittance_range
+    bands = ()
+    if span is not None and span.cut_in is not None:
+        bands = ((span.cut_in, span.cut_out),)
+    return EmissionFilter(
+        found.model or "Fluorescence", bands=bands, multi_band=multi_band
+    )
 
 
 @dataclass
 class ChannelSettings:
     name: str = "Channel-01"
     excitation_wavelength: float = 550  # nm
-    emission_wavelength: Optional[Union[str, float]] = None  # nm
+    emission_filter: EmissionFilter = REFLECTION
     power: float = 0.01  # %
     exposure_time: float = 0.001  # seconds
     color: str = "gray"
     gain: float = 0.0
 
     def to_dict(self):
-        return asdict(self)
+        ddict = asdict(self)
+        ddict["emission_filter"] = self.emission_filter.to_dict()
+        return ddict
 
     @classmethod
     def from_dict(cls, ddict: dict) -> "ChannelSettings":
+        ddict = dict(ddict)
+        emission = emission_filter_from_dict(ddict)
+        ddict.pop("emission_wavelength", None)
+        ddict["emission_filter"] = emission
         return cls(**ddict)
 
     @property
     def pretty_name(self) -> str:
         """Generate a pretty name for the channel based on its properties."""
-
-        if self.emission_wavelength is None:
-            emission_str = "Reflection"
-        else:
-            emission_str = (
-                f"{self.emission_wavelength}nm"
-                if isinstance(self.emission_wavelength, float)
-                else self.emission_wavelength
-            )
-
-        return f"{self.name} ({self.excitation_wavelength:.0f}nm → {emission_str}) P:{self.power * 100:.1f}%, EXP:{self.exposure_time * 1000:.1f}ms"
+        return f"{self.name} ({self.excitation_wavelength:.0f}nm → {self.emission_filter.label}) P:{self.power * 100:.1f}%, EXP:{self.exposure_time * 1000:.1f}ms"
 
     @property
     def pretty(self) -> str:
@@ -658,6 +764,7 @@ class FluorescenceImage:
         detectors: List[OME_Detector] = []
         light_sources: List[LightEmittingDiode] = []
         objectives: List[Objective] = []
+        emission_filters: List[OMEFilter] = []
 
         nc, nz, ny, nx = self.data.shape  # C, Z, Y, X
         dtype = self.data.dtype.name
@@ -674,12 +781,12 @@ class FluorescenceImage:
 
             # wavelengths are in nm
             excitation_wavelength = int(channel.excitation_wavelength)
-            emission_wavelength = channel.emission_wavelength
-            if isinstance(emission_wavelength, str):
-                # Handle string emission wavelength (e.g., "Fluorescence") -> multi-filter
-                emission_wavelength = excitation_wavelength
-            if emission_wavelength is not None:
-                emission_wavelength = int(emission_wavelength)
+            emission_wavelength = ome_emission_wavelength(channel.emission_filter)
+            emission_filter = ome_emission_filter(
+                channel.emission_filter, f"Filter:{id_str}"
+            )
+            if emission_filter is not None:
+                emission_filters.append(emission_filter)
 
             # Create OME components
             light_source = LightEmittingDiode(
@@ -725,6 +832,11 @@ class FluorescenceImage:
                 excitation_wavelength_unit=UnitsLength.NANOMETER,
                 emission_wavelength=emission_wavelength,
                 emission_wavelength_unit=UnitsLength.NANOMETER,
+                light_path=LightPath(
+                    emission_filters=[FilterRef(id=emission_filter.id)]
+                )
+                if emission_filter is not None
+                else None,
                 detector_settings=detector_settings,
                 illumination_type=Channel_IlluminationType.EPIFLUORESCENCE,
                 contrast_method=Channel_ContrastMethod.FLUORESCENCE,
@@ -789,6 +901,7 @@ class FluorescenceImage:
             detectors=detectors,
             light_emitting_diodes=light_sources,
             objectives=objectives if objectives else [],
+            filters=emission_filters,
         )
 
         # OME's AcquisitionDate: aware when the image says which zone, naive (the
@@ -1407,7 +1520,7 @@ class FluorescenceChannelMetadata:
     offset: float  # camera offset
 
     # Fields with defaults must come after required fields
-    emission_wavelength: Optional[Union[float, str]] = None  # nm, None for reflection
+    emission_filter: EmissionFilter = REFLECTION
     binning: int = 1  # binning factor (1, 2, 4, 8)
     objective_position: float = 0.0  # z-axis position in meters
     objective_magnification: Optional[float] = None
@@ -1420,7 +1533,7 @@ class FluorescenceChannelMetadata:
             "channel": {"name": self.name, "color": self.color},
             "filter_set": {
                 "excitation_wavelength": self.excitation_wavelength,
-                "emission_wavelength": self.emission_wavelength,
+                "emission_filter": self.emission_filter.to_dict(),
             },
             "light_source": {"power": self.power},
             "camera": {
@@ -1443,7 +1556,7 @@ class FluorescenceChannelMetadata:
             name=data["channel"]["name"],
             color=data["channel"].get("color", "gray"),
             excitation_wavelength=data["filter_set"]["excitation_wavelength"],
-            emission_wavelength=data["filter_set"].get("emission_wavelength"),
+            emission_filter=emission_filter_from_dict(data["filter_set"]),
             power=data["light_source"]["power"],
             exposure_time=data["camera"]["exposure_time"],
             gain=data["camera"]["gain"],
@@ -1567,7 +1680,7 @@ class FluorescenceImageMetadata:
                     "name": ch.name,
                     "color": ch.color,
                     "excitation_wavelength": ch.excitation_wavelength,
-                    "emission_wavelength": ch.emission_wavelength,
+                    "emission_filter": ch.emission_filter.to_dict(),
                     "power": ch.power,
                     "exposure_time": ch.exposure_time,
                     "gain": ch.gain,
@@ -1591,7 +1704,7 @@ class FluorescenceImageMetadata:
                 name=ch_dict["name"],
                 color=ch_dict.get("color", "gray"),
                 excitation_wavelength=ch_dict["excitation_wavelength"],
-                emission_wavelength=ch_dict.get("emission_wavelength"),
+                emission_filter=emission_filter_from_dict(ch_dict),
                 power=ch_dict["power"],
                 exposure_time=ch_dict["exposure_time"],
                 gain=ch_dict["gain"],
@@ -1724,6 +1837,11 @@ class FluorescenceImageMetadata:
         valid_z_positions = z_positions if len(z_positions) >= 2 else None
 
         # Build channel metadata with fallbacks
+        ome_filters = {
+            found.id: found
+            for instrument in ome.instruments
+            for found in instrument.filters
+        }
         channels_md: List[FluorescenceChannelMetadata] = []
         for idx, channel in enumerate(pixels_md.channels or []):
             det_settings = channel.detector_settings
@@ -1743,7 +1861,7 @@ class FluorescenceImageMetadata:
                     name=channel.name or f"Channel_{idx + 1:02d}",
                     color=_color_to_hex(channel.color),
                     excitation_wavelength=channel.excitation_wavelength or 0.0,
-                    emission_wavelength=channel.emission_wavelength,
+                    emission_filter=emission_filter_from_ome(channel, ome_filters),
                     power=0.0,
                     exposure_time=exposure_times.get(idx, 0.0),
                     gain=1.0,

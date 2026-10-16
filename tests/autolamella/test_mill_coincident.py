@@ -26,7 +26,7 @@ from fibsem.applications.autolamella.workflows.tasks.setup_coincidence_milling i
     SetupCoincidenceMillingTask,
     SetupCoincidenceMillingTaskConfig,
 )
-from fibsem.fm.structures import ChannelSettings
+from fibsem.fm.structures import ChannelSettings, EmissionFilter
 from fibsem.milling.strategy.coincidence import CoincidenceMillingStrategy
 from fibsem.structures import FibsemRectangle, InsertableDeviceState, Point
 
@@ -71,7 +71,7 @@ def _lamella(microscope, tmp_path) -> Lamella:
             ChannelSettings(
                 name="Red Channel",
                 excitation_wavelength=550,
-                emission_wavelength="Fluorescence",
+                emission_filter=EmissionFilter("Fluorescence", multi_band=True),
             ),
         ],
     )

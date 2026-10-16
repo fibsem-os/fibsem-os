@@ -6,6 +6,9 @@ argument-hint: [optional: what the operator wants help with]
 
 # Assisting in AutoLamella
 
+Read the autolamella-agent skill first: it covers connecting, the levels, the
+watcher, notes and using the microscope. This skill is what Assist adds.
+
 You help an operator who is at the microscope. At **Assist** you can see
 everything, but nothing you want done happens until the operator approves
 it. You ask by filing a **request**. It is one or more of your own tool
@@ -23,22 +26,18 @@ never make them work out what you meant.
 
 ## Connect
 
-Connect as the supervise skill says (`.claude/skills/supervise-autolamella`,
-*Connect*). Use the `mcp__fibsem__*` tools if this session has them;
-otherwise use plain HTTP with the token from `~/.fibsem/app-server.json`.
-Read `server_get_capabilities` first:
+Connect as the autolamella-agent skill says, and read
+`server_get_capabilities`:
 
 - `level: "assist"` is the level this skill is for. Tell the operator in a
   sentence what that means: you read and suggest, and you ask before
-  acting, stopping included. A direct
-  call that needs Drive is refused with `ask_first`; that is what you can
-  call directly, not what you can ask for.
-- `level: "watch"`: you can read and add notes, and suggest nothing. Work
-  as the observe skill says (`.claude/skills/observe-autolamella`). If they
-  want your help acting, they raise you to Assist from the Agent chip.
-- `level: "drive"`: you may act directly. The supervise skill is the one
-  for that.
-- `403 agent_off`: say so once and stop.
+  acting, stopping included. A direct call that needs Drive is refused with
+  `ask_first`; that is what you can call directly, not what you can ask for.
+- `level: "watch"`: you can read and add notes, and suggest nothing. Work as
+  the observe skill says. If they want your help acting, they raise you to
+  Assist from the Agent chip.
+- `level: "drive"`: you may act directly. The supervise skill is the one for
+  that.
 
 The tools this skill uses, with their routes for plain HTTP:
 
@@ -57,28 +56,14 @@ prefix (`protocol_set_supervision`, `stage_move_relative`, `workflow_requeue`), 
 request; the server says so when it can't (`not_an_action`), or when the
 agent may never use it (`403 not_allowed`: `agent: false` in `device_list`).
 
-## Watch the session
+## The watcher
 
-Run the watcher as a background monitor, as the supervise skill says (in
-Claude Code, a Monitor on its output, re-armed every 30 minutes),
-and start it before you file anything. The operator often decides within
-seconds.
+Start the watcher (autolamella-agent, *The watcher*) before you file
+anything: the operator often decides within seconds. If you can only run it
+bounded in the foreground, read `latest_seq` from `app_get_events` just
+before you file and pass it as `--since` on the next run.
 
-```
-fibsem-mcp watch
-```
-
-If you can only run it bounded in the foreground, every restart passes the
-last event you saw, so nothing that happened in between is lost:
-
-```
-fibsem-mcp watch --since 42
-```
-
-The seq is in `app_get_events` (`latest_seq`). Read it just before you file.
-
-Besides the workflow's lines (`PROMPT`, `QUESTION`, `ANSWERED`, `EVENT`,
-`WORKFLOW STARTED`, `WORKFLOW ENDED`), it prints a `REQUEST` line each time your request moves:
+Each time your request moves, it prints a `REQUEST` line:
 
 - `REQUEST ab12 approved`
 - `REQUEST ab12 applied (2 of 2 applied)` or `failed (1 of 2 applied)`
@@ -86,13 +71,8 @@ Besides the workflow's lines (`PROMPT`, `QUESTION`, `ANSWERED`, `EVENT`,
 - `REQUEST ab12 cancelled: <why>`
 
 Don't poll `request_get` on a timer. Wait for the line, then read the
-request once.
-
-Keep the watcher running for the whole session, across workflows: a
-workflow's end is not the end of the session, and the operator may start
-the next one, or approve your request to. Stop only when the operator says
-the session is done. A question nobody has answered is not a reason to
-leave; the workflow's questions have no timeout.
+request once. The operator may start the next workflow, or approve your
+request to, so keep the watcher running across workflows.
 
 ## Asking: `request_create`
 
@@ -219,55 +199,41 @@ see and that it's theirs, and put that on the record with `experiment_add_note`
 
 ## Stopping
 
-A wrong stop isn't free: a mill stopped partway can spoil a lamella, and a
-stopped run loses hours. So at Assist the run and the operator's mill are
-the operator's to stop. When you believe the run is doing damage (milling
-the wrong place, a stage move that makes no sense, a task repeating), file
-`workflow_stop` or `milling_stop` as a request at once, with what you saw as
-the reason, and say it in chat: the operator approves it or presses Stop.
-
-A mill you started yourself you may stop directly, at Assist or Drive (never at
-Watch). Every stop
-takes a `reason`, which the operator reads. Never use a stop to "pause and
-think". Ask in chat instead.
+Follow the autolamella-agent skill's *Stopping*: at Assist the run and the
+operator's mill are the operator's to stop. When you believe the run is doing
+damage, file `workflow_stop` or `milling_stop` as a request at once, with
+what you saw as the reason, and say it in chat. A mill you started yourself
+you may stop directly.
 
 ## Using the microscope
 
-Hardware actions (stage moves, images, beam_auto_contrast, device parameters and
-commands) go in requests like any other action. They need the devices
-setting (`routers.microscope` true). Without it they are refused when you
-file them (`not_available`). Follow the supervise skill's *Using the
-microscope* rules: read the stage before each move, take a fresh image
-before judging, treat `409 microscope_busy` as someone else working, and
-work through a blank image in the order it gives (reads first, then a
-request for each change). If
-an approved move fails while moving, stop there: file no retry and no other
-route to the same place; read the stage, add a note and tell the operator.
-An image costs dose on a real sample, so a fresh one is an action at
-Assist: a direct call is refused (`403 ask_first`). To look without asking,
-read what is already there: the app's views (`app_get_display_images`, blank
-until someone has acquired) and the images a task saved
-(`item_get_output_image`). If you need a new one to check a move, say so in
-chat first, and when the operator agrees put the move and the image in one
-request.
+Hardware actions go in requests like any other action, following the
+autolamella-agent skill's *Using the microscope*. Without the microscope
+served they are refused when you file them (`not_available`).
 
-A grid exchange (`grid_load`, `grid_unload`, `grid_run_inventory`) is a
-request like a move. The operator's line says which grid comes out and which
-goes in, so give the reason for the exchange, not a description of it. Put
-`grid_load` and `grid_move_to` in one request when you want to look at the
-grid.
+- An image is an action at Assist (a direct call is refused, `403
+  ask_first`). Look at what is already there first. If you need a new one to
+  check a move, say so in chat, and when the operator agrees put the move and
+  the image in one request.
+- Work through a blank image in the order the core skill gives: reads first,
+  then a request for each change.
+- If an approved move fails while moving, stop there: file no retry and no
+  other route to the same place; read the stage, add a note and tell the
+  operator.
+- A grid exchange (`grid_load`, `grid_unload`, `grid_run_inventory`) is a
+  request like a move. The operator's line says which grid comes out and
+  which goes in, so give the reason for the exchange, not a description of
+  it. Put `grid_load` and `grid_move_to` in one request when you want to look
+  at the grid.
 
 ## Notes
 
-`experiment_add_note` works at Assist as at Watch. Use it for a judgement worth
-keeping that you're not acting on ("02: fiducial out of frame in the start
-image; left for the operator"). A request's reason and a suggestion's
-reason are already on the record. Don't repeat them in a note.
-
-Where a site came from (grid, square, rank, why it was chosen) belongs on the
-lamella, not in a note: ask for `item_update` with
-`{"patch": {"description": "..."}}`. When you ask for `item_add`, leave
-`name` out so the lamella gets the app's usual name.
+Notes work at Assist as at Watch (autolamella-agent, *Write down why*). Use
+one for a judgement worth keeping that you're not acting on ("02: fiducial
+out of frame in the start image; left for the operator"). A request's reason
+and a suggestion's reason are already on the record; don't repeat them in a
+note. A site's origin goes in the lamella's description, asked for with
+`item_update`; leave `name` out of an `item_add`.
 
 ## How you report
 

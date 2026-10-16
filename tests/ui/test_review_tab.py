@@ -968,6 +968,7 @@ def _fluorescence_overview(path: Path):
     """A genuine two-channel, three-plane fluorescence result, saved as the
     grid task saves its mosaic: an OME-TIFF."""
     from fibsem.fm.structures import (
+        EmissionFilter,
         FluorescenceChannelMetadata,
         FluorescenceImage,
         FluorescenceImageMetadata,
@@ -978,7 +979,7 @@ def _fluorescence_overview(path: Path):
             name=name,
             color=color,
             excitation_wavelength=ex,
-            emission_wavelength=em,
+            emission_filter=EmissionFilter(f"{em} nm", low=em),
             power=1.0,
             exposure_time=0.1,
             gain=1.0,

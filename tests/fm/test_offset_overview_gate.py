@@ -21,6 +21,7 @@ from fibsem.fm.acquisition import FMTiledAcquisitionRunner
 from fibsem.fm.structures import (
     AutoFocusMode,
     ChannelSettings,
+    EmissionFilter,
     OverviewParameters,
     ZParameters,
 )
@@ -31,7 +32,7 @@ ARCTIS_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
 CHANNEL = ChannelSettings(
     name="DAPI",
     excitation_wavelength=358,
-    emission_wavelength=461,
+    emission_filter=EmissionFilter("461 nm", low=461),
     power=0.1,
     exposure_time=0.001,
 )

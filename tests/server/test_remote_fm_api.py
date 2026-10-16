@@ -17,7 +17,12 @@ from fibsem.drivers.remote.devices import (  # noqa: E402
 )
 from fibsem.fm.microscope import FluorescenceMicroscope  # noqa: E402  # noqa: E402
 from fibsem.fm.remote import RemoteFluorescenceMicroscope  # noqa: E402
-from fibsem.fm.structures import ChannelSettings, FluorescenceImage  # noqa: E402
+from fibsem.fm.structures import (  # noqa: E402
+    REFLECTION,
+    ChannelSettings,
+    EmissionFilter,
+    FluorescenceImage,
+)
 from fibsem.server.devices import DeviceServer, demo_fm_devices  # noqa: E402
 
 
@@ -71,11 +76,15 @@ def test_light_and_filters_read_and_write_the_far_side(served):
     assert fm.filter_set.available_excitation_wavelengths == tuple(
         far.filter_set.available_excitation_wavelengths
     )
-    fm.filter_set.emission_wavelength = "Fluorescence"
-    assert far.filter_set.emission_wavelength == "Fluorescence"
-    assert fm.filter_set.emission_wavelength == "Fluorescence"
-    fm.filter_set.emission_wavelength = None
-    assert far.filter_set.emission_wavelength is None
+    fm.filter_set.emission_filter = EmissionFilter("Fluorescence", multi_band=True)
+    assert far.filter_set.emission_filter == EmissionFilter(
+        "Fluorescence", multi_band=True
+    )
+    assert fm.filter_set.emission_filter == EmissionFilter(
+        "Fluorescence", multi_band=True
+    )
+    fm.filter_set.emission_filter = REFLECTION
+    assert far.filter_set.emission_filter == REFLECTION
 
 
 def test_an_excitation_between_bands_selects_the_nearest_remotely(served):
@@ -89,9 +98,9 @@ def test_an_excitation_between_bands_selects_the_nearest_remotely(served):
         ChannelSettings(excitation_wavelength=600, power=0.2, exposure_time=0.01)
     )
     assert far.filter_set.excitation_wavelength == 635
-    assert fm.filter_set.emission_wavelength is None
-    assert fm.filter_set.available_emission_wavelengths == tuple(
-        far.filter_set.available_emission_wavelengths
+    assert fm.filter_set.emission_filter == REFLECTION
+    assert fm.filter_set.available_emission_filters == tuple(
+        far.filter_set.available_emission_filters
     )
 
 
@@ -142,7 +151,7 @@ def test_acquire_image_sets_up_the_channel_on_the_far_side(served):
         name="GFP",
         color="green",
         excitation_wavelength=450,
-        emission_wavelength=None,
+        emission_filter=REFLECTION,
         power=0.2,
         exposure_time=0.01,
     )
@@ -180,7 +189,7 @@ def test_a_frame_is_one_request_with_its_metadata(served):
     md = image.metadata
     ch = md.channels[0]
     assert (ch.power, ch.excitation_wavelength, ch.exposure_time) == (0.2, 450, 0.01)
-    assert ch.emission_wavelength == far.filter_set.emission_wavelength
+    assert ch.emission_filter == far.filter_set.emission_filter
     assert (ch.gain, ch.offset, ch.binning) == (
         far.camera.gain,
         far.camera.offset,

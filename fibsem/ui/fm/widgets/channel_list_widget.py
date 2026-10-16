@@ -37,13 +37,14 @@ from fibsem.fm.config import (
     remove_recent_channel,
 )
 from fibsem.fm.microscope import FluorescenceMicroscope
-from fibsem.fm.structures import ChannelSettings
-from fibsem.ui import stylesheets
-from fibsem.ui.fm.widgets.emission_filter_combo import (
-    EmissionFilterComboBox,
-    FilterLookup,
-    emission_lookup_for,
+from fibsem.fm.structures import (
+    REFLECTION,
+    ChannelSettings,
+    EmissionFilter,
+    is_same_filter,
 )
+from fibsem.ui import stylesheets
+from fibsem.ui.fm.widgets.emission_filter_combo import EmissionFilterComboBox
 from fibsem.ui.fm.widgets.fm_limits import (
     EXPOSURE_RANGE_MS,
     POWER_RANGE_PERCENT,
@@ -175,7 +176,6 @@ class ChannelRowWidget(QWidget):
         excitation_items: List[float],
         enabled: bool = True,
         parent: Optional[QWidget] = None,
-        emission_lookup: Optional[FilterLookup] = None,
         exposure_range: Tuple[float, float] = EXPOSURE_RANGE_MS,
         power_range: Tuple[float, float] = POWER_RANGE_PERCENT,
         power_units: Optional[NativeScale] = None,
@@ -215,10 +215,7 @@ class ChannelRowWidget(QWidget):
         self.excitation_combo.setToolTip("Excitation wavelength (nm)")
         layout.addWidget(self.excitation_combo)
 
-        self.emission_combo = EmissionFilterComboBox(
-            items=emission_items,
-            lookup=emission_lookup,
-        )
+        self.emission_combo = EmissionFilterComboBox(items=emission_items)
         self.emission_combo.setFixedWidth(_EMISSION_FIXED_WIDTH)
         layout.addWidget(self.emission_combo)
 
@@ -346,9 +343,9 @@ class ChannelRowWidget(QWidget):
         for w in (self.exposure_spin, self.gain_spin, self.power_spin):
             w.setVisible(visible)
 
-    def _emission_index(self, value) -> int:
-        """Return the combo index for the given emission value."""
-        idx = self.emission_combo.findData(value)
+    def _emission_index(self, value: EmissionFilter) -> int:
+        """Return the combo index for the given emission filter."""
+        idx = self.emission_combo.index_of(value)
         return idx if idx >= 0 else 0
 
     # ------------------------------------------------------------------
@@ -364,7 +361,7 @@ class ChannelRowWidget(QWidget):
 
         # Emission
         self.emission_combo.setCurrentIndex(
-            self._emission_index(self.channel.emission_wavelength)
+            self._emission_index(self.channel.emission_filter)
         )
 
         # Exposure time: stored as seconds, show as ms
@@ -413,10 +410,10 @@ class ChannelRowWidget(QWidget):
 
     def _on_emission_changed(self) -> None:
         value = self.emission_combo.value()
-        if value == self.channel.emission_wavelength:
+        if value == self.channel.emission_filter:
             return
-        self.channel.emission_wavelength = value
-        self.channel_field_changed.emit(self.channel, "emission_wavelength", value)
+        self.channel.emission_filter = value
+        self.channel_field_changed.emit(self.channel, "emission_filter", value)
         self.channel_changed.emit(self.channel)
 
     def _on_exposure_changed(self) -> None:
@@ -679,7 +676,7 @@ class ChannelListWidget(QWidget):
         self._channel_list: List[ChannelSettings] = list(channel_settings)
 
         self._emission_items = (
-            list(fm.filter_set.available_emission_wavelengths) if fm is not None else []
+            list(fm.filter_set.available_emission_filters) if fm is not None else []
         )
         self._excitation_items = (
             list(fm.filter_set.available_excitation_wavelengths)
@@ -765,7 +762,7 @@ class ChannelListWidget(QWidget):
         self.fm = fm
         self._list.set_fm(fm)
         self._emission_items = (
-            list(fm.filter_set.available_emission_wavelengths) if fm is not None else []
+            list(fm.filter_set.available_emission_filters) if fm is not None else []
         )
         self._excitation_items = (
             list(fm.filter_set.available_excitation_wavelengths)
@@ -810,9 +807,9 @@ class ChannelListWidget(QWidget):
                     excitation_wavelength=self._excitation_items[0]
                     if self._excitation_items
                     else 550.0,
-                    emission_wavelength=self._emission_items[0]
+                    emission_filter=self._emission_items[0]
                     if self._emission_items
-                    else None,
+                    else REFLECTION,
                 )
             existing = {self._row(i).channel.name for i in range(self._list.count())}
             channel.name = _unique_name(f"Channel-{count + 1:02d}", existing)
@@ -898,7 +895,7 @@ class ChannelListWidget(QWidget):
         return r.excitation_combo if r else None
 
     @property
-    def emission_wavelength_input(self):
+    def emission_filter_input(self):
         r = self._get_selected_row()
         return r.emission_combo if r else None
 
@@ -932,10 +929,6 @@ class ChannelListWidget(QWidget):
         """
         return QSize(max(0, self._list.viewport().width()), _ROW_HEIGHT)
 
-    def _emission_lookup(self) -> Optional[FilterLookup]:
-        """Name emission values through the FM's filter set, which knows their bands."""
-        return emission_lookup_for(self.fm)
-
     def _add_row(
         self, channel: ChannelSettings, enabled: bool = True
     ) -> ChannelRowWidget:
@@ -944,7 +937,6 @@ class ChannelListWidget(QWidget):
             emission_items=self._emission_items,
             excitation_items=self._excitation_items,
             enabled=enabled,
-            emission_lookup=self._emission_lookup(),
             exposure_range=self._exposure_range,
             power_range=self._power_range,
             power_units=self._power_units,
@@ -1094,9 +1086,12 @@ class ChannelListWidget(QWidget):
         ):
             return False
         if (
-            channel.emission_wavelength is not None
+            channel.emission_filter != REFLECTION
             and self._emission_items
-            and channel.emission_wavelength not in self._emission_items
+            and not any(
+                is_same_filter(channel.emission_filter, found)
+                for found in self._emission_items
+            )
         ):
             return False
         return True
@@ -1182,7 +1177,6 @@ class ChannelListWidget(QWidget):
                 emission_items=self._emission_items,
                 excitation_items=self._excitation_items,
                 enabled=enabled,
-                emission_lookup=self._emission_lookup(),
                 exposure_range=self._exposure_range,
                 power_range=self._power_range,
                 power_units=self._power_units,

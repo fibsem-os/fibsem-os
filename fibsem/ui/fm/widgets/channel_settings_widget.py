@@ -18,11 +18,7 @@ from PyQt5.QtWidgets import (
 from fibsem.devices.fm import Camera, LightSource
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.fm.structures import ChannelSettings
-from fibsem.ui.fm.widgets.emission_filter_combo import (
-    EmissionFilterComboBox,
-    FilterLookup,
-    emission_lookup_for,
-)
+from fibsem.ui.fm.widgets.emission_filter_combo import EmissionFilterComboBox
 from fibsem.ui.fm.widgets.fm_limits import (
     exposure_range_ms,
     gain_scale,
@@ -59,7 +55,7 @@ class ChannelSettingsWidget(QWidget):
         self._channel: Optional[ChannelSettings] = None
         self._fm = fm
         self._emission_items: List = (
-            list(fm.filter_set.available_emission_wavelengths) if fm is not None else []
+            list(fm.filter_set.available_emission_filters) if fm is not None else []
         )
         self._excitation_items: List[float] = (
             list(fm.filter_set.available_excitation_wavelengths)
@@ -100,10 +96,7 @@ class ChannelSettingsWidget(QWidget):
         self.excitation_combo.setToolTip("Excitation wavelength (nm)")
         form.addRow("Excitation", self.excitation_combo)
 
-        self.emission_combo = EmissionFilterComboBox(
-            items=self._emission_items,
-            lookup=emission_lookup_for(self._fm),
-        )
+        self.emission_combo = EmissionFilterComboBox(items=self._emission_items)
         form.addRow("Emission", self.emission_combo)
 
         # Unit, step and decimals are the devices' display hints; the exposure and
@@ -166,7 +159,7 @@ class ChannelSettingsWidget(QWidget):
         """
         self._fm = fm
         self._emission_items = (
-            list(fm.filter_set.available_emission_wavelengths) if fm is not None else []
+            list(fm.filter_set.available_emission_filters) if fm is not None else []
         )
         self._excitation_items = (
             list(fm.filter_set.available_excitation_wavelengths)
@@ -177,7 +170,6 @@ class ChannelSettingsWidget(QWidget):
         blocked = self.blockSignals(True)
         try:
             self.excitation_combo.set_values(self._excitation_items)
-            self.emission_combo.set_lookup(emission_lookup_for(fm))
             self.emission_combo.set_values(self._emission_items)
         finally:
             self.blockSignals(blocked)
@@ -193,7 +185,7 @@ class ChannelSettingsWidget(QWidget):
             return
         self._block_all(True)
         self.excitation_combo.set_value(self._channel.excitation_wavelength)
-        idx = self.emission_combo.findData(self._channel.emission_wavelength)
+        idx = self.emission_combo.index_of(self._channel.emission_filter)
         self.emission_combo.setCurrentIndex(idx if idx >= 0 else 0)
         self.exposure_spin.setValue(self._channel.exposure_time * _S_TO_MS)
         power = self._channel.power if self._channel.power is not None else 0.0
@@ -234,10 +226,10 @@ class ChannelSettingsWidget(QWidget):
         if self._channel is None:
             return
         value = self.emission_combo.value()
-        if value == self._channel.emission_wavelength:
+        if value == self._channel.emission_filter:
             return
-        self._channel.emission_wavelength = value
-        self.channel_field_changed.emit(self._channel, "emission_wavelength", value)
+        self._channel.emission_filter = value
+        self.channel_field_changed.emit(self._channel, "emission_filter", value)
         self.channel_changed.emit(self._channel)
 
     def _on_exposure_changed(self) -> None:

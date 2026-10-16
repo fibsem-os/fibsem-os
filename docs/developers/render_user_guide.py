@@ -1305,7 +1305,7 @@ def render_sample_holder(h: Harness) -> None:
 @page("fluorescence")
 def render_fluorescence(h: Harness) -> None:
     """The Fluorescence tab and the FM view, on the simulated Arctis."""
-    from fibsem.fm.structures import ChannelSettings
+    from fibsem.fm.structures import REFLECTION, ChannelSettings, EmissionFilter
 
     h.first_run(False)
     h.show_tab(0)
@@ -1386,7 +1386,7 @@ def render_fluorescence(h: Harness) -> None:
         ChannelSettings(
             name="Reflection",
             excitation_wavelength=nearest(550),
-            emission_wavelength=None,
+            emission_filter=REFLECTION,
             color="gray",
             exposure_time=0.05,
             power=0.1,
@@ -1394,7 +1394,7 @@ def render_fluorescence(h: Harness) -> None:
         ChannelSettings(
             name="DAPI",
             excitation_wavelength=nearest(405),
-            emission_wavelength="Fluorescence",
+            emission_filter=EmissionFilter("Fluorescence", multi_band=True),
             color="blue",
             exposure_time=0.1,
             power=0.2,
@@ -1402,7 +1402,7 @@ def render_fluorescence(h: Harness) -> None:
         ChannelSettings(
             name="GFP",
             excitation_wavelength=nearest(488),
-            emission_wavelength="Fluorescence",
+            emission_filter=EmissionFilter("Fluorescence", multi_band=True),
             color="green",
             exposure_time=0.1,
             power=0.2,
@@ -1410,7 +1410,7 @@ def render_fluorescence(h: Harness) -> None:
         ChannelSettings(
             name="mCherry",
             excitation_wavelength=nearest(561),
-            emission_wavelength="Fluorescence",
+            emission_filter=EmissionFilter("Fluorescence", multi_band=True),
             color="red",
             exposure_time=0.1,
             power=0.2,
@@ -2429,7 +2429,12 @@ def render_correlation(h: Harness) -> None:
         SpotBurnFiducialTaskConfig,
     )
     from fibsem.correlation.structures import PointType
-    from fibsem.fm.structures import ChannelSettings, ZParameters
+    from fibsem.fm.structures import (
+        REFLECTION,
+        ChannelSettings,
+        EmissionFilter,
+        ZParameters,
+    )
     from fibsem.structures import BeamType, ImageSettings, Point
     from fibsem.ui.correlation.widgets import correlation_tab_widget as ctw
 
@@ -2452,13 +2457,13 @@ def render_correlation(h: Harness) -> None:
         ChannelSettings(
             name="Reflection",
             excitation_wavelength=nearest(550),
-            emission_wavelength=None,
+            emission_filter=REFLECTION,
             color="gray",
         ),
         ChannelSettings(
             name="GFP",
             excitation_wavelength=nearest(488),
-            emission_wavelength="Fluorescence",
+            emission_filter=EmissionFilter("Fluorescence", multi_band=True),
             color="green",
         ),
     ]

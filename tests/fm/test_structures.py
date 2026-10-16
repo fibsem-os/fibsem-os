@@ -7,8 +7,10 @@ import tifffile as tff
 import yaml
 
 from fibsem.fm.structures import (
+    REFLECTION,
     AutoFocusMode,
     ChannelSettings,
+    EmissionFilter,
     FluorescenceChannelMetadata,
     FluorescenceConfiguration,
     FluorescenceImage,
@@ -21,7 +23,6 @@ from fibsem.fm.timing import (
     DEFAULT_AUTOFOCUS_TIME,
     DEFAULT_OVERHEAD_PER_IMAGE,
     DEFAULT_STAGE_MOVE_TIME,
-    DEFAULT_Z_MOVE_TIME,
     calculate_total_images_count,
     estimate_acquisition_time,
     estimate_tileset_acquisition_time,
@@ -33,7 +34,7 @@ def test_channel_settings():
     channel_settings = ChannelSettings(
         name="test-channel",
         excitation_wavelength=488.0,
-        emission_wavelength=520.0,
+        emission_filter=EmissionFilter("520 nm", low=520.0),
         exposure_time=0.1,
         power=0.3,
     )
@@ -42,7 +43,11 @@ def test_channel_settings():
     cs_dict = channel_settings.to_dict()
     assert cs_dict["name"] == "test-channel"
     assert cs_dict["excitation_wavelength"] == 488.0
-    assert cs_dict["emission_wavelength"] == 520.0
+    assert cs_dict["emission_filter"] == {
+        "name": "520 nm",
+        "bands": [[520.0, None]],
+        "multi_band": False,
+    }
     assert cs_dict["exposure_time"] == 0.1
     assert cs_dict["power"] == 0.3
 
@@ -50,16 +55,15 @@ def test_channel_settings():
     cs_from_dict = ChannelSettings.from_dict(cs_dict)
     assert cs_from_dict.name == "test-channel"
     assert cs_from_dict.excitation_wavelength == 488.0
-    assert cs_from_dict.emission_wavelength == 520.0
+    assert cs_from_dict.emission_filter == EmissionFilter("520 nm", low=520.0)
     assert cs_from_dict.exposure_time == 0.1
     assert cs_from_dict.power == 0.3
 
     # test with emission set to None (reflection)
-    channel_settings.emission_wavelength = None
+    channel_settings.emission_filter = REFLECTION
     cs_dict_none = channel_settings.to_dict()
-    assert cs_dict_none["emission_wavelength"] is None
     cs_from_dict_none = ChannelSettings.from_dict(cs_dict_none)
-    assert cs_from_dict_none.emission_wavelength is None
+    assert cs_from_dict_none.emission_filter == REFLECTION
 
 
 def test_z_parameters():
@@ -152,7 +156,7 @@ def test_fluorescence_channel_metadata():
     channel = FluorescenceChannelMetadata(
         name="DAPI",
         excitation_wavelength=365.0,
-        emission_wavelength=447.0,
+        emission_filter=EmissionFilter("447 nm", low=447.0),
         power=0.5,
         exposure_time=0.1,
         gain=2.0,
@@ -172,7 +176,7 @@ def test_fluorescence_channel_metadata():
     assert channel.offset == 100.0
 
     # Test optional fields
-    assert channel.emission_wavelength == 447.0
+    assert channel.emission_filter == EmissionFilter("447 nm", low=447.0)
     assert channel.binning == 2
     assert channel.objective_position == 1e-3
     assert channel.objective_magnification == 63.0
@@ -182,7 +186,7 @@ def test_fluorescence_channel_metadata():
     channel_dict = channel.to_dict()
     assert channel_dict["channel"]["name"] == "DAPI"
     assert channel_dict["filter_set"]["excitation_wavelength"] == 365.0
-    assert channel_dict["filter_set"]["emission_wavelength"] == 447.0
+    assert channel_dict["filter_set"]["emission_filter"]["bands"] == [[447.0, None]]
     assert channel_dict["light_source"]["power"] == 0.5
     assert channel_dict["camera"]["exposure_time"] == 0.1
     assert channel_dict["camera"]["gain"] == 2.0
@@ -196,7 +200,7 @@ def test_fluorescence_channel_metadata():
     channel_from_dict = FluorescenceChannelMetadata.from_dict(channel_dict)
     assert channel_from_dict.name == channel.name
     assert channel_from_dict.excitation_wavelength == channel.excitation_wavelength
-    assert channel_from_dict.emission_wavelength == channel.emission_wavelength
+    assert channel_from_dict.emission_filter == channel.emission_filter
     assert channel_from_dict.power == channel.power
     assert channel_from_dict.exposure_time == channel.exposure_time
     assert channel_from_dict.gain == channel.gain
@@ -223,7 +227,7 @@ def test_fluorescence_channel_metadata_defaults():
     )
 
     # Test defaults
-    assert channel.emission_wavelength is None
+    assert channel.emission_filter == REFLECTION
     assert channel.binning == 1
     assert channel.objective_position == 0.0
     assert channel.objective_magnification is None
@@ -259,7 +263,7 @@ def test_fluorescence_image_metadata():
     channel1 = FluorescenceChannelMetadata(
         name="DAPI",
         excitation_wavelength=365.0,
-        emission_wavelength=447.0,
+        emission_filter=EmissionFilter("447 nm", low=447.0),
         power=0.5,
         exposure_time=0.1,
         gain=2.0,
@@ -269,7 +273,7 @@ def test_fluorescence_image_metadata():
     channel2 = FluorescenceChannelMetadata(
         name="GFP",
         excitation_wavelength=488.0,
-        emission_wavelength=520.0,
+        emission_filter=EmissionFilter("520 nm", low=520.0),
         power=0.3,
         exposure_time=0.05,
         gain=1.5,
@@ -385,7 +389,7 @@ def test_fluorescence_image_metadata_to_dict():
     channel = FluorescenceChannelMetadata(
         name="DAPI",
         excitation_wavelength=365.0,
-        emission_wavelength=447.0,
+        emission_filter=EmissionFilter("447 nm", low=447.0),
         power=0.5,
         exposure_time=0.1,
         gain=2.0,
@@ -428,7 +432,7 @@ def test_fluorescence_image_metadata_to_dict():
     ch_dict = metadata_dict["channels"][0]
     assert ch_dict["name"] == "DAPI"
     assert ch_dict["excitation_wavelength"] == 365.0
-    assert ch_dict["emission_wavelength"] == 447.0
+    assert ch_dict["emission_filter"]["bands"] == [[447.0, None]]
     assert ch_dict["objective_magnification"] == 63.0
     assert ch_dict["objective_numerical_aperture"] == 1.4
 
@@ -489,7 +493,8 @@ def test_fluorescence_image_metadata_from_dict():
     channel = metadata.channels[0]
     assert channel.name == "DAPI"
     assert channel.excitation_wavelength == 365.0
-    assert channel.emission_wavelength == 447.0
+    # saved before FIB-1439, as a wavelength
+    assert channel.emission_filter == EmissionFilter("447 nm", low=447.0)
     assert channel.objective_magnification == 63.0
     assert channel.objective_numerical_aperture == 1.4
 
@@ -503,7 +508,7 @@ def test_fluorescence_image_creation():
     channel = FluorescenceChannelMetadata(
         name="GFP",
         excitation_wavelength=488.0,
-        emission_wavelength=520.0,
+        emission_filter=EmissionFilter("520 nm", low=520.0),
         power=0.3,
         exposure_time=0.05,
         gain=1.5,
@@ -540,7 +545,7 @@ def test_fluorescence_image_save_creates_the_directory(tmp_path):
     channel = FluorescenceChannelMetadata(
         name="GFP",
         excitation_wavelength=488.0,
-        emission_wavelength=520.0,
+        emission_filter=EmissionFilter("520 nm", low=520.0),
         power=0.3,
         exposure_time=0.05,
         gain=1.0,
@@ -590,7 +595,7 @@ def test_fluorescence_image_save_load_is_offline(tmp_path, monkeypatch):
     channel = FluorescenceChannelMetadata(
         name="GFP",
         excitation_wavelength=488.0,
-        emission_wavelength=520.0,
+        emission_filter=EmissionFilter("520 nm", low=520.0),
         power=0.3,
         exposure_time=0.05,
         gain=1.0,
@@ -624,7 +629,7 @@ def test_fluorescence_image_save_load_roundtrip():
     channel1 = FluorescenceChannelMetadata(
         name="DAPI",
         excitation_wavelength=365.0,
-        emission_wavelength=447.0,
+        emission_filter=EmissionFilter("447 nm", low=447.0),
         power=0.5,
         exposure_time=0.1,
         gain=2.0,
@@ -636,7 +641,7 @@ def test_fluorescence_image_save_load_roundtrip():
     channel2 = FluorescenceChannelMetadata(
         name="GFP",
         excitation_wavelength=488.0,
-        emission_wavelength=520.0,
+        emission_filter=EmissionFilter("520 nm", low=520.0),
         power=0.3,
         exposure_time=0.05,
         gain=1.5,
@@ -709,7 +714,7 @@ def test_fluorescence_image_save_load_roundtrip():
         ):
             assert loaded_ch.name == orig_ch.name
             assert loaded_ch.excitation_wavelength == orig_ch.excitation_wavelength
-            assert loaded_ch.emission_wavelength == orig_ch.emission_wavelength
+            assert loaded_ch.emission_filter == orig_ch.emission_filter
             assert loaded_ch.power == orig_ch.power
             assert loaded_ch.exposure_time == orig_ch.exposure_time
             assert loaded_ch.gain == orig_ch.gain
@@ -1111,7 +1116,7 @@ def test_max_intensity_projection_metadata_preservation():
     channel = FluorescenceChannelMetadata(
         name="Cy5",
         excitation_wavelength=635.0,
-        emission_wavelength=680.0,
+        emission_filter=EmissionFilter("680 nm", low=680.0),
         power=0.8,
         exposure_time=0.2,
         gain=3.0,
@@ -1165,7 +1170,7 @@ def test_max_intensity_projection_metadata_preservation():
     proj_channel = projected.metadata.channels[0]
     assert proj_channel.name == "Cy5"
     assert proj_channel.excitation_wavelength == 635.0
-    assert proj_channel.emission_wavelength == 680.0
+    assert proj_channel.emission_filter == EmissionFilter("680 nm", low=680.0)
     assert proj_channel.power == 0.8
     assert proj_channel.exposure_time == 0.2
     assert proj_channel.gain == 3.0
@@ -1702,7 +1707,7 @@ def test_calculate_total_images_count_single_channel():
     channel = ChannelSettings(
         name="DAPI",
         excitation_wavelength=365,
-        emission_wavelength=450,
+        emission_filter=EmissionFilter("450 nm", low=450),
         power=0.5,
         exposure_time=0.1,
     )
@@ -1722,14 +1727,14 @@ def test_calculate_total_images_count_multiple_channels():
     channel1 = ChannelSettings(
         name="DAPI",
         excitation_wavelength=365,
-        emission_wavelength=450,
+        emission_filter=EmissionFilter("450 nm", low=450),
         power=0.5,
         exposure_time=0.1,
     )
     channel2 = ChannelSettings(
         name="FITC",
         excitation_wavelength=488,
-        emission_wavelength=525,
+        emission_filter=EmissionFilter("525 nm", low=525),
         power=0.3,
         exposure_time=0.05,
     )
@@ -1751,7 +1756,7 @@ def test_calculate_total_images_count_edge_cases():
     channel = ChannelSettings(
         name="Test",
         excitation_wavelength=488,
-        emission_wavelength=525,
+        emission_filter=EmissionFilter("525 nm", low=525),
         power=0.3,
         exposure_time=0.05,
     )
@@ -1776,7 +1781,7 @@ def test_estimate_acquisition_time_single_channel():
     channel = ChannelSettings(
         name="DAPI",
         excitation_wavelength=365,
-        emission_wavelength=450,
+        emission_filter=EmissionFilter("450 nm", low=450),
         power=0.5,
         exposure_time=0.1,  # 100ms exposure
     )
@@ -1794,7 +1799,7 @@ def test_estimate_acquisition_time_z_stack():
     channel = ChannelSettings(
         name="FITC",
         excitation_wavelength=488,
-        emission_wavelength=525,
+        emission_filter=EmissionFilter("525 nm", low=525),
         power=0.3,
         exposure_time=0.05,  # 50ms exposure
     )
@@ -1818,14 +1823,14 @@ def test_estimate_acquisition_time_multiple_channels():
     channel1 = ChannelSettings(
         name="DAPI",
         excitation_wavelength=365,
-        emission_wavelength=450,
+        emission_filter=EmissionFilter("450 nm", low=450),
         power=0.5,
         exposure_time=0.1,
     )
     channel2 = ChannelSettings(
         name="FITC",
         excitation_wavelength=488,
-        emission_wavelength=525,
+        emission_filter=EmissionFilter("525 nm", low=525),
         power=0.3,
         exposure_time=0.05,
     )
@@ -1845,14 +1850,14 @@ def test_estimate_acquisition_time_multiple_channels_z_stack():
     channel1 = ChannelSettings(
         name="DAPI",
         excitation_wavelength=365,
-        emission_wavelength=450,
+        emission_filter=EmissionFilter("450 nm", low=450),
         power=0.5,
         exposure_time=0.1,
     )
     channel2 = ChannelSettings(
         name="FITC",
         excitation_wavelength=488,
-        emission_wavelength=525,
+        emission_filter=EmissionFilter("525 nm", low=525),
         power=0.3,
         exposure_time=0.05,
     )
@@ -1879,7 +1884,7 @@ def test_estimate_acquisition_time_custom_parameters():
     channel = ChannelSettings(
         name="Cy5",
         excitation_wavelength=635,
-        emission_wavelength=680,
+        emission_filter=EmissionFilter("680 nm", low=680),
         power=0.8,
         exposure_time=0.2,  # 200ms exposure
     )
@@ -1903,7 +1908,7 @@ def test_estimate_acquisition_time_edge_cases():
     channel = ChannelSettings(
         name="Test",
         excitation_wavelength=488,
-        emission_wavelength=525,
+        emission_filter=EmissionFilter("525 nm", low=525),
         power=0.3,
         exposure_time=0.01,  # Very short exposure
     )
@@ -1930,21 +1935,21 @@ def test_helper_functions_integration():
         ChannelSettings(
             name="DAPI",
             excitation_wavelength=365,
-            emission_wavelength=450,
+            emission_filter=EmissionFilter("450 nm", low=450),
             power=0.5,
             exposure_time=0.1,
         ),
         ChannelSettings(
             name="FITC",
             excitation_wavelength=488,
-            emission_wavelength=525,
+            emission_filter=EmissionFilter("525 nm", low=525),
             power=0.3,
             exposure_time=0.05,
         ),
         ChannelSettings(
             name="Cy5",
             excitation_wavelength=635,
-            emission_wavelength=680,
+            emission_filter=EmissionFilter("680 nm", low=680),
             power=0.8,
             exposure_time=0.2,
         ),
@@ -1991,7 +1996,7 @@ def test_estimate_tileset_acquisition_time_basic():
     channel = ChannelSettings(
         name="DAPI",
         excitation_wavelength=365,
-        emission_wavelength=450,
+        emission_filter=EmissionFilter("450 nm", low=450),
         power=0.5,
         exposure_time=0.1,
     )
@@ -2032,7 +2037,7 @@ def test_estimate_tileset_acquisition_time_with_z_stack():
     channel = ChannelSettings(
         name="FITC",
         excitation_wavelength=488,
-        emission_wavelength=525,
+        emission_filter=EmissionFilter("525 nm", low=525),
         power=0.3,
         exposure_time=0.05,
     )
@@ -2059,14 +2064,14 @@ def test_estimate_tileset_acquisition_time_multiple_channels():
         ChannelSettings(
             name="DAPI",
             excitation_wavelength=365,
-            emission_wavelength=450,
+            emission_filter=EmissionFilter("450 nm", low=450),
             power=0.5,
             exposure_time=0.1,
         ),
         ChannelSettings(
             name="FITC",
             excitation_wavelength=488,
-            emission_wavelength=525,
+            emission_filter=EmissionFilter("525 nm", low=525),
             power=0.3,
             exposure_time=0.05,
         ),
@@ -2087,7 +2092,7 @@ def test_estimate_tileset_acquisition_time_autofocus_modes():
     channel = ChannelSettings(
         name="GFP",
         excitation_wavelength=488,
-        emission_wavelength=520,
+        emission_filter=EmissionFilter("520 nm", low=520),
         power=0.4,
         exposure_time=0.08,
     )
@@ -2133,7 +2138,7 @@ def test_estimate_tileset_acquisition_time_stage_movement_calculation():
     channel = ChannelSettings(
         name="Cy5",
         excitation_wavelength=635,
-        emission_wavelength=680,
+        emission_filter=EmissionFilter("680 nm", low=680),
         power=0.8,
         exposure_time=0.2,
     )
@@ -2186,21 +2191,21 @@ def test_estimate_tileset_acquisition_time_comprehensive():
         ChannelSettings(
             name="DAPI",
             excitation_wavelength=365,
-            emission_wavelength=450,
+            emission_filter=EmissionFilter("450 nm", low=450),
             power=0.5,
             exposure_time=0.1,
         ),
         ChannelSettings(
             name="FITC",
             excitation_wavelength=488,
-            emission_wavelength=525,
+            emission_filter=EmissionFilter("525 nm", low=525),
             power=0.3,
             exposure_time=0.05,
         ),
         ChannelSettings(
             name="Cy5",
             excitation_wavelength=635,
-            emission_wavelength=680,
+            emission_filter=EmissionFilter("680 nm", low=680),
             power=0.8,
             exposure_time=0.2,
         ),
@@ -2246,7 +2251,7 @@ def test_estimate_tileset_acquisition_time_edge_cases():
     channel = ChannelSettings(
         name="Test",
         excitation_wavelength=488,
-        emission_wavelength=525,
+        emission_filter=EmissionFilter("525 nm", low=525),
         power=0.3,
         exposure_time=0.01,
     )
@@ -2279,7 +2284,7 @@ def test_estimate_tileset_acquisition_time_custom_parameters():
     channel = ChannelSettings(
         name="Custom",
         excitation_wavelength=555,
-        emission_wavelength=600,
+        emission_filter=EmissionFilter("600 nm", low=600),
         power=0.6,
         exposure_time=0.15,
     )
@@ -2306,7 +2311,7 @@ def test_estimate_tileset_acquisition_time_scaling():
     channel = ChannelSettings(
         name="Scale",
         excitation_wavelength=488,
-        emission_wavelength=525,
+        emission_filter=EmissionFilter("525 nm", low=525),
         power=0.5,
         exposure_time=0.1,
     )
@@ -2345,7 +2350,7 @@ def _make_minimal_config(**kwargs) -> FluorescenceConfiguration:
     channel = ChannelSettings(
         name="DAPI",
         excitation_wavelength=365,
-        emission_wavelength=450,
+        emission_filter=EmissionFilter("450 nm", low=450),
         power=0.5,
         exposure_time=0.1,
     )

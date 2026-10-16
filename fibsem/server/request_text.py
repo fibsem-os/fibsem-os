@@ -917,7 +917,10 @@ def _auto_focus(a: Dict[str, Any]) -> Dict[str, Any]:
 
 def _channel_setting(key: str, value: Any) -> str:
     """One ChannelSettings field as the FM panel shows it: wavelengths in nm
-    (as stored), exposure in ms, power and gain as % of full."""
+    (as stored), the emission filter by name, exposure in ms, power and gain as
+    % of full."""
+    if isinstance(value, dict) and "name" in value:
+        return f"{_words(key)} {_short(value['name'])}"
     try:
         number = float(value)
     except (TypeError, ValueError):

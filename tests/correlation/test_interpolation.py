@@ -294,6 +294,8 @@ def test_returns_a_fluorescence_image():
 
 import os  # noqa: E402
 
+from fibsem.fm.structures import EmissionFilter
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 pytest.importorskip("PyQt5")
@@ -348,7 +350,7 @@ def test_dialog_opens_with_fm_points_placed(qapp):
                     name="GFP",
                     color="#00FF00",
                     excitation_wavelength=488,
-                    emission_wavelength=509,
+                    emission_filter=EmissionFilter("509 nm", low=509),
                     power=1.0,
                     exposure_time=0.1,
                     gain=1.0,
@@ -520,7 +522,7 @@ def _aniso_fm(nz=8, xy=1e-7, z=5e-7, shape=(8, 8)):
                     name="GFP",
                     color="#00FF00",
                     excitation_wavelength=488,
-                    emission_wavelength=509,
+                    emission_filter=EmissionFilter("509 nm", low=509),
                     power=1.0,
                     exposure_time=0.1,
                     gain=1.0,
