@@ -127,7 +127,9 @@ watcher has to start your turn.
 Wake and act on its lines: `PROMPT` (a question is standing, with its
 `question_id`), `QUESTION` (the run is stopped on a recorded question — rule 5),
 `ANSWERED` (check who — if the operator answered, your read of that
-question is stale), task lifecycle `EVENT` lines, `GAP` (events were lost:
+question is stale), task lifecycle `EVENT` lines, `MILL STAGE STARTED` and
+`MILL ENDED` (every mill, the workflow's and the operator's too: see
+*Milling*), `COMMAND ENDED` (a long command ended), `GAP` (events were lost:
 re-read `/app/workflow/prompt` and `/app/workflow/status`), `WORKFLOW STARTED`, and
 `WORKFLOW ENDED` (report, and keep watching). A workflow that ended badly
 says how: `workflow_stalled` (decisions are pending), `workflow_failed:
@@ -576,6 +578,14 @@ of the microscope: call `service_wait_for_run` milling with that id, again while
 says running, before you `clear`. It ends `done` (`result: completed`),
 `cancelled` or `failed` with its error. `service_get_parameter` milling
 `progress` shows how far it has got. A spot burn `run` works the same way.
+
+Follow every mill the same way, whoever started it (you, a workflow task, the
+operator): the watcher prints `MILL STAGE STARTED` for each stage and `MILL
+ENDED` with each stage's outcome. Check the `current` and `depth` on each
+stage's line against what the protocol or you meant to mill; if they are
+wrong, stop the mill (`milling_stop`, as your level allows) and tell the
+operator. Collect the result with `service_wait_for_run` milling, with
+the line's `run` as `run_id`, or without one for the mill going on.
 
 **Polishing by hand.** When the operator asks you to thin a lamella outside
 the task, one `milling_run_stage` per step:

@@ -12,7 +12,8 @@ it would block the agent from acting on what it prints.
 
 The lines: ``PROMPT``, ``ANSWERED``, ``PROMPT WITHDRAWN``, ``QUESTION``,
 ``QUESTION RELEASED``, ``REQUEST`` (the agent's request decided, finished or
-cancelled, FIB-1283), ``COMMAND ENDED``, task ``EVENT`` lines,
+cancelled, FIB-1283), ``COMMAND ENDED``, ``MILL STAGE STARTED`` and
+``MILL ENDED`` (every mill, whoever started it), task ``EVENT`` lines,
 ``WORKFLOW STARTED``, ``WORKFLOW ENDED``, ``GAP``, ``RESTARTED`` and
 ``AGENT OFF``/``AGENT BACK``.
 
@@ -203,6 +204,10 @@ def _print_events(events, since, out):
                 f"run={data.get('run_id')} state={data.get('state')}"
             )
             out(f"{line} ({data['error']})" if data.get("error") else line)
+        elif kind == "milling_stage_started":
+            out(_mill_stage_line(event, data))
+        elif kind == "milling":
+            out(_mill_ended_line(event, data))
         elif kind == "workflow_started":
             out("WORKFLOW STARTED")
             running = True
@@ -217,6 +222,60 @@ def _print_events(events, since, out):
             reason = _skip_reason(data) if kind == "task_skipped" else None
             out(f"{line} ({reason})" if reason else line)
     return since, running
+
+
+def _item_of(event):
+    """`` item=<name>`` for the lamella or grid the event happened on, or ''."""
+    item = event.get("item")
+    name = item.get("name") if isinstance(item, dict) else None
+    return f" item={name}" if name else ""
+
+
+def _mill_stage_line(event, data):
+    """A mill's stage started, from ``milling_stage_started``: which of how
+    many, with the current and depth it mills at, to check against the plan."""
+    stage = data.get("stage") or {}
+    index, total = data.get("stage_index"), data.get("total_stages")
+    place = f"{index + 1}/{total}" if isinstance(index, int) else "?"
+    line = (
+        f"MILL STAGE STARTED {place} '{stage.get('name')}'{_item_of(event)} "
+        f"task='{data.get('milling_task_name')}'"
+    )
+    current = (stage.get("milling") or {}).get("milling_current")
+    if current is not None:
+        line += f" current={_si(current)}A"
+    depth = (stage.get("pattern") or {}).get("depth")
+    if depth is not None:
+        line += f" depth={_si(depth)}m"
+    return f"{line} run={data.get('milling_run_id')}"
+
+
+def _si(value):
+    """A number in SI units, short (``2e-11``); anything else as it came."""
+    try:
+        return f"{float(value):g}"
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _mill_ended_line(event, data):
+    """A mill ended, from its ``milling`` event: its status, how each stage
+    ended, and the error of a failed one."""
+    status = data.get("status")
+    if data.get("reason"):
+        status = f"{status} ({data['reason']})"
+    line = (
+        f"MILL ENDED '{data.get('milling_task_name')}'{_item_of(event)} "
+        f"status={status} run={data.get('milling_run_id')}"
+    )
+    stages = [
+        f"{stage.get('name')}={stage.get('status')}"
+        + (f" ({stage['reason']})" if stage.get("reason") else "")
+        for stage in data.get("stages") or []
+    ]
+    if stages:
+        line += " stages: " + ", ".join(stages)
+    return f"{line} ({data['error']})" if data.get("error") else line
 
 
 def _request_line(kind, data):
