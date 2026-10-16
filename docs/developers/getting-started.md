@@ -14,14 +14,20 @@ issue before relying on internals that are not listed there.
 fibsem/                     the instrument library (no application logic)
   microscope.py             FibsemMicroscope, the abstract class every backend
                             implements
-  devices/                  the devices: beam, stage, chamber, manipulator,
-                            fm; vendor-neutral, never imports a driver
-  services/                 the services (milling); vendor-neutral
+  devices/                  the devices: beam, stage, chamber, chamber camera,
+                            manipulator, sample loader, scanner, gis,
+                            sputter coater, fm;
+                            vendor-neutral, never imports a driver
+  services/                 the services: imaging, stage movement, milling,
+                            spot burn, sample handling, alignment;
+                            vendor-neutral
   drivers/                  one package per driver: autoscript (Thermo),
                             tescan, odemis, demo (the reference
-                            implementation), remote; registry.py (the drivers)
+                            implementation), remote (devices on another
+                            computer), zeiss (a placeholder); registry.py
   drivers/<driver>/         __init__.py (its DRIVER record), devices.py,
-                            services.py, microscope.py (its FibsemMicroscope)
+                            services.py, microscope.py (its FibsemMicroscope);
+                            remote has only devices.py
   structures.py             shared types: FibsemImage, Point, FibsemRectangle,
                             stage positions, settings
   milling/, imaging/        beam operations built on the abstract class
@@ -31,7 +37,7 @@ fibsem/                     the instrument library (no application logic)
   server/                   the App Server for agents (build_server)
   mcp/                      the fibsem-mcp sidecar (MCP to HTTP)
   plugins/                  entry-point loading: fibsem.patterns,
-                            fibsem.strategies, fibsem.tasks
+                            fibsem.strategies, fibsem.tasks, fibsem.drivers
 
 fibsem/applications/autolamella/
   structures.py             Experiment, Lamella, AutoLamellaTaskProtocol
@@ -78,9 +84,9 @@ commands and change events. [Devices](devices.md) is the guide; the string-key
 `microscope.get`/`set` were removed in 0.6.0.
 
 **Supporting a microscope.** Implement `FibsemMicroscope` and its devices,
-using the Demo implementation as the reference, and register the
-manufacturer in the four places listed under
-[Supporting a microscope](extending.md#supporting-a-microscope).
+using the Demo implementation as the reference, and register it with a
+`DriverEntry` record, as
+[Supporting a microscope](extending.md#supporting-a-microscope) describes.
 Implementing the class without registering it fails at connection time.
 
 **Automating a procedure.** Three options, in increasing order of

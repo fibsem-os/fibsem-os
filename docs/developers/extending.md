@@ -32,19 +32,22 @@ image = acquire.acquire_image(microscope, ImageSettings(hfw=80e-6, beam_type=Bea
 
 `setup_session()` connects using a configuration file (the shipped Demo
 configuration by default) and returns the microscope and its settings. The
-`fibsem.acquire`, `fibsem.imaging` and `fibsem.milling` modules provide the
-higher-level operations, and every `FibsemMicroscope` method is available
-directly. The microscope's beams, stage and other hardware are devices
+microscope's services (`microscope.imaging`, `microscope.stage_movement`,
+`microscope.milling`, `microscope.alignment`, ...) and the `fibsem.acquire` and
+`fibsem.milling` modules provide the higher-level operations, and every
+`FibsemMicroscope` method is available directly. The microscope's beams, stage and other hardware are devices
 (`microscope.devices`), whose parameters describe their own limits and choices;
 [Devices](devices.md) covers them (the string-key `microscope.get("key")` and
 `microscope.set(...)` were removed in 0.6.0). Use `acquire.acquire_image(microscope, settings)` rather than the
 microscope's own `acquire_image`: the method returns the raw frame and
-ignores `save=True`; the module function applies autocontrast and gamma and
-writes the file.
+ignores `save=True`; the module function goes to the imaging service's
+`acquire_image`, which autocontrasts when the settings ask, saves the file and
+records it.
 
 `Experiment.load()` gives access to an experiment's lamellae, their history
 and the summary dataframes. [SCRIPTING.md](../../SCRIPTING.md) covers this
-in full, with examples that the test suite executes against real data.
+in full; its example scripts under `examples/scripts/` are executed by the test
+suite.
 
 ### Inside the application
 
@@ -108,7 +111,10 @@ Each group contributes one kind of object:
   connects through it, and a `hardware.devices` entry naming it as its
   `driver` is built by it. A driver can also build devices only, with no
   microscope class, such as a manipulator on its own controller.
-  [Adding a driver](devices.md#adding-a-driver) shows one that adds a device type.
+  [Adding a driver](devices.md#adding-a-driver) shows one that adds a device type;
+  a plugin's device can also be served from another computer and checked from the
+  application, as [Devices on another computer](devices.md#devices-on-another-computer)
+  describes (`examples/plugins/fibsem-fake-scanner` does it end to end).
 
 When a built-in, a runtime registration and a plugin claim the same name, the
 built-in is used, then the runtime registration, then the plugin.
@@ -197,6 +203,13 @@ work unchanged.
   (`resolve_system_devices`, then `build_device_entries`), as
   `DemoMicroscope._build_devices` does. The named methods read and write the
   devices; a parameter a device lacks reads None and a write to it does nothing.
+- **Services.** The vendor-neutral services (`fibsem/services/`) are built over
+  the devices, so a new backend gets imaging, stage movement, sample handling and
+  alignment unchanged. Milling and spot burn need the instrument's own calls: the
+  driver subclasses `Milling` and `SpotBurn` in its `services.py` and binds them
+  at connect (`bind_demo_milling`, `bind_demo_spot_burn` in
+  `fibsem/drivers/demo/services.py`); a driver whose stage moves differently
+  subclasses `StageMovement`. [Services](devices.md#services) lists their hooks.
 
 - **Reference implementations.** `DemoMicroscope` in
   `fibsem/drivers/demo/microscope.py` is the complete, hardware-free
@@ -238,8 +251,8 @@ An FM is devices too: a `Camera`, a `LightSource`, a `FilterSet` and an
 device that acquires channels and z-stacks. Implement the four parts; the
 `FM` device and `microscope.fm` (`FluorescenceMicroscope`,
 `fibsem/fm/microscope.py`) are built on them. The simulated parts in
-`fibsem/drivers/demo/devices.py` are the hardware-free reference, and
-`autoscript_fm.py` and `odemis_fm.py` beside it are the two hardware
+`fibsem/drivers/demo/devices.py` are the hardware-free reference, and the
+`devices.py` of the `autoscript` and `odemis` drivers hold the two hardware
 implementations. An FM on its own computer needs no driver on the
 microscope's side: serve its parts with the device server and configure the
 FM as `driver: remote` ([Devices on another computer](devices.md#devices-on-another-computer)).
