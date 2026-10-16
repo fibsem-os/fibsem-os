@@ -180,10 +180,14 @@ the question, check image freshness, and separate reading from acting. Then
 The prompt shows "Agent suggests: <the button>" with your reason under it.
 The operator's click answers, as theirs, and the watcher's `ANSWERED` line
 shows `suggested_by=agent`. If they answer some other way, your suggestion
-is dropped. That's their call, not an error. For `EditAlignmentArea`,
+is dropped. That's their call, not an error. They may also dismiss it,
+with or without a why: the watcher's `SUGGESTION DISMISSED` line carries
+their reason. Read it before you suggest again. For `EditAlignmentArea`,
 `PickPOI`, `ConfirmDetection` and `RunSpotBurn` a suggestion may carry a
 `value`, as `prompt_answer` would. It is placed on screen only if the
-operator takes the suggestion.
+operator takes the suggestion. When you judged on an image (the fresh SEM and
+FIB pair for a position, the start image for a mill), pass its path as
+`image`, as for a request: the card shows it with your value drawn on it.
 
 Two playbook rules hold at Assist too. Before you suggest a Setup position
 or a POI, check coincidence as *Before a position or a POI* says: the fresh

@@ -88,7 +88,7 @@ WHY_LINES = 3
 PICTURE_MIN = 420
 STEPS_MIN = 300
 # The legend drawn on the image: this size on screen, however wide it shows.
-LEGEND_PX = 12
+LEGEND_PX = 11
 # The image, clicked: at most this wide.
 ENLARGED_WIDTH = 1024
 
@@ -404,6 +404,7 @@ class AgentCard(QFrame):
     approve_clicked = pyqtSignal(str)  # request id
     reject_clicked = pyqtSignal(str, str)  # request id, the operator's reason
     accept_clicked = pyqtSignal()  # the suggestion shown
+    dismiss_clicked = pyqtSignal(str)  # the suggestion shown, the operator's why
     float_clicked = pyqtSignal()  # float the card, or put it back on the chip
     keep_on_top_toggled = pyqtSignal(bool)  # the floating card over every window
 
@@ -415,10 +416,13 @@ class AgentCard(QFrame):
         self._request: Optional[Dict[str, Any]] = None
         self._suggestion: Optional[Dict[str, str]] = None
         self.accept_button: Optional[QPushButton] = None
+        self.dismiss_button: Optional[QPushButton] = None
         self._now: Optional[str] = None
         # The images under Why, with their captions: the request's, the
         # suggestion's.
         self._images: Dict[str, Tuple[QImage, str, Tuple]] = {}
+        # Why there is no image, in its place: "No FIB image of 05 yet".
+        self._notes: Dict[str, str] = {}
         self.image_label: Optional[_Picture] = None
         self._picture_holder: Optional[QWidget] = None
         self._details_open = False
@@ -530,6 +534,8 @@ class AgentCard(QFrame):
         self._about = QHBoxLayout()
         self._about.setSpacing(10)
         layout.addLayout(self._about)
+        # A tall floating window keeps the rows packed at the top (FIB-1427).
+        layout.addStretch(1)
 
         self.set_level(AgentLevel.WATCH)
         self.set_last_heard(None)
@@ -605,6 +611,10 @@ class AgentCard(QFrame):
         suggestion = dict(suggestion) if suggestion is not None else None
         if suggestion == self._suggestion:
             return
+        if suggestion is None or suggestion.get("question") != (
+            self._suggestion or {}
+        ).get("question"):
+            self._rejecting = False
         if (suggestion or {}).get("reason") != (self._suggestion or {}).get("reason"):
             self._why_open = False
         self._suggestion = suggestion
@@ -620,12 +630,17 @@ class AgentCard(QFrame):
         """The image the waiting request's (or, *suggestion*, the suggested
         answer's) values were measured on, drawn on it, with what it is
         ("FIB · 07:41") and its *legend* (`agent_previews.draw_legend`'s
-        entries); None for none."""
+        entries); None for none, *caption* then why there is none."""
         key = "suggestion" if suggestion else "request"
         if image is None or image.isNull():
-            if self._images.pop(key, None) is None:
+            had = self._images.pop(key, None) is not None
+            note = self._notes.pop(key, "")
+            if caption:
+                self._notes[key] = caption
+            if not had and note == caption:
                 return
         else:
+            self._notes.pop(key, None)
             self._images[key] = (image, caption, tuple(legend))
         self._render()
 
@@ -718,6 +733,7 @@ class AgentCard(QFrame):
         self._picture_holder = None
         request = self._request
         self.accept_button = self.details_link = self.why_link = None
+        self.dismiss_button = None
         self.approve_button = self.reject_button = None
         self.confirm_reject_button = self.back_button = None
         self.reason_edit = None
@@ -748,13 +764,10 @@ class AgentCard(QFrame):
         self.updateGeometry()
 
     def _paint_now(self) -> None:
-        """The Now line: what runs; with nothing waiting either, "Nothing."."""
-        waiting = self._request is not None or self._suggestion is not None
-        self.now_label.setText(self._now or "Nothing.")
-        self.now_label.setStyleSheet(
-            f"color: {TEXT_COLOR if self._now else TEXT_MUTED_COLOR};"
-        )
-        self.now_row.setVisible(bool(self._now) or not waiting)
+        """The Now line: what the agent is doing, shown only while it does
+        something (FIB-1426)."""
+        self.now_label.setText(self._now or "")
+        self.now_row.setVisible(bool(self._now))
 
     def _request_columns(self, request: Dict[str, Any], applying: bool):
         actions: List[Dict[str, Any]] = request.get("actions", [])
@@ -894,20 +907,57 @@ class AgentCard(QFrame):
         right.addStretch(1)
         buttons = QHBoxLayout()
         buttons.addStretch(1)
+        self.back_button = self.confirm_reject_button = self.reason_edit = None
+        if self._rejecting and self._request is None:
+            # Dismiss, with why if the operator likes: recorded for the agent
+            # (FIB-1424). The question stays up.
+            self.reason_edit = QLineEdit()
+            self.reason_edit.setPlaceholderText("Tell the agent why (optional)")
+            right.addWidget(self.reason_edit)
+            self.back_button = _button("Back")
+            self.back_button.clicked.connect(lambda: self._set_rejecting(False))
+            self.dismiss_button = _button("Dismiss", primary=True)
+            self.dismiss_button.clicked.connect(
+                lambda: self.dismiss_clicked.emit(
+                    self.reason_edit.text() if self.reason_edit else ""
+                )
+            )
+            buttons.addWidget(self.back_button)
+            buttons.addWidget(self.dismiss_button)
+            right.addLayout(buttons)
+            return left, right
+        self.dismiss_button = _button("Dismiss…")
+        self.dismiss_button.setToolTip(
+            "Decline the suggestion and tell the agent why. The question stays "
+            "up for you to answer."
+        )
+        self.dismiss_button.clicked.connect(lambda: self._set_rejecting(True))
         self.accept_button = _button("Accept", primary=True)
         self.accept_button.setToolTip(
             "Answer the question with this, as your answer. The record names the "
             "agent as the one who suggested it."
         )
         self.accept_button.clicked.connect(self.accept_clicked)
+        buttons.addWidget(self.dismiss_button)
         buttons.addWidget(self.accept_button)
         right.addLayout(buttons)
         return left, right
 
     def _stacked(self) -> bool:
         """The picture under the steps and the reason, not beside them: narrow,
-        or with details open, so their table has the card's width."""
-        return not self._wide or (self._details_open and self._request is not None)
+        or with details open, so their table has the card's width. With no
+        picture, the buttons go under them too: an empty column beside them
+        would squeeze the steps for nothing."""
+        return (
+            not self._wide
+            or (self._details_open and self._request is not None)
+            or not self._showing_picture()
+        )
+
+    def _showing_picture(self) -> bool:
+        """Whether what waits has a picture, or a note in its place."""
+        key = "suggestion" if self._request is None else "request"
+        return key in self._images or bool(self._notes.get(key))
 
     def _inner_width(self) -> int:
         margins = self.layout().contentsMargins()
@@ -933,6 +983,10 @@ class AgentCard(QFrame):
         """The *image* the values were measured on (FIB-1411), its legend on it."""
         self.image_label = None
         if image not in self._images:
+            if self._notes.get(image):
+                column.addWidget(
+                    _label(self._notes[image], TEXT_MUTED_COLOR, small=True, wrap=True)
+                )
             return
         picture, caption, legend = self._images[image]
         label = _Picture(picture, self._picture_width(), caption, legend)
@@ -1012,6 +1066,12 @@ class AgentCard(QFrame):
             line.addWidget(
                 _label(row.outcome, _TONES.get(row.tone, TEXT_MUTED_COLOR), small=True)
             )
+            # At which level it was done (FIB-1426): Assist's were approved.
+            level = str(getattr(row, "level", "") or "")
+            tag = _label(level.title(), TEXT_MUTED_COLOR, small=True)
+            tag.setObjectName("agentLevelTag")
+            tag.setVisible(bool(level))
+            line.addWidget(tag)
             rows.addLayout(line)
             self.recent_buttons.append(button)
         self._recent_rows.addWidget(box)

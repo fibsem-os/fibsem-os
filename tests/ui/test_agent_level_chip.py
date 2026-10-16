@@ -159,8 +159,31 @@ def test_now_shows_under_the_title_while_a_request_waits_too(qapp):
     assert card.now_label.text() == "Milling 'trench' · stage 2 of 6"
     card.set_request(None)
     card.set_now(None)
-    assert card.now_row.isVisibleTo(card) and card.now_label.text() == "Nothing."
+    # Nothing runs: no Now line at all (FIB-1426).
+    assert not card.now_row.isVisibleTo(card)
     card.deleteLater()
+
+
+def test_a_tall_card_keeps_its_rows_packed_at_the_top(qapp):
+    # FIB-1427: a large floating window spread Now, Recent and the footer apart.
+    card = AgentCard()
+    card.resize(900, 740)
+    card.show()
+    card.set_now("Milling 'trench'")
+    short = AgentCard()
+    short.set_now("Milling 'trench'")
+    short.resize(900, short.sizeHint().height())
+    short.show()
+    qapp.processEvents()
+    for tall_one, short_one in (
+        (card.recent_link, short.recent_link),
+        (card.level_menu, short.level_menu),
+    ):
+        assert tall_one.mapTo(card, tall_one.rect().topLeft()).y() == (
+            short_one.mapTo(short, short_one.rect().topLeft()).y()
+        )
+    card.deleteLater()
+    short.deleteLater()
 
 
 def test_the_image_shows_beside_the_steps_and_follows_the_card_s_width(qapp):
@@ -176,7 +199,7 @@ def test_the_image_shows_beside_the_steps_and_follows_the_card_s_width(qapp):
     card.set_request(_request())
     assert card.image_label is None
     image = QImage(1024, 683, QImage.Format_RGB32)
-    legend = [("#8b5cf6", True, "target", "move target")]
+    legend = [("#8b5cf6", "target", "move target")]
     card.set_image(image, "FIB · 07:41", legend=legend)
     narrow = card.image_label.pixmap().width()
     assert narrow >= PICTURE_MIN
@@ -196,6 +219,10 @@ def test_the_image_shows_beside_the_steps_and_follows_the_card_s_width(qapp):
     assert card.image_label is not None
     card.set_image(None)
     assert card.image_label is None
+    # No image to draw on: why, in its place (FIB-1424).
+    card.set_image(None, "No FIB image of 05-pale-lark yet to draw on")
+    qapp.processEvents()
+    assert "No FIB image of 05-pale-lark yet to draw on" in _labels(card)
     card.deleteLater()
 
 
@@ -305,7 +332,6 @@ def test_an_ended_request_leaves_the_card(qapp):
     chip.set_request(None)
     shown = _labels(chip.card)
     assert not any("Approved by you" in text for text in shown)
-    assert "Nothing." in shown
     chip.deleteLater()
 
 
@@ -340,6 +366,26 @@ def test_a_suggestion_turns_the_chip_and_the_card_offers_accept(qapp):
     chip.set_suggestion(None)
     assert chip.text() == "Agent: Assisting"
     assert card.accept_button is None
+
+
+def test_a_suggestion_can_be_dismissed_with_why(qapp):
+    # FIB-1424: Dismiss beside Accept, an optional why, then Dismiss.
+    chip = AgentLevelChip()
+    chip.set_level(AgentLevel.ASSIST)
+    chip.set_suggestion(_SUGGESTION)
+    card = chip.card
+    dismissed = []
+    chip.dismiss_clicked.connect(dismissed.append)
+    card.dismiss_button.click()  # "Dismiss…": asks why
+    assert card.reason_edit is not None and card.accept_button is None
+    card.back_button.click()
+    assert card.reason_edit is None and card.accept_button is not None
+    card.dismiss_button.click()
+    card.reason_edit.setText("the trench is off to the left")
+    card.dismiss_button.click()
+    assert dismissed == ["the trench is off to the left"]
+    chip.set_suggestion(None)
+    assert card.dismiss_button is None and card.reason_edit is None
 
 
 def test_a_request_shows_before_a_suggestion(qapp):
@@ -868,6 +914,9 @@ def test_the_floating_card_can_be_kept_on_top_of_every_window(qapp):
     assert not panel.windowFlags() & Qt.WindowStaysOnTopHint  # off at first
     pin.click()
     assert chip.keep_on_top and panel.windowFlags() & Qt.WindowStaysOnTopHint
+    # A plain window: a tool window (an NSPanel on macOS) floats over other
+    # apps only while the app is active (FIB-1427).
+    assert panel.windowType() == Qt.Window
     assert panel.isVisible()
     # Kept for the session: put back and floated again, it is still on top.
     chip.dock_card()
@@ -875,16 +924,22 @@ def test_the_floating_card_can_be_kept_on_top_of_every_window(qapp):
     assert panel.windowFlags() & Qt.WindowStaysOnTopHint and pin.isChecked()
     pin.click()
     assert not panel.windowFlags() & Qt.WindowStaysOnTopHint
+    assert panel.windowType() == Qt.Tool and panel.parent() is window
     window.close()
 
 
 # --- Recent (FIB-1414), and the clamped Why (FIB-1412) ---------------------------
 
 
-def _row(text, outcome="done", tone="ok"):
+def _row(text, outcome="done", tone="ok", level=""):
     from fibsem.applications.autolamella.ui.agent_recent import RecentRow
 
-    return RecentRow("16:08", text, outcome, tone)
+    return RecentRow("16:08", text, outcome, tone, level)
+
+
+def _called(action, status=200, level="drive"):
+    """The server's record of the agent's direct call (FIB-1426)."""
+    return {"action": action, "status": status, "ok": status < 400, "level": level}
 
 
 def test_recent_shows_at_drive_and_is_hidden_below_it_until_asked_for(qapp):
@@ -953,7 +1008,7 @@ def test_at_drive_what_the_agent_does_shows_in_the_card_now_then_recent(qapp):
     activity.follow_events(buffer)
     with acting(AGENT), control.take(AGENT, "move stage relative"):
         assert "move stage relative" in _labels(chip.card)
-        buffer.append("stage_moved", {"move": "move_relative"})
+        buffer.append("agent_called", _called("Stage · Move by x 2 µm"))
     buffer.append(
         "milling", {"milling_task_name": "agent test mill", "status": "completed"}
     )
@@ -965,10 +1020,114 @@ def test_at_drive_what_the_agent_does_shows_in_the_card_now_then_recent(qapp):
     assert texts == [
         "Answered 'the run's question': yes",
         "Milled 'agent test mill'",
-        "Moved the stage: move relative",
+        "Stage · Move by x 2 µm",
     ]
     assert "move stage relative" not in _labels(chip.card)
     activity.follow_events(None)
     activity.set_microscope(None)
     chip.deleteLater()
     bar.deleteLater()
+
+
+def test_at_drive_each_direct_call_shows_in_now_then_recent_with_its_level(qapp):
+    """FIB-1426 done when: at Drive a move, a mill, a stop, an image and an
+    overview each show in Now while running, then in Recent with a plain line,
+    how it ended and its level."""
+    from types import SimpleNamespace
+
+    from fibsem.acting import AGENT, acting
+    from fibsem.applications.autolamella.server.events import EventBuffer
+    from fibsem.applications.autolamella.ui.agent_activity import AgentActivity
+    from fibsem.control import Control
+    from fibsem.ui.widgets.status_bar import FibsemStatusBar
+
+    bar = FibsemStatusBar()
+    activity = AgentActivity(bar)
+    control = Control()
+    activity.set_microscope(SimpleNamespace(control=control))
+    chip = AgentLevelChip()
+    activity.now_changed.connect(chip.set_now)
+    activity.recent_changed.connect(chip.set_recent)
+    chip.set_level(AgentLevel.DRIVE)
+    buffer = EventBuffer(stamp=lambda kind, payload: {"actor": AGENT})
+    activity.follow_events(buffer)
+
+    def now():
+        qapp.processEvents()
+        return (
+            chip.card.now_label.text()
+            if chip.card.now_row.isVisibleTo(chip.card)
+            else None
+        )
+
+    move, image = "Stage · Move by x 2 µm", "FIB · Take an image, 150 µm wide"
+    overview = "FIB · Overview, 3 × 3 tiles"
+    with acting(AGENT):
+        with control.take(AGENT, move):
+            assert now() == move
+        buffer.append("agent_called", _called(move))
+        with control.take(AGENT, image):
+            assert now() == image
+        buffer.append("agent_called", _called(image))
+        run = {"service": "imaging", "run_id": "o", "action": overview}
+        with control.take(AGENT, overview):
+            buffer.append("command_started", dict(run, level="drive"))
+            assert now() == overview
+            assert chip.card.recent_buttons[0].text() == overview
+            assert "running" in _labels(chip.card)
+        buffer.append("command_ended", dict(run, state="done", level="drive"))
+        with control.take(AGENT, "Milling · Run task 'trench'"):
+            assert now() == "Milling · Run task 'trench'"
+        buffer.append("milling", {"milling_task_name": "trench", "status": "cancelled"})
+        buffer.append(
+            "agent_stop",
+            {"what": "the mill", "reason": "through the lamella", "level": "drive"},
+        )
+    assert now() is None
+    rows = [(r.text, r.outcome, r.level) for r in activity.recent]
+    assert rows == [
+        ("Stopped the mill: through the lamella", "done", "drive"),
+        ("Milled 'trench'", "stopped", "drive"),
+        (overview, "done", "drive"),
+        (image, "done", "drive"),
+        (move, "done", "drive"),
+    ]
+    assert _labels(chip.card).count("Drive") == 5
+    activity.follow_events(None)
+    activity.set_microscope(None)
+    chip.deleteLater()
+    bar.deleteLater()
+
+
+def test_a_row_s_outcome_changes_on_the_card(qapp):
+    # Round 8 screenshots: an overview read "running" after it ended, since
+    # the row was changed in place and the card saw the same rows.
+    from fibsem.applications.autolamella.ui.agent_recent import RecentActions
+
+    recent = RecentActions()
+    run = {"service": "imaging", "run_id": "o", "action": "Overview", "level": "drive"}
+    started = {"seq": 1, "kind": "command_started", "actor": "agent", "payload": run}
+    recent.add(started)
+    card = AgentCard()
+    card.set_level(AgentLevel.DRIVE)
+    card.set_recent(recent.rows)
+    assert "running" in _labels(card)
+    ended = dict(started, seq=2, kind="command_ended", payload=dict(run, state="done"))
+    recent.add(ended)
+    card.set_recent(recent.rows)
+    assert "done" in _labels(card) and "running" not in _labels(card)
+    card.deleteLater()
+
+
+def test_a_card_with_no_picture_keeps_no_empty_column(qapp):
+    # Sim session 2026-10-15b (O6): the steps squeezed beside an empty 420 px.
+    from PyQt5.QtGui import QImage
+
+    card = AgentCard()
+    card.resize(900, 400)
+    card.set_request(_request())
+    assert card._stacked()
+    image = QImage(300, 200, QImage.Format_RGB32)
+    card.set_image(image, "FIB")
+    assert not card._stacked()
+    card.deleteLater()

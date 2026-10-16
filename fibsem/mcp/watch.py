@@ -190,6 +190,10 @@ def _print_events(events, since, out):
             out(line)
         elif kind == "prompt_cancelled":
             out(f"PROMPT WITHDRAWN question={data.get('question_id')}")
+        elif kind == "prompt_suggestion_dismissed":
+            # The operator declined the agent's suggestion (FIB-1424).
+            line = f"SUGGESTION DISMISSED question={data.get('question_id')}"
+            out(f"{line} reason={data['reason']}" if data.get("reason") else line)
         elif kind in ("request_decided", "request_finished", "request_cancelled"):
             out(_request_line(kind, data))
         elif kind == "command_ended":
