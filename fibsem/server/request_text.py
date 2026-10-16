@@ -1375,6 +1375,11 @@ def _line(
             "what": "Microscope",
             "change": "Set both beams and the stage to a saved state; the stage moves",
         }
+    if tool == "alignment_check_coincidence":
+        return {
+            "what": "Alignment",
+            "change": "Take an SEM and a FIB image to measure coincidence (moves nothing)",
+        }
     if tool == "device_set_parameter":
         return _set_parameter(a, "device", path, get)
     if tool == "service_set_parameter":

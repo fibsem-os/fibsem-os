@@ -112,3 +112,66 @@ def test_the_listing_has_the_alignment_service(client):
     alignment = client.get("/microscope/services").json()["alignment"]
     assert alignment["commands"]["align_to_reference"]["long"] is True
     assert "measure_shift" in alignment["queries"]
+
+
+def test_check_coincidence_at_target_answers_an_overlay_and_saves_the_pair(
+    client, experiment
+):
+    """The experimental target-patch measure: it takes its own pair, answers
+    the overlay with the measurement (dx beside dy), and the saved pair
+    replays through the query to the same answer."""
+    resp = client.post(
+        f"{ALIGNMENT}/commands/check_coincidence",
+        json={
+            "kwargs": {"hfw": 150e-6, "path": str(experiment / "coincidence")},
+            "answer": "preview",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    answer = resp.json()["result"]
+    assert answer["preview"]
+    measured = answer["summary"]["metadata"]
+    assert measured["method"] == "target-patch"
+    for key in ("dx", "dy", "dz", "score", "warnings", "agrees"):
+        assert key in measured
+    for key in ("sem_path", "fib_path", "overlay_path"):
+        assert os.path.isfile(measured[key]), key
+
+    replay = client.post(
+        f"{ALIGNMENT}/queries/measure_coincidence",
+        json={
+            "kwargs": {
+                "sem_path": measured["sem_path"],
+                "fib_path": measured["fib_path"],
+            }
+        },
+    )
+    assert replay.status_code == 200, replay.text
+    replayed = replay.json()["result"]["summary"]["metadata"]
+    assert replayed["dy"] == pytest.approx(measured["dy"])
+    assert replayed["dx"] == pytest.approx(measured["dx"])
+
+    from_fib = client.post(
+        f"{ALIGNMENT}/queries/measure_coincidence",
+        json={
+            "kwargs": {
+                "sem_path": measured["sem_path"],
+                "fib_path": measured["fib_path"],
+                "beam": "ION",
+            }
+        },
+    )
+    assert from_fib.status_code == 200, from_fib.text
+    assert from_fib.json()["result"]["summary"]["metadata"]["reference"] == "ION"
+
+
+def test_a_coincidence_pair_outside_the_experiment_is_refused(
+    client, microscope, tmp_path
+):
+    path = _saved(microscope, tmp_path, "elsewhere")
+    resp = client.post(
+        f"{ALIGNMENT}/queries/measure_coincidence",
+        json={"kwargs": {"sem_path": path, "fib_path": path}},
+    )
+    assert resp.status_code == 403
+    assert resp.json()["detail"]["error_type"] == "not_allowed"

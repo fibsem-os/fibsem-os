@@ -217,8 +217,13 @@ def _local_normalise(image: np.ndarray, sigma: float = 32) -> np.ndarray:
 
 def _preprocess(image: np.ndarray, s1: float, s2: float) -> np.ndarray:
     """Local normalise -> DoG band-pass -> gradient magnitude, zero-mean."""
-    x = _local_normalise(image.astype(np.float32))
-    x = ndi.gaussian_filter(x, s1) - ndi.gaussian_filter(x, s2)
+    return _band_pass(_local_normalise(image.astype(np.float32)), s1, s2)
+
+
+def _band_pass(normalised: np.ndarray, s1: float, s2: float) -> np.ndarray:
+    """`_preprocess` after the local normalisation, which does not depend on
+    the band: normalise once, then band-pass at each scale."""
+    x = ndi.gaussian_filter(normalised, s1) - ndi.gaussian_filter(normalised, s2)
     x = np.hypot(ndi.sobel(x, axis=1), ndi.sobel(x, axis=0))
     return (x - x.mean()) / (x.std() + 1e-6)
 

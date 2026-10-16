@@ -584,6 +584,42 @@ def build_sidecar(client, capabilities):
             image_path=image_path,
         )
 
+    def alignment_check_coincidence(
+        x: float = 0.0,
+        y: float = 0.0,
+        hfw: float = 150e-6,
+        autocontrast: bool = True,
+        path: Optional[str] = None,
+        beam: str = "ELECTRON",
+    ):
+        return _routed(
+            "alignment_check_coincidence",
+            "coincidence",
+            x=x,
+            y=y,
+            hfw=hfw,
+            autocontrast=autocontrast,
+            path=path,
+            beam=beam,
+        )
+
+    def alignment_measure_coincidence(
+        sem_path: str,
+        fib_path: str,
+        x: float = 0.0,
+        y: float = 0.0,
+        beam: str = "ELECTRON",
+    ):
+        return _routed(
+            "alignment_measure_coincidence",
+            "coincidence",
+            sem_path=sem_path,
+            fib_path=fib_path,
+            x=x,
+            y=y,
+            beam=beam,
+        )
+
     def milling_stop(reason: str):
         data, err = _route("milling_stop", reason=reason)
         return err if err else {"status": "ok"}
@@ -1467,6 +1503,8 @@ def build_sidecar(client, capabilities):
             workflow_stop_task,
             workflow_queue_grids,
             item_move_to_objective_position,
+            alignment_check_coincidence,
+            alignment_measure_coincidence,
             milling_stop,
             beam_acquire_image,
             stage_move_relative,
