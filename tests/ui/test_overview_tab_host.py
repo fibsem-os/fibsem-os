@@ -319,7 +319,7 @@ class TestLifecycle:
     def test_dropping_the_widget_releases_its_subscriptions(self, tab, microscope):
         signals = (
             microscope.imaging.tiled_progress,
-            microscope.stage_position_changed,
+            microscope.stage.position.changed,
         )
         before = [len(s) for s in signals]
         tab._drop_overview()
@@ -348,7 +348,7 @@ class TestTheFlagOff:
         os.makedirs(str(experiment.path), exist_ok=True)
         signals = (
             microscope.imaging.tiled_progress,
-            microscope.stage_position_changed,
+            microscope.stage.position.changed,
         )
         before = [len(s) for s in signals]
 
@@ -365,7 +365,7 @@ class TestTheFlagOff:
     def test_turning_it_off_drops_what_was_built(self, tab, microscope):
         signals = (
             microscope.imaging.tiled_progress,
-            microscope.stage_position_changed,
+            microscope.stage.position.changed,
         )
         before = [len(s) for s in signals]
         tab.set_enabled(False)

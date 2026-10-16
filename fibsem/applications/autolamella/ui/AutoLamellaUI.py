@@ -520,15 +520,15 @@ class AutoLamellaUI(QMainWindow):
         followed = self._stage_followed
         if followed is microscope:
             return
-        if followed is not None:
+        if followed is not None and followed.stage is not None:
             try:
-                followed.stage_position_changed.disconnect(
+                followed.stage.position.changed.disconnect(
                     self._on_stage_position_updated
                 )
             except Exception as e:
                 logging.debug(f"Could not disconnect microscope stage events: {e}")
-        if microscope is not None:
-            microscope.stage_position_changed.connect(self._on_stage_position_updated)
+        if microscope is not None and microscope.stage is not None:
+            microscope.stage.position.changed.connect(self._on_stage_position_updated)
         self._stage_followed = microscope
 
     def _disconnect_experiment_events(self) -> None:

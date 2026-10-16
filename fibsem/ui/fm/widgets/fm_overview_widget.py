@@ -352,7 +352,8 @@ class FMOverviewWidget(QWidget):
         # builds a new wrapper on every access, so psygnal cannot weakref it, cannot
         # match it at disconnect time -- and says nothing when the disconnect therefore
         # removes nothing. Emitting into a widget Qt had already torn down was a segfault.
-        self.microscope.stage_position_changed.connect(self._on_stage_signal)
+        if self.microscope.stage is not None:
+            self.microscope.stage.position.changed.connect(self._on_stage_signal)
         self._fm_acquiring_changed.connect(self._on_fm_acquiring_changed)
         self.fm.acquiring_changed.connect(self._on_fm_acquiring_signal)
         # Marshalled by `@ensure_main_thread` on the slot rather than by relaying
@@ -3070,7 +3071,6 @@ class FMOverviewWidget(QWidget):
         # anywhere else in the application was a hard segfault, not an exception.
         subscriptions = [
             (self.fm.acquisition_progress_signal, self._on_fm_progress),
-            (self.microscope.stage_position_changed, self._on_stage_signal),
             (self.fm.objective.position_changed, self._on_objective_moved),
             # Subscribed since FIB-441 and never in this list, though the comment above
             # has always claimed "without exception".
@@ -3088,6 +3088,10 @@ class FMOverviewWidget(QWidget):
         if self.microscope.imaging is not None:
             subscriptions.append(
                 (self.microscope.imaging.tiled_progress, self._on_tile_progress)
+            )
+        if self.microscope.stage is not None:
+            subscriptions.append(
+                (self.microscope.stage.position.changed, self._on_stage_signal)
             )
         for signal, slot in subscriptions:
             try:
