@@ -107,7 +107,8 @@ from fibsem.structures import FibsemStagePosition, BeamType
 # Get current position
 pos = microscope.get_stage_position()
 
-# Move to an absolute position (metres / radians)
+# Move to an absolute position (metres / radians). The raw move: the App
+# Server's allowlist refuses it to an agent token; use the safe move below.
 pos = microscope.move_stage_absolute(
     FibsemStagePosition(x=0.001, y=0.0, z=0.004, r=0.0, t=0.0, coordinate_system="RAW")
 )

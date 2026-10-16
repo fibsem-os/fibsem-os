@@ -90,11 +90,9 @@ NAMED_OTHERWISE = {
     # The beams' own command names, which the imaging service passes through.
     "beam_acquire_image": "acquire",
     "beam_auto_contrast": "autocontrast",
-    # The service's raw move holds move_absolute; renaming it would change every
-    # caller's move without a word.
+    # The service's raw move holds move_absolute (blocked for the agent);
+    # renaming it would change every caller's move without a word.
     "stage_move_absolute": "safe_absolute_stage_movement",
-    # milling_angle is the service's stored-angle parameter.
-    "stage_get_milling_angle": "current_milling_angle",
     "stage_get_orientation": "stage_orientation",
     # The sample handling service's names are what the grid workflows and
     # scripts call; the tools say what they do in the grid group's words.
