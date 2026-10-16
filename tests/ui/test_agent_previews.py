@@ -590,6 +590,27 @@ def test_a_suggested_answer_to_the_mill_question_draws_the_task_s_patterns():
     assert card.shown[True] is None
 
 
+def test_a_suggestion_not_to_mill_again_outlines_what_was_milled():
+    """Sim session 2026-10-16: "don't mill again" drew the patterns filled, as
+    if about to be milled."""
+    from fibsem.applications.autolamella.workflows.interaction import (
+        MillingEdit,
+        RunMillingTask,
+    )
+    from fibsem.milling.base import FibsemMillingStage
+    from fibsem.milling.tasks import FibsemMillingTaskConfig
+
+    config = FibsemMillingTaskConfig.from_stages(
+        [FibsemMillingStage(name="Trench")], name="Fiducial"
+    )
+    previews = AgentPreviews(lambda: _Controller(), show_picture=_Card())
+    question = RunMillingTask(config=config, passes=6)
+    previews.show_suggestion(question, MillingEdit(action="accept"))
+    _, layer = _layer(previews.suggestion_picture)
+    assert layer.patterns and not layer.fill
+    assert layer.keys == [("outline", "as milled")]
+
+
 def test_a_suggested_answer_to_a_position_question_shows_both_beams():
     # FIB-1424: "Continue" on Setup's position question showed nothing; the
     # agent checked it on a fresh SEM and FIB pair.

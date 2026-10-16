@@ -970,7 +970,9 @@ class AgentPreviews:
             return
         evidence = _agent_image(self._load_image, image)
         if isinstance(request, RunMillingTask):
-            self._show_mill(controller, request, evidence)
+            self._show_mill(
+                controller, request, evidence, getattr(value, "action", None)
+            )
             return
         if isinstance(request, Confirm) and evidence is None:
             self._show_position(controller)
@@ -1041,10 +1043,11 @@ class AgentPreviews:
         )
         self._picture(frame, beam, [layer], suggestion=True, agent_image=own)
 
-    def _show_mill(self, controller, request, evidence=None) -> None:
+    def _show_mill(self, controller, request, evidence=None, action=None) -> None:
         """A mill question's task: its stages' patterns on the FIB view, the
         image the task shows as it asks, or on the agent's own FIB image. What
-        the operator approves by answering Run (FIB-1424)."""
+        the operator approves by answering Run (FIB-1424). A suggestion to go
+        on without milling (more) outlines them: nothing is to be milled."""
         config = getattr(request, "config", None)
         stages = [s for s in getattr(config, "stages", []) or [] if s.enabled]
         own = (
@@ -1056,10 +1059,22 @@ class AgentPreviews:
             self._picture(None, None, [], suggestion=True)
             return
         aspect = frame.data.shape[0] / frame.data.shape[1]
-        purple, red = _Layer(PURPLE_COLOR, fill=True), _Layer(RED_COLOR)
+        from fibsem.applications.autolamella.workflows.interaction import (
+            ACTION_ACCEPT,
+            ACTION_SKIP,
+        )
+
+        mills = action not in (ACTION_ACCEPT, ACTION_SKIP)
+        purple, red = _Layer(PURPLE_COLOR, fill=mills), _Layer(RED_COLOR)
         purple.patterns = _stage_patterns(stages)
-        red.patterns = request_outside_field({}, aspect, stages)
-        purple.key(FILL, "patterns", purple.patterns)
+        red.patterns = request_outside_field({}, aspect, stages) if mills else []
+        if mills:
+            purple.key(FILL, "patterns", purple.patterns)
+        else:
+            milled = action == ACTION_ACCEPT and getattr(request, "passes", 0)
+            purple.key(
+                OUTLINE, "as milled" if milled else "not milled", purple.patterns
+            )
         _key_past_field(frame, red)
         self._picture(
             frame,

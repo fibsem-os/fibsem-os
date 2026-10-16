@@ -567,7 +567,9 @@ class QtResponder(QObject):
         if isinstance(request, RunAgainQuestion) and isinstance(
             value, (MillingEdit, SpotBurnEdit)
         ):
-            return request.label_for(value.action)
+            # What it decides, where the button alone is unclear: "Accept:
+            # don't mill again" (sim session 2026-10-16).
+            return request.decided(value) or request.label_for(value.action)
         return getattr(request, "positive" if response else "negative", None)
 
     def _apply_value(self, request: "Request", value: object) -> None:

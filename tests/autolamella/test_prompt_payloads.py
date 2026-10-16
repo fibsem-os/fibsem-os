@@ -299,3 +299,16 @@ def test_an_answer_says_what_it_decided():
         "Accept: don't mill again"
     )
     assert again.decided(MillingDecision(action="run", config=None)) == "Mill Again"
+
+
+def test_a_suggestion_at_a_mill_again_question_says_what_it_decides():
+    """Sim session 2026-10-16: "Answer: Continue" for "don't mill again"."""
+    from fibsem.applications.autolamella.ui.qt_responder import QtResponder
+    from fibsem.applications.autolamella.workflows.interaction import MillingEdit
+
+    again = RunMillingTask(config=None, passes=6)
+    label = QtResponder._button_label(again, False, MillingEdit(action="accept"))
+    assert label == "Accept: don't mill again"
+    assert QtResponder._button_label(again, True, MillingEdit(action="run")) == (
+        "Mill Again"
+    )
