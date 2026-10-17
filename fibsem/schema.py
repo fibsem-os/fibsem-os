@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import dataclasses
 import inspect
+import json
 import math
 import typing
 from enum import Enum
@@ -138,14 +139,20 @@ def dataclass_schema(cls: type, defs: Dict[str, Schema]) -> Schema:
     return ref
 
 
-def arguments_schema(func: Callable[..., Any]) -> Schema:
+def arguments_schema(
+    func: Callable[..., Any], known: Optional[Dict[str, Schema]] = None
+) -> Schema:
     """A command's (or query's) arguments as one JSON Schema object, with the
     dataclasses they hold under ``$defs``. ``self`` and ``*args``/``**kwargs`` are
-    left out; an argument with no default is required."""
+    left out; an argument with no default is required.
+
+    ``known`` gives the schema of a dataclass, by name, in place of the one its
+    class declares: an instrument's own (a milling recipe on this instrument,
+    `Device.schema_defs`). Only those the arguments use are in ``$defs``."""
     from fibsem.devices.wire import type_hints
 
     hints = type_hints(func)
-    defs: Dict[str, Schema] = {}
+    defs: Dict[str, Schema] = dict(known or {})
     properties: Dict[str, Schema] = {}
     required = []
     for name, p in inspect.signature(func).parameters.items():
@@ -162,9 +169,22 @@ def arguments_schema(func: Callable[..., Any]) -> Schema:
     schema = {"type": "object", "properties": properties}
     if required:
         schema["required"] = required
+    defs = _used(defs, schema, set(known or ()))
     if defs:
         schema["$defs"] = defs
     return schema
+
+
+def _used(defs: Dict[str, Schema], schema: Schema, known: set) -> Dict[str, Schema]:
+    """``defs`` without the ``known`` ones nothing in ``schema`` or the other defs
+    refers to."""
+    unused = set(known)
+    while True:
+        text = json.dumps([schema, {k: v for k, v in defs.items() if k not in unused}])
+        still = {name for name in unused if f'"#/$defs/{name}"' not in text}
+        if still == unused:
+            return {k: v for k, v in defs.items() if k not in unused}
+        unused = still
 
 
 _NO_DEFAULT = object()

@@ -34,6 +34,13 @@ from fibsem.structures import (
 from tests.fixtures import tescan_sdk
 
 MILL_PRESET = "30 keV; 1 nA"
+
+
+def _recipe(**kwargs) -> FibsemMillingSettings:
+    """A recipe that mills at MILL_PRESET, kept in the Tescan driver's block."""
+    return FibsemMillingSettings(driver={"tescan": {"preset": MILL_PRESET}}, **kwargs)
+
+
 IMAGING_PRESET = "30 keV; 100 pA"
 
 # The DrawBeam fakes live with the rest of the fake SDK; imported from here too.
@@ -66,7 +73,7 @@ def mill(microscope, fake, imaging_preset=IMAGING_PRESET):
     if imaging_preset is not None:
         microscope.set_preset(imaging_preset, BeamType.ION)
     fake.log.clear()
-    microscope.setup_milling(FibsemMillingSettings(preset=MILL_PRESET, hfw=80e-6))
+    microscope.setup_milling(_recipe(hfw=80e-6))
     microscope.draw_rectangle(
         FibsemRectangleSettings(
             width=10e-6, height=5e-6, depth=1e-6, centre_x=0, centre_y=0
@@ -126,7 +133,7 @@ def test_a_pattern_drawbeam_has_no_shape_for_raises(connect, pattern):
     """A bitmap used to be drawn as nothing, which mills nothing; now it raises,
     before anything is added to the layer."""
     microscope, fake = connect()
-    microscope.setup_milling(FibsemMillingSettings(preset=MILL_PRESET, hfw=80e-6))
+    microscope.setup_milling(_recipe(hfw=80e-6))
     fake.log.clear()
     with pytest.raises(UnsupportedPattern, match="TescanMicroscope cannot draw"):
         microscope.draw_patterns(
@@ -167,7 +174,7 @@ def test_milling_makes_the_same_drawbeam_calls(connect, imaging_preset):
 def test_the_service_puts_the_field_of_view_back(connect):
     microscope, fake = connect()
     fake.FIB.Optics.viewfield = 0.15  # mm
-    microscope.setup_milling(FibsemMillingSettings(preset=MILL_PRESET, hfw=80e-6))
+    microscope.setup_milling(_recipe(hfw=80e-6))
     fake.FIB.Optics.viewfield = 0.08  # the user zoomed in while it milled
     microscope.finish_milling()
     assert fake.FIB.Optics.viewfield == pytest.approx(0.15)
@@ -177,7 +184,7 @@ def test_the_ion_current_and_voltage_are_left_to_the_preset(connect):
     """Neither is settable on the ion column, so neither is saved or restored: no
     "not supported" write after milling."""
     microscope, fake = connect()
-    microscope.setup_milling(FibsemMillingSettings(preset=MILL_PRESET))
+    microscope.setup_milling(_recipe())
     assert set(microscope.milling._saved) == {"preset", "hfw"}
     fake.log.clear()
     microscope.finish_milling()
@@ -189,7 +196,7 @@ def test_the_ion_current_and_voltage_are_left_to_the_preset(connect):
 def test_a_preset_that_fails_to_come_back_still_ends_milling(connect, monkeypatch):
     microscope, fake = connect()
     microscope.set_preset(IMAGING_PRESET, BeamType.ION)
-    microscope.setup_milling(FibsemMillingSettings(preset=MILL_PRESET))
+    microscope.setup_milling(_recipe())
 
     def fail(name):
         raise RuntimeError("preset unavailable")
@@ -204,7 +211,7 @@ def test_a_preset_that_fails_to_come_back_still_ends_milling(connect, monkeypatc
 
 def test_stop_uses_a_second_connection(connect):
     microscope, fake = connect()
-    microscope.setup_milling(FibsemMillingSettings(preset=MILL_PRESET))
+    microscope.setup_milling(_recipe())
     microscope.start_milling()
     microscope.stop_milling()  # Automation is patched to return the same fake
     assert fake.DrawBeam.status == DBStatus.ProjectLoadedExpositionIdle
@@ -234,9 +241,7 @@ def test_tescan_mills_with_the_settings_it_says(connect):
     assert "milling_voltage" not in supported
     assert MILL_PRESET in supported["preset"].choices
     assert supported["milling_channel"].choices == (BeamType.ION,)
-    read = fields_setup_reads(
-        microscope.milling, FibsemMillingSettings(preset=MILL_PRESET, hfw=80e-6)
-    )
+    read = fields_setup_reads(microscope.milling, _recipe(hfw=80e-6))
     assert set(supported) == read
     # an electron beam it can't mill with
     assert microscope.milling.supported_settings(BeamType.ELECTRON) == {}
@@ -259,7 +264,7 @@ def _finishing(fake, running_looks=2):
 
 
 def _drawn(microscope):
-    microscope.setup_milling(FibsemMillingSettings(preset=MILL_PRESET, hfw=80e-6))
+    microscope.setup_milling(_recipe(hfw=80e-6))
     microscope.draw_rectangle(
         FibsemRectangleSettings(
             width=10e-6, height=5e-6, depth=1e-6, centre_x=0, centre_y=0
@@ -344,8 +349,8 @@ def test_clearing_with_no_layer_loaded_is_quiet(connect):
 def test_a_second_setup_keeps_the_preset_milling_found(connect):
     microscope, fake = connect()
     microscope.set_preset(IMAGING_PRESET, BeamType.ION)
-    microscope.setup_milling(FibsemMillingSettings(preset=MILL_PRESET))
-    microscope.setup_milling(FibsemMillingSettings(preset=MILL_PRESET))
+    microscope.setup_milling(_recipe())
+    microscope.setup_milling(_recipe())
     microscope.finish_milling()
     assert activated(fake)[-1] == IMAGING_PRESET
 
@@ -354,7 +359,7 @@ def test_each_milling_puts_back_the_preset_it_found(connect):
     microscope, fake = connect()
     for found in (IMAGING_PRESET, tescan_module.DEFAULT_IMAGING_PRESET):
         microscope.set_preset(found, BeamType.ION)
-        microscope.setup_milling(FibsemMillingSettings(preset=MILL_PRESET))
+        microscope.setup_milling(_recipe())
         microscope.finish_milling()
         assert activated(fake)[-1] == found
 
@@ -362,7 +367,7 @@ def test_each_milling_puts_back_the_preset_it_found(connect):
 def test_finishing_survives_the_preset_and_the_unload_failing(connect, monkeypatch):
     microscope, fake = connect()
     microscope.set_preset(IMAGING_PRESET, BeamType.ION)
-    microscope.setup_milling(FibsemMillingSettings(preset=MILL_PRESET))
+    microscope.setup_milling(_recipe())
 
     def fail(name):
         raise RuntimeError("preset unavailable")
@@ -379,3 +384,18 @@ def test_only_the_ion_beam_mills(connect):
         microscope.setup_milling(
             FibsemMillingSettings(milling_channel=BeamType.ELECTRON)
         )
+
+
+def test_the_agent_sees_tescan_settings_in_their_block(connect):
+    from fibsem.schema import arguments_schema
+
+    microscope, _ = connect()
+    schema = arguments_schema(
+        type(microscope.milling).setup, microscope.milling.schema_defs()
+    )
+    recipe = schema["$defs"]["FibsemMillingSettings"]["properties"]
+    tescan = recipe["driver"]["properties"]["tescan"]["properties"]
+    assert MILL_PRESET in tescan["preset"]["enum"]
+    assert "rate" in tescan and "preset" not in recipe
+    # the preset sets the current and voltage
+    assert "milling_current" not in recipe and "milling_voltage" not in recipe

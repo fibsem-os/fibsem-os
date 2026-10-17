@@ -24,7 +24,12 @@ from fibsem.drivers.demo.simulator import (
     SIMULATOR_SCAN_DIRECTIONS,
 )
 from fibsem.milling.progress import MillingProgress
-from fibsem.services.milling import Milling, bind_milling, progress_update
+from fibsem.services.milling import (
+    BeamMillingSettings,
+    Milling,
+    bind_milling,
+    progress_update,
+)
 from fibsem.services.spot_burn import SpotBurn, bind_spot_burn
 from fibsem.structures import (
     ACTIVE_MILLING_STATES,
@@ -47,14 +52,7 @@ class DemoMilling(Milling):
 
     parent: DemoMicroscope
 
-    setting_names = (
-        "milling_channel",
-        "hfw",
-        "milling_current",
-        "milling_voltage",
-        "application_file",
-        "patterning_mode",
-    )
+    settings_class = BeamMillingSettings
     scan_directions = tuple(SIMULATOR_SCAN_DIRECTIONS)
 
     def __init__(self, connection: DemoSimulator, *args, **kwargs):
@@ -74,7 +72,7 @@ class DemoMilling(Milling):
             return ParameterMetadata(choices=tuple(files))
         return super()._setting_metadata(name)
 
-    def _setup(self, settings: FibsemMillingSettings, name: Optional[str]) -> None:
+    def _setup(self, settings: BeamMillingSettings, name: Optional[str]) -> None:
         if settings.patterning_mode not in _PATTERNING_MODES:
             raise ValueError(
                 f"Invalid patterning mode: {settings.patterning_mode}. "
@@ -94,7 +92,6 @@ class DemoMilling(Milling):
         beam.current.write_through(settings.milling_current)
         beam.voltage.write_through(settings.milling_voltage)
         self._clear()
-        logging.debug({"msg": "setup_milling", "mill_settings": settings.to_dict()})
 
     def _add(self, pattern: FibsemPatternSettings) -> None:
         logging.debug({"msg": "draw_pattern", "pattern_settings": pattern.to_dict()})

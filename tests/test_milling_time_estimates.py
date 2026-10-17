@@ -66,7 +66,8 @@ def make_stage(
     pattern.time = pattern_time
     return FibsemMillingStage(
         milling=FibsemMillingSettings(
-            preset=preset, rate=rate, milling_current=milling_current
+            milling_current=milling_current,
+            driver={"tescan": {"preset": preset, "rate": rate}},
         ),
         pattern=pattern,
     )

@@ -16,7 +16,7 @@ from fibsem.drivers.odemis.microscope import (
     ODEMIS_SCAN_DIRECTIONS,
     beam_type_to_odemis,
 )
-from fibsem.services.milling import Milling, bind_milling
+from fibsem.services.milling import BeamMillingSettings, Milling, bind_milling
 from fibsem.structures import (
     ACTIVE_MILLING_STATES,
     CrossSectionPattern,
@@ -40,14 +40,7 @@ class OdemisMilling(Milling):
 
     parent: OdemisThermoMicroscope
 
-    setting_names = (
-        "milling_channel",
-        "hfw",
-        "milling_current",
-        "milling_voltage",
-        "application_file",
-        "patterning_mode",
-    )
+    settings_class = BeamMillingSettings
     scan_directions = ODEMIS_SCAN_DIRECTIONS
 
     def __init__(self, connection: OdemisConnection, *args, **kwargs):
@@ -67,7 +60,7 @@ class OdemisMilling(Milling):
             return ParameterMetadata(choices=tuple(files))
         return super()._setting_metadata(name)
 
-    def _setup(self, settings: FibsemMillingSettings, name: Optional[str]) -> None:
+    def _setup(self, settings: BeamMillingSettings, name: Optional[str]) -> None:
         # the milling view, the application file, the patterning mode, then hfw,
         # current and voltage on the milling beam
         microscope = self.parent
@@ -86,7 +79,6 @@ class OdemisMilling(Milling):
         beam.current.write_through(settings.milling_current)
         beam.voltage.write_through(settings.milling_voltage)
         self._clear()
-        logging.debug({"msg": "setup_milling", "mill_settings": settings.to_dict()})
 
     def _set_patterning_mode(self, mode: str) -> None:
         if mode not in _PATTERNING_MODES:

@@ -263,7 +263,12 @@ def _arguments(device: Device, name: str) -> Dict[str, Any]:
     """A command's or query's arguments as JSON Schema (``fibsem.schema``): what an
     agent sends, with the units, SI limits and choices the GUI reads."""
     try:
-        return arguments_schema(getattr(type(device), name))
+        # a device whose structures depend on the instrument (a milling recipe)
+        # gives their schemas itself
+        known = getattr(device, "schema_defs", None)
+        return arguments_schema(
+            getattr(type(device), name), known() if known is not None else None
+        )
     except Exception as error:  # a schema is a help, never a reason to fail a listing
         logging.warning(f"{device.name}.{name}: no argument schema: {error!r}")
         return {}

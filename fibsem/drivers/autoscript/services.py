@@ -19,7 +19,7 @@ from skimage import transform
 from fibsem.devices.core import ParameterMetadata
 from fibsem.drivers.autoscript import microscope as autoscript
 from fibsem.drivers.autoscript.microscope import TFS_SCAN_DIRECTIONS
-from fibsem.services.milling import Milling, bind_milling
+from fibsem.services.milling import BeamMillingSettings, Milling, bind_milling
 from fibsem.structures import (
     ACTIVE_MILLING_STATES,
     CrossSectionPattern,
@@ -73,14 +73,7 @@ class AutoScriptMilling(Milling):
 
     parent: ThermoMicroscope
 
-    setting_names = (
-        "milling_channel",
-        "hfw",
-        "milling_current",
-        "milling_voltage",
-        "application_file",
-        "patterning_mode",
-    )
+    settings_class = BeamMillingSettings
     scan_directions = tuple(TFS_SCAN_DIRECTIONS)
 
     def __init__(
@@ -105,7 +98,7 @@ class AutoScriptMilling(Milling):
             return ParameterMetadata(choices=tuple(files))
         return super()._setting_metadata(name)
 
-    def _setup(self, settings: FibsemMillingSettings, name: Optional[str]) -> None:
+    def _setup(self, settings: BeamMillingSettings, name: Optional[str]) -> None:
         # the milling view, the application file, the patterning mode, then hfw,
         # voltage and current on the milling beam
         microscope = self.parent
@@ -121,7 +114,6 @@ class AutoScriptMilling(Milling):
         # voltage before current: the available ion currents are calibrated per voltage
         beam.voltage.write_through(settings.milling_voltage)
         beam.current.write_through(settings.milling_current)
-        logging.debug({"msg": "setup_milling", "mill_settings": settings.to_dict()})
 
     def _set_application_file(
         self, application_file: str, default: bool = False, strict: bool = True

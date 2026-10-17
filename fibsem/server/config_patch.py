@@ -10,7 +10,9 @@ Rules, all enforced here so every caller (per-item now, protocol-level next)
 refuses identically:
 
 - Every path segment must already exist: dataclass field, dict key, or list
-  index. A patch edits values; it never creates structure.
+  index. A patch edits values; it never creates structure. The one exception is
+  a milling recipe's driver setting (``driver.tescan.rate``): a setting the
+  driver declares can be set before the recipe has saved it.
 - The leaf must be a value, not a section — patching ``milling`` wholesale is
   refused; patch the fields inside it.
 - The new value must match the old one's type (bool for bool, number for
@@ -27,12 +29,17 @@ refuses identically:
 Qt-free and py3.8-clean; the GUI-thread caller owns marshalling.
 """
 
+from dataclasses import MISSING, is_dataclass
 from dataclasses import fields as dataclass_fields
-from dataclasses import is_dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
-from fibsem.structures import field_specs
+from fibsem.structures import (
+    DRIVER_MILLING_SETTINGS,
+    FibsemMillingSettings,
+    driver_milling_field,
+    field_specs,
+)
 
 __all__ = ["PatchError", "apply_patch"]
 
@@ -75,7 +82,13 @@ def _resolve(root: Any, path: str, value: Any, none_type: Optional[type] = None)
     if not all(parts):
         raise PatchError(path, f"malformed path {path!r}")
     obj = root
-    for part in parts[:-1]:
+    for i, part in enumerate(parts[:-1]):
+        if (
+            isinstance(obj, FibsemMillingSettings)
+            and part == "driver"
+            and len(parts) == i + 3
+        ):
+            return _resolve_driver_setting(obj, parts[i + 1], parts[i + 2], value, path)
         obj = _child(obj, part, path)
     leaf = parts[-1]
     old = _child(obj, leaf, path)
@@ -89,7 +102,8 @@ def _resolve(root: Any, path: str, value: Any, none_type: Optional[type] = None)
         new = _coerce(old_for_coerce, value, path)
     else:
         new = _coerce(old, value, path)
-    _check_bounds(obj, leaf, new, path)
+    if is_dataclass(obj):
+        _check_bounds(type(obj), leaf, new, path)
 
     def setter(coerced: Any, obj=obj, leaf=leaf) -> None:
         if isinstance(obj, dict):
@@ -98,6 +112,31 @@ def _resolve(root: Any, path: str, value: Any, none_type: Optional[type] = None)
             obj[int(leaf)] = coerced
         else:
             setattr(obj, leaf, coerced)
+
+    return setter, path, old, new
+
+
+def _resolve_driver_setting(
+    settings: FibsemMillingSettings, prefix: str, name: str, value: Any, path: str
+):
+    """A recipe's driver setting, from the driver's declared field: the value the
+    recipe saved, else the field's default, which the driver mills with until set."""
+    try:
+        declared = driver_milling_field(prefix, name)
+    except KeyError as exc:
+        raise PatchError(path, f"{exc.args[0]} (in {path!r})")
+    block = settings.driver.get(prefix, {})
+    if name in block:
+        old = block[name]
+    elif declared.default_factory is not MISSING:
+        old = declared.default_factory()
+    else:
+        old = declared.default
+    new = _coerce(old, value, path)
+    _check_bounds(DRIVER_MILLING_SETTINGS[prefix], name, new, path)
+
+    def setter(coerced: Any) -> None:
+        settings.driver.setdefault(prefix, {})[name] = coerced
 
     return setter, path, old, new
 
@@ -174,12 +213,12 @@ def _coerce(old: Any, value: Any, path: str) -> Any:
     )
 
 
-def _check_bounds(obj: Any, leaf: str, value: Any, path: str) -> None:
-    if not is_dataclass(obj) or not isinstance(value, (int, float)):
+def _check_bounds(cls: type, leaf: str, value: Any, path: str) -> None:
+    if not isinstance(value, (int, float)):
         return
-    if leaf not in {f.name for f in dataclass_fields(obj)}:
+    if leaf not in {f.name for f in dataclass_fields(cls)}:
         return
-    spec = field_specs(type(obj))[leaf]
+    spec = field_specs(cls)[leaf]
     limits = spec.limits
     if limits is None:
         return

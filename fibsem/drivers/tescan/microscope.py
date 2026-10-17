@@ -206,8 +206,11 @@ def parse_current_from_preset(preset: Optional[str]) -> Optional[float]:
     return float(match.group(1)) * _SI_CURRENT_PREFIX[match.group(2)]
 
 
-def estimate_preset_milling_time(stage: FibsemMillingStage) -> Optional[float]:
-    """Dose-model estimate t = volume / (rate × current) for a preset-driven stage.
+def estimate_preset_milling_time(
+    stage: FibsemMillingStage, preset: str, rate: float
+) -> Optional[float]:
+    """Dose-model estimate t = volume / (rate × current) for a preset-driven stage,
+    milled at *preset* and etch *rate* (m³/A/s).
 
     The same inputs DrawBeam computes the real exposure from: the stage's own
     (per-material) etch rate and the current embedded in the preset name. The
@@ -219,8 +222,7 @@ def estimate_preset_milling_time(stage: FibsemMillingStage) -> Optional[float]:
     if pattern_time:
         return pattern_time
 
-    current = parse_current_from_preset(stage.milling.preset)
-    rate = stage.milling.rate  # m³/A/s
+    current = parse_current_from_preset(preset)
     if current is None or current <= 0 or not rate or rate <= 0:
         return None
 
