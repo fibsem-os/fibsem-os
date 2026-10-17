@@ -102,6 +102,7 @@ GROUP_TITLES: Dict[str, str] = {
     "fm": "FM",
     "milling": "Milling",
     "alignment": "Alignment",
+    "inference": "Inference",
     "app": "App",
     "experiment": "Experiment",
     "protocol": "Protocol",
@@ -120,6 +121,7 @@ _WRITES_AT_WATCH = frozenset(
         "request_create",
         "request_withdraw",
         "item_measure_thickness",  # saves its result beside the image
+        "inference_segment",  # saves its mask and overlay beside the image
     }
 )
 
@@ -440,6 +442,51 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "beam": "the beam the target is centred in: ELECTRON (default) or ION",
         },
         optional=("x", "y", "beam"),
+    ),
+    ToolSpec(
+        name="inference_list_models",
+        description=(
+            "The models you may run: each one's name, task (segmentation), "
+            "version, backend, class names, the tasks it is the default for, and "
+            "whether it is ready (ready, missing packages, unavailable) and loaded. "
+            "Name one of these to inference_segment; you can't name a file. Loads nothing."
+        ),
+        method="POST",
+        path="/microscope/services/inference/queries/list_models",
+        level="watch",
+    ),
+    ToolSpec(
+        name="inference_model_info",
+        description=(
+            "A model's card: its classes and their colours, the images it takes "
+            "(beams, pixel size range), the packages it needs, where it came from, "
+            "and where the card was read. Loads nothing."
+        ),
+        method="POST",
+        path="/microscope/services/inference/queries/model_info",
+        level="watch",
+        params={"model": "a model name from inference_list_models"},
+    ),
+    ToolSpec(
+        name="inference_segment",
+        description=(
+            "Segment a saved image (inside the open experiment) with a registered "
+            "model: each class's share of the image, area in um2 and region count, "
+            "which model made it (name, version, backend, settings, seconds) and "
+            "warnings. Refused 422 for an image the model was not trained on (the "
+            "wrong beam, a pixel size outside its range), 404 for a model not "
+            "registered. Saves the mask, an overlay you can look at (overlay_path, "
+            "experiment_read_file) and the result in an inference folder beside the "
+            "image. Moves nothing."
+        ),
+        method="POST",
+        path="/microscope/services/inference/queries/segment",
+        level="watch",
+        params={
+            "image_path": "a saved image inside the open experiment",
+            "model": "a model name from inference_list_models, name@version to pin one (default: the segmentation default)",
+        },
+        optional=("model",),
     ),
     ToolSpec(
         name="milling_stop",
