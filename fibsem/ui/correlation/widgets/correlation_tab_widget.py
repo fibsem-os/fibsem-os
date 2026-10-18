@@ -4788,7 +4788,7 @@ class CorrelationTabWidget(QWidget):
         self._start_fm_interpolation(target_m, method)
 
     def _start_fm_interpolation(self, target_m: float, method: str) -> None:
-        from fibsem.correlation.util import interpolate_fm_volume
+        from fibsem.fm.interpolation import interpolate_fm_volume
         from fibsem.ui.qt.threading import FunctionWorker
 
         src = self._fm_image
@@ -4845,7 +4845,7 @@ class CorrelationTabWidget(QWidget):
         (FIB-1248). Picking on the view converts its plane back to the stack's
         (:meth:`_fm_plane_in_stack`).
         """
-        from fibsem.correlation.util import z_resample_scale
+        from fibsem.fm.interpolation import z_resample_scale
 
         new_nz = new_image.data.shape[1]
         self._fm_view_scale = z_resample_scale(old_nz, new_nz)

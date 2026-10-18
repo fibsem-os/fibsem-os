@@ -153,7 +153,7 @@ def refine_point(
     carrying the proposed position, coarse status and the diagnostic figure.
     A fit that raises comes back as an ERROR result, never as an exception.
     """
-    from fibsem.correlation import util
+    from fibsem.imaging import localise
 
     settings = settings or FitSettings()
     x, y, z = coord.point.x, coord.point.y, coord.point.z
@@ -168,7 +168,7 @@ def refine_point(
                 attempted = True
                 # pass the sub-pixel click (not int) so the diagnostic's
                 # input marker lands where the user clicked — FIB-282.
-                xr, yr, diag = util.hole_fitting_FIB(fib_image.filtered_data, x, y)
+                xr, yr, diag = localise.hole_fitting_FIB(fib_image.filtered_data, x, y)
                 fitted = PointXYZ(float(xr), float(yr), z)
         elif (
             method != "None"
@@ -179,7 +179,7 @@ def refine_point(
             img = fm_image.data[channel]
             if method == "Hole":
                 attempted = True
-                xr, yr, zr, diag = util.hole_fitting_reflection(
+                xr, yr, zr, diag = localise.hole_fitting_reflection(
                     img,
                     x,
                     y,
@@ -189,7 +189,7 @@ def refine_point(
                 fitted = PointXYZ(float(xr), float(yr), float(zr))
             elif method == "Gaussian":
                 attempted = True
-                xr, yr, zr, diag = util.target_fitting_fluorescence(
+                xr, yr, zr, diag = localise.target_fitting_fluorescence(
                     img,
                     x,
                     y,

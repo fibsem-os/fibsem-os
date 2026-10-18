@@ -531,6 +531,28 @@ def test_edit_queue_removes_or_moves_a_waiting_pair(experiment, microscope):
     assert "remove" in bad["action_names"]
 
 
+def test_edit_queue_keeps_the_grid_load_step(experiment, microscope):
+    """FIB-1454: the server refuses what the timeline refuses."""
+    from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+        LOAD_ENTRY_NAME,
+        GridTaskManager,
+    )
+
+    host = Host()
+    host.experiment = experiment
+    ctx = AutoLamellaAppContext(host)
+    manager = GridTaskManager(microscope, experiment, parent_ui=None)
+    manager.queue.build_from_pairs(
+        [("grid-1", LOAD_ENTRY_NAME), ("grid-1", "Overview")]
+    )
+    host._task_manager = manager
+
+    refused = ctx.edit_queue("grid-1", LOAD_ENTRY_NAME, "remove")
+
+    assert refused["applied"] is False and refused["error_type"] == "fixed"
+    assert [i.task_name for i in manager.queue.pending] == [LOAD_ENTRY_NAME, "Overview"]
+
+
 def test_item_version_changes_when_a_pose_moves(experiment):
     from fibsem.applications.autolamella.server.context import item_fields_version
 
