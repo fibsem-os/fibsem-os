@@ -2705,26 +2705,22 @@ class AutoLamellaAppContext:
         experiment, config, refusal = self._workflow_edit("reorder tasks")
         if refusal:
             return refusal
-        names = config.workflow
-        if sorted(order) != sorted(names):
-            return {
-                "error_type": "invalid",
-                "error": "Give every task in the workflow, each once.",
-                "task_names": names,
-            }
-        by_name = {task.name: task for task in config.tasks}
-        reordered = [by_name[name] for name in order]
-        issues = type(config)(tasks=reordered).validate()
-        if issues:
-            return {"error_type": "invalid", "error": " ".join(issues)}
 
         def reorder():
-            config.tasks[:] = reordered
+            why = config.reorder(list(order))
+            if why:
+                return why
             return self._protocol_changed(
                 experiment, {"field": "order", "order": order}
             )
 
         saved = self._agent_call(reorder)
+        if isinstance(saved, str):
+            return {
+                "error_type": "invalid",
+                "error": saved,
+                "task_names": config.workflow,
+            }
         return {"applied": True, "saved": saved, "task_names": config.workflow}
 
     def set_task_requirements(
@@ -2747,21 +2743,11 @@ class AutoLamellaAppContext:
                 "error": f"No task named {task_name!r} in the workflow.",
                 "task_names": config.workflow,
             }
-        if requires is not None:
-            earlier = config.workflow[: config.workflow.index(task_name)]
-            wrong = [name for name in requires if name not in earlier]
-            if wrong:
-                return {
-                    "error_type": "invalid",
-                    "error": f"{task_name} can only require tasks before it: "
-                    f"{', '.join(earlier) or 'none'}; not {', '.join(wrong)}.",
-                }
 
         def edit():
-            if requires is not None:
-                task.requires = list(requires)
-            if required is not None:
-                task.required = bool(required)
+            why = config.set_requirements(task_name, requires, required)
+            if why:
+                return why
             return self._protocol_changed(
                 experiment,
                 {
@@ -2773,6 +2759,8 @@ class AutoLamellaAppContext:
             )
 
         saved = self._agent_call(edit)
+        if isinstance(saved, str):
+            return {"error_type": "invalid", "error": saved}
         return {
             "applied": True,
             "saved": saved,
@@ -2948,21 +2936,22 @@ class AutoLamellaAppContext:
         )
         if refusal:
             return refusal
-        names = grid_protocol.ordered_task_names
-        if sorted(order) != sorted(names):
-            return {
-                "error_type": "invalid",
-                "error": "Give every grid task, each once.",
-                "task_names": names,
-            }
 
         def reorder():
-            grid_protocol.order = list(order)
+            why = grid_protocol.reorder(list(order))
+            if why:
+                return why
             return self._protocol_changed(
                 experiment, {"field": "grid_order", "order": order}
             )
 
         saved = self._agent_call(reorder)
+        if isinstance(saved, str):
+            return {
+                "error_type": "invalid",
+                "error": saved,
+                "task_names": grid_protocol.ordered_task_names,
+            }
         return {
             "applied": True,
             "saved": saved,
@@ -2980,32 +2969,28 @@ class AutoLamellaAppContext:
         config, refusal = self._grid_task(grid_protocol, task_name)
         if refusal:
             return refusal
-        others = [n for n in grid_protocol.ordered_task_names if n != task_name]
-        wrong = [name for name in requires if name not in others]
-        if wrong:
-            return {
-                "error_type": "invalid",
-                "error": f"{task_name} can require {', '.join(others) or 'no task'}; "
-                f"not {', '.join(wrong)}.",
-            }
 
         def edit():
-            config.requires = list(requires)
+            why = grid_protocol.set_requires(task_name, list(requires))
+            if why:
+                return why
             return self._protocol_changed(
                 experiment,
                 {
                     "field": "grid_requirements",
                     "task_name": task_name,
-                    "requires": requires,
+                    "requires": list(config.requires),
                 },
             )
 
         saved = self._agent_call(edit)
+        if isinstance(saved, str):
+            return {"error_type": "invalid", "error": saved}
         return {
             "applied": True,
             "saved": saved,
             "task_name": task_name,
-            "requires": list(requires),
+            "requires": list(config.requires),
         }
 
     def requeue_task(

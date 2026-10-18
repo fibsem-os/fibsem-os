@@ -3103,7 +3103,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self._save_workflow_config
         )
         self.lamella_workflow_widget.task_order_changed.connect(
-            self._save_workflow_config
+            self._on_workflow_task_order_changed
         )
         self.lamella_workflow_widget.task_added.connect(self._save_workflow_config)
 
@@ -3246,6 +3246,24 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return
         protocol.workflow_config.tasks[:] = self.lamella_workflow_widget.get_tasks()
         self.autolamella_ui._on_workflow_config_changed(protocol.workflow_config)
+
+    def _on_workflow_task_order_changed(self, tasks) -> None:
+        """A drag put the workflow's tasks in a new order: into the protocol
+        through `AutoLamellaWorkflowConfig.reorder`, as the App Server's reorder
+        does. A task dragged above one it requires is put back, and says why."""
+        experiment = self.autolamella_ui.experiment if self.autolamella_ui else None
+        if experiment is None or experiment.task_protocol is None:
+            return
+        config = experiment.task_protocol.workflow_config
+        why = config.reorder([task.name for task in tasks])
+        if why:
+            notification_service.show_toast(why, "warning")
+            # After the drop has finished, not inside it.
+            QTimer.singleShot(
+                0, lambda: self.lamella_workflow_widget.set_workflow_config(config)
+            )
+            return
+        self.autolamella_ui._on_workflow_config_changed(config)
 
     def _on_add_to_queue(self, run_next: bool) -> None:
         """Add the left panel's current selection to the running queue.
