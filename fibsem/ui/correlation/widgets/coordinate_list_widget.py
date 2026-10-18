@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import Dict, List, Optional, Tuple
 
 from PyQt5.QtCore import QEvent, QSize, Qt, pyqtSignal
-from PyQt5.QtGui import QColor, QFontMetrics, QIcon, QPixmap
+from PyQt5.QtGui import QColor, QFontMetrics
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -69,12 +69,6 @@ _POINT_TYPE_COLORS: Dict[PointType, str] = {
     PointType.SURFACE: "red",
     PointType.SURFACE_FM: "yellow",
 }
-
-
-def _make_color_icon(color_name: str, size: int = 16) -> QIcon:
-    px = QPixmap(size, size)
-    px.fill(QColor(color_name))
-    return QIcon(px)
 
 
 def _generate_names(coordinates: List[Coordinate]) -> List[str]:

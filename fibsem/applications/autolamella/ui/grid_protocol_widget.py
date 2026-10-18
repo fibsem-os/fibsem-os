@@ -55,11 +55,6 @@ from fibsem.ui.widgets.fibsem_overview_settings_widget import (
     FibsemOverviewSettingsWidget,
 )
 
-# The poses a beam overview can be taken at: flat to either beam, or the milling
-# pose, so a FIB overview can show the grid as the lamellae will be milled. The
-# stage knows FM too, which is the fluorescence task's business.
-_ORIENTATIONS = ["SEM", "FIB", "MILLING"]
-
 # The name a new task gets, by type, before the person renames it. The role the
 # task records under follows the beam, so the default name says which.
 _DEFAULT_NAMES = {
@@ -142,18 +137,14 @@ class _BeamOverviewEditor(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         form = QFormLayout()
+        params = BeamOverviewGridTaskConfig.params
         self.orientation = QComboBox()
-        self.orientation.setEditable(True)
-        self.orientation.addItems(_ORIENTATIONS)
-        self.orientation.setToolTip(
-            "The pose to acquire at; the grid's slot position is re-expressed for it"
-        )
-        form.addRow("Orientation", self.orientation)
+        self.orientation.addItems(params.orientation.choices)
+        self.orientation.setToolTip(params.orientation.doc)
+        form.addRow(params.orientation.label, self.orientation)
         self.filename = QLineEdit()
-        self.filename.setToolTip(
-            "The stem of the stitched image's name; a time stamp is added per run"
-        )
-        form.addRow("Filename", self.filename)
+        self.filename.setToolTip(params.filename.doc)
+        form.addRow(params.filename.label, self.filename)
         layout.addLayout(form)
         # The canvas Overview tab's own column (Imaging, Focus, Stack, Grid), so a
         # setting here is the setting there. Its Output panel is hidden: the task
@@ -198,9 +189,10 @@ class _FluorescenceOverviewEditor(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         form = QFormLayout()
+        filename = FluorescenceOverviewGridTaskConfig.params.filename
         self.filename = QLineEdit()
-        self.filename.setToolTip("The stem of the mosaic's name; a time stamp is added")
-        form.addRow("Filename", self.filename)
+        self.filename.setToolTip(filename.doc)
+        form.addRow(filename.label, self.filename)
         layout.addLayout(form)
         self.channels = ChannelListWidget(fm=None, channel_settings=[])
         # Four 40 px rows and the header. The list is Expanding, and left to it

@@ -100,7 +100,7 @@ class ObjectiveLens:
     # the FM and back to fetch a millimetre reading -- which is how FIB-517 happened.
     #
     # Carries the values rather than being a bare "something moved", for the reason
-    # `stage_position_changed` does: subscribers that each re-read would turn one move
+    # `stage.position.changed` does: subscribers that each re-read would turn one move
     # into a read per subscriber, and there are at least three displays. Read once at
     # the source instead -- see `_notify_moved` for what that costs.
     #
