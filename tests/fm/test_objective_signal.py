@@ -6,7 +6,7 @@ refreshes on each stage poll moves the microscope's own active view to the FM an
 to fetch a millimetre reading. That is the mechanism behind FIB-517.
 
 `ObjectiveLens.position_changed` replaces the poll with a notification carrying position and
-state, as `stage_position_changed` does. Read once at the source rather than by each
+state, as `stage.position.changed` does. Read once at the source rather than by each
 subscriber: three displays each re-reading would turn one move into six channel takes.
 
 Two things are pinned here, and the second is the one that will decay:

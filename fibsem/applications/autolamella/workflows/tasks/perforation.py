@@ -10,7 +10,7 @@ from fibsem.applications.autolamella.workflows._default_milling_config import (
     DEFAULT_MILLING_CONFIG,
 )
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
-from fibsem.structures import param
+from fibsem.structures import BEAM_ORIENTATIONS, param
 
 
 @dataclass
@@ -19,7 +19,7 @@ class MillPerforationTaskConfig(AutoLamellaTaskConfig):
 
     orientation: Literal["SEM", "FIB", "MILLING"] = param(
         "SEM",
-        choices=("SEM", "FIB", "MILLING"),
+        choices=BEAM_ORIENTATIONS,
         doc="The orientation to perform perforation milling in",
     )
     task_type: ClassVar[str] = "MILL_PERFORATION"
