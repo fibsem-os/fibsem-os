@@ -1463,6 +1463,31 @@ def test_load_result_rejects_a_coordinates_file(qapp, tmp_path):
     assert "Load Coordinates" in str(exc.value)
 
 
+def test_an_unreadable_file_leaves_a_pending_save_armed(qapp, tmp_path):
+    """Opening a file that cannot be read changes nothing: an edit made after
+    the last load is still saved on the next change. The file used to be read
+    inside the read guard, whose exit disarmed the save."""
+    w = _widget(qapp)
+    run = tmp_path / "run"
+    w.set_project_dir(str(run))
+    saved = tmp_path / "saved.json"
+    data = _input(fib=(1.0, 2.0))
+    CorrelationState(input_data=data, result=_result_from(data)).save(str(saved))
+    w.load_correlation(str(saved))
+    coord = w.data.fib_coordinates[0]
+    coord.point.x = 3.0
+    _drag(w, coord)
+    assert w.session.auto_save_due()
+
+    corrupt = tmp_path / "corrupt.json"
+    corrupt.write_text("{ not json")
+    with pytest.raises(ValueError):
+        w.load_correlation(str(corrupt))
+
+    assert w.session.auto_save_due()
+    assert w.data.fib_coordinates[0].point.x == 3.0
+
+
 def test_menu_load_correlation_accepts_a_legacy_result_file(
     qapp, tmp_path, monkeypatch
 ):

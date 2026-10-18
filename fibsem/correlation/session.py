@@ -20,7 +20,7 @@ import enum
 import logging
 import os
 from dataclasses import dataclass
-from typing import Iterator, List, Optional
+from typing import Iterator, List, Optional, Tuple
 
 from fibsem.correlation.config import MIN_FIDUCIAL_PAIRS, CorrelationConfig
 from fibsem.correlation.fit import Seed, fit_transform
@@ -500,19 +500,51 @@ class CorrelationSession:
         caller never picks the wrong loader -- the FIB-263 crash can't recur.
         Raises, changing nothing, when the file cannot be read.
         """
-        state = load_correlation_file(path)
+        state = load_correlation_file(path)  # before the read: a bad file
+        with self.reading():  # changes nothing, the armed save included
+            self.adopt_state(state)
+        return state
+
+    def load_data(self, path: str) -> CorrelationState:
+        """Open a legacy coordinates file (``correlation_data.json``): its
+        points, and no result. Otherwise as :meth:`load`."""
+        state = CorrelationState(input_data=CorrelationInputData.load(path))
         with self.reading():
             self.adopt_state(state)
         return state
+
+    def load_result(
+        self, path: str, *, adopt_inputs: bool = True
+    ) -> Tuple[CorrelationResult, bool]:
+        """Open a legacy result file (``correlation_result.json``) and adopt it
+        (:meth:`adopt_result`). Returns the result and whether it still
+        describes the session's points. Otherwise as :meth:`load`."""
+        result = CorrelationResult.load(path)
+        with self.reading():
+            live = self.adopt_result(result, adopt_inputs=adopt_inputs)
+        return result, live
+
+    def save(self, path: str) -> str:
+        """Write the whole correlation (points and result) to ``path``, making
+        its folder first, and return the path. An explicit save names where it
+        goes: the dialogs offer the run folder, which is created on demand and
+        may not exist yet (FIB-320)."""
+        self.state.save(ensure_dir_for(path))
+        return path
 
     # ------------------------------------------------------------------
     # The auto-save
     # ------------------------------------------------------------------
 
-    def set_project_dir(self, path: str) -> None:
-        """Save into ``path`` from the next load or edit on (see ``auto_save``)."""
+    def set_project_dir(self, path: str, *, keep_armed: bool = False) -> None:
+        """Save into ``path`` from the next load or edit on (see ``auto_save``).
+
+        ``keep_armed`` keeps a save already due, so it goes to the new folder:
+        a folder typed in after an edit takes the edit with it.
+        """
         self.project_dir = path
-        self._save_armed = False
+        if not keep_armed:
+            self._save_armed = False
 
     def arm_auto_save(self) -> None:
         """Let the next ``auto_save`` write, though nothing has changed: a
@@ -577,6 +609,21 @@ class CorrelationSession:
             return False
         self.save_error = None
         return True
+
+
+def ensure_dir_for(path: str) -> str:
+    """Create the directory ``path`` is about to be written into; return path.
+
+    Every write site needs this now the run folder is created on demand: the
+    auto-save mints it on the first result, and both save dialogs offer a
+    default *inside* it -- so an explicitly-passed path can be just as absent
+    as a derived one (FIB-320). Called immediately before writing, so an
+    abandoned session still leaves nothing behind.
+    """
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    return path
 
 
 def _for_fit(data: CorrelationInputData) -> CorrelationInputData:

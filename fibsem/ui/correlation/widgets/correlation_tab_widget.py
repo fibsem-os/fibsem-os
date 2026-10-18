@@ -118,6 +118,7 @@ from fibsem.correlation.session import (
     CorrelationSession,
     PendingRun,
     RunOutcome,
+    ensure_dir_for,
 )
 from fibsem.correlation.structures import (
     Coordinate,
@@ -2795,25 +2796,10 @@ class CorrelationTabWidget(QWidget):
         """Set where this correlation would be saved.
 
         A destination, not a promise: the directory is created on the first write
-        worth making, not here. See :meth:`_ensure_dir_for` (FIB-320).
+        worth making, not here. See :func:`ensure_dir_for` (FIB-320).
         """
         self._session.set_project_dir(path)
         self._images_tab._proj_path.setText(path)
-
-    @staticmethod
-    def _ensure_dir_for(path: str) -> str:
-        """Create the directory ``path`` is about to be written into; return path.
-
-        Every write site needs this now the run folder is created on demand: the
-        auto-save mints it on the first result, and both save dialogs offer a
-        default *inside* it — so an explicitly-passed path can be just as absent
-        as a derived one (FIB-320). Called immediately before writing, so an
-        abandoned session still leaves nothing behind.
-        """
-        parent = os.path.dirname(path)
-        if parent:
-            os.makedirs(parent, exist_ok=True)
-        return path
 
     def set_data(self, data: CorrelationInputData) -> None:
         """Populate all coordinate lists and refresh canvases."""
@@ -2824,8 +2810,10 @@ class CorrelationTabWidget(QWidget):
         (:meth:`CorrelationSession.load`)."""
         logging.info("Loading correlation from %s", path)
         shown = self._session.result is not None
+        # The session reads the file before anything changes, so a file that
+        # cannot be read leaves the points and the armed save as they were.
+        state = self._session.load(path)
         with self._session.reading():  # showing it writes nothing either
-            state = self._session.load(path)
             self._show_state(state, shown)
 
     def _adopt_state(self, state: CorrelationState) -> None:
@@ -3291,19 +3279,15 @@ class CorrelationTabWidget(QWidget):
         code and the File menu use :meth:`load_correlation`.
         """
         logging.info("Loading correlation coordinates from %s", path)
-        loaded = CorrelationInputData.load(path)
+        shown = self._session.result is not None
+        state = self._session.load_data(path)
         with self._session.reading():
-            self._adopt_state(CorrelationState(input_data=loaded))
+            self._show_state(state, shown)
 
     def save_correlation(self, path: str) -> None:
-        """Save the whole correlation state (points + result) to one JSON.
-
-        Creates the containing directory first. ``File > Save Correlation`` seeds
-        its dialog with the run folder, which since FIB-320 is created on demand
-        and may not exist yet — accepting that default would otherwise fail on
-        ``open()``. An explicit save names where it goes; make that place.
-        """
-        self._session.state.save(self._ensure_dir_for(path))
+        """Save the whole correlation state (points + result) to one JSON,
+        creating its folder (:meth:`CorrelationSession.save`)."""
+        self._session.save(path)
 
     @property
     def data(self) -> CorrelationInputData:
@@ -3398,7 +3382,8 @@ class CorrelationTabWidget(QWidget):
         self.set_fm_image(image)
 
     def _on_project_dir_changed(self, path: str) -> None:
-        self._session.project_dir = path
+        # A typed folder takes a pending save with it, as it always has.
+        self._session.set_project_dir(path, keep_armed=True)
         self._lbl_status.setText(f"Project: {path}")
 
     def _auto_save_state(self, *_) -> None:
@@ -4311,7 +4296,7 @@ class CorrelationTabWidget(QWidget):
         # Whichever branch supplied it: the Save Plot dialog offers a default
         # inside the run folder, so an explicit path lands in the same
         # not-yet-created directory the derived one would (FIB-320).
-        path = self._ensure_dir_for(path)
+        path = ensure_dir_for(path)
 
         self._fib_canvas.reset_view()
         self._fm_display.reset_view()
@@ -4321,20 +4306,18 @@ class CorrelationTabWidget(QWidget):
     def load_result(self, path: str, *, adopt_inputs: bool = True) -> None:
         """Load a correlation result from JSON and adopt it (mirrors load_data)."""
         logging.info("Loading correlation result from %s", path)
-        result = CorrelationResult.load(path)
-        with self._session.reading():
-            self._load_result(result, adopt_inputs=adopt_inputs)
+        result, live = self._session.load_result(path, adopt_inputs=adopt_inputs)
+        with self._session.reading():  # showing it writes nothing either
+            self._on_result_ready(result, live=live)
 
     def _load_result(
         self, result: CorrelationResult, *, adopt_inputs: bool = True
     ) -> None:
-        """Adopt a loaded correlation result, and its input data unless
-        ``adopt_inputs`` is False (:meth:`CorrelationSession.adopt_result`).
-
-        _on_result_ready refreshes the run button and sets the final status
-        text itself — no trailing update here, it would overwrite the status.
-        """
+        """Adopt a correlation result already read, and its input data unless
+        ``adopt_inputs`` is False (:meth:`CorrelationSession.adopt_result`)."""
         live = self._session.adopt_result(result, adopt_inputs=adopt_inputs)
+        # _on_result_ready refreshes the run button and sets the final status
+        # text itself — no trailing update here, it would overwrite the status.
         self._on_result_ready(result, live=live)
 
     def _menu_load_correlation(self) -> None:

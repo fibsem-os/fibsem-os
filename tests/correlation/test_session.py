@@ -405,6 +405,65 @@ def test_opening_either_legacy_file_takes_its_points(ready, tmp_path):
     assert not from_result.result.matches_inputs(from_result.fit_data)
 
 
+def test_the_legacy_loaders_read_before_they_change_anything(ready, tmp_path):
+    result = ready.run()
+    data_file = tmp_path / "correlation_data.json"
+    result_file = tmp_path / "correlation_result.json"
+    ready.data.save(str(data_file))
+    result.save(str(result_file))
+
+    from_data = _with_images()
+    state = from_data.load_data(str(data_file))
+    assert _points(from_data) == _points(ready)
+    assert state.result is None and from_data.result is None
+
+    from_result = _with_images()
+    loaded, live = from_result.load_result(str(result_file))
+    assert live and from_result.result is loaded
+    assert _points(from_result) == _points(ready)
+
+    kept = _points(from_data)
+    with pytest.raises(ValueError):
+        from_data.load_result(str(data_file))  # a coordinates file
+    assert _points(from_data) == kept
+
+
+def test_a_file_that_cannot_be_read_leaves_the_armed_save(ready, tmp_path):
+    ready.set_project_dir(str(tmp_path))
+    ready.points.move(ready.points.of_type(PointType.FIB)[0], 1.0, 1.0)
+    assert ready.auto_save_due()
+
+    corrupt = tmp_path / "corrupt.json"
+    corrupt.write_text("{ not json")
+    for load in (ready.load, ready.load_data, ready.load_result):
+        with pytest.raises(ValueError):
+            load(str(corrupt))
+        assert ready.auto_save_due()
+
+
+def test_an_explicit_save_makes_its_folder(ready, tmp_path):
+    ready.run()
+    path = tmp_path / "not" / "yet" / "here.json"
+
+    assert ready.save(str(path)) == str(path)
+
+    opened = _with_images()
+    opened.load(str(path))
+    assert _points(opened) == _points(ready)
+    assert opened.result is not None
+
+
+def test_a_new_folder_can_keep_the_save_that_is_due(ready, tmp_path):
+    ready.run()
+    ready.set_project_dir(str(tmp_path / "a"))
+    ready.arm_auto_save()
+
+    ready.set_project_dir(str(tmp_path / "b"), keep_armed=True)
+    assert ready.auto_save_due()
+    ready.set_project_dir(str(tmp_path / "c"))
+    assert not ready.auto_save_due()
+
+
 def test_a_state_without_a_result_drops_the_previous_one(ready):
     ready.run()
     ready.adopt_state(CorrelationState(input_data=CorrelationInputData()))
