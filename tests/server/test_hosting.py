@@ -9,14 +9,28 @@ fastapi = pytest.importorskip("fastapi")
 httpx = pytest.importorskip("httpx")
 
 from fibsem import utils  # noqa: E402
-from fibsem.applications.autolamella.server.hosting import AppServerHost  # noqa: E402
+from fibsem.applications.autolamella.server.context import (  # noqa: E402
+    AutoLamellaAppContext,
+)
+from fibsem.server.hosting import AppServerHost  # noqa: E402
+from fibsem.workflows.session import AppSession  # noqa: E402
 
 
-class Host:
+class Window:
     experiment = None
     microscope = None
     _task_manager = None
     is_workflow_running = False
+
+
+def _context(buffer):
+    return AutoLamellaAppContext(Window(), event_buffer=buffer)
+
+
+def _session(microscope):
+    session = AppSession()
+    session.microscope = microscope
+    return session
 
 
 def _free_port() -> int:
@@ -34,10 +48,11 @@ def microscope():
 
 @pytest.fixture
 def host(tmp_path, microscope):
-    ui = Host()
-    ui.microscope = microscope
     server_host = AppServerHost(
-        ui, port=_free_port(), discovery_path=tmp_path / "agent-server.json"
+        _session(microscope),
+        _context,
+        port=_free_port(),
+        discovery_path=tmp_path / "agent-server.json",
     )
     yield server_host
     server_host.stop()
@@ -52,21 +67,21 @@ def _get(server_host, path):
 
 
 def test_start_serves_read_only_with_the_app_router(host, microscope):
-    assert host.start(microscope) is True
+    assert host.start() is True
     assert host.running
     body = _get(host, "/capabilities").json()
     assert body["routers"]["app"] is True
     assert body["level"] == "watch"
     assert body["level"] == "watch"  # every launch starts watching (FIB-1035)
     # idempotent: a second start is a no-op, not a second server
-    assert host.start(microscope) is True
+    assert host.start() is True
 
 
 def test_discovery_file_lives_and_dies_with_the_server(host, microscope, tmp_path):
     from fibsem.server.discovery import read_discovery_file
 
     path = tmp_path / "agent-server.json"
-    host.start(microscope)
+    host.start()
     found = read_discovery_file(path)
     assert found is not None and found["url"] == host.url
     host.stop()
@@ -84,14 +99,14 @@ def test_refuses_to_start_beside_a_live_server(host, microscope, tmp_path):
     write_discovery_file(
         "127.0.0.1", 9, AuthConfig(token="other"), path=tmp_path / "agent-server.json"
     )
-    assert host.start(microscope) is False
+    assert host.start() is False
     assert not host.running
 
 
 def test_lifecycle_events_reach_the_agent_through_the_hook(host, microscope):
     from fibsem.hooks import HookContext, HookEvent, HookManager
 
-    host.start(microscope)
+    host.start()
     # The app registers this hook per run (setup_hooks); simulate one firing.
     manager = HookManager()
     manager.register(host.lifecycle_hook)
@@ -103,7 +118,7 @@ def test_lifecycle_events_reach_the_agent_through_the_hook(host, microscope):
 
 
 def test_microscope_taps_are_live_and_detach_on_stop(host, microscope):
-    host.start(microscope)
+    host.start()
     microscope.get_stage_position()  # ensure cache exists
     from fibsem.structures import FibsemStagePosition
 
@@ -122,7 +137,6 @@ def test_microscope_taps_are_live_and_detach_on_stop(host, microscope):
 
 
 def test_start_failure_is_contained_not_raised(microscope, tmp_path):
-    ui = Host()
     # A port another socket already holds — start must fail closed. (Not port 1:
     # root can bind it, and a server left there broke the remote FM tests.)
     with socket.socket() as taken:
@@ -132,12 +146,13 @@ def test_start_failure_is_contained_not_raised(microscope, tmp_path):
         taken.bind(("127.0.0.1", 0))
         taken.listen()
         server_host = AppServerHost(
-            ui,
+            _session(microscope),
+            _context,
             port=taken.getsockname()[1],
             discovery_path=tmp_path / "agent-server.json",
         )
         try:
-            assert server_host.start(microscope) is False
+            assert server_host.start() is False
             assert not server_host.running
         finally:
             server_host.stop()
@@ -145,12 +160,14 @@ def test_start_failure_is_contained_not_raised(microscope, tmp_path):
 
 def test_env_override_starts_at_drive(microscope, tmp_path, monkeypatch):
     monkeypatch.setenv("FIBSEM_AGENT_ARM_CONTROL", "1")
-    ui = Host()
     server_host = AppServerHost(
-        ui, port=_free_port(), discovery_path=tmp_path / "agent-server.json"
+        _session(microscope),
+        _context,
+        port=_free_port(),
+        discovery_path=tmp_path / "agent-server.json",
     )
     try:
-        assert server_host.start(microscope) is True
+        assert server_host.start() is True
         body = _get(server_host, "/capabilities").json()
         assert body["level"] == "drive"
     finally:
@@ -163,19 +180,25 @@ def test_a_restart_keeps_the_token_and_the_level(microscope, tmp_path):
     session only (FIB-1035 app test #5 and the reconnect question)."""
     from fibsem.server.auth import AgentLevel
 
-    ui = Host()
+    session = _session(microscope)
     first = AppServerHost(
-        ui, port=_free_port(), discovery_path=tmp_path / "agent-server.json"
+        session,
+        _context,
+        port=_free_port(),
+        discovery_path=tmp_path / "agent-server.json",
     )
-    assert first.start(microscope)
+    assert first.start()
     first.auth.set_level(AgentLevel.DRIVE)
     token = first.auth.token
     first.stop()
     second = AppServerHost(
-        ui, port=_free_port(), discovery_path=tmp_path / "agent-server.json"
+        session,
+        _context,
+        port=_free_port(),
+        discovery_path=tmp_path / "agent-server.json",
     )
     try:
-        assert second.start(microscope)
+        assert second.start()
         body = _get(second, "/capabilities").json()
         assert second.auth.token == token
         assert body["level"] == "drive"
@@ -183,10 +206,13 @@ def test_a_restart_keeps_the_token_and_the_level(microscope, tmp_path):
         second.stop()
     # A new app session -- a new window -- starts at Watch with a new token.
     fresh = AppServerHost(
-        Host(), port=_free_port(), discovery_path=tmp_path / "agent-server.json"
+        _session(microscope),
+        _context,
+        port=_free_port(),
+        discovery_path=tmp_path / "agent-server.json",
     )
     try:
-        assert fresh.start(microscope)
+        assert fresh.start()
         assert fresh.auth.token != token
         assert _get(fresh, "/capabilities").json()["level"] == "watch"
     finally:
@@ -197,6 +223,6 @@ def test_the_token_is_never_logged(host, microscope, caplog):
     import logging
 
     with caplog.at_level(logging.DEBUG):
-        assert host.start(microscope)
+        assert host.start()
     assert host.auth.token not in caplog.text
     assert host.auth.dashboard_token not in caplog.text
