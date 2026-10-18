@@ -302,8 +302,7 @@ def compare_alignment_methods(
     results = [_calculate_shift(ref_image, new_image, method) for method in methods]
 
     shifts_px = {
-        method.value: Point(r.shift.x / pixel_size, r.shift.y / pixel_size)
-        for method, r in zip(methods, results)
+        method.value: r.shift / pixel_size for method, r in zip(methods, results)
     }
 
     points = list(shifts_px.values())

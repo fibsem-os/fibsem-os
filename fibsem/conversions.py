@@ -117,7 +117,7 @@ def image_to_microscope_image_coordinates2(
         coord, image_shape, subpixel_precision
     )
 
-    return point_px._to_metres(pixel_size=pixelsize)
+    return point_px * pixelsize
 
 
 def microscope_image_to_image_coordinates(

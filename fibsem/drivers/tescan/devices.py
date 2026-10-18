@@ -241,10 +241,7 @@ class TescanBeam(Beam):
     def write_shift(self, value: Point) -> None:
         with self._lock:
             beam = self._prepared()
-            point = Point(
-                value.x * constants.METRE_TO_MILLIMETRE,
-                value.y * constants.METRE_TO_MILLIMETRE,
-            )
+            point = value * constants.METRE_TO_MILLIMETRE
             beam.Optics.SetImageShift(point.x, point.y)
             logging.debug(f"{self.beam_type.name} beam shift set to {value}.")
 

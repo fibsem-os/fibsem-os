@@ -105,7 +105,7 @@ def save_ml_feature_data(
             "feature": f0.name,  # feature name
             "px": f0.px.to_dict(),  # pixel coordinates
             "dpx": px_diff.to_dict(),  # pixel difference
-            "dm": px_diff._to_metres(det.pixelsize).to_dict(),  # metre difference
+            "dm": (px_diff * det.pixelsize).to_dict(),  # metre difference
             "is_correct": not np.any(px_diff.to_list()),  # is the feature correct
             "beam_type": beam_type_name,  # beam type
             "pixelsize": det.pixelsize,  # pixelsize

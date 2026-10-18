@@ -860,7 +860,7 @@ class DetectedFeatures:
             "Need at least two features to calculate distance"
         )
         return (
-            self.features[0].px.distance(self.features[1].px)._to_metres(self.pixelsize)
+            self.features[0].px.distance(self.features[1].px) * self.pixelsize
             + self._offset
         )
 
