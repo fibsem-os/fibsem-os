@@ -95,12 +95,12 @@ BUILTIN_TASKS: Dict[str, Type[AutoLamellaTask]] = {
     MillCoincidentTaskConfig.task_type: MillCoincidentTask,
 }
 
-TASK_ENTRY_POINT_GROUP = "fibsem.tasks"
+TASK_ENTRY_POINT_GROUP = "fibsem.autolamella.tasks"
 
-# Built-ins, runtime registrations and the fibsem.tasks entry points. To add a
+# Built-ins, runtime registrations and the fibsem.autolamella.tasks entry points. To add a
 # plugin task, add to your package's pyproject.toml:
 #
-#     [project.entry-points.'fibsem.tasks']
+#     [project.entry-points.'fibsem.autolamella.tasks']
 #     my_task = "my_package.tasks:MyCustomTask"
 TASK_PLUGINS: PluginRegistry[Type[AutoLamellaTask]] = PluginRegistry(
     group=TASK_ENTRY_POINT_GROUP,
@@ -129,7 +129,7 @@ def register_task(task_cls: Type[AutoLamellaTask]) -> None:
 
 
 def get_task_plugin_records() -> Tuple[PluginRecord, ...]:
-    """Every ``fibsem.tasks`` entry point and what became of it."""
+    """Every ``fibsem.autolamella.tasks`` entry point and what became of it."""
     return TASK_PLUGINS.plugin_records()
 
 

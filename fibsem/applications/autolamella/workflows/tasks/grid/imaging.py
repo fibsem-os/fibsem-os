@@ -29,9 +29,6 @@ from fibsem.applications.autolamella.workflows.tasks.grid.base import (
     GridTask,
     GridTaskConfig,
 )
-from fibsem.applications.autolamella.workflows.tasks.grid.registry import (
-    register_grid_task,
-)
 from fibsem.imaging.thumbnail import write_thumbnail
 from fibsem.imaging.tiled import acquire_tiled_overview, stamped_overview_name
 from fibsem.imaging.tiling.reach import reachable_overview
@@ -119,7 +116,6 @@ class OverviewPositionsProposer:
         return Proposal(kind=self.kind, values={"positions": []})
 
 
-@register_grid_task
 class BeamOverviewGridTask(GridTask):
     config_cls: ClassVar[Type[GridTaskConfig]] = BeamOverviewGridTaskConfig
     config: BeamOverviewGridTaskConfig
