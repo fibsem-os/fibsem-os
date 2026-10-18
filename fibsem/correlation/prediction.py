@@ -45,6 +45,7 @@ __all__ = [
     "build_projection",
     "excluded_indices",
     "independent_pairs",
+    "pair_translation",
     "place_predictions",
     "predictions_for",
     "suggest_indices",
@@ -161,6 +162,28 @@ def suggest_indices(points: Sequence[Tuple[float, float]], k: int = 3) -> List[i
 # ── the map ──────────────────────────────────────────────────────────────
 
 
+def pair_translation(
+    projection: np.ndarray,
+    pairs: Sequence[Tuple[Coordinate, Coordinate]],
+    z_anisotropy: float,
+) -> np.ndarray:
+    """The translation the (FIB, FM) ``pairs`` give a fixed ``projection``.
+
+    The mean of each FIB point minus its FM partner mapped through
+    ``projection``, in FIB pixels, with FM z (slices) scaled by
+    ``z_anisotropy`` into xy pixels first. The one place this is written:
+    :func:`build_projection` places predictions with it and
+    :func:`fibsem.correlation.fit.measure_placement_offset` measures a run's
+    placement miss with it.
+    """
+    fib = np.array([[a.point.x, a.point.y] for a, _ in pairs], dtype=float)
+    fm = np.array(
+        [[b.point.x, b.point.y, b.point.z * z_anisotropy] for _, b in pairs],
+        dtype=float,
+    )
+    return np.mean(fib - (projection @ fm.T).T, axis=0)
+
+
 def build_projection(
     nominal: NominalTransform,
     fib: Sequence[Coordinate],
@@ -202,14 +225,7 @@ def build_projection(
 
     centred = False
     if pairs:
-        t = np.mean(
-            [
-                np.array([a.point.x, a.point.y])
-                - P @ np.array([b.point.x, b.point.y, b.point.z * zan])
-                for a, b in pairs
-            ],
-            axis=0,
-        )
+        t = pair_translation(P, pairs, zan)
         note = f"translation from {len(pairs)} pair{'s' if len(pairs) != 1 else ''}"
     else:
         t = np.asarray(nominal.translation, dtype=float)
