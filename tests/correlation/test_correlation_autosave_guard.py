@@ -31,13 +31,6 @@ from fibsem.ui.correlation.widgets.correlation_tab_widget import (  # noqa: E402
 )
 
 
-@pytest.fixture(autouse=True)
-def _no_lut_download(monkeypatch):
-    import fibsem.ui.correlation.widgets.refractive_index_widget as riw
-
-    monkeypatch.setattr(riw, "_ensure_lut", lambda: None)
-
-
 def _pairs(n: int) -> CorrelationInputData:
     return CorrelationInputData(
         fib_coordinates=[

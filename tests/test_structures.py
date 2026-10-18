@@ -666,7 +666,7 @@ def test_only_system_info_carries_the_software_versions():
         "item_name",
         "task_id",
         "task_name",
-        "round",
+        "iteration",
     }
     # Neither, since v5: it was declared in both and populated in neither. An
     # application inside fibsem has no version of its own, and fibsem_revision

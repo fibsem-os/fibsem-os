@@ -39,10 +39,10 @@ class WorkItem:
     task_name: str
     status: TaskStatus = TaskStatus.NotStarted
     id: str = field(default_factory=lambda: str(uuid4()))
-    # Which round of its item's tasks this is, for an app whose items repeat
+    # Which iteration of its item's tasks this is, for an app whose items repeat
     # their tasks (a volume position, once per slice). None for one whose
     # items run their tasks once, as AutoLamella's lamellae and grids do.
-    round: Optional[int] = None
+    iteration: Optional[int] = None
 
     @property
     def lamella_name(self) -> str:
@@ -231,7 +231,7 @@ class TaskQueue:
         before: Optional[str] = None,
         after: Optional[str] = None,
         front: bool = False,
-        round: Optional[int] = None,
+        iteration: Optional[int] = None,
     ) -> Optional[WorkItem]:
         """Add a work item, anchored to an existing item or to the queue ends.
 
@@ -242,7 +242,7 @@ class TaskQueue:
         or no longer pending. Adding a duplicate of an already-completed pair is
         allowed: that is how a task is re-run.
         """
-        item = WorkItem(item_name=item_name, task_name=task_name, round=round)
+        item = WorkItem(item_name=item_name, task_name=task_name, iteration=iteration)
         with self._lock:
             if before is not None or after is not None:
                 anchor_id = before if before is not None else after

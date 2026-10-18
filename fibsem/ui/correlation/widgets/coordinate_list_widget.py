@@ -35,6 +35,7 @@ from fibsem.correlation.structures import (
 )
 from fibsem.ui import stylesheets
 from fibsem.ui.correlation.point_store import CorrelationPointStore
+from fibsem.ui.correlation.widgets.correlation_point_overlay import generate_names
 from fibsem.ui.icon import (
     DRAG_HANDLE_HEIGHT,
     DRAG_HANDLE_WIDTH,
@@ -69,16 +70,6 @@ _POINT_TYPE_COLORS: Dict[PointType, str] = {
     PointType.SURFACE: "red",
     PointType.SURFACE_FM: "yellow",
 }
-
-
-def _generate_names(coordinates: List[Coordinate]) -> List[str]:
-    """Return auto-generated names: 'FIB 1', 'FIB 2', 'FM 1', etc."""
-    counters: Dict[PointType, int] = {}
-    names = []
-    for c in coordinates:
-        counters[c.point_type] = counters.get(c.point_type, 0) + 1
-        names.append(f"{c.point_type.value} {counters[c.point_type]}")
-    return names
 
 
 def _name_col_width(point_type: Optional[PointType]) -> int:
@@ -323,9 +314,6 @@ class CoordinateRowWidget(QWidget):
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
-
-    def set_name(self, name: str) -> None:
-        self.name_label.setText(name)
 
     def set_selected(self, selected: bool) -> None:
         """Show the row's actions only while it is the selected row, and paint
@@ -645,7 +633,7 @@ class CoordinateListWidget(QWidget):
     def _rebuild_rows(self) -> None:
         coords = self.coordinates
         self._list.clear()
-        for coord, name in zip(coords, _generate_names(coords)):
+        for coord, name in zip(coords, generate_names(coords)):
             self._add_row(coord, name)
         self._empty_label.setVisible(len(coords) == 0)
         self._fit_height_to_rows()

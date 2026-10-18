@@ -21,19 +21,22 @@ zoom/pan, the scalebar, the toolbar and the 11 other overlay types.
 
 from __future__ import annotations
 
-from typing import List, Optional, Sequence, Tuple
+from typing import List, Optional
 
 import numpy as np
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QVBoxLayout, QWidget
 
-from fibsem.correlation.structures import Coordinate, PointType
+from fibsem.correlation.structures import PointType
 from fibsem.ui.correlation.point_store import CorrelationPointStore
-from fibsem.ui.correlation.widgets.correlation_picking import CorrelationPicking
+from fibsem.ui.correlation.widgets.correlation_picking import (
+    CorrelationPicking,
+    PickingCanvasMixin,
+)
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 
 
-class CorrelationCanvasWidget(QWidget):
+class CorrelationCanvasWidget(PickingCanvasMixin, QWidget):
     """Image + draggable correlation points, on the shared canvas.
 
     The tab widget wires both of its surfaces in one loop, so the four signals
@@ -75,31 +78,7 @@ class CorrelationCanvasWidget(QWidget):
 
         # Forwarded rather than left on `.picking`, so the tab widget and its
         # _CanvasAdapter connect to this exactly as they do to ImagePointCanvas.
-        self.picking.point_selected.connect(self.point_selected)
-        self.picking.point_moved.connect(self.point_moved)
-        self.picking.point_removed.connect(self.point_removed)
-        self.picking.point_add_requested.connect(self.point_add_requested)
-
-    @property
-    def points(self):
-        """The interactive point overlay."""
-        return self.picking.points
-
-    @property
-    def results(self):
-        """The static result-marker overlay."""
-        return self.picking.results
-
-    # ── the _CanvasAdapter surface ────────────────────────────────────────
-
-    def set_coordinates(self, coords: List[Coordinate]) -> None:
-        self.picking.set_coordinates(coords)
-
-    def set_selected(self, coord: Optional[Coordinate]) -> None:
-        self.picking.set_selected(coord)
-
-    def refresh_coordinate(self, coord: Coordinate) -> None:
-        self.picking.refresh_coordinate(coord)
+        self._connect_picking_signals()
 
     # ── image ─────────────────────────────────────────────────────────────
 
@@ -126,52 +105,3 @@ class CorrelationCanvasWidget(QWidget):
 
     def set_pixel_size(self, pixel_size_m: float) -> None:
         self.canvas.pixel_size = pixel_size_m
-
-    def reset_view(self) -> None:
-        self.canvas.reset_view()
-
-    # ── chrome ────────────────────────────────────────────────────────────
-
-    def set_legend_visible(self, visible: bool) -> None:
-        """Show or hide the point-type legend (one swatch per type on screen)."""
-        self.picking.set_legend_visible(visible)
-
-    def set_labels_visible(self, visible: bool) -> None:
-        """Show or hide the per-point names, the result markers' numbers included."""
-        self.picking.set_labels_visible(visible)
-
-    def set_scalebar_visible(self, visible: bool) -> None:
-        """Show or hide the scalebar."""
-        self.canvas.set_scalebar_visible(visible)
-
-    # ── result markers ────────────────────────────────────────────────────
-
-    def add_overlay_points(
-        self,
-        points: Sequence[Tuple[float, float]],
-        *,
-        color: str = "#ff0000",
-        label_prefix: str = "",
-        size: float = 7.0,
-        marker: str = "o",
-        alpha: float = 1.0,
-        show_labels: bool = True,
-        hollow: bool = False,
-        legend_label: Optional[str] = None,
-    ) -> None:
-        """Append a group of non-interactive result markers."""
-        self.picking.add_overlay_points(
-            points,
-            color=color,
-            label_prefix=label_prefix,
-            size=size,
-            marker=marker,
-            alpha=alpha,
-            show_labels=show_labels,
-            hollow=hollow,
-            legend_label=legend_label,
-        )
-
-    def clear_overlay(self) -> None:
-        """Remove every marker added via :meth:`add_overlay_points`."""
-        self.picking.clear_overlay()
