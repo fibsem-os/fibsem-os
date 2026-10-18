@@ -13,7 +13,7 @@ import pytest
 import yaml
 from psygnal.containers import EventedDict
 
-from fibsem.applications.autolamella.proposals import ALIGNMENT_AREA, POINT_OF_INTEREST
+from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     AutoLamellaTaskState,
@@ -33,6 +33,7 @@ from fibsem.structures import (
     Point,
 )
 from fibsem.workflows.proposals import (
+    ALIGNMENT_AREA,
     PROPOSAL_KINDS,
     TASK_RESULT,
     Alternative,
@@ -166,12 +167,8 @@ def test_a_tasks_proposals_are_a_list_oldest_first_and_the_last_is_current():
 
 
 def test_a_kind_has_a_name_for_a_person():
-    from fibsem.applications.autolamella.proposals import (
-        DETECTION,
-        OVERVIEW_POSITIONS,
-        STATE,
-    )
-    from fibsem.workflows.proposals import TASK_RESULT, kind_label
+    from fibsem.applications.autolamella.proposals import OVERVIEW_POSITIONS
+    from fibsem.workflows.proposals import DETECTION, STATE, TASK_RESULT, kind_label
 
     assert kind_label(POINT_OF_INTEREST) == "Point of interest"
     assert kind_label(STATE) == "Position"
@@ -189,8 +186,7 @@ def test_a_runs_questions_of_one_kind_all_stand_and_a_rerun_replaces_them():
     question, not a replaced one. A re-run's question of the same kind does
     replace them. A proposal with no run stamped on it goes by the old
     last-of-kind rule."""
-    from fibsem.applications.autolamella.proposals import STATE
-    from fibsem.workflows.proposals import current_proposals
+    from fibsem.workflows.proposals import STATE, current_proposals
 
     def question(run: str, stamped: bool = True) -> Proposal:
         return Proposal(
@@ -225,8 +221,7 @@ def test_recording_replaces_only_an_unanswered_proposal_of_the_same_kind():
     """A re-run's first question lands after the point the last run left
     open. That point is another kind: it stays for ``expire_open`` to close,
     rather than being dropped as if it were the question asked again."""
-    from fibsem.applications.autolamella.proposals import STATE
-    from fibsem.workflows.proposals import record
+    from fibsem.workflows.proposals import STATE, record
 
     open_point = _proposal()
     proposals = [open_point]

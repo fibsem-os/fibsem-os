@@ -134,8 +134,7 @@ def test_a_row_names_its_kind_when_it_is_not_the_tasks_result(tab, experiment):
     point for afterwards: three rows under one task name. The kind is what
     tells them apart, so the row says it. The task's own result is the plain
     case and says nothing extra."""
-    from fibsem.applications.autolamella.proposals import STATE
-    from fibsem.workflows.proposals import TASK_RESULT, Decision, DecisionOutcome
+    from fibsem.workflows.proposals import STATE, TASK_RESULT, Decision, DecisionOutcome
 
     lamella = experiment.positions[0]
     unasked = Decision(

@@ -4,11 +4,11 @@ from dataclasses import dataclass
 from typing import ClassVar, Literal, Optional, Type
 
 from fibsem import utils
-from fibsem.applications.autolamella.proposals import STATE
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 from fibsem.applications.autolamella.workflows.ui import ask_user
 from fibsem.structures import param
+from fibsem.workflows.proposals import STATE
 
 
 @dataclass

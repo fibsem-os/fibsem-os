@@ -15,23 +15,25 @@ from psygnal.containers import EventedDict
 
 from fibsem import utils
 from fibsem.acting import OPERATOR
-from fibsem.applications.autolamella.proposals import (
-    DETECTION,
-    POINT_OF_INTEREST,
-    STATE,
-)
+from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.workflows.question_adapters import (
+from fibsem.detection.detection import DetectedFeatures, LamellaCentre
+from fibsem.detection.review import (
     detection_provenance,
     detection_values,
 )
-from fibsem.detection.detection import DetectedFeatures, LamellaCentre
 from fibsem.structures import FibsemStagePosition, MicroscopeState, Point
 from fibsem.workflows.event_recording import EventRecorder
-from fibsem.workflows.proposals import Decision, DecisionOutcome, Proposal
+from fibsem.workflows.proposals import (
+    DETECTION,
+    STATE,
+    Decision,
+    DecisionOutcome,
+    Proposal,
+)
 from fibsem.workflows.status import TaskStatus
 
 TASK = "Setup Lamella Position"

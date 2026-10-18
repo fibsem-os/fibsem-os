@@ -1,7 +1,7 @@
 """How a question crosses into the record and back.
 
 ``proposal_for`` turns a request into the proposal that records it, and
-``answer_from`` turns a decision on that proposal back into the answer the
+``Request.answer_from_values`` turns a decision on that proposal back into the answer the
 asking task expects -- the same type it would have got from a prompt. Between
 the two sits ``Experiment.ask_proposal`` and ``Experiment.decide``, so these
 tests run the real record path: build, record, decide, read the answer back.
@@ -23,15 +23,9 @@ import pytest
 from psygnal.containers import EventedDict
 
 from fibsem import conversions
-from fibsem.applications.autolamella.proposals import DETECTION
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
-)
-from fibsem.applications.autolamella.workflows.question_adapters import (
-    answer_from,
-    answered,
-    proposal_for,
 )
 from fibsem.detection.detection import DetectedFeatures, LamellaCentre
 from fibsem.structures import (
@@ -46,8 +40,10 @@ from fibsem.workflows.interaction import (
     Confirm,
     ConfirmDetection,
     ReviewDetection,
+    answered,
+    proposal_for,
 )
-from fibsem.workflows.proposals import Decision, DecisionOutcome, Proposal
+from fibsem.workflows.proposals import DETECTION, Decision, DecisionOutcome, Proposal
 from fibsem.workflows.status import TaskStatus
 
 TASK = "Mill Rough"
@@ -181,7 +177,7 @@ def test_a_request_with_no_value_has_nothing_to_record(experiment):
 
     assert proposal_for(request, experiment, lamella) is None
     with pytest.raises(NotImplementedError):
-        answer_from(request, {})
+        request.answer_from_values({})
     assert lamella.proposals.get(TASK) is None
 
 
@@ -196,7 +192,7 @@ def test_the_detection_question_as_it_always_was_is_not_recorded(experiment):
 
     assert proposal_for(request, experiment, lamella) is None
     with pytest.raises(NotImplementedError):
-        answer_from(request, {})
+        request.answer_from_values({})
 
 
 # ---------------------------------------------------------------------------
@@ -210,7 +206,7 @@ def test_a_confirmed_decision_answers_with_the_decided_points(experiment):
     result = _confirm(experiment, Point(12, 26))
 
     assert result.applied, result.reason
-    answer = answer_from(request, proposal.current.values)
+    answer = request.answer_from_values(proposal.current.values)
     assert answer.features[0].px == Point(12, 26), "the task gets the corrected point"
 
 
@@ -226,7 +222,7 @@ def test_the_answer_moves_in_metres_too(experiment):
 
     _confirm(experiment, Point(2, 6))
 
-    answer = answer_from(request, proposal.current.values)
+    answer = request.answer_from_values(proposal.current.values)
     expected = conversions.image_to_microscope_image_coordinates(
         Point(2, 6), detection.image.data, detection.pixelsize
     )
@@ -253,7 +249,7 @@ def test_confirming_unchanged_answers_with_what_the_model_said(experiment):
         ),
     )
 
-    answer = answer_from(request, proposal.current.values)
+    answer = request.answer_from_values(proposal.current.values)
     assert answer.features[0].px == Point(10, 20)
 
 
@@ -264,7 +260,7 @@ def test_the_answer_does_not_mutate_the_question(experiment):
     request, proposal = _record(experiment, sent)
 
     _confirm(experiment, Point(99, 99))
-    answer_from(request, proposal.current.values)
+    request.answer_from_values(proposal.current.values)
 
     assert sent.features[0].px == Point(10, 20), "the request is untouched"
 
@@ -456,8 +452,8 @@ def test_a_task_can_ask_twice_in_one_run(experiment):
     second_request, second = _record(experiment, _detection(30, 40))
     assert _confirm(experiment, Point(31, 41)).applied
 
-    first_answer = answer_from(first_request, first.current.values)
-    second_answer = answer_from(second_request, second.current.values)
+    first_answer = first_request.answer_from_values(first.current.values)
+    second_answer = second_request.answer_from_values(second.current.values)
     assert first_answer.features[0].px == Point(11, 21)
     assert second_answer.features[0].px == Point(31, 41)
     assert experiment.positions[0].proposals[TASK] == [first, second], (
@@ -521,7 +517,7 @@ def test_a_confirmed_detection_writes_its_training_data(experiment, monkeypatch)
     )
     request, proposal = _record(experiment, _detection())
     _confirm(experiment, Point(2, 6))
-    answer = answer_from(request, proposal.current.values)
+    answer = request.answer_from_values(proposal.current.values)
 
     answered(request, answer)
 
@@ -543,7 +539,7 @@ def test_a_failed_export_does_not_fail_the_answer(experiment, monkeypatch, caplo
     request, proposal = _record(experiment, _detection())
     _confirm(experiment, Point(2, 6))
 
-    answered(request, answer_from(request, proposal.current.values))
+    answered(request, request.answer_from_values(proposal.current.values))
 
     assert "what follows an answer failed" in caplog.text
 

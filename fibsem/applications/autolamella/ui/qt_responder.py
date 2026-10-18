@@ -33,11 +33,6 @@ from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple, Type
 from PyQt5.QtCore import QObject, pyqtSignal
 
 from fibsem.acting import AGENT, OPERATOR, TASK, acting
-from fibsem.applications.autolamella.workflows.question_adapters import (
-    answer_from,
-    answered,
-    proposal_for,
-)
 from fibsem.structures import BeamType
 from fibsem.workflows.interaction import (
     ClearMillingConfig,
@@ -59,9 +54,11 @@ from fibsem.workflows.interaction import (
     SpotBurnDecision,
     SpotBurnEdit,
     StalePromptError,
+    answered,
     apply_milling_edit,
     apply_spot_burn_edit,
     mark_answered_by,
+    proposal_for,
 )
 from fibsem.workflows.proposals import AuthorKind, DecisionOutcome
 from fibsem.workflows.status import (
@@ -1160,7 +1157,7 @@ class QtResponder(QObject):
             )
             return
         try:
-            answer = answer_from(request, decision.values)
+            answer = request.answer_from_values(decision.values)
         except Exception as exc:  # noqa: BLE001 - the caller owns the failure
             self._fail(future, exc)
             return
