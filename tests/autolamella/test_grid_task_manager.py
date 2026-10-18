@@ -19,7 +19,6 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.task_outputs import grid_outputs
 from fibsem.applications.autolamella.workflows.tasks.grid import (
     BeamOverviewGridTaskConfig,
 )
@@ -42,6 +41,7 @@ from fibsem.cancellation import OperationCancelledError
 from fibsem.services.sample_handling import BUILTIN_SLOT_NAME
 from fibsem.structures import BeamType, ImageSettings, OverviewAcquisitionSettings
 from fibsem.workflows.grids import GridRecord
+from fibsem.workflows.outputs import item_outputs
 from fibsem.workflows.status import TaskStatus as Status
 from fibsem.workflows.status import WorkflowStatusEvent
 
@@ -756,7 +756,7 @@ class TestEndToEnd:
         )
         assert all(i.status is Status.Completed for i in manager.queue.items)
         grid = experiment.get_grid_by_name("Grid-01")
-        (path,) = grid_outputs(experiment, grid, "overview_fib")
+        (path,) = item_outputs(experiment, grid, "overview_fib")
         assert path.startswith(
             str(tmp_path / "exp" / "grids" / "Grid-01" / "overview_milling")
         )
@@ -779,7 +779,7 @@ class TestEndToEnd:
                 "overview_fib",
             ]
             for role in ("overview_sem", "overview_fib"):
-                (path,) = grid_outputs(experiment, grid, role)
+                (path,) = item_outputs(experiment, grid, role)
                 assert path.startswith(str(tmp_path / "exp" / "grids" / name / role))
         # the run saved as it went: the record on disk carries the history
         loaded = Experiment.load(tmp_path / "exp" / "experiment.yaml")
