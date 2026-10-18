@@ -23,7 +23,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem import constants, conversions
+from fibsem import conversions
 from fibsem.applications.autolamella.image_positions import (
     ImagePosition,
     PositionComparison,
@@ -1438,13 +1438,16 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             logging.error("No lamella selected, cannot open correlation dialog.")
             return
 
-        from fibsem.correlation.history import LamellaCorrelation
+        from fibsem.correlation.history import (
+            LamellaCorrelation,
+            correlation_dir,
+            new_run_dir,
+        )
         from fibsem.ui.correlation.widgets.correlation_tab_widget import (
             CorrelationTabDialog,
         )
 
-        correlation_root = os.path.join(selected_lamella.path, "Correlation")
-        history = LamellaCorrelation.discover(correlation_root)
+        history = LamellaCorrelation.discover(correlation_dir(selected_lamella.path))
 
         experiment = self.parent_widget.experiment if self.parent_widget else None
         protocol = experiment.task_protocol if experiment is not None else None
@@ -1455,10 +1458,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         # behind, which the setup section then offered as a previous correlation
         # to seed from — so an abandoned session became the next open's starting
         # coordinates (FIB-320).
-        project_path = os.path.join(
-            correlation_root,
-            datetime.datetime.now().strftime(constants.DATETIME_FILE),
-        )
+        project_path = new_run_dir(selected_lamella.path)
 
         fib_current = self._image_path(
             selected_lamella, self.combobox_fib_filenames.currentData() or ""
