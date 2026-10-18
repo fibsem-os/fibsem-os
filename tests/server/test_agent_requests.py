@@ -15,13 +15,12 @@ from psygnal.containers import EventedDict  # noqa: E402
 
 import fibsem.applications.autolamella  # noqa: E402
 from fibsem import utils  # noqa: E402
-from fibsem.acting import current_actor  # noqa: E402
+from fibsem.acting import WORKFLOW, current_actor  # noqa: E402
 from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.control import WORKFLOW  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
 from fibsem.server.auth import AgentLevel  # noqa: E402
 from fibsem.server.catalog import CATALOG  # noqa: E402

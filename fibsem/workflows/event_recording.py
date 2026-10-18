@@ -34,7 +34,7 @@ import weakref
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Tuple
 
-from fibsem.acting import AGENT, OPERATOR, TASK, acting, current_actor
+from fibsem.acting import TASK, ActorKind, acting, current_actor
 from fibsem.workflows.events import (
     EventBuffer,
     attach_microscope_taps,
@@ -385,7 +385,7 @@ class _HookRef:
         self.item_name = payload.get("item_name")
         self.task_id = payload.get("task_id")
         self.task_name = payload.get("task_name")
-        self.round = payload.get("round")
+        self.iteration = payload.get("iteration")
 
 
 class EventRecorder:
@@ -505,8 +505,8 @@ class EventRecorder:
                 item = {"id": ref.item_id, "name": ref.item_name}
             if getattr(ref, "task_id", None) or getattr(ref, "task_name", None):
                 task = {"id": ref.task_id, "name": ref.task_name}
-                if getattr(ref, "round", None) is not None:
-                    task["round"] = ref.round
+                if getattr(ref, "iteration", None) is not None:
+                    task["iteration"] = ref.iteration
         if (
             kind == "agent_note"
             and isinstance(payload, dict)
@@ -528,7 +528,7 @@ class EventRecorder:
             actor = current_actor() or self.default_actor
         return {
             "session": self.session_id,
-            "actor": actor,
+            "actor": actor.value if isinstance(actor, ActorKind) else actor,
             "experiment": experiment,
             "item": item,
             "task": task,
@@ -539,9 +539,6 @@ class EventRecorder:
 # a connected agent the agent, and a decision nobody made -- the producer
 # confirming its own proposal, the record expiring or withdrawing one -- the
 # task's.
-_ACTOR_OF_AUTHOR = {"human": OPERATOR, "agent": AGENT, "auto": TASK}
-
-
 class ProposalTap:
     """The questions a run asks, and every decision on a proposal, from the
     experiment's own ``asked`` and ``decided`` signals (FIB-1034).
@@ -618,14 +615,14 @@ class ProposalTap:
         payload.update(
             decision=index,
             outcome=record["outcome"],
-            author=record["author"],
+            actor=record["actor"],
             via=record["via"],
             reason=record["reason"],
             decided=record["values"],
         )
         if seen is False:  # recorded before its values were filled in
             payload["filled_in"] = True
-        with acting(_ACTOR_OF_AUTHOR.get(decision.author.kind.value)):
+        with acting(decision.actor.kind):
             self._buffer.append("proposal_decided", payload)
 
 

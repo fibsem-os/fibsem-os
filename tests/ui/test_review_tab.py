@@ -15,6 +15,7 @@ from psygnal.containers import EventedDict
 
 pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
 
+from fibsem.acting import ActorKind  # noqa: E402
 from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     Attention,
@@ -41,7 +42,6 @@ from fibsem.structures import (  # noqa: E402
 )
 from fibsem.workflows.proposals import (  # noqa: E402
     TASK_RESULT,
-    AuthorKind,
     Decision,
     DecisionOutcome,
     Proposal,
@@ -138,7 +138,7 @@ def test_a_row_names_its_kind_when_it_is_not_the_tasks_result(tab, experiment):
     lamella = experiment.positions[0]
     unasked = Decision(
         outcome=DecisionOutcome.Unreviewed,
-        author="auto:nobody",
+        actor="task:nobody",
         reason="nobody was asked",
     )
     position = Proposal(
@@ -199,7 +199,7 @@ def test_confirm_submits_the_marker_and_the_delta_is_computed(tab, experiment, q
     proposal = lamella.proposal(SETUP)
     assert not proposal.pending
     assert proposal.current.outcome is DecisionOutcome.Confirmed
-    assert proposal.current.author.kind is AuthorKind.human
+    assert proposal.current.actor.kind is ActorKind.operator
     assert lamella.poi.x == pytest.approx(20 * PIXELSIZE)
     assert lamella.poi.y == pytest.approx(10 * PIXELSIZE)
     assert proposal.delta()["poi"].x == pytest.approx(20 * PIXELSIZE)
@@ -245,7 +245,7 @@ def test_a_decision_made_elsewhere_refreshes_the_inbox(tab, experiment):
         SETUP,
         Decision(
             outcome=DecisionOutcome.Confirmed,
-            author="agent:test",
+            actor="agent:test",
             values={"poi": Point(0.0, 0.0)},
             task_id=RUN,
         ),
@@ -309,7 +309,7 @@ def _auto_confirm(proposal: Proposal, proposer: str = "centre-of-image") -> None
     proposal.decisions.append(
         Decision(
             outcome=DecisionOutcome.Confirmed,
-            author=f"auto:{proposer}",
+            actor=f"task:{proposer}",
             values=dict(proposal.values),
             task_id=proposal.task_id,
         )
@@ -335,7 +335,7 @@ def test_a_proposal_the_producer_applied_is_to_check_not_waiting(tab, experiment
     assert renderer.line.text().startswith("Applied automatically at")
     assert renderer.line.text().endswith("not checked yet")
     assert "went ahead" in renderer.line.toolTip()
-    assert "auto ·" not in renderer.line.text()
+    assert "task ·" not in renderer.line.text()
     assert "centre-of-image" not in renderer.line.text(), "the record is a hover away"
     assert renderer._controller.overlay_points(BeamType.ION, "confirmed"), (
         "what was applied is on screen"
@@ -362,8 +362,8 @@ def test_acknowledging_records_a_look_and_writes_nothing(tab, experiment, qapp):
     assert not proposal.to_check
     ack = proposal.current
     assert ack.outcome is DecisionOutcome.Confirmed
-    assert ack.author.kind is AuthorKind.human and ack.values == {}
-    assert str(proposal.applied.author) == "auto:centre-of-image", (
+    assert ack.actor.kind is ActorKind.operator and ack.values == {}
+    assert str(proposal.applied.actor) == "task:centre-of-image", (
         "the applied one stays"
     )
     assert lamella.poi == poi_before
@@ -374,7 +374,7 @@ def test_acknowledging_records_a_look_and_writes_nothing(tab, experiment, qapp):
     assert tab.check_count == 0 and counts[-1] == (0, 0)
     assert tab.stack.currentWidget() is tab.empty
     line = R.describe_decision(proposal, experiment)
-    assert line.startswith("Applied by auto · centre-of-image at ")
+    assert line.startswith("Applied by task · centre-of-image at ")
     assert "checked by you at" in line
     tab.show_decided.setChecked(True)
     assert "Decided · 1" in tab.row_summaries()[0], "now it is decided"
@@ -447,7 +447,7 @@ def test_mark_all_as_checked_records_a_look_on_every_to_check_row(
     for name in (SETUP, FIDUCIAL):
         d = lamella.proposal(name).current
         assert (
-            d.author.kind is AuthorKind.human and d.values == {} and d.via == "review"
+            d.actor.kind is ActorKind.operator and d.values == {} and d.via == "review"
         )
     assert lamella.proposal(ROUGH).pending
 
@@ -560,15 +560,15 @@ def test_a_task_result_renders_both_images_and_confirms_with_no_values(
 
 def test_author_labels_and_row_details():
     exp = Experiment(path=Path("/tmp/claude-501/x"), name="e", metadata={"user": "Pat"})
-    assert R.author_label("human:Pat", exp) == "you"
-    assert R.author_label("human:Sam", exp) == "Sam"
-    assert R.author_label("agent:claude", exp) == "agent · claude"
-    assert R.author_label("auto:centre-of-image", exp) == "auto · centre-of-image"
+    assert R.actor_label("operator:Pat", exp) == "you"
+    assert R.actor_label("operator:Sam", exp) == "Sam"
+    assert R.actor_label("agent:claude", exp) == "agent · claude"
+    assert R.actor_label("task:centre-of-image", exp) == "task · centre-of-image"
     p = Proposal(kind=POINT_OF_INTEREST, values={"poi": Point(0, 0)})
     p.decisions.append(
         Decision(
             outcome=DecisionOutcome.Confirmed,
-            author="human:Pat",
+            actor="operator:Pat",
             values={"poi": Point(0, 0)},
         )
     )
@@ -576,7 +576,7 @@ def test_author_labels_and_row_details():
     p.decisions.append(
         Decision(
             outcome=DecisionOutcome.Confirmed,
-            author="human:Pat",
+            actor="operator:Pat",
             values={"poi": Point(3e-6, 4e-6)},
         )
     )
@@ -650,7 +650,7 @@ def test_mark_all_as_checked_acknowledges_only_the_runs_it_listed(
     qapp.processEvents()
 
     assert rerun.to_check, "the run nobody was shown is still to check"
-    assert all(d.author.kind is not AuthorKind.human for d in rerun.decisions)
+    assert all(d.actor.kind is not ActorKind.operator for d in rerun.decisions)
 
 
 # ---------------------------------------------------------------------------
@@ -855,7 +855,7 @@ class TestOverviewPositions:
         renderer.set_to_check(
             Decision(
                 outcome=DecisionOutcome.Confirmed,
-                author="auto:place-by-hand",
+                actor="task:place-by-hand",
                 values={"positions": []},
             )
         )
@@ -919,7 +919,7 @@ class TestOverviewPositions:
         renderer = _positions_renderer(tab, grid)
         tab.set_microscope(microscope)
         renderer.set_read_only(
-            Decision(outcome=DecisionOutcome.Confirmed, author="human:op", values={})
+            Decision(outcome=DecisionOutcome.Confirmed, actor="operator:op", values={})
         )
 
         renderer._on_add_requested(FibsemStagePosition(x=1e-4, y=0, z=0, r=0, t=0))

@@ -215,7 +215,7 @@ def test_a_reorder_and_a_reject_keep_the_canvas_in_step(tab):
 
     # on the FIB side: the fixture's FM canvas has no image, so draws no artists
     fib = fib_list.coordinates
-    tab._on_reject_toggled(tab._point_specs[PointType.FIB], fib[0])
+    tab._on_reject_toggled(fib[0])
     assert fib[0].status == PointStatus.REJECTED
     overlay = _overlay(tab, "fib")
     assert overlay._artists[overlay.index_of(fib[0])].get_alpha() == 0.35

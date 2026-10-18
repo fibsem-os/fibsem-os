@@ -181,7 +181,7 @@ def test_to_check_is_listed_and_an_agent_look_does_not_clear_it(ui, qapp):
     proposal.decisions.append(
         Decision(
             outcome=DecisionOutcome.Confirmed,
-            author="auto:centre-of-image",
+            actor="task:centre-of-image",
             values=dict(proposal.values),
         )
     )
@@ -190,7 +190,7 @@ def test_to_check_is_listed_and_an_agent_look_does_not_clear_it(ui, qapp):
         assert doc["reviews"] == [], "nothing waits on it"
         (check,) = doc["to_check"]
         assert check["item_id"] == lamella.id and check["task_name"] == SETUP
-        assert check["decisions"][-1]["author"] == "auto:centre-of-image"
+        assert check["decisions"][-1]["actor"] == "task:centre-of-image"
 
         resp = _post_on_worker(
             qapp,
@@ -201,22 +201,22 @@ def test_to_check_is_listed_and_an_agent_look_does_not_clear_it(ui, qapp):
                 "task_name": SETUP,
                 "task_id": RUN,
                 "outcome": "Confirmed",
-                "author": "test-model",
+                "actor": "test-model",
             },
         )
         assert resp.status_code == 200, resp.text
         assert resp.json()["synced_tasks"] == [], "an acknowledgement writes nothing"
         (check,) = client.get("/app/workflow/reviews", headers=AUTH).json()["to_check"]
-        assert check["decisions"][-1]["author"] == "agent:test-model"
+        assert check["decisions"][-1]["actor"] == "agent:test-model"
     assert proposal.to_check, "an agent looked; a person has not"
     assert (
-        str(proposal.current.author) == "agent:test-model"
+        str(proposal.current.actor) == "agent:test-model"
         and proposal.current.values == {}
     )
     ui.experiment._decide(
         lamella.id,
         SETUP,
-        Decision(outcome=DecisionOutcome.Confirmed, author="human:op", task_id=RUN),
+        Decision(outcome=DecisionOutcome.Confirmed, actor="operator:op", task_id=RUN),
     )
     assert not proposal.to_check
 
@@ -235,7 +235,7 @@ def test_confirm_from_a_worker_writes_through_as_the_agent(ui, qapp):
                 "task_id": RUN,
                 "outcome": "Confirmed",
                 "values": {"poi": {"x": 2e-6, "y": -1e-6}},
-                "author": "test-model",
+                "actor": "test-model",
             },
         )
         assert resp.status_code == 200, resp.text
@@ -247,7 +247,7 @@ def test_confirm_from_a_worker_writes_through_as_the_agent(ui, qapp):
         assert lamella.poi == Point(2e-6, -1e-6)
         proposal = lamella.proposal(SETUP)
         assert proposal.current.outcome is DecisionOutcome.Confirmed
-        assert str(proposal.current.author) == "agent:test-model"
+        assert str(proposal.current.actor) == "agent:test-model"
         assert client.get("/app/workflow/reviews", headers=AUTH).json()["reviews"] == []
     kinds = [e["kind"] for e in buffer.events_since(0)["events"]]
     assert "review_decided" in kinds

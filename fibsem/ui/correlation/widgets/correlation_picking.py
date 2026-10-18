@@ -223,3 +223,92 @@ class CorrelationPicking(QObject):
         if chosen is not None:
             cx, cy, pt = chosen.data()
             self.point_add_requested.emit(cx, cy, pt)
+
+
+class PickingCanvasMixin:
+    """The picking surface both correlation canvases present, forwarded to
+    ``self.picking``.
+
+    For a QWidget host that sets ``self.canvas`` and ``self.picking`` in its own
+    init. The four signals stay declared on each host, which calls
+    :meth:`_connect_picking_signals` once ``self.picking`` exists.
+    """
+
+    canvas: object
+    picking: CorrelationPicking
+
+    def _connect_picking_signals(self) -> None:
+        self.picking.point_selected.connect(self.point_selected)
+        self.picking.point_moved.connect(self.point_moved)
+        self.picking.point_removed.connect(self.point_removed)
+        self.picking.point_add_requested.connect(self.point_add_requested)
+
+    @property
+    def points(self):
+        """The interactive point overlay."""
+        return self.picking.points
+
+    @property
+    def results(self):
+        """The static result-marker overlay."""
+        return self.picking.results
+
+    # ── the _CanvasAdapter surface ────────────────────────────────────────
+
+    def set_coordinates(self, coords: List[Coordinate]) -> None:
+        self.picking.set_coordinates(coords)
+
+    def set_selected(self, coord: Optional[Coordinate]) -> None:
+        self.picking.set_selected(coord)
+
+    def refresh_coordinate(self, coord: Coordinate) -> None:
+        self.picking.refresh_coordinate(coord)
+
+    def reset_view(self) -> None:
+        self.canvas.reset_view()
+
+    # ── chrome ────────────────────────────────────────────────────────────
+
+    def set_legend_visible(self, visible: bool) -> None:
+        """Show or hide the point-type legend (one swatch per type on screen)."""
+        self.picking.set_legend_visible(visible)
+
+    def set_labels_visible(self, visible: bool) -> None:
+        """Show or hide the per-point names, the result markers' numbers included."""
+        self.picking.set_labels_visible(visible)
+
+    def set_scalebar_visible(self, visible: bool) -> None:
+        """Show or hide the scalebar."""
+        self.canvas.set_scalebar_visible(visible)
+
+    # ── result markers ────────────────────────────────────────────────────
+
+    def add_overlay_points(
+        self,
+        points: Sequence[Tuple[float, float]],
+        *,
+        color: str = "#ff0000",
+        label_prefix: str = "",
+        size: float = 7.0,
+        marker: str = "o",
+        alpha: float = 1.0,
+        show_labels: bool = True,
+        hollow: bool = False,
+        legend_label: Optional[str] = None,
+    ) -> None:
+        """Append a group of non-interactive result markers."""
+        self.picking.add_overlay_points(
+            points,
+            color=color,
+            label_prefix=label_prefix,
+            size=size,
+            marker=marker,
+            alpha=alpha,
+            show_labels=show_labels,
+            hollow=hollow,
+            legend_label=legend_label,
+        )
+
+    def clear_overlay(self) -> None:
+        """Remove every marker added via :meth:`add_overlay_points`."""
+        self.picking.clear_overlay()

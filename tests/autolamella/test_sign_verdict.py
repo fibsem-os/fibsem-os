@@ -22,9 +22,9 @@ def _experiment(tmp_path) -> Experiment:
     return experiment
 
 
-def _lamella(tmp_path, verdict: Verdict, author: str = "") -> Lamella:
+def _lamella(tmp_path, verdict: Verdict, actor: str = "") -> Lamella:
     lamella = Lamella(path=tmp_path / "01-a", number=1, petname="01-a")
-    lamella.defect = QualityRecord(verdict=verdict, author=author)
+    lamella.defect = QualityRecord(verdict=verdict, actor=actor)
     return lamella
 
 
@@ -33,16 +33,16 @@ def test_an_unsigned_verdict_is_signed_by_the_operator(tmp_path):
 
     _experiment(tmp_path).sign_verdict(lamella)
 
-    assert lamella.defect.author == "human:Ada"
+    assert lamella.defect.actor == "operator:Ada"
 
 
 def test_a_verdict_that_already_names_someone_keeps_them(tmp_path):
     """An agent's verdict, or one set by a review decision, is not re-attributed."""
-    lamella = _lamella(tmp_path, Verdict.FAILED, author="agent:some-model")
+    lamella = _lamella(tmp_path, Verdict.FAILED, actor="agent:some-model")
 
     _experiment(tmp_path).sign_verdict(lamella)
 
-    assert lamella.defect.author == "agent:some-model"
+    assert lamella.defect.actor == "agent:some-model"
 
 
 def test_no_verdict_is_signed_by_nobody(tmp_path):
@@ -51,7 +51,7 @@ def test_no_verdict_is_signed_by_nobody(tmp_path):
 
     _experiment(tmp_path).sign_verdict(lamella)
 
-    assert lamella.defect.author == ""
+    assert lamella.defect.actor == ""
 
 
 def test_a_grid_s_verdict_is_signed_too(tmp_path):
@@ -60,4 +60,4 @@ def test_a_grid_s_verdict_is_signed_too(tmp_path):
 
     _experiment(tmp_path).sign_verdict(grid)
 
-    assert grid.quality.author == "human:Ada"
+    assert grid.quality.actor == "operator:Ada"
