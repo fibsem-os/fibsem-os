@@ -34,6 +34,7 @@ from PyQt5.QtWidgets import (
 from fibsem.applications.autolamella.poses import (
     FLUORESCENCE_ORIENTATION,
     build_lamella_poses,
+    remove_lamella,
     sync_fluorescence_pose,
 )
 from fibsem.applications.autolamella.structures import (
@@ -490,11 +491,8 @@ class GridPositionsWidget(QWidget):
         experiment = self._experiment
         if experiment is None or lamella is None:
             return
-        try:
-            experiment.positions.remove(lamella)
-        except ValueError:
+        if not remove_lamella(experiment, lamella):
             return
-        experiment.save()
         self.refresh()
         notification_service.show_toast(f"Removed {lamella.name}.", "info")
 
