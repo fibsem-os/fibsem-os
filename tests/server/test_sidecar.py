@@ -51,7 +51,9 @@ def _tool_names(sidecar):
 
 def test_armed_sidecar_registers_the_full_microscope_catalog(armed_sidecar):
     # No app_context on this server, so app tools must not register even armed.
-    expected = {t.name for t in CATALOG if t.router in ("microscope", "base")}
+    expected = {
+        t.name for t in CATALOG if t.router in ("microscope", "base", "services")
+    }
     assert _tool_names(armed_sidecar) == expected
 
 

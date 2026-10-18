@@ -7,8 +7,8 @@ can't carry an image, and saves each correlation as a run in the lamella's
 Correlation folder, where the tab and the next correlation find it.
 
 Being a service is what lets an agent correlate over the App Server, under
-``/microscope/services/correlation``. Every call reads saved files and moves
-nothing, so they are queries. Moving the lamella's point of interest to an
+``/services/correlation`` (`fibsem.services.analysis`), with or without a
+microscope. Every call reads saved files and moves nothing, so they are queries. Moving the lamella's point of interest to an
 answer is the experiment's decision, not the service's.
 """
 
