@@ -28,12 +28,12 @@ BUILTIN_GRID_TASKS: Dict[str, Type[GridTask]] = {
     for cls in (BeamOverviewGridTask, FluorescenceOverviewGridTask)
 }
 
-GRID_TASK_ENTRY_POINT_GROUP = "fibsem.grid_tasks"
+GRID_TASK_ENTRY_POINT_GROUP = "fibsem.grid.tasks"
 
-# Built-ins, runtime registrations and the fibsem.grid_tasks entry points. To
+# Built-ins, runtime registrations and the fibsem.grid.tasks entry points. To
 # add a plugin grid task, add to your package's pyproject.toml:
 #
-#     [project.entry-points.'fibsem.grid_tasks']
+#     [project.entry-points.'fibsem.grid.tasks']
 #     my_task = "my_package.tasks:MyGridTask"
 GRID_TASK_PLUGINS: PluginRegistry[Type[GridTask]] = PluginRegistry(
     group=GRID_TASK_ENTRY_POINT_GROUP,

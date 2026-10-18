@@ -32,7 +32,6 @@ from fibsem.applications.autolamella.structures import (
     GridTaskProtocol,
     Lamella,
 )
-from fibsem.applications.autolamella.task_outputs import latest_grid_output
 from fibsem.applications.autolamella.workflows.tasks.grid import (
     BeamOverviewGridTaskConfig,
 )
@@ -41,6 +40,7 @@ from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     GridTaskManager,
 )
 from fibsem.structures import BeamType, ImageSettings, OverviewAcquisitionSettings
+from fibsem.workflows.outputs import latest_item_output
 from fibsem.workflows.proposals import Decision, DecisionOutcome, Standing
 from fibsem.workflows.review import standing
 from fibsem.workflows.status import TaskStatus
@@ -200,7 +200,7 @@ class TestAGridTaskProposes:
         grid = experiment.get_grid_by_name(GRID)
 
         reference = grid.proposal(OVERVIEW).provenance["reference_image"]
-        overview = latest_grid_output(experiment, grid, OVERVIEW)
+        overview = latest_item_output(experiment, grid, OVERVIEW)
         assert reference.endswith(".tif") and "thumbnail" not in reference
         path = Path(experiment.item_path(grid)) / reference
         # the record keeps a forward slash on every platform; compare the files
