@@ -289,7 +289,7 @@ def test_an_interpolated_volume_is_still_that_files_volume(qapp):
     name at all -- worse than before, since the metadata copy used to carry the
     acquisition name forward. The resampled volume is still the source file's.
     """
-    from fibsem.correlation.util import interpolate_fm_volume
+    from fibsem.fm.interpolation import interpolate_fm_volume
 
     source = _fm_image()
     source.metadata.pixel_size_z = 5e-7

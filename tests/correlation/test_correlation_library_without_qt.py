@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
-import fibsem.correlation.util as util
+import fibsem.imaging.localise as localise
 from fibsem.correlation.fit import Seed, fit_transform, seed_for
 from fibsem.correlation.history import (
     CORRELATION_FILENAME,
@@ -36,7 +36,9 @@ def _coord(x, y, z, kind=PointType.FIB):
 def test_the_library_imports_no_qt():
     code = (
         "import sys, fibsem.correlation.fit, fibsem.correlation.point_fit, "
-        "fibsem.correlation.history; assert 'PyQt5' not in sys.modules"
+        "fibsem.correlation.history, fibsem.correlation.refractive_index, "
+        "fibsem.imaging.localise, fibsem.fm.interpolation; "
+        "assert 'PyQt5' not in sys.modules"
     )
     root = str(Path(__file__).resolve().parents[2])  # this checkout's fibsem
     env = {**os.environ, "PYTHONPATH": root}
@@ -44,7 +46,9 @@ def test_the_library_imports_no_qt():
 
 
 def test_refine_point_proposes_without_moving_the_point(monkeypatch):
-    monkeypatch.setattr(util, "hole_fitting_FIB", lambda img, x, y: (x + 3, y + 4, "d"))
+    monkeypatch.setattr(
+        localise, "hole_fitting_FIB", lambda img, x, y: (x + 3, y + 4, "d")
+    )
     coord = _coord(20.0, 20.0, 0.0)
     image = SimpleNamespace(filtered_data=np.zeros((64, 64)))
 
@@ -63,7 +67,7 @@ def test_refine_point_uses_the_named_fm_channel_and_cutout(monkeypatch):
         seen.update(shape=img.shape, cutout=cutout)
         return x, y, z + 1, None
 
-    monkeypatch.setattr(util, "target_fitting_fluorescence", gaussian)
+    monkeypatch.setattr(localise, "target_fitting_fluorescence", gaussian)
     fm = SimpleNamespace(data=np.zeros((2, 5, 32, 32)))
 
     result = refine_point(
@@ -91,7 +95,7 @@ def test_a_failed_point_fit_is_a_result_not_an_exception(monkeypatch):
     def boom(img, x, y):
         raise RuntimeError("Optimal parameters not found: maxfev = 800")
 
-    monkeypatch.setattr(util, "hole_fitting_FIB", boom)
+    monkeypatch.setattr(localise, "hole_fitting_FIB", boom)
     image = SimpleNamespace(filtered_data=np.zeros((8, 8)))
 
     result = refine_point(_coord(1.0, 1.0, 0.0), "fib", "Hole", fib_image=image)

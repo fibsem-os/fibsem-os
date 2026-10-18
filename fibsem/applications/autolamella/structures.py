@@ -438,6 +438,46 @@ class AutoLamellaWorkflowConfig:
                 return task.scheduled_at
         return None
 
+    def reorder(self, order: List[str]) -> str:
+        """Put the tasks in *order*: every task, each once, none before a task
+        it requires. Why not, with nothing changed, or "". The Workflow tab's
+        drag and the App Server's reorder."""
+        if sorted(order) != sorted(self.workflow):
+            return "Give every task in the workflow, each once."
+        by_name = {task.name: task for task in self.tasks}
+        reordered = [by_name[name] for name in order]
+        issues = type(self)(tasks=reordered).validate()
+        if issues:
+            return " ".join(issues)
+        self.tasks[:] = reordered
+        return ""
+
+    def set_requirements(
+        self,
+        task_name: str,
+        requires: Optional[List[str]] = None,
+        required: Optional[bool] = None,
+    ) -> str:
+        """Set the tasks *task_name* requires, which must come before it, and
+        whether it is required; None leaves either as it is. Why not, with
+        nothing changed, or "". The Workflow tab's Edit Task and the App
+        Server's."""
+        task = next((t for t in self.tasks if t.name == task_name), None)
+        if task is None:
+            return f"No task named {task_name!r} in the workflow."
+        if requires is not None:
+            earlier = self.workflow[: self.workflow.index(task_name)]
+            wrong = [name for name in requires if name not in earlier]
+            if wrong:
+                return (
+                    f"{task_name} can only require tasks before it: "
+                    f"{', '.join(earlier) or 'none'}; not {', '.join(wrong)}."
+                )
+            task.requires = list(requires)
+        if required is not None:
+            task.required = bool(required)
+        return ""
+
     def add_task(self, task: AutoLamellaTaskConfig) -> None:
         """Add a task to the workflow configuration."""
         self.tasks.append(
@@ -566,6 +606,32 @@ class GridTaskProtocol:
         self.task_config.pop(task_name, None)
         if task_name in self.order:
             self.order.remove(task_name)
+
+    def reorder(self, order: List[str]) -> str:
+        """Put the tasks in *order*: every task, each once. Why not, with
+        nothing changed, or "". The Grids view's drag and the App Server's
+        reorder."""
+        if sorted(order) != sorted(self.ordered_task_names):
+            return "Give every grid task, each once."
+        self.order = list(order)
+        return ""
+
+    def set_requires(self, task_name: str, requires: List[str]) -> str:
+        """Set the grid tasks *task_name* requires on the same grid, kept in
+        run order. Why not, with nothing changed, or "". The Grids view's Edit
+        Task and the App Server's."""
+        config = self.task_config.get(task_name)
+        if config is None:
+            return f"No grid task named {task_name!r}."
+        others = [n for n in self.ordered_task_names if n != task_name]
+        wrong = [name for name in requires if name not in others]
+        if wrong:
+            return (
+                f"{task_name} can require {', '.join(others) or 'no task'}; "
+                f"not {', '.join(wrong)}."
+            )
+        config.requires = [n for n in others if n in requires]
+        return ""
 
     def requirements(self, task_name: str) -> List[str]:
         """The tasks ``task_name`` requires on the same grid; none for a task

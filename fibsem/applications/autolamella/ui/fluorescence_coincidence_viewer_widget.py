@@ -58,7 +58,13 @@ from PyQt5.QtWidgets import (
 from superqt import ensure_main_thread
 
 from fibsem import conversions
-from fibsem.applications.autolamella.poses import sync_fluorescence_pose
+from fibsem.applications.autolamella.poses import (
+    current_objective_position,
+    set_objective_position,
+    set_objective_position_on_all,
+    stored_objective_position,
+    sync_fluorescence_pose,
+)
 from fibsem.applications.autolamella.ui.lamella_name_list_widget import (
     LamellaNameListWidget,
 )
@@ -77,7 +83,6 @@ from fibsem.structures import (
     BeamType,
     DeviceImagingState,
     FibsemImage,
-    InsertableDeviceState,
     Point,
 )
 from fibsem.ui import notification_service, stylesheets
@@ -1350,9 +1355,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         lamella = self._selected_lamella
         if lamella is None or lamella.fluorescence_pose is None:
             return
-        lamella.fluorescence_pose.objective_position = value_um * MICRON_TO_METRE
-        if self.experiment is not None:
-            self.experiment.save()
+        set_objective_position(self.experiment, lamella, value_um * MICRON_TO_METRE)
 
     def _on_slw_use_current_objective(self):
         """Read the current FM objective position and store it on the lamella."""
@@ -1363,20 +1366,13 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         if lamella is None or lamella.fluorescence_pose is None:
             notification_service.show_toast("No lamella selected.", "warning")
             return
-        obj = self.microscope.fm.objective
-        value_m = (
-            obj.position
-            if obj.state is InsertableDeviceState.INSERTED
-            else obj.focus_position
-        )
+        value_m = current_objective_position(self.microscope.fm)
         if value_m is None:
             notification_service.show_toast(
                 "Objective position unavailable.", "warning"
             )
             return
-        lamella.fluorescence_pose.objective_position = value_m
-        if self.experiment is not None:
-            self.experiment.save()
+        set_objective_position(self.experiment, lamella, value_m)
         self.selected_lamella_widget.set_lamella(lamella)
         notification_service.show_toast(
             f"Set objective position to {value_m * METRE_TO_MICRON:.1f} µm "
@@ -1389,14 +1385,10 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         if self.experiment is None:
             return
         value_um = self.selected_lamella_widget.objective_value_um()
-        value_m = value_um * MICRON_TO_METRE
-        count = 0
-        for lamella in self.experiment.positions:
-            if lamella.fluorescence_pose is not None:
-                lamella.fluorescence_pose.objective_position = value_m
-                count += 1
+        count = set_objective_position_on_all(
+            self.experiment, value_um * MICRON_TO_METRE
+        )
         if count:
-            self.experiment.save()
             notification_service.show_toast(
                 f"Applied objective position ({value_um:.1f} µm) to {count} lamella.",
                 "info",
@@ -1411,18 +1403,12 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         if lamella is None or lamella.fluorescence_pose is None:
             notification_service.show_toast("No lamella selected.", "warning")
             return
-        objective_position = lamella.fluorescence_pose.objective_position
-        if objective_position is None:
-            notification_service.show_toast(
-                f"{lamella.name} has no stored objective position.", "warning"
-            )
+        try:
+            objective_position = stored_objective_position(self.microscope.fm, lamella)
+        except ValueError as e:
+            notification_service.show_toast(str(e), "warning")
             return
         obj = self.microscope.fm.objective
-        if obj.state is not InsertableDeviceState.INSERTED:
-            notification_service.show_toast(
-                "Insert the objective before moving to a stored position.", "warning"
-            )
-            return
 
         ret = QMessageBox.question(
             self,

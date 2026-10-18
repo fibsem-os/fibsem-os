@@ -18,7 +18,7 @@ import numpy as np
 import pytest
 
 from fibsem.correlation.fit_diagnostics import FitDiagnostic, plot_fit_diagnostic
-from fibsem.correlation.util import (
+from fibsem.imaging.localise import (
     FitOutsideWindow,
     fit_gauss_2d_mod,
     hole_fitting_FIB,
