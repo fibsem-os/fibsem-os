@@ -1980,16 +1980,15 @@ class AutoLamellaAppContext:
                 logging.exception(
                     "saving the experiment after an agent decision failed"
                 )
-            if self._event_buffer is not None:
-                self._event_buffer.append(
-                    "review_decided",
-                    {
-                        "item_id": item_id,
-                        "task_name": task_name,
-                        "outcome": decided.name,
-                        "actor": str(decision.actor),
-                    },
-                )
+            self.record_event(
+                "review_decided",
+                {
+                    "item_id": item_id,
+                    "task_name": task_name,
+                    "outcome": decided.name,
+                    "actor": str(decision.actor),
+                },
+            )
         return doc
 
     def add_note(
@@ -2020,20 +2019,22 @@ class AutoLamellaAppContext:
             f" [{item_name}]" if item_name else "",
             text,
         )
-        if self._event_buffer is not None:
-            # With the item's id, so the record files the note under the item
-            # it is about, not whichever one is running (FIB-1328).
-            payload = {"text": text, "item_name": item_name, "item_id": item_id}
-            if reply_to:
-                payload["reply_to"] = reply_to
-            self._event_buffer.append("agent_note", payload)
+        # With the item's id, so the record files the note under the item
+        # it is about, not whichever one is running (FIB-1328).
+        payload = {"text": text, "item_name": item_name, "item_id": item_id}
+        if reply_to:
+            payload["reply_to"] = reply_to
+        self.record_event("agent_note", payload)
         return {"available": True, "recorded": True}
 
-    def record_event(self, kind: str, payload: Dict[str, Any]) -> None:
-        """Put an event on the experiment's record: the agent's requests and
-        their outcomes (FIB-1283)."""
+    def record_event(
+        self, kind: str, payload: Dict[str, Any], actor: Optional[str] = None
+    ) -> None:
+        """Put an event on the experiment's record: everything the server's
+        side writes, the agent's requests and their outcomes (FIB-1283)
+        among them. *actor* as for ``EventBuffer.append``."""
         if self._event_buffer is not None:
-            self._event_buffer.append(kind, payload)
+            self._event_buffer.append(kind, payload, actor=actor)
 
     def reorder_milling_stages(
         self,
@@ -2493,15 +2494,14 @@ class AutoLamellaAppContext:
                         "save after supervision change failed; the change is "
                         "applied in memory but not yet on disk"
                     )
-                if self._event_buffer is not None:
-                    self._event_buffer.append(
-                        "workflow_changed",
-                        {
-                            "field": "attention",
-                            "task_name": task_name,
-                            "supervise": bool(supervise),
-                        },
-                    )
+                self.record_event(
+                    "workflow_changed",
+                    {
+                        "field": "attention",
+                        "task_name": task_name,
+                        "supervise": bool(supervise),
+                    },
+                )
                 return {
                     "available": True,
                     "applied": True,
@@ -2559,15 +2559,14 @@ class AutoLamellaAppContext:
                         "save after schedule change failed; the change is "
                         "applied in memory but not yet on disk"
                     )
-                if self._event_buffer is not None:
-                    self._event_buffer.append(
-                        "workflow_changed",
-                        {
-                            "field": "scheduled_at",
-                            "task_name": task_name,
-                            "scheduled_at": parsed.isoformat() if parsed else None,
-                        },
-                    )
+                self.record_event(
+                    "workflow_changed",
+                    {
+                        "field": "scheduled_at",
+                        "task_name": task_name,
+                        "scheduled_at": parsed.isoformat() if parsed else None,
+                    },
+                )
                 return {
                     "available": True,
                     "applied": True,
@@ -2614,11 +2613,8 @@ class AutoLamellaAppContext:
                 "save after workflow option change failed; the change is "
                 "applied in memory but not yet on disk"
             )
-        if self._event_buffer is not None:
-            for name, value in options.items():
-                self._event_buffer.append(
-                    "workflow_changed", {"field": name, "value": value}
-                )
+        for name, value in options.items():
+            self.record_event("workflow_changed", {"field": name, "value": value})
         return {"available": True, "applied": True, "saved": saved, **options}
 
     # -- the workflow's tasks: the Workflow tab's task list and the protocol
@@ -2656,8 +2652,7 @@ class AutoLamellaAppContext:
             saved = False
             logging.exception("save after a protocol change failed; applied in memory")
         self._experiment_changed()
-        if self._event_buffer is not None:
-            self._event_buffer.append("workflow_changed", change)
+        self.record_event("workflow_changed", change)
         return saved
 
     def add_task(self, task_type: str, task_name: str) -> Dict[str, Any]:
@@ -2859,10 +2854,7 @@ class AutoLamellaAppContext:
             }
         os.makedirs(os.path.dirname(path), exist_ok=True)
         protocol.save(path)
-        if self._event_buffer is not None:
-            self._event_buffer.append(
-                "workflow_changed", {"field": "protocol_saved", "path": path}
-            )
+        self.record_event("workflow_changed", {"field": "protocol_saved", "path": path})
         return {"saved": True, "name": os.path.basename(path), "path": path}
 
     # -- the grid protocol: the Protocol tab's grid tasks and the Grids view's
@@ -3220,16 +3212,15 @@ class AutoLamellaAppContext:
 
     def _record_queue_change(self, action: str, item) -> None:
         """One ``queue_changed`` event; the stamp says who made the edit."""
-        if self._event_buffer is not None:
-            self._event_buffer.append(
-                "queue_changed",
-                {
-                    "action": action,
-                    "item_name": item.item_name,
-                    "task_name": item.task_name,
-                    "queue_item_id": item.id,
-                },
-            )
+        self.record_event(
+            "queue_changed",
+            {
+                "action": action,
+                "item_name": item.item_name,
+                "task_name": item.task_name,
+                "queue_item_id": item.id,
+            },
+        )
 
     # --- supervision prompts (FIB-851) ------------------------------------------
 

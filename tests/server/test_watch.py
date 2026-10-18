@@ -166,9 +166,7 @@ def test_seeds_at_the_tail(app):
     def run():
         app.buffer.append("task_started", {"item_name": "lamella-01"})
         app.buffer.append("prompt_raised", {"question_id": 2, "type": "Confirm"})
-        app.buffer.append(
-            "prompt_answered", {"question_id": 2, "answered_by": "operator"}
-        )
+        app.buffer.append("prompt_answered", {"question_id": 2}, actor="operator")
         app.buffer.append("milling_progress", {})  # not worth a wake-up
         app.buffer.append("workflow_completed", {})
 
@@ -215,12 +213,8 @@ def test_an_answer_says_when_it_took_the_agent_s_suggestion(app):
     def run():
         app.buffer.append(
             "prompt_answered",
-            {
-                "question_id": 3,
-                "answered_by": "operator",
-                "response": True,
-                "suggested_by": "agent",
-            },
+            {"question_id": 3, "response": True, "suggested_by": "agent"},
+            actor="operator",
         )
         app.buffer.append("workflow_completed", {})
 

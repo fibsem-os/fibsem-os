@@ -167,7 +167,7 @@ def test_a_value_answer_moves_the_area_and_answers_with_it(ui, qapp):
 
     events = []
     dispose = ui.ui_responder.add_question_observer(
-        lambda kind, payload: events.append((kind, payload))
+        lambda kind, payload, actor: events.append((kind, {**payload, "actor": actor}))
     )
     proposed = {"left": 0.1, "top": 0.2, "width": 0.3, "height": 0.25}
     try:
@@ -186,7 +186,7 @@ def test_a_value_answer_moves_the_area_and_answers_with_it(ui, qapp):
     assert area.height == pytest.approx(proposed["height"])
     # The record shows the agent changed the geometry, not just accepted it.
     answered = [p for k, p in events if k == "prompt_answered"][-1]
-    assert answered["answered_by"] == "agent"
+    assert answered["actor"] == "agent"
     assert answered["adjusted"] is True
 
 
@@ -198,7 +198,7 @@ def test_echoing_the_area_is_not_an_adjustment(ui, qapp):
 
     events = []
     dispose = ui.ui_responder.add_question_observer(
-        lambda kind, payload: events.append((kind, payload))
+        lambda kind, payload, actor: events.append((kind, {**payload, "actor": actor}))
     )
     try:
         result = _answer_with_value_on_worker(ui, qapp, True, question_id, current)

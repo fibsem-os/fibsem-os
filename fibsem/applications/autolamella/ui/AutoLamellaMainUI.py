@@ -43,6 +43,7 @@ from PyQt5.QtWidgets import (
 
 import fibsem
 import fibsem.config as fibsem_cfg
+from fibsem.acting import OPERATOR
 from fibsem.applications.autolamella.poses import remove_lamella
 from fibsem.applications.autolamella.structures import (
     Experiment,
@@ -4068,17 +4069,19 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             )
         self._refresh_agent_chip()
 
-    def _record_operator_stop(self, stopped: str, by: str, **extra) -> None:
+    def _record_operator_stop(self, stopped: str, via: str, **extra) -> None:
         """Put the operator's stop on the session's record (events.jsonl) and in
         the log, before the stop runs: what was stopped (the workflow or one
         task) and from where. Without it a stop leaves only the run's
         ``task_cancelled``, which does not say who stopped it (FIB-1397). The
         agent's stop records itself (``agent_stop``)."""
-        logging.info("%s stopped by the operator (%s)", stopped.capitalize(), by)
+        logging.info("%s stopped by the operator (%s)", stopped.capitalize(), via)
         recorder = self.autolamella_ui.session.recorder
         if recorder is None:
             return
-        recorder.buffer.append("workflow_stop", {"stopped": stopped, "by": by, **extra})
+        recorder.buffer.append(
+            "workflow_stop", {"stopped": stopped, "via": via, **extra}, actor=OPERATOR
+        )
 
     def _on_operator_message(self, text: str) -> None:
         """GUI thread, from the card: put the operator's message to the agent on
@@ -4092,7 +4095,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return
         message_id = uuid.uuid4().hex[:8]
         logging.info("Operator message to the agent (%s): %s", message_id, text)
-        recorder.buffer.append("operator_message", {"id": message_id, "text": text})
+        recorder.buffer.append(
+            "operator_message", {"id": message_id, "text": text}, actor=OPERATOR
+        )
 
     def _record_agent_event(self, kind: str, previous, level, **extra) -> None:
         """Put a level change on the session's record (events.jsonl). Emitted
@@ -4129,14 +4134,14 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         except Exception:
             return None
 
-    def _on_question_event(self, kind: str, payload: dict) -> None:
+    def _on_question_event(self, kind: str, payload: dict, actor: str) -> None:
         """GUI thread, from the responder: a question was raised, answered or
         cancelled, so the waiting chrome follows."""
         dropped, self._dropped_agent_suggestion = self._dropped_agent_suggestion, None
         if (
             dropped is not None
             and kind == "prompt_answered"
-            and payload.get("answered_by") == "operator"
+            and actor == OPERATOR
             and not payload.get("suggested_by")
         ):
             notification_service.show(

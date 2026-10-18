@@ -236,7 +236,7 @@ def test_waiting_for_an_answer_is_not_the_machine_s_time():
         _record(
             "prompt_answered",
             50,
-            {"type": "RunMillingTask", "question_id": 3, "answered_by": "operator"},
+            {"type": "RunMillingTask", "question_id": 3},
             actor="operator",
         ),
         _step(60, "ACQUIRE_REFERENCE_IMAGES"),

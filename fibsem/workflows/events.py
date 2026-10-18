@@ -82,7 +82,8 @@ def to_plain(value: Any) -> Any:
     return str(value)
 
 
-Stamp = Callable[[str, Dict[str, Any]], Dict[str, Any]]
+# (kind, payload, actor) -> the stamp's fields; actor is the one the writer named.
+Stamp = Callable[[str, Dict[str, Any], Optional[str]], Dict[str, Any]]
 
 
 def iso_time(timestamp: float) -> str:
@@ -113,15 +114,26 @@ class EventBuffer:
         self._stamp = stamp
         self._subscribers: List[Callable[[Dict[str, Any]], None]] = []
 
-    def append(self, kind: str, payload: Dict[str, Any]) -> int:
-        """Record one event. Cheap and non-blocking; safe from any thread."""
+    def append(
+        self, kind: str, payload: Dict[str, Any], actor: Optional[str] = None
+    ) -> int:
+        """Record one event. Cheap and non-blocking; safe from any thread.
+
+        The one way onto the record: every writer calls it. ``actor`` names who
+        acted, when the writer knows better than the thread's mark -- an answer
+        is whoever answered, though the GUI thread delivers it. The stamp puts
+        it on the envelope, so the payload need not say who.
+        """
         now = time.time()
         extra: Dict[str, Any] = {}
         if self._stamp is not None:
             try:
-                extra = self._stamp(kind, payload) or {}
+                extra = self._stamp(kind, payload, actor) or {}
             except Exception:  # noqa: BLE001 - a stamp must never cost the event
                 logging.debug("event stamp failed", exc_info=True)
+        if actor is not None:
+            # Unstamped, or a stamp that failed: the writer's word still stands.
+            extra.setdefault("actor", str(actor))
         with self._cond:
             self._seq += 1
             record = {

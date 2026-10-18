@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple, Type
 
 from PyQt5.QtCore import QObject, pyqtSignal
 
-from fibsem.acting import AGENT, OPERATOR, TASK, acting
+from fibsem.acting import AGENT, OPERATOR, TASK
 from fibsem.structures import BeamType
 from fibsem.workflows.interaction import (
     ClearMillingConfig,
@@ -181,9 +181,10 @@ class QtResponder(QObject):
         self._agent_peeked.connect(self._apply_agent_peek)
 
     def add_question_observer(
-        self, observer: Callable[[str, Dict], None]
+        self, observer: Callable[[str, Dict, str], None]
     ) -> Callable[[], None]:
-        """Subscribe to question-lifecycle events; returns the unsubscribe."""
+        """Subscribe to question-lifecycle events, ``observer(kind, payload,
+        actor)``; returns the unsubscribe."""
         self._question_observers.append(observer)
 
         def dispose() -> None:
@@ -198,16 +199,15 @@ class QtResponder(QObject):
         """Tell every observer, each on its own; failures are logged, never raised.
 
         On the GUI thread, but every question is a task's: it is raised and
-        withdrawn on the task's behalf, so it is marked as the task's for the
-        experiment's record (FIB-1062). An answer says who answered. A
-        suggestion is the agent's own, so it is marked as the agent's.
+        withdrawn on the task's behalf, so *actor* is the task for the
+        experiment's record (FIB-1062). An answer's is whoever answered. A
+        suggestion is the agent's own.
         """
-        with acting(actor):
-            for observer in list(self._question_observers):
-                try:
-                    observer(kind, payload)
-                except Exception:  # noqa: BLE001 - observers are not allowed to matter
-                    logging.exception("question-event observer failed; continuing")
+        for observer in list(self._question_observers):
+            try:
+                observer(kind, payload, actor)
+            except Exception:  # noqa: BLE001 - observers are not allowed to matter
+                logging.exception("question-event observer failed; continuing")
 
     def submit(self, request: "Request", future: "Future") -> None:
         """Hand ``request`` to the GUI thread; never blocks. Any thread."""
@@ -1042,7 +1042,6 @@ class QtResponder(QObject):
         answered_payload = {
             "type": type(request).__name__,
             "response": bool(clicked_yes),
-            "answered_by": source,
             "question_id": pending[2],
         }
         if isinstance(request, RunAgainQuestion):
@@ -1061,7 +1060,7 @@ class QtResponder(QObject):
             decided = request.decided(answer)
             if decided:
                 answered_payload["decided"] = decided
-        self._emit_question_event("prompt_answered", answered_payload)
+        self._emit_question_event("prompt_answered", answered_payload, actor=source)
         # And to the asker, which records the decision the answer makes.
         mark_answered_by(future, source)
         self._ui.workflow_status_signal.emit(WorkflowStatusEvent(message=""))

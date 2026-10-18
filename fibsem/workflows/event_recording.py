@@ -34,7 +34,7 @@ import weakref
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Tuple
 
-from fibsem.acting import TASK, ActorKind, acting, current_actor
+from fibsem.acting import TASK, ActorKind, current_actor
 from fibsem.workflows.events import (
     EventBuffer,
     attach_microscope_taps,
@@ -473,7 +473,9 @@ class EventRecorder:
         self._disposers = []
         self.writer.close()
 
-    def _stamp(self, kind: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def _stamp(
+        self, kind: str, payload: Dict[str, Any], actor: Optional[str] = None
+    ) -> Dict[str, Any]:
         """Where in the run an event happened, read when it is emitted.
 
         From ``microscope.experiment``, the same record that stamps image
@@ -491,8 +493,9 @@ class EventRecorder:
         own lifecycle event is the task's whichever thread fired it (a skip fires
         from the task manager), and so is the way a run ends -- completed,
         cancelled, stalled, the experiment completed -- which the run reports,
-        not whoever started it. An answer says who answered, and an agent's
-        note about a named item is that item's.
+        not whoever started it. A writer that names the *actor* -- an answer
+        names whoever answered -- is taken at its word. An agent's note about a
+        named item is that item's.
         """
         ref = getattr(self._microscope, "experiment", None)
         if kind in _LIFECYCLE_EVENTS and isinstance(payload, dict):
@@ -518,14 +521,13 @@ class EventRecorder:
             if item is None or item.get("id") != named["id"]:
                 task = None
             item = named
-        if kind == "prompt_answered" and isinstance(payload, dict):
-            actor = payload.get("answered_by")
-        elif kind in _LIFECYCLE_EVENTS and task is not None:
-            actor = TASK
-        elif kind in _WORKFLOW_ENDS:
-            actor = TASK
-        else:
-            actor = current_actor() or self.default_actor
+        if actor is None:
+            if kind in _WORKFLOW_ENDS or (
+                kind in _LIFECYCLE_EVENTS and task is not None
+            ):
+                actor = TASK
+            else:
+                actor = current_actor() or self.default_actor
         return {
             "session": self.session_id,
             "actor": actor.value if isinstance(actor, ActorKind) else actor,
@@ -592,8 +594,7 @@ class ProposalTap:
                     self._asked.add(proposal.id)
                     payload = _proposal_payload(item, task_name, proposal)
                     payload["message"] = proposal.provenance.get("message", "")
-                    with acting(TASK):  # the task asked it
-                        self._buffer.append("proposal_asked", payload)
+                    self._buffer.append("proposal_asked", payload, actor=TASK)
         except Exception:  # noqa: BLE001 - recording must not matter
             logging.debug(f"could not record the {task_name} question", exc_info=True)
 
@@ -622,8 +623,7 @@ class ProposalTap:
         )
         if seen is False:  # recorded before its values were filled in
             payload["filled_in"] = True
-        with acting(decision.actor.kind):
-            self._buffer.append("proposal_decided", payload)
+        self._buffer.append("proposal_decided", payload, actor=decision.actor.kind)
 
 
 def _proposal_payload(item: Any, task_name: str, proposal: Any) -> Dict[str, Any]:

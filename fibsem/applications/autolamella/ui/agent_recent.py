@@ -277,7 +277,7 @@ class RecentActions:
             row := self._rows.get(("suggestion", question_id))
         ) and row.tone == WAITING:
             changed = self._end(("suggestion", question_id), "dropped", MUTED)
-        if p.get("answered_by") == AGENT:
+        if agent:
             # What it decided, not the prompt's instructions (sim session
             # 2026-10-16): "02-tough-shiner · Point of interest at (+5, −2) µm".
             text = str(p.get("decided") or "").strip() or (
