@@ -332,6 +332,7 @@ def test_apply_post_creates_ghost_and_status(qapp):
         poi=[CorrelationPointOfInterest(image_px=Point(x=100.0, y=300.0))],
         input_data=w.data,
     )
+    w.session.set_result(result)  # the session corrects its own result
     w._ri_tab.set_result(result, input_data=w.data)
     w._ri_tab._ri_widget.set_factor(1.5)
     w._ri_tab._apply()

@@ -85,7 +85,6 @@ from fibsem.correlation.config import (
     RISettings,
 )
 from fibsem.correlation.export import save_correlation_plot, write_csv
-from fibsem.correlation.fit import Seed, prior_transform, seed_for
 from fibsem.correlation.history import (
     CORRELATION_FILENAME,
     discover_project,
@@ -1569,13 +1568,13 @@ class _RITab(QWidget):
     Two modes, implied by which surface point exists (mutually exclusive):
 
     post — FIB surface: corrects the correlated POI 1 in FIB image space,
-           in-place on the existing result.
+           in-place on the existing result (the session applies it).
     pre  — FM surface: corrects the z of every input POI (FM space). The
            correction is applied inside ``run_correlation_from_data``, so
            applying it triggers (or requires) a correlation run.
     """
 
-    correction_applied = pyqtSignal(object)  # CorrelationResult (post)
+    post_correction_requested = pyqtSignal(float)  # factor (post)
     pre_correction_requested = pyqtSignal(float, bool)  # factor, rerun (pre)
 
     # Abbreviated because the full words don't fit four columns at this panel
@@ -2046,27 +2045,8 @@ class _RITab(QWidget):
             logging.warning("[RITab._apply_post] No result to update with correction.")
             return
 
-        # Record the surface this correction is about, as a *copy*: input_data is
-        # the snapshot the transform was fitted to. Storing the live coordinate
-        # would let a later drag of the surface line rewrite history — and, worse,
-        # launder an already-stale result back to "current" (FIB-315).
-        self._result.input_data.surface_coordinate = copy.deepcopy(  # type: ignore
-            self._surface_coordinate
-        )
-
-        # Update POI 0 in the result and propagate (reads input_data internally).
-        # It refuses when it cannot correct px_m, which is the number Continue
-        # commits — report that here rather than letting it reach the event loop.
-        try:
-            self._result.apply_refractive_index_correction(factor)
-        except ValueError as exc:
-            logging.exception("[RITab._apply_post] correction refused")
-            self._set_warning(f"Correction not applied: {exc}")
-            return
-        logging.info(
-            "[RITab._apply_post] correction applied, emitting correction_applied"
-        )
-        self.correction_applied.emit(self._result)
+        # The parent has the session record the surface and correct the result.
+        self.post_correction_requested.emit(factor)
 
 
 # ---------------------------------------------------------------------------
@@ -2189,9 +2169,6 @@ class CorrelationTabWidget(QWidget):
         # stay in the loaded stack's planes; only the canvas is resampled
         # (FIB-1248).
         self._fm_view_scale = 1.0
-        # Positions as last seeded by the setup section, to detect manual edits
-        # before replacing them (None = nothing seeded yet). FIB-302.
-        self._seeded_positions: Optional[list] = None
         # Installed only when a lamella opens this window (add_lamella_setup).
         self._setup_section = None
         # Field width (m) of the image the spot burns were placed on, when the
@@ -2518,7 +2495,9 @@ class CorrelationTabWidget(QWidget):
         self.result_changed.connect(self._auto_save_state)
 
         # RI correction
-        self._ri_tab.correction_applied.connect(self._on_correction_applied)
+        self._ri_tab.post_correction_requested.connect(
+            self._on_post_correction_requested
+        )
         self._ri_tab.pre_correction_requested.connect(self._on_pre_correction_requested)
 
         # The lists and the canvases draw from the point store and write their
@@ -2855,7 +2834,7 @@ class CorrelationTabWidget(QWidget):
         Returns True to proceed — clearing as a side effect — or False to leave
         both the image and the coordinates untouched.
         """
-        if not self._current_positions():
+        if not self._session.positions():
             return True  # nothing to lose
         reply = QMessageBox.question(
             self,
@@ -2874,7 +2853,7 @@ class CorrelationTabWidget(QWidget):
             )
         )
         self._discard_result()
-        self._seeded_positions = None
+        self._session.seeded_positions = None
         return True
 
     def _discard_result(self) -> None:
@@ -2932,9 +2911,10 @@ class CorrelationTabWidget(QWidget):
         """
         if self._session.fib_image is None or self._session.fm_image is None:
             return
-        nominal, note = self._nominal_transform()
+        seed = self._session.seed()
+        nominal = seed.transform
         if nominal is None:
-            self._lbl_status.setText(f"Cannot project: {note}")
+            self._lbl_status.setText(f"Cannot project: {seed.note}")
             return
         cl = self._coords_tab
         fib = cl.fib_list.coordinates
@@ -3015,7 +2995,8 @@ class CorrelationTabWidget(QWidget):
         loaded = (
             self._session.fib_image is not None and self._session.fm_image is not None
         )
-        nominal, note = self._nominal_transform() if loaded else (None, "")
+        seed = self._session.seed()  # unseeded without both images
+        nominal, note = seed.transform, seed.note
         can_project = loaded and nominal is not None and bool(fib)
         source = self._transform_source() if loaded else ""
         cl.set_projection_text(
@@ -3054,7 +3035,7 @@ class CorrelationTabWidget(QWidget):
             else:
                 source = (
                     "the previous run's"
-                    if self._prior_transform() is not None
+                    if self._session.prior_transform()[0] is not None
                     else "the geometry's"
                 )
                 hint = (
@@ -3208,7 +3189,7 @@ class CorrelationTabWidget(QWidget):
                 "None to start fresh.",
             )
             return False
-        return not self._has_manual_edits() or self._confirm_reseed()
+        return not self._session.has_manual_edits() or self._confirm_reseed()
 
     def _on_setup_seed_requested(self, source: str, payload) -> None:
         """Apply a starting-coordinates choice from the setup section.
@@ -3239,26 +3220,7 @@ class CorrelationTabWidget(QWidget):
             )
             self._discard_result()
             self.data_changed.emit(self.data)
-        self._seeded_positions = self._current_positions()
-
-    def _current_positions(self) -> list:
-        """Every point on the canvas, as comparable ``(type, x, y, z)`` tuples.
-
-        The surface points are in here too: they are single points held in their
-        own fields rather than lists, and leaving them out meant a re-seed wiped
-        a placed surface point — silently disarming any stored RI pre-correction
-        with it — without so much as a confirmation (FIB-319).
-        """
-        d = self.data
-        coords = d.fib_coordinates + d.fm_coordinates + d.poi_coordinates
-        coords += [c for c in (d.surface_coordinate, d.fm_surface_coordinate) if c]
-        return [(c.point_type.value, c.point.x, c.point.y, c.point.z) for c in coords]
-
-    def _has_manual_edits(self) -> bool:
-        """Whether the points differ from what was last seeded."""
-        if self._seeded_positions is None:
-            return bool(self._current_positions())
-        return self._current_positions() != self._seeded_positions
+        self._session.mark_seeded()
 
     def _confirm_reseed(self) -> bool:
         # Deliberately doesn't claim the points were *edited*: they may equally
@@ -3462,9 +3424,7 @@ class CorrelationTabWidget(QWidget):
         self._lbl_status.setText(RUNNING)
         # a run in flight has no live result yet; a failed run leaves it that way
         self._set_result_live(False)
-        seed = self._seed()
-        self._seed_note = seed.note
-        pending = self._session_hold.run = self._session.start_run(seed)
+        pending = self._session_hold.run = self._session.start_run()
         self._worker = _CorrelationWorker(pending)
         self._worker.result_ready.connect(self._on_run_finished)
         self._worker.errored.connect(self._on_run_error)
@@ -3479,7 +3439,7 @@ class CorrelationTabWidget(QWidget):
         the fit; the hardware geometry is the fallback. Only rotation and
         scale are taken from it; the translation comes from the placed pairs.
         """
-        self._prior_runs = list(runs or [])
+        self._session.prior_runs = list(runs or [])
         if self._session.fib_image is not None and self._session.fm_image is not None:
             self.data_changed.emit(self.data)
 
@@ -3493,31 +3453,9 @@ class CorrelationTabWidget(QWidget):
         from the FM configuration in force, and the assumption is shown in the
         prediction panel so it is never silent. ``None`` withdraws it.
         """
-        self._fm_transform_assumed = transform
+        self._session.assumed_fm_transform = transform
         if self._session.fib_image is not None and self._session.fm_image is not None:
             self.data_changed.emit(self.data)
-
-    def _prior_transform(self, translation=None):
-        """The fitted transform of a previous run, in this pair's units, or None.
-
-        A run passed over for disagreeing with the geometry is kept in
-        ``_prior_rejected`` for the Method panel (see :func:`prior_transform`).
-        """
-        prior, self._prior_rejected = prior_transform(
-            self._session.fib_image,
-            self._session.fm_image,
-            getattr(self, "_prior_runs", None) or (),
-            translation=translation,
-            assumed_fm_transform=getattr(self, "_fm_transform_assumed", None),
-        )
-        return prior
-
-    def _placement_offset(self):
-        """A previous run's placement offset, or None (see FIB-979)."""
-        from fibsem.correlation.prior import placement_offset_from_runs
-
-        runs = getattr(self, "_prior_runs", None)
-        return placement_offset_from_runs(runs) if runs else None
 
     def _on_projection_link(self, link: str) -> None:
         """Ignore or restore the previous run's placement offset for this lamella.
@@ -3525,7 +3463,7 @@ class CorrelationTabWidget(QWidget):
         Only the next projection changes; no point moved, so a live result
         stays live. ``data_changed`` would mark it stale and hide Continue.
         """
-        self._ignore_placement_offset = link == "ignore"
+        self._session.ignore_placement_offset = link == "ignore"
         if self._session.fib_image is not None and self._session.fm_image is not None:
             self._refresh_prediction_panel()
 
@@ -3538,14 +3476,14 @@ class CorrelationTabWidget(QWidget):
         """The Method panel's projection row: one line, and the numbers as a tooltip."""
         if nominal is None:
             return "none", ""
-        prior = self._prior_transform()
+        prior, rejected = self._session.prior_transform()
         rotation = (
             f"previous run ({self._run_label(prior.source)})"
             if prior is not None
             else "geometry"
         )
-        offset = self._placement_offset()
-        ignored = getattr(self, "_ignore_placement_offset", False)
+        offset = self._session.placement_offset()
+        ignored = self._session.ignore_placement_offset
         # The source run is named in the tooltip only: "placed from <lamella>"
         # on lamella 02's own tab read as a mix-up.
         if offset is None:
@@ -3577,7 +3515,6 @@ class CorrelationTabWidget(QWidget):
             )
         elif assumed:
             lines.append(f"Rotation from geometry, {assumed}")
-        rejected = getattr(self, "_prior_rejected", None)
         if rejected is not None:
             lines.append(
                 f"Previous run {rejected[0]} not used: its rotation is "
@@ -3609,7 +3546,7 @@ class CorrelationTabWidget(QWidget):
 
     def _transform_source(self) -> str:
         """One clause naming where the transform prior comes from."""
-        prior = self._prior_transform()
+        prior, _ = self._session.prior_transform()
         if prior is not None:
             return f"from a previous run ({prior.source})"
         assumed = self._fm_transform_assumption()
@@ -3620,36 +3557,10 @@ class CorrelationTabWidget(QWidget):
         md = getattr(self._session.fm_image, "metadata", None)
         if getattr(md, "geometry", None) is not None:
             return ""
-        assumed = getattr(self, "_fm_transform_assumed", None)
+        assumed = self._session.assumed_fm_transform
         if assumed is None:
             return ""
         return f"assuming camera transform {assumed.value or 'none'}"
-
-    def _seed(self) -> Seed:
-        """The transform a run of the loaded images starts from (see :func:`seed_for`).
-
-        Keeps any previous run passed over (``_prior_rejected``) for the Method
-        panel.
-        """
-        seed = seed_for(
-            self._session.fib_image,
-            self._session.fm_image,
-            getattr(self, "_prior_runs", None) or (),
-            assumed_fm_transform=getattr(self, "_fm_transform_assumed", None),
-            use_placement_offset=not getattr(self, "_ignore_placement_offset", False),
-        )
-        if self._session.fib_image is not None and self._session.fm_image is not None:
-            self._prior_rejected = seed.prior_rejected
-        return seed
-
-    def _nominal_transform(self):
-        """The geometry's FM->FIB transform for the loaded images, or why there is none.
-
-        Returns ``(nominal, note)``: ``note`` is empty when a seed was built and
-        otherwise says what the images did not record, for the status line.
-        """
-        seed = self._seed()
-        return seed.transform, seed.note
 
     @staticmethod
     def _seed_status(result: CorrelationResult) -> str:
@@ -3770,8 +3681,9 @@ class CorrelationTabWidget(QWidget):
             self._show_verdict(result)
         elif live:
             note = self._seed_status(result)
-            if not note and getattr(self, "_seed_note", ""):
-                note = f"unseeded fit: {self._seed_note}"
+            seed = self._session.last_seed
+            if not note and seed is not None and seed.note:
+                note = f"unseeded fit: {seed.note}"
             if note:
                 self._lbl_status.setText(f"{self._lbl_status.text()} — {note}")
         # Last, so it survives whichever line above was chosen. Without a slice
@@ -3934,14 +3846,23 @@ class CorrelationTabWidget(QWidget):
             )
         )
 
-    def _on_correction_applied(self, result: CorrelationResult) -> None:
-        self._session.set_result(result)
+    def _on_post_correction_requested(self, factor: float) -> None:
+        """Have the session correct the result, and show it.
+
+        A refusal is reported on the RI tab rather than reaching the event loop.
+        The corrected result is re-judged: Apply records the FIB surface on it,
+        which can make it current again, or Continue stays hidden on a corrected
+        result that is ready to commit.
+        """
+        try:
+            live = self._session.apply_post_correction(factor)
+        except ValueError as exc:
+            logging.exception("RI post-correction refused")
+            self._ri_tab._set_warning(f"Correction not applied: {exc}")
+            return
+        result = self._session.result
         self._overlay_result_on_fib(result)
-        # A FIB surface placed after the run is a transform input, so placing it
-        # marked the result stale and hid Continue. Apply records that surface on
-        # the result, which can make it current again -- re-judge it, or Continue
-        # stays hidden on a corrected result that is ready to commit.
-        self._set_result_live(result.matches_inputs(self._session.fit_data))
+        self._set_result_live(live)
         factor = result.refractive_index_correction_factor
         shift = self._poi_shift_px(result)
         if factor is not None and shift is not None:
@@ -3952,9 +3873,10 @@ class CorrelationTabWidget(QWidget):
 
     def _on_pre_correction_requested(self, factor: float, rerun: bool) -> None:
         """Store the pre-correlation RI factor and optionally re-run."""
-        self._session.arm_auto_save()
-        self._session.ri_pre_correction_factor = factor
-        self._session.ri_pre_correction_params = self._ri_params_record()
+        ri = self._ri_tab._ri_widget
+        self._session.arm_pre_correction(
+            factor, ri.get_params(), ri.factor_is_computed()
+        )
         self.data_changed.emit(self.data)  # auto-save + RI tab refresh
         # Apply is reachable before the points can support a correlation now the
         # RI tab is no longer gated on a finished run, and _run does not check --
@@ -3983,23 +3905,10 @@ class CorrelationTabWidget(QWidget):
         # so the armed factor was the 15° one under a box reading 0° (FIB-1234).
         ri.set_tilt_locked(True)
         factor = ri.get_factor()
-        self._session.ri_pre_correction_factor = factor
-        self._session.ri_pre_correction_params = self._ri_params_record()
+        self._session.arm_pre_correction(
+            factor, ri.get_params(), ri.factor_is_computed()
+        )
         return factor
-
-    def _ri_params_record(self) -> dict:
-        """The optical parameters on screen, as the saved run records them with
-        the armed factor, and whether the factor is ζ of them or was entered."""
-        ri = self._ri_tab._ri_widget
-        p = ri.get_params()
-        return {
-            "tilt_deg": p.tilt_deg,
-            "depth_um": p.depth_um,
-            "na": p.NA,
-            "n2": p.n2,
-            "wavelength_um": p.wavelength_um,
-            "computed": ri.factor_is_computed(),
-        }
 
     def _on_run_error(self, msg: str) -> None:
         self._session.fail_run()
@@ -4178,7 +4087,7 @@ class CorrelationTabWidget(QWidget):
         """Back to a prediction: the point is a guess again and re-projects."""
         if not self._point_store.reset_to_predicted(coord):
             return  # not a point the projection made
-        nominal, _ = self._nominal_transform()
+        nominal = self._session.seed().transform
         if nominal is not None:
             self._place_predictions(nominal)
         self._discard_result()

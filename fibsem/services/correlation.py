@@ -1,8 +1,8 @@
 """Correlation as a service: FM to FIB on saved images.
 
 The correlation itself is `fibsem.correlation`'s, the same library the
-correlation tab runs: the seed, the fit and its verdict, the point fits and the
-run folders. The service takes saved image *paths* and points, since a route
+correlation tab runs: a correlation session (the seed, the fit and its
+verdict), the point fits and the run folders. The service takes saved image *paths* and points, since a route
 can't carry an image, and saves each correlation as a run in the lamella's
 Correlation folder, where the tab and the next correlation find it.
 
@@ -64,16 +64,10 @@ class Correlation(Service):
         """
         from fibsem.correlation.config import MIN_FIDUCIAL_PAIRS
         from fibsem.correlation.export import save_overlay
-        from fibsem.correlation.fit import fit_transform, seed_for
         from fibsem.correlation.history import new_run_dir, save_run
         from fibsem.correlation.prior import experiment_runs
-        from fibsem.correlation.structures import (
-            Coordinate,
-            CorrelationInputData,
-            CorrelationState,
-            PointType,
-            PointXYZ,
-        )
+        from fibsem.correlation.session import CorrelationSession
+        from fibsem.correlation.structures import Coordinate, PointType, PointXYZ
         from fibsem.fm.structures import FluorescenceImage
         from fibsem.structures import FibsemImage
 
@@ -100,31 +94,27 @@ class Correlation(Service):
                 out.append(Coordinate(PointXYZ(x, y, z), kind))
             return out
 
-        fib_image = FibsemImage.load(fib_image_path)
-        fm_image = FluorescenceImage.load(fm_image_path)
-        data = CorrelationInputData(
-            fib_image=fib_image,
-            fm_image=fm_image,
-            fib_coordinates=coordinates(fib_points, PointType.FIB, 2),
-            fm_coordinates=coordinates(fm_points, PointType.FM, 3),
-            poi_coordinates=coordinates(poi_points, PointType.POI, 3),
+        session = CorrelationSession()
+        session.fib_image = FibsemImage.load(fib_image_path)
+        session.fm_image = FluorescenceImage.load(fm_image_path)
+        session.points.add_many(
+            coordinates(fib_points, PointType.FIB, 2)
+            + coordinates(fm_points, PointType.FM, 3)
+            + coordinates(poi_points, PointType.POI, 3)
         )
-        runs = (
-            experiment_runs(
+        if lamella_path:
+            session.prior_runs = experiment_runs(
                 os.path.dirname(os.path.abspath(lamella_path)), lamella_path
             )
-            if lamella_path
-            else ()
-        )
-        seed = seed_for(fib_image, fm_image, runs)
-        result = fit_transform(data, seed)
+        result = session.run()
 
-        answer = _summary(result, data, seed)
+        data = session.data
+        answer = _summary(result, data, session.last_seed)
         if lamella_path:
             run_path = new_run_dir(lamella_path)
-            save_run(run_path, CorrelationState(input_data=data, result=result))
+            save_run(run_path, session.state)
             overlay_path = os.path.join(run_path, OVERLAY_FILENAME)
-            save_overlay(overlay_path, fib_image, data, result)
+            save_overlay(overlay_path, session.fib_image, data, result)
             answer.update(run_path=run_path, overlay_path=overlay_path)
         return answer
 
