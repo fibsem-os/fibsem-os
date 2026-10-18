@@ -564,7 +564,7 @@ class TestNamingOnTheSampleView:
         ui, microscope, exp = _window_with_magazine(main_ui, tmp_path)
 
         runner = ui.session.runner
-        ui.session.runner = StubRunner(is_running=True)
+        ui.session.runner = StubRunner(ui.session, is_running=True)
         try:
             _name_on_the_sample_view(ui, 1, "grid-birch")
         finally:

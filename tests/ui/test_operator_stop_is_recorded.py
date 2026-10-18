@@ -80,7 +80,7 @@ def test_a_stop_not_confirmed_records_nothing(main_ui, recorder, monkeypatch):
 
 def test_closing_the_window_mid_run_records_the_stop(main_ui, recorder, monkeypatch):
     ui = main_ui.autolamella_ui
-    monkeypatch.setattr(ui.session, "runner", StubRunner(is_running=True))
+    monkeypatch.setattr(ui.session, "runner", StubRunner(ui.session, is_running=True))
     monkeypatch.setattr(ui, "stop_task_workflow", lambda: None)
     monkeypatch.setattr(QMessageBox, "exec_", lambda self: QMessageBox.Yes)
     assert main_ui._confirm_close_during_workflow() is True

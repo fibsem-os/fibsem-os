@@ -1,6 +1,6 @@
 """Report v2, the page built from ``events.jsonl`` (FIB-1036).
 
-The first tests write the report of a real run through ``run_tasks`` on Demo.
+The first tests write the report of a real run through the session's runner on Demo.
 The rest render records written here in the recorder's shape, for what a
 headless Demo run cannot produce: time spent waiting, idle gaps, failed and
 retried runs.
@@ -37,11 +37,11 @@ from fibsem.applications.autolamella.tools.report_v2 import (
     summarise,
     write_report,
 )
-from fibsem.applications.autolamella.workflows.tasks.manager import run_tasks
 from fibsem.applications.autolamella.workflows.tasks.rough import MillRoughTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.select_position import (
     SelectMillingPositionTaskConfig,
 )
+from tests.run_state import run_lamellae
 
 SETUP = "Setup Lamella Position"
 ROUGH = "Rough Milling"
@@ -94,7 +94,7 @@ def _count(page, pattern):
 
 
 def test_the_report_of_a_run_is_written_beside_its_record(microscope, experiment):
-    run_tasks(microscope, experiment, [SETUP, ROUGH])
+    run_lamellae(microscope, experiment, [SETUP, ROUGH])
 
     path = write_report(experiment)
 

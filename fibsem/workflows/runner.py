@@ -11,6 +11,11 @@ The manager does the run itself (``BaseTaskManager.execute``). The runner holds
 what outlives one run or comes before it: the one-run-at-a-time slot, the
 thread, the last run's summary and closing note, and the signals a window
 draws its chrome from. Nothing here needs Qt.
+
+The queue lives only while a run does, so its edits are the runner's too:
+``add`` work to it, ``requeue`` a pair, ``edit`` a waiting one. The timeline,
+the Add to queue button and the App Server all edit it here, checked by the
+same rules a start is, and each edit is recorded with who made it.
 """
 
 from __future__ import annotations
@@ -20,11 +25,13 @@ import importlib
 import logging
 import threading
 from dataclasses import dataclass, field, replace
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 from psygnal import Signal
 
 from fibsem.hooks import HookManager
+from fibsem.workflows.queue import QUEUE_ACTIONS, QueueOp
+from fibsem.workflows.status import TaskStatus
 
 # What a run is over: an app's own items (AutoLamella's lamellae), or grids.
 ITEMS = "items"
@@ -70,17 +77,69 @@ def refused(reason: str, **details: Any) -> RunStart:
 
 
 @dataclass(frozen=True)
+class QueueEdit:
+    """What an edit to the running queue did, or why it did nothing.
+
+    ``reason`` is said as it is, by a toast or to the agent. ``error_type``
+    names the refusal: ``not_running``, ``refused`` (the run's rules),
+    ``invalid`` (no such action), ``not_found``, ``not_pending``, ``fixed``
+    (a step the plan places), ``already_queued``. ``items`` are the items
+    added, or the one edited. ``changed`` is False for an edit that moved
+    nothing, the item being first or last already.
+    """
+
+    applied: bool
+    reason: str = ""
+    error_type: str = ""
+    items: Tuple[Any, ...] = ()
+    changed: bool = False
+    version: int = 0
+    details: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class QueuePlan:
+    """The pairs adding ``request`` would queue, in order, and whether they go
+    to run next."""
+
+    request: RunRequest
+    pairs: Tuple[Tuple[str, str], ...]
+    run_next: bool = False
+
+
+def not_edited(reason: str, error_type: str, **details: Any) -> QueueEdit:
+    return QueueEdit(
+        applied=False, reason=reason, error_type=error_type, details=details
+    )
+
+
+def item_task_pairs(request: RunRequest) -> List[Tuple[str, str]]:
+    """Task-outer, item-inner: how a run's queue is laid out
+    (``TaskQueue.build_from_matrix``), so added work interleaves the same way."""
+    return [(name, task) for task in request.task_names for name in request.names]
+
+
+@dataclass(frozen=True)
 class RunRules:
     """One kind of run for one app.
 
     ``check(experiment, microscope, request)`` refuses the request or accepts
     it with its names resolved; ``make_manager(microscope, experiment,
     request, parent_ui, hook_manager, responder, answerers)`` makes the run's
-    task manager.
+    task manager. The same check is asked before work joins a running queue.
+    ``plan_addition(queue, request, run_next)`` is the pairs that adding the
+    request queues, or a refusal; each task over each item by default.
+    ``prepare(experiment, request)`` readies the experiment for the request's
+    pairs before they are queued; AutoLamella gives a lamella the config of a
+    task it has none for.
     """
 
     check: Callable[[Any, Any, RunRequest], RunStart]
     make_manager: Callable[..., Any]
+    plan_addition: Optional[
+        Callable[[Any, RunRequest, bool], Union[Sequence[Tuple[str, str]], QueueEdit]]
+    ] = None
+    prepare: Optional[Callable[[Any, RunRequest], None]] = None
 
 
 @dataclass(frozen=True)
@@ -266,6 +325,213 @@ class WorkflowRunner:
                 self.manager = None
                 self._thread = None
             self.finished.emit(cancelled)
+
+    def check(self, experiment: Any, request: RunRequest) -> RunStart:
+        """Whether ``request`` could run, by its rules, without starting it:
+        what a window asks before its confirmation."""
+        try:
+            rules = self.rules(experiment, request.kind)
+        except KeyError as e:
+            return refused(str(e.args[0]))
+        return rules.check(experiment, self._session.microscope, request)
+
+    # --- The running queue ---
+
+    def joins(self, kind: str) -> str:
+        """Why work of ``kind`` cannot join the running queue now, or "".
+        A run is of one kind: grid tasks join a grid run only."""
+        manager = self.manager
+        if manager is None:
+            return "no workflow is running; the queue exists only during a run"
+        if manager.RUN_KIND == kind:
+            return ""
+        going = f"{manager.RUN_DESCRIPTION.capitalize()} is going"
+        if kind == GRIDS:
+            return f"{going}; grid tasks cannot join it"
+        return f"{going}; only grid tasks can join it"
+
+    def _joining(self, kind: str) -> Tuple[Optional[Any], Optional[QueueEdit]]:
+        """The running manager, or why ``kind`` cannot join it."""
+        why = self.joins(kind)
+        if why:
+            error_type = "not_running" if self.manager is None else "refused"
+            return None, not_edited(why, error_type)
+        return self.manager, None
+
+    def plan_addition(
+        self, request: RunRequest, run_next: bool = False
+    ) -> Union[QueuePlan, QueueEdit]:
+        """What adding ``request`` to the running queue would queue, or why
+        not; nothing is queued. What a window prices and confirms before it
+        calls ``add``."""
+        manager, why = self._joining(request.kind)
+        if why is not None:
+            return why
+        experiment = manager.experiment
+        rules = self.rules(experiment, request.kind)
+        checked = rules.check(experiment, manager.microscope, request)
+        if not checked.started:
+            return not_edited(checked.reason, "refused", **checked.details)
+        request = checked.request or request
+        if rules.plan_addition is None:
+            return QueuePlan(request, tuple(item_task_pairs(request)), run_next)
+        pairs = rules.plan_addition(manager.queue, request, run_next)
+        if isinstance(pairs, QueueEdit):
+            return pairs
+        # Where it goes is the plan's, not the caller's.
+        return QueuePlan(request, tuple(pairs), run_next=False)
+
+    def add(
+        self, request: RunRequest, run_next: bool = False, actor: Any = None
+    ) -> QueueEdit:
+        """Add ``request``'s work to the running queue: at the end, or to run
+        next, in order. Checked as a start is; a pair already waiting is added
+        again, since the operator asked for it. Call it where the experiment
+        is edited (``session.run_edit``): readying a pair can edit it."""
+        plan = self.plan_addition(request, run_next)
+        if isinstance(plan, QueueEdit):
+            return plan
+        manager = self.manager
+        rules = self.rules(manager.experiment, request.kind)
+        if rules.prepare is not None:
+            rules.prepare(manager.experiment, plan.request)
+        run_next = plan.run_next
+        added, anchor = [], None
+        for name, task_name in plan.pairs:
+            # For "run next" each item goes after the one before it: every one
+            # at the front would put each ahead of the last, reversing them.
+            if not run_next:
+                item = manager.queue.add(name, task_name)
+            elif anchor is None:
+                item = manager.queue.add(name, task_name, front=True)
+            else:
+                item = manager.queue.add(name, task_name, after=anchor)
+            if item is not None:
+                anchor = item.id
+                added.append(item)
+        self._queue_changed(manager, "add_next" if run_next else "add", added, actor)
+        return QueueEdit(
+            applied=bool(added),
+            items=tuple(added),
+            changed=bool(added),
+            version=manager.queue.version,
+        )
+
+    def requeue(
+        self, name: str, task_name: str, front: bool = False, actor: Any = None
+    ) -> QueueEdit:
+        """Queue ``task_name`` for ``name`` (again): at the end, or the front.
+        Checked as a start is. A pair already waiting is refused: it runs once.
+        Call it where the experiment is edited, as for ``add``."""
+        manager = self.manager
+        kind = manager.RUN_KIND if manager is not None else ITEMS
+        manager, why = self._joining(kind)
+        if why is not None:
+            return why
+        if task_name in manager.queue.fixed_tasks:
+            return not_edited(f"{task_name} stays with {name}'s tasks.", "fixed")
+        experiment = manager.experiment
+        rules = self.rules(experiment, kind)
+        request = RunRequest(kind=kind, task_names=(task_name,), names=(name,))
+        checked = rules.check(experiment, manager.microscope, request)
+        if not checked.started:
+            return not_edited(checked.reason, "refused", **checked.details)
+        label = f"{task_name} for {name}"
+        if manager.queue.has_pending_pair(name, task_name):
+            return not_edited(
+                f"{label} is already waiting in the queue; it runs once.",
+                "already_queued",
+            )
+        if rules.prepare is not None:
+            rules.prepare(experiment, request)
+        result = manager.queue.requeue(name, task_name, front=front)
+        if not result.ok:
+            # Queued by another edit between the check and here.
+            return not_edited(
+                f"{label} is already waiting in the queue; it runs once.",
+                "already_queued",
+            )
+        action = "requeue_front" if front else "requeue"
+        self._queue_changed(manager, action, [result.item], actor)
+        return QueueEdit(
+            applied=True,
+            items=(result.item,),
+            changed=True,
+            version=result.version,
+        )
+
+    def edit(
+        self, name: str, task_name: str, action: str, actor: Any = None
+    ) -> QueueEdit:
+        """Remove or move the waiting ``task_name`` for ``name``: one of
+        :data:`QUEUE_ACTIONS`. Only a pair still waiting can be edited."""
+        if action not in QUEUE_ACTIONS:
+            return not_edited(
+                f"Unknown action {action!r}.",
+                "invalid",
+                action_names=list(QUEUE_ACTIONS),
+            )
+        manager = self.manager
+        if manager is None:
+            return not_edited(self.joins(ITEMS), "not_running")
+        label = f"{task_name} for {name}"
+        item = manager.queue.find_pair(name, task_name)
+        if item is None:
+            return not_edited(f"{label} is no longer in the queue.", "not_found")
+        result = manager.queue.apply(item.id, action)
+        if result.op is QueueOp.FIXED:
+            return not_edited(f"{task_name} stays with {name}'s tasks.", "fixed")
+        if result.op is QueueOp.NOT_PENDING:
+            if item.status is TaskStatus.InProgress:
+                state = "is running now; stop it instead"
+            elif item.status is TaskStatus.Removed:
+                state = "was already removed"
+            else:
+                state = f"already ran ({item.status.name})"
+            return not_edited(f"{label} {state}.", "not_pending")
+        if result.op is QueueOp.NOT_FOUND:
+            return not_edited(f"{label} is no longer in the queue.", "not_found")
+        if result.ok:
+            self._queue_changed(manager, action, [item], actor)
+        return QueueEdit(
+            applied=True,
+            items=(item,),
+            changed=result.ok,
+            version=result.version,
+        )
+
+    def _queue_changed(
+        self, manager: Any, action: str, items: Sequence[Any], actor: Any
+    ) -> None:
+        """Tell the window, and put one ``queue_changed`` per item on the
+        record. Unnamed, the actor is whoever marked the thread (the agent's
+        requests are marked); a window names the operator."""
+        if not items:
+            return
+        manager.notify_queue_changed()
+        buffer = self._event_buffer()
+        if buffer is None:
+            return
+        for item in items:
+            buffer.append(
+                "queue_changed",
+                {
+                    "action": action,
+                    "item_name": item.item_name,
+                    "task_name": item.task_name,
+                    "queue_item_id": item.id,
+                },
+                actor=actor,
+            )
+
+    def _event_buffer(self) -> Optional[Any]:
+        """The session's event stream: the App Server's when one is hosted
+        (the recorder's, or its own without one), else the recorder's."""
+        host = self._session.app_server
+        if host is not None and getattr(host, "event_buffer", None) is not None:
+            return host.event_buffer
+        recorder = self._session.recorder
+        return recorder.buffer if recorder is not None else None
 
     def join(self, timeout: Optional[float] = None) -> bool:
         """Wait for the run to end; whether it has."""

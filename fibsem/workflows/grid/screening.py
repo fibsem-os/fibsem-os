@@ -1,10 +1,11 @@
 """One action: inventory the grids, then run the protocol on every one of them.
 
 The Arctis user's real ask is "inventory all my grids and acquire the overviews".
-Nothing here is new; it is the order in which the pieces that exist get called,
-written once so the button, a script and the App Server run the same thing.
-On a fixed holder every present grid is already loaded, so the same call
-is a run with zero exchanges.
+The run is a grid run with ``inventory_first``, started through the session's
+runner as every run is, so the button, a script and the App Server run the same
+thing. This is what it reads: the grids present, and the plan a confirmation
+shows. On a fixed holder every present grid is already loaded, so the same run
+has zero exchanges.
 """
 
 from __future__ import annotations
@@ -13,20 +14,16 @@ import logging
 from collections import Counter
 from typing import TYPE_CHECKING, Dict, List, Mapping, Optional, Tuple
 
-from fibsem.hooks import HookManager
 from fibsem.structures import GridInventoryEntry
 from fibsem.workflows.grid.manager import (
-    GridTaskManager,
     grid_rename_refusal,
     name_slot_grid,
     plan_grid_run,
-    run_grid_tasks,
 )
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
     from fibsem.workflows.grid.protocol import GridExperiment
-    from fibsem.workflows.manager import WorkflowWindow
 
 
 def present_grids(
@@ -144,27 +141,3 @@ def screening_plan(
     if task_names is None:
         task_names = experiment.grid_protocol.ordered_task_names
     return plan_grid_run(task_names, present_grids(microscope, experiment))
-
-
-def screen_grids(
-    microscope: "FibsemMicroscope",
-    experiment: "GridExperiment",
-    task_names: Optional[List[str]] = None,
-    parent_ui: Optional[WorkflowWindow] = None,
-    hook_manager: Optional[HookManager] = None,
-    unload_at_end: bool = False,
-    report_at_end: bool = False,
-) -> GridTaskManager:
-    """Inventory, then the protocol's tasks (in its order, unless given) on every
-    present grid. Returns the manager, for its queue and run summary. The
-    end-of-run options are `run_grid_tasks`'s."""
-    return run_grid_tasks(
-        microscope,
-        experiment,
-        task_names=task_names,
-        grid_names=present_grids(microscope, experiment),
-        parent_ui=parent_ui,
-        hook_manager=hook_manager,
-        unload_at_end=unload_at_end,
-        report_at_end=report_at_end,
-    )

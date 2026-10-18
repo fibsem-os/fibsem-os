@@ -3,10 +3,17 @@ starts, and the manager it runs on (see ``fibsem.workflows.runner``)."""
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, List, Tuple, Union
 
 from fibsem.workflows.grid.manager import GridTaskManager, plan_grid_run
-from fibsem.workflows.runner import RunRequest, RunRules, RunStart, refused
+from fibsem.workflows.runner import (
+    QueueEdit,
+    RunRequest,
+    RunRules,
+    RunStart,
+    not_edited,
+    refused,
+)
 
 # What a grid request may carry beyond its tasks and grids.
 GRID_OPTIONS = ("inventory_first", "unload_at_end", "report_at_end")
@@ -64,6 +71,23 @@ def check_grid_run(experiment: Any, microscope: Any, request: RunRequest) -> Run
     )
 
 
+def plan_grid_addition(
+    queue: Any, request: RunRequest, run_next: bool
+) -> Union[List[Tuple[str, str]], QueueEdit]:
+    """Each grid's load, then its tasks, less what is already waiting, at the
+    end of the queue whatever ``run_next`` says: run next would put an
+    exchange in front of the grid that is loaded, then exchange back."""
+    pending = {(i.item_name, i.task_name) for i in queue.pending}
+    pairs = [
+        p
+        for p in plan_grid_run(list(request.task_names), list(request.names))
+        if p not in pending
+    ]
+    if not pairs:
+        return not_edited("Everything named is already queued.", "already_queued")
+    return pairs
+
+
 def make_grid_manager(
     microscope: Any,
     experiment: Any,
@@ -86,4 +110,8 @@ def make_grid_manager(
     )
 
 
-GRID_RUNS = RunRules(check=check_grid_run, make_manager=make_grid_manager)
+GRID_RUNS = RunRules(
+    check=check_grid_run,
+    make_manager=make_grid_manager,
+    plan_addition=plan_grid_addition,
+)

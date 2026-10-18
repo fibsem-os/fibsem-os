@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Set, Tuple
 
 import pandas as pd
 
-from fibsem.acting import WORKFLOW, ActorKind
+from fibsem.acting import ActorKind
 from fibsem.applications.autolamella.workflows.ui import update_status_ui
 from fibsem.cancellation import OperationCancelledError
 from fibsem.constants import DATETIME_DISPLAY_AMPM
@@ -584,28 +584,3 @@ class TaskManager(BaseTaskManager):
             self._result_not_saved(lamella, task_name, e)
             raise
         return None
-
-
-def run_tasks(
-    microscope: FibsemMicroscope,
-    experiment: "Experiment",
-    task_names: List[str],
-    required_lamella: Optional[List[str]] = None,
-    parent_ui: Optional["AutoLamellaUI"] = None,
-    hook_manager: Optional[HookManager] = None,
-    responder: Optional[Responder] = None,
-) -> None:
-    """Run the specified tasks for all lamellas in the experiment.
-    Thin wrapper around TaskManager for backward compatibility and headless usage.
-    In control of the microscope for the run (FIB-1270): refused with
-    ``MicroscopeBusy`` if someone else is.
-    """
-    manager = TaskManager(
-        microscope,
-        experiment,
-        parent_ui,
-        hook_manager=hook_manager,
-        responder=responder,
-    )
-    with microscope.control.take(WORKFLOW, "a lamella run"):
-        manager.run(task_names, required_lamella)

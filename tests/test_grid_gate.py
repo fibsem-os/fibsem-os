@@ -1,5 +1,5 @@
 """A lamella run is refused, by name, while a linked lamella's grid is off the
-stage (FIB-71). See `workflows/grid_gate.py`."""
+stage (FIB-71). See `workflows/runs.py`."""
 
 import os
 
@@ -11,7 +11,7 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.workflows.grid_gate import (
+from fibsem.applications.autolamella.workflows.runs import (
     lamellae_off_the_stage,
     run_refusal,
 )

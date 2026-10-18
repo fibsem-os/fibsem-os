@@ -38,13 +38,11 @@ from typing import Any, Dict, List, Optional, Protocol
 import fibsem.config as fibsem_cfg
 from fibsem.acting import Actor
 from fibsem.applications.autolamella import task_outputs as _task_outputs
-from fibsem.applications.autolamella.workflows.grid_gate import run_refusal
 from fibsem.server.files import jpeg_preview
 from fibsem.structures import BeamType
 from fibsem.util.timestamps import to_iso, wall_time_of
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.outputs import item_outputs, latest_item_output
-from fibsem.workflows.queue import QUEUE_ACTIONS, QueueOp
 from fibsem.workflows.runner import GRIDS, ITEMS, RunRequest
 from fibsem.workflows.status import TaskStatus
 
@@ -3061,68 +3059,32 @@ class AutoLamellaAppContext:
         the live run: "run 03 again" while the batch continues. Adding a
         duplicate of a completed pair is the queue's own re-run mechanism; the
         item lands at the back (or the front with ``front=True``). A pair
-        already waiting is refused (``already_queued``): it runs once.
+        already waiting is refused (``already_queued``): it runs once. The
+        timeline's Run again queues the same way (``session.runner.requeue``).
         """
-        manager = self._manager
-        if manager is None:
-            return {
+        edit = self._agent_call(
+            lambda: self._session.runner.requeue(
+                item_name, task_name, front=bool(front)
+            )
+        )
+        if not edit.applied:
+            out: Dict[str, Any] = {
                 "available": True,
                 "queued": False,
-                "reason": "no workflow is running — the queue exists only during a run",
+                "reason": edit.reason,
+                **edit.details,
             }
-        experiment = self._experiment
-        lamella, refusal = find_item(experiment, item_name)
-        if refusal:
-            return {
-                "available": True,
-                "queued": False,
-                "reason": refusal["error"],
-                "item_names": refusal["item_names"],
-            }
-        protocol = getattr(experiment, "task_protocol", None)
-        config = getattr(protocol, "workflow_config", None) if protocol else None
-        known = [t.name for t in config.tasks] if config is not None else []
-        if known and task_name not in known:
-            return {
-                "available": True,
-                "queued": False,
-                "reason": f"No task named {task_name!r} in the protocol.",
-                "task_names": known,
-            }
-        # The Add to queue click's grid gate: a lamella whose grid is not on
-        # the stage is refused by name.
-        stage = getattr(self._microscope, "sample_handling", None)
-        if stage is not None:
-            refused = run_refusal(experiment, stage, [lamella])
-            if refused:
-                return {"available": True, "queued": False, "reason": refused}
-        result = manager.queue.requeue(item_name, task_name, front=bool(front))
-        if result.op is QueueOp.ALREADY_QUEUED:
-            # A re-ask after a partial failure would queue it twice (FIB-1405).
-            return {
-                "available": True,
-                "queued": False,
-                "error_type": "already_queued",
-                "reason": f"{item_name} / {task_name} is already waiting in the "
-                "queue; it runs once.",
-            }
-        if result.op is QueueOp.FIXED:
-            return {
-                "available": True,
-                "queued": False,
-                "error_type": "fixed",
-                "reason": f"{task_name} stays with {item_name}'s tasks.",
-            }
-        item = result.item
-        manager.notify_queue_changed()
-        self._record_queue_change("requeue_front" if front else "requeue", item)
+            if edit.error_type in ("already_queued", "fixed"):
+                out["error_type"] = edit.error_type
+            return out
+        (item,) = edit.items
         return {
             "available": True,
             "queued": True,
             "item_id": item.id,
             "item_name": item_name,
             "task_name": task_name,
-            "queue_version": manager.queue.version,
+            "queue_version": edit.version,
         }
 
     def queue_grid_tasks(
@@ -3131,51 +3093,19 @@ class AutoLamellaAppContext:
         """Add grid tasks for grids to the running grid run, at the end of the
         queue, as the Grids view's Add to queue does: each grid's load, then
         its tasks, less what is already waiting."""
-        from fibsem.workflows.grid.manager import (
-            GridTaskManager,
+        request = RunRequest(
+            kind=GRIDS, task_names=tuple(task_names), names=tuple(grid_names)
         )
-
-        manager = self._manager
-        if manager is None:
-            return {
-                "queued": False,
-                "reason": "no workflow is running; the queue exists only during a run",
-            }
-        if not isinstance(manager, GridTaskManager):
-            return {
-                "queued": False,
-                "reason": "a lamella run is going; grid tasks cannot join it",
-            }
-        experiment = self._experiment
-        known_tasks = list(experiment.grid_protocol.ordered_task_names)
-        unknown = [t for t in task_names if t not in known_tasks]
-        if not task_names or unknown:
-            return {
-                "queued": False,
-                "reason": f"unknown grid tasks: {unknown!r}" if unknown else "no tasks",
-                "task_names": known_tasks,
-            }
-        known_grids = [g.name for g in experiment.grids]
-        missing = [n for n in grid_names if n not in known_grids]
-        if not grid_names or missing:
-            return {
-                "queued": False,
-                "reason": f"unknown grids: {missing!r}" if missing else "no grids",
-                "grid_names": known_grids,
-            }
-        pairs = manager.pairs_to_queue(list(task_names), list(grid_names))
-        if not pairs:
-            return {"queued": False, "reason": "everything named is already queued"}
-        added = manager.queue_pairs(pairs)
-        for item in added:
-            self._record_queue_change("requeue", item)
+        edit = self._agent_call(lambda: self._session.runner.add(request))
+        if not edit.applied:
+            return {"queued": False, "reason": edit.reason, **edit.details}
         return {
-            "queued": bool(added),
+            "queued": True,
             "added": [
                 {"item_id": i.id, "grid_name": i.item_name, "step": i.task_name}
-                for i in added
+                for i in edit.items
             ],
-            "queue_version": manager.queue.version,
+            "queue_version": edit.version,
         }
 
     def edit_queue(self, item_name: str, task_name: str, action: str) -> Dict[str, Any]:
@@ -3188,84 +3118,29 @@ class AutoLamellaAppContext:
         is refused (``not_pending``) -- stopping it is ``stop_workflow`` -- and
         so is one that already ran.
         """
-        if action not in QUEUE_ACTIONS:
+        edit = self._session.runner.edit(item_name, task_name, action)
+        if not edit.applied:
+            if edit.error_type == "not_running":
+                return {"available": True, "applied": False, "reason": edit.reason}
             return {
                 "available": True,
                 "applied": False,
-                "error_type": "invalid",
-                "error": f"Unknown action {action!r}.",
-                "action_names": list(QUEUE_ACTIONS),
+                "error_type": edit.error_type,
+                "error": edit.reason,
+                **edit.details,
             }
-        manager = self._manager
-        if manager is None:
-            return {
-                "available": True,
-                "applied": False,
-                "reason": "no workflow is running — the queue exists only during a run",
-            }
-        item = manager.queue.find_pair(item_name, task_name)
-        if item is None:
-            return {
-                "available": True,
-                "applied": False,
-                "error_type": "not_found",
-                "error": f"{item_name} / {task_name} is not in the queue.",
-            }
-        result = manager.queue.apply(item.id, action)
-        if result.op is QueueOp.FIXED:
-            # The grid load step: the plan shows where the exchanges fall.
-            return {
-                "available": True,
-                "applied": False,
-                "error_type": "fixed",
-                "error": f"{task_name} stays with {item_name}'s tasks.",
-            }
-        if result.op is QueueOp.NOT_PENDING:
-            if item.status is TaskStatus.InProgress:
-                state = "is running now; stop it instead"
-            elif item.status is TaskStatus.Removed:
-                state = "was already removed"
-            else:
-                state = f"already ran ({item.status.name})"
-            return {
-                "available": True,
-                "applied": False,
-                "error_type": "not_pending",
-                "error": f"{item_name} / {task_name} {state}.",
-            }
-        if result.op is QueueOp.NOT_FOUND:
-            return {
-                "available": True,
-                "applied": False,
-                "error_type": "not_found",
-                "error": f"{item_name} / {task_name} is not in the queue.",
-            }
-        if result.ok:
-            manager.notify_queue_changed()
-            self._record_queue_change(action, item)
+        (item,) = edit.items
         return {
             "available": True,
             "applied": True,
             # Already first or last: nothing moved.
-            "changed": result.ok,
+            "changed": edit.changed,
             "item_id": item.id,
             "item_name": item_name,
             "task_name": task_name,
             "action": action,
-            "queue_version": result.version,
+            "queue_version": edit.version,
         }
-
-    def _record_queue_change(self, action: str, item) -> None:
-        """One ``queue_changed`` event; the stamp says who made the edit."""
-        self.record_event(
-            "queue_changed",
-            {
-                "action": action,
-                "item_name": item.item_name,
-                "task_name": item.task_name,
-                "queue_item_id": item.id,
-            },
-        )
 
     # --- supervision prompts (FIB-851) ------------------------------------------
 

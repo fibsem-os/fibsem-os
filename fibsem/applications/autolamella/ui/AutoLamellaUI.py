@@ -101,7 +101,6 @@ from fibsem.applications.autolamella.ui.autolamella_load_task_protocol_widget im
 from fibsem.applications.autolamella.ui.autolamella_overview_image_widget import (
     create_overview_image_widget,
 )
-from fibsem.applications.autolamella.workflows.grid_gate import run_refusal
 from fibsem.ui.widgets.fluorescence_control_widget import FMControlWidget
 from fibsem.ui.widgets.workflow_summary_dialog import (
     WorkflowSummaryDialog,
@@ -1159,19 +1158,6 @@ class AutoLamellaUI(QMainWindow):
                 self.experiment.positions.events.changed.emit()
         except Exception:
             logging.exception("redraw after an agent's experiment edit failed")
-
-    def lamella_run_refusal(self, lamellae) -> str:
-        """Why these lamellae cannot run now, or "": a lamella linked to a grid
-        that is not on the stage. Reads the inventory first; see `grid_gate`.
-
-        The window's clicks' gate (Run, Add to queue); the runner and the
-        agent's requeue apply the same ``run_refusal``, so none of them can run
-        a lamella on the wrong grid.
-        """
-        stage = getattr(self.microscope, "sample_handling", None)
-        if self.experiment is None or stage is None:
-            return ""
-        return run_refusal(self.experiment, stage, lamellae)
 
     def request_apply_task_config_patch(
         self, item_name: str, task_name: str, patch: dict, version: str

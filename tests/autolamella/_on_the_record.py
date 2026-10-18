@@ -3,7 +3,7 @@ a manager over it.
 
 A task asks its questions on the record (``AutoLamellaTask.ask``), which
 needs an experiment to record them on. A test that builds a task by hand,
-rather than running it through ``run_tasks``, gives it one with this.
+rather than running it (``tests.run_state.run_lamellae``), gives it one with this.
 """
 
 from fibsem.applications.autolamella.structures import Experiment, Lamella

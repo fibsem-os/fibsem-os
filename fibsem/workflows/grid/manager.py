@@ -66,7 +66,7 @@ from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple
 
 import pandas as pd
 
-from fibsem.acting import WORKFLOW, ActorKind
+from fibsem.acting import ActorKind
 from fibsem.cancellation import OperationCancelledError
 from fibsem.devices.sample_loader import GridExchangeError
 from fibsem.hooks import HookEvent, HookManager
@@ -79,6 +79,7 @@ from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.interaction import Responder
 from fibsem.workflows.manager import BaseTaskManager, WorkflowWindow
 from fibsem.workflows.queue import WorkItem
+from fibsem.workflows.runner import GRIDS
 from fibsem.workflows.status import TaskState, TaskStatus, post_status
 
 if TYPE_CHECKING:
@@ -192,6 +193,7 @@ class GridTaskManager(BaseTaskManager):
     # would only make the plan lie about when the exchange happens.
     FIXED_TASKS = (LOAD_ENTRY_NAME,)
     RUN_DESCRIPTION = "a grid run"
+    RUN_KIND = GRIDS
 
     def __init__(
         self,
@@ -294,22 +296,6 @@ class GridTaskManager(BaseTaskManager):
         return pd.DataFrame(rows)
 
     # --- The run loop ---
-
-    def pairs_to_queue(
-        self, task_names: List[str], grid_names: List[str]
-    ) -> List[Tuple[str, str]]:
-        """The ``(grid, step)`` pairs adding *task_names* for *grid_names* to the
-        running queue would add: the run plan, less what is already waiting."""
-        pending = {(i.item_name, i.task_name) for i in self.queue.pending}
-        return [p for p in plan_grid_run(task_names, grid_names) if p not in pending]
-
-    def queue_pairs(self, pairs: List[Tuple[str, str]]) -> List[WorkItem]:
-        """Add *pairs* to the end of the running queue, the only place a grid's
-        block goes: "run next" would put an exchange in front of the grid that
-        is loaded, then exchange back. Answers the items added."""
-        added = [self.queue.add(grid, step) for grid, step in pairs]
-        self.notify_queue_changed()
-        return [item for item in added if item is not None]
 
     def _awaiting_decision(self, grid_name: str, task_name: str) -> bool:
         grid = self.experiment.get_grid_by_name(grid_name)
@@ -931,39 +917,3 @@ class GridTaskManager(BaseTaskManager):
             summary = ", ".join(f"{n} {s.lower()}" for s, n in counts.items())
             lines.append(f"{name}: {summary}")
         return lines
-
-
-def run_grid_tasks(
-    microscope: "FibsemMicroscope",
-    experiment: "GridExperiment",
-    task_names: Optional[List[str]] = None,
-    grid_names: Optional[List[str]] = None,
-    parent_ui: Optional[WorkflowWindow] = None,
-    hook_manager: Optional[HookManager] = None,
-    unload_at_end: bool = False,
-    report_at_end: bool = False,
-    responder: Optional[Responder] = None,
-) -> GridTaskManager:
-    """Run grid tasks headless: the protocol's tasks in its order, on every grid,
-    unless told otherwise. Returns the manager, for its queue and run summary.
-
-    ``unload_at_end`` returns the last grid to the magazine once the queue is
-    done; ``report_at_end`` writes the grid screening report however the run
-    ends. Both off unless asked for; the app's confirmation offers them.
-
-    In control of the microscope for the run (FIB-1270): refused with
-    ``MicroscopeBusy`` if someone else is."""
-    if task_names is None:
-        task_names = experiment.grid_protocol.ordered_task_names
-    manager = GridTaskManager(
-        microscope,
-        experiment,
-        parent_ui,
-        hook_manager,
-        responder,
-        unload_at_end=unload_at_end,
-        report_at_end=report_at_end,
-    )
-    with microscope.control.take(WORKFLOW, "a grid run"):
-        manager.run(task_names, grid_names)
-    return manager

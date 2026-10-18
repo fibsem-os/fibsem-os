@@ -26,10 +26,8 @@ from fibsem.workflows.grid import (
     BeamOverviewGridTaskConfig,
     FluorescenceOverviewGridTaskConfig,
 )
-from fibsem.workflows.grid.manager import (
-    run_grid_tasks,
-)
 from fibsem.workflows.status import TaskStatus as Status
+from tests.run_state import run_grids
 
 ROWS_OUT_OF_REACH = "(0,0), (0,1), (0,2), (0,3), (3,0), (3,1), (3,2), (3,3)"
 
@@ -64,7 +62,7 @@ def _beam(rows, cols, hfw, beam=BeamType.ELECTRON) -> OverviewAcquisitionSetting
 
 def _run(microscope, experiment, config):
     experiment.grid_protocol.add(config)
-    run_grid_tasks(microscope, experiment, [config.task_name], ["Grid-01"])
+    run_grids(microscope, experiment, [config.task_name], ["Grid-01"])
     grid = experiment.get_grid_by_name("Grid-01")
     (entry,) = [t for t in grid.task_history if t.name == config.task_name]
     return grid, entry

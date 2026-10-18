@@ -21,6 +21,7 @@ from fibsem.util.durations import format_duration_precise
 from fibsem.workflows.event_recording import run_recorder
 from fibsem.workflows.interaction import Responder
 from fibsem.workflows.queue import TaskQueue, WorkItem
+from fibsem.workflows.runner import ITEMS
 from fibsem.workflows.status import (
     Hold,
     HoldKind,
@@ -132,7 +133,7 @@ class BaseTaskManager:
         agent had been told was started with no event at all (FIB-1353).
 
         Stamps the experiment onto the images this run acquires. Done here
-        rather than only in the UI so a headless run through run_tasks()
+        rather than only in the UI so a run with no window
         records it too; the app also calls it when it adopts an experiment,
         and repeating it just re-sets the same two attributes. See FIB-449.
 
@@ -456,6 +457,9 @@ class BaseTaskManager:
     # What the run is called to whoever else wants the microscope while it
     # holds control: "Can't move: a lamella run is in control".
     RUN_DESCRIPTION = "a run"
+    # The kind of run this manager runs (``fibsem.workflows.runner``): what
+    # may join its queue while it runs.
+    RUN_KIND = ITEMS
 
     def beams_needed(self) -> Tuple[BeamType, ...]:
         """The beams turned on before the run, if they are off. Both, unless

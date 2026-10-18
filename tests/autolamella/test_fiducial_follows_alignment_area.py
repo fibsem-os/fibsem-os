@@ -163,7 +163,7 @@ def test_setup_again_after_the_fiducial_saves_and_reloads(
     from fibsem.applications.autolamella.workflows.tasks.fiducial import (
         MillFiducialTask,
     )
-    from fibsem.applications.autolamella.workflows.tasks.manager import run_tasks
+    from tests.run_state import run_lamellae
 
     exp = Experiment(path=tmp_path, name="fid-save")
     exp.task_protocol = AutoLamellaTaskProtocol(
@@ -200,8 +200,8 @@ def test_setup_again_after_the_fiducial_saves_and_reloads(
         MillFiducialTask, "update_milling_config_ui", lambda self, cfg, msg: cfg
     )
 
-    run_tasks(microscope, exp, [SETUP, FIDUCIAL])
-    run_tasks(microscope, exp, [SETUP])
+    run_lamellae(microscope, exp, [SETUP, FIDUCIAL])
+    run_lamellae(microscope, exp, [SETUP])
 
     assert lamella.has_completed_task(SETUP)
     assert lamella.has_completed_task(FIDUCIAL)
