@@ -316,10 +316,11 @@ def test_removing_the_fm_surface_point_disarms_the_pre_correction(tab):
     assert tab.session.ri_pre_correction_factor is None
 
 
-def test_any_change_to_the_store_arms_the_save_and_updates_the_counts(tab):
-    tab._save_armed = False
+def test_any_change_to_the_store_arms_the_save_and_updates_the_counts(tab, tmp_path):
+    tab.session.set_project_dir(str(tmp_path))  # disarms
+    assert not tab.session.auto_save_due()
     tab._point_store.add_many([_coord(200, PointType.FIB)])
-    assert tab._save_armed is True
+    assert tab.session.auto_save_due()
     assert "5" in tab._coords_tab._fib_count_label.text()
 
 

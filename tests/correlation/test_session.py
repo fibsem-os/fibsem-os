@@ -1,5 +1,6 @@
 """The correlation session without Qt: the run gate and what it says, a run
-and the result it keeps, and the points it tells of changes.
+and the result it keeps, the points it tells of changes, and the run folder
+it opens and keeps current.
 
 Real images and a real fit throughout; nothing here imports Qt.
 """
@@ -14,10 +15,12 @@ import numpy as np
 import pytest
 
 from fibsem.correlation import points as point_rules
+from fibsem.correlation.history import CORRELATION_FILENAME
 from fibsem.correlation.session import RUNNING, CorrelationSession, RunOutcome
 from fibsem.correlation.structures import (
     Coordinate,
     CorrelationInputData,
+    CorrelationState,
     PointStatus,
     PointType,
     PointXYZ,
@@ -340,6 +343,124 @@ def test_a_removal_policy_can_be_uninstalled_while_it_is_the_one_installed(sessi
     assert session.points.remove(fib)
     assert len(asked) == 1
     stale()
+
+
+# ---------------------------------------------------------------------------
+# Saving and opening a run
+# ---------------------------------------------------------------------------
+
+
+def _points(session):
+    return [
+        (c.point_type, c.point.x, c.point.y, c.point.z)
+        for c in session.points.coordinates
+    ]
+
+
+def _with_images():
+    session = CorrelationSession()
+    session.fib_image = FibsemImage.generate_blank_image(resolution=(400, 300))
+    session.fm_image = _fm_image()
+    return session
+
+
+def test_a_saved_run_opens_with_the_same_points_and_result(ready, tmp_path):
+    run = tmp_path / "2026-07-27_09-00-00"
+    ready.set_project_dir(str(run))
+    result = ready.run()
+
+    assert ready.auto_save() is True
+    assert (run / CORRELATION_FILENAME).is_file()
+
+    opened = _with_images()
+    state = opened.load(str(run / CORRELATION_FILENAME))
+
+    assert _points(opened) == _points(ready)
+    assert state.result is opened.result
+    assert opened.result.rms_error == pytest.approx(result.rms_error)
+    assert opened.result.matches_inputs(opened.fit_data)
+    # an open is not an edit: it writes nothing until something arms it
+    opened.set_project_dir(str(run))
+    assert opened.auto_save() is None
+
+
+def test_opening_either_legacy_file_takes_its_points(ready, tmp_path):
+    result = ready.run()
+    data_file = tmp_path / "correlation_data.json"
+    result_file = tmp_path / "correlation_result.json"
+    ready.data.save(str(data_file))
+    result.save(str(result_file))
+
+    from_data = _with_images()
+    from_data.load(str(data_file))
+    assert _points(from_data) == _points(ready)
+    assert from_data.result is None
+
+    from_result = _with_images()
+    from_result.load(str(result_file))
+    assert _points(from_result) == _points(ready)
+    # the points are a copy of the result's snapshot, so an edit makes it stale
+    assert from_result.result.matches_inputs(from_result.fit_data)
+    from_result.points.move(from_result.points.of_type(PointType.FIB)[0], 1.0, 1.0)
+    assert not from_result.result.matches_inputs(from_result.fit_data)
+
+
+def test_a_state_without_a_result_drops_the_previous_one(ready):
+    ready.run()
+    ready.adopt_state(CorrelationState(input_data=CorrelationInputData()))
+    assert ready.result is None
+    assert ready.data.fib_coordinates == []
+
+
+def test_only_a_load_an_edit_or_a_result_arms_the_auto_save(session, tmp_path):
+    session.set_project_dir(str(tmp_path))
+    assert not session.auto_save_due()  # an image load alone never writes
+
+    coord = Coordinate(PointXYZ(1.0, 2.0, 0.0), PointType.FIB)
+    session.points.add(coord)
+    assert session.auto_save_due()
+
+    session.set_project_dir(str(tmp_path))  # a new folder disarms
+    session.points.select(coord)
+    assert not session.auto_save_due()  # a selection is not an edit
+    session.points.move(coord, 3.0, 4.0)
+    assert session.auto_save_due()
+
+    session.arm_auto_save()
+    with session.reading():
+        with session.reading():
+            pass
+        assert not session.auto_save_due()  # still reading
+    assert not session.auto_save_due()  # and the read disarmed it
+    session.arm_auto_save()
+    assert session.auto_save() is True
+
+
+def test_a_run_folder_is_made_only_for_a_result(ready, tmp_path):
+    run = tmp_path / "2026-07-27_09-00-00"
+    ready.set_project_dir(str(run))
+    ready.arm_auto_save()
+    assert ready.auto_save() is None
+    assert not run.exists()
+
+    ready.run()  # a delivered result arms it, and makes the folder worth having
+    assert ready.auto_save() is True
+    assert run.is_dir()
+
+
+def test_a_failed_save_is_kept_until_one_succeeds(ready, tmp_path):
+    blocked = tmp_path / "a_file"
+    blocked.write_text("")
+    ready.set_project_dir(str(blocked))
+    ready.run()
+
+    assert ready.auto_save() is False
+    assert ready.save_error
+
+    ready.set_project_dir(str(tmp_path))
+    ready.arm_auto_save()
+    assert ready.auto_save() is True
+    assert ready.save_error is None
 
 
 # ---------------------------------------------------------------------------

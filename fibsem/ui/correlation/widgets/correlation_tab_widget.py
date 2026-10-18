@@ -31,7 +31,6 @@ result_changed : CorrelationResult    — after a successful correlation run
 
 from __future__ import annotations
 
-import contextlib
 import copy
 import logging
 import os
@@ -92,7 +91,6 @@ from fibsem.correlation.history import (
     discover_project,
     experiment_and_lamella_dirs,
     find_spot_burns,
-    save_run,
 )
 from fibsem.correlation.point_fit import FitStatus, PointFitResult, refine_point
 from fibsem.correlation.points import (
@@ -130,7 +128,6 @@ from fibsem.correlation.structures import (
     PointStatus,
     PointType,
     PointXYZ,
-    load_correlation_file,
 )
 from fibsem.correlation.verdict import (
     LOO_BAD_UM,
@@ -2191,22 +2188,11 @@ class CorrelationTabWidget(QWidget):
         # stay in the loaded stack's planes; only the canvas is resampled
         # (FIB-1248).
         self._fm_view_scale = 1.0
-        self._project_dir: Optional[str] = None
-        # Auto-save is armed by a load or an edit, never by an image load: an
-        # open must not write until there is something of the user's to keep
-        # (FIB-977, see _auto_save_state).
-        self._save_armed = False
-        # Held while a file is being read in: an open is not an edit, and
-        # writing during one rewrote the file being read (FIB-1237).
-        self._loading = False
         # Positions as last seeded by the setup section, to detect manual edits
         # before replacing them (None = nothing seeded yet). FIB-302.
         self._seeded_positions: Optional[list] = None
         # Installed only when a lamella opens this window (add_lamella_setup).
         self._setup_section = None
-        # Last auto-save failure, held so the status line keeps reporting it
-        # instead of claiming "Ready." while nothing is saved (FIB-316).
-        self._autosave_error: Optional[str] = None
         # Field width (m) of the image the spot burns were placed on, when the
         # protocol says; seeding refuses a FIB image at another width (FIB-1233).
         self._spot_burn_field_width: Optional[float] = None
@@ -2811,9 +2797,8 @@ class CorrelationTabWidget(QWidget):
         A destination, not a promise: the directory is created on the first write
         worth making, not here. See :meth:`_ensure_dir_for` (FIB-320).
         """
-        self._project_dir = path
+        self._session.set_project_dir(path)
         self._images_tab._proj_path.setText(path)
-        self._save_armed = False
 
     @staticmethod
     def _ensure_dir_for(path: str) -> str:
@@ -2832,41 +2817,37 @@ class CorrelationTabWidget(QWidget):
 
     def set_data(self, data: CorrelationInputData) -> None:
         """Populate all coordinate lists and refresh canvases."""
-        self._save_armed = True
         self._session.set_data(data)
 
     def load_correlation(self, path: str) -> None:
-        """Load any correlation JSON — consolidated file or either legacy file.
-
-        Dispatches on the file's shape (:func:`load_correlation_file`), so the
-        caller never picks the wrong loader — the FIB-263 crash can't recur.
-        """
+        """Load any correlation JSON — consolidated file or either legacy file
+        (:meth:`CorrelationSession.load`)."""
         logging.info("Loading correlation from %s", path)
-        state = load_correlation_file(path)
-        with self._reading():
-            self._adopt_state(state)
+        shown = self._session.result is not None
+        with self._session.reading():  # showing it writes nothing either
+            state = self._session.load(path)
+            self._show_state(state, shown)
 
     def _adopt_state(self, state: CorrelationState) -> None:
-        """Apply a loaded correlation state: points first, then the result (if any).
+        """Apply a loaded correlation state (:meth:`CorrelationSession.adopt_state`)."""
+        shown = self._session.result is not None
+        self._session.adopt_state(state)
+        self._show_state(state, shown)
 
-        Points are loaded before the result so that, when a result is present,
-        its staleness is judged against the freshly-loaded coordinates and its
-        own snapshot is not replayed over them — the FIB-295 ordering, now the
-        only ordering because both come from one file.
-        """
-        data = state.input_data
-        self._in_loaded_stack(data)
-        data.fib_image = self._session.fib_image
-        data.fm_image = self._session.fm_image
-        self.set_data(data)
-        # Discard *before* the emit: data_changed drives the auto-save, so
-        # clearing afterwards still writes the new inputs paired with the old
-        # result — the very thing FIB-318 is about.
-        if state.result is None:
-            self._discard_result()
+    def _show_state(self, state: CorrelationState, shown: bool) -> None:
+        """Show a state the session has just adopted; ``shown`` is whether a
+        result was on screen before it."""
+        # The session dropped its result *before* this emit: data_changed drives
+        # the auto-save, so clearing afterwards still wrote the new inputs paired
+        # with the old result — the very thing FIB-318 is about.
+        if state.result is None and shown:
+            self._clear_result_views()
         self.data_changed.emit(self.data)
         if state.result is not None:
-            self._load_result(state.result, adopt_inputs=False)
+            self._on_result_ready(
+                state.result,
+                live=state.result.matches_inputs(self._session.fit_data),
+            )
 
     def _confirm_image_change(self) -> bool:
         """Confirm discarding the coordinates before loading a different image.
@@ -2921,8 +2902,11 @@ class CorrelationTabWidget(QWidget):
         A run still in flight is superseded too: it was started on the points
         being cleared, so what it delivers is dropped (FIB-1242).
         """
-        if not self._session.discard_result():
-            return
+        if self._session.discard_result():
+            self._clear_result_views()
+
+    def _clear_result_views(self) -> None:
+        """Take a dropped result off the screen."""
         self._set_result_live(False)
         self._results_tab.clear()
         self._fib_canvas.clear_overlay()
@@ -2936,13 +2920,12 @@ class CorrelationTabWidget(QWidget):
         Coordinates only — the previous result is from different images, so it is
         not carried in. FM z is brought into the loaded stack's planes when the
         seed's were different, so it lands at the right depth
-        (:meth:`_in_loaded_stack`). Points are placed as-is; the user refines
-        them on demand.
+        (:meth:`CorrelationSession.in_loaded_stack`). Points are placed as-is;
+        the user refines them on demand.
         """
-        self._in_loaded_stack(source)
         source.fib_image = self._session.fib_image
         source.fm_image = self._session.fm_image
-        self.set_data(source)
+        self._session.adopt_inputs(source)
         self._discard_result()  # the seeded points are not what it was fitted to
         self.data_changed.emit(self.data)
 
@@ -3309,30 +3292,8 @@ class CorrelationTabWidget(QWidget):
         """
         logging.info("Loading correlation coordinates from %s", path)
         loaded = CorrelationInputData.load(path)
-        self._in_loaded_stack(loaded)
-        loaded.fib_image = self._session.fib_image
-        loaded.fm_image = self._session.fm_image
-        with self._reading():
-            self.set_data(loaded)
-            self._discard_result()
-            self.data_changed.emit(self.data)
-
-    @contextlib.contextmanager
-    def _reading(self):
-        """Read a file in without writing one: no auto-save during the load, and
-        none after it until an edit or a run arms it.
-
-        Opening a run used to rewrite it straight away -- ``set_data`` arms the
-        save and the load's own ``data_changed`` fired it -- so the file took the
-        names of whatever images happened to be open, and opening a folder with
-        the wrong reference overwrote the record of the right one (FIB-1237).
-        """
-        self._loading = True
-        try:
-            yield
-        finally:
-            self._loading = False
-            self._save_armed = False
+        with self._session.reading():
+            self._adopt_state(CorrelationState(input_data=loaded))
 
     def save_correlation(self, path: str) -> None:
         """Save the whole correlation state (points + result) to one JSON.
@@ -3342,9 +3303,7 @@ class CorrelationTabWidget(QWidget):
         and may not exist yet — accepting that default would otherwise fail on
         ``open()``. An explicit save names where it goes; make that place.
         """
-        CorrelationState(input_data=self.data, result=self._session.result).save(
-            self._ensure_dir_for(path)
-        )
+        self._session.state.save(self._ensure_dir_for(path))
 
     @property
     def data(self) -> CorrelationInputData:
@@ -3439,60 +3398,22 @@ class CorrelationTabWidget(QWidget):
         self.set_fm_image(image)
 
     def _on_project_dir_changed(self, path: str) -> None:
-        self._project_dir = path
+        self._session.project_dir = path
         self._lbl_status.setText(f"Project: {path}")
 
     def _auto_save_state(self, *_) -> None:
-        """Persist the whole correlation state to a single correlation.json.
+        """Keep the run folder current (:meth:`CorrelationSession.auto_save`).
 
-        Wired to both ``data_changed`` and ``result_changed`` — either fires,
-        the full project is rewritten from the live widget state, so the two can
-        never drift apart on disk (which the split data/result files could;
-        FIB-264, FIB-295). The emitted payload is ignored: the session's data and
-        result are the source of truth.
-
-        A post-run edit rewrites with the (now-stale) result still attached — by
-        design. The result carries its own ``computed_from`` snapshot, so
-        staleness stays derivable on load (``matches_inputs``) and the result
-        remains available to inspect; it is not silently discarded here.
-
-        Nothing is written until there is a result to write, because a run folder
-        is no longer inert bookkeeping — the setup section seeds from it. Saving
-        from the first data change made every *open* a run: history counted opens
-        rather than correlations, and a session the user cancelled came back as
-        the next open's starting coordinates (FIB-320). Once the folder exists it
-        keeps its contents current, result or not.
-
-        And nothing is written until a load or an edit has *armed* the save.
-        Loading an image emits ``data_changed`` before any coordinates exist; on
-        a folder that already holds a ``correlation.json`` the first such emit
-        used to overwrite it with an empty state, and the loader then read the
-        file it had just emptied -- opening a saved run destroyed its picks
-        (FIB-977). ``set_data`` (every load and seed goes through it), the
-        coordinate handlers and a delivered result arm it; ``set_project_dir``
-        disarms it.
+        Wired to both ``data_changed`` and ``result_changed``; the emitted
+        payload is ignored, the session's data and result are the source of
+        truth. A failure is sticky on the status line, because the line is
+        rewritten on every data change — a one-shot message would be gone
+        before it was read (FIB-316).
         """
-        if not self._project_dir or not self._save_armed or self._loading:
-            return
-        if self._session.result is None and not os.path.isdir(self._project_dir):
-            return
-        try:
-            save_run(
-                self._project_dir,
-                CorrelationState(input_data=self.data, result=self._session.result),
-            )
-        except Exception as exc:
-            # Never let this pass unseen: it is the only persistence path, so a
-            # swallowed failure silently discards the whole session's work
-            # (FIB-316). Sticky, because the status line is rewritten on every
-            # data change — a one-shot message would be gone before it was read.
-            logging.exception("Auto-save of correlation project failed")
-            self._autosave_error = str(exc)
+        had_error = self._session.save_error is not None
+        saved = self._session.auto_save()
+        if saved is False or (saved and had_error):
             self._update_run_button()
-        else:
-            if self._autosave_error is not None:
-                self._autosave_error = None
-                self._update_run_button()
 
     # ------------------------------------------------------------------
     # Run correlation
@@ -3500,11 +3421,12 @@ class CorrelationTabWidget(QWidget):
 
     def _update_run_button(self, data: Optional[CorrelationInputData] = None) -> None:
         self._btn_run.setEnabled(self._session.can_run(data))
-        if self._autosave_error is not None:
+        if self._session.save_error is not None:
             # Outranks the readiness text: "Ready." while nothing is being saved
             # is the most misleading thing this label could say (FIB-316).
             self._lbl_status.setText(
-                f"Auto-save is failing — work is NOT being saved ({self._autosave_error})"
+                "Auto-save is failing — work is NOT being saved "
+                f"({self._session.save_error})"
             )
         else:
             self._lbl_status.setText(self._session.next_step(data))
@@ -3798,7 +3720,6 @@ class CorrelationTabWidget(QWidget):
     def _on_result_ready(self, result: CorrelationResult, live: bool = True) -> None:
         """Adopt a result. ``live`` is False for a result that no longer describes
         the current points (FIB-295)."""
-        self._save_armed = True
         self._session.set_result(result)
         self._results_tab.set_result(result, self._session.fib_pixel_size)
         self._ri_tab.set_result(
@@ -4029,7 +3950,6 @@ class CorrelationTabWidget(QWidget):
         )
 
     def _on_correction_applied(self, result: CorrelationResult) -> None:
-        self._save_armed = True
         self._session.set_result(result)
         self._overlay_result_on_fib(result)
         # A FIB surface placed after the run is a transform input, so placing it
@@ -4047,7 +3967,7 @@ class CorrelationTabWidget(QWidget):
 
     def _on_pre_correction_requested(self, factor: float, rerun: bool) -> None:
         """Store the pre-correlation RI factor and optionally re-run."""
-        self._save_armed = True
+        self._session.arm_auto_save()
         self._session.ri_pre_correction_factor = factor
         self._session.ri_pre_correction_params = self._ri_params_record()
         self.data_changed.emit(self.data)  # auto-save + RI tab refresh
@@ -4156,8 +4076,8 @@ class CorrelationTabWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _on_store_changed(self, *_) -> None:
-        """Any change to the points, whoever made it."""
-        self._save_armed = True
+        """Any change to the points, whoever made it. The session arms its
+        auto-save on the same change."""
         self._coords_tab.update_headers()
 
     def _on_point_edited(self, *_) -> None:
@@ -4323,12 +4243,10 @@ class CorrelationTabWidget(QWidget):
             QMessageBox.StandardButton.No,
         )
         if reply == QMessageBox.StandardButton.Yes:
-            # A committed result is recorded in this run's folder even when it
-            # was loaded and not edited, which arms nothing (FIB-1237).
-            self._save_armed = True
+            self._session.arm_auto_save()
             self._auto_save_state()
             # Auto-save the result plot alongside the auto-saved JSON.
-            if self._project_dir:
+            if self._session.project_dir:
                 try:
                     self.save_plot()
                 except Exception:
@@ -4340,7 +4258,7 @@ class CorrelationTabWidget(QWidget):
         if self._session.result is None:
             QMessageBox.warning(self, "Export CSV", "No correlation result to export.")
             return
-        start = self._project_dir or ""
+        start = self._session.project_dir or ""
         path, _ = QFileDialog.getSaveFileName(
             self, "Export Correlation CSV", start, "CSV (*.csv);;All files (*)"
         )
@@ -4365,7 +4283,7 @@ class CorrelationTabWidget(QWidget):
 
     def _on_save_plot_clicked(self) -> None:
         """Prompt for a path and save the side-by-side FIB + FM plot."""
-        start = self._project_dir or ""
+        start = self._session.project_dir or ""
         default = (
             os.path.join(start, f"correlation_plot_{time.strftime(DATETIME_FILE)}.png")
             if start
@@ -4385,11 +4303,11 @@ class CorrelationTabWidget(QWidget):
     def save_plot(self, path: Optional[str] = None) -> None:
         """Save FIB + FM canvases as a side-by-side matplotlib figure."""
         if path is None:
-            if not self._project_dir:
+            if not self._session.project_dir:
                 QMessageBox.warning(self, "Save Plot", "No project directory set.")
                 return
             ts = time.strftime(DATETIME_FILE)
-            path = os.path.join(self._project_dir, f"correlation_plot_{ts}.png")
+            path = os.path.join(self._session.project_dir, f"correlation_plot_{ts}.png")
         # Whichever branch supplied it: the Save Plot dialog offers a default
         # inside the run folder, so an explicit path lands in the same
         # not-yet-created directory the derived one would (FIB-320).
@@ -4404,38 +4322,23 @@ class CorrelationTabWidget(QWidget):
         """Load a correlation result from JSON and adopt it (mirrors load_data)."""
         logging.info("Loading correlation result from %s", path)
         result = CorrelationResult.load(path)
-        with self._reading():
+        with self._session.reading():
             self._load_result(result, adopt_inputs=adopt_inputs)
 
     def _load_result(
         self, result: CorrelationResult, *, adopt_inputs: bool = True
     ) -> None:
-        """Adopt a loaded correlation result (and its input data, if any).
+        """Adopt a loaded correlation result, and its input data unless
+        ``adopt_inputs`` is False (:meth:`CorrelationSession.adopt_result`).
 
-        ``adopt_inputs=False`` when the caller has already loaded fresher
-        coordinates: ``result.input_data`` is a record of what the transform was
-        fitted to, not the current truth, so applying it would silently discard
-        every edit made after that run (FIB-295).
+        _on_result_ready refreshes the run button and sets the final status
+        text itself — no trailing update here, it would overwrite the status.
         """
-        self._session.supersede_run()  # a run in flight delivers nothing (FIB-1242)
-        # Populate the lists first so the RI tab sees the loaded surface points.
-        # _on_result_ready refreshes the run button and sets the final status
-        # text itself — no trailing update here, it would overwrite the status.
-        if adopt_inputs and result.input_data:
-            # Deep-copy: the lists become editable, and sharing the Coordinate
-            # objects with the result's snapshot would make every edit mutate it
-            # too, permanently defeating matches_inputs (FIB-315).
-            adopted = copy.deepcopy(result.input_data)
-            self._in_loaded_stack(adopted)
-            self.set_data(adopted)
-        # Continue commits result.poi[0].px_m to the protocol editor, so a result
-        # that predates the current points must not arm it.
-        self._on_result_ready(
-            result, live=result.matches_inputs(self._session.fit_data)
-        )
+        live = self._session.adopt_result(result, adopt_inputs=adopt_inputs)
+        self._on_result_ready(result, live=live)
 
     def _menu_load_correlation(self) -> None:
-        start = self._project_dir or ""
+        start = self._session.project_dir or ""
         path, _ = QFileDialog.getOpenFileName(
             self, "Load Correlation", start, "JSON (*.json);;All files (*)"
         )
@@ -4453,7 +4356,7 @@ class CorrelationTabWidget(QWidget):
             )
 
     def _on_save(self) -> None:
-        start = os.path.join(self._project_dir or "", CORRELATION_FILENAME)
+        start = os.path.join(self._session.project_dir or "", CORRELATION_FILENAME)
         path, _ = QFileDialog.getSaveFileName(
             self, "Save Correlation", start, "JSON (*.json);;All files (*)"
         )
@@ -4481,24 +4384,6 @@ class CorrelationTabWidget(QWidget):
 
     def _fm_point_count(self) -> int:
         return sum(len(lst.coordinates) for lst in self._fm_side_lists())
-
-    def _in_loaded_stack(self, data: CorrelationInputData) -> None:
-        """Bring a record's FM z into the loaded stack's planes, before it is shown.
-
-        The one place a recorded z changes planes: a load, a legacy load and a
-        seed all come through here, so a run saved from an interpolated stack
-        or another acquisition opens at the depth it was picked at (FIB-1239).
-        Without a loaded stack there is nothing to convert to, and the values
-        are kept as recorded.
-        """
-        scale = data.move_fm_z_to_step(self._session.fm_pixel_size_z)
-        if scale != 1.0:
-            logging.info(
-                "FM z recorded at %.1f nm per plane; moved into the loaded "
-                "stack's planes (x%.4f)",
-                self._session.fm_pixel_size_z * scale * 1e9,
-                scale,
-            )
 
     def _on_interpolate_fm(self) -> None:
         if self._session.fm_image is None:
