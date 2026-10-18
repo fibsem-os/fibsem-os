@@ -193,7 +193,8 @@ def test_an_odemis_relative_move_returns_where_the_stage_ended(odemis_microscope
 
 
 def test_the_server_move_endpoint_answers_with_where_a_tescan_stage_went():
-    # It called result.to_dict() on None, after the stage had moved.
+    # It called result.to_dict() on None, after the stage had moved. Through the
+    # safe move: an agent token may not call the raw move_absolute.
     pytest.importorskip("fastapi")
     pytest.importorskip("httpx")
     from fastapi.testclient import TestClient
@@ -204,10 +205,12 @@ def test_the_server_move_endpoint_answers_with_where_a_tescan_stage_went():
     app = build_server(microscope, auth=AuthConfig.generate(level="drive", token="t"))
     with TestClient(app, raise_server_exceptions=False) as client:
         resp = client.post(
-            "/microscope/services/stage_movement/commands/move_absolute",
+            "/microscope/services/stage_movement/commands/safe_absolute_stage_movement",
             headers={"Authorization": "Bearer t"},
             json={
-                "kwargs": {"position": {**TARGET.to_dict(), "coordinate_system": "RAW"}}
+                "kwargs": {
+                    "stage_position": {**TARGET.to_dict(), "coordinate_system": "RAW"}
+                }
             },
         )
 

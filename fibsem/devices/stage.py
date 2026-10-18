@@ -161,13 +161,10 @@ class Stage(Device):
     position = DeviceParameter(
         FibsemStagePosition,
         doc="Raw stage coordinates, in the fibsem-os frame. Its limits are per axis.",
+        # each axis shown as FibsemStagePosition declares it
         display={
-            **{
-                axis: Display(axis.upper(), scale=1e3, step=0.001, decimals=5)
-                for axis in ("x", "y", "z")
-            },
-            "r": Display("Rotation", scale=180 / math.pi, unit=DEGREE_SYMBOL),
-            "t": Display("Tilt", scale=180 / math.pi, unit=DEGREE_SYMBOL),
+            axis: FibsemStagePosition.params[axis].display
+            for axis in FibsemStagePosition.AXES
         },
     )
     homed = DeviceParameter(bool)

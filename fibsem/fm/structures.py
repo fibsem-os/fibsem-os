@@ -77,11 +77,13 @@ from fibsem.structures import (  # noqa: F401
     AutoFocusMode,
     CameraImageTransform,
     Configurable,
+    Display,
     FibsemExperimentRef,
     FibsemHardwareGeometry,
     FibsemRectangle,
     FibsemStagePosition,
     InsertableDeviceState,
+    Parameter,
     RangeLimit,
     TileOrderStrategy,
     _parse_image_transform,
@@ -101,6 +103,12 @@ class ZStackOrder(Enum):
 
     CHANNEL = "channel"  # default: for each channel, acquire all z-planes
     Z_LEVEL = "z_level"  # for each z-plane, acquire all channels
+
+
+def _z_stack_order_label(order: ZStackOrder) -> str:
+    return {ZStackOrder.CHANNEL: "Channel-wise", ZStackOrder.Z_LEVEL: "Z-level-wise"}[
+        order
+    ]
 
 
 BINNING_MAP = {
@@ -251,7 +259,7 @@ Band = Tuple[float, Optional[float]]  # edges in nm; the top may be unknown
 
 
 @dataclass(frozen=True, init=False)
-class EmissionFilter:
+class EmissionFilter(Configurable):
     """One emission filter the filter set can put in the light path.
 
     ``bands`` are the edges in nm of each band it passes, lowest first: one for a
@@ -263,9 +271,14 @@ class EmissionFilter:
     ``EmissionFilter("GFP", low=510, high=560)`` is shorthand for one band.
     """
 
-    name: str
-    bands: Tuple[Band, ...]
-    multi_band: bool
+    name: str = param(doc="The filter's name, as the filter set reports it.")
+    bands: Tuple[Band, ...] = param(
+        unit="nm",
+        doc="The edges of each band it passes, lowest first, as (low, high); high is null when the driver knows only the bottom edge.",
+    )
+    multi_band: bool = param(
+        doc="True for a filter that passes more than one band, even when its bands are not known."
+    )
 
     def __init__(
         self,
@@ -470,14 +483,46 @@ def emission_filter_from_ome(
 
 
 @dataclass
-class ChannelSettings:
-    name: str = "Channel-01"
-    excitation_wavelength: float = 550  # nm
-    emission_filter: EmissionFilter = REFLECTION
-    power: float = 0.01  # %
-    exposure_time: float = 0.001  # seconds
-    color: str = "gray"
-    gain: float = 0.0
+class ChannelSettings(Configurable):
+    name: str = param(
+        "Channel-01",
+        doc="The channel's name, shown in the image layers and the saved metadata.",
+        display=Display("Name"),
+    )
+    excitation_wavelength: float = param(
+        550,
+        device_parameter="filter_set.excitation_wavelength",
+        doc="The excitation band, by its centre in nm.",
+        display=Display("Excitation Wavelength"),
+    )  # nm
+    emission_filter: EmissionFilter = param(
+        REFLECTION,
+        doc="The emission filter the channel is acquired through, by its name and bands. Reflection takes none.",
+        display=Display("Emission"),
+    )
+    power: float = param(
+        0.01,
+        device_parameter="light_source.power",
+        doc="The light source's power, as a fraction of its maximum.",
+        display=Display("Power"),
+    )  # %
+    exposure_time: float = param(
+        0.001,
+        device_parameter="camera.exposure_time",
+        doc="The camera's exposure time per frame.",
+        display=Display("Exposure Time"),
+    )  # seconds
+    color: str = param(
+        "gray",
+        doc="The colour the channel is shown in, by a colour map name (gray, green, magenta, ...).",
+        display=Display("Color"),
+    )
+    gain: float = param(
+        0.0,
+        device_parameter="camera.gain",
+        doc="The camera's gain, as a fraction of its range.",
+        display=Display("Gain"),
+    )
 
     def to_dict(self):
         ddict = asdict(self)
@@ -528,7 +573,11 @@ class ZParameters(Configurable):
             "Z Step", "Step size between Z positions", limits=RangeLimit(0.1e-6, 10e-6)
         ),
     )
-    order: ZStackOrder = ZStackOrder.CHANNEL
+    order: ZStackOrder = param(
+        ZStackOrder.CHANNEL,
+        doc="The order the stack is acquired in: channel-wise takes every plane of one channel before the next, z-level-wise every channel at one plane before the next.",
+        display=Display("Order", advanced=True, format_fn=_z_stack_order_label),
+    )
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -1919,7 +1968,7 @@ class ObjectiveStartPosition(Enum):
 
 
 @dataclass
-class OverviewParameters:
+class OverviewParameters(Configurable):
     """Parameters for FM overview/tileset acquisition.
 
     Attributes:
@@ -1940,15 +1989,54 @@ class OverviewParameters:
             otherwise the planned mosaic is kept. As `OverviewAcquisitionSettings`.
     """
 
-    rows: int = 3
-    cols: int = 3
-    overlap: float = 0.1
-    use_zstack: bool = False
-    autofocus_mode: AutoFocusMode = AutoFocusMode.NONE
-    tile_order: TileOrderStrategy = TileOrderStrategy.TYPEWRITER
-    tile_mask: Optional[List[List[bool]]] = None
-    objective_start: ObjectiveStartPosition = ObjectiveStartPosition.CURRENT
-    register_tiles: bool = False
+    rows: int = param(
+        3,
+        limits=RangeLimit(1, 100),
+        doc="The number of tile rows.",
+        display=Display("Rows"),
+    )
+    cols: int = param(
+        3,
+        limits=RangeLimit(1, 100),
+        doc="The number of tile columns.",
+        display=Display("Columns"),
+    )
+    overlap: float = param(
+        0.1,
+        limits=RangeLimit(0.0, 0.9),
+        doc="How much neighbouring tiles overlap, as a fraction of a tile.",
+        display=Display("Overlap", scale=100, unit="%", step=5.0, decimals=0),
+    )
+    use_zstack: bool = param(
+        False,
+        doc="Acquire a z-stack at each tile (with the task's z parameters), not a single plane.",
+        display=Display("Z-Stack"),
+    )
+    autofocus_mode: AutoFocusMode = param(
+        AutoFocusMode.NONE,
+        doc="When to autofocus during the run: never, once, at each row or at each tile.",
+        display=Display("Autofocus"),
+    )
+    tile_order: TileOrderStrategy = param(
+        TileOrderStrategy.TYPEWRITER,
+        doc="The order the tiles are visited in.",
+        display=Display("Tile Order", advanced=True),
+    )
+    tile_mask: Optional[List[List[bool]]] = param(
+        None,
+        doc="Which tiles to acquire, as tile_mask[row][col]. Empty acquires every tile; a skipped tile keeps its place in the mosaic.",
+        display=Display(hidden=True),
+    )
+    objective_start: ObjectiveStartPosition = param(
+        ObjectiveStartPosition.CURRENT,
+        doc="Where the objective is put before the run starts.",
+        display=Display("Objective Start", advanced=True),
+    )
+    register_tiles: bool = param(
+        False,
+        doc="Experimental. Place each tile where its picture says it is, measured against its neighbours, rather than where the grid planned it. The planned mosaic is kept when the tiles don't match well enough.",
+        display=Display("Register Tiles", advanced=True),
+    )
 
     def to_dict(self) -> dict:
         """Convert to dictionary representation."""
