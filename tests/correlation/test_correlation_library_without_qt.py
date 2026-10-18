@@ -38,6 +38,7 @@ def test_the_library_imports_no_qt():
         "import sys, fibsem.correlation.fit, fibsem.correlation.point_fit, "
         "fibsem.correlation.history, fibsem.correlation.refractive_index, "
         "fibsem.correlation.export, fibsem.correlation.points, "
+        "fibsem.correlation.session, "
         "fibsem.imaging.localise, fibsem.fm.interpolation; "
         "assert 'PyQt5' not in sys.modules"
     )

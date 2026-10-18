@@ -305,15 +305,15 @@ def test_removing_the_fm_surface_point_disarms_the_pre_correction(tab):
     tab._on_canvas_add_requested(65.0, 22.0, PointType.SURFACE_FM)
     surface = _list(tab, PointType.SURFACE_FM).coordinates[0]
 
-    tab._ri_pre_correction_factor = 1.4
+    tab.session.ri_pre_correction_factor = 1.4
     tab._point_store.select(surface)
     tab._remove_selected_coordinate()
-    assert tab._ri_pre_correction_factor is None
+    assert tab.session.ri_pre_correction_factor is None
 
     tab._on_canvas_add_requested(65.0, 22.0, PointType.SURFACE_FM)
-    tab._ri_pre_correction_factor = 1.4
+    tab.session.ri_pre_correction_factor = 1.4
     tab._on_canvas_add_requested(60.0, 20.0, PointType.SURFACE)  # the other surface
-    assert tab._ri_pre_correction_factor is None
+    assert tab.session.ri_pre_correction_factor is None
 
 
 def test_any_change_to_the_store_arms_the_save_and_updates_the_counts(tab):

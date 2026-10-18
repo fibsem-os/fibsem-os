@@ -87,6 +87,7 @@ class AppSession:
         # operator), while they are attached.
         self._answerers: List[ActorKind] = []
         self._analysis_services: Optional[Dict[str, Any]] = None
+        self._correlation: Optional[Any] = None
 
     @property
     def analysis_services(self) -> Dict[str, Any]:
@@ -129,6 +130,16 @@ class AppSession:
         ):
             who.append(AGENT)
         return tuple(who)
+
+    @property
+    def correlation(self) -> Any:
+        """The session's correlation (``CorrelationSession``), made when first
+        asked for, so nothing here imports the correlation package until then."""
+        if self._correlation is None:
+            from fibsem.correlation.session import CorrelationSession
+
+            self._correlation = CorrelationSession()
+        return self._correlation
 
     def run_edit(self, call: Callable[[], Any]) -> "Future[Any]":
         """Run ``call()`` where the experiment is edited; any thread. Resolves

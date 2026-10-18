@@ -86,7 +86,9 @@ def test_placing_the_fm_surface_arms_the_tilt_0_factor_and_records_why(tab):
     ri = tab._ri_tab._ri_widget
     params = ri.get_params()
     assert params.tilt_deg == 0.0
-    assert tab._ri_pre_correction_factor == pytest.approx(_zeta(params), abs=1e-3)
+    assert tab.session.ri_pre_correction_factor == pytest.approx(
+        _zeta(params), abs=1e-3
+    )
     record = tab.data.ri_pre_correction_params
     assert record == {
         "tilt_deg": 0.0,
@@ -102,7 +104,7 @@ def test_an_entered_factor_is_armed_as_entered_and_says_so(tab):
     """A restored or typed factor is not ζ of the boxes; the record says so."""
     tab._ri_tab._ri_widget.set_factor(1.42)
     tab._on_canvas_add_requested(1.0, 2.0, PointType.SURFACE_FM)
-    assert tab._ri_pre_correction_factor == pytest.approx(1.42)
+    assert tab.session.ri_pre_correction_factor == pytest.approx(1.42)
     assert tab.data.ri_pre_correction_params["computed"] is False
 
 

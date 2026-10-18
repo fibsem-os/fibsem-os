@@ -463,8 +463,8 @@ def test_adopt_interpolated_volume_only_resamples_the_view(qapp):
 
     assert w._coords_tab.fm_list.coordinates[0].point.z == 15.0
     assert w._coords_tab.poi_list.coordinates[0].point.z == 11.0
-    assert w._fm_image is fm  # the stack the fits and the file use
-    assert w._fm_pixel_size_z() == pytest.approx(old_z_step)
+    assert w.session.fm_image is fm  # the stack the fits and the file use
+    assert w.session.fm_pixel_size_z == pytest.approx(old_z_step)
     # only the canvas changed: it scrubs the resampled planes
     assert w._fm_display._z_max == new_image.data.shape[1] - 1
 
