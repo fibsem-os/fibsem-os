@@ -86,7 +86,6 @@ from fibsem.applications.autolamella.poses import (
     remove_lamella,
     set_lamella_pose,
     stored_objective_position,
-    sync_fluorescence_pose,
 )
 from fibsem.applications.autolamella.structures import (
     Attention,
@@ -2465,14 +2464,14 @@ class AutoLamellaUI(QMainWindow):
         if ret != QMessageBox.Yes:
             return
 
-        lamella.milling_pose = deepcopy(self.microscope.get_microscope_state())
-
-        # keep the milling angle consistent with the updated milling pose
-        lamella.update_milling_angle(self.microscope)
-        # ...and the fluorescence pose, which describes the same piece of sample from
-        # the other side. Left behind, it would go on naming where this lamella used to
-        # be -- and nothing about a stale pose looks wrong.
-        sync_fluorescence_pose(self.microscope, lamella)
+        # As Set pose does: the stored objective position is kept, and the
+        # milling angle and fluorescence pose follow the new milling pose.
+        set_lamella_pose(
+            self.microscope,
+            lamella,
+            "MILLING",
+            deepcopy(self.microscope.get_microscope_state()),
+        )
 
         self.update_lamella_combobox()
         self.update_ui()

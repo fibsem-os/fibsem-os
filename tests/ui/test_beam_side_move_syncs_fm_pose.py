@@ -190,6 +190,38 @@ def test_saving_a_new_position_from_the_lamella_list_moves_it_too(
     )
 
 
+def test_saving_a_new_position_keeps_the_objective_position(tmp_path, monkeypatch):
+    """The microscope state does not capture the FM objective, so Update
+    Position keeps the milling pose's stored focus, as Set pose does (FIB-1456)."""
+    module = sys.modules["fibsem.applications.autolamella.ui.AutoLamellaUI"]
+
+    microscope = _microscope()
+    lamella = _lamella(microscope, tmp_path)
+    lamella.milling_pose.objective_position = 0.0123
+    monkeypatch.setattr(
+        module.QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Yes)
+    )
+
+    class _UI:
+        update_lamella_position_ui = module.AutoLamellaUI.update_lamella_position_ui
+
+        def __init__(self):
+            self.microscope = microscope
+            self.protocol = object()
+            self.experiment = _Experiment([lamella])
+            self.lamella_list = _SelectedList()
+
+        def update_lamella_combobox(self, latest=False):
+            pass
+
+        def update_ui(self):
+            pass
+
+    _UI().update_lamella_position_ui()
+
+    assert lamella.milling_pose.objective_position == pytest.approx(0.0123)
+
+
 def test_declining_the_confirmation_moves_neither_pose(tmp_path, monkeypatch):
     """The sync must sit after the confirmation, not before it."""
     module = sys.modules["fibsem.applications.autolamella.ui.AutoLamellaUI"]
