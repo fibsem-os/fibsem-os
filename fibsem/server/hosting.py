@@ -244,6 +244,7 @@ class AppServerHost:
             app_context=self._app_context(self.event_buffer),
             auth=self.auth,
             serve_microscope=self.serve_microscope,
+            services=session.analysis_services,
         )
         self._app = app
         config = uvicorn.Config(
