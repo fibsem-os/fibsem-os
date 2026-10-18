@@ -22,9 +22,6 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
 )
 from fibsem.applications.autolamella.workflows.tasks import manager as manager_module
-from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
-    run_grid_tasks,
-)
 from fibsem.applications.autolamella.workflows.tasks.manager import run_tasks
 from fibsem.applications.autolamella.workflows.tasks.select_position import (
     SelectMillingPositionTaskConfig,
@@ -35,6 +32,9 @@ from fibsem.workflows.event_recording import (
     EventRecorder,
     read_events,
     recorder_for,
+)
+from fibsem.workflows.grid.manager import (
+    run_grid_tasks,
 )
 
 SETUP = "Setup Lamella Position"

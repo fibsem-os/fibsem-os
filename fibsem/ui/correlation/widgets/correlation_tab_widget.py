@@ -33,7 +33,6 @@ from __future__ import annotations
 
 import contextlib
 import copy
-import io
 import logging
 import os
 import time
@@ -81,12 +80,20 @@ from fibsem.correlation.config import (
     DELETE_FIDUCIAL_ONE,
     DELETE_FIDUCIAL_PAIR,
     FIT_METHODS,
+    MIN_FIDUCIAL_PAIRS,
     CorrelationConfig,
     FitSettings,
     RISettings,
 )
+from fibsem.correlation.export import save_correlation_plot, write_csv
 from fibsem.correlation.fit import Seed, fit_transform, prior_transform, seed_for
-from fibsem.correlation.history import CORRELATION_FILENAME, save_run
+from fibsem.correlation.history import (
+    CORRELATION_FILENAME,
+    discover_project,
+    experiment_and_lamella_dirs,
+    find_spot_burns,
+    save_run,
+)
 from fibsem.correlation.point_fit import FitStatus, PointFitResult, refine_point
 from fibsem.correlation.prediction import (
     Projection,
@@ -96,7 +103,10 @@ from fibsem.correlation.prediction import (
     place_predictions,
     predictions_for,
 )
-from fibsem.correlation.refractive_index import ZetaParams
+from fibsem.correlation.refractive_index import (
+    scale_about_surface,
+    zeta_params_from_settings,
+)
 from fibsem.correlation.structures import (
     Coordinate,
     CorrelationInputData,
@@ -107,10 +117,12 @@ from fibsem.correlation.structures import (
     PointType,
     PointXYZ,
     load_correlation_file,
-    recorded_image_basename,
-    scale_about_surface,
 )
-from fibsem.correlation.verdict import LOO_BAD_UM, LOO_CHECK_UM
+from fibsem.correlation.verdict import (
+    LOO_BAD_UM,
+    LOO_CHECK_UM,
+    MIRROR_RATIO_AMBIGUOUS,
+)
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.structures import CameraImageTransform, FibsemImage, Point
 from fibsem.ui import notification_service, stylesheets
@@ -193,11 +205,6 @@ def _volume_bytes(image, n_slices: int) -> int:
 # longer channel name still grows its own combo.
 _CHOICE_COMBO_WIDTH = 150
 
-# The project file before it was consolidated (FIB-264): still *read* for
-# back-compat with projects saved by earlier versions; nothing writes them now.
-_LEGACY_DATA_FILENAME = "correlation_data.json"
-_LEGACY_RESULT_FILENAME = "correlation_result.json"
-
 # Auto-accept outlier fallback: a fit is a refinement of the user's click, so a
 # large jump usually means it locked onto the wrong feature. Beyond these, the
 # confirm dialog is shown even in auto-accept mode. Generous — the goal is to
@@ -218,10 +225,6 @@ _AUTO_ACCEPT_MAX_Z = 5.0  # Z displacement (slices)
 _RMS_LARGE_NM = 500.0
 _RMS_BROKEN_NM = 1000.0
 _RMS_OUTLIER_RATIO = 2.0
-# Fewest fiducial pairs the run button accepts. The rigid 3D->2D transform has
-# ~7 degrees of freedom, so a fit on this many is barely over-determined and its
-# residual is small by construction rather than by agreement.
-_RMS_MIN_FIDUCIALS = 4
 
 _RMS_NEUTRAL = state_color("muted")
 _RMS_WARN = state_color("warn")
@@ -266,7 +269,7 @@ def _rms_concern(
     reasons: List[str] = []
     if rms_nm is not None and rms_nm > _RMS_LARGE_NM:
         reasons.append(f"RMS is above {_format_distance_nm(_RMS_LARGE_NM)}.")
-    if n_fiducials and n_fiducials <= _RMS_MIN_FIDUCIALS:
+    if n_fiducials and n_fiducials <= MIN_FIDUCIAL_PAIRS:
         reasons.append(
             f"Only {n_fiducials} fiducial pairs — the fit has almost no redundancy, "
             "so this residual understates the true error."
@@ -294,50 +297,6 @@ def _ro_item(text: str) -> QTableWidgetItem:
     item.setFlags(Qt.ItemFlag.ItemIsEnabled)
     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
     return item
-
-
-_PLOT_DPI = 150  # the saved figure's dpi
-_PLOT_PANEL_INCHES = 8.0  # each panel of the 16x8 two-panel figure
-
-
-def _render_canvas_to_axes(canvas, ax, *, dpi: int = _PLOT_DPI) -> None:
-    """Draw whatever *canvas* is currently showing into *ax*.
-
-    Deliberately canvas-agnostic: it needs a matplotlib figure and nothing else,
-    so it works for ``ImagePointCanvas`` and the shared ``FibsemImageCanvas``
-    alike and does not have to be rewritten when the correlation tab swaps from
-    one to the other (FIB-535). It replaces ``ImagePointCanvas.render_to_axes``,
-    which re-created every artist by hand and had no equivalent on the shared
-    stack.
-
-    ``savefig`` re-renders the figure offscreen at the requested dpi, so
-    resolution comes from *dpi* rather than from the on-screen widget size — the
-    reason this is not a plain ``buffer_rgba()`` grab, which would cap the export
-    at however large the window happened to be.
-
-    One deliberate behaviour change: what lands on the page is now what is on the
-    screen, aspect ratio included. ``render_to_axes`` re-fitted the content to the
-    panel, which stretched a square image into a 2:1 rectangle — measuring off
-    that plot gave the wrong answer.
-    """
-    from matplotlib.image import imread
-
-    fig = canvas.figure
-    # Render large enough that scaling into the panel never has to upsample.
-    width_inches = max(fig.get_size_inches()[0], 0.1)
-    render_dpi = max(dpi, int(dpi * _PLOT_PANEL_INCHES / width_inches))
-
-    buf = io.BytesIO()
-    fig.savefig(
-        buf,
-        format="png",
-        dpi=render_dpi,
-        facecolor=fig.get_facecolor(),
-        pad_inches=0,
-    )
-    buf.seek(0)
-    ax.imshow(imread(buf))
-    ax.axis("off")
 
 
 # ---------------------------------------------------------------------------
@@ -1393,7 +1352,7 @@ class _ResultsTab(QWidget):
             lbl.setText("—")
         self._txt_raw.setText("")
         try:
-            r = np.asarray(result.rotation_quaternion, dtype=float)
+            r = np.asarray(result.rotation_matrix, dtype=float)
             if r.shape != (3, 3):
                 return
             tilt = float(np.degrees(np.arccos(np.clip(r[2, 2], -1.0, 1.0))))
@@ -1459,9 +1418,9 @@ class _ResultsTab(QWidget):
         diag = result.diagnostics
         markers = result.delta_2d
         if diag:
-            from fibsem.correlation.verdict import FitDiagnostics, verdict
+            from fibsem.correlation.verdict import FitEvidence, verdict
 
-            d = FitDiagnostics.from_dict(diag)
+            d = FitEvidence.from_dict(diag)
             # Mark a pair only when the verdict does. On a good fit the worst
             # pair is still the worst, and colouring it contradicts a headline
             # that says nothing stands out -- the same rule the rows follow.
@@ -1481,7 +1440,7 @@ class _ResultsTab(QWidget):
                 self._lbl_worst.setText("—")
             self._lbl_depth.setText(
                 "ambiguous — the mirrored fit is nearly as good"
-                if d.mirror_ratio < 1.3
+                if d.mirror_ratio < MIRROR_RATIO_AMBIGUOUS
                 else f"determined by the fiducials (mirrored fit {d.mirror_ratio:.1f}× worse)"
             )
             self._lbl_span.setText(f"{d.depth_span_um:.1f} µm")
@@ -3454,16 +3413,7 @@ class CorrelationTabWidget(QWidget):
         self._coords_tab._auto_rerun_check.setChecked(config.auto_rerun)
         self._images_tab._chk_auto_interpolate.setChecked(config.auto_interpolate)
         self._coords_tab._delete_fiducial_combo.set_value(config.delete_fiducial)
-        ri = config.ri
-        self._ri_tab._ri_widget.set_params(
-            ZetaParams(
-                tilt_deg=ri.tilt_deg,
-                depth_um=ri.depth_um,
-                NA=ri.na,
-                n2=ri.n2,
-                wavelength_um=ri.wavelength_um,
-            )
-        )
+        self._ri_tab._ri_widget.set_params(zeta_params_from_settings(config.ri))
 
     def _seed_ri_from_fm_metadata(self, fm_image: FluorescenceImage) -> None:
         """Seed RI λ / NA from the POI channel's metadata (FIB-277); λ is
@@ -3609,8 +3559,8 @@ class CorrelationTabWidget(QWidget):
             not (self._worker is not None and self._worker.isRunning())
             and self._fib_image is not None
             and self._fm_image is not None
-            and len(d.fib_coordinates) >= 4
-            and len(d.fm_coordinates) >= 4
+            and len(d.fib_coordinates) >= MIN_FIDUCIAL_PAIRS
+            and len(d.fm_coordinates) >= MIN_FIDUCIAL_PAIRS
             and len(d.poi_coordinates) >= 1
             and len(d.fib_coordinates) == len(d.fm_coordinates)
         )
@@ -3707,14 +3657,12 @@ class CorrelationTabWidget(QWidget):
             for c in self._coords_tab.fm_list.coordinates
             if c.status in PointStatus.TENTATIVE
         )
-        if n_fm < 4 and n_pred:
-            return (
-                f"Drag the predicted rings onto their burns: {n_fm} of 4 pairs placed."
-            )
+        if n_fm < MIN_FIDUCIAL_PAIRS and n_pred:
+            return f"Drag the predicted rings onto their burns: {n_fm} of {MIN_FIDUCIAL_PAIRS} pairs placed."
         if n_fm == 0:
             return "Project FM from FIB, or click the burns on the FM image."
-        if n_fm < 4 or n_fib < 4:
-            return f"{min(n_fib, n_fm)} of 4 pairs placed."
+        if n_fm < MIN_FIDUCIAL_PAIRS or n_fib < MIN_FIDUCIAL_PAIRS:
+            return f"{min(n_fib, n_fm)} of {MIN_FIDUCIAL_PAIRS} pairs placed."
         if n_fib != n_fm:
             return f"FIB and FM fiducial counts differ ({n_fib} and {n_fm})."
         if n_poi == 0:
@@ -4120,9 +4068,9 @@ class CorrelationTabWidget(QWidget):
         names a fiducial is a link that selects it. The per-pair leave-one-out
         error goes onto the FM rows. Replaces the RMS badge and the seed note,
         whose numbers now live on the Results tab."""
-        from fibsem.correlation.verdict import FitDiagnostics, verdict
+        from fibsem.correlation.verdict import FitEvidence, verdict
 
-        d = FitDiagnostics.from_dict(result.diagnostics)
+        d = FitEvidence.from_dict(result.diagnostics)
         v = verdict(d)
         colour = {"good": OK_COLOR, "check": WARN_COLOR, "bad": ERROR_COLOR}[v.tier]
         parts = [f'<span style="color:{colour}; font-weight:600">{v.headline}</span>']
@@ -4149,7 +4097,7 @@ class CorrelationTabWidget(QWidget):
             if p.index < len(fm):
                 tone = (
                     "error"
-                    if p.loo_error_um > 2.0
+                    if p.loo_error_um > LOO_BAD_UM
                     else ("warn" if p.index in flagged else "muted")
                 )
                 notes[id(fm[p.index])] = (f"{p.loo_error_um:.1f} µm", tone)
@@ -4161,9 +4109,9 @@ class CorrelationTabWidget(QWidget):
         None unless the verdict is poor. The user may still take it (FIB-1172)."""
         if not result.diagnostics:
             return None
-        from fibsem.correlation.verdict import FitDiagnostics, verdict
+        from fibsem.correlation.verdict import FitEvidence, verdict
 
-        d = FitDiagnostics.from_dict(result.diagnostics)
+        d = FitEvidence.from_dict(result.diagnostics)
         if verdict(d).tier != "bad":
             return None
         worst = ""
@@ -4604,7 +4552,7 @@ class CorrelationTabWidget(QWidget):
             self, "Export Correlation CSV", start, "CSV (*.csv);;All files (*)"
         )
         if path:
-            self._result.to_csv(path)
+            write_csv(self._result, path)
 
     def _reset_views(self) -> None:
         self._fib_canvas.reset_view()
@@ -4643,8 +4591,6 @@ class CorrelationTabWidget(QWidget):
 
     def save_plot(self, path: Optional[str] = None) -> None:
         """Save FIB + FM canvases as a side-by-side matplotlib figure."""
-        import matplotlib.pyplot as plt
-
         if path is None:
             if not self._project_dir:
                 QMessageBox.warning(self, "Save Plot", "No project directory set.")
@@ -4659,19 +4605,7 @@ class CorrelationTabWidget(QWidget):
         self._fib_canvas.reset_view()
         self._fm_display.reset_view()
 
-        fig, (ax_fib, ax_fm) = plt.subplots(1, 2, figsize=(16, 8), facecolor=CANVAS_BG)
-        for ax in (ax_fib, ax_fm):
-            ax.set_facecolor(CANVAS_BG)
-
-        _render_canvas_to_axes(self._fib_canvas.canvas, ax_fib, dpi=_PLOT_DPI)
-        ax_fib.set_title("FIB", color="white", fontsize=12)
-
-        _render_canvas_to_axes(self._fm_display.canvas, ax_fm, dpi=_PLOT_DPI)
-        ax_fm.set_title("FM", color="white", fontsize=12)
-
-        fig.tight_layout()
-        fig.savefig(path, dpi=150, bbox_inches="tight", facecolor=fig.get_facecolor())
-        plt.close(fig)
+        save_correlation_plot(path, self._fib_canvas.canvas, self._fm_display.canvas)
 
     def load_result(self, path: str, *, adopt_inputs: bool = True) -> None:
         """Load a correlation result from JSON and adopt it (mirrors load_data)."""
@@ -5059,210 +4993,6 @@ class CorrelationTabDialog(QDialog):
         return self.widget.result
 
 
-def _discover_correlation_files(directory: str) -> Dict[str, Optional[str]]:
-    """Locate FIB/FM images and saved correlation JSON in a project dir.
-
-    Conventions (matching the widget's auto-save + typical exports):
-      - FM image   : ``*.ome.tif`` / ``*.ome.tiff``
-      - FIB image  : ``*_ib.tif`` / ``*_ib.tiff`` (else the first non-OME TIFF)
-      - correlation: ``correlation.json`` (FIB-264 consolidated file)
-      - data       : ``correlation_data.json``   (legacy, still read)
-      - result     : ``correlation_result.json`` (legacy, still read)
-    """
-    import glob
-
-    def _first(patterns: List[str]) -> Optional[str]:
-        for pat in patterns:
-            hits = sorted(glob.glob(os.path.join(directory, pat)))
-            if hits:
-                return hits[0]
-        return None
-
-    fib = _first(["*_ib.tif", "*_ib.tiff"])
-    if fib is None:
-        tifs = sorted(
-            glob.glob(os.path.join(directory, "*.tif"))
-            + glob.glob(os.path.join(directory, "*.tiff"))
-        )
-        fib = next((t for t in tifs if not t.endswith((".ome.tif", ".ome.tiff"))), None)
-
-    def _existing(name: str) -> Optional[str]:
-        p = os.path.join(directory, name)
-        return p if os.path.exists(p) else None
-
-    return {
-        "fib": fib,
-        "fm": _first(["*.ome.tif", "*.ome.tiff"]),
-        "correlation": _existing(CORRELATION_FILENAME),
-        "data": _existing(_LEGACY_DATA_FILENAME),
-        "result": _existing(_LEGACY_RESULT_FILENAME),
-    }
-
-
-def find_spot_burns(project_dir: str) -> Tuple[List[Point], str]:
-    """The spot-burn pattern for the lamella a project folder belongs to.
-
-    Walks up from ``project_dir`` to the experiment file, matches the lamella by
-    its folder name, and reads the spot-burn task's coordinates. Returns
-    ``([], reason)`` when any of that is missing, so the caller can say why
-    there is no pattern. The standalone launcher's stand-in for what the
-    protocol editor passes to :meth:`CorrelationTabWidget.add_lamella_setup`.
-    """
-    import yaml
-
-    path = os.path.abspath(project_dir)
-    experiment_file = None
-    lamella_dir = None
-    probe = path
-    for _ in range(6):
-        candidate = os.path.join(probe, "experiment.yaml")
-        if os.path.isfile(candidate):
-            experiment_file = candidate
-            break
-        parent = os.path.dirname(probe)
-        if parent == probe:
-            break
-        # the lamella folder is the one directly under the experiment folder
-        lamella_dir = probe
-        probe = parent
-    if experiment_file is None:
-        return [], "no experiment.yaml above the project folder"
-    lamella_name = os.path.basename(lamella_dir) if lamella_dir else None
-    try:
-        with open(experiment_file) as fh:
-            experiment = yaml.safe_load(fh)
-    except Exception as exc:
-        return [], f"could not read {experiment_file}: {exc}"
-    positions = experiment.get("positions", []) if isinstance(experiment, dict) else []
-    for position in positions:
-        name = position.get("petname") or position.get("name")
-        folder = (
-            str(position.get("path", "")).replace("\\", "/").rstrip("/").split("/")[-1]
-        )
-        if lamella_name not in (name, folder):
-            continue
-        for cfg in (position.get("task_config") or {}).values():
-            if (
-                not isinstance(cfg, dict)
-                or cfg.get("task_type") != "SPOT_BURN_FIDUCIAL"
-            ):
-                continue
-            coords = [Point(x=c["x"], y=c["y"]) for c in cfg.get("coordinates", [])]
-            if coords:
-                return coords, ""
-            return [], f"{lamella_name}: spot-burn task has no coordinates"
-        return [], f"{lamella_name}: no spot-burn task in the experiment"
-    return [], f"{lamella_name!r} is not a lamella in {experiment_file}"
-
-
-def _experiment_and_lamella_dirs(
-    project_dir: str,
-) -> Tuple[Optional[str], Optional[str]]:
-    """The experiment folder above a run or lamella folder, and the lamella folder."""
-    path = os.path.abspath(project_dir)
-    lamella_dir = None
-    probe = path
-    for _ in range(6):
-        if os.path.isfile(os.path.join(probe, "experiment.yaml")):
-            return probe, lamella_dir
-        parent = os.path.dirname(probe)
-        if parent == probe:
-            break
-        lamella_dir = probe
-        probe = parent
-    return None, None
-
-
-def _images_beside_a_run(lamella_dir: str) -> Dict[str, Optional[str]]:
-    """The FIB and FM images for a run folder, from the lamella folder above it.
-
-    A lamella holds a reference image per task and stage, so the plain
-    discovery order would take whichever sorts first. Correlation fiducials are
-    picked on a post-burn reference, so prefer the spot-burn task's final one.
-
-    This is a guess, used only for a run that records no image names (before
-    FIB-1019): picking the wrong reference shifts every FIB coordinate. The
-    caller logs what it chose.
-    """
-    import glob
-
-    ib = sorted(glob.glob(os.path.join(lamella_dir, "*_ib.tif")))
-    burn = [
-        p
-        for p in ib
-        if "spot burn" in os.path.basename(p).lower()
-        and "final" in os.path.basename(p).lower()
-    ]
-    fm = sorted(
-        glob.glob(os.path.join(lamella_dir, "*.ome.tif"))
-        + glob.glob(os.path.join(lamella_dir, "*.ome.tiff"))
-    )
-    return {
-        "fib": (burn or ib or [None])[-1],
-        "fm": (fm or [None])[0],
-    }
-
-
-def _recorded_image_names(found: Dict[str, Optional[str]]) -> Dict[str, Optional[str]]:
-    """The FIB and FM image names the run's own file records, or None for each.
-
-    Read from the file ``load_project`` will load, in the same order. An
-    unreadable file records nothing here; the load reports it.
-    """
-    for key in ("correlation", "data", "result"):
-        if not found.get(key):
-            continue
-        try:
-            state = load_correlation_file(found[key])
-        except Exception:
-            continue
-        sources = [state.input_data]
-        if state.result is not None and state.result.input_data is not None:
-            sources.append(state.result.input_data)
-        return {
-            "fib": next(
-                (
-                    d.stored_fib_image_filename
-                    for d in sources
-                    if d.stored_fib_image_filename
-                ),
-                None,
-            ),
-            "fm": next(
-                (
-                    d.stored_fm_image_filename
-                    for d in sources
-                    if d.stored_fm_image_filename
-                ),
-                None,
-            ),
-        }
-    return {"fib": None, "fm": None}
-
-
-# The forms a recorded name has taken: the file itself, or (older FIB records)
-# the acquisition stem that ``save`` appended its suffix to.
-_RECORDED_IMAGE_SUFFIXES = {
-    "fib": ("", "_ib.tif", "_ib.tiff", ".tif", ".tiff"),
-    "fm": ("", ".ome.tiff", ".ome.tif"),
-}
-
-
-def _find_recorded_image(name: str, kind: str, folders: List[str]) -> Optional[str]:
-    """The file a recorded image name refers to, in the first of ``folders``
-    that has it, or None. A full path recorded on another machine is reduced to
-    its file name."""
-    base = recorded_image_basename(name)
-    if base is None:
-        return None
-    for folder in folders:
-        for suffix in _RECORDED_IMAGE_SUFFIXES[kind]:
-            path = os.path.join(folder, base + suffix)
-            if os.path.isfile(path):
-                return path
-    return None
-
-
 def load_project(widget: "CorrelationTabWidget", directory: str) -> None:
     """Quickstart-load a correlation project directory into ``widget``.
 
@@ -5270,57 +5000,10 @@ def load_project(widget: "CorrelationTabWidget", directory: str) -> None:
     saved correlation result (preferred) or coordinate data. Missing or
     unreadable pieces are logged and skipped so a partial project still opens.
 
-    The images are the ones the run records it was picked on (FIB-1019),
-    looked for in the run folder and then the lamella folder above it. A
-    recorded image that cannot be found is left unloaded rather than replaced
-    by a guess: the fiducials are pixels in that image (FIB-1237). Only a run
-    that records no names falls back to guessing.
+    Which files is :func:`fibsem.correlation.history.discover_project`'s
+    answer; this loads them into the widget.
     """
-    found = _discover_correlation_files(directory)
-    logging.info("Quickstart loading correlation project: %s", directory)
-
-    _, lamella_dir = _experiment_and_lamella_dirs(directory)
-    above_run = (
-        lamella_dir
-        if lamella_dir and os.path.abspath(lamella_dir) != os.path.abspath(directory)
-        else None
-    )
-    recorded = _recorded_image_names(found)
-    for key in ("fib", "fm"):
-        if not recorded[key]:
-            continue
-        folders = [directory] + ([above_run] if above_run else [])
-        found[key] = _find_recorded_image(recorded[key], key, folders)
-        if found[key]:
-            logging.info(
-                "  %s image as recorded by the run: %s",
-                key.upper(),
-                os.path.basename(found[key]),
-            )
-        else:
-            logging.warning(
-                "  the run records %s image %s, which is not in %s; not loading "
-                "another in its place",
-                key.upper(),
-                recorded_image_basename(recorded[key]),
-                " or ".join(folders),
-            )
-
-    # A run folder holds correlation.json; the images live in the lamella
-    # folder above it. The launcher already walks up there for the spot-burn
-    # pattern and the transform priors, so do the same for the images rather
-    # than opening with points and empty canvases (FIB-1018).
-    unrecorded = [k for k in ("fib", "fm") if not recorded[k] and not found[k]]
-    if unrecorded and above_run:
-        above = _images_beside_a_run(above_run)
-        for key in unrecorded:
-            if above[key]:
-                found[key] = above[key]
-                logging.info(
-                    "  %s image guessed from the lamella folder: %s",
-                    key.upper(),
-                    os.path.basename(above[key]),
-                )
+    found = discover_project(directory)
 
     widget.set_project_dir(directory)
 
@@ -5420,7 +5103,7 @@ def main() -> None:
             widget.add_lamella_setup(spot_burns=burns)
         else:
             logging.info(f"No spot-burn pattern: {reason}")
-        experiment_dir, lamella_dir = _experiment_and_lamella_dirs(args.project)
+        experiment_dir, lamella_dir = experiment_and_lamella_dirs(args.project)
         if experiment_dir:
             from fibsem.correlation.prior import experiment_runs
 

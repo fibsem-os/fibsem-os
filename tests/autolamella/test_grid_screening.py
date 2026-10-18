@@ -15,20 +15,6 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
 )
 from fibsem.applications.autolamella.tools.grid_report_pdf import REPORT_FILENAME
-from fibsem.applications.autolamella.workflows.tasks.grid import (
-    BeamOverviewGridTaskConfig,
-)
-from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
-    LOAD_ENTRY_NAME,
-    UNLOAD_ENTRY_NAME,
-    GridTaskManager,
-)
-from fibsem.applications.autolamella.workflows.tasks.grid.screening import (
-    GridNamingError,
-    name_and_record_grids,
-    screen_grids,
-    screening_plan,
-)
 from fibsem.services.sample_handling import bind_sample_handling
 from fibsem.structures import (
     BeamType,
@@ -37,6 +23,20 @@ from fibsem.structures import (
     OverviewAcquisitionSettings,
     SampleGrid,
     SlotCalibration,
+)
+from fibsem.workflows.grid import (
+    BeamOverviewGridTaskConfig,
+)
+from fibsem.workflows.grid.manager import (
+    LOAD_ENTRY_NAME,
+    UNLOAD_ENTRY_NAME,
+    GridTaskManager,
+)
+from fibsem.workflows.grid.screening import (
+    GridNamingError,
+    name_and_record_grids,
+    screen_grids,
+    screening_plan,
 )
 from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.status import TaskState

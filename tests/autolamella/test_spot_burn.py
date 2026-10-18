@@ -13,7 +13,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from fibsem.applications.autolamella.structures import Attention
 from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
     SpotBurnFiducialTaskConfig,
 )
@@ -25,6 +24,7 @@ from fibsem.imaging.spot import (
 )
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, Point
+from fibsem.workflows.attention import Attention
 
 # The widget-dispatch tests need the UI stack (PyQt5/superqt, the [ui] extra), which
 # isn't installed in the core CI env (`pip install .`). napari is not part of it: it

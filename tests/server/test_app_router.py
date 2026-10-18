@@ -73,7 +73,7 @@ def client(microscope, host, event_buffer):
 
 def test_capabilities_reports_the_app_router(client):
     body = client.get("/capabilities", headers=AUTH).json()
-    assert body["routers"] == {"microscope": True, "app": True}
+    assert body["routers"] == {"microscope": True, "services": True, "app": True}
 
 
 def test_without_app_context_the_routes_do_not_exist(microscope):
@@ -378,13 +378,11 @@ def test_event_history_reads_the_record_before_the_live_buffer(
 
 
 def test_task_schedule_verb_sets_clears_and_refuses(microscope, host, event_buffer):
-    from fibsem.applications.autolamella.structures import (
-        Attention,
-        AutoLamellaTaskDescription,
-    )
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskDescription
     from fibsem.applications.autolamella.workflows.tasks.rough import (
         MillRoughTaskConfig,
     )
+    from fibsem.workflows.attention import Attention
 
     # A real workflow entry to schedule.
     protocol = host.experiment.task_protocol
@@ -786,10 +784,10 @@ def test_grid_markers_report_unplaceable_items(client, host, grid_with_overview)
 
 
 def test_grid_workflow_plan_is_the_preflight_without_hardware(client, host):
-    from fibsem.applications.autolamella.workflows.tasks.grid.imaging import (
+    from fibsem.workflows.grid.imaging import (
         BeamOverviewGridTaskConfig,
     )
-    from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+    from fibsem.workflows.grid.manager import (
         LOAD_ENTRY_NAME,
     )
     from fibsem.workflows.grids import GridRecord

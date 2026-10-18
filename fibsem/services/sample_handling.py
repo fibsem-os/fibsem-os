@@ -658,6 +658,19 @@ class SampleHandling(Service):
         is calibrated), its calibration and the grid loaded in it."""
         return sorted(self.holder.slots.values(), key=lambda slot: slot.index)
 
+    @query
+    def overview_slots(self) -> List[GridSlot]:
+        """The slots a grid overview is centred on. With a loader, its working
+        slot. On a fixed holder, the occupied calibrated slots, or every
+        calibrated one when none is occupied. Empty before a holder is loaded."""
+        if self.holder is None:
+            return []
+        calibrated = [s for s in self.holder_slots() if s.position is not None]
+        if self.magazine is not None:
+            return calibrated[:1]
+        occupied = [s for s in calibrated if s.loaded_grid is not None]
+        return occupied or calibrated
+
     @command(long=True)
     def run_inventory(self) -> List[GridInventoryEntry]:
         """Scan the magazine and return the inventory: the slow one.

@@ -101,7 +101,7 @@ def test_capabilities_reports_the_level_and_routers(read_client):
     resp = read_client.get("/capabilities", headers=AUTH)
     assert resp.status_code == 200
     body = resp.json()
-    assert body["routers"] == {"microscope": True, "app": False}
+    assert body["routers"] == {"microscope": True, "services": True, "app": False}
     assert body["level"] == "watch"
     assert "manufacturer" not in body  # the microscope's own: GET /microscope
     # the code it runs, for a sidecar to compare its own with (FIB-1429)

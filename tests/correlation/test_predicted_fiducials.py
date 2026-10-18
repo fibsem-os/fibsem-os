@@ -18,6 +18,7 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
+from fibsem.correlation.history import find_spot_burns  # noqa: E402
 from fibsem.correlation.structures import (  # noqa: E402
     Coordinate,
     PointProvenance,
@@ -43,7 +44,6 @@ from fibsem.structures import (  # noqa: E402
 )
 from fibsem.ui.correlation.widgets.correlation_tab_widget import (  # noqa: E402
     CorrelationTabWidget,
-    find_spot_burns,
 )
 
 FIXTURE = Path(__file__).parent / "fixtures" / "nominal_transform.json"
@@ -1023,7 +1023,7 @@ def test_a_previous_run_far_from_the_geometry_is_not_used_as_the_prior(loaded):
     def runs(rotation):
         result = CorrelationResult(
             scale=geometry.scale,
-            rotation_quaternion=(rotation).tolist(),
+            rotation_matrix=(rotation).tolist(),
             translation=[0.0, 0.0, 0.0],
             fm_z_scale=geometry.z_anisotropy,
             input_data=CorrelationInputData(stored_fib_image_pixel_size=px),

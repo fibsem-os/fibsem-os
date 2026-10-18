@@ -1,7 +1,7 @@
 """The correlation module converts image px → microscope px exactly once.
 
 FIB-362: the conversion was written out four times in the correlation
-module alone — twice in `correlation_v2` (once in a helper nothing called), once
+module alone — twice in the correlation run (once in a helper nothing called), once
 inside `_reproject_poi_via_transform`, and once in
 `apply_refractive_index_correction`, where it produces `px_m`, the number
 Continue commits to the experiment. `fibsem.conversions` already owned the
@@ -16,6 +16,7 @@ Correlation asks for `subpixel_precision=True` throughout, which is what its own
 arithmetic did. The flag is not cosmetic — see
 `test_the_correlation_module_asks_for_the_true_centre`.
 """
+
 import math
 from types import SimpleNamespace
 
@@ -23,7 +24,7 @@ import numpy as np
 import pytest
 
 from fibsem.conversions import image_to_microscope_image_coordinates_px
-from fibsem.correlation.correlation_v2 import (
+from fibsem.correlation.fit import (
     _reproject_poi_via_transform,
     convert_poi_to_microscope_coordinates,
 )
@@ -50,12 +51,13 @@ def _centred(x: float, y: float, shape=None):
     )
     return pt.x, pt.y
 
+
 # Identity transform: FM-space coordinates land unchanged as FIB image pixels,
 # so the same point can be pushed through the reprojection and the correlation
 # output and the two compared directly.
 _IDENTITY = {
     "scale": 1.0,
-    "rotation_quaternion": np.eye(3).tolist(),
+    "rotation_matrix": np.eye(3).tolist(),
     "translation_around_rotation_center_zero": [0.0, 0.0, 0.0],
 }
 
@@ -215,7 +217,7 @@ def test_a_malformed_rotation_raises_rather_than_dropping_the_ghost():
     plausible garbage, so the shape check earns its keep even though the one
     call site cannot reach it. It used to log and return [], which lost the
     ghost marker and left the run looking fine."""
-    bad = dict(_IDENTITY, rotation_quaternion=[1.0, 0.0, 0.0])
+    bad = dict(_IDENTITY, rotation_matrix=[1.0, 0.0, 0.0])
 
     with pytest.raises(ValueError, match="3x3"):
         _reproject_poi_via_transform(
@@ -224,9 +226,9 @@ def test_a_malformed_rotation_raises_rather_than_dropping_the_ghost():
 
 
 def test_a_quaternion_shaped_rotation_raises_too():
-    """The field is named `rotation_quaternion` but stores a 3x3 matrix. An
-    actual four-element quaternion arriving here is the misnomer coming true."""
-    bad = dict(_IDENTITY, rotation_quaternion=[0.9, 0.1, 0.2, 0.3])
+    """The field holds a 3x3 matrix (it was once misnamed `rotation_quaternion`).
+    A four-element quaternion arriving here is that old name taken at its word."""
+    bad = dict(_IDENTITY, rotation_matrix=[0.9, 0.1, 0.2, 0.3])
 
     with pytest.raises(ValueError, match="3x3"):
         _reproject_poi_via_transform(

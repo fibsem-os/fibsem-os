@@ -158,8 +158,8 @@ def test_both_task_hierarchies_take_the_managers_token(manager):
     import inspect
 
     from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
-    from fibsem.applications.autolamella.workflows.tasks.grid.base import GridTask
     from fibsem.workflows import task as task_module
+    from fibsem.workflows.grid.base import GridTask
     from fibsem.workflows.task import BaseTask
 
     assert issubclass(AutoLamellaTask, BaseTask)

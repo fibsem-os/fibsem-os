@@ -300,7 +300,7 @@ _GROUPS: Tuple[Tuple[str, str, str, Callable[[], ExtensionGroup]], ...] = (
     _group(
         "fibsem.grid.tasks",
         "Grid tasks",
-        "fibsem.applications.autolamella.workflows.tasks.grid",
+        "fibsem.workflows.grid",
         "GRID_TASK_PLUGINS",
     ),
     _group(

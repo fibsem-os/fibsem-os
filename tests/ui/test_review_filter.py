@@ -16,17 +16,13 @@ from psygnal.containers import EventedDict  # noqa: E402
 
 from fibsem.acting import Actor  # noqa: E402
 from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST  # noqa: E402
-from fibsem.applications.autolamella.structures import (  # noqa: E402
-    Attention,
+from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
     AutoLamellaWorkflowConfig,
     Experiment,
 )
 from fibsem.applications.autolamella.ui import review_tab_widget as R  # noqa: E402
-from fibsem.applications.autolamella.workflows.tasks.grid import (  # noqa: E402
-    BeamOverviewGridTaskConfig,
-)
 from fibsem.applications.autolamella.workflows.tasks.rough import (  # noqa: E402
     MillRoughTaskConfig,
 )
@@ -38,6 +34,10 @@ from fibsem.structures import (  # noqa: E402
     ImageSettings,
     MicroscopeState,
     Point,
+)
+from fibsem.workflows.attention import Attention
+from fibsem.workflows.grid import (  # noqa: E402
+    BeamOverviewGridTaskConfig,
 )
 from fibsem.workflows.grids import GridRecord  # noqa: E402
 from fibsem.workflows.proposals import (  # noqa: E402

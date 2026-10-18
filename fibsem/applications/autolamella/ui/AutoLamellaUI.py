@@ -91,7 +91,6 @@ from fibsem.applications.autolamella.poses import (
     stored_objective_position,
 )
 from fibsem.applications.autolamella.structures import (
-    Attention,
     AutoLamellaTaskProtocol,
     AutoLamellaWorkflowConfig,
     Experiment,
@@ -117,6 +116,7 @@ from fibsem.ui.widgets.workflow_summary_dialog import (
     WorkflowSummaryDialog,
     run_counts_text,
 )
+from fibsem.workflows.attention import Attention
 from fibsem.workflows.session import AppSession
 
 if TYPE_CHECKING:
@@ -850,6 +850,7 @@ class AutoLamellaUI(QMainWindow):
                 microscope=self.microscope,
                 image_settings=self.settings.image,  # type: ignore
                 parent=self,
+                images=self.session.images,
             )
             self.movement_widget = FibsemMovementWidget(
                 microscope=self.microscope,
@@ -1217,10 +1218,10 @@ class AutoLamellaUI(QMainWindow):
         report_at_end: bool = False,
     ) -> None:
         """Worker thread for a grid run."""
-        from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+        from fibsem.workflows.grid.manager import (
             GridTaskManager,
         )
-        from fibsem.applications.autolamella.workflows.tasks.grid.screening import (
+        from fibsem.workflows.grid.screening import (
             present_grids,
         )
 
@@ -1449,7 +1450,7 @@ class AutoLamellaUI(QMainWindow):
         so ``grid_names`` must be omitted; otherwise omitted grids means every
         grid the experiment records, as the manager's own default does.
         """
-        from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+        from fibsem.workflows.grid.manager import (
             plan_grid_run,
         )
 

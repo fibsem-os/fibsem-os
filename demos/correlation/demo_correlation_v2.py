@@ -13,7 +13,7 @@ import os
 
 import pandas as pd
 
-from fibsem.correlation.correlation_v2 import run_correlation_from_data
+from fibsem.correlation.fit import run_correlation_from_data
 from fibsem.correlation.structures import (
     Coordinate,
     CorrelationInputData,

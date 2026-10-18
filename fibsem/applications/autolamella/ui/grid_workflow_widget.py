@@ -35,10 +35,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.applications.autolamella.structures import (
-    Attention,
-    Experiment,
-)
+from fibsem.applications.autolamella.structures import Experiment
 from fibsem.applications.autolamella.tools.grid_report_pdf import (
     report_unavailable_reason,
 )
@@ -64,14 +61,6 @@ from fibsem.applications.autolamella.ui.workflow_config_widget import (
 )
 from fibsem.applications.autolamella.ui.workflow_preflight_dialog import (
     _task_block as task_block,
-)
-from fibsem.applications.autolamella.workflows.tasks.grid import (
-    FluorescenceOverviewGridTaskConfig,
-    GridTaskConfig,
-)
-from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
-    LOAD_ENTRY_NAME,
-    plan_grid_run,
 )
 from fibsem.applications.autolamella.workflows.workflow_estimate import (
     AdditionEstimate,
@@ -114,6 +103,15 @@ from fibsem.ui.widgets.preflight import (
     warning_label,
 )
 from fibsem.util.durations import format_duration_rounded
+from fibsem.workflows.attention import Attention
+from fibsem.workflows.grid import (
+    FluorescenceOverviewGridTaskConfig,
+    GridTaskConfig,
+)
+from fibsem.workflows.grid.manager import (
+    LOAD_ENTRY_NAME,
+    plan_grid_run,
+)
 from fibsem.workflows.grids import GridRecord
 
 # The lamella list's metrics, so the two run views read alike.

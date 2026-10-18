@@ -49,8 +49,7 @@ from PyQt5.QtCore import (  # noqa: E402
 from PyQt5.QtGui import QPixmap  # noqa: E402
 from PyQt5.QtWidgets import QLabel  # noqa: E402
 
-from fibsem.applications.autolamella.structures import (  # noqa: E402
-    Attention,
+from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
     AutoLamellaWorkflowConfig,
 )
@@ -79,6 +78,7 @@ from fibsem.ui.icon import (  # noqa: E402
 from fibsem.ui.widgets.milling_stage_list_widget import (  # noqa: E402
     MillingStageRowWidget,
 )
+from fibsem.workflows.attention import Attention
 
 NULL_PIXMAP_WARNING = "null pixmap"
 

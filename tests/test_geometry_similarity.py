@@ -10,7 +10,7 @@ import math
 import numpy as np
 import pytest
 
-from fibsem.correlation.similarity import (
+from fibsem.geometry.similarity import (
     SimilarityFit,
     fit_similarity,
     looks_mirrored,

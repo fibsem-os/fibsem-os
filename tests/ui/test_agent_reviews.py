@@ -20,8 +20,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST  # noqa: E402
 from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
-from fibsem.applications.autolamella.structures import (  # noqa: E402
-    Attention,
+from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
     AutoLamellaWorkflowConfig,
@@ -41,6 +40,7 @@ from fibsem.structures import (  # noqa: E402
     MicroscopeState,
     Point,
 )
+from fibsem.workflows.attention import Attention
 from fibsem.workflows.events import EventBuffer  # noqa: E402
 from fibsem.workflows.proposals import Decision, DecisionOutcome, Proposal  # noqa: E402
 from fibsem.workflows.status import TaskState, TaskStatus  # noqa: E402

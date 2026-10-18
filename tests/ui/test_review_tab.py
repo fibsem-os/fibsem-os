@@ -17,8 +17,7 @@ pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is delibe
 
 from fibsem.acting import ActorKind  # noqa: E402
 from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST  # noqa: E402
-from fibsem.applications.autolamella.structures import (  # noqa: E402
-    Attention,
+from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
     AutoLamellaWorkflowConfig,
@@ -40,6 +39,7 @@ from fibsem.structures import (  # noqa: E402
     MicroscopeState,
     Point,
 )
+from fibsem.workflows.attention import Attention
 from fibsem.workflows.proposals import (  # noqa: E402
     TASK_RESULT,
     Decision,
@@ -670,7 +670,7 @@ def _sem_image() -> FibsemImage:
 def _grid_waiting(experiment):
     """Grid-01's SEM overview under review, its stitched image on disk, and a
     FIB overview that requires it."""
-    from fibsem.applications.autolamella.workflows.tasks.grid import (
+    from fibsem.workflows.grid import (
         BeamOverviewGridTaskConfig,
     )
     from fibsem.workflows.grids import GridRecord
@@ -742,8 +742,8 @@ def microscope():
 def _positions_waiting(experiment, positions=(), name="Grid-02"):
     """A grid's overview under review for where the lamellae go, with its
     stitched image on disk."""
-    from fibsem.applications.autolamella.proposals import OVERVIEW_POSITIONS
     from fibsem.workflows.grids import GridRecord
+    from fibsem.workflows.positions import OVERVIEW_POSITIONS
 
     grid = experiment.add_grid(GridRecord(name=name))
     directory = experiment.grid_path(grid) / "SEM Overview"

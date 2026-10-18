@@ -16,16 +16,16 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.workflows.tasks.grid import (
+from fibsem.fm.acquisition import OverviewDestination, acquire_fm_tiled_overview
+from fibsem.fm.structures import ChannelSettings, OverviewParameters, ZParameters
+from fibsem.services.sample_handling import BUILTIN_SLOT_NAME
+from fibsem.structures import InsertableDeviceState, SampleGrid
+from fibsem.workflows.grid import (
     FluorescenceOverviewGridTask,
     FluorescenceOverviewGridTaskConfig,
     get_grid_tasks,
     run_grid_task,
 )
-from fibsem.fm.acquisition import OverviewDestination, acquire_fm_tiled_overview
-from fibsem.fm.structures import ChannelSettings, OverviewParameters, ZParameters
-from fibsem.services.sample_handling import BUILTIN_SLOT_NAME
-from fibsem.structures import InsertableDeviceState, SampleGrid
 from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.outputs import (
     item_outputs,

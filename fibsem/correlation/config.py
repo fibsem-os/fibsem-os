@@ -18,6 +18,13 @@ from fibsem.structures import Configurable, Display, RangeLimit, param
 # Plain strings so this module never imports the UI; the method combos list these.
 FIT_METHODS = ("None", "Hole", "Gaussian")
 
+# Fewest fiducial pairs a correlation accepts: the run button, the service and
+# the verdict all stop below it. The rigid 3D->2D transform has ~7 degrees of
+# freedom, so a fit on this many is barely over-determined and its residual is
+# small by construction rather than by agreement. (The solver itself can solve
+# three; this is the policy floor, not the algebraic one.)
+MIN_FIDUCIAL_PAIRS = 4
+
 # What deleting a FIB or FM fiducial does to its partner on the other side
 # (FIB-1243): ask each time, remove the pair, or remove only that point.
 DELETE_FIDUCIAL_ASK = "ask"

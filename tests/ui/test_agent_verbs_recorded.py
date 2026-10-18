@@ -31,14 +31,14 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
     Experiment,
 )
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI  # noqa: E402
-from fibsem.applications.autolamella.workflows.tasks.grid.imaging import (  # noqa: E402
-    BeamOverviewGridTaskConfig,
-)
 from fibsem.server import AuthConfig, build_server  # noqa: E402
 from fibsem.structures import MicroscopeState  # noqa: E402
 from fibsem.ui.qt.threading import FunctionWorker  # noqa: E402
 from fibsem.workflows.event_recording import (  # noqa: E402
     EventRecorder,
+)
+from fibsem.workflows.grid.imaging import (  # noqa: E402
+    BeamOverviewGridTaskConfig,
 )
 from fibsem.workflows.grids import GridRecord  # noqa: E402
 

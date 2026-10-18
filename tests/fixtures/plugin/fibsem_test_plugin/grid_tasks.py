@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import ClassVar, Type
 
-from fibsem.applications.autolamella.workflows.tasks.grid import (
+from fibsem.workflows.grid import (
     GridTask,
     GridTaskConfig,
 )

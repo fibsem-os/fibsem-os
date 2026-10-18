@@ -64,7 +64,7 @@ class NominalTransform:
     for FM coordinates in *isotropic* units: x and y in FM pixels, z in FM pixels of
     depth (metres / xy pixel size). In those units the rows of ``P`` are orthogonal
     with norm ``scale``, so ``P / scale`` completes to a proper rotation -- the same
-    ``R`` the fit stores as ``rotation_quaternion`` -- which is what a seed needs.
+    ``R`` the fit stores as ``rotation_matrix`` -- which is what a seed needs.
 
     ``translation`` is where FM pixel (0, 0) *on the sample surface* lands in the FIB
     image according to the stage positions alone. It carries the stage repeatability
@@ -118,9 +118,7 @@ class NominalTransform:
         result completes to a proper rotation of its own. It is the solution a
         coplanar-fiducial fit cannot distinguish from this one.
         """
-        mirrored = self.projection.copy()
-        mirrored[:, 2] *= -1
-        return dataclasses.replace(self, projection=mirrored)
+        return dataclasses.replace(self, projection=mirror_depth(self.projection))
 
     def project(self, fm_xyz_isotropic: np.ndarray) -> np.ndarray:
         """FIB pixels for (N, 3) FM points in isotropic units."""
@@ -380,6 +378,23 @@ def _complete_rotation(rows: np.ndarray) -> np.ndarray:
     r1 = r1 / np.linalg.norm(r1)
     r2 = np.cross(r0, r1)
     return np.vstack([r0, r1, r2])
+
+
+def mirror_depth(rows: np.ndarray) -> np.ndarray:
+    """A copy of ``rows`` with the depth (third) column negated: the other branch.
+
+    Only the first two rows of the rotation are seen in the FIB image, so a fit and
+    its mirror differ by the sign of their depth column alone. Negating it keeps
+    orthonormal rows orthonormal.
+    """
+    mirrored = np.array(rows)  # a copy, in the dtype given
+    mirrored[:, 2] *= -1
+    return mirrored
+
+
+def mirror_rotation(rotation: np.ndarray) -> np.ndarray:
+    """The other branch of a fitted rotation: depth axis reversed, still proper."""
+    return _complete_rotation(mirror_depth(np.asarray(rotation, dtype=float)[:2]))
 
 
 def rotation_angle_deg(a: np.ndarray, b: np.ndarray) -> float:

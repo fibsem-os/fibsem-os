@@ -17,7 +17,6 @@ from psygnal.containers import EventedDict
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.structures import (
-    Attention,
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
     AutoLamellaWorkflowConfig,
@@ -29,6 +28,7 @@ from fibsem.applications.autolamella.workflows.tasks.reference_image import (
     AcquireReferenceImageTask,
 )
 from fibsem.structures import FibsemStagePosition
+from fibsem.workflows.attention import Attention
 from fibsem.workflows.proposals import (
     STATE,
     TASK_RESULT,

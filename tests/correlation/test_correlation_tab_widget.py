@@ -944,9 +944,7 @@ def test_dialog_allows_window_minimise(qapp):
 
 
 def test_discover_correlation_files(tmp_path):
-    from fibsem.ui.correlation.widgets.correlation_tab_widget import (
-        _discover_correlation_files,
-    )
+    from fibsem.correlation.history import _discover_correlation_files
 
     # Empty directory → everything None.
     assert _discover_correlation_files(str(tmp_path)) == {
@@ -975,7 +973,7 @@ def test_a_run_folder_takes_its_images_from_the_lamella_above(tmp_path):
     """A run folder holds only the JSON; the images are one level up. The
     launcher walks up for them, preferring the post-burn reference the
     fiducials were picked on over the lamella's other references."""
-    from fibsem.ui.correlation.widgets.correlation_tab_widget import (
+    from fibsem.correlation.history import (
         _discover_correlation_files,
         _images_beside_a_run,
     )
@@ -1015,9 +1013,7 @@ def test_a_run_folder_takes_its_images_from_the_lamella_above(tmp_path):
 
 def test_discover_fib_falls_back_to_non_ome_tif(tmp_path):
     """With no *_ib.tif, the FIB is the first TIFF that isn't the OME-TIFF."""
-    from fibsem.ui.correlation.widgets.correlation_tab_widget import (
-        _discover_correlation_files,
-    )
+    from fibsem.correlation.history import _discover_correlation_files
 
     (tmp_path / "scene.ome.tif").write_bytes(b"")  # FM — must not be taken as FIB
     (tmp_path / "fib_image.tif").write_bytes(b"")  # plain TIFF → FIB fallback
@@ -1314,7 +1310,7 @@ def test_the_results_tab_reports_the_transform_a_person_can_check(qapp):
     ]
     result = CorrelationResult(
         scale=2.0,
-        rotation_quaternion=rot,
+        rotation_matrix=rot,
         rotation_eulers=[180.0, 75.0, -180.0],
         translation=[-100.0, 50.0, 0.0],
         fm_z_scale=10.0,
@@ -1657,7 +1653,7 @@ def test_fit_dialog_sizes_wide_figure_to_aspect(qapp):
     import numpy as np
     from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 
-    from fibsem.correlation.fit_diagnostics import FitDiagnostic
+    from fibsem.imaging.localise import PointFitDiagnostic
     from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
         FitConfirmationDialog,
         FitStatus,
@@ -1665,7 +1661,7 @@ def test_fit_dialog_sizes_wide_figure_to_aspect(qapp):
     )
 
     # a z + XY diagnostic renders wide (9x4.5), like the FM fits
-    diag = FitDiagnostic(
+    diag = PointFitDiagnostic(
         title="t",
         roi_xy=np.zeros((10, 10)),
         input_xy=(5.0, 5.0),
@@ -1785,7 +1781,7 @@ def test_error_dialog_splits_title_and_wrapped_reason(qapp):
 def test_diagnostic_toggle_reveals_and_hides_figure(qapp):
     import numpy as np
 
-    from fibsem.correlation.fit_diagnostics import FitDiagnostic
+    from fibsem.imaging.localise import PointFitDiagnostic
     from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
         FitConfirmationDialog,
         FitStatus,
@@ -1793,7 +1789,9 @@ def test_diagnostic_toggle_reveals_and_hides_figure(qapp):
     )
 
     def _result():
-        diag = FitDiagnostic(title="t", roi_xy=np.zeros((10, 10)), input_xy=(5.0, 5.0))
+        diag = PointFitDiagnostic(
+            title="t", roi_xy=np.zeros((10, 10)), input_xy=(5.0, 5.0)
+        )
         return PointFitResult(
             coordinate=_coord(pt=PointType.FM),
             method="Hole",
@@ -1829,14 +1827,14 @@ def test_accept_is_default_button_not_the_toggle(qapp):
     import numpy as np
     from PyQt5.QtWidgets import QPushButton
 
-    from fibsem.correlation.fit_diagnostics import FitDiagnostic
+    from fibsem.imaging.localise import PointFitDiagnostic
     from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
         FitConfirmationDialog,
         FitStatus,
         PointFitResult,
     )
 
-    diag = FitDiagnostic(title="t", roi_xy=np.zeros((10, 10)), input_xy=(5.0, 5.0))
+    diag = PointFitDiagnostic(title="t", roi_xy=np.zeros((10, 10)), input_xy=(5.0, 5.0))
     result = PointFitResult(
         coordinate=_coord(pt=PointType.FM),
         method="Hole",
@@ -2072,7 +2070,7 @@ def test_run_point_fit_does_not_mutate_coordinate(qapp, monkeypatch):
 
     w = _widget(qapp)
     w._fib_image = SimpleNamespace(filtered_data=np.zeros((64, 64), dtype=np.float32))
-    diag = object()  # stand-in FitDiagnostic
+    diag = object()  # stand-in PointFitDiagnostic
     monkeypatch.setattr(
         localise, "hole_fitting_FIB", lambda img, x, y: (x + 3.0, y + 4.0, diag)
     )

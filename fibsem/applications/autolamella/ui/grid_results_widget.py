@@ -32,9 +32,6 @@ from fibsem.applications.autolamella.structures import Experiment
 from fibsem.applications.autolamella.ui.lamella_task_image_widget import (
     ClickableLabel,
 )
-from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
-    EXCHANGE_ENTRY_NAMES as _EXCHANGE_ENTRY_NAMES,
-)
 from fibsem.constants import TIME_DISPLAY_AMPM_SHORT
 from fibsem.ui import stylesheets
 from fibsem.ui.stylesheets import SECONDARY_BUTTON_STYLESHEET
@@ -49,6 +46,9 @@ from fibsem.ui.tokens import (
 from fibsem.ui.widgets.custom_widgets import ElidedLabel, IconToolButton
 from fibsem.ui.widgets.image_viewer_dialog import ViewerItem, open_image_viewer
 from fibsem.util.timestamps import format_time
+from fibsem.workflows.grid.manager import (
+    EXCHANGE_ENTRY_NAMES as _EXCHANGE_ENTRY_NAMES,
+)
 from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.status import TaskState, TaskStatus
 

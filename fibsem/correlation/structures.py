@@ -135,42 +135,6 @@ class Coordinate:
         )
 
 
-def scale_about_surface(value, surface, correction_factor):
-    """Scale a depth-like value about a surface reference.
-
-    ``surface + (value - surface) * correction_factor`` — the single source of
-    the refractive-index depth-scaling formula. Signed (works regardless of
-    axis direction) and unit-free; accepts scalars or numpy arrays.
-    """
-    return surface + (value - surface) * correction_factor
-
-
-def apply_z_surface_correction(
-    poi_coords: np.ndarray, surface_z: float, correction_factor: float
-) -> np.ndarray:
-    """Scale POI z about the FM surface z (pre-correlation RI correction).
-
-    corrected_z = surface_z + (z - surface_z) * correction_factor
-
-    The scaling is signed, so it is independent of the stack z direction, and
-    unit-free, so it is valid in voxel indices for a uniform z-step.
-
-    Args:
-        poi_coords: (N, 3) array of POI coordinates (x, y, z) in FM voxels.
-        surface_z: z of the surface point in the FM volume (voxels).
-        correction_factor: depth scaling factor (zeta).
-
-    Returns:
-        A corrected copy; the input array is not modified.
-    """
-    corrected = np.array(poi_coords, dtype=np.float32, copy=True)
-    if corrected.size:
-        corrected[:, 2] = scale_about_surface(
-            corrected[:, 2], surface_z, correction_factor
-        )
-    return corrected
-
-
 def _loaded_filename(image) -> Optional[str]:
     """Name the file ``image`` was loaded from, or None if it came from nowhere.
 
@@ -187,39 +151,6 @@ def _loaded_filename(image) -> Optional[str]:
     """
     filepath = getattr(image, "filepath", None)
     return os.path.basename(filepath) if filepath else None
-
-
-_IMAGE_SUFFIXES = (".ome.tiff", ".ome.tif", ".tiff", ".tif")
-
-
-def recorded_image_basename(name: Optional[str]) -> Optional[str]:
-    """A recorded image name as a bare file name.
-
-    Runs written on the instrument PC can record a full Windows path, which
-    ``os.path.basename`` on another platform leaves whole, so both separators
-    are split on here (FIB-1237).
-    """
-    if not name:
-        return None
-    return str(name).replace("\\", "/").rstrip("/").split("/")[-1] or None
-
-
-def image_stem(name: Optional[str]) -> Optional[str]:
-    """What identifies an image file across the forms a run has recorded it in.
-
-    The bare name without its TIFF suffix, and without the ``_ib`` tag: older
-    runs recorded the acquisition stem (``ref_Spot Burn Fiducial_final_res_02``)
-    where newer ones record the file (``..._final_res_02_ib.tif``). An ``_eb``
-    image keeps its tag, so it never matches the ion image of the same stage.
-    """
-    base = recorded_image_basename(name)
-    if base is None:
-        return None
-    for suffix in _IMAGE_SUFFIXES:
-        if base.lower().endswith(suffix):
-            base = base[: -len(suffix)]
-            break
-    return base[:-3] if base.endswith("_ib") else base
 
 
 # Pixel sizes closer than this are the same image's: they come back from JSON
@@ -498,7 +429,7 @@ class CorrelationResult:
     # Transformation
     scale: float = 0.0
     rotation_eulers: list = field(default_factory=list)  # degrees, x-convention
-    rotation_quaternion: list = field(default_factory=list)
+    rotation_matrix: list = field(default_factory=list)  # 3x3, nested lists
     translation: list = field(default_factory=list)  # around rotation center (zero)
     translation_custom: list = field(
         default_factory=list
@@ -534,7 +465,7 @@ class CorrelationResult:
     seed: Optional[dict] = None
     branch_check: Optional[dict] = None
     # The fit verdict's evidence (FIB-956): fibsem.correlation.verdict
-    # FitDiagnostics.to_dict(), computed after the fit when it was seeded.
+    # FitEvidence.to_dict(), computed after the fit when it was seeded.
     diagnostics: Optional[dict] = None
     # Where the fiducials put FM pixel (0, 0) minus where the stage metadata
     # put it, in microns in the FIB image's frame (x, y). The next lamella's
@@ -552,9 +483,9 @@ class CorrelationResult:
         The axis and gain the refractive-index depth correction moves along: the
         fitted projection's z column, back in slices of the picked stack.
         """
-        if not self.rotation_quaternion or not self.scale:
+        if not self.rotation_matrix or not self.scale:
             return None
-        r = np.asarray(self.rotation_quaternion, dtype=float)
+        r = np.asarray(self.rotation_matrix, dtype=float)
         if r.shape != (3, 3):
             return None
         col = self.scale * r[:2, 2] * self.fm_z_scale
@@ -566,7 +497,7 @@ class CorrelationResult:
             "poi_uncorrected": [p.to_dict() for p in self.poi_uncorrected],
             "scale": self.scale,
             "rotation_eulers": self.rotation_eulers,
-            "rotation_quaternion": self.rotation_quaternion,
+            "rotation_matrix": self.rotation_matrix,
             "translation": self.translation,
             "translation_custom": self.translation_custom,
             "rms_error": self.rms_error,
@@ -609,7 +540,11 @@ class CorrelationResult:
             ],
             scale=data.get("scale", 0.0),
             rotation_eulers=data.get("rotation_eulers", []),
-            rotation_quaternion=data.get("rotation_quaternion", []),
+            # Runs saved before the rename call it "rotation_quaternion"; it was
+            # the same 3x3 matrix under that name.
+            rotation_matrix=data.get(
+                "rotation_matrix", data.get("rotation_quaternion", [])
+            ),
             translation=data.get("translation", []),
             translation_custom=data.get("translation_custom", []),
             rms_error=data.get("rms_error", 0.0),
@@ -700,6 +635,8 @@ class CorrelationResult:
                 px_m=Point(poi0.px_m.x, poi0.px_m.y),
             )
         ]
+        from fibsem.correlation.refractive_index import scale_about_surface
+
         corrected_y = scale_about_surface(poi0.image_px.y, surface_y, correction_factor)
         poi0.image_px.y = corrected_y
         # x is discarded, not recomputed-and-ignored: a y-only correction leaves
@@ -779,16 +716,6 @@ class CorrelationResult:
             rows.append(row)
         return pd.DataFrame(rows)
 
-    def to_csv(self, filename: str) -> None:
-        """Export input coordinates and reprojection error to a CSV file."""
-        df_input = self.to_input_dataframe()
-        df_result = self.to_result_dataframe()
-        with open(filename, "w") as f:
-            f.write("# Input Coordinates\n")
-            df_input.to_csv(f, index=False)
-            f.write("\n# Marker Reprojection Error\n")
-            df_result.to_csv(f, index=False)
-
     def matches_inputs(self, current: CorrelationInputData) -> bool:
         """Whether this result was computed from ``current``'s coordinates and images.
 
@@ -824,6 +751,8 @@ class CorrelationResult:
         runs before FIB-1019 recorded no names -- so only a value present on
         both sides and different counts.
         """
+        from fibsem.correlation.history import image_stem, recorded_image_basename
+
         if self.input_data is None:
             return None
         then = self.input_data

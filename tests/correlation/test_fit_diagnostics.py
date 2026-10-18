@@ -1,6 +1,6 @@
 """Tests for the fit diagnostics — the compute → data → render split (FIB-281).
 
-Each fit function computes a refined coordinate and returns a ``FitDiagnostic``
+Each fit function computes a refined coordinate and returns a ``PointFitDiagnostic``
 (data, no matplotlib); ``plot_fit_diagnostic`` renders it. Tests assert on the
 data (panel presence, marker positions) rather than on figure internals, plus a
 couple of render checks.
@@ -17,9 +17,10 @@ matplotlib.use("Agg")
 import numpy as np
 import pytest
 
-from fibsem.correlation.fit_diagnostics import FitDiagnostic, plot_fit_diagnostic
+from fibsem.correlation.point_fit import plot_fit_diagnostic
 from fibsem.imaging.localise import (
     FitOutsideWindow,
+    PointFitDiagnostic,
     fit_gauss_2d_mod,
     hole_fitting_FIB,
     hole_fitting_reflection,
@@ -51,14 +52,14 @@ def _fluor_vol(cx: float, nz: int = 21, size: int = 40) -> np.ndarray:
     return vol
 
 
-# --- the fit fns return a FitDiagnostic (data, no matplotlib) --------------
+# --- the fit fns return a PointFitDiagnostic (data, no matplotlib) --------------
 
 
 def test_fib_hole_fit_returns_xy_only_diagnostic():
     img = (200.0 - 160.0 * _blob_2d(40, 20, 20)).astype(np.float32)
     xr, yr, d = hole_fitting_FIB(img, x=20, y=20, cutout=15)
 
-    assert isinstance(d, FitDiagnostic)
+    assert isinstance(d, PointFitDiagnostic)
     assert np.isfinite(xr) and np.isfinite(yr)
     assert not d.has_z  # FIB has no z panel
     assert d.fitted_xy is not None  # a clean fit has a fitted marker
@@ -67,7 +68,7 @@ def test_fib_hole_fit_returns_xy_only_diagnostic():
 def test_reflection_fit_returns_inverted_z_and_xy_diagnostic():
     xr, yr, zr, d = hole_fitting_reflection(_refl_vol(30), 30, 30, 10, 2)
 
-    assert isinstance(d, FitDiagnostic)
+    assert isinstance(d, PointFitDiagnostic)
     assert d.has_z and d.z_inverted  # reflection: z panel, signal inverted
     assert 8 <= zr <= 12
     assert d.z_fitted == pytest.approx(zr)
@@ -76,7 +77,7 @@ def test_reflection_fit_returns_inverted_z_and_xy_diagnostic():
 def test_fluorescence_fit_returns_z_and_xy_diagnostic():
     xr, yr, zr, d = target_fitting_fluorescence(_fluor_vol(20), 20, 20, 10, 5)
 
-    assert isinstance(d, FitDiagnostic)
+    assert isinstance(d, PointFitDiagnostic)
     assert d.has_z and not d.z_inverted
     assert 8 <= zr <= 12
     assert d.fitted_xy is None  # default has no XY fitting -> no fitted marker
@@ -318,11 +319,11 @@ def test_fluorescence_xy_fit_marker_coincides_at_subpixel_click():
 
 
 def _xy_only():
-    return FitDiagnostic(title="t", roi_xy=np.zeros((10, 10)), input_xy=(5.0, 5.0))
+    return PointFitDiagnostic(title="t", roi_xy=np.zeros((10, 10)), input_xy=(5.0, 5.0))
 
 
 def _with_z():
-    return FitDiagnostic(
+    return PointFitDiagnostic(
         title="t",
         roi_xy=np.zeros((10, 10)),
         input_xy=(5.0, 5.0),

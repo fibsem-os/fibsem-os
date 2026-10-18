@@ -67,24 +67,22 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 import pandas as pd
 
 from fibsem.acting import WORKFLOW
-from fibsem.applications.autolamella.workflows.tasks.grid.registry import (
-    run_grid_task,
-)
-from fibsem.applications.autolamella.workflows.ui import update_status_ui
 from fibsem.cancellation import OperationCancelledError
 from fibsem.devices.sample_loader import GridExchangeError
 from fibsem.hooks import HookEvent, HookManager
 from fibsem.structures import SampleGrid
 from fibsem.util import timestamps
+from fibsem.workflows.grid.registry import (
+    run_grid_task,
+)
 from fibsem.workflows.grids import GridRecord
-from fibsem.workflows.manager import BaseTaskManager
+from fibsem.workflows.manager import BaseTaskManager, WorkflowWindow
 from fibsem.workflows.queue import WorkItem
-from fibsem.workflows.status import TaskState, TaskStatus
+from fibsem.workflows.status import TaskState, TaskStatus, post_status
 
 if TYPE_CHECKING:
-    from fibsem.applications.autolamella.structures import Experiment
-    from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
     from fibsem.microscope import FibsemMicroscope
+    from fibsem.workflows.grid.protocol import GridExperiment
 
 # The load step: a queue item ahead of each grid's tasks, so the plan shows where
 # the exchanges fall and the timeline shows how each one went, and the history
@@ -196,8 +194,8 @@ class GridTaskManager(BaseTaskManager):
     def __init__(
         self,
         microscope: "FibsemMicroscope",
-        experiment: "Experiment",
-        parent_ui: Optional["AutoLamellaUI"] = None,
+        experiment: "GridExperiment",
+        parent_ui: Optional[WorkflowWindow] = None,
         hook_manager: Optional[HookManager] = None,
         unload_at_end: bool = False,
         report_at_end: bool = False,
@@ -622,13 +620,9 @@ class GridTaskManager(BaseTaskManager):
         installed, an unreadable image -- is a notification and a log line."""
         self._say(status_bar="Writing the grid screening report...")
         try:
-            from fibsem.applications.autolamella.tools.grid_report_pdf import (
-                generate_grid_report,
-            )
-
             # The stage's own record, for the slot column; no hardware call.
             inventory = self.microscope.sample_handling.grid_inventory()
-            path = generate_grid_report(self.experiment, inventory=inventory)
+            path = self.experiment.write_grid_report(inventory)
         except Exception as e:  # noqa: BLE001 - the run is over; said, not raised
             msg = f"The grid screening report was not written: {e}"
             logging.warning(msg, exc_info=True)
@@ -862,12 +856,8 @@ class GridTaskManager(BaseTaskManager):
     ) -> None:
         """A line for the workflow-information label or the status bar, that
         gets out after a Stop too: the closing "cancelled" line is the point."""
-        update_status_ui(
-            self.parent_ui,
-            "",
-            workflow_info=workflow_info,
-            status_bar=status_bar,
-            check_abort=False,
+        post_status(
+            self.parent_ui, "", workflow_info=workflow_info, status_bar=status_bar
         )
 
     def _task_type(self, task_name: str) -> str:
@@ -928,10 +918,10 @@ class GridTaskManager(BaseTaskManager):
 
 def run_grid_tasks(
     microscope: "FibsemMicroscope",
-    experiment: "Experiment",
+    experiment: "GridExperiment",
     task_names: Optional[List[str]] = None,
     grid_names: Optional[List[str]] = None,
-    parent_ui: Optional["AutoLamellaUI"] = None,
+    parent_ui: Optional[WorkflowWindow] = None,
     hook_manager: Optional[HookManager] = None,
     unload_at_end: bool = False,
     report_at_end: bool = False,

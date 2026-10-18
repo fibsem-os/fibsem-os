@@ -19,13 +19,16 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.workflows.tasks.grid import (
+from fibsem.cancellation import OperationCancelledError
+from fibsem.services.sample_handling import BUILTIN_SLOT_NAME
+from fibsem.structures import BeamType, ImageSettings, OverviewAcquisitionSettings
+from fibsem.workflows.grid import (
     BeamOverviewGridTaskConfig,
 )
-from fibsem.applications.autolamella.workflows.tasks.grid import (
+from fibsem.workflows.grid import (
     manager as manager_module,
 )
-from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+from fibsem.workflows.grid.manager import (
     LOAD_ENTRY_NAME,
     SKIP_GRID_NOT_FOUND,
     SKIP_GRID_NOT_LOADED,
@@ -37,9 +40,6 @@ from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     plan_grid_run,
     run_grid_tasks,
 )
-from fibsem.cancellation import OperationCancelledError
-from fibsem.services.sample_handling import BUILTIN_SLOT_NAME
-from fibsem.structures import BeamType, ImageSettings, OverviewAcquisitionSettings
 from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.outputs import item_outputs
 from fibsem.workflows.status import TaskStatus as Status

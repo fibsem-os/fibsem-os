@@ -22,7 +22,6 @@ from PyQt5.QtCore import QCoreApplication, QEvent
 
 from fibsem.acting import ActorKind
 from fibsem.applications.autolamella.structures import (
-    Attention,
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
     AutoLamellaWorkflowConfig,
@@ -34,6 +33,7 @@ from fibsem.applications.autolamella.workflows.tasks.rough import (
     MillRoughTaskConfig,
 )
 from fibsem.structures import Point
+from fibsem.workflows.attention import Attention
 from fibsem.workflows.proposals import DETECTION, Decision, DecisionOutcome
 from fibsem.workflows.status import HoldKind, TaskStatus
 

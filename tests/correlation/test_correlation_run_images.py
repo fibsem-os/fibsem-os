@@ -19,6 +19,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
+from fibsem.correlation.history import image_stem, recorded_image_basename
 from fibsem.correlation.structures import (
     Coordinate,
     CorrelationInputData,
@@ -27,8 +28,6 @@ from fibsem.correlation.structures import (
     CorrelationState,
     PointType,
     PointXYZ,
-    image_stem,
-    recorded_image_basename,
 )
 from fibsem.structures import FibsemImage, Point
 

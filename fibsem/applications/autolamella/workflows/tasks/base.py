@@ -40,7 +40,6 @@ from fibsem.applications.autolamella.protocol.constants import (
     UNDERCUT_KEY,
 )
 from fibsem.applications.autolamella.structures import (
-    Attention,
     AutoLamellaTaskConfig,
     Lamella,
 )
@@ -98,6 +97,7 @@ from fibsem.structures import (
     Point,
 )
 from fibsem.util.timestamps import now, now_iso
+from fibsem.workflows.attention import Attention
 from fibsem.workflows.experiment import EXPERIMENT_WRITE_LOCK
 from fibsem.workflows.interaction import (
     ACTION_ACCEPT,

@@ -137,7 +137,7 @@ class FitConfirmationDialog(QDialog):
         if result.diagnostic is not None:
             from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 
-            from fibsem.correlation.fit_diagnostics import plot_fit_diagnostic
+            from fibsem.correlation.point_fit import plot_fit_diagnostic
 
             # Render on demand, dark to match this dialog. The figure is built
             # via the OO API (no pyplot), so it's freed with the canvas — no

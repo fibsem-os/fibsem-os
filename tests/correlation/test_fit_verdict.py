@@ -17,7 +17,7 @@ from fibsem.correlation.geometry import NominalTransform
 from fibsem.correlation.verdict import (
     LOO_BAD_UM,
     MIRROR_RATIO_AMBIGUOUS,
-    FitDiagnostics,
+    FitEvidence,
     diagnose,
     reject_outliers,
     verdict,
@@ -50,7 +50,7 @@ def _sizes(r: dict) -> dict:
     )
 
 
-def _diagnose(r: dict, **kw) -> FitDiagnostics:
+def _diagnose(r: dict, **kw) -> FitEvidence:
     return diagnose(r["fib"], r["fm"], _prior(r), poi=r["poi"], **_sizes(r), **kw)
 
 

@@ -54,14 +54,8 @@ from PyQt5.QtWidgets import (
 
 from fibsem import conversions
 from fibsem.acting import Actor, ActorKind
-from fibsem.applications.autolamella.proposals import (
-    OVERVIEW_POSITIONS,
-    POINT_OF_INTEREST,
-)
-from fibsem.applications.autolamella.structures import (
-    Attention,
-    Experiment,
-)
+from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
+from fibsem.applications.autolamella.structures import Experiment
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.structures import (
     BeamType,
@@ -87,7 +81,9 @@ from fibsem.ui.tokens import (
 from fibsem.ui.widgets.overview_widget import MODALITY_CHIP_STYLE
 from fibsem.util.durations import format_duration_in_words, format_time_ago
 from fibsem.util.timestamps import format_time, from_posix, now, to_aware, to_datetime
+from fibsem.workflows.attention import Attention
 from fibsem.workflows.grids import GridRecord
+from fibsem.workflows.positions import OVERVIEW_POSITIONS
 from fibsem.workflows.proposals import (
     ALIGNMENT_AREA,
     DETECTION,
@@ -1352,7 +1348,7 @@ class OverviewPositionsReviewRenderer(TaskResultReviewRenderer):
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         self._microscope: Any = None
-        self._drafts: List[Any] = []  # LamellaPoses, in placement order
+        self._drafts: List[Any] = []  # ItemPoses, in placement order
         # Placements that have not been confirmed, per run of the producing
         # task. One renderer serves every row of this kind, so without this a
         # glance at another grid would throw away what had been placed here.

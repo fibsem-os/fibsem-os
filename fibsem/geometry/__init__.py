@@ -9,5 +9,7 @@ onto (FIB-1101). ``movement`` holds the view projection (an image displacement t
 movement and back) and the stage movements built on it, and ``projection`` the views a
 canvas draws stage positions in (``StageProjection``). ``orientations`` names the pose a
 position is in, the milling angle a tilt gives, and carries a position from one pose to
-another. ``fibsem.transformations`` and ``fibsem.projection`` re-export what moved here.
+another. ``similarity`` fits the 2D turn, scale and offset between point pairs, behind
+three-point alignment. ``fibsem.transformations`` and ``fibsem.projection`` re-export what
+moved here.
 """

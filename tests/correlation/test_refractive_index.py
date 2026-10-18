@@ -9,6 +9,7 @@ from fibsem.correlation.refractive_index import (
     get_lut,
     lookup_zeta,
     pack_lut,
+    zeta_params_from_settings,
 )
 
 # ---------------------------------------------------------------------------
@@ -56,6 +57,19 @@ def test_lookup_params(lut: SliceScalingFactorLUT) -> None:
     params = ZetaParams(tilt_deg=10, depth_um=5.0, NA=0.7, n2=1.30, wavelength_um=0.520)
     assert lut.lookup_params(params) == lut.lookup(
         params.tilt_deg, params.depth_um, params.NA, params.n2, params.wavelength_um
+    )
+
+
+def test_zeta_params_from_settings_carries_each_optical_parameter() -> None:
+    """RISettings' lower-case ``na`` lands on ZetaParams' ``NA``; ``mode`` is
+    not a lookup input."""
+    from fibsem.correlation.config import RISettings
+
+    ri = RISettings(
+        tilt_deg=12.0, depth_um=3.5, na=0.85, n2=1.4, wavelength_um=0.6, mode="post"
+    )
+    assert zeta_params_from_settings(ri) == ZetaParams(
+        tilt_deg=12.0, depth_um=3.5, NA=0.85, n2=1.4, wavelength_um=0.6
     )
 
 

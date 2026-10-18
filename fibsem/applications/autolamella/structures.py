@@ -30,6 +30,7 @@ from psygnal.containers import EventedDict, EventedList
 # Registers AutoLamella's proposal kinds and how their values are stored and
 # written: an experiment read from disk decodes its proposals with them.
 import fibsem.applications.autolamella.proposals  # noqa: F401
+import fibsem.workflows.positions  # noqa: F401
 from fibsem import timing
 from fibsem.applications.autolamella import config as cfg
 from fibsem.applications.autolamella.protocol.constants import (
@@ -63,11 +64,15 @@ from fibsem.structures import (
 )
 from fibsem.util.durations import format_duration_precise
 from fibsem.util.timestamps import format_time, now
+from fibsem.workflows.attention import Attention, attention_from
 from fibsem.workflows.experiment import BaseExperiment
+from fibsem.workflows.grid.protocol import GridTaskProtocol
 from fibsem.workflows.grids import ExperimentGrids, GridRecord
 from fibsem.workflows.item import ExperimentItem
 from fibsem.workflows.proposals import (
+    PreparedWrite,
     Proposal,
+    ValueRefused,
     proposals_from_dict,
     proposals_to_dict,
 )
@@ -79,31 +84,8 @@ from fibsem.workflows.status import TaskState, TaskStatus
 if TYPE_CHECKING:
     import numpy as np
 
-    from fibsem.applications.autolamella.workflows.tasks.grid.base import (
-        GridTaskConfig,
-    )
     from fibsem.microscope import FibsemMicroscope
-
-
-class Attention(str, Enum):
-    """Whether a person (or an agent) decides this task's answers. A property
-    of the producing task, set by the protocol author.
-
-    supervised -- a person decides. A question the task needs answered before
-                  it can carry on is asked in the workflow and holds the run;
-                  a value another task consumes -- the task's result, a point
-                  of interest -- ends the task AwaitingDecision, and what
-                  requires it waits for the decision in the Review tab while
-                  the run carries on with other work. Which of the two a task
-                  has is a property of the task, not a setting.
-    automated  -- nobody is asked; the record is made and listed to check.
-
-    Where the run waits is not a third setting: a "Review later" mode existed
-    on development builds before 0.6.0 and is read as supervised.
-    """
-
-    supervised = "supervised"
-    automated = "automated"
+    from fibsem.workflows.positions import ItemPoses
 
 
 # AutoLamellaUser lived here: a richer user identity (role, preferences, is_default)
@@ -272,33 +254,6 @@ class AutoLamellaTaskConfig(Configurable, ABC):
     def imaging(self, value: ImageSettings):
         """Set the imaging settings in the reference imaging parameters."""
         self.reference_imaging.imaging = value
-
-
-def attention_from(value: Any, where: str = "") -> Attention:
-    """A stored value as an ``Attention``, for the loaders.
-
-    Takes what a record can hold: an attention's own value, or the boolean
-    supervise flag that stood in its place before it -- v0.5.2's task
-    descriptions, and the per-stage supervision of the protocol before them.
-    A value this build does not know reads as automated with a warning
-    naming ``where``, because one unreadable field must not drop the whole
-    task. For loaders: ``Attention(x)`` still raises on a bad literal in
-    code, which is where it should.
-    """
-    if isinstance(value, bool):
-        return Attention.supervised if value else Attention.automated
-    if value in ("review", "review_later"):
-        # A third mode, the operator deciding afterwards in the Review tab,
-        # existed on development builds before 0.6.0 and never shipped. It
-        # was Supervised with the wait in a different place, and is read as
-        # Supervised: the task's own shape says where the run waits.
-        return Attention.supervised
-    try:
-        return Attention(value)
-    except ValueError:
-        on = f" on {where}" if where else ""
-        logging.warning(f"Unknown attention {value!r}{on}; read as automated.")
-        return Attention.automated
 
 
 @evented
@@ -574,101 +529,6 @@ class LamellaDefaultConfig(Configurable):
             else None,
             poi=Point.from_dict(poi) if isinstance(poi, dict) else None,
         )
-
-
-@dataclass
-class GridTaskProtocol:
-    """The grid tasks a protocol offers, and their settings.
-
-    A section of the task protocol (`protocol.yaml`, under `grid_tasks`), because
-    overview settings are tuned once per microscope and reused across experiments
-    exactly as the lamella task settings are. Shared by every grid for now:
-    screening is expected to be uniform across a magazine, and per-grid tuning is
-    a documented later option (seed a per-record config from this, the way a
-    lamella's is seeded from the protocol). Which tasks run in a session, and in
-    what order, is chosen at run time; `order` is the default a task list shows.
-    """
-
-    name: str = "Grid Task Protocol"
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    task_config: Dict[str, "GridTaskConfig"] = field(default_factory=dict)
-    order: List[str] = field(default_factory=list)
-
-    def add(self, config: "GridTaskConfig") -> "GridTaskConfig":
-        if not config.task_name:
-            raise ValueError("A grid task config needs a task_name.")
-        self.task_config[config.task_name] = config
-        if config.task_name not in self.order:
-            self.order.append(config.task_name)
-        return config
-
-    def remove(self, task_name: str) -> None:
-        self.task_config.pop(task_name, None)
-        if task_name in self.order:
-            self.order.remove(task_name)
-
-    def reorder(self, order: List[str]) -> str:
-        """Put the tasks in *order*: every task, each once. Why not, with
-        nothing changed, or "". The Grids view's drag and the App Server's
-        reorder."""
-        if sorted(order) != sorted(self.ordered_task_names):
-            return "Give every grid task, each once."
-        self.order = list(order)
-        return ""
-
-    def set_requires(self, task_name: str, requires: List[str]) -> str:
-        """Set the grid tasks *task_name* requires on the same grid, kept in
-        run order. Why not, with nothing changed, or "". The Grids view's Edit
-        Task and the App Server's."""
-        config = self.task_config.get(task_name)
-        if config is None:
-            return f"No grid task named {task_name!r}."
-        others = [n for n in self.ordered_task_names if n != task_name]
-        wrong = [name for name in requires if name not in others]
-        if wrong:
-            return (
-                f"{task_name} can require {', '.join(others) or 'no task'}; "
-                f"not {', '.join(wrong)}."
-            )
-        config.requires = [n for n in others if n in requires]
-        return ""
-
-    def requirements(self, task_name: str) -> List[str]:
-        """The tasks ``task_name`` requires on the same grid; none for a task
-        the protocol does not have."""
-        config = self.task_config.get(task_name)
-        return list(config.requires) if config is not None else []
-
-    @property
-    def ordered_task_names(self) -> List[str]:
-        """`order` first, then anything in `task_config` it forgot to mention."""
-        names = [n for n in self.order if n in self.task_config]
-        names += [n for n in self.task_config if n not in names]
-        return names
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "_id": self.id,
-            "name": self.name,
-            "tasks": {k: v.to_dict() for k, v in self.task_config.items()},
-            "order": list(self.ordered_task_names),
-        }
-
-    @classmethod
-    def from_dict(cls, data: Optional[Dict[str, Any]]) -> "GridTaskProtocol":
-        from fibsem.applications.autolamella.workflows.tasks.grid.registry import (
-            load_grid_task_configs,
-        )
-
-        data = data or {}
-        protocol = cls(
-            name=data.get("name", "Grid Task Protocol"),
-            task_config=load_grid_task_configs(data.get("tasks", {})),
-            order=list(data.get("order", [])),
-        )
-        if data.get("_id"):
-            protocol.id = data["_id"]
-        return protocol
 
 
 @evented
@@ -1523,6 +1383,73 @@ class Experiment(ExperimentGrids, ProposalReview, BaseExperiment):
                 "protocol. Set `experiment.task_protocol` first."
             )
         return self.task_protocol.grid_tasks
+
+    def write_grid_report(self, inventory: Any) -> Path:
+        """Write the grid screening report, the file Tools -> Reporting writes:
+        what a grid run's end-of-run report calls. ``inventory`` is the stage's
+        own record, for the slot column."""
+        from fibsem.applications.autolamella.tools.grid_report_pdf import (
+            generate_grid_report,
+        )
+
+        return Path(generate_grid_report(self, inventory=inventory))
+
+    def prepare_items_at(
+        self, grid: GridRecord, positions: List["ItemPoses"]
+    ) -> PreparedWrite:
+        """Plan one lamella per confirmed position on ``grid``, the write an
+        overview's positions proposal makes, without touching anything yet.
+
+        Undone together: a half-created set is worse than none, and the
+        decision is only appended once the whole set is on the experiment.
+        """
+        grid_id = getattr(grid, "id", None)
+        if grid_id is None:
+            raise ValueRefused(
+                f"{getattr(grid, 'name', 'this item')} has no id to stamp on a lamella."
+            )
+        protocol = self.task_protocol
+        if positions and getattr(protocol, "lamella_defaults", None) is None:
+            # Checked here, not discovered half way through creating them: a
+            # lamella is built from the protocol's defaults, and an experiment
+            # with no protocol loaded cannot make one.
+            raise ValueRefused(
+                "No protocol is loaded, so a lamella cannot be created. Load one "
+                "for this experiment and decide again."
+            )
+        made: List[Lamella] = []
+
+        def apply() -> List[str]:
+            for entry in positions:
+                # add_new_lamella returns nothing and appends, so the lamella it
+                # made is the one on the end. Taken here rather than assumed
+                # later: undo has to remove exactly what this write added.
+                self.add_new_lamella(
+                    microscope_state=entry.milling,
+                    task_config=deepcopy(getattr(protocol, "task_config", None)) or {},
+                    fluorescence_pose=entry.fluorescence,
+                    grid_id=grid_id,
+                )
+                made.append(self.positions[-1])
+            if made:
+                logging.info(
+                    f"Created {len(made)} lamella(e) on {getattr(grid, 'name', '?')}: "
+                    + ", ".join(m.name or "?" for m in made)
+                )
+            return []
+
+        def undo() -> None:
+            # Removing what this write made, newest first. Nothing else can have
+            # taken them: the decision has not been appended and the experiment
+            # lock is still held.
+            for lamella in reversed(made):
+                try:
+                    self.positions.remove(lamella)
+                except ValueError:
+                    logging.warning(f"Could not undo the creation of {lamella.name}")
+            made.clear()
+
+        return PreparedWrite(apply=apply, undo=undo)
 
     def _release_grid(self, grid: GridRecord) -> None:
         """A grid no longer tracked: its lamellae are orphaned, not deleted."""

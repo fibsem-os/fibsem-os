@@ -45,9 +45,6 @@ from fibsem.applications.autolamella.ui.grid_results_widget import image_for
 from fibsem.applications.autolamella.ui.lamella_name_list_widget import (
     LamellaNameListWidget,
 )
-from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
-    LOAD_ENTRY_NAME as _LOAD_ENTRY_NAME,
-)
 from fibsem.constants import TIME_DISPLAY_AMPM_SHORT
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.structures import FibsemImage, FibsemStagePosition
@@ -63,6 +60,9 @@ from fibsem.ui.utils import message_box_ui
 from fibsem.ui.widgets.overview_widget import VIEW_CHIP_SPACING, VIEW_CHIP_STYLE
 from fibsem.ui.widgets.stored_overview_canvas import VIEW_FM, StoredOverviewCanvas
 from fibsem.util.timestamps import format_time
+from fibsem.workflows.grid.manager import (
+    LOAD_ENTRY_NAME as _LOAD_ENTRY_NAME,
+)
 from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.status import TaskStatus
 

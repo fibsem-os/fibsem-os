@@ -15,22 +15,22 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Tuple
 
-from fibsem.applications.autolamella.workflows.tasks.grid.base import GridTaskConfig
-from fibsem.applications.autolamella.workflows.tasks.grid.fluorescence import (
-    FluorescenceOverviewGridTaskConfig,
-)
-from fibsem.applications.autolamella.workflows.tasks.grid.imaging import (
-    BeamOverviewGridTaskConfig,
-)
 from fibsem.geometry.projection import BeamStageProjection, FMStageProjection
 from fibsem.imaging.tiling.reach import (
     reachable_fluorescence_overview,
     reachable_overview,
 )
+from fibsem.workflows.grid.base import GridTaskConfig
+from fibsem.workflows.grid.fluorescence import (
+    FluorescenceOverviewGridTaskConfig,
+)
+from fibsem.workflows.grid.imaging import (
+    BeamOverviewGridTaskConfig,
+)
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
-    from fibsem.structures import GridSlot
+
 
 # The key a fluorescence projection is kept under, beside the beams'.
 FM_PROJECTION = "FM"
@@ -47,25 +47,6 @@ class SlotReach:
     ncols: int
 
 
-def overview_slots(microscope: "FibsemMicroscope") -> List["GridSlot"]:
-    """The slots a grid overview would be centred on. With a loader, its working
-    slot. On a fixed holder, the occupied calibrated slots, or every calibrated
-    one when none is occupied."""
-    stage = getattr(microscope, "sample_handling", None)
-    holder = getattr(stage, "holder", None)
-    if holder is None:
-        return []
-    calibrated = [
-        s
-        for s in sorted(holder.slots.values(), key=lambda s: s.index)
-        if s.position is not None
-    ]
-    if getattr(stage, "magazine", None) is not None:
-        return calibrated[:1]
-    occupied = [s for s in calibrated if s.loaded_grid is not None]
-    return occupied or calibrated
-
-
 def overview_reach(
     microscope: "FibsemMicroscope",
     config: GridTaskConfig,
@@ -80,7 +61,9 @@ def overview_reach(
     """
     projections = {} if projections is None else projections
     reaches: List[SlotReach] = []
-    for slot in overview_slots(microscope):
+    stage = getattr(microscope, "sample_handling", None)
+    slots = stage.overview_slots() if stage is not None else []
+    for slot in slots:
         if isinstance(config, BeamOverviewGridTaskConfig):
             beam = config.settings.image_settings.beam_type
             if beam not in projections:
