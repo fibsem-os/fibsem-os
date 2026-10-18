@@ -6,7 +6,7 @@ import os
 import pytest
 
 from fibsem import utils
-from fibsem.control import AGENT, SCRIPT, WORKFLOW
+from fibsem.acting import AGENT, SCRIPT, WORKFLOW
 from fibsem.server.hosting import AppServerHost
 from fibsem.server.levels import AgentLevel
 

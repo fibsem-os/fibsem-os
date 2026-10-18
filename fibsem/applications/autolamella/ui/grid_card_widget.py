@@ -28,7 +28,6 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.applications.autolamella.structures import Experiment
-from fibsem.applications.autolamella.task_outputs import latest_grid_output
 from fibsem.applications.autolamella.ui.lamella_list_widget import (
     VERDICT_LOOK,
     add_verdict_actions,
@@ -62,6 +61,7 @@ from fibsem.ui.tokens import (
 from fibsem.ui.widgets.custom_widgets import ElidedLabel, chip
 from fibsem.ui.widgets.sample_loader_widget import ICON_LOAD, ICON_UNLOAD
 from fibsem.workflows.grids import GridRecord
+from fibsem.workflows.outputs import latest_item_output
 from fibsem.workflows.quality import Verdict
 from fibsem.workflows.status import TaskStatus
 
@@ -177,7 +177,7 @@ def _stamp(path: str) -> Optional[tuple]:
 def grid_thumbnail_path(experiment: Experiment, grid: GridRecord) -> Optional[str]:
     """The latest overview thumbnail a run recorded for the grid, SEM first."""
     for role in _THUMBNAIL_ROLES:
-        path = latest_grid_output(experiment, grid, role)
+        path = latest_item_output(experiment, grid, role)
         if path is not None:
             return path
     return None

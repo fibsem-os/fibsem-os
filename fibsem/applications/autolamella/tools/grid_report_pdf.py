@@ -24,6 +24,7 @@ from typing import List, Optional, Sequence, Tuple
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
+from fibsem.acting import Actor
 from fibsem.applications.autolamella.structures import Experiment
 from fibsem.applications.autolamella.tools.grid_report import (
     GridReport,
@@ -34,7 +35,6 @@ from fibsem.applications.autolamella.tools.grid_report import (
 from fibsem.fm.preview import is_fluorescence_image, load_projection
 from fibsem.structures import FibsemImage
 from fibsem.util.timestamps import to_datetime, zone_label
-from fibsem.workflows.proposals import Author
 from fibsem.workflows.quality import Verdict
 from fibsem.workflows.status import TaskStatus
 
@@ -426,9 +426,9 @@ def generate_grid_report(
         verdict = _VERDICT_TEXT.get(
             section.quality.verdict, section.quality.verdict.name
         )
-        # The person, not the stored "human:<name>" form a verdict is signed with.
-        author = section.quality.author
-        by = f" · {Author.parse(author).label}" if author else ""
+        # The person, not the stored "operator:<name>" form a verdict is signed with.
+        actor = section.quality.actor
+        by = f" · {Actor.parse(actor).label}" if actor else ""
         sub = " · ".join(x for x in [section.slot or "", f"p. {index + 2}"] if x)
         note = section.description or section.quality.reason
         if not note and section.load is not None and section.loaded is False:

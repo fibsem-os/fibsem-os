@@ -15,7 +15,7 @@ from typing import Any, Dict, Optional
 
 from fibsem.structures import Configurable, Display, RangeLimit, param
 
-# Mirror the UI constants as plain strings so this module never imports the UI.
+# Plain strings so this module never imports the UI; the method combos list these.
 FIT_METHODS = ("None", "Hole", "Gaussian")
 
 # What deleting a FIB or FM fiducial does to its partner on the other side

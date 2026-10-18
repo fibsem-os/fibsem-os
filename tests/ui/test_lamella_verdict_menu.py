@@ -100,14 +100,14 @@ def test_the_current_verdict_is_ticked(lamella):
 
 def test_choosing_the_current_verdict_writes_nothing(lamella):
     """No new record, so no save and no redraw for a click that changed nothing."""
-    lamella.defect = QualityRecord(verdict=Verdict.GOOD, author="human:Ada")
+    lamella.defect = QualityRecord(verdict=Verdict.GOOD, actor="operator:Ada")
     changed = []
     parent, _sub, actions = _menu(lamella, lambda: changed.append(True))
 
     actions["Good"].trigger()
 
     assert changed == []
-    assert lamella.defect.author == "human:Ada"
+    assert lamella.defect.actor == "operator:Ada"
 
 
 def test_a_good_lamella_is_judged_but_not_defective(lamella):

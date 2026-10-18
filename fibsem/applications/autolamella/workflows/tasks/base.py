@@ -30,7 +30,7 @@ import numpy as np
 
 from fibsem import acquire, alignment, constants, utils
 from fibsem import config as fcfg
-from fibsem.acting import AGENT
+from fibsem.acting import AGENT, Actor
 from fibsem.applications.autolamella.protocol.constants import (
     FIDUCIAL_KEY,
     MILL_POLISHING_KEY,
@@ -115,12 +115,9 @@ from fibsem.workflows.proposals import (
     DETECTION,
     PROPOSAL_KINDS,
     TASK_RESULT,
-    Author,
     Decision,
     DecisionOutcome,
     Proposal,
-    agent_author,
-    human_author,
 )
 from fibsem.workflows.status import TaskState, TaskStatus
 from fibsem.workflows.task import BaseTask, run_folder
@@ -190,7 +187,7 @@ class AutoLamellaTask(BaseTask):
         )
         # This task object is one run: its folder is fixed as it starts (FIB-1275).
         self._output_dir = run_folder(
-            lamella.path, config.task_name, now(), round=self.round
+            lamella.path, config.task_name, now(), iteration=self.iteration
         )
         # Every task's reference images are acquired with its config's imaging
         # settings; they are saved under its output folder. Set here, once, for
@@ -649,19 +646,19 @@ class AutoLamellaTask(BaseTask):
         not wait a second time in the Review tab for a look it already had."""
         self.inline_decision = Decision(
             outcome=DecisionOutcome.Confirmed,
-            author=self._answer_author(),
+            actor=self._answer_actor(),
             via="workflow",
         )
 
-    def _answer_author(self) -> Author:
+    def _answer_actor(self) -> Actor:
         """Who answered the question this task just asked in the workflow: the
         agent when it answered over the App Server, else the operator at the
         window (FIB-1328). The agent is named as ``/app/workflow/decide`` names one
         that gave no name."""
         if answered_by() == AGENT:
-            return agent_author("remote")
+            return Actor.agent("remote")
         experiment = getattr(self.task_manager, "experiment", None)
-        return experiment.author() if experiment is not None else human_author("")
+        return experiment.actor() if experiment is not None else Actor.operator("")
 
     def _set_milling_config_ui(self, milling_config: FibsemMillingTaskConfig):
         """Set the milling config in the milling widget."""

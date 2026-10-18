@@ -15,6 +15,7 @@ from psygnal.containers import EventedDict
 
 import fibsem.config as cfg
 from fibsem import utils
+from fibsem.acting import ActorKind
 from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
 from fibsem.applications.autolamella.structures import (
     Attention,
@@ -32,7 +33,6 @@ from fibsem.applications.autolamella.workflows.tasks.rough import (
 from fibsem.structures import Point
 from fibsem.workflows.proposals import (
     PROPOSAL_KINDS,
-    AuthorKind,
     Decision,
     DecisionOutcome,
 )
@@ -129,7 +129,7 @@ def test_with_nobody_to_ask_the_proposed_value_is_used_and_recorded_unreviewed(
     decision = seen["decision"]
     assert decision.outcome is DecisionOutcome.Unreviewed
     assert decision.values == {"poi": Point(1e-6, 2e-6)}, "used as proposed"
-    assert decision.author.kind is AuthorKind.automated
+    assert decision.actor.kind is ActorKind.task
     # On the record, before the run's own result, and listed to check.
     question, result = lamella.proposals[ROUGH]
     assert question.kind == POINT_OF_INTEREST and question.unreviewed
@@ -161,7 +161,7 @@ def test_unreviewed_is_not_something_a_decider_can_say(microscope, tmp_path):
         ROUGH,
         Decision(
             outcome=DecisionOutcome.Unreviewed,
-            author="human:op",
+            actor="operator:op",
             proposal_id=proposal.id,
         ),
     )
@@ -179,7 +179,7 @@ def test_a_persons_later_look_clears_it_from_to_check(microscope, tmp_path):
         ROUGH,
         Decision(
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             proposal_id=proposal.id,
         ),
     )
@@ -230,7 +230,7 @@ def test_a_question_and_the_runs_result_are_both_current(microscope, tmp_path):
         ROUGH,
         Decision(
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             proposal_id=question.id,
         ),
     )

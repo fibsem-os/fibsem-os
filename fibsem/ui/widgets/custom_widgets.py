@@ -34,6 +34,7 @@ from fibsem.ui import stylesheets as stylesheets
 from fibsem.ui.icon import fibsem_icon, qta
 from fibsem.ui.tokens import (
     CANVAS_BG,
+    CAPTION_STYLE,
     TEXT_MUTED_COLOR,
 )
 from fibsem.ui.utils import find_data, install_wheel_blocker
@@ -1093,6 +1094,21 @@ def align_form(layout) -> None:
             item = layout.itemAt(row, QFormLayout.LabelRole)
             if item is not None and item.widget() is not None:
                 item.widget().setMinimumWidth(FORM_LABEL_WIDTH)
+
+
+def form_label(text: str) -> QLabel:
+    """A form-row label: small and muted, so the value reads louder than its name.
+
+    ``QFormLayout.addRow("Name:", w)`` builds the label at the default app font
+    size, which renders *larger* than the 11-12px values in the correlation
+    panels — the field name ends up shouting over its own data. Pass this instead.
+
+    No trailing colon: the rows read as name and value side by side, and the
+    colon was the one piece of punctuation on the tab.
+    """
+    lbl = QLabel(text.rstrip(":"))
+    lbl.setStyleSheet(CAPTION_STYLE)
+    return lbl
 
 
 def header_chip(text: str, colour: str) -> QLabel:

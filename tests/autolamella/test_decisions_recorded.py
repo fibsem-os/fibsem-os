@@ -94,7 +94,7 @@ def _decide(experiment, proposal, author, values=None, via="review"):
         TASK,
         Decision(
             outcome=DecisionOutcome.Confirmed,
-            author=author,
+            actor=author,
             values=values or {},
             via=via,
             task_id=RUN,
@@ -111,7 +111,7 @@ def test_a_decision_is_recorded_with_what_was_proposed_and_what_was_decided(
     lamella = experiment.positions[0]
     proposal = _poi_proposal(lamella)
 
-    _decide(experiment, proposal, "human:op", {"poi": Point(2e-6, -1e-6)})
+    _decide(experiment, proposal, "operator:op", {"poi": Point(2e-6, -1e-6)})
 
     ((event),) = _events(recorder)
     assert (event["kind"], event["actor"]) == ("proposal_decided", "operator")
@@ -122,9 +122,9 @@ def test_a_decision_is_recorded_with_what_was_proposed_and_what_was_decided(
     assert payload["proposed"]["poi"] == Point(0.0, 0.0).to_dict()
     assert payload["decided"]["poi"] == Point(2e-6, -1e-6).to_dict()
     assert payload["image"] == "ref_final_ib.tif"  # what the point sits on
-    assert (payload["outcome"], payload["author"], payload["via"]) == (
+    assert (payload["outcome"], payload["actor"], payload["via"]) == (
         "Confirmed",
-        "human:op",
+        "operator:op",
         "review",
     )
     assert "filled_in" not in payload
@@ -154,7 +154,7 @@ def test_a_detection_names_the_model_that_made_it(experiment, recorder):
     experiment.positions[0].proposals[TASK] = [proposal]
     corrected = {"features": [{"name": feature.name, "px": Point(12.0, 20.0)}]}
 
-    _decide(experiment, proposal, "human:op", corrected)
+    _decide(experiment, proposal, "operator:op", corrected)
 
     ((event),) = _events(recorder)
     payload = event["payload"]
@@ -173,7 +173,7 @@ def test_an_agent_s_decision_is_the_agent_s(experiment, recorder):
 
     ((event),) = _events(recorder)
     assert event["actor"] == "agent"
-    assert (event["payload"]["author"], event["payload"]["via"]) == (
+    assert (event["payload"]["actor"], event["payload"]["via"]) == (
         "agent:a-model",
         "server",
     )
@@ -195,7 +195,7 @@ def test_a_question_is_recorded_and_so_is_the_position_it_was_confirmed_at(
     )
     assert experiment.ask_proposal(lamella.id, TASK, proposal)
 
-    _decide(experiment, proposal, "human:op", via="workflow")
+    _decide(experiment, proposal, "operator:op", via="workflow")
     assert experiment.fill_in_decision(
         lamella.id, TASK, proposal.id, {"stage_position": moved_to}
     )
@@ -251,17 +251,17 @@ def test_what_the_experiment_held_when_watched_is_not_recorded_again(
 ):
     lamella = experiment.positions[0]
     earlier = _poi_proposal(lamella)
-    _decide(experiment, earlier, "human:op", {"poi": Point(1e-6, 0.0)})
+    _decide(experiment, earlier, "operator:op", {"poi": Point(1e-6, 0.0)})
     recorder = EventRecorder(microscope, experiment=experiment)
     try:
         # A second look at the same proposal: its first decision was made
         # before the recorder watched, and is not new.
-        _decide(experiment, earlier, "human:someone-else")
+        _decide(experiment, earlier, "operator:someone-else")
 
         ((event),) = _events(recorder)
-        assert (event["payload"]["decision"], event["payload"]["author"]) == (
+        assert (event["payload"]["decision"], event["payload"]["actor"]) == (
             1,
-            "human:someone-else",
+            "operator:someone-else",
         )
     finally:
         recorder.close()
@@ -274,11 +274,11 @@ def test_the_experiment_watched_is_the_one_set(microscope, experiment, tmp_path)
     try:
         recorder.set_experiment(experiment.path, experiment)
         proposal = _poi_proposal(experiment.positions[0])
-        _decide(experiment, proposal, "human:op", {"poi": Point(1e-6, 0.0)})
+        _decide(experiment, proposal, "operator:op", {"poi": Point(1e-6, 0.0)})
         assert len(_events(recorder)) == 1
 
         recorder.set_experiment(None)
-        _decide(experiment, proposal, "human:op")  # a second look
+        _decide(experiment, proposal, "operator:op")  # a second look
         assert len(_events(recorder)) == 1, "recorded after it stopped watching"
     finally:
         recorder.close()
@@ -296,7 +296,7 @@ def test_a_decision_that_cannot_be_recorded_is_still_made(
     lamella = experiment.positions[0]
     proposal = _poi_proposal(lamella)
 
-    _decide(experiment, proposal, "human:op", {"poi": Point(3e-6, 0.0)})
+    _decide(experiment, proposal, "operator:op", {"poi": Point(3e-6, 0.0)})
 
     assert _events(recorder) == []
     assert lamella.poi.x == 3e-6

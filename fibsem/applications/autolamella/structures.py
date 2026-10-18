@@ -1433,9 +1433,9 @@ class Experiment(ExperimentGrids, ProposalReview, BaseExperiment):
         a review decision -- is left as it is, and so is one nobody has given.
         """
         record = getattr(item, "defect", None) or getattr(item, "quality", None)
-        if record is None or record.author or record.verdict is Verdict.UNASSESSED:
+        if record is None or record.actor or record.verdict is Verdict.UNASSESSED:
             return
-        record.author = str(self.author())
+        record.actor = str(self.actor())
 
     def get_lamella_by_name(self, name: str) -> Optional["Lamella"]:
         """Return the Lamella with the given name, or None if not found."""

@@ -18,13 +18,14 @@ import os
 import pytest
 from psygnal.containers import EventedDict
 
+from fibsem.acting import ActorKind
 from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
 from fibsem.structures import MicroscopeState, Point
-from fibsem.workflows.proposals import AuthorKind, Decision, DecisionOutcome, Proposal
+from fibsem.workflows.proposals import Decision, DecisionOutcome, Proposal
 from fibsem.workflows.status import TaskStatus
 
 TASK = "Setup Lamella Position"
@@ -80,7 +81,7 @@ def test_it_is_authored_automatically_because_nobody_decided_it(experiment):
 
     experiment.withdraw_proposal(lamella.id, TASK, "the run was stopped")
 
-    assert proposal.current.author.kind is AuthorKind.automated
+    assert proposal.current.actor.kind is ActorKind.task
 
 
 def test_withdrawing_works_while_the_task_is_running(experiment):
@@ -102,7 +103,7 @@ def test_an_answered_proposal_cannot_be_withdrawn(experiment):
         TASK,
         Decision(
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             values={"poi": Point(0.0, 0.0)},
             task_id="run-1",
         ),
@@ -138,7 +139,9 @@ def test_a_withdrawn_question_cannot_be_answered_afterwards(experiment):
     result = experiment.decide(
         lamella.id,
         TASK,
-        Decision(outcome=DecisionOutcome.Confirmed, author="human:op", task_id="run-1"),
+        Decision(
+            outcome=DecisionOutcome.Confirmed, actor="operator:op", task_id="run-1"
+        ),
     )
 
     assert not result.applied and result.error_type == "stale_review"

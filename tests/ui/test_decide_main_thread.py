@@ -71,7 +71,7 @@ def test_decide_from_a_worker_lands_on_the_main_thread_and_blocks(qapp, tmp_path
             SETUP,
             Decision(
                 outcome=DecisionOutcome.Confirmed,
-                author="agent:test",
+                actor="agent:test",
                 values={"poi": Point(1e-6, 0.0)},
                 task_id="run-1",
             ),
@@ -97,7 +97,7 @@ def test_decide_on_the_main_thread_is_a_direct_call(qapp, tmp_path):
         SETUP,
         Decision(
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             values={"poi": Point(2e-6, 0.0)},
             task_id="run-1",
         ),

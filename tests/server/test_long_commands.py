@@ -18,8 +18,9 @@ pytest.importorskip("httpx")  # TestClient transport
 from fastapi.testclient import TestClient  # noqa: E402
 
 from fibsem import utils  # noqa: E402
+from fibsem.acting import OPERATOR  # noqa: E402
 from fibsem.cancellation import OperationCancelledError  # noqa: E402
-from fibsem.control import OPERATOR, MicroscopeBusy  # noqa: E402
+from fibsem.control import MicroscopeBusy  # noqa: E402
 from fibsem.devices.core import DeviceFault  # noqa: E402
 from fibsem.imaging.spot import SpotBurnSettings  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402

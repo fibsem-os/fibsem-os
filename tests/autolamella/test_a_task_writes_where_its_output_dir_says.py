@@ -151,11 +151,11 @@ def test_a_round_has_a_folder_of_its_own(tmp_path):
     from fibsem.util.timestamps import now
     from fibsem.workflows.task import run_folder
 
-    folder = run_folder(tmp_path, "Mill", now(), round=3)
+    folder = run_folder(tmp_path, "Mill", now(), iteration=3)
     assert folder == os.path.join(str(tmp_path), "Mill", "0003")
 
-    os.makedirs(folder)  # a re-run of the same round
-    assert run_folder(tmp_path, "Mill", now(), round=3) == folder + "-2"
+    os.makedirs(folder)  # a re-run of the same iteration
+    assert run_folder(tmp_path, "Mill", now(), iteration=3) == folder + "-2"
 
 
 def test_the_wrappers_return_what_they_measured(microscope, experiment):
