@@ -294,7 +294,10 @@ def _window(manager, refusal=""):
 
     experiment = SimpleNamespace(get_lamella_by_name=lambda name: object())
     window = SimpleNamespace(
-        autolamella_ui=SimpleNamespace(_task_manager=manager, experiment=experiment),
+        autolamella_ui=SimpleNamespace(
+            session=SimpleNamespace(runner=SimpleNamespace(manager=manager)),
+            experiment=experiment,
+        ),
         messages=[],
         _lamella_run_refusal=lambda lamellae: refusal,
         _queue_action_message=AutoLamellaSingleWindowUI._queue_action_message,

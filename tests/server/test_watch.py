@@ -27,6 +27,7 @@ from fibsem.server.discovery import write_discovery_file  # noqa: E402
 from fibsem.server.levels import AgentLevel  # noqa: E402
 from fibsem.structures import MicroscopeState  # noqa: E402
 from fibsem.workflows.events import EventBuffer  # noqa: E402
+from tests.run_state import stub_session
 
 TOKEN = "test-token"
 POLL_S = 0.3
@@ -35,8 +36,9 @@ POLL_S = 0.3
 class Host:
     experiment = None
     microscope = None
-    _task_manager = None
-    is_workflow_running = False
+
+    def __init__(self):
+        self.session = stub_session()
 
 
 @pytest.fixture(scope="module")
@@ -72,7 +74,7 @@ class App:
         return self.context._event_buffer
 
     def set_running(self, running):
-        self.context._host.is_workflow_running = running
+        self.context._host.session.runner.is_running = running
 
 
 def _serve(microscope, tmp_path, event_buffer):

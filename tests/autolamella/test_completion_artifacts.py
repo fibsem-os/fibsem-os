@@ -4,7 +4,7 @@ Per lamella, because a lamella is what gets delivered to a TEM and because an
 experiment with one abandoned lamella never completes at all. A placeholder for the
 PDF and overview PNG while the trigger is proven end to end. See FIB-461.
 
-The hook is commented out in AutoLamellaUI.setup_hooks rather than shipped, so nothing
+The hook is commented out in lamella_run_hooks (workflows/runs.py) rather than shipped, so nothing
 writes these files during a real run yet. These tests are what keeps the writer honest
 in the meantime: they register the same hook themselves, so the wiring is exercised
 even while it is dormant.
@@ -278,7 +278,7 @@ def test_an_unresolvable_item_writes_nothing(experiment, caplog):
 
 
 def _manager_with_summary_hook(experiment: Experiment) -> TaskManager:
-    """Mirrors the registration commented out in AutoLamellaUI.setup_hooks, so the two
+    """Mirrors the registration commented out in lamella_run_hooks (workflows/runs.py), so the two
     have to be changed together when it is turned back on."""
 
     class _NoMicroscope:
@@ -375,7 +375,7 @@ def test_a_failing_artifact_does_not_break_the_run(experiment, caplog):
 
 
 def test_the_event_the_dormant_wiring_names_still_exists():
-    """The registration in setup_hooks is commented out, so nothing type-checks the
+    """The registration in lamella_run_hooks is commented out, so nothing type-checks the
     event it names. This does, and fails loudly if ITEM_COMPLETED is ever renamed while
     the wiring is asleep."""
     assert HookEvent.ITEM_COMPLETED in list(HookEvent)

@@ -471,9 +471,9 @@ def main_ui(qapp):
 
 def _wait_for_run(ui, timeout_s: float = 90.0) -> None:
     deadline = time.monotonic() + timeout_s
-    while ui.is_workflow_running and time.monotonic() < deadline:
+    while ui.session.runner.is_running and time.monotonic() < deadline:
         QTest.qWait(100)
-    assert not ui.is_workflow_running, "the grid run did not finish in time"
+    assert not ui.session.runner.is_running, "the grid run did not finish in time"
 
 
 class TestPanelChrome:
@@ -676,7 +676,7 @@ def test_a_grid_run_from_the_window_on_a_fixed_holder(main_ui, tmp_path, monkeyp
     microscope.turn_off(BeamType.ION)
     assert main_ui._beams_off() == [BeamType.ION]
     main_ui._start_grid_run(["overview_sem"], ["grid-aspen"], inventory_first=False)
-    assert ui.is_workflow_running
+    assert ui.session.runner.is_running
     assert not main_ui.grids_tab.btn_inventory.isEnabled()  # locked during the run
     _wait_for_run(ui)
     QTest.qWait(200)  # let the finished signal land
@@ -694,7 +694,9 @@ def test_a_grid_run_from_the_window_on_a_fixed_holder(main_ui, tmp_path, monkeyp
     assert grid.task_history[-1].status is TaskStatus.Completed
     assert len(item_outputs(exp, grid, "overview_sem")) == 1
     assert main_ui.grids_tab.btn_inventory.isEnabled()
-    assert ui._last_run_summary is not None  # the grid summary, for the App Server
+    assert (
+        ui.session.runner.last_summary is not None
+    )  # the grid summary, for the App Server
     assert microscope.is_on(BeamType.ION) and main_ui._beams_off() == []
 
 
@@ -741,7 +743,7 @@ def test_adding_grids_to_a_running_queue_appends_their_blocks(
     manager = GridTaskManager(microscope, exp, parent_ui=ui)
     manager.queue.build_from_pairs(plan_grid_run(["overview_sem"], ["grid-aspen"]))
     manager.queue.next()  # grid-aspen's load is active
-    ui._task_manager = manager
+    ui.session.runner.manager = manager
 
     view = main_ui.grid_workflow_widget
     view._grid_rows["grid-birch"].checkbox.setChecked(True)
@@ -763,7 +765,7 @@ def test_adding_grids_to_a_running_queue_appends_their_blocks(
     # a lamella run refuses grid tasks, and the Add button says so instead of
     # offering an add the handler would refuse (seen on the bench: it was
     # enabled with a grid ticked during a lamella run)
-    ui._task_manager = TaskManager(microscope, exp, parent_ui=ui)
+    ui.session.runner.manager = TaskManager(microscope, exp, parent_ui=ui)
     main_ui._on_workflow_selection_changed()
     # The button's own flag: the timeline as a whole is only enabled once an
     # experiment is loaded through the window, which this harness skips.
@@ -771,12 +773,12 @@ def test_adding_grids_to_a_running_queue_appends_their_blocks(
     own = lambda: add.isEnabledTo(add.parentWidget())  # noqa: E731
     assert not own() and "lamella run is going" in add.toolTip()
     main_ui._on_add_to_queue(run_next=False)
-    assert len(ui._task_manager.queue.items) == 0
-    ui._task_manager = manager  # back to the grid run: a ticked grid can join
+    assert len(ui.session.runner.manager.queue.items) == 0
+    ui.session.runner.manager = manager  # back to the grid run: a ticked grid can join
     view._grid_rows["grid-birch"].checkbox.setChecked(True)
     main_ui._on_workflow_selection_changed()
     assert own() and add.toolTip().startswith("Add to the end of the queue")
-    ui._task_manager = None
+    ui.session.runner.manager = None
 
 
 def test_run_and_screen_all_name_the_grids_running_for_the_first_time(
@@ -830,7 +832,7 @@ def test_run_and_screen_all_name_the_grids_running_for_the_first_time(
     main_ui._run_grid_workflow()
     assert shown == [["grid-birch"]]
     assert offered == [False], "a fixed holder has nothing to unload"
-    assert not ui.is_workflow_running
+    assert not ui.session.runner.is_running
 
     # Screen all grids asks its own dialog, which names and records the grids,
     # and runs on exactly the grids it hands back (FIB-1138).

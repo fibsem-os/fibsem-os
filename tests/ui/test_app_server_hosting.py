@@ -78,7 +78,7 @@ def test_connect_starts_a_live_read_only_server(ui, app_server_enabled):
     # (FIB-1044): not registered a second time by the app's own hooks.
     assert host.lifecycle_hook is ui.session.recorder.lifecycle_hook
     assert recorder_for(ui.microscope) is ui.session.recorder
-    assert host.lifecycle_hook not in ui.setup_hooks()._hooks
+    assert host.lifecycle_hook not in ui.session.runner.run_hooks("autolamella")._hooks
 
     # The question-lifecycle feed is wired straight into the buffer...
     assert host.event_buffer.append in ui.ui_responder._question_observers
@@ -191,7 +191,7 @@ def test_default_preference_hosts_nothing(ui, monkeypatch):
     ui.system_widget.connect_to_microscope()
     ui.connect_to_microscope()
     assert ui.session.app_server is None
-    manager = ui.setup_hooks()
+    manager = ui.session.runner.run_hooks("autolamella")
     assert manager is not None  # and built without any agent involvement
 
 
@@ -228,7 +228,7 @@ def test_the_app_server_reads_the_session_stream(ui, app_server_enabled):
     assert host.event_buffer is recorder.buffer
     assert host.lifecycle_hook is recorder.lifecycle_hook
     # Shared, so not registered here: the run registers it, once (FIB-1044).
-    hooks = ui.setup_hooks()._hooks
+    hooks = ui.session.runner.run_hooks("autolamella")._hooks
     assert sum(hook is recorder.lifecycle_hook for hook in hooks) == 0
 
 

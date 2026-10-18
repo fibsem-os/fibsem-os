@@ -26,6 +26,7 @@ from fibsem.server.auth import AgentLevel  # noqa: E402
 from fibsem.server.catalog import CATALOG  # noqa: E402
 from fibsem.server.requests import RequestRefused, route_call  # noqa: E402
 from fibsem.structures import MicroscopeState  # noqa: E402
+from tests.run_state import stub_session
 
 AGENT = {"Authorization": "Bearer agent"}
 NUDGE = {"tool": "stage_move_relative", "arguments": {"dx": 1e-6}}
@@ -45,8 +46,9 @@ _PROTOCOL = os.path.join(
 class Host:
     experiment = None
     microscope = None
-    _task_manager = None
-    is_workflow_running = False
+
+    def __init__(self):
+        self.session = stub_session()
 
 
 class RecordingContext(AutoLamellaAppContext):

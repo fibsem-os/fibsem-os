@@ -24,6 +24,7 @@ from fibsem.ui.widgets.script_menu import (  # noqa: E402
 @pytest.fixture
 def qapp():
     from PyQt5.QtWidgets import QApplication
+
     yield QApplication.instance() or QApplication([])
 
 
@@ -87,29 +88,7 @@ def test_the_menu_is_usable_with_no_experiment_loaded(qapp, tmp_path):
 
 
 def test_the_controller_exposes_the_runner_it_built(qapp, tmp_path):
-    """AutoLamellaUI reaches through it to refuse a workflow while a microscope
-    script is running (FIB-340)."""
+    """Whether a script is running. A running script is in control of the
+    microscope, which is what refuses a workflow meanwhile (FIB-340, FIB-1270)."""
     controller, _ = _controller(tmp_path, context=FakeContext())
     assert controller.runner.is_running is False
-
-
-@pytest.mark.parametrize("parent_widget", [None, object()])
-def test_the_workflow_gate_holds_with_no_controller(parent_widget):
-    """This runs on every workflow start, and any host that never built a Scripts
-    menu has no controller for it to find -- so it has to read "no script running"
-    rather than raise. A crash here would break starting a workflow, which is the
-    whole application.
-
-    Called unbound on a stub: the method only reads self.parent_widget, and building
-    a real AutoLamellaUI needs a viewer and a microscope.
-    """
-    from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
-
-    class Host:
-        script_menu_controller = None
-
-    stub = type("Stub", (), {"parent_widget": parent_widget})()
-    assert AutoLamellaUI._script_runner_is_busy(stub) is False
-
-    stub_with_host = type("Stub", (), {"parent_widget": Host()})()
-    assert AutoLamellaUI._script_runner_is_busy(stub_with_host) is False

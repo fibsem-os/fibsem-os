@@ -18,6 +18,7 @@ from fibsem.applications.autolamella.ui.agent_level_chip import (  # noqa: E402
 from fibsem.applications.autolamella.ui.agent_recent import RecentRow  # noqa: E402
 from fibsem.server.levels import AgentLevel  # noqa: E402
 from fibsem.structures import BeamType  # noqa: E402
+from tests.run_state import StubRunner
 
 
 def _labels(widget):
@@ -1310,13 +1311,9 @@ def test_the_agent_s_workflow_stop_turns_the_border_red(main_ui, qapp):
 
     from fibsem.applications.autolamella.server import AutoLamellaAppContext
 
-    class _Running:
-        def is_alive(self):
-            return True
-
     ui = main_ui.autolamella_ui
-    previous = ui._task_worker_thread
-    ui._task_worker_thread = _Running()
+    previous = ui.session.runner
+    ui.session.runner = StubRunner(is_running=True)
     main_ui._set_border_state("automated")
     answers = []
     try:
@@ -1332,8 +1329,7 @@ def test_the_agent_s_workflow_stop_turns_the_border_red(main_ui, qapp):
         assert answers == [{"available": True, "stopped": True}]
         assert main_ui._border_frame.property("borderState") == "stopping"
     finally:
-        ui._task_worker_thread = previous
-        ui._workflow_stop_event.clear()
+        ui.session.runner = previous
         main_ui._border_state = None
         main_ui._set_border_state("idle")
 

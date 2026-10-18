@@ -44,6 +44,7 @@ from fibsem.workflows.positions import OVERVIEW_POSITIONS
 from fibsem.workflows.proposals import Decision, DecisionOutcome, Standing
 from fibsem.workflows.review import standing
 from fibsem.workflows.status import TaskStatus
+from tests.run_state import stub_session
 
 GRID = "Grid-01"
 OTHER_GRID = "Grid-02"
@@ -61,7 +62,7 @@ class _UI:
 
     def __init__(self):
         self.workflow_status_signal = _Signal()
-        self._task_manager = None
+        self.session = stub_session()
 
 
 def _small_settings() -> OverviewAcquisitionSettings:
@@ -98,7 +99,7 @@ def experiment(tmp_path, microscope):
 def _run(microscope, experiment, review_enabled: bool) -> GridTaskManager:
     ui = _UI()
     manager = GridTaskManager(microscope, experiment, parent_ui=ui)
-    ui._task_manager = manager
+    ui.session.runner.manager = manager
     manager.review_enabled = review_enabled  # the preference, as read for a run
     manager.run([OVERVIEW], [GRID])
     return manager

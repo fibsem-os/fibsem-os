@@ -229,7 +229,7 @@ def test_both_stop_paths_interrupt_the_hardware_the_same_way():
     assert "cancel_spot_burn()" in halt
 
     # Stop Workflow routes through it rather than repeating it.
-    run_stop = body(autolamella_ui, "_stop_workflow_thread")
+    run_stop = body(autolamella_ui, "stop_task_workflow")
     assert "stop_current_operations()" in run_stop
     assert "stop_milling()" not in run_stop
 

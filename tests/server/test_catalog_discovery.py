@@ -31,8 +31,6 @@ def app():
     class _Host:
         experiment = None
         microscope = None
-        _task_manager = None
-        is_workflow_running = False
 
     return build_server(
         microscope,

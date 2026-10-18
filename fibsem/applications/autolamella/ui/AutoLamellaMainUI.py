@@ -152,6 +152,7 @@ from fibsem.workflows.queue import (
     QueueOp,
     QueueResult,
 )
+from fibsem.workflows.runner import GRIDS, ITEMS, RunRequest
 from fibsem.workflows.status import (
     Hold,
     HoldKind,
@@ -1044,7 +1045,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         experiment = self.autolamella_ui.experiment
         if experiment is None:
             return None, "Load an experiment to run scripts"
-        if self.autolamella_ui.is_workflow_running:
+        if self.autolamella_ui.session.runner.is_running:
             # tasks mutate lamella state on a worker thread, so a script reading
             # mid-workflow would get a torn snapshot.
             return None, "Unavailable while a workflow is running"
@@ -1089,7 +1090,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             parent=self,
             microscope=system_widget.microscope,
             settings=system_widget.settings,
-            workflow_running=self.autolamella_ui.is_workflow_running,
+            workflow_running=self.autolamella_ui.session.runner.is_running,
         )
         if not result.changed:
             return
@@ -1759,7 +1760,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         ui = self.autolamella_ui
         if ui is None:
             return
-        if ui.is_workflow_running:
+        if ui.session.runner.is_running:
             return
         if (
             ui.microscope is None
@@ -1793,17 +1794,15 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         ):
             return
 
-        self._set_border_state(self._running_border_state(selected_tasks[0].name))
-        self._push_timeline_estimates(
-            [(ln, tn) for tn in task_names for ln in lamella_names]
+        started = ui.session.runner.start(
+            ui.experiment,
+            RunRequest(
+                kind=ITEMS, task_names=tuple(task_names), names=tuple(lamella_names)
+            ),
         )
-        # The run writes the experiment from its own thread. Land any edit still
-        # waiting in the editor first, so there is only ever one writer (FIB-683).
-        self.lamella_widget.flush_pending_save()
-        ui._start_run_workflow_thread(task_names, lamella_names)
-        # Show the Stop button immediately so the run is cancellable even while
-        # waiting for a scheduled first task (before any task status arrives).
-        self.set_workflow_running()
+        if not started.started:
+            self.show_toast(started.reason, "warning")
+            return
         # Clear selections after starting workflow
         self.lamella_workflow_widget.lamella_list.set_all_selected(False)
         self.lamella_workflow_widget.workflow.set_all_selected(False)
@@ -1856,7 +1855,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """One click: read the magazine, scan and name the grids in one dialog,
         then the ticked tasks on every grid it found (FIB-898, FIB-1138)."""
         ui = self.autolamella_ui
-        if ui is None or ui.is_workflow_running or ui.experiment is None:
+        if ui is None or ui.session.runner.is_running or ui.experiment is None:
             return
         if ui.microscope is None or ui.experiment.task_protocol is None:
             return
@@ -1946,27 +1945,54 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         report_at_end: bool = False,
     ) -> None:
         ui = self.autolamella_ui
-        self._set_border_state("automated")
-        # The plan's steps, priced for the timeline. Screen all grids builds its
-        # queue after the inventory, so it is priced for the grids known now.
-        known = grid_names
-        if known is None and ui.experiment is not None:
-            known = [g.name for g in ui.experiment.grids]
-        self._push_timeline_estimates(plan_grid_run(task_names, known or []))
-        # One writer (FIB-683): land any edit still in the editors first.
-        self.lamella_widget.flush_pending_save()
-        ui._start_run_grid_workflow_thread(
-            task_names,
-            grid_names,
-            inventory_first,
-            unload_at_end=unload_at_end,
-            report_at_end=report_at_end,
+        started = ui.session.runner.start(
+            ui.experiment,
+            RunRequest(
+                kind=GRIDS,
+                task_names=tuple(task_names),
+                names=tuple(grid_names) if grid_names is not None else None,
+                options={
+                    "inventory_first": inventory_first,
+                    "unload_at_end": unload_at_end,
+                    "report_at_end": report_at_end,
+                },
+            ),
         )
-        self.set_workflow_running()
+        if not started.started:
+            self.show_toast(started.reason, "warning")
+            return
         # Clear the grid ticks, as a lamella run clears its selection: left ticked,
         # the grids this run is on would be queued again by the next Add to Queue.
         # The task ticks stay; Screen all grids and the next add read them.
         self.grid_workflow_widget.set_all_grids_selected(False)
+
+    def _on_run_starting(self, request: RunRequest) -> None:
+        """Any run, whoever started it (the Run click, the Grids view, the
+        agent), before its thread starts: the border, the timeline's
+        estimates, the Stop button."""
+        ui = self.autolamella_ui
+        if request.kind == GRIDS:
+            self._set_border_state("automated")
+            # The plan's steps, priced for the timeline. Screen all grids builds
+            # its queue after the inventory, so it is priced for the grids known
+            # now.
+            known = request.names
+            if known is None and ui.experiment is not None:
+                known = [g.name for g in ui.experiment.grids]
+            self._push_timeline_estimates(
+                plan_grid_run(list(request.task_names), list(known or []))
+            )
+        else:
+            self._set_border_state(self._running_border_state(request.task_names[0]))
+            self._push_timeline_estimates(
+                [(ln, tn) for tn in request.task_names for ln in request.names or ()]
+            )
+        # The run writes the experiment from its own thread. Land any edit still
+        # waiting in the editor first, so there is only ever one writer (FIB-683).
+        self.lamella_widget.flush_pending_save()
+        # Show the Stop button immediately so the run is cancellable even while
+        # waiting for a scheduled first task (before any task status arrives).
+        self.set_workflow_running()
 
     def _run_refuses_selection(self) -> str:
         """Why the left panel's selection cannot join the running queue, or "".
@@ -1980,7 +2006,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             GridTaskManager,
         )
 
-        manager = getattr(self.autolamella_ui, "_task_manager", None)
+        manager = self.autolamella_ui.session.runner.manager
         if manager is None:
             return ""
         grid_run = isinstance(manager, GridTaskManager)
@@ -2237,7 +2263,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 )
                 break
         self._update_supervised_status()
-        if self.autolamella_ui.is_workflow_running:
+        if self.autolamella_ui.session.runner.is_running:
             self._set_border_state(self._running_border_state(self._current_task_name))
         # Refresh the workflow widget to reflect the toggled supervise state
         if hasattr(self, "lamella_workflow_widget"):
@@ -2335,6 +2361,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.autolamella_ui._workflow_finished_signal.connect(
             self._on_workflow_finished
         )
+        self.autolamella_ui.session.runner.starting.connect(self._on_run_starting)
         # Red while a stop unwinds, whoever asked for it (the agent's too).
         self.autolamella_ui.workflow_stopping_signal.connect(self._on_workflow_stopping)
         # A grid task records its overview as it finishes, and says so in a status.
@@ -3007,7 +3034,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         experiment = getattr(ui, "experiment", None)
         if experiment is None:
             return ""
-        if ui.is_workflow_running:
+        if ui.session.runner.is_running:
             return "Grids cannot be renamed while a workflow is running."
         return grid_rename_refusal(experiment, old, new)
 
@@ -3274,7 +3301,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         Reusing it avoids a second lamella-and-task picker that would have to be
         kept in step with the first.
         """
-        manager = getattr(self.autolamella_ui, "_task_manager", None)
+        manager = self.autolamella_ui.session.runner.manager
         if manager is None:
             return
         if self._grid_workflow_active():
@@ -3566,7 +3593,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         queue is reached from here because the widget is generic and has no
         business knowing what a queue is.
         """
-        manager = getattr(self.autolamella_ui, "_task_manager", None)
+        manager = self.autolamella_ui.session.runner.manager
         if manager is None:
             return
 
@@ -3681,7 +3708,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             # A task finishing may have left a proposal; the inbox re-derives.
             review_tab = getattr(self, "review_tab", None)
             if review_tab is not None:
-                review_tab.set_running(self.autolamella_ui.is_workflow_running)
+                review_tab.set_running(self.autolamella_ui.session.runner.is_running)
                 review_tab.refresh()
 
         if self.autolamella_ui is None:
@@ -4307,7 +4334,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self._set_border_state("waiting")
         elif self.autolamella_ui.WORKFLOW_PENDING:
             self._set_border_state("pending")
-        elif self.autolamella_ui.is_workflow_running:
+        elif self.autolamella_ui.session.runner.is_running:
             self._set_border_state(self._running_border_state(self._current_task_name))
         else:
             self._set_border_state("idle")
@@ -4460,7 +4487,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         or one that stalled, leaves a line that stays until it is dismissed or the
         next run starts; a clean one says so once, as a toast, and the line goes
         back to the instruction."""
-        note = getattr(self.autolamella_ui, "_last_run_note", "") or ""
+        note = self.autolamella_ui.session.runner.last_note
         failures = self._run_failures
         if failures:
             what, reason = failures[-1]
@@ -4687,7 +4714,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         hold the process open.
         """
         ui = self.autolamella_ui
-        if ui is None or not ui.is_workflow_running:
+        if ui is None or not ui.session.runner.is_running:
             return True
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Warning)

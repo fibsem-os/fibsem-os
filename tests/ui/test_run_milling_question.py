@@ -48,6 +48,7 @@ from fibsem.workflows.interaction import (
     MillingEdit,
 )
 from fibsem.workflows.status import HoldKind
+from tests.run_state import Stopped
 
 ROUGH = "Rough Milling"
 MSG = "Mill the lamella."
@@ -111,7 +112,7 @@ def ui(qapp, monkeypatch, tmp_path):
     widget._supervision = supervision
     widget._on_mill = on_mill  # called at the end of each mill
     yield widget
-    widget._workflow_stop_event.clear()
+    widget.session.runner.manager = None
     if widget.microscope is not None:
         widget.microscope.disconnect()
     widget.close()
@@ -182,7 +183,7 @@ def _finish(thread, qapp, timeout_s=10.0):
 
 def _stop(ui, task):
     task._manager.stop()
-    ui._workflow_stop_event.set()
+    ui.session.runner.manager = Stopped()
 
 
 def _settle(qapp, seconds):
