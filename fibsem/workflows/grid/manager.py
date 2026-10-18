@@ -62,11 +62,11 @@ import logging
 import uuid
 from copy import deepcopy
 from datetime import datetime
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple
 
 import pandas as pd
 
-from fibsem.acting import WORKFLOW
+from fibsem.acting import WORKFLOW, ActorKind
 from fibsem.cancellation import OperationCancelledError
 from fibsem.devices.sample_loader import GridExchangeError
 from fibsem.hooks import HookEvent, HookManager
@@ -200,6 +200,7 @@ class GridTaskManager(BaseTaskManager):
         parent_ui: Optional[WorkflowWindow] = None,
         hook_manager: Optional[HookManager] = None,
         responder: Optional[Responder] = None,
+        answerers: Optional[Callable[[], Tuple[ActorKind, ...]]] = None,
         unload_at_end: bool = False,
         report_at_end: bool = False,
         inventory_first: bool = False,
@@ -209,7 +210,9 @@ class GridTaskManager(BaseTaskManager):
         the way the run it joined does. ``inventory_first`` is "Screen all
         grids": the run reads the inventory, records every present grid, and
         runs over them all."""
-        super().__init__(microscope, experiment, parent_ui, hook_manager, responder)
+        super().__init__(
+            microscope, experiment, parent_ui, hook_manager, responder, answerers
+        )
         self.inventory_first = inventory_first
         self.unload_at_end = unload_at_end
         self.report_at_end = report_at_end

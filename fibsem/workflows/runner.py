@@ -75,8 +75,8 @@ class RunRules:
 
     ``check(experiment, microscope, request)`` refuses the request or accepts
     it with its names resolved; ``make_manager(microscope, experiment,
-    request, parent_ui, hook_manager, responder)`` makes the run's task
-    manager.
+    request, parent_ui, hook_manager, responder, answerers)`` makes the run's
+    task manager.
     """
 
     check: Callable[[Any, Any, RunRequest], RunStart]
@@ -230,6 +230,7 @@ class WorkflowRunner:
                 parent_ui=self.window,
                 hook_manager=self.run_hooks(experiment.app),
                 responder=self._session.responder,
+                answerers=self._session.answerers,
             )
             # The run is whoever started it: the agent's run records its
             # events as the agent's (FIB-1276), so it runs in a copy of the

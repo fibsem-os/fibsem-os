@@ -126,6 +126,7 @@ def _task(ui):
         experiment=experiment,
         parent_ui=ui,
         responder=ui.ui_responder,
+        answerers=ui.session.answerers,
     )
     task = MillRoughTask(
         microscope=ui.microscope,

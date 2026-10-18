@@ -4,11 +4,11 @@ import logging
 import time
 from collections import Counter
 from datetime import datetime
-from typing import TYPE_CHECKING, Dict, List, Optional, Set
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Set, Tuple
 
 import pandas as pd
 
-from fibsem.acting import WORKFLOW
+from fibsem.acting import WORKFLOW, ActorKind
 from fibsem.applications.autolamella.workflows.ui import update_status_ui
 from fibsem.cancellation import OperationCancelledError
 from fibsem.constants import DATETIME_DISPLAY_AMPM
@@ -69,8 +69,11 @@ class TaskManager(BaseTaskManager):
         parent_ui: Optional["AutoLamellaUI"] = None,
         hook_manager: Optional[HookManager] = None,
         responder: Optional[Responder] = None,
+        answerers: Optional[Callable[[], Tuple[ActorKind, ...]]] = None,
     ):
-        super().__init__(microscope, experiment, parent_ui, hook_manager, responder)
+        super().__init__(
+            microscope, experiment, parent_ui, hook_manager, responder, answerers
+        )
         # Lamellae already finished when the run started, so re-running a task on
         # finished work does not re-announce it. Seeded in _run_queue.
         self._completed_lamella: Set[str] = set()

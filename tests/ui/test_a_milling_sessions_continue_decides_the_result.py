@@ -91,6 +91,7 @@ def _task(ui, review_enabled: bool) -> MillRoughTask:
         experiment=experiment,
         parent_ui=ui,
         responder=ui.ui_responder,
+        answerers=ui.session.answerers,
     )
     manager.review_enabled = review_enabled
     lamella = experiment.positions[0]

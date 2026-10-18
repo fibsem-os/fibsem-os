@@ -57,6 +57,7 @@ def make_lamella_manager(
     parent_ui: Any = None,
     hook_manager: Any = None,
     responder: Any = None,
+    answerers: Any = None,
 ) -> TaskManager:
     return TaskManager(
         microscope=microscope,
@@ -64,6 +65,7 @@ def make_lamella_manager(
         parent_ui=parent_ui,
         hook_manager=hook_manager,
         responder=responder,
+        answerers=answerers,
     )
 
 

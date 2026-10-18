@@ -141,6 +141,7 @@ def _start(window):
         experiment=experiment,
         parent_ui=ui,
         responder=ui.ui_responder,
+        answerers=ui.session.answerers,
     )
     manager.review_enabled = True
     lamella = experiment.positions[0]

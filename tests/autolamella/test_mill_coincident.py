@@ -37,10 +37,14 @@ SETUP_NAME = "Setup Coincidence Milling"
 
 
 class _Manager:
-    """The one thing a task reads off its manager: the abort token."""
+    """What a task reads off its manager: the abort token, and who can answer
+    (nobody)."""
 
     def __init__(self):
         self.abort_token = threading.Event()
+
+    def answerers(self):
+        return ()
 
 
 @pytest.fixture

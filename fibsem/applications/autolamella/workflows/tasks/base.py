@@ -30,7 +30,7 @@ import numpy as np
 
 from fibsem import acquire, alignment, constants, utils
 from fibsem import config as fcfg
-from fibsem.acting import AGENT, Actor
+from fibsem.acting import AGENT, OPERATOR, Actor
 from fibsem.applications.autolamella.protocol.constants import (
     FIDUCIAL_KEY,
     MILL_POLISHING_KEY,
@@ -225,8 +225,13 @@ class AutoLamellaTask(BaseTask):
 
     @property
     def validate(self) -> bool:
-        """Return whether the task should be validated by the user."""
-        return get_task_supervision(self.task_name, self.parent_ui)
+        """Whether a person answers this task's questions as it runs: the
+        protocol supervises it and the operator is attached (a window) to
+        answer. The run's experiment says the first, the session the second."""
+        manager = self.task_manager
+        if manager is None or OPERATOR not in manager.answerers():
+            return False
+        return get_task_supervision(self.task_name, manager.experiment)
 
     @property
     def review(self) -> bool:
@@ -407,7 +412,9 @@ class AutoLamellaTask(BaseTask):
                 else "nobody was asked: the task is not supervised"
                 if self.parent_ui is not None
                 and window
-                and not get_task_supervision(self.task_name, self.parent_ui)
+                and not get_task_supervision(
+                    self.task_name, getattr(self.task_manager, "experiment", None)
+                )
                 else "nobody was asked: no window to ask in"
             )
             experiment.record_unasked(item.id, self.task_name, proposal, reason)
@@ -1135,19 +1142,10 @@ class AutoLamellaTask(BaseTask):
         )
 
 
-def get_task_supervision(
-    task_name: str, parent_ui: Optional["AutoLamellaUI"] = None
-) -> bool:
-    """Get supervision status for a task."""
-    if parent_ui is None:
+def get_task_supervision(task_name: str, experiment: Optional[Any] = None) -> bool:
+    """Whether ``experiment``'s protocol asks for ``task_name`` to be supervised;
+    False with no experiment or protocol."""
+    protocol = getattr(experiment, "task_protocol", None)
+    if protocol is None:
         return False
-    if not hasattr(parent_ui, "experiment") or not hasattr(
-        parent_ui.experiment, "task_protocol"
-    ):
-        logging.warning("Parent UI does not have an experiment or task protocol.")
-        return False
-    if parent_ui.experiment is None or parent_ui.experiment.task_protocol is None:
-        logging.warning("Parent UI experiment task protocol is None.")
-        return False
-    protocol = parent_ui.experiment.task_protocol
     return protocol.get_attention(task_name) is Attention.supervised

@@ -93,6 +93,7 @@ def _task(ui, parent_ui, milling_enabled=True):
             experiment=experiment,
             parent_ui=parent_ui,
             responder=parent_ui.ui_responder if parent_ui is not None else None,
+            answerers=parent_ui.session.answerers if parent_ui is not None else None,
         ),
     )
 
