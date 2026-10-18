@@ -186,8 +186,7 @@ A workflow asks in one of two ways:
 - **A recorded question** (`QUESTION`): with the review preference on, a task
   asks a detection or a position confirmation on the item's record and stops
   on it. `review_list` lists it with `holding_the_run: true`. It is decided
-  with `review_decide`, never answered or suggested (`409 not_suggestible`). A
-  prompt whose payload says `answer_via: "decide"` is one too.
+  with `review_decide`, never answered or suggested (`409 not_suggestible`).
 
 The operator outranks you: if they answer first, your job for that question
 is over. A `409 stale_prompt` means the question changed under you, usually

@@ -1,11 +1,9 @@
 """How a detection is recorded for review, and how a correction to it is
 applied (FIB-1025).
 
-A detection asked about during a task (``ReviewDetection``) goes on the item's
-record as its feature points; the decided points come back onto a copy of the
-detection, and the training data the Detection tab writes on Continue is
-written for it too. The tasks that record a detection themselves use the same
-helpers.
+A detection a task records goes on the item's record as its feature points;
+the decided points come back onto a copy of the detection, and the training
+data the Detection tab writes on Continue is written for it too.
 """
 
 from __future__ import annotations
@@ -78,8 +76,7 @@ def detection_image_file(detection: Any, folder: str) -> str:
     and it is the same file the rest of the record names, so a correction here
     and anything else said about that acquisition are about one image.
 
-    Empty when the image was never saved, which leaves the question
-    unrecorded: see ``Request.needs_image``.
+    Empty when the image was never saved.
     """
     image = detection.fibsem_image
     path = str(getattr(image, "filepath", "") or "")

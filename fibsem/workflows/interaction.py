@@ -41,7 +41,6 @@ path call sites already have, rather than adding a second.
 
 from __future__ import annotations
 
-import logging
 import time
 from concurrent.futures import Future
 from concurrent.futures import TimeoutError as _FutureTimeoutError
@@ -64,7 +63,6 @@ from typing import (
 )
 
 from fibsem.control import lending
-from fibsem.workflows.proposals import DETECTION, Proposal
 
 if TYPE_CHECKING:
     from fibsem.detection.detection import DetectedFeatures
@@ -77,7 +75,6 @@ __all__ = [
     "Request",
     "Confirm",
     "ConfirmDetection",
-    "ReviewDetection",
     "EditAlignmentArea",
     "PickPOI",
     "RunMillingTask",
@@ -102,11 +99,9 @@ __all__ = [
     "StalePromptError",
     "apply_milling_edit",
     "apply_spot_burn_edit",
-    "answered",
     "answered_by",
     "ask",
     "mark_answered_by",
-    "proposal_for",
     "wait_for",
 ]
 
@@ -213,52 +208,6 @@ class Request(Generic[R]):
         None to show the frame as it is. ``live`` is the widget's value now."""
         return None
 
-    # --- on the record (FIB-1025) ---------------------------------------------
-    #
-    # A question that carries a value -- where the model put the features, say --
-    # can go on the item's record as a proposal, and be answered by a decision on
-    # it. These say how it crosses into the record and back. A question with no
-    # ``proposal_kind`` is not recorded and stays on the prompt path.
-
-    # The proposal kind it is recorded as.
-    proposal_kind: ClassVar[Optional[str]] = None
-    # Whether the answer is given *on* the question's image -- a marker dragged,
-    # an area drawn. Such a question with no saved image is not recorded at
-    # all: a review nobody can see is worse than none, and the prompt path still
-    # shows the picture it has in memory. A request carries its context, so a
-    # missing image is the asker's defect to fix, not something to paper over.
-    needs_image: ClassVar[bool] = False
-
-    def proposal_values(self) -> Dict[str, Any]:
-        """What was proposed, in the kind's value names."""
-        raise NotImplementedError(f"{type(self).__name__} is not recorded.")
-
-    def answer_from_values(self, values: Dict[str, Any]) -> Any:
-        """The decided values as the answer the asker expects -- the same type
-        it would have got from a prompt, so the task cannot tell which
-        responder answered it."""
-        raise NotImplementedError(
-            f"{type(self).__name__} carries no value, so no decision answers it."
-        )
-
-    def proposal_provenance(self) -> Dict[str, Any]:
-        """What proposed this, and anything else about the proposer worth
-        keeping. The question's class is what asked, not what answered it -- a
-        reader wants the model, and a delta is only comparable against the
-        same one."""
-        return {}
-
-    def proposal_image(self, folder: str) -> str:
-        """The file the values sit on, relative to the item's ``folder``, the
-        way every proposal names its reference image. Empty when the question
-        has no image on disk."""
-        return ""
-
-    def on_answered(self, answer: Any) -> None:
-        """Whatever else answering entails -- what the prompt path did on the
-        click besides answering, so that a question moved onto the record does
-        not quietly stop doing it."""
-
 
 # --- questions: the workflow needs a value back -----------------------------------
 
@@ -363,55 +312,6 @@ class ConfirmDetection(Request["DetectedFeatures"]):
             and abs(live[name].y - px.y) <= 0.5
             for name, px in value.items()
         )
-
-
-@dataclass(frozen=True)
-class ReviewDetection(ConfirmDetection):
-    """The same question, from an asker that says who it is -- so it can go on
-    that item's record and be answered in the Review tab (FIB-1025).
-
-    A type of its own rather than two optional fields on ``ConfirmDetection``:
-    that request, the prompt it puts up and the helper that asks it are used as
-    they are, in this repository and outside it, and stay exactly that. Asking
-    this one instead is a choice a caller makes.
-
-    ``item_id`` and ``task_name`` are the item the detection was made for and
-    the task that made it. A responder has no other honest way to learn them:
-    "whatever is running" is a guess about the screen, not something the
-    request said. A responder that cannot record the question asks it as the
-    ``ConfirmDetection`` it also is.
-    """
-
-    item_id: str = ""
-    task_name: str = ""
-
-    proposal_kind = DETECTION
-    needs_image = True
-
-    def proposal_values(self) -> Dict[str, Any]:
-        from fibsem.detection.review import detection_values
-
-        return detection_values(self.detection)
-
-    def answer_from_values(self, values: Dict[str, Any]) -> "DetectedFeatures":
-        from fibsem.detection.review import decided_features
-
-        return decided_features(self.detection, values)
-
-    def proposal_provenance(self) -> Dict[str, Any]:
-        from fibsem.detection.review import detection_provenance
-
-        return detection_provenance(self.detection)
-
-    def proposal_image(self, folder: str) -> str:
-        from fibsem.detection.review import detection_image_file
-
-        return detection_image_file(self.detection, folder)
-
-    def on_answered(self, answer: "DetectedFeatures") -> None:
-        from fibsem.detection.review import record_training_data
-
-        record_training_data(self.detection, answer)
 
 
 @dataclass(frozen=True)
@@ -1097,65 +997,6 @@ class SetFluorescenceChannels(Request[None]):
     """Load these channel settings into the fluorescence widget."""
 
     channels: Sequence["ChannelSettings"]
-
-
-# --- the record ------------------------------------------------------------------
-#
-# How a question crosses into the record and back: what it looks like as a
-# ``Proposal``, and what a decision on it looks like as the answer the asking
-# task expects. Nothing here asks, waits or releases. Whoever owns the wait does
-# that -- the responder, which records a question on the way to putting it up,
-# not as a second way of asking. Nor does it make the question one that can be
-# left for later: the run is still held with the instrument where the task left
-# it, and the answer is still needed now; this is only what gets written down.
-
-
-def proposal_for(request: Request, experiment: Any, item: Any) -> Optional[Proposal]:
-    """``request`` as a proposal from the task now running on ``item``, or
-    ``None`` when it is not to be recorded and stays on the prompt path: it
-    carries no value, or it is answered on an image that was never saved.
-
-    Builds the record, naming the picture it is about; it does not put the
-    proposal on the item. That is ``Experiment.ask_proposal``, which is also
-    what marks it as the one the run is parked on.
-    """
-    if request.proposal_kind is None:
-        return None
-    reference_image = request.proposal_image(str(experiment.item_path(item)))
-    if request.needs_image and not reference_image:
-        logging.warning(
-            f"{type(request).__name__} on {item.name} names no saved image, so it "
-            "is not recorded for review; it is asked as a prompt instead."
-        )
-        return None
-    proposal = Proposal(
-        kind=request.proposal_kind,
-        values=request.proposal_values(),
-        provenance={
-            # The run the decision must name. Read off the item rather than
-            # passed in, so it is the run that is actually in progress --
-            # which is also what lets the decision land while it runs.
-            "task_id": item.task_state.task_id,
-            "proposer": type(request).__name__,
-            **request.proposal_provenance(),
-        },
-    )
-    proposal.provenance["reference_image"] = reference_image
-    return proposal
-
-
-def answered(request: Request, answer: Any) -> None:
-    """Do whatever else answering ``request`` entails (``on_answered``).
-
-    Never raises. By now the decision is on the record and the answer is on its
-    way to the task; an export that fails is worth a log line, not the run.
-    """
-    try:
-        request.on_answered(answer)
-    except Exception:
-        logging.exception(
-            f"{type(request).__name__} was answered, but what follows an answer failed"
-        )
 
 
 # --- transport --------------------------------------------------------------------
