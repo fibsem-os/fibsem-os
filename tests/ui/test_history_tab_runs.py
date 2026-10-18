@@ -22,12 +22,9 @@ from PyQt5.QtWidgets import QApplication, QLabel, QPushButton  # noqa: E402
 
 import fibsem.applications.autolamella.ui.lamella_task_image_widget as history_tab  # noqa: E402
 import fibsem.config as cfg  # noqa: E402
-from fibsem.applications.autolamella.event_recording import (  # noqa: E402
-    EVENTS_FILENAME,
-)
 from fibsem.applications.autolamella.history_rows import HistoryFilter  # noqa: E402
-from fibsem.applications.autolamella.structures import (  # noqa: E402
-    AutoLamellaTaskState,
+from fibsem.applications.autolamella.structures import (
+    # noqa: E402     TaskState,
     Lamella,
 )
 from fibsem.applications.autolamella.ui.lamella_task_image_widget import (  # noqa: E402
@@ -36,7 +33,13 @@ from fibsem.applications.autolamella.ui.lamella_task_image_widget import (  # no
 )
 from fibsem.structures import FibsemImage, MicroscopeState  # noqa: E402
 from fibsem.util.timestamps import format_time  # noqa: E402
-from fibsem.workflows.status import TaskStatus  # noqa: E402
+from fibsem.workflows.event_recording import (  # noqa: E402
+    EVENTS_FILENAME,
+)
+from fibsem.workflows.status import (
+    TaskState,
+    TaskStatus,  # noqa: E402
+)
 
 T0 = datetime(2026, 7, 29, 18, 0, tzinfo=timezone(timedelta(hours=10)))
 ROUGH, POLISH = "Rough Milling", "Polishing"
@@ -56,7 +59,7 @@ def _image(lamella, name):
 
 
 def _run(name, task_id, minute, status=TaskStatus.Completed, message="", **outputs):
-    return AutoLamellaTaskState(
+    return TaskState(
         name=name,
         task_id=task_id,
         status=status,

@@ -10,7 +10,6 @@ from psygnal.containers import EventedDict
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.applications.autolamella.proposals import ALIGNMENT_AREA
 from fibsem.applications.autolamella.protocol.constants import FIDUCIAL_KEY
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
@@ -23,6 +22,7 @@ from fibsem.applications.autolamella.workflows.tasks.fiducial import (
     MillFiducialTaskConfig,
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
+from fibsem.workflows.proposals import ALIGNMENT_AREA
 
 FIDUCIAL = "Mill Fiducial"
 CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")

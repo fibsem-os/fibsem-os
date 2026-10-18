@@ -36,7 +36,10 @@ from fibsem.applications.autolamella.poses import (
     build_lamella_poses,
     sync_fluorescence_pose,
 )
-from fibsem.applications.autolamella.structures import Experiment, GridRecord, Lamella
+from fibsem.applications.autolamella.structures import (
+    Experiment,
+    Lamella,
+)
 from fibsem.applications.autolamella.ui.grid_results_widget import image_for
 from fibsem.applications.autolamella.ui.lamella_name_list_widget import (
     LamellaNameListWidget,
@@ -59,6 +62,7 @@ from fibsem.ui.utils import message_box_ui
 from fibsem.ui.widgets.overview_widget import VIEW_CHIP_SPACING, VIEW_CHIP_STYLE
 from fibsem.ui.widgets.stored_overview_canvas import VIEW_FM, StoredOverviewCanvas
 from fibsem.util.timestamps import format_time
+from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.status import TaskStatus
 
 logger = logging.getLogger(__name__)

@@ -9,7 +9,7 @@ import time
 
 import pytest
 
-from fibsem.applications.autolamella.server.events import (
+from fibsem.workflows.events import (
     EventBuffer,
     attach_microscope_taps,
     make_lifecycle_hook,

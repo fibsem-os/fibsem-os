@@ -38,7 +38,6 @@ from PyQt5.QtWidgets import (
 from fibsem.applications.autolamella.structures import (
     Attention,
     Experiment,
-    GridRecord,
 )
 from fibsem.applications.autolamella.tools.grid_report_pdf import (
     report_unavailable_reason,
@@ -115,6 +114,7 @@ from fibsem.ui.widgets.preflight import (
     warning_label,
 )
 from fibsem.util.durations import format_duration_rounded
+from fibsem.workflows.grids import GridRecord
 
 # The lamella list's metrics, so the two run views read alike.
 _ROW_HEIGHT = ROW_HEIGHT

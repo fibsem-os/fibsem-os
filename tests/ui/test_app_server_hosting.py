@@ -13,9 +13,9 @@ pytest.importorskip("fastapi")
 httpx = pytest.importorskip("httpx")
 
 from fibsem import config as fibsem_cfg
-from fibsem.applications.autolamella.event_recording import recorder_for
 from fibsem.applications.autolamella.server import hosting
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
+from fibsem.workflows.event_recording import recorder_for
 
 
 def _free_port() -> int:
@@ -32,7 +32,7 @@ def ui(qapp):
     finally:
         if window._app_server_host is not None:
             window._app_server_host.stop()
-        window._stop_event_recorder()
+        window.session.stop_recording()
         window.close()
         window.deleteLater()
         qapp.processEvents()
@@ -76,8 +76,8 @@ def test_connect_starts_a_live_read_only_server(ui, app_server_enabled):
 
     # The feed is the recorder's, which a run finds and registers for itself
     # (FIB-1044): not registered a second time by the app's own hooks.
-    assert host.lifecycle_hook is ui._event_recorder.lifecycle_hook
-    assert recorder_for(ui.microscope) is ui._event_recorder
+    assert host.lifecycle_hook is ui.session.recorder.lifecycle_hook
+    assert recorder_for(ui.microscope) is ui.session.recorder
     assert host.lifecycle_hook not in ui.setup_hooks()._hooks
 
     # The question-lifecycle feed is wired straight into the buffer...
@@ -149,7 +149,7 @@ def test_the_microscope_is_off_by_default_and_restarts_when_changed(
     ui.connect_to_microscope()
     first = ui._app_server_host
     assert first is not None and first.running
-    assert _routers(first) == {"microscope": False, "app": True}
+    assert _routers(first) == {"microscope": False, "services": True, "app": True}
 
     # Turning the microscope on in Tools → App Server rebuilds the server with the
     # instrument routes, keeping the agent's token (FIB-1359).
@@ -157,7 +157,7 @@ def test_the_microscope_is_off_by_default_and_restarts_when_changed(
     second = ui._app_server_host
     assert second is not first and not first.running and second.running
     assert second.auth is first.auth
-    assert _routers(second) == {"microscope": True, "app": True}
+    assert _routers(second) == {"microscope": True, "services": True, "app": True}
 
     # Unchanged: no restart.
     ui.set_app_server_microscope(True)
@@ -201,7 +201,7 @@ def test_the_event_stream_runs_without_the_app_server(ui, monkeypatch):
     )
     ui.system_widget.connect_to_microscope()
     ui.connect_to_microscope()
-    recorder = ui._event_recorder
+    recorder = ui.session.recorder
     assert recorder is not None and ui._app_server_host is None
     # A run finds this recorder and registers its lifecycle hook (FIB-1044).
     assert recorder_for(ui.microscope) is recorder
@@ -210,7 +210,7 @@ def test_the_event_stream_runs_without_the_app_server(ui, monkeypatch):
     assert recorder.default_actor == "operator"
 
     ui.disconnect_from_microscope()
-    assert ui._event_recorder is None
+    assert ui.session.recorder is None
     assert recorder_for(recorder.microscope) is None
     assert recorder.buffer.append not in ui.ui_responder._question_observers
     assert not recorder.writer.alive
@@ -222,7 +222,7 @@ def test_the_app_server_reads_the_session_stream(ui, app_server_enabled):
     # connected. The second must not leave the server on a stream it replaced.
     ui.system_widget.connect_to_microscope()
     ui.connect_to_microscope()
-    host, recorder = ui._app_server_host, ui._event_recorder
+    host, recorder = ui._app_server_host, ui.session.recorder
     assert host.running
     assert host.event_buffer is recorder.buffer
     assert host.lifecycle_hook is recorder.lifecycle_hook

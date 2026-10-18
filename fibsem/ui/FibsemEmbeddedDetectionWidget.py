@@ -10,11 +10,11 @@ from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import QGridLayout, QLabel, QSizePolicy, QSpacerItem
 
 import fibsem
-from fibsem.applications.autolamella.workflows.question_adapters import (
-    apply_feature_px,
-)
 from fibsem.detection import utils as det_utils
 from fibsem.detection.detection import DetectedFeatures
+from fibsem.detection.review import (
+    apply_feature_px,
+)
 from fibsem.segmentation.model import load_model
 from fibsem.structures import (
     BeamType,

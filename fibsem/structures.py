@@ -41,6 +41,7 @@ from numpy.typing import NDArray
 
 import fibsem
 from fibsem.config import (
+    DEFAULT_STANDARD_RESOLUTION_LIST,
     METADATA_VERSION,
     UNVERSIONED_METADATA,
 )
@@ -1240,21 +1241,25 @@ class FibsemRectangle(Configurable):
         0.0,
         limits=RangeLimit(0.0, 1.0),
         doc="The left edge, from the frame's left, as a fraction of the full frame.",
+        display=Display("Left", step=0.01, decimals=2),
     )
     top: float = param(
         0.0,
         limits=RangeLimit(0.0, 1.0),
         doc="The top edge, from the frame's top, as a fraction of the full frame.",
+        display=Display("Top", step=0.01, decimals=2),
     )
     width: float = param(
         1.0,
         limits=RangeLimit(0.0, 1.0),
         doc="The width, as a fraction of the full frame.",
+        display=Display("Width", step=0.01, decimals=2),
     )
     height: float = param(
         1.0,
         limits=RangeLimit(0.0, 1.0),
         doc="The height, as a fraction of the full frame.",
+        display=Display("Height", step=0.01, decimals=2),
     )
 
     def __post_init__(self):
@@ -1607,7 +1612,7 @@ class FocusStackSettings(Configurable):
     )
     n_steps: int = param(
         3,
-        limits=RangeLimit(1, 50),
+        limits=RangeLimit(1, 10),
         doc="The number of vertical strips each tile is divided into.",
         display=Display("Strips"),
     )
@@ -1648,6 +1653,34 @@ def _default_autofocus_settings() -> "AutoFocusSettings":
     return AutoFocusSettings()
 
 
+# What an overview run looks like before anyone touches it. House defaults rather
+# than physics: a 500 um tile and a 1 us dwell are what the overview has always
+# opened with. The name decides where every overview is written:
+# `TiledAcquisitionRunner._setup` makes the tile sub-folder from it.
+OVERVIEW_TILE_HFW = 500e-6  # m
+OVERVIEW_TILE_DWELL_TIME = 1e-6  # s
+DEFAULT_OVERVIEW_FILENAME = "overview-image"
+
+
+def _default_overview_tile_settings() -> ImageSettings:
+    """The tile settings a new overview starts from.
+
+    The standard 1536x1024 resolution, not a square one: `hfw` is the horizontal
+    field, so the same 500 um tile at 1024x1024 is 0.49 um/px against 0.33 and half
+    again as tall, and overviews worth putting side by side should not differ by it.
+    A `tuple`, not the config list itself, so no two settings share one mutable list.
+    """
+    return ImageSettings(
+        resolution=tuple(DEFAULT_STANDARD_RESOLUTION_LIST),
+        hfw=OVERVIEW_TILE_HFW,
+        dwell_time=OVERVIEW_TILE_DWELL_TIME,
+        beam_type=BeamType.ELECTRON,
+        save=True,
+        path=None,  # whoever owns the experiment fills this in
+        filename=DEFAULT_OVERVIEW_FILENAME,
+    )
+
+
 @dataclass
 class OverviewAcquisitionSettings(Configurable):
     """Settings for a tiled overview acquisition.
@@ -1686,7 +1719,7 @@ class OverviewAcquisitionSettings(Configurable):
 
     image_settings: ImageSettings = param(
         doc="The settings each tile is acquired with; its field of view is the tile's.",
-        default_factory=ImageSettings,
+        default_factory=_default_overview_tile_settings,
     )
     nrows: int = param(
         3,
@@ -1704,7 +1737,7 @@ class OverviewAcquisitionSettings(Configurable):
         0.1,
         limits=RangeLimit(0.0, 0.9),
         doc="How much neighbouring tiles overlap, as a fraction of a tile.",
-        display=Display("Overlap", scale=100, unit="%", step=1.0, decimals=0),
+        display=Display("Overlap", scale=100, unit="%", step=5.0, decimals=0),
     )
     focus_stack_settings: FocusStackSettings = param(
         doc="Focus stacking within each tile.", default_factory=FocusStackSettings
@@ -1718,8 +1751,10 @@ class OverviewAcquisitionSettings(Configurable):
         doc="How to autofocus: the sweep passes, the method and the probe frame.",
         default_factory=_default_autofocus_settings,
     )
+    # One contrast for the whole mosaic by default; the runner sets the per-image
+    # flag from this.
     autocontrast_mode: AutoContrastMode = param(
-        AutoContrastMode.NONE,
+        AutoContrastMode.ONCE,
         doc="When to set the contrast: never, once at the grid centre, or at each tile. It decides image_settings.autocontrast for the run.",
         display=Display("Auto Contrast"),
     )
@@ -2932,8 +2967,14 @@ def _parse_rotation_centre(value) -> Optional[Tuple[float, float]]:
 
 
 @dataclass
-class StageSystemSettings:
-    rotation_reference: float
+class StageSystemSettings(Configurable):
+    rotation_reference: float = param(
+        unit="°",
+        limits=RangeLimit(-360.0, 360.0),
+        doc="The stage rotation the SEM orientation is defined at; on a stage that "
+        "rotates, the FIB orientation is 180° from it.",
+        display=Display("Reference rotation", decimals=2),
+    )
     # Accepted as a constructor keyword, held as `_shuttle_pre_tilt`, and read back
     # through the property below. An `InitVar` rather than a field because the value
     # a caller passes is a *fallback* -- the answer comes from the active holder when
@@ -2963,7 +3004,14 @@ class StageSystemSettings:
     # to sit -- which is exactly what `rotation` had become in the simulator's Arctis
     # configuration before it was read by anything.
     rotation: bool = True
-    milling_angle: float = 15
+    milling_angle: float = param(
+        15,
+        unit="°",
+        limits=RangeLimit(0.0, 45.0),
+        doc="The milling angle is the difference between the stage and the fib "
+        "viewing angle.",
+        display=Display("Milling Angle", step=1.0, decimals=1),
+    )
     # Where the stage travels for each instrument to see the sample. Keyed by device
     # name -- "FIBSEM" and "FM" today -- and separate from `orientations`, which says
     # what pose the sample is held in once the stage is there.
@@ -4378,6 +4426,9 @@ class FibsemExperimentRef:
     item_name: Optional[str] = None
     task_id: Optional[str] = None
     task_name: Optional[str] = None
+    # Which round of the item's tasks, for an item that repeats them (a volume
+    # position's slices); None for one that does not.
+    round: Optional[int] = None
 
     def set_workflow_metadata(
         self,
@@ -4385,6 +4436,7 @@ class FibsemExperimentRef:
         item_name: Optional[str] = None,
         task_id: Optional[str] = None,
         task_name: Optional[str] = None,
+        round: Optional[int] = None,
     ) -> None:
         """Record what subsequent images should say about where in the run they were
         taken, leaving experiment identity alone.
@@ -4397,6 +4449,7 @@ class FibsemExperimentRef:
         self.item_name = item_name
         self.task_id = task_id
         self.task_name = task_name
+        self.round = round
 
     def clear_workflow_metadata(self) -> None:
         """Stop stamping an item and task, keeping the experiment.
@@ -4417,6 +4470,7 @@ class FibsemExperimentRef:
             "item_name": self.item_name,
             "task_id": self.task_id,
             "task_name": self.task_name,
+            "round": self.round,
         }
 
     @staticmethod
@@ -4443,6 +4497,7 @@ class FibsemExperimentRef:
             item_name=settings.get("item_name"),
             task_id=settings.get("task_id"),
             task_name=settings.get("task_name"),
+            round=settings.get("round"),
         )
 
 
@@ -5503,7 +5558,11 @@ DEFAULT_ALIGNMENT_AREA = {"left": 0.7, "top": 0.3, "width": 0.25, "height": 0.4}
 class MillingAlignment(Configurable):
     """Drift correction settings for milling"""
 
-    enabled: bool = True
+    enabled: bool = param(
+        True,
+        doc="Align between the imaging and milling currents before milling starts.",
+        display=Display("Enable Initial Alignment"),
+    )
     interval_enabled: bool = param(
         False,
         display=Display("Re-align during milling"),
@@ -5519,15 +5578,33 @@ class MillingAlignment(Configurable):
     rect: FibsemRectangle = field(
         default_factory=lambda: FibsemRectangle.from_dict(DEFAULT_ALIGNMENT_AREA)
     )
-    use_autocontrast: bool = True
-    use_autofocus: bool = False
-    steps: int = 3
+    use_autocontrast: bool = param(
+        True,
+        doc="Auto contrast before the alignment image is acquired.",
+        display=Display("Use Auto Contrast"),
+    )
+    use_autofocus: bool = param(
+        False,
+        doc="Auto focus before the alignment image is acquired.",
+        display=Display("Use Auto Focus"),
+    )
+    steps: int = param(
+        3,
+        limits=RangeLimit(1, 9),
+        doc="How many times the alignment is repeated.",
+        display=Display("Alignment Steps"),
+    )
     imaging: ImageSettings = field(default_factory=ImageSettings)
-    # Align on the whole frame, not ``rect``, when the current the column reads
-    # back at the stage's milling current is at or below this (amps); 0 is off.
     # At polishing currents a full frame costs about the dose of an ordinary
     # image and gives the match far more to lock onto than a small area does.
-    full_frame_below: float = 0.0
+    full_frame_below: float = param(
+        0.0,
+        unit="A",
+        limits=RangeLimit(0.0, 100e-9),
+        doc="Align on the whole frame instead of the alignment area when the "
+        "milling current is at or below this. Off at 0.",
+        display=Display("Full Frame At Or Below", scale=1e12, step=10, decimals=0),
+    )
 
     def to_dict(self):
         return {
@@ -5812,7 +5889,12 @@ class SampleHolder(Configurable):
     # `_parent.system.stage.shuttle_pre_tilt`. That direction is now reversed, and
     # both cannot exist: the stage reads the holder, so a holder that read the stage
     # would recurse until the interpreter gave up.
-    pre_tilt: float = param(unit="°", doc="Pre-tilt of this holder, in degrees")
+    pre_tilt: float = param(
+        unit="°",
+        limits=RangeLimit(-90.0, 90.0),
+        doc="Pre-tilt of this holder, in degrees",
+        display=Display(decimals=1),
+    )
     name: str = param("Sample Holder", doc="Name of the sample holder")
     description: str = param("", doc="Description of the sample holder")
     capacity: int = param(

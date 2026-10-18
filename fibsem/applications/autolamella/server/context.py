@@ -29,6 +29,7 @@ in tests.
 
 import logging
 import math
+import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -82,7 +83,7 @@ def item_fields_version(lamella) -> str:
     is in the milling frame, so one chosen before the pose moved names a
     different place after. History growing does not rotate it.
     """
-    from fibsem.applications.autolamella.server.events import to_plain
+    from fibsem.workflows.events import to_plain
 
     fields = {
         name: to_plain(getattr(lamella, name, None)) for name in ITEM_PATCH_FIELDS
@@ -102,7 +103,7 @@ def config_version(config) -> str:
     import hashlib
     import json
 
-    from fibsem.applications.autolamella.server.events import to_plain
+    from fibsem.workflows.events import to_plain
 
     return _content_hash(to_plain(config.to_dict()))
 
@@ -1454,8 +1455,8 @@ class AutoLamellaAppContext:
         """Judge a grid, as its card's quality menu does: GOOD, REWORK, FAILED,
         or UNASSESSED to clear it, with an optional reason. Signed as the
         agent's; saved."""
-        from fibsem.applications.autolamella.proposals import agent_author
-        from fibsem.applications.autolamella.structures import Verdict
+        from fibsem.workflows.proposals import agent_author
+        from fibsem.workflows.quality import Verdict
 
         experiment, grid, refusal = self._grid_record(grid_name)
         if refusal:
@@ -1663,7 +1664,7 @@ class AutoLamellaAppContext:
         lamella, refusal = find_item(experiment, item_name)
         if refusal:
             return {"available": False, "item_name": item_name, **refusal}
-        from fibsem.applications.autolamella.server.events import to_plain
+        from fibsem.workflows.events import to_plain
 
         return {
             "available": True,
@@ -1786,6 +1787,61 @@ class AutoLamellaAppContext:
         result["available"] = True
         return result
 
+    def apply_item_correlation(
+        self, item_name: str, run_path: str, timeout: float = 10.0
+    ) -> Dict[str, Any]:
+        """Move an item's point of interest to a saved correlation run's target,
+        as the correlation dialog's Continue does, and record the correlation.
+
+        *run_path* is a run folder in the item's own Correlation folder (as the
+        correlation service saves it). The move is an item patch of ``poi``, so
+        it is version-checked, the patterns that follow the point move with it,
+        and it is saved and shown as the agent's edit.
+        """
+        from fibsem.correlation.history import (
+            correlation_dir,
+            correlation_record,
+            load_run,
+        )
+
+        experiment = self._experiment
+        if experiment is None:
+            return {"error_type": "not_found", "error": "No experiment is loaded."}
+        lamella, refusal = find_item(experiment, item_name)
+        if refusal:
+            return {"error_type": "not_found", **refusal}
+        root = os.path.realpath(correlation_dir(str(lamella.path)))
+        folder = os.path.realpath(run_path)
+        if os.path.commonpath([root, folder]) != root or folder == root:
+            return {
+                "error_type": "invalid",
+                "error": f"run_path must be a run folder in {item_name}'s "
+                f"Correlation folder ({root}), not {run_path}.",
+            }
+        try:
+            result = load_run(folder).result
+        except FileNotFoundError as exc:
+            return {"error_type": "not_found", "error": str(exc)}
+        if result is None or not result.poi:
+            return {
+                "error_type": "invalid",
+                "error": f"the run at {run_path} has no fitted point of interest.",
+            }
+        poi = result.poi[0].px_m
+        applied = self.apply_item_patch(
+            item_name,
+            {"poi.x": float(poi.x), "poi.y": float(poi.y)},
+            item_fields_version(lamella),
+            timeout=timeout,
+        )
+        if applied.get("applied"):
+            self.record_event(
+                "correlation",
+                correlation_record(result, lamella, folder, experiment.path),
+            )
+            applied["run_path"] = run_path
+        return applied
+
     # --- propose and review (FIB-950) -----------------------------------------
 
     def reviews(self) -> Dict[str, Any]:
@@ -1795,7 +1851,6 @@ class AutoLamellaAppContext:
         experiment = self._experiment
         if experiment is None:
             return {"available": False, "reviews": []}
-        from fibsem.applications.autolamella.server.events import to_plain
         from fibsem.applications.autolamella.server.prompts import _preview_payload
         from fibsem.applications.autolamella.ui.review_tab_widget import (
             _load_reference_image,
@@ -1803,6 +1858,7 @@ class AutoLamellaAppContext:
             review_preview,
             waiting_on,
         )
+        from fibsem.workflows.events import to_plain
 
         protocol = getattr(experiment, "task_protocol", None)
 
@@ -1870,10 +1926,10 @@ class AutoLamellaAppContext:
         experiment = self._experiment
         if experiment is None:
             return {"available": False, "applied": False, "reason": "No experiment."}
-        from fibsem.applications.autolamella.proposals import (
+        from fibsem.workflows.proposals import (
             Decision,
             DecisionOutcome,
-            _decode_values,  # the wire shape is the stored shape
+            _decode_values,
             agent_author,
         )
 
@@ -2083,7 +2139,7 @@ class AutoLamellaAppContext:
         ``version`` hashes the serialized content, so a write names exactly
         the state it read: the config's version, refused as stale on mismatch.
         """
-        from fibsem.applications.autolamella.server.events import to_plain
+        from fibsem.workflows.events import to_plain
 
         return {
             "available": True,
@@ -2147,8 +2203,8 @@ class AutoLamellaAppContext:
         must never make the app poll hardware (and on Tescan a concurrent read
         is a socket transaction the workflow may be mid-way through).
         """
-        microscope = self._microscope
-        cached = getattr(microscope, "_stage_position", None) if microscope else None
+        stage = getattr(self._microscope, "stage", None)
+        cached = stage.position.last_known if stage is not None else None
         if cached is None:
             return {"available": False, "position": None}
         return {"available": True, "position": cached.to_dict()}
@@ -2835,8 +2891,8 @@ class AutoLamellaAppContext:
         tab's grid task form does; ``attention`` (automated, supervised) is the
         Grids view's Automated/Supervised chip. Version-guarded like the lamella
         task configs."""
-        from fibsem.applications.autolamella.server.events import to_plain
         from fibsem.server.config_patch import PatchError, apply_patch
+        from fibsem.workflows.events import to_plain
 
         experiment, grid_protocol, refusal = self._grid_protocol_edit("edit grid tasks")
         if refusal:
@@ -3074,7 +3130,7 @@ class AutoLamellaAppContext:
         is refused (``not_pending``) -- stopping it is ``stop_workflow`` -- and
         so is one that already ran.
         """
-        from fibsem.applications.autolamella.workflows.tasks.queue import (
+        from fibsem.workflows.queue import (
             QUEUE_ACTIONS,
             QueueOp,
         )
@@ -3169,22 +3225,11 @@ class AutoLamellaAppContext:
         request, question_id = responder.pending_question_and_id()
         if request is None:
             return {"available": True, "pending": None}
-        from fibsem.applications.autolamella.server.events import to_plain
         from fibsem.applications.autolamella.server.prompts import serialize_request
+        from fibsem.workflows.events import to_plain
 
         payload = serialize_request(request)
         payload["question_id"] = question_id
-        recorded = responder.recorded_question()
-        if recorded is not None:
-            # On the item's record as a proposal, and answered there: the same
-            # decision an agent makes on any other review. Answering the prompt
-            # would decide nothing, so it says so up front.
-            payload["answer_via"] = "decide"
-            payload["decide"] = {
-                "item_id": recorded[0],
-                "task_name": recorded[1],
-                "proposal_id": recorded[2],
-            }
         dismissed = getattr(responder, "dismissed_reason", lambda: None)()
         if dismissed is not None:
             # The operator dismissed the agent's suggestion: say so, and why,
@@ -3304,25 +3349,10 @@ class AutoLamellaAppContext:
         responder = self._responder
         if responder is None:
             return {"available": False, "applied": False, "stale": False}
-        from fibsem.applications.autolamella.workflows.interaction import (
+        from fibsem.workflows.interaction import (
             InvalidAnswerValue,
             StalePromptError,
         )
-
-        recorded = responder.recorded_question()
-        _request, pending_question_id = responder.pending_question_and_id()
-        if recorded is not None and pending_question_id == int(question_id):
-            # Nothing was clicked. This question is decided, not answered: see
-            # ``answer_via`` on the pending prompt.
-            return {
-                "available": True,
-                "applied": False,
-                "stale": False,
-                "answer_via": "decide",
-                "item_id": recorded[0],
-                "task_name": recorded[1],
-                "proposal_id": recorded[2],
-            }
 
         request, parsed, refusal = self._parse_answer_value(
             responder, int(question_id), value
@@ -3350,7 +3380,7 @@ class AutoLamellaAppContext:
         if moved_from is not None:
             # The value moved the widget: say from where, in the value's own
             # shape. Absent when the widget already showed it (FIB-1420).
-            from fibsem.applications.autolamella.server.events import to_plain
+            from fibsem.workflows.events import to_plain
 
             result["moved_from"] = to_plain(request.value_to_wire(moved_from))
         return result
@@ -3376,7 +3406,7 @@ class AutoLamellaAppContext:
         responder = self._responder
         if responder is None or not hasattr(responder, "submit_suggestion"):
             return {"available": False, "suggested": False, "stale": False}
-        from fibsem.applications.autolamella.workflows.interaction import (
+        from fibsem.workflows.interaction import (
             StalePromptError,
         )
 
@@ -3419,7 +3449,7 @@ class AutoLamellaAppContext:
         answer must carry a value (the milling question's action) is refused
         without one.
         """
-        from fibsem.applications.autolamella.workflows.interaction import (
+        from fibsem.workflows.interaction import (
             InvalidAnswerValue,
         )
 
@@ -3460,7 +3490,7 @@ class AutoLamellaAppContext:
         Unavailable (rather than empty) when the hosting wired no buffer, so a
         client can tell "no events yet" from "this server has no event stream".
         """
-        from fibsem.applications.autolamella.server.events import (
+        from fibsem.workflows.events import (
             buffer_or_unavailable,
         )
 
@@ -3478,7 +3508,7 @@ class AutoLamellaAppContext:
         """
         from pathlib import Path
 
-        from fibsem.applications.autolamella.event_recording import (
+        from fibsem.workflows.event_recording import (
             EVENTS_FILENAME,
             LIVE_KINDS,
             read_events_before,
@@ -3522,6 +3552,7 @@ class AutoLamellaAppContext:
             {
                 "name": summary.name,
                 "path": summary.path,
+                "app": summary.app,
                 "created_at": to_iso(summary.created_at),
                 "num_items": summary.num_lamella,
                 "available": summary.available,

@@ -40,18 +40,15 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 import pandas as pd
 
-from fibsem.applications.autolamella.event_recording import (
+from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
+from fibsem.applications.autolamella.tools.replay import changed_values
+from fibsem.util.timestamps import wall_time_of
+from fibsem.workflows.event_recording import (
     EVENTS_FILENAME,
     milling_run_of,
     read_events,
 )
-from fibsem.applications.autolamella.proposals import (
-    DETECTION,
-    POINT_OF_INTEREST,
-    STATE,
-)
-from fibsem.applications.autolamella.tools.replay import changed_values
-from fibsem.util.timestamps import wall_time_of
+from fibsem.workflows.proposals import DETECTION, STATE
 
 RUN_COLUMNS = [
     "item",

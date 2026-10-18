@@ -22,7 +22,7 @@ pytest.importorskip("PyQt5")
 from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
     WorkflowProgressWidget,
 )
-from fibsem.applications.autolamella.workflows.tasks.queue import QueueOp, TaskQueue
+from fibsem.workflows.queue import QueueOp, TaskQueue
 from fibsem.workflows.status import TaskStatus as Status
 
 
@@ -250,7 +250,7 @@ def describe(action: str, op: QueueOp) -> str:
     from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
         AutoLamellaSingleWindowUI,
     )
-    from fibsem.applications.autolamella.workflows.tasks.queue import QueueResult
+    from fibsem.workflows.queue import QueueResult
 
     return AutoLamellaSingleWindowUI._queue_action_message(
         action, "Trench for L1", QueueResult(op, 1)

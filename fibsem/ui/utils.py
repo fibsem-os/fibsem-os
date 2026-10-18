@@ -3,26 +3,23 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
-import numpy as np
-from PyQt5 import QtGui, QtWidgets
+from PyQt5 import QtWidgets
 from PyQt5.QtCore import QEvent, QObject, Qt
-from PyQt5.QtGui import QImage, QPixmap, QWheelEvent
+from PyQt5.QtGui import QWheelEvent
 from PyQt5.QtWidgets import (
     QAbstractScrollArea,
     QAbstractSpinBox,
     QApplication,
     QComboBox,
-    QLabel,
     QMessageBox,
-    QPushButton,
     QWidget,
 )
 
 from fibsem import config as cfg
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import BeamType, Parameter, declared_device_parameter
+from fibsem.structures import BeamType, Parameter
 
 
 def beam_choices(microscope: FibsemMicroscope, name: str, beam_type: BeamType) -> list:
@@ -42,19 +39,13 @@ def beam_spec(
     microscope: Optional[FibsemMicroscope] = None,
     beam_type: Optional[BeamType] = None,
 ) -> Parameter:
-    """A field with what the beam allows in place of its own limits and choices, for
-    a field bound to a beam parameter (``device_parameter="beam.<name>"``): what ``beam_type``
-    reports, else what every beam declares (a form with no instrument still gets
-    them). A field bound to nothing the beam declares comes back as it is."""
-    from fibsem.ui.widgets.form_builder import reported_metadata
+    """``bound_spec`` with ``beam_type``'s beam as the beam: a field bound to a beam
+    parameter (``device_parameter="beam.<name>"``) takes what that beam reports, else
+    what every beam declares."""
+    from fibsem.ui.widgets.form_builder import bound_spec
 
-    name = spec.bound_name
-    declared = declared_device_parameter(spec.device_parameter)
-    if declared is None or not spec.device_parameter.startswith("beam."):
-        return spec
     beam = None if microscope is None else microscope.beams.get(beam_type)
-    parameter = None if beam is None else beam.parameters.get(name)
-    return spec.with_reported(reported_metadata(parameter or declared))
+    return bound_spec(spec, {"beam": beam})
 
 
 def find_data(combo: QtWidgets.QComboBox, value) -> int:
@@ -184,22 +175,6 @@ def install_wheel_blocker_recursive(root: QWidget) -> None:
         install_wheel_blocker(child)
 
 
-def set_arr_as_qlabel(
-    arr: np.ndarray,
-    label: QLabel,
-    shape: tuple = (1536 // 4, 1024 // 4),
-) -> QLabel:
-    image = QImage(
-        arr.data,
-        arr.shape[1],
-        arr.shape[0],
-        QImage.Format_Grayscale8,
-    )
-    label.setPixmap(QPixmap.fromImage(image).scaled(*shape))
-
-    return label
-
-
 def message_box_ui(
     title: str,
     text: str,
@@ -220,97 +195,6 @@ def message_box_ui(
     )
 
     return response
-
-
-def message_box_ui_with_custom_buttons(
-    message,
-    title="Message",
-    yes_text="Yes",
-    no_text="No",
-    icon=QMessageBox.Question,
-    parent=None,
-):
-    """
-    Create a custom QMessageBox dialog with two custom buttons.
-
-    Args:
-        message: Dialog message text
-        title: Dialog title (default: "Message")
-        yes_text: Text for the Yes button (default: "Yes")
-        no_text: Text for the No button (default: "No")
-        icon: QMessageBox icon (default: QMessageBox.Question)
-        parent: Parent widget
-
-    Returns:
-        bool or None: True if Yes button is clicked,
-                     False if No button is clicked,
-                     None if dialog is closed
-    """
-    msg_box = QMessageBox(parent)
-    msg_box.setWindowTitle(title)
-    msg_box.setText(message)
-    msg_box.setIcon(icon)
-
-    # Create custom buttons
-    yes_button = QPushButton(yes_text)
-    no_button = QPushButton(no_text)
-
-    # Add buttons to message box
-    msg_box.addButton(yes_button, QMessageBox.YesRole)
-    msg_box.addButton(no_button, QMessageBox.NoRole)
-
-    # Set yes button as default
-    msg_box.setDefaultButton(yes_button)
-
-    # Show dialog and get result
-    msg_box.exec_()
-    clicked_button = msg_box.clickedButton()
-
-    # Return boolean based on which button was clicked
-    if clicked_button == yes_button:
-        return True
-    elif clicked_button == no_button:
-        return False
-    else:
-        # Dialog was closed (X button or Escape)
-        return None
-
-
-def _display_logo(path, label, shape=[50, 50]):
-    label.setScaledContents(True)
-    label.setFixedSize(*shape)
-    label.setPixmap(QtGui.QPixmap(path))
-
-
-def create_combobox_message_box(text: str, title: str, options: list, parent=None):
-    # create a q message box with combobox
-    msg = QtWidgets.QMessageBox(parent=parent)
-    msg.setIcon(QtWidgets.QMessageBox.Information)
-    msg.setText(text)
-    msg.setWindowTitle(title)
-    msg.setStandardButtons(QtWidgets.QMessageBox.Ok | QtWidgets.QMessageBox.Cancel)
-
-    # create a combobox
-    # guarded directly rather than via ValueComboBox: custom_widgets imports from
-    # this module, so importing it back here would be circular.
-    combobox = QtWidgets.QComboBox(msg)
-    install_wheel_blocker(combobox)
-    combobox.addItems(options)
-
-    # add combobox to message box
-    msg.layout().addWidget(combobox, 1, 1)
-
-    # show message box
-    msg.exec_()
-
-    # get the selected milling pattern
-
-    if msg.result() == QtWidgets.QMessageBox.Ok:
-        selected = combobox.currentText()
-
-        return selected
-
-    return None
 
 
 # TODO: add filters for file types
@@ -352,22 +236,6 @@ def open_save_file_dialog(
     return path
 
 
-def open_text_input_dialog(
-    msg: str = "Enter text",
-    title: str = "Text Entry",
-    default: str = "UserText",
-    parent=None,
-) -> Tuple[str, Optional[bool]]:
-    text, okPressed = QtWidgets.QInputDialog.getText(
-        parent,
-        title,
-        msg,
-        QtWidgets.QLineEdit.Normal,
-        default,
-    )
-    return text, okPressed
-
-
 def open_information_dialog(
     microscope: Optional[FibsemMicroscope] = None,
     parent: Optional[QWidget] = None,
@@ -377,72 +245,3 @@ def open_information_dialog(
     from fibsem.ui.widgets.about_dialog import open_about_dialog
 
     open_about_dialog(microscope=microscope, application=application, parent=parent)
-
-
-def create_nested_squares(
-    array_size: int = 1000, orange_size: int = 800, green_size: int = 600
-) -> np.ndarray:
-    """
-    Create a 2D numpy array with nested squares.
-
-    Colors:
-      white = 0 (background)
-      orange = 1 (outer square)
-      green = 2 (inner square)
-
-    Args:
-        array_size (int): Size of the output square array (array_size x array_size).
-        orange_size (int): Side length of the orange square.
-        green_size (int): Side length of the green square.
-
-    Returns:
-        np.ndarray: 2D array representing the nested squares.
-    """
-    if green_size > orange_size:
-        raise ValueError("green_size must be less than or equal to orange_size")
-
-    # Create white background
-    img = np.zeros((array_size, array_size), dtype=np.uint8)
-
-    center = array_size // 2
-
-    # Draw the orange square
-    half_orange = orange_size // 2
-    orange_top = center - half_orange
-    orange_bottom = orange_top + orange_size
-    # set orange square to 1
-    img[orange_top:orange_bottom, orange_top:orange_bottom] = 1
-
-    # Draw the green square inside the orange square
-    half_green = green_size // 2
-    green_top = center - half_green
-    green_bottom = green_top + green_size
-    img[green_top:green_bottom, green_top:green_bottom] = 2  # set green square to 2
-
-    return img
-
-
-def tile_nested_squares(
-    tile_rows: int,
-    tile_cols: int,
-    array_size: int = 1000,
-    orange_size: int = 800,
-    green_size: int = 600,
-) -> np.ndarray:
-    """
-    Create a large grid by tiling nested squares.
-
-    Args:
-        tile_rows (int): Number of tiles vertically.
-        tile_cols (int): Number of tiles horizontally.
-        array_size (int): Size of each nested square array.
-        orange_size (int): Side length of the orange square.
-        green_size (int): Side length of the green square.
-
-    Returns:
-        np.ndarray: Tiled grid of nested squares.
-    """
-    tile = create_nested_squares(array_size, orange_size, green_size)
-    # Use np.tile to replicate the tile
-    tiled_grid = np.tile(tile, (tile_rows, tile_cols))
-    return tiled_grid

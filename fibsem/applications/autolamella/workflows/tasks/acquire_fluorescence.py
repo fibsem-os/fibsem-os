@@ -12,7 +12,6 @@ from typing import (
 
 import fibsem.utils as utils
 from fibsem import timing
-from fibsem.applications.autolamella.proposals import STATE
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 from fibsem.applications.autolamella.workflows.ui import (
@@ -23,6 +22,7 @@ from fibsem.fm.calibration import AutoFocusResult, run_coarse_fine_autofocus
 from fibsem.fm.structures import AutoFocusSettings, ChannelSettings, ZParameters
 from fibsem.fm.timing import estimate_acquisition_time, estimate_autofocus_time
 from fibsem.structures import Display, InsertableDeviceState, param
+from fibsem.workflows.proposals import STATE
 
 
 @dataclass

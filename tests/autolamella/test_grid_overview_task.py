@@ -17,16 +17,15 @@ from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
-    GridRecord,
 )
 from fibsem.applications.autolamella.task_outputs import (
     grid_outputs,
     latest_grid_output,
 )
 from fibsem.applications.autolamella.workflows.tasks.grid import (
-    GRID_TASK_REGISTRY,
     BeamOverviewGridTask,
     BeamOverviewGridTaskConfig,
+    get_grid_tasks,
     run_grid_task,
 )
 from fibsem.imaging.thumbnail import write_thumbnail
@@ -40,6 +39,7 @@ from fibsem.structures import (
     SampleGrid,
     SlotCalibration,
 )
+from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.status import TaskStatus
 
 
@@ -88,7 +88,7 @@ def experiment(tmp_path):
 
 class TestConfig:
     def test_registered(self):
-        assert GRID_TASK_REGISTRY["BEAM_OVERVIEW_GRID"] is BeamOverviewGridTask
+        assert get_grid_tasks()["BEAM_OVERVIEW_GRID"] is BeamOverviewGridTask
 
     def test_role_follows_the_beam_in_the_settings(self):
         assert BeamOverviewGridTaskConfig().role == "overview_sem"

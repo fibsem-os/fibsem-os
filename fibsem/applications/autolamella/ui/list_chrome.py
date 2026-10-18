@@ -152,7 +152,3 @@ def help_button(tooltip: str) -> QToolButton:
     button.setToolTip(tooltip)
     button.setStyleSheet("QToolButton { border: none; background: transparent; }")
     return button
-
-
-def apply_name_style(label: QLabel) -> None:
-    label.setStyleSheet(f"background: transparent; font-size: {NAME_PX}px;")

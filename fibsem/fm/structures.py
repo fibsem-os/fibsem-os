@@ -105,6 +105,12 @@ class ZStackOrder(Enum):
     Z_LEVEL = "z_level"  # for each z-plane, acquire all channels
 
 
+def _z_stack_order_label(order: ZStackOrder) -> str:
+    return {ZStackOrder.CHANNEL: "Channel-wise", ZStackOrder.Z_LEVEL: "Z-level-wise"}[
+        order
+    ]
+
+
 BINNING_MAP = {
     1: Binning.ONEBYONE,
     2: Binning.TWOBYTWO,
@@ -569,8 +575,8 @@ class ZParameters(Configurable):
     )
     order: ZStackOrder = param(
         ZStackOrder.CHANNEL,
-        doc="The order the stack is acquired in: every plane of one channel before the next (channel), or every channel at one plane before the next (z_level).",
-        display=Display("Order", advanced=True),
+        doc="The order the stack is acquired in: channel-wise takes every plane of one channel before the next, z-level-wise every channel at one plane before the next.",
+        display=Display("Order", advanced=True, format_fn=_z_stack_order_label),
     )
 
     def to_dict(self) -> dict:
@@ -1999,7 +2005,7 @@ class OverviewParameters(Configurable):
         0.1,
         limits=RangeLimit(0.0, 0.9),
         doc="How much neighbouring tiles overlap, as a fraction of a tile.",
-        display=Display("Overlap", scale=100, unit="%", step=1.0, decimals=0),
+        display=Display("Overlap", scale=100, unit="%", step=5.0, decimals=0),
     )
     use_zstack: bool = param(
         False,

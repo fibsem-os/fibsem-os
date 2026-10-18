@@ -9,7 +9,6 @@ __all__ = [
     "MAX_ALIGNMENT_ATTEMPTS",
     "ALIGNMENT_REFERENCE_IMAGE_FILENAME",
     "TAutoLamellaTaskConfig",
-    "_LIFECYCLE_STEPS",
     # trench
     "MillTrenchTaskConfig",
     "MillTrenchTask",
@@ -57,7 +56,6 @@ from fibsem.applications.autolamella.workflows.tasks.acquire_fluorescence import
     AcquireFluorescenceImageTask,
 )
 from fibsem.applications.autolamella.workflows.tasks.base import (
-    _LIFECYCLE_STEPS,
     ALIGNMENT_REFERENCE_IMAGE_FILENAME,
     MAX_ALIGNMENT_ATTEMPTS,
     AutoLamellaTask,

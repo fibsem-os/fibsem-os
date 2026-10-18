@@ -12,9 +12,8 @@ import pathlib
 
 import pytest
 
-from fibsem.applications.autolamella.workflows.tasks.queue import WorkItem
-from fibsem.applications.autolamella.workflows.tasks.status import WorkflowStatusUpdate
-from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.queue import WorkItem
+from fibsem.workflows.status import TaskStatus, WorkflowStatusUpdate
 
 
 class TestTheDecodeIsTotal:

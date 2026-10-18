@@ -24,23 +24,17 @@ from typing import (
 )
 
 from fibsem import timing
-from fibsem.applications.autolamella.proposals import (
-    OVERVIEW_POSITIONS,
-    Proposal,
-    Proposer,
-)
+from fibsem.applications.autolamella.proposals import OVERVIEW_POSITIONS
 from fibsem.applications.autolamella.workflows.tasks.grid.base import (
     GridTask,
     GridTaskConfig,
-)
-from fibsem.applications.autolamella.workflows.tasks.grid.registry import (
-    register_grid_task,
 )
 from fibsem.imaging.thumbnail import write_thumbnail
 from fibsem.imaging.tiled import acquire_tiled_overview, stamped_overview_name
 from fibsem.imaging.tiling.reach import reachable_overview
 from fibsem.services.sample_handling import uncalibrated_message
 from fibsem.structures import (
+    BEAM_ORIENTATIONS,
     BeamType,
     Display,
     FibsemStagePosition,
@@ -48,6 +42,7 @@ from fibsem.structures import (
     Parameter,
     param,
 )
+from fibsem.workflows.proposals import Proposal, Proposer
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
@@ -76,7 +71,8 @@ class BeamOverviewGridTaskConfig(GridTaskConfig):
     display_name: ClassVar[str] = "Beam overview"
     orientation: str = param(
         "SEM",
-        doc="The stage orientation to acquire in, by the microscope's name for it (SEM, FIB, ...). The grid's calibrated slot position is re-expressed for it.",
+        choices=BEAM_ORIENTATIONS,
+        doc="The stage orientation to acquire in. The grid's calibrated slot position is re-expressed for it.",
         display=Display("Orientation"),
     )
     settings: OverviewAcquisitionSettings = param(
@@ -85,7 +81,7 @@ class BeamOverviewGridTaskConfig(GridTaskConfig):
     )
     filename: str = param(
         "overview",
-        doc="The name the overview is saved under, in the grid's folder.",
+        doc="The stem of the name the overview is saved under, in the grid's folder; a time stamp is added per run.",
         display=Display("Filename"),
     )
 
@@ -120,7 +116,6 @@ class OverviewPositionsProposer:
         return Proposal(kind=self.kind, values={"positions": []})
 
 
-@register_grid_task
 class BeamOverviewGridTask(GridTask):
     config_cls: ClassVar[Type[GridTaskConfig]] = BeamOverviewGridTaskConfig
     config: BeamOverviewGridTaskConfig

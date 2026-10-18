@@ -109,12 +109,12 @@ def test_the_error_stays_on_the_status_line(widget):
 
 
 def test_a_run_that_fails_on_its_worker_says_why(widget, qapp, monkeypatch):
-    import fibsem.ui.correlation.widgets.correlation_tab_widget as ctw
+    import fibsem.correlation.fit as fit_module
 
     def fail(*args, **kwargs):
         raise ValueError("boom")
 
-    monkeypatch.setattr(ctw, "run_correlation_from_data", fail)
+    monkeypatch.setattr(fit_module, "run_correlation_from_data", fail)
 
     widget._run()
     widget._worker.wait()

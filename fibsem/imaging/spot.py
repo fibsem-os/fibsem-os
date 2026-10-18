@@ -1,11 +1,18 @@
 from __future__ import annotations
 
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, List, Optional
 
-from fibsem.structures import BeamType, Point
+from fibsem.structures import (
+    BeamType,
+    Configurable,
+    Display,
+    Point,
+    RangeLimit,
+    param,
+)
 
 if TYPE_CHECKING:
     # Type-checking only. `fibsem/imaging/__init__.py` star-imports this module, so a
@@ -16,13 +23,8 @@ if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
 
 
-# The exposure per point a burn may take, in seconds: the spot burn widget's range,
-# and what an answer at the spot burn question is checked against.
-EXPOSURE_LIMITS = (0.1, 60.0)
-
-
 @dataclass
-class SpotBurnSettings:
+class SpotBurnSettings(Configurable):
     """The payload for a spot-burn run: where to burn, and with what.
 
     Shared, fibsem-level currency for the coordinate editor + the live spot-burn widget
@@ -30,9 +32,24 @@ class SpotBurnSettings:
     task config, not here.
     """
 
-    coordinates: List[Point] = field(default_factory=list)
-    milling_current: float = 100e-12  # amperes
-    exposure_time: float = 10.0  # seconds
+    coordinates: List[Point] = param(
+        default_factory=list,
+        doc="Where to burn, as points in the ion beam's image, 0 to 1 on both axes. Points outside the image are dropped.",
+    )
+    milling_current: float = param(
+        100e-12,
+        device_parameter="beam.current",
+        doc="The ion beam current each spot is burned with.",
+        display=Display("Beam Current"),
+    )
+    # The widget's range, and what an answer at the spot burn question is checked against.
+    exposure_time: float = param(
+        10.0,
+        unit="s",
+        limits=RangeLimit(0.1, 60.0),
+        doc="How long each spot is exposed.",
+        display=Display("Exposure Time", decimals=3),
+    )
 
     def to_dict(self) -> dict:
         return {

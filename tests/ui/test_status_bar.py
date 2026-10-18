@@ -516,7 +516,7 @@ def test_fibsem_shows_milling_from_its_microscope(qapp):
 def _report(
     status, item="02-civil-cub", task="Polishing", error=None, queue_items=None
 ):
-    from fibsem.applications.autolamella.workflows.tasks.status import (
+    from fibsem.workflows.status import (
         WorkflowStatusEvent,
         WorkflowStatusUpdate,
     )
@@ -549,7 +549,7 @@ def test_a_run_that_fails_a_task_leaves_a_line_until_the_next_run(
     # A report locks the protocol editor, whose UI the first connect builds.
     window.autolamella_ui.system_widget.connect_to_microscope()
     signal = window.autolamella_ui.workflow_status_signal
-    from fibsem.applications.autolamella.workflows.tasks.queue import WorkItem
+    from fibsem.workflows.queue import WorkItem
 
     def _queue(second):
         return [
@@ -600,12 +600,12 @@ def test_a_run_that_fails_a_task_leaves_a_line_until_the_next_run(
 
 def test_a_held_run_says_so_on_the_line(no_quit, qapp):
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
-    from fibsem.applications.autolamella.workflows.tasks.status import (
+    from fibsem.workflows.status import (
         Hold,
         HoldKind,
+        TaskStatus,
         WorkflowStatusEvent,
     )
-    from fibsem.workflows.status import TaskStatus
 
     window = module.AutoLamellaSingleWindowUI()
     ui = window.autolamella_ui
