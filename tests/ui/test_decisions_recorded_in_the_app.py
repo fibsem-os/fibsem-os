@@ -71,7 +71,7 @@ def _decide(experiment):
         TASK,
         Decision(
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             values={"poi": Point(1e-6, 0.0)},
             via="review",
             task_id=RUN,

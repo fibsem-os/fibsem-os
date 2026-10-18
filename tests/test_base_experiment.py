@@ -70,4 +70,4 @@ def test_the_saved_identity_reads_back(experiment, tmp_path):
 def test_the_named_operator_decides(experiment):
     experiment.user = "Ada"
 
-    assert experiment.author().name == "Ada"
+    assert experiment.actor().name == "Ada"

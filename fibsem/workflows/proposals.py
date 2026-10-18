@@ -31,6 +31,7 @@ from datetime import datetime
 from enum import Enum, auto
 from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple, Union
 
+from fibsem.acting import Actor, ActorKind
 from fibsem.structures import (
     FibsemRectangle,
     FibsemStagePosition,
@@ -94,66 +95,6 @@ class Standing(Enum):
     Awaiting = auto()
     Unchecked = auto()
     Closed = auto()
-
-
-class AuthorKind(str, Enum):
-    """What kind of thing decided. ``automated`` is the producer confirming
-    its own record so the run continues; a person's look at it is a later
-    decision. ``agent`` is a connected agent deciding over the server: not
-    automatic (a decider acted) and not a person (someone may still want to
-    check), which is why it has a kind of its own."""
-
-    automated = "auto"
-    human = "human"
-    agent = "agent"
-
-
-@dataclass(frozen=True)
-class Author:
-    """Who made a decision: the kind of thing, and its name -- the operator,
-    the agent's model, the producer that confirmed its own record. Stored and
-    sent as ``kind:name`` (``human:op``, ``auto:current-poi``), which is also
-    what ``str()`` gives, so the wire and the file are unchanged."""
-
-    kind: AuthorKind
-    name: str = ""
-
-    def __str__(self) -> str:
-        return f"{self.kind.value}:{self.name}"
-
-    @classmethod
-    def parse(cls, text: Union[str, "Author"]) -> "Author":
-        """The ``kind:name`` form back into an Author. Text with no known
-        prefix is a human whose name is the whole string: every record ever
-        written carried a prefix, so this is for hand-typed input."""
-        if isinstance(text, Author):
-            return text
-        kind, sep, name = str(text or "").partition(":")
-        if sep and kind in {k.value for k in AuthorKind}:
-            return cls(AuthorKind(kind), name)
-        return cls(AuthorKind.human, str(text or ""))
-
-    @property
-    def label(self) -> str:
-        """How it reads: the name for a person, "agent · model", "auto ·
-        proposer"; "someone" / "unknown" when the name is blank."""
-        if self.kind is AuthorKind.human:
-            return self.name or "someone"
-        return f"{self.kind.value} · {self.name or 'unknown'}"
-
-
-def human_author(name: str) -> Author:
-    return Author(AuthorKind.human, name)
-
-
-def agent_author(model: str) -> Author:
-    return Author(AuthorKind.agent, model)
-
-
-def auto_author(proposer: str) -> Author:
-    """The author of a decision nobody made: the producer confirms its own
-    proposal so the run continues, and the record says so."""
-    return Author(AuthorKind.automated, proposer)
 
 
 # ---------------------------------------------------------------------------
@@ -522,10 +463,10 @@ class Alternative:
 @dataclass
 class Decision:
     """One reviewer's answer. Appended, never edited: a reversal is a second
-    decision beside the first, with its own author and time."""
+    decision beside the first, with its own actor and time."""
 
     outcome: DecisionOutcome
-    author: Author
+    actor: Actor
     values: Dict[str, Any] = field(default_factory=dict)  # confirmed values
     reason: str = ""  # required on Rejected
     # Aware, written as ISO 8601 with its offset (FIB-1197); older records hold a
@@ -533,7 +474,7 @@ class Decision:
     timestamp: Optional[datetime] = field(default_factory=now)
     # Where it was decided: "workflow" (inline, in the task's own question, or
     # the producer confirming its own proposal), "review" (the Review tab) or
-    # "server" (an agent over the API). The author says who; this says where,
+    # "server" (an agent over the API). The actor says who; this says where,
     # so an export can tell an inline answer from a tab decision.
     via: str = ""
     # Which run of the producing task this decides: the task_id of the proposal
@@ -550,12 +491,12 @@ class Decision:
 
     def __post_init__(self) -> None:
         # a string from the file, the wire or a test is accepted and parsed
-        self.author = Author.parse(self.author)
+        self.actor = Actor.parse(self.actor)
 
     def to_dict(self) -> dict:
         return {
             "outcome": self.outcome.name,
-            "author": str(self.author),
+            "actor": str(self.actor),
             "values": _encode_values(self.values),
             "reason": self.reason,
             "timestamp": to_iso(self.timestamp),
@@ -568,7 +509,7 @@ class Decision:
     def from_dict(cls, data: dict) -> "Decision":
         return cls(
             outcome=DecisionOutcome[data["outcome"]],
-            author=Author.parse(data.get("author", "")),
+            actor=Actor.parse(data.get("actor", data.get("author", ""))),
             values=_decode_values(data.get("values", {})),
             reason=data.get("reason", ""),
             timestamp=to_datetime(data.get("timestamp")),
@@ -659,7 +600,7 @@ class Proposal:
         return (
             bool(self.decisions)
             and not self.withdrawn
-            and all(d.author.kind is not AuthorKind.human for d in self.decisions)
+            and all(d.actor.kind is not ActorKind.operator for d in self.decisions)
         )
 
     @property

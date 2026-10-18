@@ -277,10 +277,10 @@ def test_one_unreadable_group_does_not_take_the_others_down(monkeypatch):
     groups = {g.group: g for g in report.collect_extensions()}
 
     assert set(groups) == {
-        "fibsem.patterns",
-        "fibsem.strategies",
+        "fibsem.milling.patterns",
+        "fibsem.milling.strategies",
         "fibsem.autolamella.tasks",
-        "fibsem.grid_tasks",
+        "fibsem.grid.tasks",
         "fibsem.drivers",
     }
     assert [e.source for e in groups["fibsem.autolamella.tasks"].extensions] == [
@@ -288,7 +288,11 @@ def test_one_unreadable_group_does_not_take_the_others_down(monkeypatch):
     ]
     # The other groups are not merely present, they are populated: every
     # install has built-in patterns, strategies and drivers.
-    for intact in ("fibsem.patterns", "fibsem.strategies", "fibsem.drivers"):
+    for intact in (
+        "fibsem.milling.patterns",
+        "fibsem.milling.strategies",
+        "fibsem.drivers",
+    ):
         assert any(
             e.source is ExtensionSource.BUILTIN for e in groups[intact].extensions
         )
@@ -358,7 +362,7 @@ def test_group_counts_phrase(sources, expected):
 
 def test_summary_counts_across_groups_and_reports_hidden_builtins():
     groups = [
-        _group(_extension(), group="fibsem.patterns"),
+        _group(_extension(), group="fibsem.milling.patterns"),
         _group(
             _extension(source=ExtensionSource.FAILED, name=None),
             _extension(source=ExtensionSource.BUILTIN, name="X"),
