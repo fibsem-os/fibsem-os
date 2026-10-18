@@ -2147,8 +2147,8 @@ class AutoLamellaAppContext:
         must never make the app poll hardware (and on Tescan a concurrent read
         is a socket transaction the workflow may be mid-way through).
         """
-        microscope = self._microscope
-        cached = getattr(microscope, "_stage_position", None) if microscope else None
+        stage = getattr(self._microscope, "stage", None)
+        cached = stage.position.last_known if stage is not None else None
         if cached is None:
             return {"available": False, "position": None}
         return {"available": True, "position": cached.to_dict()}
