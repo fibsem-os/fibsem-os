@@ -16,8 +16,13 @@ from typing import TYPE_CHECKING, List, Optional, Sequence, Tuple, Type
 
 from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
 from fibsem.workflows.attention import Attention
-from fibsem.workflows.positions import OVERVIEW_POSITIONS
-from fibsem.workflows.proposals import ALIGNMENT_AREA, DETECTION, STATE, TASK_RESULT
+from fibsem.workflows.proposals import (
+    ALIGNMENT_AREA,
+    DETECTION,
+    OVERVIEW_POSITIONS,
+    STATE,
+    TASK_RESULT,
+)
 from fibsem.workflows.proposals import kind_label as proposal_kind_label
 
 if TYPE_CHECKING:

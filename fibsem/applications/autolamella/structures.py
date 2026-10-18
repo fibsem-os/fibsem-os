@@ -30,7 +30,6 @@ from psygnal.containers import EventedDict, EventedList
 # Registers AutoLamella's proposal kinds and how their values are stored and
 # written: an experiment read from disk decodes its proposals with them.
 import fibsem.applications.autolamella.proposals  # noqa: F401
-import fibsem.workflows.positions  # noqa: F401
 from fibsem import timing
 from fibsem.applications.autolamella import config as cfg
 from fibsem.applications.autolamella.protocol.constants import (
@@ -70,6 +69,7 @@ from fibsem.workflows.grid.protocol import GridTaskProtocol
 from fibsem.workflows.grids import ExperimentGrids, GridRecord
 from fibsem.workflows.item import ExperimentItem
 from fibsem.workflows.proposals import (
+    ItemPoses,
     PreparedWrite,
     Proposal,
     ValueRefused,
@@ -85,7 +85,6 @@ if TYPE_CHECKING:
     import numpy as np
 
     from fibsem.microscope import FibsemMicroscope
-    from fibsem.workflows.positions import ItemPoses
 
 
 # AutoLamellaUser lived here: a richer user identity (role, preferences, is_default)
@@ -1395,10 +1394,11 @@ class Experiment(ExperimentGrids, ProposalReview, BaseExperiment):
         return Path(generate_grid_report(self, inventory=inventory))
 
     def prepare_items_at(
-        self, grid: GridRecord, positions: List["ItemPoses"]
+        self, grid: GridRecord, positions: List[ItemPoses]
     ) -> PreparedWrite:
         """Plan one lamella per confirmed position on ``grid``, the write an
-        overview's positions proposal makes, without touching anything yet.
+        overview's positions proposal makes, without touching anything yet:
+        each is milled at the position's beam pose.
 
         Undone together: a half-created set is worse than none, and the
         decision is only appended once the whole set is on the experiment.
@@ -1425,7 +1425,7 @@ class Experiment(ExperimentGrids, ProposalReview, BaseExperiment):
                 # made is the one on the end. Taken here rather than assumed
                 # later: undo has to remove exactly what this write added.
                 self.add_new_lamella(
-                    microscope_state=entry.milling,
+                    microscope_state=entry.beam,
                     task_config=deepcopy(getattr(protocol, "task_config", None)) or {},
                     fluorescence_pose=entry.fluorescence,
                     grid_id=grid_id,

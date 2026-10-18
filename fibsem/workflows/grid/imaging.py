@@ -41,8 +41,7 @@ from fibsem.workflows.grid.base import (
     GridTask,
     GridTaskConfig,
 )
-from fibsem.workflows.positions import OVERVIEW_POSITIONS
-from fibsem.workflows.proposals import Proposal, Proposer
+from fibsem.workflows.proposals import OVERVIEW_POSITIONS, Proposal, Proposer
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope

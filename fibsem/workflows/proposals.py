@@ -35,6 +35,7 @@ from fibsem.acting import Actor, ActorKind
 from fibsem.structures import (
     FibsemRectangle,
     FibsemStagePosition,
+    MicroscopeState,
     Point,
 )
 from fibsem.util.timestamps import now, to_datetime, to_iso
@@ -61,6 +62,11 @@ STATE = "state"
 # right before that reference is acquired, so it is written nowhere: the
 # task acquires with the area it is handed (FIB-1053).
 ALIGNMENT_AREA = "alignment_area"
+# Where items go on a grid: the positions a decision makes them at -- the
+# lamellae in AutoLamella, a volume app's own kind of site. The only kind
+# whose confirmed values make items rather than edit the one the proposal is
+# on, so its writer is the experiment's (``prepare_items_at``).
+OVERVIEW_POSITIONS = "overview_positions"
 
 
 class DecisionOutcome(Enum):
@@ -146,6 +152,9 @@ register_proposal_kind(
         name=ALIGNMENT_AREA, values=("alignment_area",), label="Alignment area"
     )
 )
+register_proposal_kind(
+    ProposalKind(name=OVERVIEW_POSITIONS, values=("positions",), label="Positions")
+)
 
 
 # ---------------------------------------------------------------------------
@@ -227,6 +236,68 @@ register_value_codec(
     lambda r: r.to_dict() if isinstance(r, FibsemRectangle) else r,
     lambda d: FibsemRectangle.from_dict(d) if isinstance(d, dict) else d,
 )
+
+
+@dataclass(frozen=True)
+class ItemPoses:
+    """Both poses for an item placed on an overview, whichever side it was
+    marked from: where it is worked on with the beams, and where it is looked
+    at under fluorescence.
+
+    Carried as poses rather than a point on an image or a bare stage
+    position: either would make a decision need a microscope to turn into
+    poses, and there is no instrument where a decision is made -- the Review
+    tab days later, or an agent over the server. The geometry is read where
+    the position is placed instead, in the renderer or in a proposer running
+    at the beam.
+
+    `fluorescence` is None when the microscope has no fluorescence detector --
+    there is nothing to derive it from, and a pose invented for an instrument
+    that does not exist would be worse than its absence.
+    """
+
+    beam: MicroscopeState
+    fluorescence: Optional[MicroscopeState] = None
+
+
+def _positions_to_dict(value: Any) -> Any:
+    if not isinstance(value, (list, tuple)):
+        return value
+    return [
+        {
+            "beam": p.beam.to_dict(),
+            "fluorescence": (
+                p.fluorescence.to_dict() if p.fluorescence is not None else None
+            ),
+        }
+        if isinstance(p, ItemPoses)
+        else p
+        for p in value
+    ]
+
+
+def _positions_from_dict(value: Any) -> Any:
+    """Reads ``beam``, or ``milling``: what the beam pose was called before
+    the kind was any app's."""
+    if not isinstance(value, (list, tuple)):
+        return value
+    out: List[Any] = []
+    for p in value:
+        beam = p.get("beam", p.get("milling")) if isinstance(p, dict) else None
+        if beam is None:
+            out.append(p)
+            continue
+        fm = p.get("fluorescence")
+        out.append(
+            ItemPoses(
+                beam=MicroscopeState.from_dict(beam),
+                fluorescence=MicroscopeState.from_dict(fm) if fm else None,
+            )
+        )
+    return out
+
+
+register_value_codec("positions", _positions_to_dict, _positions_from_dict)
 
 
 class ValueRefused(ValueError):
@@ -374,9 +445,38 @@ def _prepare_alignment_area(experiment: Any, item: Any, value: Any) -> PreparedW
     return PreparedWrite.nothing()
 
 
+def _prepare_positions(experiment: Any, item: Any, value: Any) -> PreparedWrite:
+    """Check the positions, then hand them to the experiment, which plans the
+    items it makes at them (``prepare_items_at``) without touching anything
+    yet.
+
+    Planned in full and undone together, like every other write: a
+    half-created set is worse than none, and the decision is only appended
+    once the whole set is on the experiment. The poses come from the value
+    rather than the instrument, so nothing here needs a microscope.
+    """
+    if not isinstance(value, (list, tuple)):
+        raise ValueRefused(f"positions must be a list, not {type(value).__name__}.")
+    placed: List[ItemPoses] = []
+    for entry in value:
+        if not isinstance(entry, ItemPoses):
+            raise ValueRefused(
+                f"every position must be an ItemPoses, not {type(entry).__name__}."
+            )
+        if entry.beam is None:
+            raise ValueRefused("every position needs a beam pose.")
+        placed.append(entry)
+    if experiment is None:
+        raise ValueRefused("positions can only be written to an experiment.")
+    return experiment.prepare_items_at(item, placed)
+
+
 register_value_writer("features", _prepare_features)
 register_value_writer("stage_position", _prepare_stage_position)
 register_value_writer("alignment_area", _prepare_alignment_area)
+# The experiment is there for this one write: it makes items rather than
+# editing the one the proposal is on.
+register_value_writer("positions", _prepare_positions)
 
 
 def compute_delta(proposed: Any, confirmed: Any) -> Any:

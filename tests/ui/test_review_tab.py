@@ -781,7 +781,7 @@ def _positions_waiting(experiment, positions=(), name="Grid-02"):
     """A grid's overview under review for where the lamellae go, with its
     stitched image on disk."""
     from fibsem.workflows.grids import GridRecord
-    from fibsem.workflows.positions import OVERVIEW_POSITIONS
+    from fibsem.workflows.proposals import OVERVIEW_POSITIONS
 
     grid = experiment.add_grid(GridRecord(name=name))
     directory = experiment.grid_path(grid) / "SEM Overview"
@@ -860,7 +860,7 @@ class TestOverviewPositions:
         assert renderer.btn_confirm.text() == "Confirm · add 2 lamellae"
         values = renderer.current_values()["positions"]
         assert len(values) == 2
-        assert all(v.milling is not None for v in values), (
+        assert all(v.beam is not None for v in values), (
             "the poses a lamella is made from, read here where there is an instrument"
         )
 

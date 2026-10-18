@@ -40,8 +40,12 @@ from fibsem.workflows.grid.manager import (
 )
 from fibsem.workflows.grid.protocol import GridTaskProtocol
 from fibsem.workflows.outputs import latest_item_output
-from fibsem.workflows.positions import OVERVIEW_POSITIONS
-from fibsem.workflows.proposals import Decision, DecisionOutcome, Standing
+from fibsem.workflows.proposals import (
+    OVERVIEW_POSITIONS,
+    Decision,
+    DecisionOutcome,
+    Standing,
+)
 from fibsem.workflows.review import standing
 from fibsem.workflows.status import TaskStatus
 from tests.run_state import stub_session

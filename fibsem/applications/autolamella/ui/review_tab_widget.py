@@ -83,10 +83,10 @@ from fibsem.util.durations import format_duration_in_words, format_time_ago
 from fibsem.util.timestamps import format_time, from_posix, now, to_aware, to_datetime
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.grids import GridRecord
-from fibsem.workflows.positions import OVERVIEW_POSITIONS
 from fibsem.workflows.proposals import (
     ALIGNMENT_AREA,
     DETECTION,
+    OVERVIEW_POSITIONS,
     STATE,
     TASK_RESULT,
     Decision,
@@ -1424,7 +1424,7 @@ class OverviewPositionsReviewRenderer(TaskResultReviewRenderer):
     def _draw_drafts(self) -> None:
         places = []
         for poses in self._drafts:
-            place = getattr(getattr(poses, "milling", None), "stage_position", None)
+            place = getattr(getattr(poses, "beam", None), "stage_position", None)
             if place is not None:
                 places.append(place)
         self.canvas.set_draft_positions(places)
