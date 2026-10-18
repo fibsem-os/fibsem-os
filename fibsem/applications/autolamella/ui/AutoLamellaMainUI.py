@@ -1022,7 +1022,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         coincidence_enabled = self._preferences.features.coincidence_milling_enabled
         self.action_open_coincidence_viewer.setVisible(coincidence_enabled)
         self._action_coincidence_separator.setVisible(coincidence_enabled)
-        self._apply_review_visibility()
         # getattr because this also runs from the preferences dialog, and the tab it
         # reaches into is built by AutoLamellaUI rather than here.
         system_widget = getattr(self.autolamella_ui, "system_widget", None)
@@ -2870,25 +2869,14 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     def add_review_tab(self):
         """The Review tab: every proposal waiting for a decision (FIB-950).
 
-        Behind `features.proposer_reviewer_workflow_enabled`, visibility only,
-        like the Grids tab. The inbox is derived from the experiment on every
-        refresh, so the tab holds no state a decision could be lost in.
+        The inbox is derived from the experiment on every refresh, so the tab
+        holds no state a decision could be lost in.
         """
         self.review_tab = ReviewTabWidget()
         self.review_tab.counts_changed.connect(self._on_reviews_counts_changed)
         self.review_tab.decided.connect(self._on_review_decided)
         self.review_tab.open_item_requested.connect(self._on_review_open_item)
         self.tab_widget.addTab(self.review_tab, review_tab_icon(), "Review")
-        self._apply_review_visibility()
-
-    def _apply_review_visibility(self) -> None:
-        enabled = self._preferences.features.proposer_reviewer_workflow_enabled
-        tab = getattr(self, "review_tab", None)
-        if tab is not None:
-            self.tab_widget.setTabVisible(self.tab_widget.indexOf(tab), enabled)
-        workflow = getattr(self, "lamella_workflow_widget", None)
-        if workflow is not None:
-            workflow.workflow.enable_review_button(enabled)
 
     def _on_reviews_counts_changed(self, waiting: int, to_check: int) -> None:
         """The tab badge carries both counts; only ``waiting`` means the run is

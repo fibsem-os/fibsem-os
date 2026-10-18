@@ -2,11 +2,10 @@
 
 Select Fluorescence Position confirms the stage and objective are at the
 fluorescence pose; Acquire Fluorescence Image confirms the position before
-its autofocus runs. With the review preference on each is a ``state``
-question through ``ask`` in place of its "Press Continue" prompt; headless
-nobody is there, so the position goes on the record as proposed,
-``Unreviewed``. With the preference off nothing changes: the old prompt, and
-no record.
+its autofocus runs. Each is a ``state`` question through ``ask`` in place
+of its "Press Continue" prompt, whether the review preference is on or off;
+headless nobody is there, so the position goes on the record as proposed,
+``Unreviewed``.
 
 Runs the real tasks on the simulated Arctis, which has a fluorescence
 microscope; the autofocus and the acquisition are stubbed as the pose tests
@@ -29,9 +28,6 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
 )
 from fibsem.applications.autolamella.workflows.tasks import acquire_fluorescence as AF
-from fibsem.applications.autolamella.workflows.tasks import (
-    select_fluorescence_position as SF,
-)
 from fibsem.applications.autolamella.workflows.tasks.acquire_fluorescence import (
     AcquireFluorescenceImageConfig,
     AcquireFluorescenceImageTask,
@@ -96,9 +92,8 @@ def _experiment(tmp_path: Path, microscope, attention=Attention.automated):
     return exp
 
 
-def _task(cls, name, microscope, exp, review_enabled=True):
+def _task(cls, name, microscope, exp):
     manager = TaskManager(microscope=microscope, experiment=exp, parent_ui=None)
-    manager.review_enabled = review_enabled
     lamella = exp.positions[0]
     return cls(
         microscope=microscope,
@@ -162,22 +157,25 @@ def test_acquire_headless_the_position_before_autofocus_goes_on_the_record(
     assert isinstance(question.values["stage_position"], FibsemStagePosition)
 
 
-def test_with_the_preference_off_the_old_prompts_run_and_nothing_is_recorded(
+def test_without_a_window_the_questions_are_on_the_record(
     microscope, tmp_path, stubbed_acquisition, monkeypatch
 ):
+    """Supervised, with no window to ask in: both are asked, on the record,
+    and the select task still takes down the live view it may have left."""
     for cls in (SelectFluorescencePositionTask, AcquireFluorescenceImageTask):
         monkeypatch.setattr(cls, "validate", property(lambda self: True))
-    asked = []
-    monkeypatch.setattr(SF, "ask_user", lambda ui, msg, pos: asked.append((msg, pos)))
-    monkeypatch.setattr(AF, "ask_user", lambda ui, msg, pos: asked.append((msg, pos)))
+    stopped = []
+    monkeypatch.setattr(microscope.fm, "stop_acquisition", lambda: stopped.append(True))
     exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
     lamella = exp.positions[0]
 
-    _task(SelectFluorescencePositionTask, SELECT, microscope, exp, False).run()
-    _task(AcquireFluorescenceImageTask, ACQUIRE, microscope, exp, False).run()
+    _task(SelectFluorescencePositionTask, SELECT, microscope, exp).run()
+    _task(AcquireFluorescenceImageTask, ACQUIRE, microscope, exp).run()
 
-    assert [pos for _m, pos in asked] == ["Continue", "Continue"]
-    assert "Move to fluorescence position" in asked[0][0]
-    assert "Run autofocus" in asked[1][0]
-    assert [p.kind for p in lamella.proposals_from(SELECT)] == [TASK_RESULT]
-    assert [p.kind for p in lamella.proposals_from(ACQUIRE)] == [TASK_RESULT]
+    select = lamella.proposal(SELECT, STATE)
+    acquire = lamella.proposal(ACQUIRE, STATE)
+    assert select.unreviewed and "nobody to answer" in select.current.reason
+    assert acquire.unreviewed and "nobody to answer" in acquire.current.reason
+    assert "Move to fluorescence position" in select.provenance["message"]
+    assert "Run autofocus" in acquire.provenance["message"]
+    assert stopped, "the live view is taken down after the confirmation"

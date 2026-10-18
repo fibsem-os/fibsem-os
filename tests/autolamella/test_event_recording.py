@@ -644,6 +644,7 @@ def test_a_task_records_its_steps_and_every_image_it_saved(tmp_path, microscope)
         SelectMillingPositionTask,
         SelectMillingPositionTaskConfig,
     )
+    from tests.autolamella._on_the_record import manager_for
 
     lamella = Lamella(path=tmp_path / "01-test", number=1, petname="test")
     lamella.path.mkdir(parents=True)
@@ -652,6 +653,7 @@ def test_a_task_records_its_steps_and_every_image_it_saved(tmp_path, microscope)
         microscope=microscope,
         config=SelectMillingPositionTaskConfig(use_autofocus=False),
         lamella=lamella,
+        task_manager=manager_for(microscope, lamella),
     )
     recorder = EventRecorder(microscope, experiment_path=tmp_path)
     try:

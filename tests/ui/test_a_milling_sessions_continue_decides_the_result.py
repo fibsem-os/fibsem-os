@@ -84,7 +84,7 @@ def _mill(*args, **kwargs):
     return SimpleNamespace(error=None)
 
 
-def _task(ui, review_enabled: bool) -> MillRoughTask:
+def _task(ui) -> MillRoughTask:
     experiment = ui.experiment
     manager = TaskManager(
         microscope=ui.microscope,
@@ -93,7 +93,6 @@ def _task(ui, review_enabled: bool) -> MillRoughTask:
         responder=ui.ui_responder,
         answerers=ui.session.answerers,
     )
-    manager.review_enabled = review_enabled
     lamella = experiment.positions[0]
     task = MillRoughTask(
         microscope=ui.microscope,
@@ -141,7 +140,7 @@ def _finish(thread, qapp):
 
 
 def test_continue_after_the_mill_is_the_operators_decision_on_the_result(ui, qapp):
-    task = _task(ui, review_enabled=True)
+    task = _task(ui)
     thread, outcome = _run_on_worker_thread(task, ui, qapp)
 
     ui.pushButton_no.click()  # Skip
@@ -160,19 +159,6 @@ def test_continue_after_the_mill_is_the_operators_decision_on_the_result(ui, qap
     )
 
 
-def test_with_the_preference_off_the_record_is_still_theirs(ui, qapp):
-    """The preference hides the Review surface, not the record."""
-    task = _task(ui, review_enabled=False)
-    thread, outcome = _run_on_worker_thread(task, ui, qapp)
-
-    ui.pushButton_no.click()
-    _finish(thread, qapp)
-
-    assert "error" not in outcome
-    decision = ui.experiment.positions[0].proposal(ROUGH).current
-    assert decision.actor.kind is ActorKind.operator
-
-
 def test_the_mill_the_task_asks_for_writes_under_the_task_s_folder(
     ui, qapp, monkeypatch
 ):
@@ -186,7 +172,7 @@ def test_the_mill_the_task_asks_for_writes_under_the_task_s_folder(
         return _mill()
 
     monkeypatch.setattr(base, "run_milling_task", run)
-    task = _task(ui, review_enabled=False)
+    task = _task(ui)
     thread, outcome = _run_on_worker_thread(task, ui, qapp)
 
     ui.pushButton_yes.click()  # Run Milling

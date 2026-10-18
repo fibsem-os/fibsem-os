@@ -24,6 +24,7 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
 from fibsem.drivers.demo.sim_scene import SampleScene
 from fibsem.geometry.projection import BeamStageProjection
 from fibsem.structures import BeamType
+from tests.autolamella._on_the_record import manager_for
 
 # Tens of seconds each on the simulator, so pull requests run these on one CI leg
 # only; the nightly and release runs take them everywhere (python-package.yml).
@@ -78,7 +79,10 @@ def _make_task(microscope, tmp_path: Path) -> SelectMillingPositionTask:
         select_poi=False,
     )
     return SelectMillingPositionTask(
-        microscope=microscope, config=config, lamella=lamella
+        microscope=microscope,
+        config=config,
+        lamella=lamella,
+        task_manager=manager_for(microscope, lamella),
     )
 
 

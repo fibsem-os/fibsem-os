@@ -2,9 +2,8 @@
 
 Real overview tasks on the Arctis simulator, run through a real GridTaskManager:
 every run records a proposal on the grid pointing at the stitched overview;
-automated, the task confirms its own; under review (the protocol says so and
-the preference is on), the task ends AwaitingDecision and a decision finishes
-it.
+automated, its values are used as proposed; supervised (the protocol says
+so), the task ends AwaitingDecision and a decision finishes it.
 
 An overview proposes ``overview_positions`` -- where the lamellae go on this
 grid -- rather than a bare result, because that is the question the image is
@@ -100,11 +99,10 @@ def experiment(tmp_path, microscope):
     return exp
 
 
-def _run(microscope, experiment, review_enabled: bool) -> GridTaskManager:
+def _run(microscope, experiment) -> GridTaskManager:
     ui = _UI()
     manager = GridTaskManager(microscope, experiment, parent_ui=ui)
     ui.session.runner.manager = manager
-    manager.review_enabled = review_enabled  # the preference, as read for a run
     manager.run([OVERVIEW], [GRID])
     return manager
 
@@ -190,7 +188,7 @@ class TestAGridTaskProposes:
         proposed and stay open to correct until the task that consumes them
         starts. The run ending does not close them; a run of the overview on
         its own is how they get looked at before screening."""
-        _run(microscope, experiment, review_enabled=True)
+        _run(microscope, experiment)
         grid = experiment.get_grid_by_name(GRID)
 
         assert grid.task_history[-1].status is TaskStatus.Completed
@@ -201,7 +199,7 @@ class TestAGridTaskProposes:
     def test_the_proposal_points_at_the_stitched_overview_not_the_thumbnail(
         self, microscope, experiment
     ):
-        _run(microscope, experiment, review_enabled=False)
+        _run(microscope, experiment)
         grid = experiment.get_grid_by_name(GRID)
 
         reference = grid.proposal(OVERVIEW).provenance["reference_image"]
@@ -215,7 +213,7 @@ class TestAGridTaskProposes:
         self, microscope, experiment
     ):
         experiment.grid_protocol.task_config[OVERVIEW].attention = Attention.supervised
-        _run(microscope, experiment, review_enabled=True)
+        _run(microscope, experiment)
         grid = experiment.get_grid_by_name(GRID)
 
         assert grid.is_awaiting_decision(OVERVIEW)
@@ -237,17 +235,6 @@ class TestAGridTaskProposes:
         assert result.applied is True
         assert grid.has_completed_task(OVERVIEW)
 
-    def test_review_in_the_protocol_runs_automated_while_the_preference_is_off(
-        self, microscope, experiment
-    ):
-        experiment.grid_protocol.task_config[OVERVIEW].attention = Attention.supervised
-        _run(microscope, experiment, review_enabled=False)
-        grid = experiment.get_grid_by_name(GRID)
-
-        assert grid.task_history[-1].status is TaskStatus.Completed
-        assert grid.proposal(OVERVIEW).pending, "open, as under automated"
-        assert grid.task_history[-1].status is not TaskStatus.AwaitingDecision
-
     def test_a_failed_task_proposes_its_failure_and_stays_failed(
         self, microscope, experiment
     ):
@@ -257,7 +244,7 @@ class TestAGridTaskProposes:
         experiment.grid_protocol.task_config[OVERVIEW].orientation = "NOWHERE"
         grid = experiment.get_grid_by_name(GRID)
 
-        _run(microscope, experiment, review_enabled=True)
+        _run(microscope, experiment)
 
         assert grid.task_history[-1].status is TaskStatus.Failed
         proposal = grid.proposal(OVERVIEW)
@@ -300,9 +287,7 @@ def _with_later_task(experiment, review_wait, requires=(OVERVIEW,)):
 
 
 def _manager(microscope, experiment, hook_manager=None) -> GridTaskManager:
-    manager = GridTaskManager(microscope, experiment, hook_manager=hook_manager)
-    manager.review_enabled = True
-    return manager
+    return GridTaskManager(microscope, experiment, hook_manager=hook_manager)
 
 
 def _decide_when(experiment, grid_name, ready, outcome, reason=""):
@@ -528,17 +513,6 @@ class TestTheGridRunWaitsOnADecision:
         grid = experiment.get_grid_by_name(GRID)
         assert _ran(grid, OVERVIEW)[-1].status is TaskStatus.Failed
         assert _ran(grid, LATER) == []
-        assert not manager.stalled
-
-    def test_with_review_off_nothing_waits(self, microscope, experiment):
-        _with_later_task(experiment, review_wait=0)
-        manager = _manager(microscope, experiment)
-        manager.review_enabled = False
-
-        manager.run([OVERVIEW, LATER], [GRID])
-
-        grid = experiment.get_grid_by_name(GRID)
-        assert grid.has_completed_task(OVERVIEW) and grid.has_completed_task(LATER)
         assert not manager.stalled
 
 

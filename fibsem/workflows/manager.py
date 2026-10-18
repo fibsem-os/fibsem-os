@@ -11,7 +11,6 @@ import time
 from contextlib import contextmanager
 from typing import Any, Callable, Dict, List, Optional, Protocol, Set, Tuple
 
-from fibsem import config as fibsem_cfg
 from fibsem.acting import WORKFLOW, ActorKind
 from fibsem.cancellation import AnyStopEvent, OperationCancelledError
 from fibsem.control import MicroscopeBusy
@@ -73,17 +72,6 @@ _RUN_ENDS = frozenset(
 )
 
 
-def review_enabled() -> bool:
-    """The propose-and-review feature flag, fail-closed: unreadable preferences
-    mean off."""
-    try:
-        return bool(
-            fibsem_cfg.load_user_preferences().features.proposer_reviewer_workflow_enabled
-        )
-    except Exception:
-        return False
-
-
 class BaseTaskManager:
     """What running a queue of (item, task) work needs, whatever the item is.
 
@@ -121,10 +109,6 @@ class BaseTaskManager:
         # Built once: the token's identity is captured by every task at construction.
         self._abort_token = AnyStopEvent(self._stop_event, self._task_stop_event)
         self.queue = TaskQueue(fixed_tasks=self.FIXED_TASKS)
-        # Propose-and-review is a feature flag. Read once per run, here, so a
-        # preference change takes effect on the next Run and never mid-run.
-        # Off: nothing is ever deferred and every task behaves as before.
-        self.review_enabled = review_enabled()
         # Set by Experiment.decide (via _on_decided) so a run parked on a review
         # wakes and rescans; cleared at the top of every scan.
         self._decision_event = threading.Event()

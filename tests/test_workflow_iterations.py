@@ -112,7 +112,7 @@ def test_a_run_knows_its_iteration():
     from fibsem.workflows.task import BaseTask
 
     class _Task(BaseTask):
-        review = False
+        supervised = False
 
         def _run(self):
             pass

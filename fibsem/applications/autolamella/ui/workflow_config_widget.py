@@ -94,30 +94,12 @@ class _DraggableTaskList(QListWidget):
         self.reordered.emit(tasks)
 
 
-def _review_available() -> bool:
-    """Whether the Review toggle exists at all: the propose-and-review flag.
-    Off, a stored ``review: true`` is not shown and not honoured."""
-    import fibsem.config as fibsem_cfg
-
-    try:
-        return bool(
-            fibsem_cfg.load_user_preferences().features.proposer_reviewer_workflow_enabled
-        )
-    except Exception:
-        return False
-
-
-def attention_state(
-    task: AutoLamellaTaskDescription,
-    review_available: Optional[bool] = None,
-) -> str:
+def attention_state(task: AutoLamellaTaskDescription) -> str:
     """Which of the chip's states the task is in: the one question the user
     has about a task, *when am I involved?*, read from the task's attention.
 
     There is no Agent state (FIB-1035): a supervised question goes to the
-    operator and any connected agent alike. ``review_available`` is accepted
-    and unused: the preference no longer changes what a task's attention reads
-    as.
+    operator and any connected agent alike.
     """
     if task.attention is Attention.supervised:
         return "supervised"
@@ -150,9 +132,6 @@ def _attention_chip_words(
             "asked in the workflow, at the microscope; a result it leaves for "
             "afterwards waits for your decision in the Review tab, and the "
             "tasks that require it wait with it. Click to change."
-            if _review_available()
-            else "Supervised — asks you in the workflow, at the microscope; your "
-            "answer is the decision on the record. Click to change."
         )
         return label, stylesheets.PRIMARY_COLOR, tip
     tip = (
@@ -498,19 +477,14 @@ class WorkflowConfigWidget(QWidget):
         Review state needs to be honest about."""
         tasks = self.get_tasks()
         required = {req for task in tasks for req in task.requires}
-        reviewed = (
-            {t.name for t in tasks if t.attention is Attention.supervised}
-            if _review_available()
-            else set()
-        )
+        reviewed = {t.name for t in tasks if t.attention is Attention.supervised}
         protocol = self._protocol
-        review_on = _review_available()
         for i in range(self._list.count()):
             row = self._row(i)
             row.set_has_dependents(row.task.name in required)
             row.set_reviewed(reviewed)
             row.set_attendance(
-                attendance_for(protocol, row.task.name, review_on)
+                attendance_for(protocol, row.task.name)
                 if protocol is not None
                 else None
             )
@@ -533,11 +507,6 @@ class WorkflowConfigWidget(QWidget):
         self._btn_visible["supervise"] = visible
         for i in range(self._list.count()):
             self._row(i).btn_attention.setVisible(visible)
-
-    def enable_review_button(self, _visible: bool) -> None:
-        """The Review state is offered by the preference, not by a host; a
-        host that flips the preference re-reads the rows through here."""
-        self.refresh_all()
 
     def enable_edit_button(self, visible: bool) -> None:
         self._btn_visible["edit"] = visible

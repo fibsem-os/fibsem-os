@@ -34,6 +34,7 @@ from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.proposals import (
     ALIGNMENT_AREA,
     PROPOSAL_KINDS,
+    STATE,
     TASK_RESULT,
     Alternative,
     Decision,
@@ -45,6 +46,7 @@ from fibsem.workflows.proposals import (
     compute_delta,
     prepare_values,
     register_proposal_kind,
+    rejected_fails_task,
 )
 from fibsem.workflows.quality import Verdict
 from fibsem.workflows.review import standing
@@ -541,6 +543,49 @@ def test_reject_fails_the_waiting_task_and_leaves_the_lamella_alone(tmp_path):
     assert not lamella.is_failure, "a failed task is not a defective lamella"
     assert lamella.quality.verdict is Verdict.UNASSESSED
     assert lamella.poi == Point(0.0, 0.0), "nothing was written through"
+
+
+def test_each_kind_says_whether_a_reject_fails_its_task():
+    """Mostly "nothing further here"; a state question asks leave to do
+    something, and a reject is "don't". A kind this build does not know fails
+    its task, as every kind did before kinds said."""
+    assert rejected_fails_task(STATE) is False
+    for name in PROPOSAL_KINDS:
+        if name != STATE:
+            assert rejected_fails_task(name) is True, name
+    assert rejected_fails_task("from_a_newer_build") is True
+
+
+def test_rejecting_a_state_question_leaves_the_waiting_task_as_it_was(tmp_path):
+    """Setup asked its tilt, then left its point for the Review tab: rejecting
+    the tilt question afterwards is "don't tilt", not a failed Setup."""
+    exp = _experiment(tmp_path)
+    lamella = exp.positions[0]
+    lamella.task_history.append(
+        TaskState(name=SETUP, status=TaskStatus.AwaitingDecision)
+    )
+    question = Proposal(
+        kind=STATE,
+        values={"stage_position": FibsemStagePosition(x=0, y=0, z=0, r=0, t=0)},
+        provenance={"task_id": RUN},
+    )
+    set_proposals(lamella, SETUP, [question])
+
+    result = exp.decide(
+        lamella.id,
+        SETUP,
+        Decision(
+            task_id=RUN,
+            outcome=DecisionOutcome.Rejected,
+            actor="operator:op",
+            reason="already at the angle",
+        ),
+    )
+
+    assert result.applied is True
+    assert question.current.outcome is DecisionOutcome.Rejected
+    assert lamella.task_history[-1].status is TaskStatus.AwaitingDecision
+    assert lamella.is_awaiting_decision(SETUP)
 
 
 def test_a_decision_on_a_finished_task_changes_only_the_record(tmp_path):

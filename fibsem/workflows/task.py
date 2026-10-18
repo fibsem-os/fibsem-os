@@ -73,7 +73,7 @@ LIFECYCLE_STEPS = {"STARTED", "FINISHED"}
 
 class BaseTask(ABC):
     """The lifecycle every task shares. Subclasses implement ``_run``,
-    ``pre_task`` and ``post_task``, and say whether the run is reviewed."""
+    ``pre_task`` and ``post_task``, and say whether the run is supervised."""
 
     config: Any
     # What this task type proposes for the Review tab. The default proposes the
@@ -132,9 +132,10 @@ class BaseTask(ABC):
 
     @property
     @abstractmethod
-    def review(self) -> bool:
-        """Whether this run ends waiting on a decision in the Review tab;
-        otherwise the task decides its own record."""
+    def supervised(self) -> bool:
+        """Whether this task's attention is supervised: then a result nobody
+        decided in the run waits on a decision in the Review tab; otherwise
+        its values are used as proposed."""
 
     # -- lifecycle -------------------------------------------------------------
 
@@ -253,7 +254,7 @@ class BaseTask(ABC):
             self.item,
             proposer=type(self).proposer,
             result_images=self.result_images,
-            review=self.review,
+            supervised=self.supervised,
             inline_decision=self.inline_decision,
             experiment=self.experiment,
             failure=failure,

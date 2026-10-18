@@ -68,8 +68,6 @@ def window(qapp, tmp_path):
     lamella.milling_pose = ui.microscope.get_microscope_state()
     ui.experiment = experiment
     win._on_experiment_update()
-    win._preferences.features.proposer_reviewer_workflow_enabled = True
-    win._apply_review_visibility()
     win.tab_widget.setCurrentIndex(0)
     win._started = []
 
@@ -113,7 +111,6 @@ def _start(window):
         responder=ui.ui_responder,
         answerers=ui.session.answerers,
     )
-    manager.review_enabled = True
     lamella = experiment.positions[0]
     task = AcquireReferenceImageTask(
         microscope=ui.microscope,

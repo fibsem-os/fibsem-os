@@ -335,14 +335,10 @@ class FeatureFlags:
     # A staging flag, and it goes the same way `napari_overview_tab` did: deleted
     # when the chip replaces the tab, not kept as a preference.
     connection_chip: bool = False
-    # Propose and review (FIB-946..950): a task completes and leaves a proposal
-    # -- a point of interest, to start with -- for the operator to confirm or
-    # reject later in a Review tab, off the beam, instead of answering inline
-    # while the stage waits. Gates the whole path: the producer writing a
-    # proposal, the run deferring the consumer until it is decided, the wait
-    # before a run reports itself stalled, and the tab. Off, every task behaves
-    # exactly as before. Off by default while it is a proof of concept.
-    proposer_reviewer_workflow_enabled: bool = False
+    # `proposer_reviewer_workflow_enabled` retired 2026-10-18: proposals and the
+    # Review tab are the only workflow. Every task's questions and result go on
+    # the record, and a Supervised task's result waits there for a decision.
+    # Same load rule as above.
 
 
 @dataclass
