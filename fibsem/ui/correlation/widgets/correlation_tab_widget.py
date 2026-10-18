@@ -33,7 +33,6 @@ from __future__ import annotations
 
 import contextlib
 import copy
-import io
 import logging
 import os
 import time
@@ -86,8 +85,15 @@ from fibsem.correlation.config import (
     FitSettings,
     RISettings,
 )
+from fibsem.correlation.export import save_correlation_plot, write_csv
 from fibsem.correlation.fit import Seed, fit_transform, prior_transform, seed_for
-from fibsem.correlation.history import CORRELATION_FILENAME, save_run
+from fibsem.correlation.history import (
+    CORRELATION_FILENAME,
+    discover_project,
+    experiment_and_lamella_dirs,
+    find_spot_burns,
+    save_run,
+)
 from fibsem.correlation.point_fit import FitStatus, PointFitResult, refine_point
 from fibsem.correlation.prediction import (
     Projection,
@@ -111,7 +117,6 @@ from fibsem.correlation.structures import (
     PointType,
     PointXYZ,
     load_correlation_file,
-    recorded_image_basename,
 )
 from fibsem.correlation.verdict import (
     LOO_BAD_UM,
@@ -199,11 +204,6 @@ def _volume_bytes(image, n_slices: int) -> int:
 # Choice combos (a word or two) share one width, so the column lines up; a
 # longer channel name still grows its own combo.
 _CHOICE_COMBO_WIDTH = 150
-
-# The project file before it was consolidated (FIB-264): still *read* for
-# back-compat with projects saved by earlier versions; nothing writes them now.
-_LEGACY_DATA_FILENAME = "correlation_data.json"
-_LEGACY_RESULT_FILENAME = "correlation_result.json"
 
 # Auto-accept outlier fallback: a fit is a refinement of the user's click, so a
 # large jump usually means it locked onto the wrong feature. Beyond these, the
@@ -297,50 +297,6 @@ def _ro_item(text: str) -> QTableWidgetItem:
     item.setFlags(Qt.ItemFlag.ItemIsEnabled)
     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
     return item
-
-
-_PLOT_DPI = 150  # the saved figure's dpi
-_PLOT_PANEL_INCHES = 8.0  # each panel of the 16x8 two-panel figure
-
-
-def _render_canvas_to_axes(canvas, ax, *, dpi: int = _PLOT_DPI) -> None:
-    """Draw whatever *canvas* is currently showing into *ax*.
-
-    Deliberately canvas-agnostic: it needs a matplotlib figure and nothing else,
-    so it works for ``ImagePointCanvas`` and the shared ``FibsemImageCanvas``
-    alike and does not have to be rewritten when the correlation tab swaps from
-    one to the other (FIB-535). It replaces ``ImagePointCanvas.render_to_axes``,
-    which re-created every artist by hand and had no equivalent on the shared
-    stack.
-
-    ``savefig`` re-renders the figure offscreen at the requested dpi, so
-    resolution comes from *dpi* rather than from the on-screen widget size — the
-    reason this is not a plain ``buffer_rgba()`` grab, which would cap the export
-    at however large the window happened to be.
-
-    One deliberate behaviour change: what lands on the page is now what is on the
-    screen, aspect ratio included. ``render_to_axes`` re-fitted the content to the
-    panel, which stretched a square image into a 2:1 rectangle — measuring off
-    that plot gave the wrong answer.
-    """
-    from matplotlib.image import imread
-
-    fig = canvas.figure
-    # Render large enough that scaling into the panel never has to upsample.
-    width_inches = max(fig.get_size_inches()[0], 0.1)
-    render_dpi = max(dpi, int(dpi * _PLOT_PANEL_INCHES / width_inches))
-
-    buf = io.BytesIO()
-    fig.savefig(
-        buf,
-        format="png",
-        dpi=render_dpi,
-        facecolor=fig.get_facecolor(),
-        pad_inches=0,
-    )
-    buf.seek(0)
-    ax.imshow(imread(buf))
-    ax.axis("off")
 
 
 # ---------------------------------------------------------------------------
@@ -4596,7 +4552,7 @@ class CorrelationTabWidget(QWidget):
             self, "Export Correlation CSV", start, "CSV (*.csv);;All files (*)"
         )
         if path:
-            self._result.to_csv(path)
+            write_csv(self._result, path)
 
     def _reset_views(self) -> None:
         self._fib_canvas.reset_view()
@@ -4635,8 +4591,6 @@ class CorrelationTabWidget(QWidget):
 
     def save_plot(self, path: Optional[str] = None) -> None:
         """Save FIB + FM canvases as a side-by-side matplotlib figure."""
-        import matplotlib.pyplot as plt
-
         if path is None:
             if not self._project_dir:
                 QMessageBox.warning(self, "Save Plot", "No project directory set.")
@@ -4651,19 +4605,7 @@ class CorrelationTabWidget(QWidget):
         self._fib_canvas.reset_view()
         self._fm_display.reset_view()
 
-        fig, (ax_fib, ax_fm) = plt.subplots(1, 2, figsize=(16, 8), facecolor=CANVAS_BG)
-        for ax in (ax_fib, ax_fm):
-            ax.set_facecolor(CANVAS_BG)
-
-        _render_canvas_to_axes(self._fib_canvas.canvas, ax_fib, dpi=_PLOT_DPI)
-        ax_fib.set_title("FIB", color="white", fontsize=12)
-
-        _render_canvas_to_axes(self._fm_display.canvas, ax_fm, dpi=_PLOT_DPI)
-        ax_fm.set_title("FM", color="white", fontsize=12)
-
-        fig.tight_layout()
-        fig.savefig(path, dpi=150, bbox_inches="tight", facecolor=fig.get_facecolor())
-        plt.close(fig)
+        save_correlation_plot(path, self._fib_canvas.canvas, self._fm_display.canvas)
 
     def load_result(self, path: str, *, adopt_inputs: bool = True) -> None:
         """Load a correlation result from JSON and adopt it (mirrors load_data)."""
@@ -5051,210 +4993,6 @@ class CorrelationTabDialog(QDialog):
         return self.widget.result
 
 
-def _discover_correlation_files(directory: str) -> Dict[str, Optional[str]]:
-    """Locate FIB/FM images and saved correlation JSON in a project dir.
-
-    Conventions (matching the widget's auto-save + typical exports):
-      - FM image   : ``*.ome.tif`` / ``*.ome.tiff``
-      - FIB image  : ``*_ib.tif`` / ``*_ib.tiff`` (else the first non-OME TIFF)
-      - correlation: ``correlation.json`` (FIB-264 consolidated file)
-      - data       : ``correlation_data.json``   (legacy, still read)
-      - result     : ``correlation_result.json`` (legacy, still read)
-    """
-    import glob
-
-    def _first(patterns: List[str]) -> Optional[str]:
-        for pat in patterns:
-            hits = sorted(glob.glob(os.path.join(directory, pat)))
-            if hits:
-                return hits[0]
-        return None
-
-    fib = _first(["*_ib.tif", "*_ib.tiff"])
-    if fib is None:
-        tifs = sorted(
-            glob.glob(os.path.join(directory, "*.tif"))
-            + glob.glob(os.path.join(directory, "*.tiff"))
-        )
-        fib = next((t for t in tifs if not t.endswith((".ome.tif", ".ome.tiff"))), None)
-
-    def _existing(name: str) -> Optional[str]:
-        p = os.path.join(directory, name)
-        return p if os.path.exists(p) else None
-
-    return {
-        "fib": fib,
-        "fm": _first(["*.ome.tif", "*.ome.tiff"]),
-        "correlation": _existing(CORRELATION_FILENAME),
-        "data": _existing(_LEGACY_DATA_FILENAME),
-        "result": _existing(_LEGACY_RESULT_FILENAME),
-    }
-
-
-def find_spot_burns(project_dir: str) -> Tuple[List[Point], str]:
-    """The spot-burn pattern for the lamella a project folder belongs to.
-
-    Walks up from ``project_dir`` to the experiment file, matches the lamella by
-    its folder name, and reads the spot-burn task's coordinates. Returns
-    ``([], reason)`` when any of that is missing, so the caller can say why
-    there is no pattern. The standalone launcher's stand-in for what the
-    protocol editor passes to :meth:`CorrelationTabWidget.add_lamella_setup`.
-    """
-    import yaml
-
-    path = os.path.abspath(project_dir)
-    experiment_file = None
-    lamella_dir = None
-    probe = path
-    for _ in range(6):
-        candidate = os.path.join(probe, "experiment.yaml")
-        if os.path.isfile(candidate):
-            experiment_file = candidate
-            break
-        parent = os.path.dirname(probe)
-        if parent == probe:
-            break
-        # the lamella folder is the one directly under the experiment folder
-        lamella_dir = probe
-        probe = parent
-    if experiment_file is None:
-        return [], "no experiment.yaml above the project folder"
-    lamella_name = os.path.basename(lamella_dir) if lamella_dir else None
-    try:
-        with open(experiment_file) as fh:
-            experiment = yaml.safe_load(fh)
-    except Exception as exc:
-        return [], f"could not read {experiment_file}: {exc}"
-    positions = experiment.get("positions", []) if isinstance(experiment, dict) else []
-    for position in positions:
-        name = position.get("petname") or position.get("name")
-        folder = (
-            str(position.get("path", "")).replace("\\", "/").rstrip("/").split("/")[-1]
-        )
-        if lamella_name not in (name, folder):
-            continue
-        for cfg in (position.get("task_config") or {}).values():
-            if (
-                not isinstance(cfg, dict)
-                or cfg.get("task_type") != "SPOT_BURN_FIDUCIAL"
-            ):
-                continue
-            coords = [Point(x=c["x"], y=c["y"]) for c in cfg.get("coordinates", [])]
-            if coords:
-                return coords, ""
-            return [], f"{lamella_name}: spot-burn task has no coordinates"
-        return [], f"{lamella_name}: no spot-burn task in the experiment"
-    return [], f"{lamella_name!r} is not a lamella in {experiment_file}"
-
-
-def _experiment_and_lamella_dirs(
-    project_dir: str,
-) -> Tuple[Optional[str], Optional[str]]:
-    """The experiment folder above a run or lamella folder, and the lamella folder."""
-    path = os.path.abspath(project_dir)
-    lamella_dir = None
-    probe = path
-    for _ in range(6):
-        if os.path.isfile(os.path.join(probe, "experiment.yaml")):
-            return probe, lamella_dir
-        parent = os.path.dirname(probe)
-        if parent == probe:
-            break
-        lamella_dir = probe
-        probe = parent
-    return None, None
-
-
-def _images_beside_a_run(lamella_dir: str) -> Dict[str, Optional[str]]:
-    """The FIB and FM images for a run folder, from the lamella folder above it.
-
-    A lamella holds a reference image per task and stage, so the plain
-    discovery order would take whichever sorts first. Correlation fiducials are
-    picked on a post-burn reference, so prefer the spot-burn task's final one.
-
-    This is a guess, used only for a run that records no image names (before
-    FIB-1019): picking the wrong reference shifts every FIB coordinate. The
-    caller logs what it chose.
-    """
-    import glob
-
-    ib = sorted(glob.glob(os.path.join(lamella_dir, "*_ib.tif")))
-    burn = [
-        p
-        for p in ib
-        if "spot burn" in os.path.basename(p).lower()
-        and "final" in os.path.basename(p).lower()
-    ]
-    fm = sorted(
-        glob.glob(os.path.join(lamella_dir, "*.ome.tif"))
-        + glob.glob(os.path.join(lamella_dir, "*.ome.tiff"))
-    )
-    return {
-        "fib": (burn or ib or [None])[-1],
-        "fm": (fm or [None])[0],
-    }
-
-
-def _recorded_image_names(found: Dict[str, Optional[str]]) -> Dict[str, Optional[str]]:
-    """The FIB and FM image names the run's own file records, or None for each.
-
-    Read from the file ``load_project`` will load, in the same order. An
-    unreadable file records nothing here; the load reports it.
-    """
-    for key in ("correlation", "data", "result"):
-        if not found.get(key):
-            continue
-        try:
-            state = load_correlation_file(found[key])
-        except Exception:
-            continue
-        sources = [state.input_data]
-        if state.result is not None and state.result.input_data is not None:
-            sources.append(state.result.input_data)
-        return {
-            "fib": next(
-                (
-                    d.stored_fib_image_filename
-                    for d in sources
-                    if d.stored_fib_image_filename
-                ),
-                None,
-            ),
-            "fm": next(
-                (
-                    d.stored_fm_image_filename
-                    for d in sources
-                    if d.stored_fm_image_filename
-                ),
-                None,
-            ),
-        }
-    return {"fib": None, "fm": None}
-
-
-# The forms a recorded name has taken: the file itself, or (older FIB records)
-# the acquisition stem that ``save`` appended its suffix to.
-_RECORDED_IMAGE_SUFFIXES = {
-    "fib": ("", "_ib.tif", "_ib.tiff", ".tif", ".tiff"),
-    "fm": ("", ".ome.tiff", ".ome.tif"),
-}
-
-
-def _find_recorded_image(name: str, kind: str, folders: List[str]) -> Optional[str]:
-    """The file a recorded image name refers to, in the first of ``folders``
-    that has it, or None. A full path recorded on another machine is reduced to
-    its file name."""
-    base = recorded_image_basename(name)
-    if base is None:
-        return None
-    for folder in folders:
-        for suffix in _RECORDED_IMAGE_SUFFIXES[kind]:
-            path = os.path.join(folder, base + suffix)
-            if os.path.isfile(path):
-                return path
-    return None
-
-
 def load_project(widget: "CorrelationTabWidget", directory: str) -> None:
     """Quickstart-load a correlation project directory into ``widget``.
 
@@ -5262,57 +5000,10 @@ def load_project(widget: "CorrelationTabWidget", directory: str) -> None:
     saved correlation result (preferred) or coordinate data. Missing or
     unreadable pieces are logged and skipped so a partial project still opens.
 
-    The images are the ones the run records it was picked on (FIB-1019),
-    looked for in the run folder and then the lamella folder above it. A
-    recorded image that cannot be found is left unloaded rather than replaced
-    by a guess: the fiducials are pixels in that image (FIB-1237). Only a run
-    that records no names falls back to guessing.
+    Which files is :func:`fibsem.correlation.history.discover_project`'s
+    answer; this loads them into the widget.
     """
-    found = _discover_correlation_files(directory)
-    logging.info("Quickstart loading correlation project: %s", directory)
-
-    _, lamella_dir = _experiment_and_lamella_dirs(directory)
-    above_run = (
-        lamella_dir
-        if lamella_dir and os.path.abspath(lamella_dir) != os.path.abspath(directory)
-        else None
-    )
-    recorded = _recorded_image_names(found)
-    for key in ("fib", "fm"):
-        if not recorded[key]:
-            continue
-        folders = [directory] + ([above_run] if above_run else [])
-        found[key] = _find_recorded_image(recorded[key], key, folders)
-        if found[key]:
-            logging.info(
-                "  %s image as recorded by the run: %s",
-                key.upper(),
-                os.path.basename(found[key]),
-            )
-        else:
-            logging.warning(
-                "  the run records %s image %s, which is not in %s; not loading "
-                "another in its place",
-                key.upper(),
-                recorded_image_basename(recorded[key]),
-                " or ".join(folders),
-            )
-
-    # A run folder holds correlation.json; the images live in the lamella
-    # folder above it. The launcher already walks up there for the spot-burn
-    # pattern and the transform priors, so do the same for the images rather
-    # than opening with points and empty canvases (FIB-1018).
-    unrecorded = [k for k in ("fib", "fm") if not recorded[k] and not found[k]]
-    if unrecorded and above_run:
-        above = _images_beside_a_run(above_run)
-        for key in unrecorded:
-            if above[key]:
-                found[key] = above[key]
-                logging.info(
-                    "  %s image guessed from the lamella folder: %s",
-                    key.upper(),
-                    os.path.basename(above[key]),
-                )
+    found = discover_project(directory)
 
     widget.set_project_dir(directory)
 
@@ -5412,7 +5103,7 @@ def main() -> None:
             widget.add_lamella_setup(spot_burns=burns)
         else:
             logging.info(f"No spot-burn pattern: {reason}")
-        experiment_dir, lamella_dir = _experiment_and_lamella_dirs(args.project)
+        experiment_dir, lamella_dir = experiment_and_lamella_dirs(args.project)
         if experiment_dir:
             from fibsem.correlation.prior import experiment_runs
 

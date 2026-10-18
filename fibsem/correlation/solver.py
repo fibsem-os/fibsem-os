@@ -239,7 +239,7 @@ def global_starts(fm_xyz, fib_xy) -> List[Start]:
     fiducials share a depth and the beams look straight down; the 60 fixed rotations
     of the cover reach every other basin.
     """
-    from fibsem.correlation.similarity import fit_similarity
+    from fibsem.geometry.similarity import fit_similarity
 
     fm, fib = _pairs(fm_xyz, fib_xy)
     starts: List[Start] = []

@@ -153,39 +153,6 @@ def _loaded_filename(image) -> Optional[str]:
     return os.path.basename(filepath) if filepath else None
 
 
-_IMAGE_SUFFIXES = (".ome.tiff", ".ome.tif", ".tiff", ".tif")
-
-
-def recorded_image_basename(name: Optional[str]) -> Optional[str]:
-    """A recorded image name as a bare file name.
-
-    Runs written on the instrument PC can record a full Windows path, which
-    ``os.path.basename`` on another platform leaves whole, so both separators
-    are split on here (FIB-1237).
-    """
-    if not name:
-        return None
-    return str(name).replace("\\", "/").rstrip("/").split("/")[-1] or None
-
-
-def image_stem(name: Optional[str]) -> Optional[str]:
-    """What identifies an image file across the forms a run has recorded it in.
-
-    The bare name without its TIFF suffix, and without the ``_ib`` tag: older
-    runs recorded the acquisition stem (``ref_Spot Burn Fiducial_final_res_02``)
-    where newer ones record the file (``..._final_res_02_ib.tif``). An ``_eb``
-    image keeps its tag, so it never matches the ion image of the same stage.
-    """
-    base = recorded_image_basename(name)
-    if base is None:
-        return None
-    for suffix in _IMAGE_SUFFIXES:
-        if base.lower().endswith(suffix):
-            base = base[: -len(suffix)]
-            break
-    return base[:-3] if base.endswith("_ib") else base
-
-
 # Pixel sizes closer than this are the same image's: they come back from JSON
 # exactly, so this only absorbs a re-derivation, never a different field of view.
 _PIXEL_SIZE_RTOL = 0.01
@@ -749,16 +716,6 @@ class CorrelationResult:
             rows.append(row)
         return pd.DataFrame(rows)
 
-    def to_csv(self, filename: str) -> None:
-        """Export input coordinates and reprojection error to a CSV file."""
-        df_input = self.to_input_dataframe()
-        df_result = self.to_result_dataframe()
-        with open(filename, "w") as f:
-            f.write("# Input Coordinates\n")
-            df_input.to_csv(f, index=False)
-            f.write("\n# Marker Reprojection Error\n")
-            df_result.to_csv(f, index=False)
-
     def matches_inputs(self, current: CorrelationInputData) -> bool:
         """Whether this result was computed from ``current``'s coordinates and images.
 
@@ -794,6 +751,8 @@ class CorrelationResult:
         runs before FIB-1019 recorded no names -- so only a value present on
         both sides and different counts.
         """
+        from fibsem.correlation.history import image_stem, recorded_image_basename
+
         if self.input_data is None:
             return None
         then = self.input_data

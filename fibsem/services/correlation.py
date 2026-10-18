@@ -15,7 +15,7 @@ answer is the experiment's decision, not the service's.
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional
 
 from fibsem.devices.core import query
 from fibsem.services.core import Service
@@ -63,6 +63,7 @@ class Correlation(Service):
         reasons), what the fit started from, and the saved paths.
         """
         from fibsem.correlation.config import MIN_FIDUCIAL_PAIRS
+        from fibsem.correlation.export import save_overlay
         from fibsem.correlation.fit import fit_transform, seed_for
         from fibsem.correlation.history import new_run_dir, save_run
         from fibsem.correlation.prior import experiment_runs
@@ -123,7 +124,7 @@ class Correlation(Service):
             run_path = new_run_dir(lamella_path)
             save_run(run_path, CorrelationState(input_data=data, result=result))
             overlay_path = os.path.join(run_path, OVERLAY_FILENAME)
-            _save_overlay(overlay_path, fib_image, data, result)
+            save_overlay(overlay_path, fib_image, data, result)
             answer.update(run_path=run_path, overlay_path=overlay_path)
         return answer
 
@@ -241,28 +242,3 @@ def _summary(result: Any, data: Any, seed: Any) -> Dict[str, Any]:
         "started_from": started,
         "placement_offset_um": result.placement_offset,
     }
-
-
-def _save_overlay(path: str, fib_image: Any, data: Any, result: Any) -> None:
-    """The FIB image with the fiducials picked (o), where the fit puts the FM
-    fiducials (x), and the points of interest (+)."""
-    from matplotlib.figure import Figure
-
-    fig = Figure(figsize=(8, 8 * fib_image.data.shape[0] / fib_image.data.shape[1]))
-    ax = fig.add_axes((0, 0, 1, 1))
-    ax.imshow(fib_image.data, cmap="gray")
-    _scatter(ax, [(c.point.x, c.point.y) for c in data.fib_coordinates], "o", "cyan")
-    _scatter(ax, [(p.x, p.y) for p in result.reprojected_3d], "x", "yellow")
-    _scatter(ax, [(p.image_px.x, p.image_px.y) for p in result.poi], "+", "magenta")
-    ax.set_axis_off()
-    fig.savefig(path, dpi=100)
-
-
-def _scatter(ax: Any, points: Sequence, marker: str, colour: str) -> None:
-    if not points:
-        return
-    xs, ys = zip(*points)
-    if marker == "o":
-        ax.scatter(xs, ys, marker=marker, s=80, facecolors="none", edgecolors=colour)
-    else:
-        ax.scatter(xs, ys, marker=marker, s=80, color=colour)

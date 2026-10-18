@@ -944,9 +944,7 @@ def test_dialog_allows_window_minimise(qapp):
 
 
 def test_discover_correlation_files(tmp_path):
-    from fibsem.ui.correlation.widgets.correlation_tab_widget import (
-        _discover_correlation_files,
-    )
+    from fibsem.correlation.history import _discover_correlation_files
 
     # Empty directory → everything None.
     assert _discover_correlation_files(str(tmp_path)) == {
@@ -975,7 +973,7 @@ def test_a_run_folder_takes_its_images_from_the_lamella_above(tmp_path):
     """A run folder holds only the JSON; the images are one level up. The
     launcher walks up for them, preferring the post-burn reference the
     fiducials were picked on over the lamella's other references."""
-    from fibsem.ui.correlation.widgets.correlation_tab_widget import (
+    from fibsem.correlation.history import (
         _discover_correlation_files,
         _images_beside_a_run,
     )
@@ -1015,9 +1013,7 @@ def test_a_run_folder_takes_its_images_from_the_lamella_above(tmp_path):
 
 def test_discover_fib_falls_back_to_non_ome_tif(tmp_path):
     """With no *_ib.tif, the FIB is the first TIFF that isn't the OME-TIFF."""
-    from fibsem.ui.correlation.widgets.correlation_tab_widget import (
-        _discover_correlation_files,
-    )
+    from fibsem.correlation.history import _discover_correlation_files
 
     (tmp_path / "scene.ome.tif").write_bytes(b"")  # FM — must not be taken as FIB
     (tmp_path / "fib_image.tif").write_bytes(b"")  # plain TIFF → FIB fallback
