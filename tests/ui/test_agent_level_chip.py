@@ -519,7 +519,7 @@ class _Host:
         return self.auth.seconds_since_seen()
 
     def stop_agent(self, microscope):
-        from fibsem.applications.autolamella.server.hosting import AppServerHost
+        from fibsem.server.hosting import AppServerHost
 
         return AppServerHost.stop_agent(self, microscope)
 
@@ -560,15 +560,15 @@ class _Store:
 def host(main_ui):
     pytest.importorskip("fastapi")
     ui = main_ui.autolamella_ui
-    previous = ui._app_server_host
-    ui._app_server_host = _Host()
-    yield ui._app_server_host
-    ui._app_server_host = previous
+    previous = ui.session.app_server
+    ui.session.app_server = _Host()
+    yield ui.session.app_server
+    ui.session.app_server = previous
     main_ui._refresh_agent_chip()
 
 
 def test_the_chip_is_hidden_without_a_running_app_server(main_ui):
-    main_ui.autolamella_ui._app_server_host = None
+    main_ui.autolamella_ui.session.app_server = None
     main_ui._refresh_agent_chip()
     assert main_ui.agent_chip.isHidden()
 

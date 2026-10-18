@@ -6,8 +6,8 @@ import os
 import pytest
 
 from fibsem import utils
-from fibsem.applications.autolamella.server.hosting import AppServerHost
 from fibsem.control import AGENT, SCRIPT, WORKFLOW
+from fibsem.server.hosting import AppServerHost
 from fibsem.server.levels import AgentLevel
 
 pytest.importorskip("fastapi")
@@ -40,7 +40,7 @@ def stops(microscope, monkeypatch):
 def host():
     from fibsem.server import AuthConfig
 
-    host = AppServerHost(ui=None)
+    host = AppServerHost(session=None, app_context=None)
     host.auth = AuthConfig.generate()
     host.auth.set_level(AgentLevel.DRIVE)
     return host
