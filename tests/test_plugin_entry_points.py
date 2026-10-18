@@ -1,6 +1,6 @@
 """The plugin entry point contract.
 
-fibsem exposes extension points -- ``fibsem.patterns``, ``fibsem.strategies``,
+fibsem exposes extension points -- ``fibsem.milling.patterns``, ``fibsem.milling.strategies``,
 ``fibsem.autolamella.tasks`` and ``fibsem.drivers`` -- and for patterns and strategies a
 packaged plugin is the *only* way in. Nothing in the test suite exercised that
 path, so a refactor could break every third-party plugin in existence without a
@@ -52,7 +52,8 @@ def _fixture_installed() -> bool:
     from importlib.metadata import entry_points
 
     return any(
-        ep.name == "fixture_pattern" for ep in entry_points(group="fibsem.patterns")
+        ep.name == "fixture_pattern"
+        for ep in entry_points(group="fibsem.milling.patterns")
     )
 
 
@@ -266,7 +267,9 @@ def test_shadowed_plugin_is_reported_rather_than_vanishing():
     """
     from fibsem.plugins.report import ExtensionSource, collect_extensions
 
-    patterns = next(g for g in collect_extensions() if g.group == "fibsem.patterns")
+    patterns = next(
+        g for g in collect_extensions() if g.group == "fibsem.milling.patterns"
+    )
     shadowed = [e for e in patterns.extensions if e.shadowed]
 
     assert [e.name for e in shadowed] == [CLASHING_PATTERN_NAME]
@@ -310,10 +313,10 @@ def test_report_lists_the_fixture_across_every_group():
 
     groups = collect_extensions()
     assert [g.group for g in groups] == [
-        "fibsem.patterns",
-        "fibsem.strategies",
+        "fibsem.milling.patterns",
+        "fibsem.milling.strategies",
         "fibsem.autolamella.tasks",
-        "fibsem.grid_tasks",
+        "fibsem.grid.tasks",
         "fibsem.drivers",
     ]
 

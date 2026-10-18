@@ -161,7 +161,7 @@ def test_quality_record_reads_the_defect_state_shape_and_the_bare_grid_name():
     assert q.verdict is Verdict.FAILED
     assert q.at_task == "Mill Rough"
     assert q.reason == "torn"
-    assert q.author == ""
+    assert q.actor == ""
 
     assert QualityRecord.from_dict("POOR").verdict is Verdict.FAILED
     assert QualityRecord.from_dict("GOOD").verdict is Verdict.GOOD
@@ -177,7 +177,7 @@ def test_quality_record_round_trips_author_and_decision_id():
 
     q = QualityRecord(
         verdict=Verdict.FAILED,
-        author="human:operator",
+        actor="operator:operator",
         reason="no usable site",
         at_task="Setup Lamella Position",
         decision_id=("lamella-uuid", "Setup Lamella Position"),

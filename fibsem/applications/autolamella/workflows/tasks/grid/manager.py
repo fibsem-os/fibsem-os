@@ -66,12 +66,12 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 import pandas as pd
 
+from fibsem.acting import WORKFLOW
 from fibsem.applications.autolamella.workflows.tasks.grid.registry import (
     run_grid_task,
 )
 from fibsem.applications.autolamella.workflows.ui import update_status_ui
 from fibsem.cancellation import OperationCancelledError
-from fibsem.control import WORKFLOW
 from fibsem.devices.sample_loader import GridExchangeError
 from fibsem.hooks import HookEvent, HookManager
 from fibsem.structures import SampleGrid

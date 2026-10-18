@@ -31,17 +31,9 @@ from typing import Dict, Iterator, List, Optional
 
 from psygnal import Signal
 
-from fibsem.acting import AGENT, OPERATOR
-
-# Who can be in control, beside the actors fibsem.acting already names.
-WORKFLOW = "workflow"
-SCRIPT = "script"
+from fibsem.acting import OPERATOR, ActorKind
 
 __all__ = [
-    "AGENT",
-    "OPERATOR",
-    "SCRIPT",
-    "WORKFLOW",
     "Control",
     "InControl",
     "MicroscopeBusy",
@@ -53,7 +45,7 @@ __all__ = [
 class InControl:
     """Who is in control, doing what, since when (epoch seconds)."""
 
-    by: str
+    by: ActorKind
     action: str
     since: float
 
@@ -117,7 +109,7 @@ class Control:
             return self._last
 
     @contextmanager
-    def take(self, by: str, action: str) -> Iterator[InControl]:
+    def take(self, by: "ActorKind | str", action: str) -> Iterator[InControl]:
         """Be in control for the block, or raise :class:`MicroscopeBusy` at once.
 
         While the one in control has lent it (a question is standing), the take
@@ -125,6 +117,7 @@ class Control:
         holder is open to its own actor (`let_act_beside`), that actor's take
         acts beside it.
         """
+        by = ActorKind(by)
         entry = InControl(by=by, action=action, since=time.time())
         with self._cond:
             holder = self._borrower or self._owner

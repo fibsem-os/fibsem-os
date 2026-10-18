@@ -1504,7 +1504,7 @@ def build_sidecar(client, capabilities):
         proposal_id: str = "",
         values: Optional[dict] = None,
         reason: str = "",
-        author: str = "",
+        actor: str = "",
         task_id: str = "",
     ):
         body = {
@@ -1512,7 +1512,7 @@ def build_sidecar(client, capabilities):
             "task_name": str(task_name),
             "outcome": str(outcome),
             "reason": str(reason),
-            "author": str(author),
+            "actor": str(actor),
         }
         # What the decision is on. The id is the one to pass; the run is
         # accepted in its place, for a caller written before proposals had ids.

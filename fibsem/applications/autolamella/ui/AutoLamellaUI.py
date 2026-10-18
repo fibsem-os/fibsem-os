@@ -31,6 +31,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem.acting import WORKFLOW
 from fibsem.applications.autolamella.ui.lamella_name_list_widget import (
     LamellaNameListWidget,
 )
@@ -40,7 +41,7 @@ from fibsem.applications.autolamella.ui.selected_lamella_widget import (
 )
 from fibsem.cancellation import OperationCancelledError
 from fibsem.constants import METRE_TO_MICRON, MICRON_TO_METRE
-from fibsem.control import WORKFLOW, MicroscopeBusy
+from fibsem.control import MicroscopeBusy
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
     BeamType,
@@ -83,17 +84,14 @@ from fibsem.applications.autolamella.hook_defaults import build_hook_manager
 from fibsem.applications.autolamella.poses import (
     add_lamella,
     current_objective_position,
-    grid_id_at,
     remove_lamella,
     set_lamella_pose,
     stored_objective_position,
-    sync_fluorescence_pose,
 )
 from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskProtocol,
     AutoLamellaWorkflowConfig,
-    AutoLamellaWorkflowOptions,
     Experiment,
     Lamella,
 )
@@ -2260,13 +2258,6 @@ class AutoLamellaUI(QMainWindow):
 
         self.update_ui()
 
-    def _on_workflow_options_changed(self, options: AutoLamellaWorkflowOptions):
-        if self.experiment is None or self.experiment.task_protocol is None:
-            return
-        self.experiment.task_protocol.options = options
-        self.experiment.save()
-        self.experiment.save_protocol()
-
     def update_lamella_combobox(self, latest: bool = False):
         if self.experiment is None:
             return
@@ -2345,13 +2336,6 @@ class AutoLamellaUI(QMainWindow):
         logging.info(f"Moving to position of {lamella.name}.")
         self.movement_widget.move_to_position(stage_position)
 
-    def _grid_id_for_new_lamella(
-        self, position: Optional[FibsemStagePosition]
-    ) -> Optional[str]:
-        """The record id of the grid a lamella at *position* is on, or None
-        (`fibsem.applications.autolamella.poses.grid_id_at`)."""
-        return grid_id_at(self.experiment, self.microscope, position)
-
     def add_new_lamella(
         self,
         stage_position: Optional[FibsemStagePosition] = None,
@@ -2424,38 +2408,6 @@ class AutoLamellaUI(QMainWindow):
         self.update_lamella_combobox(latest=True)
         self.update_ui()
 
-    def delete_lamella_ui(self):
-        """Handle the removal of a lamella from the experiment (legacy path)."""
-
-        idx = self.lamella_list.selected_index
-        if idx == -1:
-            logging.warning("No lamella is selected, cannot remove.")
-            return
-
-        if self.experiment is None or self.experiment.positions == []:
-            logging.warning("No lamella in the experiment, cannot remove.")
-            return
-
-        pos = self.experiment.positions[idx]
-        ret = fui.message_box_ui(
-            title="Remove Lamella",
-            text=f"Are you sure you want to remove Lamella {pos.name}?",
-            parent=self,
-        )
-        if ret is False:
-            logging.debug("User cancelled lamella removal.")
-            return
-
-        # TODO: also remove data from disk
-
-        # remove the lamella
-        self.experiment.positions.pop(idx)
-        self.experiment.save()
-
-        logging.debug("Lamella removed from experiment")
-        self.update_lamella_combobox(latest=True)
-        self.update_ui()
-
     def update_lamella_position_ui(self):
         """Update the stage position of the selected lamella to the current stage position."""
 
@@ -2487,14 +2439,14 @@ class AutoLamellaUI(QMainWindow):
         if ret != QMessageBox.Yes:
             return
 
-        lamella.milling_pose = deepcopy(self.microscope.get_microscope_state())
-
-        # keep the milling angle consistent with the updated milling pose
-        lamella.update_milling_angle(self.microscope)
-        # ...and the fluorescence pose, which describes the same piece of sample from
-        # the other side. Left behind, it would go on naming where this lamella used to
-        # be -- and nothing about a stale pose looks wrong.
-        sync_fluorescence_pose(self.microscope, lamella)
+        # As Set pose does: the stored objective position is kept, and the
+        # milling angle and fluorescence pose follow the new milling pose.
+        set_lamella_pose(
+            self.microscope,
+            lamella,
+            "MILLING",
+            deepcopy(self.microscope.get_microscope_state()),
+        )
 
         self.update_lamella_combobox()
         self.update_ui()
@@ -2913,7 +2865,7 @@ class AutoLamellaUI(QMainWindow):
             task_name,
             Decision(
                 outcome=DecisionOutcome.Confirmed,
-                author=experiment.author(),
+                actor=experiment.actor(),
                 via="workflow",
                 proposal_id=proposal_id,
             ),

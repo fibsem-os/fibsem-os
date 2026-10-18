@@ -24,6 +24,7 @@ pytest.importorskip("PyQt5")
 
 from psygnal.containers import EventedDict
 
+from fibsem.acting import ActorKind
 from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskDescription,
@@ -39,7 +40,7 @@ from fibsem.applications.autolamella.workflows.tasks.rough import (
 )
 from fibsem.milling import FibsemMillingStage
 from fibsem.milling.tasks import FibsemMillingTaskConfig
-from fibsem.workflows.proposals import TASK_RESULT, AuthorKind, DecisionOutcome
+from fibsem.workflows.proposals import TASK_RESULT, DecisionOutcome
 
 ROUGH = "Rough Milling"
 MSG = "Run the rough mill."
@@ -145,7 +146,7 @@ def test_continue_after_the_mill_is_the_operators_decision_on_the_result(ui, qap
     assert proposal.kind == TASK_RESULT and not proposal.pending
     decision = proposal.current
     assert decision.outcome is DecisionOutcome.Confirmed
-    assert decision.author.kind is AuthorKind.human, "theirs, not the producer's"
+    assert decision.actor.kind is ActorKind.operator, "theirs, not the producer's"
     assert decision.via == "workflow"
     assert not proposal.to_check, "a person already looked"
     assert not ui.experiment.positions[0].is_awaiting_decision(ROUGH), (
@@ -163,7 +164,7 @@ def test_with_the_preference_off_the_record_is_still_theirs(ui, qapp):
 
     assert "error" not in outcome
     decision = ui.experiment.positions[0].proposal(ROUGH).current
-    assert decision.author.kind is AuthorKind.human
+    assert decision.actor.kind is ActorKind.operator
 
 
 def test_the_mill_the_task_asks_for_writes_under_the_task_s_folder(

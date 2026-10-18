@@ -36,9 +36,9 @@ fibsem/                     the instrument library (no application logic)
   theme/                    the palette (tokens.py), importable without Qt
   server/                   the App Server for agents (build_server)
   mcp/                      the fibsem-mcp sidecar (MCP to HTTP)
-  plugins/                  entry-point loading: fibsem.patterns,
-                            fibsem.strategies, fibsem.autolamella.tasks,
-                            fibsem.grid_tasks, fibsem.drivers
+  plugins/                  entry-point loading: fibsem.milling.patterns,
+                            fibsem.milling.strategies, fibsem.autolamella.tasks,
+                            fibsem.grid.tasks, fibsem.drivers
 
 fibsem/applications/autolamella/
   structures.py             Experiment, Lamella, AutoLamellaTaskProtocol

@@ -109,7 +109,7 @@ def screened(tmp_path_factory):
     # grid-aspen: loaded, screened in full, two lamellae, judged good
     aspen = exp.add_grid(GridRecord(name="grid-aspen"))
     aspen.quality.verdict = Verdict.GOOD
-    aspen.quality.author = "human:operator"
+    aspen.quality.actor = "operator:operator"
     aspen.description = "Even ice, cells on the east half."
     aspen.task_history.append(
         _entry(LOAD_ENTRY_NAME, TaskStatus.Completed, "Loaded into Slot-01.")
@@ -194,7 +194,7 @@ class TestCover:
     def test_the_verdict_is_the_operators(self, report):
         aspen, birch, cedar = report.sections
         assert aspen.quality.verdict is Verdict.GOOD and aspen.recommended
-        assert aspen.quality.author == "human:operator"
+        assert aspen.quality.actor == "operator:operator"
         assert aspen.description == "Even ice, cells on the east half."
         assert birch.quality.verdict is Verdict.FAILED and not birch.recommended
         assert cedar.quality.verdict is Verdict.UNASSESSED and not cedar.recommended

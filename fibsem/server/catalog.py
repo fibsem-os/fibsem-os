@@ -2120,7 +2120,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="review_decide",
-        description="Confirm or reject a proposal, exactly as the Review tab would. Pass the proposal_id review_list gave for it: the decision is on that proposal, and is refused (409 stale_review) if it is no longer the one on the record -- the task re-ran, or asked again in the same run -- so re-read and decide the current one. (task_id, the run, is accepted in its place but cannot tell two questions from one run apart.) Confirming a pending proposal needs all its values (e.g. {'poi': {'x','y'}} metres, milling frame), as proposed or adjusted; they are written through, the consumer becomes runnable, and the delta against the proposal is computed, so pass the values you actually judge right. Confirming a to_check proposal (already applied) acknowledges it and must carry no values; to change an applied value, re-run the task. A wrong, missing or foreign value is refused (422 invalid_value) with nothing written. Rejected needs a reason and fails the task that was waiting on the decision, so nothing that requires it runs; the lamella itself is not marked defective. Refused (409) when the item has a task running -- stop it instead -- unless that task is the one stopped on this very proposal (holding_the_run), which a decision releases: Confirmed hands the values back and the task carries on, Rejected fails it. Also refused when there is no proposal for that item and task. The decision is recorded with the agent as author.",
+        description="Confirm or reject a proposal, exactly as the Review tab would. Pass the proposal_id review_list gave for it: the decision is on that proposal, and is refused (409 stale_review) if it is no longer the one on the record -- the task re-ran, or asked again in the same run -- so re-read and decide the current one. (task_id, the run, is accepted in its place but cannot tell two questions from one run apart.) Confirming a pending proposal needs all its values (e.g. {'poi': {'x','y'}} metres, milling frame), as proposed or adjusted; they are written through, the consumer becomes runnable, and the delta against the proposal is computed, so pass the values you actually judge right. Confirming a to_check proposal (already applied) acknowledges it and must carry no values; to change an applied value, re-run the task. A wrong, missing or foreign value is refused (422 invalid_value) with nothing written. Rejected needs a reason and fails the task that was waiting on the decision, so nothing that requires it runs; the lamella itself is not marked defective. Refused (409) when the item has a task running -- stop it instead -- unless that task is the one stopped on this very proposal (holding_the_run), which a decision releases: Confirmed hands the values back and the task carries on, Rejected fails it. Also refused when there is no proposal for that item and task. The decision is recorded with the agent as its actor.",
         method="POST",
         path="/app/workflow/decide",
         level="drive",
@@ -2133,9 +2133,9 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "outcome": "Confirmed or Rejected",
             "values": "on Confirmed of a pending proposal: every value its kind carries, as proposed or adjusted; omitted (or empty) when acknowledging a to_check one",
             "reason": "required on Rejected",
-            "author": "optional agent/model name, recorded as agent:<name>",
+            "actor": "optional agent/model name, recorded as agent:<name>",
         },
-        optional=("proposal_id", "values", "reason", "author", "task_id"),
+        optional=("proposal_id", "values", "reason", "actor", "task_id"),
     ),
     ToolSpec(
         name="prompt_answer",

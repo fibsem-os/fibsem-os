@@ -293,7 +293,7 @@ class SelectMillingPositionTask(AutoLamellaTask):
                 # proposer's point is what supervised runs used to throw away.
                 self.inline_decision = Decision(
                     outcome=DecisionOutcome.Confirmed,
-                    author=self._answer_author(),
+                    actor=self._answer_actor(),
                     values={"poi": poi},
                     via="workflow",
                 )
