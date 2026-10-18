@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import threading
 from concurrent.futures import Future
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Dict, Optional
 
 from fibsem.acting import OPERATOR
 from fibsem.imaging.latest import LatestImages
@@ -70,6 +70,18 @@ class AppSession:
         # the microscope (FIB-1359), None until the client first says.
         self.agent_auth: Optional[Any] = None
         self.serve_microscope: Optional[bool] = None
+        self._analysis_services: Optional[Dict[str, Any]] = None
+
+    @property
+    def analysis_services(self) -> Dict[str, Any]:
+        """The analysis services (`fibsem.services.analysis`), made on first
+        use and kept for the session: the App Server serves these and the
+        widgets use the same ones, so a loaded model outlives a restart of it."""
+        if self._analysis_services is None:
+            from fibsem.services.analysis import analysis_services
+
+            self._analysis_services = analysis_services()
+        return self._analysis_services
 
     def run_edit(self, call: Callable[[], Any]) -> "Future[Any]":
         """Run ``call()`` where the experiment is edited; any thread. Resolves
