@@ -1313,7 +1313,7 @@ def test_the_agent_s_workflow_stop_turns_the_border_red(main_ui, qapp):
 
     ui = main_ui.autolamella_ui
     previous = ui.session.runner
-    ui.session.runner = StubRunner(is_running=True)
+    ui.session.runner = StubRunner(ui.session, is_running=True)
     main_ui._set_border_state("automated")
     answers = []
     try:

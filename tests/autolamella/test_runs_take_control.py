@@ -1,6 +1,7 @@
 """A run is in control of the microscope for its whole length (FIB-1270), the
 same headless as in the app: a command from the App Server or a script is
-refused beside it, and a run is refused beside them."""
+refused beside it, and a run does not start beside them. Every run executes
+through ``BaseTaskManager.execute``, whoever starts it."""
 
 import os
 
@@ -8,15 +9,8 @@ import pytest
 
 from fibsem import utils
 from fibsem.applications.autolamella.structures import Experiment
-from fibsem.applications.autolamella.workflows.tasks.manager import (
-    TaskManager,
-    run_tasks,
-)
-from fibsem.control import MicroscopeBusy
-from fibsem.workflows.grid.manager import (
-    GridTaskManager,
-    run_grid_tasks,
-)
+from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
+from fibsem.workflows.grid.manager import GridTaskManager
 
 
 @pytest.fixture(scope="module")
@@ -35,8 +29,8 @@ def experiment(tmp_path):
 @pytest.mark.parametrize(
     "manager, start",
     [
-        (TaskManager, lambda m, e: run_tasks(m, e, [])),
-        (GridTaskManager, lambda m, e: run_grid_tasks(m, e, task_names=[])),
+        (TaskManager, lambda m, e: TaskManager(m, e).execute([])),
+        (GridTaskManager, lambda m, e: GridTaskManager(m, e).execute([])),
     ],
     ids=["lamella", "grid"],
 )
@@ -59,8 +53,8 @@ def test_a_headless_run_is_in_control_while_it_runs(
 @pytest.mark.parametrize(
     "manager, start",
     [
-        (TaskManager, lambda m, e: run_tasks(m, e, [])),
-        (GridTaskManager, lambda m, e: run_grid_tasks(m, e, task_names=[])),
+        (TaskManager, lambda m, e: TaskManager(m, e).execute([])),
+        (GridTaskManager, lambda m, e: GridTaskManager(m, e).execute([])),
     ],
     ids=["lamella", "grid"],
 )
@@ -71,7 +65,7 @@ def test_a_headless_run_is_refused_while_someone_else_is_in_control(
     monkeypatch.setattr(manager, "run", lambda self, *a, **k: ran.append(True))
 
     with microscope.control.take("agent", "POST /move_stage_relative"):
-        with pytest.raises(MicroscopeBusy, match="the agent is in control"):
-            start(microscope, experiment)
+        start(microscope, experiment)
+        assert microscope.control.current.by == "agent"
 
     assert not ran

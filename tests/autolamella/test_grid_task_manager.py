@@ -38,13 +38,12 @@ from fibsem.workflows.grid.manager import (
     GridTaskManager,
     grid_has_run,
     plan_grid_run,
-    run_grid_tasks,
 )
 from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.outputs import item_outputs
 from fibsem.workflows.status import TaskStatus as Status
 from fibsem.workflows.status import WorkflowStatusEvent
-from tests.run_state import stub_session
+from tests.run_state import run_grids, stub_session
 
 GRIDS = ["Grid-01", "Grid-02", "Grid-03"]  # what the sim magazine holds
 
@@ -722,7 +721,7 @@ class TestEndOfRun:
         self, microscope, experiment, monkeypatch, tmp_path
     ):
         pytest.importorskip("reportlab")
-        manager = run_grid_tasks(
+        manager = run_grids(
             microscope,
             experiment,
             task_names=["overview_sem"],
@@ -749,7 +748,7 @@ class TestEndToEnd:
                 settings=_small_settings(BeamType.ION),
             )
         )
-        manager = run_grid_tasks(
+        manager = run_grids(
             microscope,
             experiment,
             task_names=["overview_milling"],
@@ -768,9 +767,7 @@ class TestEndToEnd:
     def test_real_overviews_land_under_each_grid(
         self, microscope, experiment, tmp_path
     ):
-        manager = run_grid_tasks(
-            microscope, experiment, grid_names=["Grid-01", "Grid-02"]
-        )
+        manager = run_grids(microscope, experiment, grid_names=["Grid-01", "Grid-02"])
         assert all(i.status is Status.Completed for i in manager.queue.items)
         for name in ("Grid-01", "Grid-02"):
             grid = experiment.get_grid_by_name(name)

@@ -1,6 +1,6 @@
 """The agent's start and requeue pass the same grid gate as the Run click and Add
 to queue: a lamella whose grid is not on the stage is refused, by name, before
-anything moves (FIB-71). See `workflows/grid_gate.py`."""
+anything moves (FIB-71). See `workflows/runs.py`."""
 
 import os
 

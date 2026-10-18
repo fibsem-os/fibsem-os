@@ -3,7 +3,7 @@
 On an Aquilos every pattern call was rejected, each milling stage logged the
 error and moved on, and a headless run recorded Rough Milling Completed with
 nothing milled -- which also satisfies Polishing's prerequisite. Real task
-through ``run_tasks`` on Demo; only the microscope's mill is replaced.
+through the session's runner on Demo; only the microscope's mill is replaced.
 """
 
 import os
@@ -19,9 +19,9 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaWorkflowConfig,
     Experiment,
 )
-from fibsem.applications.autolamella.workflows.tasks.manager import run_tasks
 from fibsem.applications.autolamella.workflows.tasks.rough import MillRoughTaskConfig
 from fibsem.workflows.status import TaskStatus
+from tests.run_state import run_lamellae
 
 ROUGH = "Rough Milling"
 CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
@@ -62,7 +62,7 @@ def test_a_rejected_mill_fails_the_task(microscope, experiment):
 
     microscope.run_milling = run_milling
 
-    run_tasks(microscope, experiment, [ROUGH])
+    run_lamellae(microscope, experiment, [ROUGH])
 
     lamella = experiment.positions[0]
     assert len(milled) == 1, "the stages after the rejected one do not mill"

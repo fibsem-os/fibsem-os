@@ -8,6 +8,7 @@ from typing import Any, Callable, List, Optional
 from fibsem.workflows.runner import (
     APP_RUNS,
     GRIDS,
+    ITEMS,
     RunRequest,
     WorkflowRunner,
     app_runs,
@@ -15,35 +16,33 @@ from fibsem.workflows.runner import (
 from fibsem.workflows.session import AppSession
 
 
-class StubRunner:
-    """The run state the App Server context, the abort check and the windows
-    read; nothing runs."""
+class StubRunner(WorkflowRunner):
+    """A runner whose run state a test sets by hand: the manager and whether a
+    run is going, read by the App Server context, the abort check and the
+    windows. Nothing runs; the running queue's edits are the runner's own."""
 
-    def __init__(self, manager: Optional[Any] = None, is_running: bool = False):
+    is_running = False
+
+    def __init__(
+        self, session: Any, manager: Optional[Any] = None, is_running: bool = False
+    ):
+        super().__init__(session)
         self.manager = manager
         self.is_running = is_running
-        self.last_summary: Optional[Any] = None
-        self.last_note = ""
         self.stops: list = []
-
-    @property
-    def should_abort(self) -> bool:
-        return self.manager is not None and self.manager.should_abort
 
     def stop(self) -> None:
         self.stops.append("run")
-        if self.manager is not None:
-            self.manager.stop()
+        super().stop()
 
     def stop_task(self) -> None:
         self.stops.append("task")
-        if self.manager is not None:
-            self.manager.stop_task()
+        super().stop_task()
 
 
 def stub_session(manager: Optional[Any] = None, is_running: bool = False) -> AppSession:
     session = AppSession()
-    session.runner = StubRunner(manager, is_running)
+    session.runner = StubRunner(session, manager, is_running)
     return session
 
 
@@ -137,3 +136,64 @@ def started_with(held: HeldRuns) -> list:
         (list(r.task_names), list(r.names) if r.names is not None else None)
         for r in held.requests
     ]
+
+
+def run_through_session(
+    microscope: Any,
+    experiment: Any,
+    request: RunRequest,
+    hook_manager: Optional[Any] = None,
+    timeout: float = 300,
+) -> Any:
+    """Run ``request`` the one way a run starts, through a session's runner,
+    and wait for it to end. Answers the run's manager, for its queue.
+    ``hook_manager`` is the run's hooks in place of the app's."""
+    session = AppSession()
+    session.microscope = microscope
+    session.experiment = experiment
+    if hook_manager is not None:
+        session.runner.run_hooks = lambda app: hook_manager
+    managers: list = []
+    session.runner.starting.connect(
+        lambda _request: managers.append(session.runner.manager)
+    )
+    started = session.runner.start(experiment, request)
+    assert started.started, started.reason
+    assert session.runner.join(timeout), "the run did not end"
+    return managers[0]
+
+
+def run_lamellae(
+    microscope: Any,
+    experiment: Any,
+    task_names: List[str],
+    names: Optional[List[str]] = None,
+    hook_manager: Optional[Any] = None,
+) -> Any:
+    """A lamella run of ``task_names`` over ``names`` (every lamella if None)."""
+    request = RunRequest(
+        kind=ITEMS,
+        task_names=tuple(task_names),
+        names=tuple(names) if names is not None else None,
+    )
+    return run_through_session(microscope, experiment, request, hook_manager)
+
+
+def run_grids(
+    microscope: Any,
+    experiment: Any,
+    task_names: Optional[List[str]] = None,
+    grid_names: Optional[List[str]] = None,
+    **options: bool,
+) -> Any:
+    """A grid run of ``task_names`` (the protocol's, in its order, if None)
+    over ``grid_names`` (every grid if None), with the grid run's options."""
+    if task_names is None:
+        task_names = experiment.grid_protocol.ordered_task_names
+    request = RunRequest(
+        kind=GRIDS,
+        task_names=tuple(task_names),
+        names=tuple(grid_names) if grid_names is not None else None,
+        options=options,
+    )
+    return run_through_session(microscope, experiment, request)

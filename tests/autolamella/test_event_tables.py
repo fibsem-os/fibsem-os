@@ -1,7 +1,7 @@
 """The record's tables, read from ``events.jsonl``, which the second version of
 the report is built from (FIB-1036).
 
-The first tests run real tasks through ``run_tasks`` on Demo and read the file
+The first tests run real tasks through the session's runner on Demo and read the file
 the run wrote, so a producer changing the shape of a record the tables read
 fails them. What a headless Demo run cannot produce -- a question someone
 waited on, a failed or cancelled run, a decision that moved something -- is in
@@ -38,7 +38,6 @@ from fibsem.applications.autolamella.tools.event_tables import (
     event_tables,
     read_event_tables,
 )
-from fibsem.applications.autolamella.workflows.tasks.manager import run_tasks
 from fibsem.applications.autolamella.workflows.tasks.rough import MillRoughTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.select_position import (
     SelectMillingPositionTaskConfig,
@@ -49,6 +48,7 @@ from fibsem.workflows.event_recording import (
     read_events,
 )
 from fibsem.workflows.proposals import ALIGNMENT_AREA, DETECTION, STATE
+from tests.run_state import run_lamellae
 
 SETUP = "Setup Lamella Position"
 ROUGH = "Rough Milling"
@@ -95,7 +95,7 @@ def experiment(microscope, tmp_path):
 
 
 def test_a_run_s_tasks_steps_and_milling_are_read(microscope, experiment):
-    run_tasks(microscope, experiment, [SETUP, ROUGH])
+    run_lamellae(microscope, experiment, [SETUP, ROUGH])
 
     tables = read_event_tables(experiment.path)
 
@@ -149,7 +149,7 @@ def test_decisions_nobody_was_asked_are_read_as_the_task_s(
     on the record as Unreviewed: nobody waited, and nothing moved."""
     monkeypatch.setattr(manager_module, "review_enabled", lambda: True)
 
-    run_tasks(microscope, experiment, [SETUP])
+    run_lamellae(microscope, experiment, [SETUP])
 
     decisions = read_event_tables(experiment.path).decisions
     assert len(decisions) > 0
@@ -482,7 +482,7 @@ def test_a_second_look_did_not_wait():
 
 
 def test_read_from_the_file_or_its_folder(microscope, experiment):
-    run_tasks(microscope, experiment, [SETUP])
+    run_lamellae(microscope, experiment, [SETUP])
     folder = Path(experiment.path)
 
     by_folder = read_event_tables(folder).runs

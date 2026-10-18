@@ -61,20 +61,45 @@ def queue(experiment) -> TaskQueue:
     return q
 
 
-def add_batch(queue: TaskQueue, lamella_names, task_names, run_next: bool):
-    """The ordering logic from AutoLamellaMainUI._on_add_to_queue."""
-    added, anchor = [], None
-    for task_name in task_names:
-        for lamella_name in lamella_names:
-            if not run_next:
-                item = queue.add(lamella_name, task_name)
-            elif anchor is None:
-                item = queue.add(lamella_name, task_name, front=True)
-            else:
-                item = queue.add(lamella_name, task_name, after=anchor)
-            anchor = item.id
-            added.append(item)
-    return added
+def runner_over(queue: TaskQueue, experiment, recorded=None):
+    """A session's runner whose run is ``queue``'s, over ``experiment``;
+    ``recorded`` collects the queue edits it records."""
+    from types import SimpleNamespace
+
+    from fibsem.workflows.runner import ITEMS
+    from tests.run_state import stub_session
+
+    manager = SimpleNamespace(
+        queue=queue,
+        notify_queue_changed=lambda: None,
+        experiment=experiment,
+        microscope=None,
+        RUN_KIND=ITEMS,
+        RUN_DESCRIPTION="a lamella run",
+    )
+    session = stub_session(manager)
+    if recorded is not None:
+        buffer = SimpleNamespace(
+            append=lambda kind, payload, actor=None: recorded.append(
+                (kind, payload, actor)
+            )
+        )
+        session.app_server = SimpleNamespace(event_buffer=buffer)
+    return session.runner
+
+
+def add_batch(queue: TaskQueue, experiment, lamella_names, task_names, run_next):
+    """Add to queue, as the button does: through the session's runner."""
+    from fibsem.workflows.runner import ITEMS, RunRequest
+
+    edit = runner_over(queue, experiment).add(
+        RunRequest(
+            kind=ITEMS, task_names=tuple(task_names), names=tuple(lamella_names)
+        ),
+        run_next,
+    )
+    assert edit.applied, edit.reason
+    return list(edit.items)
 
 
 def pairs(queue: TaskQueue):
@@ -84,9 +109,9 @@ def pairs(queue: TaskQueue):
 # ── Ordering ──────────────────────────────────────────────────────────────────
 
 
-def test_added_at_the_end_keeps_task_outer_lamella_inner(queue):
+def test_added_at_the_end_keeps_task_outer_lamella_inner(queue, experiment):
     """Matching build_from_matrix, so added work interleaves like the original."""
-    add_batch(queue, ["L1", "L2"], ["Undercut", "Polishing"], run_next=False)
+    add_batch(queue, experiment, ["L1", "L2"], ["Undercut", "Polishing"], False)
 
     assert pairs(queue)[2:] == [
         ("L1", "Undercut"),
@@ -96,10 +121,10 @@ def test_added_at_the_end_keeps_task_outer_lamella_inner(queue):
     ]
 
 
-def test_run_next_keeps_the_batch_in_order(queue):
+def test_run_next_keeps_the_batch_in_order(queue, experiment):
     """Regression: front=True on every add puts each new item ahead of the last,
     so the batch comes out backwards. Anchor each after the previous instead."""
-    add_batch(queue, ["L1", "L2"], ["Undercut", "Polishing"], run_next=True)
+    add_batch(queue, experiment, ["L1", "L2"], ["Undercut", "Polishing"], True)
 
     assert [(i.lamella_name, i.task_name) for i in queue.pending][:4] == [
         ("L1", "Undercut"),
@@ -109,16 +134,16 @@ def test_run_next_keeps_the_batch_in_order(queue):
     ]
 
 
-def test_run_next_lands_after_the_running_item_not_before_it(queue):
-    add_batch(queue, ["L1"], ["Polishing"], run_next=True)
+def test_run_next_lands_after_the_running_item_not_before_it(queue, experiment):
+    add_batch(queue, experiment, ["L1"], ["Polishing"], True)
 
     assert pairs(queue)[0] == ("L1", "Trench")  # still running, still first
     assert pairs(queue)[1] == ("L1", "Polishing")
 
 
-def test_adding_never_disturbs_the_running_item(queue):
+def test_adding_never_disturbs_the_running_item(queue, experiment):
     running = queue.active
-    add_batch(queue, ["L1", "L2"], ["Undercut"], run_next=True)
+    add_batch(queue, experiment, ["L1", "L2"], ["Undercut"], True)
 
     assert queue.active.id == running.id
     assert queue.items[0].status is Status.InProgress
@@ -127,12 +152,12 @@ def test_adding_never_disturbs_the_running_item(queue):
 # ── Duplicates are added, not dropped ─────────────────────────────────────────
 
 
-def test_a_pair_already_queued_is_added_again(queue):
+def test_a_pair_already_queued_is_added_again(queue, experiment):
     """The operator asked for it. _should_skip has no already-completed check —
     which is what makes Run again work — so the duplicate really does run again,
     and the confirm dialog says so rather than silently dropping it."""
     before = len(queue.items)
-    add_batch(queue, ["L2"], ["Trench"], run_next=False)
+    add_batch(queue, experiment, ["L2"], ["Trench"], False)
 
     assert len(queue.items) == before + 1
     assert pairs(queue).count(("L2", "Trench")) == 2
@@ -191,18 +216,75 @@ def test_backfill_is_a_noop_when_the_protocol_also_lacks_the_task(experiment):
 
 
 def test_only_lamellae_actually_missing_the_config_are_backfilled(experiment):
-    """What the handler computes before calling apply_lamella_config."""
-    experiment.get_lamella_by_name("L2").task_config.pop("Undercut")
-    lamellae = experiment.positions
-    task_names = ["Undercut"]
+    """What the lamella run rules ready before the work is queued."""
+    from fibsem.applications.autolamella.workflows.runs import (
+        give_lamellae_their_configs,
+    )
+    from fibsem.workflows.runner import ITEMS, RunRequest
 
-    missing = [
-        lam.name
-        for lam in lamellae
-        if any(t not in lam.task_config for t in task_names)
+    l1 = experiment.get_lamella_by_name("L1")
+    l1.task_config["Undercut"].task_name = "tuned-by-hand"
+    experiment.get_lamella_by_name("L2").task_config.pop("Undercut")
+
+    give_lamellae_their_configs(
+        experiment,
+        RunRequest(kind=ITEMS, task_names=("Undercut",), names=("L1", "L2")),
+    )
+
+    assert "Undercut" in experiment.get_lamella_by_name("L2").task_config
+    assert l1.task_config["Undercut"].task_name == "tuned-by-hand"
+
+
+def test_added_work_gets_its_configs_before_it_is_queued(queue, experiment):
+    experiment.get_lamella_by_name("L2").task_config.pop("Polishing")
+
+    add_batch(queue, experiment, ["L2"], ["Polishing"], False)
+
+    assert "Polishing" in experiment.get_lamella_by_name("L2").task_config
+
+
+def test_the_agent_s_requeue_gets_its_config_too(queue, experiment):
+    """The App Server's requeue goes through the same rules as the button."""
+    experiment.get_lamella_by_name("L2").task_config.pop("Polishing")
+
+    edit = runner_over(queue, experiment).requeue("L2", "Polishing")
+
+    assert edit.applied, edit.reason
+    assert "Polishing" in experiment.get_lamella_by_name("L2").task_config
+
+
+def test_an_operator_s_queue_edit_is_recorded(queue, experiment):
+    """Before, only the agent's edits were: the operator's left no record."""
+    from fibsem.acting import OPERATOR
+    from fibsem.workflows.runner import ITEMS, RunRequest
+
+    recorded = []
+    runner = runner_over(queue, experiment, recorded)
+    (added,) = runner.add(
+        RunRequest(kind=ITEMS, task_names=("Undercut",), names=("L2",)),
+        actor=OPERATOR,
+    ).items
+    runner.edit("L2", "Undercut", "remove", actor=OPERATOR)
+
+    assert [
+        (kind, p["action"], p["queue_item_id"], actor) for kind, p, actor in recorded
+    ] == [
+        ("queue_changed", "add", added.id, OPERATOR),
+        ("queue_changed", "remove", added.id, OPERATOR),
     ]
 
-    assert missing == ["L2"]
+
+def test_work_the_rules_refuse_is_not_queued(queue, experiment):
+    from fibsem.workflows.runner import ITEMS, RunRequest
+
+    before = len(queue.items)
+    edit = runner_over(queue, experiment).add(
+        RunRequest(kind=ITEMS, task_names=("No Such Task",), names=("L1",))
+    )
+
+    assert not edit.applied and edit.error_type == "refused"
+    assert edit.details["task_names"] == TASKS
+    assert len(queue.items) == before
 
 
 # ── The header button ─────────────────────────────────────────────────────────

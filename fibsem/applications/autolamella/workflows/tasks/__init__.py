@@ -19,7 +19,6 @@ if TYPE_CHECKING:
 from fibsem.applications.autolamella.workflows.tasks.manager import (
     TaskManager,
     run_task,
-    run_tasks,
 )
 
 # Built-in task classes

@@ -6,6 +6,7 @@ TaskQueue mechanics, the Demo microscope — held by a session with no window
 
 import json
 import os
+from types import SimpleNamespace
 
 import pytest
 from psygnal.containers import EventedDict
@@ -491,6 +492,8 @@ def test_edit_queue_removes_or_moves_a_waiting_pair(experiment, microscope):
     host = stub_session()
     host.experiment = experiment
     buffer = EventBuffer()
+    # The App Server's stream, which the runner records queue edits to.
+    host.app_server = SimpleNamespace(event_buffer=buffer, running=False)
     ctx = AutoLamellaAppContext(host, event_buffer=buffer)
     first, second = (p.name for p in experiment.positions[:2])
 

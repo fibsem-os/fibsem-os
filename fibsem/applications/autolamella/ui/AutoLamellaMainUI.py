@@ -148,12 +148,8 @@ from fibsem.workflows.grid.manager import (
 )
 from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.proposals import STATE
-from fibsem.workflows.queue import (
-    QUEUE_ACTIONS,
-    QueueOp,
-    QueueResult,
-)
-from fibsem.workflows.runner import GRIDS, ITEMS, RunRequest
+from fibsem.workflows.queue import QUEUE_ACTIONS
+from fibsem.workflows.runner import GRIDS, ITEMS, QueueEdit, RunRequest
 from fibsem.workflows.status import (
     Hold,
     HoldKind,
@@ -1782,12 +1778,15 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         task_names = [t.name for t in selected_tasks]
         lamella_names = [lam.name for lam in selected_lamella]
+        request = RunRequest(
+            kind=ITEMS, task_names=tuple(task_names), names=tuple(lamella_names)
+        )
 
         # Before the estimate and the confirmation: a linked lamella whose grid
         # is in the magazine cannot be run at all, and there is no override.
-        refused = self._lamella_run_refusal(selected_lamella)
-        if refused:
-            QMessageBox.warning(self, "Cannot run", refused)
+        checked = ui.session.runner.check(ui.experiment, request)
+        if not checked.started:
+            QMessageBox.warning(self, "Cannot run", checked.reason)
             return
 
         if not confirm_run_workflow_dialog(
@@ -1795,26 +1794,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         ):
             return
 
-        started = ui.session.runner.start(
-            ui.experiment,
-            RunRequest(
-                kind=ITEMS, task_names=tuple(task_names), names=tuple(lamella_names)
-            ),
-        )
+        started = ui.session.runner.start(ui.experiment, request)
         if not started.started:
             self.show_toast(started.reason, "warning")
             return
         # Clear selections after starting workflow
         self.lamella_workflow_widget.lamella_list.set_all_selected(False)
         self.lamella_workflow_widget.workflow.set_all_selected(False)
-
-    def _lamella_run_refusal(self, lamellae) -> str:
-        """Why these lamellae cannot run now, or "": a lamella linked to a grid
-        that is not on the stage. Reads the inventory first; see `grid_gate`."""
-        ui = self.autolamella_ui
-        if ui is None:
-            return ""
-        return ui.lamella_run_refusal(lamellae)
 
     def _grid_workflow_active(self) -> bool:
         """Whether the Workflow tab's Grids view is the one showing: Run acts on it."""
@@ -2003,19 +1989,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         a lamella run is going, and the other way round; the button says so
         rather than offering an add that the handler would refuse.
         """
-        from fibsem.workflows.grid.manager import (
-            GridTaskManager,
-        )
-
-        manager = self.autolamella_ui.session.runner.manager
-        if manager is None:
+        runner = self.autolamella_ui.session.runner
+        if runner.manager is None:
             return ""
-        grid_run = isinstance(manager, GridTaskManager)
-        if self._grid_workflow_active() and not grid_run:
-            return "A lamella run is going; grid tasks cannot join it"
-        if not self._grid_workflow_active() and grid_run:
-            return "A grid run is going; lamella tasks cannot join it"
-        return ""
+        return runner.joins(GRIDS if self._grid_workflow_active() else ITEMS)
 
     def _on_workflow_selection_changed(self, _=None) -> None:
         """Enable the run button only when at least one lamella and one task are selected."""
@@ -3300,9 +3277,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         The selection UI is LamellaWorkflowWidget, which stays live during a run
         and is cleared when one is launched — so it is empty and free mid-run.
         Reusing it avoids a second lamella-and-task picker that would have to be
-        kept in step with the first.
+        kept in step with the first. The queue is the runner's, which checks
+        the addition as the App Server's is checked.
         """
-        manager = self.autolamella_ui.session.runner.manager
+        runner = self.autolamella_ui.session.runner
+        manager = runner.manager
         if manager is None:
             return
         if self._grid_workflow_active():
@@ -3317,68 +3296,34 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             )
             return
 
-        refused = self._lamella_run_refusal(lamellae)
-        if refused:
-            QMessageBox.warning(self, "Cannot add to the queue", refused)
-            return
-
         lamella_names = [lam.name for lam in lamellae]
         task_names = [t.name for t in tasks]
+        request = RunRequest(
+            kind=ITEMS, task_names=tuple(task_names), names=tuple(lamella_names)
+        )
+        plan = runner.plan_addition(request, run_next)
+        if isinstance(plan, QueueEdit):
+            QMessageBox.warning(self, "Cannot add to the queue", plan.reason)
+            return
 
         pending = {(i.item_name, i.task_name) for i in manager.queue.pending}
-        already = [
-            f"{t} for {ln}"
-            for t in task_names
-            for ln in lamella_names
-            if (ln, t) in pending
-        ]
-
-        # Task-outer, lamella-inner: the order the items are really inserted in below,
-        # so what is priced is what will be queued.
-        pairs = [(ln, tn) for tn in task_names for ln in lamella_names]
+        already = [f"{t} for {ln}" for ln, t in plan.pairs if (ln, t) in pending]
         if not confirm_add_to_queue_dialog(
             lamella_names,
             task_names,
             run_next,
             already,
-            estimate=self._estimate_addition(manager, pairs, run_next),
+            estimate=self._estimate_addition(manager, list(plan.pairs), run_next),
             parent=self,
         ):
             return
 
-        # A lamella created before a task joined the protocol has no config for
-        # it, and run_task raises on that. Backfill from the base protocol first.
-        experiment = self.autolamella_ui.experiment
-        missing = [
-            ln
-            for ln, lam in zip(lamella_names, lamellae)
-            if any(t not in lam.task_config for t in task_names)
-        ]
-        if missing and experiment is not None:
-            experiment.apply_lamella_config(missing, task_names)
-
-        # Task-outer, lamella-inner, matching how build_from_matrix lays out the
-        # original queue, so added work interleaves the same way.
-        #
-        # For "run next" each item is anchored after the previous one rather than
-        # to the front: front=True on every add would put each new item ahead of
-        # the last, reversing the batch.
-        added, anchor = 0, None
-        for task_name in task_names:
-            for lamella_name in lamella_names:
-                if not run_next:
-                    item = manager.queue.add(lamella_name, task_name)
-                elif anchor is None:
-                    item = manager.queue.add(lamella_name, task_name, front=True)
-                else:
-                    item = manager.queue.add(lamella_name, task_name, after=anchor)
-                if item is not None:
-                    anchor = item.id
-                    added += 1
-
-        manager.notify_queue_changed()
+        edit = runner.add(request, run_next, actor=OPERATOR)
+        if not edit.applied:
+            self._show_queue_message(edit.reason)
+            return
         where = "to run next" if run_next else "to the queue"
-        self._show_queue_message(f"Added {added} task(s) {where}.")
+        self._show_queue_message(f"Added {len(edit.items)} task(s) {where}.")
 
         # Clear the selection, as starting a workflow does — the work is committed,
         # and leaving it ticked invites adding the same batch twice.
@@ -3386,30 +3331,21 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.lamella_workflow_widget.workflow.set_all_selected(False)
 
     def _add_grids_to_queue(self, manager) -> None:
-        """The Grids view's selection onto the end of the running grid queue.
-
-        End only: a grid's block is a load and then its tasks, and "run next" would
-        put an exchange in front of the grid that is loaded, then exchange
-        back. The block goes after everything queued, where it costs one exchange.
-        """
-        from fibsem.workflows.grid.manager import (
-            GridTaskManager,
-        )
-
-        if not isinstance(manager, GridTaskManager):
-            self._show_queue_message(
-                "A lamella run is going; grid tasks cannot join it."
-            )
-            return
+        """The Grids view's selection onto the end of the running grid queue:
+        each grid's load, then its tasks (see ``plan_grid_addition``)."""
+        runner = self.autolamella_ui.session.runner
         grids = self.grid_workflow_widget.get_selected_grids()
         task_names = self.grid_workflow_widget.get_selected_task_names()
         if not grids or not task_names:
             self._show_queue_message("Select at least one grid and one task to add.")
             return
         grid_names = [g.name for g in grids]
-        pairs = manager.pairs_to_queue(task_names, grid_names)
-        if not pairs:
-            self._show_queue_message("Everything selected is already queued.")
+        request = RunRequest(
+            kind=GRIDS, task_names=tuple(task_names), names=tuple(grid_names)
+        )
+        plan = runner.plan_addition(request)
+        if isinstance(plan, QueueEdit):
+            self._show_queue_message(plan.reason)
             return
         experiment = self.autolamella_ui.experiment
         dialog = GridRunPreflightDialog(
@@ -3419,13 +3355,16 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             str(experiment.path) if experiment is not None else "",
             adding=True,
             first_run=[g.name for g in grids if not grid_has_run(g)],
-            addition=self._estimate_addition(manager, pairs, run_next=False),
+            addition=self._estimate_addition(manager, list(plan.pairs), run_next=False),
             parent=self,
         )
         if dialog.exec_() != QDialog.Accepted:
             return
-        added = manager.queue_pairs(pairs)
-        self._show_queue_message(f"Added {len(added)} step(s) to the queue.")
+        edit = runner.add(request, actor=OPERATOR)
+        if not edit.applied:
+            self._show_queue_message(edit.reason)
+            return
+        self._show_queue_message(f"Added {len(edit.items)} step(s) to the queue.")
         self.grid_workflow_widget.set_all_grids_selected(False)
 
     def _on_queue_changed(self, info: dict) -> None:
@@ -3630,51 +3569,34 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self._show_queue_message(f"Stopping {label}...")
             return
 
+        runner = self.autolamella_ui.session.runner
         if action == "run_again":
             # A fresh item rather than a rewind: the original attempt still
             # happened and stays in the run record. The same checks as the App
             # Server's requeue: a lamella on a grid not on the stage is refused.
-            experiment = self.autolamella_ui.experiment
-            lamella = (
-                experiment.get_lamella_by_name(item.item_name)
-                if experiment is not None
-                else None
+            edit = runner.requeue(
+                item.item_name, item.task_name, front=True, actor=OPERATOR
             )
-            refused = self._lamella_run_refusal([lamella]) if lamella else ""
-            if refused:
-                self._show_queue_message(refused)
-                return
-            result = queue.requeue(item.item_name, item.task_name, front=True)
         elif action in QUEUE_ACTIONS:
-            result = queue.apply(item_id, action)
+            edit = runner.edit(item.item_name, item.task_name, action, actor=OPERATOR)
         else:
             logging.warning(f"Unknown queue action from the timeline: {action}")
             return
-
-        manager.notify_queue_changed()
-        self._show_queue_message(self._queue_action_message(action, item, result))
+        self._show_queue_message(self._queue_action_message(action, item, edit))
 
     @staticmethod
-    def _queue_action_message(action: str, item, result: QueueResult) -> str:
+    def _queue_action_message(action: str, item, edit: QueueEdit) -> str:
         """Describe the outcome of a queue action on ``item``, or "" to say nothing.
 
         The row may have started running between the menu opening and the click,
-        which is the whole reason the queue returns a structured result rather
-        than a bool — say so instead of appearing to do nothing.
+        which is why the runner answers with why not rather than a bool — say
+        so instead of appearing to do nothing.
         """
-        label = f"{item.task_name} for {item.item_name}"
-        if result.op is QueueOp.FIXED:
-            return f"{item.task_name} stays with {item.item_name}'s tasks."
-        if result.op is QueueOp.ALREADY_QUEUED:
-            return f"{label} is already waiting in the queue."
-        if result.op is QueueOp.NO_OP:
+        if not edit.applied:
+            return edit.reason
+        if not edit.changed:
             return ""  # already first or last; the user can see that
-        if result.op is QueueOp.NOT_PENDING:
-            return f"{label} is already running."
-        if not result.ok:
-            if action == "run_again":
-                return f"Could not queue {label}."
-            return f"{label} is no longer in the queue."
+        label = f"{item.task_name} for {item.item_name}"
         return {
             "run_again": f"Queued {label} to run next.",
             "move_up": f"Moved {label} up.",

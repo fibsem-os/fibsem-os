@@ -32,13 +32,13 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
     Lamella,
 )
-from fibsem.applications.autolamella.workflows.tasks.manager import run_tasks
 from fibsem.applications.autolamella.workflows.tasks.rough import MillRoughTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.select_position import (
     SelectMillingPositionTaskConfig,
 )
 from fibsem.workflows.event_recording import EVENTS_FILENAME, read_events
 from fibsem.workflows.status import TaskState, TaskStatus
+from tests.run_state import run_lamellae
 
 SETUP, ROUGH = "Setup Lamella Position", "Rough Milling"
 T0 = datetime(2026, 7, 29, 18, 0, tzinfo=timezone(timedelta(hours=10)))
@@ -80,7 +80,7 @@ def test_a_real_run_reads_back_as_one_row_per_run_with_its_alignment(tmp_path):
         lamella.path.mkdir(parents=True, exist_ok=True)
         lamella.milling_pose = microscope.get_microscope_state()
 
-        run_tasks(microscope, exp, [SETUP, ROUGH])
+        run_lamellae(microscope, exp, [SETUP, ROUGH])
         rows = history_rows(lamella, read_events(Path(exp.path) / EVENTS_FILENAME))
     finally:
         microscope.disconnect()
@@ -145,8 +145,8 @@ def test_a_task_run_twice_keeps_both_runs_images_in_their_own_folders(tmp_path):
         lamella.path.mkdir(parents=True, exist_ok=True)
         lamella.milling_pose = microscope.get_microscope_state()
 
-        run_tasks(microscope, exp, [SETUP])
-        run_tasks(microscope, exp, [SETUP])
+        run_lamellae(microscope, exp, [SETUP])
+        run_lamellae(microscope, exp, [SETUP])
         rows = history_rows(lamella, read_events(Path(exp.path) / EVENTS_FILENAME))
     finally:
         microscope.disconnect()
