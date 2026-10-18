@@ -358,3 +358,42 @@ def test_syncing_agrees_with_marking_the_same_position_afresh():
     assert moved.x == pytest.approx(fresh.fluorescence.stage_position.x, abs=1e-12)
     assert moved.y == pytest.approx(fresh.fluorescence.stage_position.y, abs=1e-12)
     assert moved.t == pytest.approx(fresh.fluorescence.stage_position.t, abs=1e-9)
+
+
+# ── storing the objective position ───────────────────────────────────────
+
+
+class _Experiment:
+    def __init__(self, positions):
+        self.positions = positions
+        self.saves = 0
+
+    def save(self):
+        self.saves += 1
+
+
+def test_an_objective_position_is_stored_and_saved():
+    from fibsem.applications.autolamella.poses import set_objective_position
+
+    lamella = _lamella(_microscope())
+    experiment = _Experiment([lamella])
+
+    set_objective_position(experiment, lamella, 1.5e-3)
+
+    assert lamella.fluorescence_pose.objective_position == 1.5e-3
+    assert experiment.saves == 1
+
+
+def test_apply_to_all_skips_a_lamella_with_no_fluorescence_pose():
+    from fibsem.applications.autolamella.poses import set_objective_position_on_all
+
+    microscope = _microscope()
+    with_pose = _lamella(microscope)
+    without = _lamella(microscope, with_fluorescence=False)
+    experiment = _Experiment([with_pose, without])
+
+    assert set_objective_position_on_all(experiment, 2e-3) == 1
+    assert with_pose.fluorescence_pose.objective_position == 2e-3
+    assert without.fluorescence_pose is None
+    assert experiment.saves == 1
+    assert set_objective_position_on_all(_Experiment([without]), 2e-3) == 0

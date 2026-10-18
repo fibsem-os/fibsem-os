@@ -86,6 +86,8 @@ from fibsem.applications.autolamella.poses import (
     grid_id_at,
     remove_lamella,
     set_lamella_pose,
+    set_objective_position,
+    set_objective_position_on_all,
     stored_objective_position,
     sync_fluorescence_pose,
 )
@@ -2639,8 +2641,7 @@ class AutoLamellaUI(QMainWindow):
                 "Objective position unavailable.", "warning"
             )
             return
-        lamella.fluorescence_pose.objective_position = value_m
-        self.experiment.save()
+        set_objective_position(self.experiment, lamella, value_m)
         # full refresh so the objective value shows and "Apply to All" re-enables
         self.selected_lamella_widget.set_lamella(lamella)
         notification_service.show_toast(
@@ -2706,22 +2707,17 @@ class AutoLamellaUI(QMainWindow):
         if lamella.fluorescence_pose is None:
             return
         # convert from µm to m
-        lamella.fluorescence_pose.objective_position = value * MICRON_TO_METRE
-        self.experiment.save()
+        set_objective_position(self.experiment, lamella, value * MICRON_TO_METRE)
 
     def _apply_objective_position_to_all(self):
         """Copy the current spinbox objective position to all lamella that have a fluorescence pose."""
         if self.experiment is None:
             return
         value_um = self.selected_lamella_widget.objective_value_um()
-        value_m = value_um * MICRON_TO_METRE
-        count = 0
-        for lamella in self.experiment.positions:
-            if lamella.fluorescence_pose is not None:
-                lamella.fluorescence_pose.objective_position = value_m
-                count += 1
+        count = set_objective_position_on_all(
+            self.experiment, value_um * MICRON_TO_METRE
+        )
         if count:
-            self.experiment.save()
             notification_service.show_toast(
                 f"Applied objective position ({value_um:.1f} µm) to {count} lamella.",
                 "info",
