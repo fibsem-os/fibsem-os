@@ -108,7 +108,7 @@ def test_output_images_serve_jpeg_and_refuse_unknown_names(client, host):
     import numpy as np
     import tifffile
 
-    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+    from fibsem.workflows.status import TaskState
 
     lamella = host.experiment.positions[0]
     os.makedirs(lamella.path, exist_ok=True)
@@ -118,7 +118,7 @@ def test_output_images_serve_jpeg_and_refuse_unknown_names(client, host):
         (np.random.rand(64, 96) * 65535).astype(np.uint16),
     )
     lamella.task_history.append(
-        AutoLamellaTaskState(name="Rough Milling", outputs={"final_fib": [fname]})
+        TaskState(name="Rough Milling", outputs={"final_fib": [fname]})
     )
 
     served = client.get(
@@ -146,8 +146,7 @@ def test_every_listed_output_is_served_and_only_completed_runs_count(client, hos
     import numpy as np
     import tifffile
 
-    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
-    from fibsem.workflows.status import TaskStatus
+    from fibsem.workflows.status import TaskState, TaskStatus
 
     lamella = host.experiment.positions[0]
     os.makedirs(lamella.path, exist_ok=True)
@@ -157,14 +156,14 @@ def test_every_listed_output_is_served_and_only_completed_runs_count(client, hos
         (np.random.rand(64, 96) * 65535).astype(np.uint16),
     )
     lamella.task_history.append(
-        AutoLamellaTaskState(
+        TaskState(
             name="Rough Milling",
             status=TaskStatus.Completed,
             outputs={"start_fib": [start]},
         )
     )
     lamella.task_history.append(
-        AutoLamellaTaskState(name="Polishing", status=TaskStatus.Cancelled)
+        TaskState(name="Polishing", status=TaskStatus.Cancelled)
     )
 
     listed = client.get(
@@ -186,18 +185,14 @@ def test_every_listed_output_is_served_and_only_completed_runs_count(client, hos
 def test_task_history_is_in_time_order(client, host):
     from datetime import datetime, timedelta
 
-    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+    from fibsem.workflows.status import TaskState
 
     host.experiment.add_new_lamella(MicroscopeState(), EventedDict())
     first, second = host.experiment.positions[:2]
     t0 = datetime(2026, 10, 12, 9).timestamp()
     # The second item ran first: listing by item would put it last.
-    first.task_history.append(
-        AutoLamellaTaskState(name="Polishing", start_timestamp=t0 + 60)
-    )
-    second.task_history.append(
-        AutoLamellaTaskState(name="Rough Milling", start_timestamp=t0)
-    )
+    first.task_history.append(TaskState(name="Polishing", start_timestamp=t0 + 60))
+    second.task_history.append(TaskState(name="Rough Milling", start_timestamp=t0))
 
     items = client.get("/app/experiment/task_history", headers=AUTH).json()["items"]
     assert [i["task_name"] for i in items] == ["Rough Milling", "Polishing"]
@@ -210,8 +205,8 @@ def test_sidecar_returns_a_saved_output_as_image_content(client, host):
     import numpy as np
     import tifffile
 
-    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
     from fibsem.mcp.sidecar import build_sidecar
+    from fibsem.workflows.status import TaskState
 
     lamella = host.experiment.positions[0]
     os.makedirs(lamella.path, exist_ok=True)
@@ -221,7 +216,7 @@ def test_sidecar_returns_a_saved_output_as_image_content(client, host):
         (np.random.rand(64, 96) * 65535).astype(np.uint16),
     )
     lamella.task_history.append(
-        AutoLamellaTaskState(name="Rough Milling", outputs={"final_fib": [fname]})
+        TaskState(name="Rough Milling", outputs={"final_fib": [fname]})
     )
 
     client.headers["Authorization"] = f"Bearer {TOKEN}"
@@ -553,7 +548,6 @@ def grid_with_overview(host, microscope):
     """A grid whose history recorded a real Demo SEM overview, one lamella
     linked to it posed at the overview's centre and one posed far outside."""
     from fibsem.applications.autolamella.structures import (
-        AutoLamellaTaskState,
         GridRecord,
     )
     from fibsem.structures import (
@@ -562,7 +556,7 @@ def grid_with_overview(host, microscope):
         ImageSettings,
         MicroscopeState,
     )
-    from fibsem.workflows.status import TaskStatus
+    from fibsem.workflows.status import TaskState, TaskStatus
 
     experiment = host.experiment
     grid = experiment.add_grid(GridRecord(name="grid-aspen"))
@@ -573,7 +567,7 @@ def grid_with_overview(host, microscope):
     )
     image.save(str(outdir / "overview.tif"))
     grid.task_history.append(
-        AutoLamellaTaskState(
+        TaskState(
             name="overview_sem",
             status=TaskStatus.Completed,
             outputs={"overview_sem": ["overview_sem/overview.tif"]},
@@ -699,8 +693,8 @@ def test_a_plain_tiff_has_no_metadata_header(client, host):
     import numpy as np
     import tifffile
 
-    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
     from fibsem.server.app_routes import IMAGE_METADATA_HEADER
+    from fibsem.workflows.status import TaskState
 
     lamella = host.experiment.positions[0]
     os.makedirs(lamella.path, exist_ok=True)
@@ -708,7 +702,7 @@ def test_a_plain_tiff_has_no_metadata_header(client, host):
         os.path.join(lamella.path, "plain.tif"), np.zeros((8, 8), np.uint8)
     )
     lamella.task_history.append(
-        AutoLamellaTaskState(name="Rough Milling", outputs={"final_fib": ["plain.tif"]})
+        TaskState(name="Rough Milling", outputs={"final_fib": ["plain.tif"]})
     )
     served = client.get(
         f"/app/experiment/items/{lamella.name}/outputs/plain.tif", headers=AUTH
@@ -863,14 +857,13 @@ def test_fm_overview_previews_in_colour_and_places_markers(
     import numpy as np
     from PIL import Image
 
-    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
     from fibsem.fm.structures import (
         FluorescenceChannelMetadata,
         FluorescenceImage,
         FluorescenceImageMetadata,
     )
     from fibsem.structures import FibsemHardwareGeometry, FibsemStagePosition
-    from fibsem.workflows.status import TaskStatus
+    from fibsem.workflows.status import TaskState, TaskStatus
 
     experiment = host.experiment
     grid = grid_with_overview
@@ -920,7 +913,7 @@ def test_fm_overview_previews_in_colour_and_places_markers(
         str(outdir / "overview.ome.tiff")
     )
     grid.task_history.append(
-        AutoLamellaTaskState(
+        TaskState(
             name="overview_fm",
             status=TaskStatus.Completed,
             outputs={"overview_fm": ["overview_fm/overview.ome.tiff"]},
@@ -1332,9 +1325,9 @@ def test_thickness_reads_a_saved_fib_image_over_http_and_mcp(client, host):
     """FIB-1434: the band measured off an item's saved FIB image, around its
     POI, by the route and by the Watch tool, with the result's plot."""
     pytest.importorskip("mcp")
-    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
     from fibsem.mcp.sidecar import build_sidecar
     from fibsem.structures import BeamType
+    from fibsem.workflows.status import TaskState
     from tests.test_lamella_thickness import band_image
 
     lamella = host.experiment.positions[0]
@@ -1348,9 +1341,7 @@ def test_thickness_reads_a_saved_fib_image_over_http_and_mcp(client, host):
     image.metadata.image_settings.beam_type = BeamType.ELECTRON
     image.save(os.path.join(lamella.path, sem))
     lamella.task_history.append(
-        AutoLamellaTaskState(
-            name="Polishing", outputs={"final_fib": [fname], "final_sem": [sem]}
-        )
+        TaskState(name="Polishing", outputs={"final_fib": [fname], "final_sem": [sem]})
     )
     route = f"/app/experiment/items/{lamella.name}/outputs/{fname}/thickness"
 

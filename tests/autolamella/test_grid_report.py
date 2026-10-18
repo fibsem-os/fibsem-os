@@ -17,7 +17,6 @@ import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskState,
     Experiment,
     GridRecord,
     Lamella,
@@ -46,7 +45,7 @@ from fibsem.structures import (
     OverviewAcquisitionSettings,
     SampleGrid,
 )
-from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.status import TaskState, TaskStatus
 
 
 def _settings(beam=BeamType.ELECTRON) -> OverviewAcquisitionSettings:
@@ -57,8 +56,8 @@ def _settings(beam=BeamType.ELECTRON) -> OverviewAcquisitionSettings:
     )
 
 
-def _entry(name, status, message="", outputs=None) -> AutoLamellaTaskState:
-    state = AutoLamellaTaskState(
+def _entry(name, status, message="", outputs=None) -> TaskState:
+    state = TaskState(
         name=name, status=status, status_message=message, outputs=outputs or {}
     )
     state.end_timestamp = state.start_timestamp + timedelta(seconds=1)

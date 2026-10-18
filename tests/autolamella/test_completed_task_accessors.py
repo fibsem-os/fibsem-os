@@ -13,11 +13,10 @@ import pytest
 
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
-    AutoLamellaTaskState,
     AutoLamellaWorkflowConfig,
     Lamella,
 )
-from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.status import TaskState, TaskStatus
 
 
 @pytest.fixture
@@ -38,8 +37,8 @@ def workflow() -> AutoLamellaWorkflowConfig:
     )
 
 
-def _finished(name: str, status: TaskStatus) -> AutoLamellaTaskState:
-    return AutoLamellaTaskState(name=name, status=status)
+def _finished(name: str, status: TaskStatus) -> TaskState:
+    return TaskState(name=name, status=status)
 
 
 def test_a_failed_task_is_not_a_completed_task(lamella: Lamella) -> None:

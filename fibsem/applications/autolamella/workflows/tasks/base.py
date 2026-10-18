@@ -43,7 +43,6 @@ from fibsem.applications.autolamella.structures import (
     EXPERIMENT_WRITE_LOCK,
     Attention,
     AutoLamellaTaskConfig,
-    AutoLamellaTaskState,
     Lamella,
 )
 from fibsem.applications.autolamella.task_outputs import run_folder
@@ -124,7 +123,7 @@ from fibsem.workflows.proposals import (
     agent_author,
     human_author,
 )
-from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.status import TaskState, TaskStatus
 from fibsem.workflows.task import BaseTask
 
 if TYPE_CHECKING:

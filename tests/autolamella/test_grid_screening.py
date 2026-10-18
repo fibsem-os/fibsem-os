@@ -12,7 +12,6 @@ import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskState,
     Experiment,
     GridRecord,
 )
@@ -40,6 +39,7 @@ from fibsem.structures import (
     SampleGrid,
     SlotCalibration,
 )
+from fibsem.workflows.status import TaskState
 from fibsem.workflows.status import TaskStatus as Status
 
 
@@ -207,7 +207,7 @@ class TestNamingAtScreen:
         self, arctis, experiment
     ):
         ran = experiment.add_grid(GridRecord(name="Grid-02"))
-        ran.task_history.append(AutoLamellaTaskState(name="overview_sem"))
+        ran.task_history.append(TaskState(name="overview_sem"))
         with pytest.raises(GridNamingError, match="Grid-02 cannot be renamed"):
             name_and_record_grids(
                 arctis.sample_handling,
