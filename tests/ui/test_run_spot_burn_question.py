@@ -145,6 +145,7 @@ def _task(ui, points=((0.5, 0.5),)):
         experiment=ui.experiment,
         parent_ui=ui,
         responder=ui.ui_responder,
+        answerers=ui.session.answerers,
     )
     task = SpotBurnFiducialTask(
         microscope=ui.microscope,

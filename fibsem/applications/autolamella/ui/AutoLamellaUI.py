@@ -31,6 +31,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem.acting import OPERATOR
 from fibsem.applications.autolamella.ui.lamella_name_list_widget import (
     LamellaNameListWidget,
 )
@@ -250,6 +251,8 @@ class AutoLamellaUI(QMainWindow):
         # this one-method object, never the window itself.
         self.ui_responder = QtResponder(self)
         self.session.responder = self.ui_responder
+        # The operator answers the run's questions here, for the session's life.
+        self.session.attach_answerer(OPERATOR)
         # The timeline renders the responder's question-lifecycle feed; the
         # widget itself is built in _setup_ui, before the responder exists.
         self.ui_responder.add_question_observer(self.question_timeline.record)

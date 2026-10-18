@@ -212,13 +212,17 @@ def test_requires_a_milling_pose(microscope, tmp_path):
 
 
 class _Manager:
-    """The manager seam the task reads: the run's experiment and its abort."""
+    """The manager seam the task reads: the run's experiment, its abort and who
+    can answer (nobody)."""
 
     def __init__(self, experiment):
         import threading
 
         self.experiment = experiment
         self.abort_token = threading.Event()
+
+    def answerers(self):
+        return ()
 
 
 def _managed_task(microscope, lamella, tmp_path, attention, listed=True):

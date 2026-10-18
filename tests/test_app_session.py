@@ -5,6 +5,7 @@ A window is one client of an ``AppSession``; these drive it with none.
 
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -178,3 +179,27 @@ def test_edits_run_where_the_client_says():
 
     assert session.run_edit(lambda: "done").result(timeout=1) == "done"
     assert len(ran) == 1
+
+
+def test_who_can_answer_is_what_is_attached_and_the_agent_at_drive(fake_hosting):
+    """A window attaches the operator; the agent can answer while the App
+    Server serves it at Drive. Nobody, with neither: a question goes on the
+    record instead of holding the run."""
+    from fibsem.acting import AGENT, OPERATOR
+    from fibsem.server.levels import AgentLevel
+
+    session = AppSession()
+    assert session.answerers() == ()
+
+    detach = session.attach_answerer(OPERATOR)
+    assert session.answerers() == (OPERATOR,)
+    detach()
+    assert session.answerers() == ()
+
+    session.start_app_server(lambda buffer: None)
+    session.agent_auth = SimpleNamespace(level=AgentLevel.ASSIST)
+    assert session.answerers() == (), "at Assist the agent suggests, it does not answer"
+    session.agent_auth.level = AgentLevel.DRIVE
+    assert session.answerers() == (AGENT,)
+    session.stop_app_server()
+    assert session.answerers() == (), "no server, nobody to hear it"

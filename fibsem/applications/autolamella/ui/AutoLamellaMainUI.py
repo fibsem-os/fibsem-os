@@ -2229,7 +2229,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     def _running_border_state(self, task_name: Optional[str]) -> str:
         """The border for a running workflow: automated or supervised."""
         if task_name is None or not get_task_supervision(
-            task_name, self.autolamella_ui
+            task_name, self.autolamella_ui.experiment
         ):
             return "automated"
         return "supervised"
@@ -2239,7 +2239,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         task_name = self._current_task_name
         if task_name is None or self.autolamella_ui is None:
             return False
-        supervised = get_task_supervision(task_name, self.autolamella_ui)
+        supervised = get_task_supervision(task_name, self.autolamella_ui.experiment)
         if supervised:
             mode = SUPERVISED
         else:

@@ -9,10 +9,10 @@ import logging
 import threading
 import time
 from contextlib import contextmanager
-from typing import Any, Dict, List, Optional, Protocol, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Protocol, Set, Tuple
 
 from fibsem import config as fibsem_cfg
-from fibsem.acting import WORKFLOW
+from fibsem.acting import WORKFLOW, ActorKind
 from fibsem.cancellation import AnyStopEvent, OperationCancelledError
 from fibsem.control import MicroscopeBusy
 from fibsem.hooks import HookEvent, HookManager, fire_event
@@ -100,6 +100,7 @@ class BaseTaskManager:
         parent_ui: Optional[WorkflowWindow] = None,
         hook_manager: Optional[HookManager] = None,
         responder: Optional[Responder] = None,
+        answerers: Optional[Callable[[], Tuple[ActorKind, ...]]] = None,
     ):
         self.microscope = microscope
         self.experiment = experiment
@@ -108,6 +109,8 @@ class BaseTaskManager:
         # Who answers the run's questions: the session's responder. None
         # asks nobody: a supervised step runs as if unsupervised.
         self.responder = responder
+        # Who can answer them now (``AppSession.answerers``); nobody without one.
+        self._answerers = answerers
         self._stop_event = threading.Event()
         # Stopping one task is a different intent from stopping the run, so it is a
         # different event. A flag on a single event would need care not to be
@@ -537,6 +540,11 @@ class BaseTaskManager:
         is discarded rather than killing the next one.
         """
         self._task_stop_event.set()
+
+    def answerers(self) -> Tuple[ActorKind, ...]:
+        """Who can answer this run's questions now: the session's surfaces
+        (``AppSession.answerers``). Empty: a question goes on the record."""
+        return self._answerers() if self._answerers is not None else ()
 
     @property
     def is_stopped(self) -> bool:

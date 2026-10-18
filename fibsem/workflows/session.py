@@ -14,9 +14,9 @@ from __future__ import annotations
 import logging
 import threading
 from concurrent.futures import Future
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from fibsem.acting import OPERATOR
+from fibsem.acting import AGENT, OPERATOR, ActorKind
 from fibsem.imaging.latest import LatestImages
 from fibsem.workflows.event_recording import EventRecorder
 from fibsem.workflows.runner import WorkflowRunner
@@ -74,6 +74,9 @@ class AppSession:
         # the microscope (FIB-1359), None until the client first says.
         self.agent_auth: Optional[Any] = None
         self.serve_microscope: Optional[bool] = None
+        # The surfaces attached to answer a run's questions (a window: the
+        # operator), while they are attached.
+        self._answerers: List[ActorKind] = []
         self._analysis_services: Optional[Dict[str, Any]] = None
 
     @property
@@ -86,6 +89,37 @@ class AppSession:
 
             self._analysis_services = analysis_services()
         return self._analysis_services
+
+    def attach_answerer(self, who: ActorKind) -> Callable[[], None]:
+        """``who`` is here to answer a run's questions, until the returned
+        detach is called: the window attaches the operator."""
+        self._answerers.append(who)
+
+        def detach() -> None:
+            try:
+                self._answerers.remove(who)
+            except ValueError:
+                pass
+
+        return detach
+
+    def answerers(self) -> Tuple[ActorKind, ...]:
+        """Who can answer a question now: each attached surface, and the agent
+        while the App Server serves it at Drive. Empty means nobody: a question
+        goes on the record for later instead of holding the run."""
+        from fibsem.server.levels import AgentLevel
+
+        who = list(dict.fromkeys(self._answerers))
+        host = self.app_server
+        if (
+            host is not None
+            and host.running
+            and self.agent_auth is not None
+            and self.agent_auth.level is AgentLevel.DRIVE
+            and AGENT not in who
+        ):
+            who.append(AGENT)
+        return tuple(who)
 
     def run_edit(self, call: Callable[[], Any]) -> "Future[Any]":
         """Run ``call()`` where the experiment is edited; any thread. Resolves
