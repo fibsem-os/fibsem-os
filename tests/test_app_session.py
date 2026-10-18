@@ -94,6 +94,63 @@ def test_stopping_closes_the_stream(session, microscope):
     assert recorder_for(microscope) is None
 
 
+class _FakeHost:
+    """The App Server host's surface the session uses."""
+
+    def __init__(self, session, app_context, serve_microscope=False):
+        self.serve_microscope = serve_microscope
+        self.running = False
+        self.starts = 0
+
+    def start(self):
+        self.starts += 1
+        self.running = True
+        return True
+
+    def stop(self):
+        self.running = False
+
+
+@pytest.fixture
+def fake_hosting(monkeypatch):
+    from fibsem.server import hosting
+
+    monkeypatch.setattr(hosting, "AppServerHost", _FakeHost)
+
+
+def test_the_app_server_is_the_sessions_and_starts_once(session, fake_hosting):
+    assert session.start_app_server(lambda buffer: None)
+    host = session.app_server
+
+    session.start_app_server(lambda buffer: None)
+
+    assert session.app_server is host and host.starts == 2 and host.running
+
+
+def test_serving_the_microscope_drops_a_running_server(session, fake_hosting):
+    session.start_app_server(lambda buffer: None)
+    host = session.app_server
+
+    assert session.set_serve_microscope(True) is True
+
+    assert not host.running and session.app_server is None
+    session.start_app_server(lambda buffer: None)
+    assert session.app_server.serve_microscope
+
+
+def test_a_new_microscope_stops_the_server_on_the_old_stream(
+    session, microscope, fake_hosting
+):
+    session.microscope = microscope
+    session.start_recording()
+    session.start_app_server(lambda buffer: None)
+    session.microscope = object()
+
+    session.start_recording()
+
+    assert not session.app_server.running
+
+
 def test_an_edit_runs_and_resolves_to_its_result():
     session = AppSession()
 

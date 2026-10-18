@@ -172,12 +172,10 @@ class Verdict:
 
 def _fit(fm_iso: np.ndarray, fib_xy: np.ndarray, prior: NominalTransform):
     """``(R, s, t, rms_px)``: the seeded fit and its centroid translation."""
-    from fibsem.correlation.correlation_v2 import _fit_from_seed
+    from fibsem.correlation.solver import fit_from_seed
 
-    fib_xyz = np.column_stack([fib_xy, np.zeros(len(fib_xy))])
-    R, s, rms = _fit_from_seed(fm_iso, fib_xyz, prior.eulers_deg(), prior.scale)
-    t = fib_xy.mean(axis=0) - (s * R[:2, :] @ fm_iso.mean(axis=0))
-    return R, s, t, rms
+    fit = fit_from_seed(fm_iso, fib_xy, prior.rotation, prior.scale)
+    return fit.rotation, fit.scale, fit.translation[:2], fit.rms
 
 
 def _project(R, s, t, fm_iso: np.ndarray) -> np.ndarray:

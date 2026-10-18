@@ -480,3 +480,24 @@ def test_find_pair_prefers_the_waiting_one(queue):
     again = queue.add(item.item_name, item.task_name)
     assert queue.find_pair(item.item_name, item.task_name).id == again.id
     assert queue.find_pair("nope", "Trench") is None
+
+
+def test_a_fixed_step_stays_where_the_plan_put_it():
+    q = TaskQueue(fixed_tasks=["Load grid"])
+    q.build_from_pairs([("grid-1", "Load grid"), ("grid-1", "Overview")])
+    load = q.pending[0]
+    for action in ("remove", "move_down", "run_next"):
+        assert q.apply(load.id, action).op is QueueOp.FIXED
+    assert q.requeue("grid-1", "Load grid").op is QueueOp.FIXED
+    assert pending_pairs(q) == [("grid-1", "Load grid"), ("grid-1", "Overview")]
+
+
+def test_requeue_runs_a_pair_once(queue):
+    done = queue.next()
+    queue.mark_done(done, Status.Completed)
+    first = queue.requeue(done.item_name, done.task_name, front=True)
+    assert first.ok and queue.pending[0].id == first.item.id
+    again = queue.requeue(done.item_name, done.task_name, front=True)
+    assert again.op is QueueOp.ALREADY_QUEUED and again.item is None
+    waiting = [p for p in pending_pairs(queue) if p == (done.item_name, done.task_name)]
+    assert len(waiting) == 1

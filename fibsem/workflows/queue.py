@@ -20,7 +20,7 @@ import logging
 import threading
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, Iterable, List, Optional, Tuple
 from uuid import uuid4
 
 from fibsem.workflows.status import TaskStatus
@@ -67,6 +67,8 @@ class QueueOp(Enum):
     NOT_PENDING = auto()  # item is active, already run, or removed
     BAD_ANCHOR = auto()  # the target item is missing or not pending
     NO_OP = auto()  # already in the requested position
+    FIXED = auto()  # a step the plan places, such as a grid's load step
+    ALREADY_QUEUED = auto()  # the pair is already waiting to run
 
 
 @dataclass(frozen=True)
@@ -79,6 +81,8 @@ class QueueResult:
 
     op: QueueOp
     version: int
+    # The item a requeue added.
+    item: Optional["WorkItem"] = None
 
     @property
     def ok(self) -> bool:
@@ -93,7 +97,9 @@ class TaskQueue:
     to mutate the pending items.
     """
 
-    def __init__(self):
+    def __init__(self, fixed_tasks: Iterable[str] = ()):
+        # Steps the plan places, which no edit moves, removes or queues again.
+        self.fixed_tasks = frozenset(fixed_tasks)
         self._items: List[WorkItem] = []
         # Re-entrant: next() holds it while it asks the skip predicate, and the
         # predicate may ask the queue (has_pending_pair) on the same thread.
@@ -334,6 +340,10 @@ class TaskQueue:
         timeline and the App Server edit the queue the same way. An unknown
         action raises ``ValueError``.
         """
+        with self._lock:
+            item = self._find(item_id)
+            if item is not None and item.task_name in self.fixed_tasks:
+                return QueueResult(QueueOp.FIXED, self._version)
         call = {
             "move_up": lambda: self.nudge(item_id, -1),
             "move_down": lambda: self.nudge(item_id, +1),
@@ -345,6 +355,19 @@ class TaskQueue:
                 f"Unknown queue action {action!r}; one of {', '.join(QUEUE_ACTIONS)}."
             )
         return call()
+
+    def requeue(
+        self, item_name: str, task_name: str, *, front: bool = False
+    ) -> QueueResult:
+        """Queue a pair to run again, unless it is already waiting: it runs once.
+        The timeline's Run again and the App Server both queue through here."""
+        with self._lock:
+            if task_name in self.fixed_tasks:
+                return QueueResult(QueueOp.FIXED, self._version)
+            if self.has_pending_pair(item_name, task_name):
+                return QueueResult(QueueOp.ALREADY_QUEUED, self._version)
+            item = self.add(item_name, task_name, front=front)
+            return QueueResult(QueueOp.OK, self._version, item)
 
     def reorder_pending(self, item_ids: List[str]) -> QueueResult:
         """Pull the named pending items to the front, in the order given.
