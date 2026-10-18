@@ -6,11 +6,8 @@ import time
 
 import pytest
 
+from fibsem.acting import AGENT, OPERATOR, SCRIPT, WORKFLOW
 from fibsem.control import (
-    AGENT,
-    OPERATOR,
-    SCRIPT,
-    WORKFLOW,
     Control,
     MicroscopeBusy,
     lending,

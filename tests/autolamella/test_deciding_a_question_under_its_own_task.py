@@ -83,7 +83,7 @@ def _answer(experiment, lamella, task_name=TASK, values=None, task_id="run-1"):
         task_name,
         Decision(
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             values={"poi": Point(1e-6, 0.0)} if values is None else values,
             task_id=task_id,
         ),
@@ -123,7 +123,9 @@ def test_a_question_carrying_no_values_is_allowed_on_the_same_grounds(experiment
     result = experiment.decide(
         lamella.id,
         TASK,
-        Decision(outcome=DecisionOutcome.Confirmed, author="human:op", task_id="run-1"),
+        Decision(
+            outcome=DecisionOutcome.Confirmed, actor="operator:op", task_id="run-1"
+        ),
     )
 
     assert result.applied, result.reason

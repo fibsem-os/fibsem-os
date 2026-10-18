@@ -80,7 +80,7 @@ def _decide(experiment, grid, proposal, values, task_name=OVERVIEW):
         task_name,
         Decision(
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             values=values,
             task_id=proposal.task_id,
         ),

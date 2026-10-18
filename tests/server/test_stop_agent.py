@@ -6,8 +6,8 @@ import os
 import pytest
 
 from fibsem import utils
+from fibsem.acting import AGENT, SCRIPT, WORKFLOW
 from fibsem.applications.autolamella.server.hosting import AppServerHost
-from fibsem.control import AGENT, SCRIPT, WORKFLOW
 from fibsem.server.levels import AgentLevel
 
 pytest.importorskip("fastapi")

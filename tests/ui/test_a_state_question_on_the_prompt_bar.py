@@ -21,6 +21,7 @@ pytest.importorskip("PyQt5")
 from psygnal.containers import EventedDict
 from PyQt5.QtCore import QCoreApplication, QEvent
 
+from fibsem.acting import ActorKind
 from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskDescription,
@@ -34,7 +35,7 @@ from fibsem.applications.autolamella.workflows.tasks.reference_image import (
     AcquireReferenceImageTask,
 )
 from fibsem.structures import FibsemStagePosition
-from fibsem.workflows.proposals import STATE, AuthorKind, DecisionOutcome
+from fibsem.workflows.proposals import STATE, DecisionOutcome
 from fibsem.workflows.status import HoldKind, TaskStatus
 
 REF = "Acquire Reference Image"
@@ -176,7 +177,7 @@ def test_the_question_is_asked_on_the_prompt_bar_and_continue_decides_it(window,
     assert "error" not in seen
     decision = question.current
     assert decision.outcome is DecisionOutcome.Confirmed
-    assert decision.author.kind is AuthorKind.human and decision.via == "workflow"
+    assert decision.actor.kind is ActorKind.operator and decision.via == "workflow"
     pose = decision.values["stage_position"]
     assert isinstance(pose, FibsemStagePosition), "filled in by the task"
     here = ui.microscope.get_stage_position()
