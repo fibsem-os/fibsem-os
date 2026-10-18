@@ -861,7 +861,16 @@ def _overview_answer(result: "OverviewResult", image: Any) -> Dict[str, Any]:
 
 def _save_path(image_settings: ImageSettings) -> str:
     """Where an image taken with ``image_settings`` is saved:
-    ``<path>/<filename>_eb``, or ``_ib`` for the ion beam."""
+    ``<path>/<filename>_eb``, or ``_ib`` for the ion beam.
+
+    Raises:
+        ValueError: the settings name no folder to save in.
+    """
+    if image_settings.path is None:
+        raise ValueError(
+            "The image settings ask to save the image but name no folder: "
+            "set image_settings.path."
+        )
     suffix = "eb" if image_settings.beam_type is BeamType.ELECTRON else "ib"
     return os.path.join(image_settings.path, f"{image_settings.filename}_{suffix}")
 

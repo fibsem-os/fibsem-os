@@ -64,10 +64,12 @@
       ],
       "scan_rotation": 0.0,
       "shift": {
+        "name": null,
         "x": 0.0,
         "y": 0.0
       },
       "stigmation": {
+        "name": null,
         "x": 0.0,
         "y": 0.0
       },
@@ -93,6 +95,7 @@
     "timestamp": 1785817135.490981
   },
   "pixel_size": {
+    "name": null,
     "x": 9.765624999999999e-08,
     "y": 9.765624999999999e-08
   },
