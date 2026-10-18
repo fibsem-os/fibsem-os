@@ -6,10 +6,10 @@ import dataclasses
 import json
 import logging
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Optional
+from typing import TYPE_CHECKING, Callable, List, Optional
 
 import numpy as np
 
@@ -20,7 +20,7 @@ from fibsem.cancellation import (
     ended_by,
     raise_if_cancelled,
 )
-from fibsem.structures import BeamType
+from fibsem.structures import BeamType, Configurable, Display, Parameter, param
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
@@ -39,16 +39,26 @@ class FocusMethod(str, Enum):
 
 
 @dataclass
-class FocusSweepPass:
+class FocusSweepPass(Configurable):
     """A single pass in a multi-pass focus sweep.
 
     A pass sweeps ``search_range`` metres (±range/2) about its centre, sampling
     one image every ``step_size`` metres.
     """
 
-    search_range: float = 5e-3  # metres (total span; positions cover ±range/2)
-    step_size: float = 0.5e-3  # metres
-    enabled: bool = True
+    search_range: float = param(
+        5e-3,
+        unit="m",
+        doc="The total span the pass sweeps, centred on its starting focus (plus and minus half of it).",
+        display=Display("Search Range", scale=1e6, step=1.0, decimals=1),
+    )  # metres (total span; positions cover ±range/2)
+    step_size: float = param(
+        0.5e-3,
+        unit="m",
+        doc="The focus step between the pass's images.",
+        display=Display("Step Size", scale=1e6, step=0.1, decimals=2),
+    )  # metres
+    enabled: bool = param(True, doc="Run this pass.", display=Display("Enabled"))
 
     @property
     def n_steps(self) -> int:
@@ -86,7 +96,7 @@ def _sweep_pass_from_dict(p: dict) -> FocusSweepPass:
 
 
 @dataclass
-class AutoFocusSettings:
+class AutoFocusSettings(Configurable):
     """Parameters controlling an image-based auto-focus sweep.
 
     The sweep is expressed as a list of *passes*; each pass is one sweep centred
@@ -99,13 +109,42 @@ class AutoFocusSettings:
     ``probe_dwell_time`` / ``use_autocontrast``.
     """
 
-    method: "FocusMethod" = FocusMethod.TENENGRAD
-    passes: list = None  # list[FocusSweepPass]; None → default coarse/fine
-    probe_resolution: tuple = (768, 512)
-    probe_dwell_time: float = 0.5e-6
-    reduced_area: "FibsemRectangle" = None
-    use_autocontrast: bool = True
-    channel_name: Optional[str] = None
+    method: "FocusMethod" = param(
+        FocusMethod.TENENGRAD,
+        doc="How each image's sharpness is measured.",
+        display=Display("Method"),
+    )
+    passes: Optional[List[FocusSweepPass]] = param(
+        None,
+        doc="The sweeps, in order: each is centred on the best focus the one before it found (the first on the starting focus). Empty uses the default coarse and fine passes.",
+    )
+    probe_resolution: tuple = param(
+        (768, 512),
+        device_parameter="beam.resolution",
+        doc="The resolution of the FIB-SEM sweep's images. FM ignores it.",
+        display=Display("Probe Resolution", advanced=True),
+    )
+    probe_dwell_time: float = param(
+        0.5e-6,
+        device_parameter="beam.dwell_time",
+        doc="The dwell time of the FIB-SEM sweep's images. FM ignores it.",
+        display=Display("Probe Dwell Time", advanced=True),
+    )
+    reduced_area: "FibsemRectangle" = param(
+        None,
+        doc="Measure sharpness on this part of the frame only. Empty uses the full frame.",
+        display=Display("Reduced Area", advanced=True),
+    )
+    use_autocontrast: bool = param(
+        True,
+        doc="Set the contrast before the FIB-SEM sweep. FM ignores it.",
+        display=Display("Auto Contrast", advanced=True),
+    )
+    channel_name: Optional[str] = param(
+        None,
+        doc="The FM channel to focus on, by name. Empty uses the current channel. FIB-SEM ignores it.",
+        display=Display("Channel"),
+    )
 
     def __post_init__(self):
         if self.passes is None:

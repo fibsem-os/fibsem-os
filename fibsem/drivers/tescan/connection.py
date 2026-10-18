@@ -5,7 +5,7 @@
 their SDK calls through it rather than through the microscope.
 
 SharkSEM is one socket and is NOT thread-safe. UI signal callbacks (e.g.
-stage_position_changed -> update_ui) run on the main thread while worker threads drive
+stage.position.changed -> update_ui) run on the main thread while worker threads drive
 movements and acquisition, so two threads can hit the socket at once and corrupt the
 byte stream (empty strings -> ValueError, or None -> TypeError). Every SDK call holds
 ``lock`` (FIB-786).

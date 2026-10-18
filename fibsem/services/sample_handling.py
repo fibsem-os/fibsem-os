@@ -496,10 +496,11 @@ class SampleHandling(Service):
     @property
     def current_slot(self) -> Optional[GridSlot]:
         """Get the slot the stage is currently positioned at, if any."""
-        # The cached position, never a hardware read: this is called from UI
-        # paint paths. It is None until the first read or move after connecting,
-        # and then the answer is "not known to be at any slot", not a crash.
-        return self.slot_at_position(self.parent._stage_position)
+        # The stage device's cached position, never a hardware read: this is called
+        # from UI paint paths. It is None until the first read or move after
+        # connecting, and then the answer is "not known to be at any slot", not a crash.
+        stage = self.parent.stage
+        return self.slot_at_position(stage.position.last_known if stage else None)
 
     @property
     def current_grid(self) -> Optional[SampleGrid]:

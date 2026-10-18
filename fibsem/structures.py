@@ -41,6 +41,7 @@ from numpy.typing import NDArray
 
 import fibsem
 from fibsem.config import (
+    DEFAULT_STANDARD_RESOLUTION_LIST,
     METADATA_VERSION,
     UNVERSIONED_METADATA,
 )
@@ -637,10 +638,13 @@ def _plain_number(value: Any) -> Any:
 
 
 @dataclass
-class Point:
-    x: float = 0.0
-    y: float = 0.0
-    name: Optional[str] = None
+class Point(Configurable):
+    x: float = param(
+        0.0,
+        doc="The x value. Its unit is the context's: metres for a shift or a position in an image, none for a stigmation.",
+    )
+    y: float = param(0.0, doc="The y value, in the same unit as x.")
+    name: Optional[str] = param(None, doc="A name for the point.")
 
     def __post_init__(self) -> None:
         self.x = _plain_number(self.x)
@@ -855,7 +859,7 @@ _DISTANCE_METRICS = ("euclidean", "manhattan", "max")
 
 
 @dataclass
-class FibsemAxesPosition:
+class FibsemAxesPosition(Configurable):
     """The maths shared by stage and manipulator positions (FIB-1247).
 
     A subclass declares its axes as dataclass fields and lists them in ``AXES``; the
@@ -1070,13 +1074,43 @@ class FibsemStagePosition(FibsemAxesPosition):
     LINEAR_AXES: ClassVar[Tuple[str, ...]] = ("x", "y", "z")
     ANGULAR_AXES: ClassVar[Tuple[str, ...]] = ("r", "t")
 
-    name: Optional[str] = None
-    x: Optional[float] = None
-    y: Optional[float] = None
-    z: Optional[float] = None
-    r: Optional[float] = None
-    t: Optional[float] = None
-    coordinate_system: Optional[str] = None
+    name: Optional[str] = param(
+        None, doc="A name for the position, such as a saved position's."
+    )
+    x: Optional[float] = param(
+        None,
+        unit="m",
+        doc="The stage's x position.",
+        display=Display("X", scale=1e3, step=0.001, decimals=5),
+    )
+    y: Optional[float] = param(
+        None,
+        unit="m",
+        doc="The stage's y position.",
+        display=Display("Y", scale=1e3, step=0.001, decimals=5),
+    )
+    z: Optional[float] = param(
+        None,
+        unit="m",
+        doc="The stage's z position.",
+        display=Display("Z", scale=1e3, step=0.001, decimals=5),
+    )
+    r: Optional[float] = param(
+        None,
+        unit="rad",
+        doc="The stage's rotation.",
+        display=Display("Rotation", scale=180 / math.pi, unit="°"),
+    )
+    t: Optional[float] = param(
+        None,
+        unit="rad",
+        doc="The stage's tilt.",
+        display=Display("Tilt", scale=180 / math.pi, unit="°"),
+    )
+    coordinate_system: Optional[str] = param(
+        None,
+        doc="The frame the coordinates are in, as the driver names it, such as RAW.",
+    )
 
     def to_dict(self) -> dict:
         position_dict = {}
@@ -1133,12 +1167,39 @@ class FibsemManipulatorPosition(FibsemAxesPosition):
     LINEAR_AXES: ClassVar[Tuple[str, ...]] = ("x", "y", "z")
     ANGULAR_AXES: ClassVar[Tuple[str, ...]] = ("r", "t")
 
-    x: float = 0.0
-    y: float = 0.0
-    z: float = 0.0
-    r: float = 0.0
-    t: float = 0.0
-    coordinate_system: Optional[str] = None
+    x: float = param(
+        0.0,
+        unit="m",
+        doc="The needle's x position.",
+        display=Display("X", scale=1e3, step=0.001, decimals=5),
+    )
+    y: float = param(
+        0.0,
+        unit="m",
+        doc="The needle's y position.",
+        display=Display("Y", scale=1e3, step=0.001, decimals=5),
+    )
+    z: float = param(
+        0.0,
+        unit="m",
+        doc="The needle's z position.",
+        display=Display("Z", scale=1e3, step=0.001, decimals=5),
+    )
+    r: float = param(
+        0.0,
+        unit="rad",
+        doc="The needle's rotation.",
+        display=Display("Rotation", scale=180 / math.pi, unit="°"),
+    )
+    t: float = param(
+        0.0,
+        unit="rad",
+        doc="The needle's tilt.",
+        display=Display("Tilt", scale=180 / math.pi, unit="°"),
+    )
+    coordinate_system: Optional[str] = param(
+        None, doc="The frame the coordinates are in, as the driver names it."
+    )
 
     def to_dict(self) -> dict:
         position_dict = {}
@@ -1173,13 +1234,33 @@ class FibsemManipulatorPosition(FibsemAxesPosition):
 
 
 @dataclass
-class FibsemRectangle:
+class FibsemRectangle(Configurable):
     """Universal Rectangle class used for ReducedArea"""
 
-    left: float = 0.0
-    top: float = 0.0
-    width: float = 1.0
-    height: float = 1.0
+    left: float = param(
+        0.0,
+        limits=RangeLimit(0.0, 1.0),
+        doc="The left edge, from the frame's left, as a fraction of the full frame.",
+        display=Display("Left", step=0.01, decimals=2),
+    )
+    top: float = param(
+        0.0,
+        limits=RangeLimit(0.0, 1.0),
+        doc="The top edge, from the frame's top, as a fraction of the full frame.",
+        display=Display("Top", step=0.01, decimals=2),
+    )
+    width: float = param(
+        1.0,
+        limits=RangeLimit(0.0, 1.0),
+        doc="The width, as a fraction of the full frame.",
+        display=Display("Width", step=0.01, decimals=2),
+    )
+    height: float = param(
+        1.0,
+        limits=RangeLimit(0.0, 1.0),
+        doc="The height, as a fraction of the full frame.",
+        display=Display("Height", step=0.01, decimals=2),
+    )
 
     def __post_init__(self):
         self.left = _plain_number(self.left)
@@ -1326,12 +1407,32 @@ class ImageSettings(Configurable):
     hfw: float = param(
         150e-6, device_parameter="beam.hfw", display=Display("Field of View")
     )
-    autocontrast: bool = False
-    beam_type: BeamType = BeamType.ELECTRON
-    save: bool = False
-    filename: str = "default_image"
-    path: Optional[Union[Path, str]] = None
-    reduced_area: Optional[FibsemRectangle] = None
+    autocontrast: bool = param(
+        False,
+        doc="Set the detector's contrast and brightness automatically before the image is acquired.",
+        display=Display("Auto Contrast"),
+    )
+    beam_type: BeamType = param(
+        BeamType.ELECTRON,
+        doc="The beam that acquires the image.",
+        display=Display("Beam Type"),
+    )
+    save: bool = param(
+        False, doc="Save the image after it is acquired.", display=Display("Save Image")
+    )
+    filename: str = param(
+        "default_image",
+        doc="The name the image is saved under, without its extension.",
+        display=Display("Filename"),
+    )
+    path: Optional[Union[Path, str]] = param(
+        None, doc="The folder the image is saved in.", display=Display("Path")
+    )
+    reduced_area: Optional[FibsemRectangle] = param(
+        None,
+        doc="Acquire only this part of the frame. Empty acquires the full frame.",
+        display=Display("Reduced Area", advanced=True),
+    )
     # None is off; a form shows it as 1.
     line_integration: Optional[int] = param(
         None, limits=RangeLimit(1, 255), display=Display("Line Integration")
@@ -1342,7 +1443,11 @@ class ImageSettings(Configurable):
     frame_integration: Optional[int] = param(
         None, limits=RangeLimit(1, 512), display=Display("Frame Integration")
     )
-    drift_correction: bool = False  # (bool) # requires frame_integration > 1
+    drift_correction: bool = param(
+        False,
+        doc="Correct drift between integrated frames. Needs frame integration above 1.",
+        display=Display("Drift Correction", advanced=True),
+    )  # (bool) # requires frame_integration > 1
 
     def __post_init__(self):
         assert isinstance(self.resolution, (list, tuple)) or self.resolution is None, (
@@ -1491,7 +1596,7 @@ class ImageSettings(Configurable):
 
 
 @dataclass
-class FocusStackSettings:
+class FocusStackSettings(Configurable):
     """Settings for focus-stack acquisition in tiled overview acquisition.
 
     Attributes:
@@ -1500,9 +1605,20 @@ class FocusStackSettings:
         auto_focus: Whether to run autofocus for each strip.
     """
 
-    enabled: bool = False
-    n_steps: int = 3
-    auto_focus: bool = True
+    enabled: bool = param(
+        False,
+        doc="Build each tile from strips focused one by one, for a tilted sample.",
+        display=Display("Focus Stack"),
+    )
+    n_steps: int = param(
+        3,
+        limits=RangeLimit(1, 10),
+        doc="The number of vertical strips each tile is divided into.",
+        display=Display("Strips"),
+    )
+    auto_focus: bool = param(
+        True, doc="Autofocus on each strip.", display=Display("Autofocus Each Strip")
+    )
 
     def to_dict(self) -> dict:
         return {
@@ -1537,8 +1653,36 @@ def _default_autofocus_settings() -> "AutoFocusSettings":
     return AutoFocusSettings()
 
 
+# What an overview run looks like before anyone touches it. House defaults rather
+# than physics: a 500 um tile and a 1 us dwell are what the overview has always
+# opened with. The name decides where every overview is written:
+# `TiledAcquisitionRunner._setup` makes the tile sub-folder from it.
+OVERVIEW_TILE_HFW = 500e-6  # m
+OVERVIEW_TILE_DWELL_TIME = 1e-6  # s
+DEFAULT_OVERVIEW_FILENAME = "overview-image"
+
+
+def _default_overview_tile_settings() -> ImageSettings:
+    """The tile settings a new overview starts from.
+
+    The standard 1536x1024 resolution, not a square one: `hfw` is the horizontal
+    field, so the same 500 um tile at 1024x1024 is 0.49 um/px against 0.33 and half
+    again as tall, and overviews worth putting side by side should not differ by it.
+    A `tuple`, not the config list itself, so no two settings share one mutable list.
+    """
+    return ImageSettings(
+        resolution=tuple(DEFAULT_STANDARD_RESOLUTION_LIST),
+        hfw=OVERVIEW_TILE_HFW,
+        dwell_time=OVERVIEW_TILE_DWELL_TIME,
+        beam_type=BeamType.ELECTRON,
+        save=True,
+        path=None,  # whoever owns the experiment fills this in
+        filename=DEFAULT_OVERVIEW_FILENAME,
+    )
+
+
 @dataclass
-class OverviewAcquisitionSettings:
+class OverviewAcquisitionSettings(Configurable):
     """Settings for a tiled overview acquisition.
 
     Attributes:
@@ -1573,19 +1717,62 @@ class OverviewAcquisitionSettings:
             than left to bite twice.
     """
 
-    image_settings: ImageSettings = field(default_factory=ImageSettings)
-    nrows: int = 3
-    ncols: int = 3
-    overlap: float = 0.1
-    focus_stack_settings: FocusStackSettings = field(default_factory=FocusStackSettings)
-    autofocus_mode: AutoFocusMode = AutoFocusMode.NONE
-    autofocus_settings: "AutoFocusSettings" = field(
-        default_factory=_default_autofocus_settings
+    image_settings: ImageSettings = param(
+        doc="The settings each tile is acquired with; its field of view is the tile's.",
+        default_factory=_default_overview_tile_settings,
     )
-    autocontrast_mode: AutoContrastMode = AutoContrastMode.NONE
-    tile_order: TileOrderStrategy = TileOrderStrategy.TYPEWRITER
-    tile_mask: Optional[List[List[bool]]] = None
-    register_tiles: bool = False
+    nrows: int = param(
+        3,
+        limits=RangeLimit(1, 100),
+        doc="The number of tile rows.",
+        display=Display("Rows"),
+    )
+    ncols: int = param(
+        3,
+        limits=RangeLimit(1, 100),
+        doc="The number of tile columns.",
+        display=Display("Columns"),
+    )
+    overlap: float = param(
+        0.1,
+        limits=RangeLimit(0.0, 0.9),
+        doc="How much neighbouring tiles overlap, as a fraction of a tile.",
+        display=Display("Overlap", scale=100, unit="%", step=5.0, decimals=0),
+    )
+    focus_stack_settings: FocusStackSettings = param(
+        doc="Focus stacking within each tile.", default_factory=FocusStackSettings
+    )
+    autofocus_mode: AutoFocusMode = param(
+        AutoFocusMode.NONE,
+        doc="When to autofocus during the run: never, once, at each row or at each tile.",
+        display=Display("Autofocus"),
+    )
+    autofocus_settings: "AutoFocusSettings" = param(
+        doc="How to autofocus: the sweep passes, the method and the probe frame.",
+        default_factory=_default_autofocus_settings,
+    )
+    # One contrast for the whole mosaic by default; the runner sets the per-image
+    # flag from this.
+    autocontrast_mode: AutoContrastMode = param(
+        AutoContrastMode.ONCE,
+        doc="When to set the contrast: never, once at the grid centre, or at each tile. It decides image_settings.autocontrast for the run.",
+        display=Display("Auto Contrast"),
+    )
+    tile_order: TileOrderStrategy = param(
+        TileOrderStrategy.TYPEWRITER,
+        doc="The order the tiles are visited in.",
+        display=Display("Tile Order", advanced=True),
+    )
+    tile_mask: Optional[List[List[bool]]] = param(
+        None,
+        doc="Which tiles to acquire, as tile_mask[row][col]. Empty acquires every tile; a skipped tile keeps its place in the mosaic.",
+        display=Display(hidden=True),
+    )
+    register_tiles: bool = param(
+        False,
+        doc="Experimental. Place each tile where its picture says it is, measured against its neighbours, rather than where the grid planned it. The planned mosaic is kept when the tiles don't match well enough.",
+        display=Display("Register Tiles", advanced=True),
+    )
 
     @property
     def n_enabled_tiles(self) -> int:
@@ -2780,8 +2967,14 @@ def _parse_rotation_centre(value) -> Optional[Tuple[float, float]]:
 
 
 @dataclass
-class StageSystemSettings:
-    rotation_reference: float
+class StageSystemSettings(Configurable):
+    rotation_reference: float = param(
+        unit="°",
+        limits=RangeLimit(-360.0, 360.0),
+        doc="The stage rotation the SEM orientation is defined at; on a stage that "
+        "rotates, the FIB orientation is 180° from it.",
+        display=Display("Reference rotation", decimals=2),
+    )
     # Accepted as a constructor keyword, held as `_shuttle_pre_tilt`, and read back
     # through the property below. An `InitVar` rather than a field because the value
     # a caller passes is a *fallback* -- the answer comes from the active holder when
@@ -2811,7 +3004,14 @@ class StageSystemSettings:
     # to sit -- which is exactly what `rotation` had become in the simulator's Arctis
     # configuration before it was read by anything.
     rotation: bool = True
-    milling_angle: float = 15
+    milling_angle: float = param(
+        15,
+        unit="°",
+        limits=RangeLimit(0.0, 45.0),
+        doc="The milling angle is the difference between the stage and the fib "
+        "viewing angle.",
+        display=Display("Milling Angle", step=1.0, decimals=1),
+    )
     # Where the stage travels for each instrument to see the sample. Keyed by device
     # name -- "FIBSEM" and "FM" today -- and separate from `orientations`, which says
     # what pose the sample is held in once the stage is there.
@@ -5351,7 +5551,11 @@ DEFAULT_ALIGNMENT_AREA = {"left": 0.7, "top": 0.3, "width": 0.25, "height": 0.4}
 class MillingAlignment(Configurable):
     """Drift correction settings for milling"""
 
-    enabled: bool = True
+    enabled: bool = param(
+        True,
+        doc="Align between the imaging and milling currents before milling starts.",
+        display=Display("Enable Initial Alignment"),
+    )
     interval_enabled: bool = param(
         False,
         display=Display("Re-align during milling"),
@@ -5367,15 +5571,33 @@ class MillingAlignment(Configurable):
     rect: FibsemRectangle = field(
         default_factory=lambda: FibsemRectangle.from_dict(DEFAULT_ALIGNMENT_AREA)
     )
-    use_autocontrast: bool = True
-    use_autofocus: bool = False
-    steps: int = 3
+    use_autocontrast: bool = param(
+        True,
+        doc="Auto contrast before the alignment image is acquired.",
+        display=Display("Use Auto Contrast"),
+    )
+    use_autofocus: bool = param(
+        False,
+        doc="Auto focus before the alignment image is acquired.",
+        display=Display("Use Auto Focus"),
+    )
+    steps: int = param(
+        3,
+        limits=RangeLimit(1, 9),
+        doc="How many times the alignment is repeated.",
+        display=Display("Alignment Steps"),
+    )
     imaging: ImageSettings = field(default_factory=ImageSettings)
-    # Align on the whole frame, not ``rect``, when the current the column reads
-    # back at the stage's milling current is at or below this (amps); 0 is off.
     # At polishing currents a full frame costs about the dose of an ordinary
     # image and gives the match far more to lock onto than a small area does.
-    full_frame_below: float = 0.0
+    full_frame_below: float = param(
+        0.0,
+        unit="A",
+        limits=RangeLimit(0.0, 100e-9),
+        doc="Align on the whole frame instead of the alignment area when the "
+        "milling current is at or below this. Off at 0.",
+        display=Display("Full Frame At Or Below", scale=1e12, step=10, decimals=0),
+    )
 
     def to_dict(self):
         return {
@@ -5409,7 +5631,10 @@ class MillingAlignment(Configurable):
 
 @dataclass
 class ReferenceImageParameters(Configurable):
-    imaging: ImageSettings = field(default_factory=ImageSettings)
+    imaging: ImageSettings = param(
+        default_factory=ImageSettings,
+        doc="The settings the reference images are acquired with; each image's field of view is field_of_view1 or field_of_view2.",
+    )
     field_of_view1: float = param(100e-6, doc="Field of view for first reference image")
     field_of_view2: float = param(
         150e-6, doc="Field of view for second reference image"
@@ -5657,7 +5882,12 @@ class SampleHolder(Configurable):
     # `_parent.system.stage.shuttle_pre_tilt`. That direction is now reversed, and
     # both cannot exist: the stage reads the holder, so a holder that read the stage
     # would recurse until the interpreter gave up.
-    pre_tilt: float = param(unit="°", doc="Pre-tilt of this holder, in degrees")
+    pre_tilt: float = param(
+        unit="°",
+        limits=RangeLimit(-90.0, 90.0),
+        doc="Pre-tilt of this holder, in degrees",
+        display=Display(decimals=1),
+    )
     name: str = param("Sample Holder", doc="Name of the sample holder")
     description: str = param("", doc="Description of the sample holder")
     capacity: int = param(
