@@ -1,6 +1,6 @@
 """The app's event stream for a microscope session, and its record on disk.
 
-The event buffer (``server/events.py``) began as the App Server's: built when
+The event buffer (``events.py``) began as the App Server's: built when
 the server started, gone when it stopped, so with the server off nothing -- the
 dashboard, a monitor, a replay -- had a stream to read. It is the app's now.
 An :class:`EventRecorder` is created when a microscope connects, whether or not
@@ -35,12 +35,12 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Tuple
 
 from fibsem.acting import AGENT, OPERATOR, TASK, acting, current_actor
-from fibsem.applications.autolamella.proposals import _encode_values
-from fibsem.applications.autolamella.server.events import (
+from fibsem.workflows.events import (
     EventBuffer,
     attach_microscope_taps,
     make_lifecycle_hook,
 )
+from fibsem.workflows.proposals import _encode_values
 
 EVENTS_FILENAME = "events.jsonl"
 
@@ -68,6 +68,27 @@ def recorder_for(microscope: Any) -> Optional["EventRecorder"]:
     return (
         recorder if recorder is not None and recorder.microscope is microscope else None
     )
+
+
+def run_recorder(
+    microscope: Any, experiment: Any
+) -> Tuple[Optional["EventRecorder"], Optional["EventRecorder"]]:
+    """The recorder a workflow run records through, and the one made for the
+    run, which its caller closes after it (None when the app's own was used).
+    The microscope's own recorder when something keeps one, else one made for
+    the run, recording to the experiment. A recorder that cannot be made is a
+    run without one: recording must not cost the run."""
+    recorder = recorder_for(microscope)
+    if recorder is not None:
+        return recorder, None
+    try:
+        made = EventRecorder(
+            microscope, experiment_path=experiment.path, experiment=experiment
+        )
+    except Exception:  # noqa: BLE001 - recording must not cost the run
+        logging.warning("This run's events are not recorded.", exc_info=True)
+        return None, None
+    return made, made
 
 
 class EventFileWriter:
@@ -364,6 +385,7 @@ class _HookRef:
         self.item_name = payload.get("item_name")
         self.task_id = payload.get("task_id")
         self.task_name = payload.get("task_name")
+        self.round = payload.get("round")
 
 
 class EventRecorder:
@@ -483,6 +505,8 @@ class EventRecorder:
                 item = {"id": ref.item_id, "name": ref.item_name}
             if getattr(ref, "task_id", None) or getattr(ref, "task_name", None):
                 task = {"id": ref.task_id, "name": ref.task_name}
+                if getattr(ref, "round", None) is not None:
+                    task["round"] = ref.round
         if (
             kind == "agent_note"
             and isinstance(payload, dict)
@@ -543,7 +567,7 @@ class ProposalTap:
         self._asked = set()
         # (proposal id, decision index) -> whether it was recorded with values
         self._decided: Dict[Tuple[str, int], bool] = {}
-        for item in _items(experiment):
+        for item in experiment.items():
             for proposals in list(item.proposals.values()):
                 for proposal in list(proposals):
                     if proposal.asking:
@@ -603,11 +627,6 @@ class ProposalTap:
             payload["filled_in"] = True
         with acting(_ACTOR_OF_AUTHOR.get(decision.author.kind.value)):
             self._buffer.append("proposal_decided", payload)
-
-
-def _items(experiment: Any) -> List[Any]:
-    """The lamellae and grids: the items a proposal can sit on."""
-    return list(experiment.positions) + list(getattr(experiment, "grids", None) or [])
 
 
 def _proposal_payload(item: Any, task_name: str, proposal: Any) -> Dict[str, Any]:

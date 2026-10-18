@@ -22,7 +22,6 @@ from psygnal.containers import EventedDict
 
 import fibsem.config as fconfig
 from fibsem import utils
-from fibsem.applications.autolamella.proposals import STATE, TASK_RESULT
 from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskDescription,
@@ -45,6 +44,7 @@ from fibsem.applications.autolamella.workflows.tasks.select_fluorescence_positio
 )
 from fibsem.fm.structures import ChannelSettings
 from fibsem.structures import FibsemStagePosition
+from fibsem.workflows.proposals import STATE, TASK_RESULT
 
 SELECT = "Select Fluorescence Position"
 ACQUIRE = "Acquire Fluorescence Image"

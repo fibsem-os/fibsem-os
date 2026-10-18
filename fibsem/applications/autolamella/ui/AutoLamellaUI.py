@@ -117,6 +117,7 @@ from fibsem.ui.widgets.workflow_summary_dialog import (
     WorkflowSummaryDialog,
     run_counts_text,
 )
+from fibsem.workflows.session import AppSession
 
 if TYPE_CHECKING:
     from concurrent.futures import Future
@@ -126,7 +127,7 @@ if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
         AutoLamellaSingleWindowUI,
     )
-    from fibsem.applications.autolamella.workflows.tasks.status import (
+    from fibsem.workflows.status import (
         Hold,
         WorkflowStatusEvent,
     )
@@ -190,7 +191,7 @@ class AutoLamellaUI(QMainWindow):
     # Everything the workflow says without needing an answer, as a
     # WorkflowStatusEvent. Questions and instructions do not travel on a signal
     # at all: they are typed requests to the QtResponder, each on its own
-    # future (workflows/interaction.py) — the dict workflow_update_signal that
+    # future (fibsem/workflows/interaction.py) — the dict workflow_update_signal that
     # once carried all three kinds of traffic is gone.
     workflow_status_signal = pyqtSignal(object)
     # Its own signal: a queue edit is not a step in the task lifecycle and must
@@ -216,11 +217,30 @@ class AutoLamellaUI(QMainWindow):
     # The agent added or renamed grid records (App Server); the grid views redraw.
     grids_changed = pyqtSignal()
 
+    @property
+    def microscope(self) -> Optional[FibsemMicroscope]:
+        return self.session.microscope
+
+    @microscope.setter
+    def microscope(self, microscope: Optional[FibsemMicroscope]) -> None:
+        self.session.microscope = microscope
+
+    @property
+    def experiment(self) -> Optional[Experiment]:
+        return self.session.experiment
+
+    @experiment.setter
+    def experiment(self, experiment: Optional[Experiment]) -> None:
+        self.session.experiment = experiment
+
     def __init__(
         self,
         parent_ui: "AutoLamellaSingleWindowUI",
     ) -> None:
         super().__init__()
+        # The microscope, the open experiment and the connection's event
+        # stream are the session's; this window is one client of it.
+        self.session = AppSession()
 
         self._setup_ui()
         self.parent_widget = parent_ui
@@ -230,6 +250,7 @@ class AutoLamellaUI(QMainWindow):
         # The Qt side of the workflow's Responder seam: workflow code is handed
         # this one-method object, never the window itself.
         self.ui_responder = QtResponder(self)
+        self.session.responder = self.ui_responder
         # The timeline renders the responder's question-lifecycle feed; the
         # widget itself is built in _setup_ui, before the responder exists.
         self.ui_responder.add_question_observer(self.question_timeline.record)
@@ -238,8 +259,6 @@ class AutoLamellaUI(QMainWindow):
 
         self._protocol_lock = threading.RLock()
 
-        self.experiment: Optional[Experiment] = None
-        self.microscope: Optional[FibsemMicroscope] = None
         # the microscope whose moves the stage readout follows
         self._stage_followed: Optional[FibsemMicroscope] = None
         self.settings: Optional[MicroscopeSettings] = None
@@ -279,7 +298,7 @@ class AutoLamellaUI(QMainWindow):
         # border, status bar and timeline pause read it. The cross-thread
         # flag-poll it used to be -- USER_RESPONSE, WAITING_FOR_UI_UPDATE -- is
         # gone: every workflow interaction is a typed request on its own future
-        # (workflows/interaction.py).
+        # (fibsem/workflows/interaction.py).
         self.hold: Optional[Hold] = None
         # A state question a task asked (``AutoLamellaTask.ask`` with the
         # ``state`` kind), shown on the prompt bar: (item_id, task_name,
@@ -299,10 +318,6 @@ class AutoLamellaUI(QMainWindow):
         # level. None until the server first starts, which reads the
         # preference's start-up default.
         self._app_server_microscope: Optional[bool] = None
-        # The app's event stream (FIB-1031): built on microscope connect, always,
-        # and recorded to events.jsonl in the experiment directory. The agent
-        # server reads it when it runs; None only while disconnected.
-        self._event_recorder = None
         self._last_run_summary: Optional["pd.DataFrame"] = None
         # Why the last run ended short of done, for the run summary's
         # headline: a run that gave up waiting for a review must not read as
@@ -680,15 +695,10 @@ class AutoLamellaUI(QMainWindow):
         # Disconnect existing event subscribers if there's an existing experiment
         self._disconnect_experiment_events()
 
-        # Assign the experiment
-        self.experiment = experiment
+        self.session.adopt(experiment)
 
         experiment.configure_logging()
         logging.info(f"Logging to experiment {experiment.name} at {experiment.path}")
-        # getattr: the adoption tests drive this method on a stand-in window.
-        recorder = getattr(self, "_event_recorder", None)
-        if recorder is not None:
-            recorder.set_experiment(experiment.path, experiment)
 
         # Setup experiment connections and update UI
         self._setup_experiment_connections()
@@ -716,9 +726,6 @@ class AutoLamellaUI(QMainWindow):
     def _start_event_recorder(self) -> None:
         """Start recording events for this microscope connection, whatever else runs.
 
-        Never raises: the recording is a record of the connection, and failing to
-        keep one must not stop the connection being used.
-
         This is the slot for the system widget's ``connected_signal``, which fires
         whenever that widget refreshes while connected -- not once per connection
         -- so it can run again for a microscope that already has a stream, and
@@ -726,44 +733,19 @@ class AutoLamellaUI(QMainWindow):
         hand one back) gets a new stream, and a running App Server is stopped so
         it restarts on the new buffer: left alone it would serve a closed one.
         """
-        recorder = self._event_recorder
-        if recorder is not None and recorder.microscope is self.microscope:
-            return
-        if self.microscope is None:
-            self._stop_event_recorder()
-            return
-        if recorder is not None:
+        recorder = self.session.recorder
+        if recorder is not None and recorder.microscope is not self.microscope:
             host = self._app_server_host
             if host is not None and host.running:
                 host.stop()
-            self._stop_event_recorder()
-        try:
-            from fibsem.acting import OPERATOR
-            from fibsem.applications.autolamella.event_recording import EventRecorder
-
-            self._event_recorder = EventRecorder(
-                self.microscope,
-                responder=getattr(self, "ui_responder", None),
-                experiment_path=self.experiment.path if self.experiment else None,
-                # tasks and the agent mark their own calls; the rest are the UI's
-                default_actor=OPERATOR,
-                experiment=self.experiment,
-            )
-        except Exception:
-            logging.exception("event stream failed to start; continuing without it")
-            self._event_recorder = None
-
-    def _stop_event_recorder(self) -> None:
-        if self._event_recorder is not None:
-            self._event_recorder.close()
-            self._event_recorder = None
+        self.session.start_recording()
 
     def closeEvent(self, event) -> None:
         """Closed on its own, as tests and scripts use it, the window closes its
         recorder, whose writer thread would otherwise run until the process
         ends. Embedded, it is never closed: the main window's closeEvent does
         this instead."""
-        self._stop_event_recorder()
+        self.session.stop_recording()
         super().closeEvent(event)
 
     def _start_app_server(self) -> None:
@@ -782,7 +764,7 @@ class AutoLamellaUI(QMainWindow):
                 self._app_server_host = AppServerHost(
                     self, serve_microscope=self._app_server_microscope
                 )
-            recorder = self._event_recorder
+            recorder = self.session.recorder
             self._app_server_host.start(
                 self.microscope,
                 event_buffer=recorder.buffer if recorder is not None else None,
@@ -835,7 +817,7 @@ class AutoLamellaUI(QMainWindow):
     def disconnect_from_microscope(self):
         if self._app_server_host is not None:
             self._app_server_host.stop()
-        self._stop_event_recorder()
+        self.session.stop_recording()
         self._follow_stage(None)
         self.microscope = None
         self.settings = None
@@ -1768,8 +1750,8 @@ class AutoLamellaUI(QMainWindow):
         tells the operator what changed.
         """
         from fibsem.applications.autolamella.server.context import config_version
-        from fibsem.applications.autolamella.server.events import to_plain
         from fibsem.server.config_patch import PatchError, apply_patch
+        from fibsem.workflows.events import to_plain
 
         parent = self.parent_widget
         if parent is not None:
@@ -1876,8 +1858,8 @@ class AutoLamellaUI(QMainWindow):
             find_item,
             item_fields_version,
         )
-        from fibsem.applications.autolamella.server.events import to_plain
         from fibsem.server.config_patch import PatchError, apply_patch
+        from fibsem.workflows.events import to_plain
 
         lamella, refusal = find_item(experiment, item_name)
         if refusal:
@@ -2255,7 +2237,7 @@ class AutoLamellaUI(QMainWindow):
         # its run, the same path a run without the GUI takes (FIB-1044). The agent
         # server shares the recorder's hook; one of its own (a host started
         # without a recorder) is registered here, per run, as before.
-        recorder = self._event_recorder
+        recorder = self.session.recorder
         host = self._app_server_host
         if (
             host is not None
@@ -2975,7 +2957,7 @@ class AutoLamellaUI(QMainWindow):
         message and one button. Continue records the operator's confirmation
         through ``Experiment.decide``, the one write path; the task then reads
         the instrument for the position as confirmed."""
-        from fibsem.applications.autolamella.workflows.tasks.status import (
+        from fibsem.workflows.status import (
             WorkflowStatusEvent,
         )
 
@@ -2993,7 +2975,7 @@ class AutoLamellaUI(QMainWindow):
         shown = self._state_question
         if shown is None or shown[:2] != (item_id, task_name):
             return
-        from fibsem.applications.autolamella.workflows.tasks.status import (
+        from fibsem.workflows.status import (
             WorkflowStatusEvent,
         )
 
@@ -3007,10 +2989,7 @@ class AutoLamellaUI(QMainWindow):
         if shown is None or experiment is None:
             return
         item_id, task_name, proposal_id = shown
-        from fibsem.applications.autolamella.proposals import (
-            Decision,
-            DecisionOutcome,
-        )
+        from fibsem.workflows.proposals import Decision, DecisionOutcome
 
         result = experiment.decide(
             item_id,

@@ -127,7 +127,7 @@ fibsem-mcp = "fibsem.mcp.sidecar:main"
 include = ["fibsem*"]
 # Stated explicitly because it is load-bearing, not a preference: a dozen
 # directories are PEP 420 namespace packages with no __init__.py, including
-# fibsem/ui/widgets (68 modules), fibsem/microscopes and fibsem/ui/napari.
+# fibsem/ui/widgets (68 modules) and fibsem/microscopes.
 # This defaults to true for pyproject config, but setting it false — or reaching
 # for find_packages semantics — would silently drop all of them from the wheel.
 namespaces = true

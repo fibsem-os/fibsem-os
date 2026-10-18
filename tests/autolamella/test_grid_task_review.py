@@ -23,20 +23,13 @@ import yaml
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.applications.autolamella.proposals import (
-    OVERVIEW_POSITIONS,
-    AuthorKind,
-    Decision,
-    DecisionOutcome,
-    Standing,
-)
+from fibsem.applications.autolamella.proposals import OVERVIEW_POSITIONS
 from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskProtocol,
     Experiment,
     GridTaskProtocol,
     Lamella,
-    standing,
 )
 from fibsem.applications.autolamella.task_outputs import latest_grid_output
 from fibsem.applications.autolamella.workflows.tasks.grid import (
@@ -47,6 +40,8 @@ from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     GridTaskManager,
 )
 from fibsem.structures import BeamType, ImageSettings, OverviewAcquisitionSettings
+from fibsem.workflows.proposals import AuthorKind, Decision, DecisionOutcome, Standing
+from fibsem.workflows.review import standing
 from fibsem.workflows.status import TaskStatus
 
 GRID = "Grid-01"

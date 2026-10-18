@@ -200,3 +200,17 @@ def test_positions_are_the_same_within_the_tolerance(a, b, same):
     from fibsem.devices.core import _same
 
     assert _same(a, b) is same
+
+
+def test_the_microscope_has_no_stage_signal_or_cache_of_its_own():
+    """A stage move is on the stage device; the microscope keeps no second copy."""
+    microscope, _ = utils.setup_session(manufacturer="Demo", setup_logging=False)
+    positions = []
+    microscope.stage.position.changed.connect(positions.append)
+
+    microscope.stage.move_relative(FibsemStagePosition(x=2e-4))
+
+    assert len(positions) == 1
+    assert microscope.stage.position.last_known == positions[0]
+    assert not hasattr(microscope, "stage_position_changed")
+    assert not hasattr(microscope, "_stage_position")

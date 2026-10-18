@@ -28,8 +28,8 @@ from PyQt5.QtWidgets import QLabel
 from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
     WorkflowProgressWidget,
 )
-from fibsem.applications.autolamella.workflows.tasks.queue import TaskQueue
 from fibsem.ui.stylesheets import NAPARI_STYLE
+from fibsem.workflows.queue import TaskQueue
 from fibsem.workflows.status import TaskStatus as Status
 
 START = 1000.0  # the fake clock every status payload is stamped with
@@ -197,7 +197,7 @@ def test_a_wait_for_a_human_pauses_the_countdown_rather_than_spending_it(
 
 
 def test_the_elapsed_keeps_running_through_a_wait(widget, queue, monkeypatch):
-    """Only the countdown pauses. `AutoLamellaTaskState.duration` is end minus start and
+    """Only the countdown pauses. `TaskState.duration` is end minus start and
     counts the wait, so an elapsed that skipped it would snap on completion and disagree
     with the experiment record."""
     start_next(widget, queue)

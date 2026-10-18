@@ -26,7 +26,7 @@ class FixtureTask(AutoLamellaTask):
 
 
 class NotATask:
-    """Declared under fibsem.tasks on purpose, without being a task.
+    """Declared under fibsem.autolamella.tasks on purpose, without being a task.
 
     The wrong-base-class failure is distinct from an import failure: this one
     loads perfectly and only fails the issubclass check afterwards, so the

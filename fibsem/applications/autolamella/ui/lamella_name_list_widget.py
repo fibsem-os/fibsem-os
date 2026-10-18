@@ -36,11 +36,11 @@ from PyQt5.QtWidgets import (
 )
 from superqt import ensure_main_thread
 
-from fibsem.applications.autolamella.structures import Verdict
 from fibsem.ui import stylesheets as stylesheets
 from fibsem.ui.icon import ICON_MOVE_TO_POSITION, ICON_UPDATE_POSITION, fibsem_icon
 from fibsem.ui.tokens import CANVAS_BG, NEUTRAL_550
 from fibsem.ui.widgets.custom_widgets import ElidedLabel, IconToolButton
+from fibsem.workflows.quality import Verdict
 from fibsem.workflows.status import TaskStatus
 
 _LAMELLA_NAME_MIN_WIDTH = 160

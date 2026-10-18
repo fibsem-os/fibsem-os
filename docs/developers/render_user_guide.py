@@ -2047,7 +2047,6 @@ def render_grid_workflow(h: Harness) -> None:
     from PyQt5.QtGui import QTextCursor
     from PyQt5.QtWidgets import QDialog, QInputDialog, QMenu, QPlainTextEdit
 
-    from fibsem.applications.autolamella.structures import Verdict
     from fibsem.applications.autolamella.tools import grid_report_pdf
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as main_module
     from fibsem.applications.autolamella.ui import grid_workflow_widget as gww
@@ -2062,6 +2061,7 @@ def render_grid_workflow(h: Harness) -> None:
         BeamOverviewGridTaskConfig,
     )
     from fibsem.ui.widgets.workflow_summary_dialog import WorkflowSummaryDialog
+    from fibsem.workflows.quality import Verdict
 
     h.first_run(False)
     h.show_tab(0)

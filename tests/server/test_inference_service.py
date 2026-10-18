@@ -15,21 +15,25 @@ from fastapi.testclient import TestClient  # noqa: E402
 from fibsem import utils  # noqa: E402
 from fibsem.ai.models import ModelEntry, ModelManager, ModelRegistry  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
+from fibsem.services.inference import Inference  # noqa: E402
 from fibsem.structures import BeamType, ImageSettings  # noqa: E402
 
 TOKEN = "test-token"
-INFERENCE = "/microscope/services/inference"
+INFERENCE = "/services/inference"
 
 
 @pytest.fixture(scope="module")
 def microscope():
     microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
+    return microscope
+
+
+@pytest.fixture(scope="module")
+def services():
     # A registry of its own: the developer's models.yaml stays out of the test.
     hidden = ModelEntry("hidden", "builtin://fake/segmentation", agent=False)
-    microscope.inference._manager = ModelManager(
-        ModelRegistry([*ModelRegistry().entries(), hidden])
-    )
-    return microscope
+    manager = ModelManager(ModelRegistry([*ModelRegistry().entries(), hidden]))
+    return {"inference": Inference(manager=manager)}
 
 
 @pytest.fixture
@@ -40,12 +44,13 @@ def experiment(tmp_path):
 
 
 @pytest.fixture
-def client(microscope, experiment):
+def client(microscope, services, experiment):
     context = SimpleNamespace(experiment_path=str(experiment))
     app = build_server(
         microscope,
         app_context=context,
         auth=AuthConfig.generate(level="watch", token=TOKEN),
+        services=services,
     )
     with TestClient(app, raise_server_exceptions=False) as client:
         client.headers.update({"Authorization": f"Bearer {TOKEN}"})

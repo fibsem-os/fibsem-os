@@ -3,7 +3,7 @@
 Live incident (2026-09-01): a protocol.yaml carrying a field this build did
 not know ('supervisor') made the whole protocol refuse to load — the
 experiment quickloaded without it. Task descriptions now keep known fields
-only, the same rule AutoLamellaTaskState already follows."""
+only, the same rule TaskState already follows."""
 
 import logging
 

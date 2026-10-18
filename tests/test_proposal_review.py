@@ -1,0 +1,94 @@
+"""Deciding a proposal, on an experiment whose items are not lamellae."""
+
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Dict, List
+
+from fibsem.workflows.experiment import BaseExperiment
+from fibsem.workflows.item import ExperimentItem
+from fibsem.workflows.proposals import (
+    TASK_RESULT,
+    Decision,
+    DecisionOutcome,
+    Proposal,
+    human_author,
+)
+from fibsem.workflows.review import ProposalReview
+from fibsem.workflows.status import TaskState, TaskStatus
+
+TASK = "Mill"
+RUN = "run-1"
+
+
+@dataclass
+class Position(ExperimentItem):
+    name: str
+    id: str = "p1"
+    description: str = ""
+    task_state: TaskState = field(default_factory=TaskState)
+    task_history: List[TaskState] = field(default_factory=list)
+    proposals: Dict[str, List[Proposal]] = field(default_factory=dict)
+
+
+class Volume(BaseExperiment, ProposalReview):
+    app = "volume"
+
+    def __init__(self, path: Path) -> None:
+        super().__init__(path=path, name="volume")
+        self.positions: List[Any] = []
+
+    def items(self):
+        return list(self.positions)
+
+    def save(self, save_protocol: bool = False) -> None:
+        pass
+
+
+def _held(tmp_path) -> tuple:
+    """A position whose Mill run ended waiting on its result being looked at."""
+    experiment = Volume(tmp_path)
+    position = Position("P1")
+    run = TaskState(name=TASK, task_id=RUN, status=TaskStatus.AwaitingDecision)
+    position.task_history.append(run)
+    proposal = position.record_proposal(
+        TASK, Proposal(kind=TASK_RESULT, provenance={"task_id": RUN})
+    )
+    experiment.positions.append(position)
+    return experiment, position, proposal
+
+
+def _decision(proposal: Proposal, outcome: DecisionOutcome, reason: str = ""):
+    return Decision(
+        outcome=outcome,
+        author=human_author("Ada"),
+        reason=reason,
+        proposal_id=proposal.id,
+    )
+
+
+def test_confirming_finishes_the_held_run(tmp_path):
+    experiment, position, proposal = _held(tmp_path)
+    decided = []
+    experiment.decided.connect(lambda *args: decided.append(args))
+
+    result = experiment.decide(
+        position.id, TASK, _decision(proposal, DecisionOutcome.Confirmed)
+    )
+
+    assert result.applied, result.reason
+    assert position.task_history[-1].status is TaskStatus.Completed
+    assert proposal.decisions[-1].author.name == "Ada"
+    assert decided == [(position.id, TASK)]
+    assert experiment.pending_proposals() == []
+
+
+def test_a_reject_needs_a_reason(tmp_path):
+    experiment, position, proposal = _held(tmp_path)
+
+    result = experiment.decide(
+        position.id, TASK, _decision(proposal, DecisionOutcome.Rejected)
+    )
+
+    assert not result.applied
+    assert position.is_awaiting_decision(TASK)
+    assert [p for _, _, p in experiment.pending_proposals()] == [proposal]

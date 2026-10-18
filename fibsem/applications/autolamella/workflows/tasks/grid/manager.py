@@ -66,12 +66,9 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 import pandas as pd
 
-from fibsem.applications.autolamella.structures import AutoLamellaTaskState, GridRecord
 from fibsem.applications.autolamella.workflows.tasks.grid.registry import (
     run_grid_task,
 )
-from fibsem.applications.autolamella.workflows.tasks.manager import BaseTaskManager
-from fibsem.applications.autolamella.workflows.tasks.queue import WorkItem
 from fibsem.applications.autolamella.workflows.ui import update_status_ui
 from fibsem.cancellation import OperationCancelledError
 from fibsem.control import WORKFLOW
@@ -79,7 +76,10 @@ from fibsem.devices.sample_loader import GridExchangeError
 from fibsem.hooks import HookEvent, HookManager
 from fibsem.structures import SampleGrid
 from fibsem.util import timestamps
-from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.grids import GridRecord
+from fibsem.workflows.manager import BaseTaskManager
+from fibsem.workflows.queue import WorkItem
+from fibsem.workflows.status import TaskState, TaskStatus
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment
@@ -415,7 +415,7 @@ class GridTaskManager(BaseTaskManager):
             # Cleared before the scan, so a decision that lands between a scan
             # finding nothing and the wait starting is not lost.
             self._decision_event.clear()
-            item = self.queue.next(skip=self._is_deferred)
+            item = self._next_item()
             if item is None:
                 if self.queue.is_empty:
                     break
@@ -576,7 +576,7 @@ class GridTaskManager(BaseTaskManager):
             msg=f"Unloading grid {occupant}.",
         )
         self._say(status_bar=f"Unloading grid {occupant}...")
-        entry = AutoLamellaTaskState(
+        entry = TaskState(
             name=UNLOAD_ENTRY_NAME,
             task_type=UNLOAD_TASK_TYPE,
             status=TaskStatus.InProgress,
@@ -724,7 +724,7 @@ class GridTaskManager(BaseTaskManager):
             return False
         stage = self.microscope.sample_handling
         loaded = stage.holder.find_slot_by_grid_name(grid.name) is not None
-        entry = AutoLamellaTaskState(
+        entry = TaskState(
             name=LOAD_ENTRY_NAME,
             task_type=LOAD_TASK_TYPE,
             status=TaskStatus.InProgress,
@@ -781,7 +781,7 @@ class GridTaskManager(BaseTaskManager):
         return occupant.name if occupant is not None else None
 
     def _stop_exchange_if_asked(
-        self, grid: GridRecord, entry: AutoLamellaTaskState, msg: str
+        self, grid: GridRecord, entry: TaskState, msg: str
     ) -> None:
         """A checkpoint inside the exchange: record the entry and raise if Stop
         has been asked for since the loop last looked."""

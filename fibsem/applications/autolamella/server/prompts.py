@@ -14,7 +14,7 @@ cannot fully parse should still know one is standing.
 import base64
 from typing import Any, Dict, Optional
 
-from fibsem.applications.autolamella.server.events import to_plain
+from fibsem.workflows.events import to_plain
 
 __all__ = ["serialize_request"]
 

@@ -28,11 +28,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskState,
-    Experiment,
-    GridRecord,
-)
+from fibsem.applications.autolamella.structures import Experiment
 from fibsem.applications.autolamella.ui.lamella_task_image_widget import (
     ClickableLabel,
 )
@@ -53,7 +49,8 @@ from fibsem.ui.tokens import (
 from fibsem.ui.widgets.custom_widgets import ElidedLabel, IconToolButton
 from fibsem.ui.widgets.image_viewer_dialog import ViewerItem, open_image_viewer
 from fibsem.util.timestamps import format_time
-from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.grids import GridRecord
+from fibsem.workflows.status import TaskState, TaskStatus
 
 _TILE_W, _TILE_H = 320, 213  # 3:2, the Review tab's proportions at a card-friendly size
 
@@ -67,7 +64,7 @@ _STATUS_COLOUR = {
 }
 
 
-def _when(state: AutoLamellaTaskState) -> str:
+def _when(state: TaskState) -> str:
     stamp = state.end_timestamp or state.start_timestamp
     return format_time(stamp, TIME_DISPLAY_AMPM_SHORT) or ""
 
@@ -75,7 +72,7 @@ def _when(state: AutoLamellaTaskState) -> str:
 def _recorded(
     experiment: Experiment,
     grid: GridRecord,
-    state: AutoLamellaTaskState,
+    state: TaskState,
     thumbnail: bool,
 ) -> Optional[str]:
     """The last existing file this run recorded: the thumbnail, or the image
@@ -93,13 +90,13 @@ def _recorded(
 
 
 def thumbnail_for(
-    experiment: Experiment, grid: GridRecord, state: AutoLamellaTaskState
+    experiment: Experiment, grid: GridRecord, state: TaskState
 ) -> Optional[str]:
     return _recorded(experiment, grid, state, thumbnail=True)
 
 
 def image_for(
-    experiment: Experiment, grid: GridRecord, state: AutoLamellaTaskState
+    experiment: Experiment, grid: GridRecord, state: TaskState
 ) -> Optional[str]:
     return _recorded(experiment, grid, state, thumbnail=False)
 
@@ -123,7 +120,7 @@ class _HistoryRow(QWidget):
 
     def __init__(
         self,
-        state: AutoLamellaTaskState,
+        state: TaskState,
         thumbnail: Optional[str],
         image: Optional[str],
         parent: Optional[QWidget] = None,

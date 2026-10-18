@@ -1,7 +1,7 @@
 """The plugin entry point contract.
 
 fibsem exposes extension points -- ``fibsem.patterns``, ``fibsem.strategies``,
-``fibsem.tasks`` and ``fibsem.drivers`` -- and for patterns and strategies a
+``fibsem.autolamella.tasks`` and ``fibsem.drivers`` -- and for patterns and strategies a
 packaged plugin is the *only* way in. Nothing in the test suite exercised that
 path, so a refactor could break every third-party plugin in existence without a
 single test failing; the breakage would surface months later on a user's
@@ -33,6 +33,7 @@ import pytest
 PATTERN_NAME = "Fixture Pattern"
 STRATEGY_NAME = "Fixture Strategy"
 TASK_TYPE = "FIXTURE_TASK"
+GRID_TASK_TYPE = "FIXTURE_GRID_TASK"
 CLASHING_PATTERN_NAME = "Rectangle"  # a built-in name the fixture claims on purpose
 FAILING_ENTRY_POINTS = ("wrong_base_class", "missing_module")  # declared to fail
 DRIVER_MANUFACTURER = "Fixture Microscopes"
@@ -143,6 +144,17 @@ def test_task_plugin_survives_protocol_load():
 
     assert "Fixture" in loaded, dict(loaded)
     assert loaded["Fixture"].number == 42
+
+
+def test_grid_task_plugin_resolves_through_the_registry():
+    from fibsem.applications.autolamella.workflows.tasks.grid import (
+        get_grid_tasks,
+        load_grid_task_configs,
+    )
+
+    assert GRID_TASK_TYPE in get_grid_tasks(), sorted(get_grid_tasks())
+    loaded = load_grid_task_configs({"Fixture": {"task_type": GRID_TASK_TYPE}})
+    assert type(loaded["Fixture"]).__name__ == "FixtureGridTaskConfig"
     assert loaded["Fixture"].task_name == "Fixture"
 
 
@@ -279,7 +291,9 @@ def test_failed_entry_point_becomes_a_row_that_spells_out_the_consequence():
     """
     from fibsem.plugins.report import ExtensionSource, collect_extensions
 
-    tasks = next(g for g in collect_extensions() if g.group == "fibsem.tasks")
+    tasks = next(
+        g for g in collect_extensions() if g.group == "fibsem.autolamella.tasks"
+    )
     failed = [e for e in tasks.extensions if e.source is ExtensionSource.FAILED]
 
     assert len(failed) == len(FAILING_ENTRY_POINTS), [e.target for e in failed]
@@ -298,12 +312,19 @@ def test_report_lists_the_fixture_across_every_group():
     assert [g.group for g in groups] == [
         "fibsem.patterns",
         "fibsem.strategies",
-        "fibsem.tasks",
+        "fibsem.autolamella.tasks",
+        "fibsem.grid_tasks",
         "fibsem.drivers",
     ]
 
     text = render_report(groups)
-    for name in (PATTERN_NAME, STRATEGY_NAME, TASK_TYPE, DRIVER_MANUFACTURER):
+    for name in (
+        PATTERN_NAME,
+        STRATEGY_NAME,
+        TASK_TYPE,
+        GRID_TASK_TYPE,
+        DRIVER_MANUFACTURER,
+    ):
         assert name in text
 
     # Failures are in the text too, which is the difference between this and

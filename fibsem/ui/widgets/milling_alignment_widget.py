@@ -7,32 +7,25 @@ from fibsem.ui.widgets.custom_widgets import (
     ValueSpinBox,
     align_form,
 )
+from fibsem.ui.widgets.form_builder import configure_spinbox
 from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
 
-# GUI Configuration Constants
-WIDGET_CONFIG = {
-    "enabled": {
-        "default": True,
-        "label": "Enable Initial Alignment",
-        "tooltip": "Align between imaging and milling current before starting milling",
-    },
-    "use_contrast": {
-        "default": True,
-        "label": "Use Auto Contrast",
-        "tooltip": "Autocontrast before acquiring alignment image",
-    },
-    "use_autofocus": {
-        "default": False,
-        "label": "Use Auto Focus",
-        "tooltip": "Autofocus before acquiring alignment image",
-    },
-    "steps": {"range": (1, 9), "default": 3},
-    "full_frame_below": {
-        "label": "Full Frame At Or Below",
-        "tooltip": "Align on the whole frame instead of the alignment area when the "
-        "milling current is at or below this. Off at 0.",
-    },
-}
+# Each control's label, tooltip and range are MillingAlignment's Parameters.
+_SPECS = MillingAlignment.params
+
+
+def _check_row(layout: QGridLayout, row: int, name: str) -> QCheckBox:
+    """A switch as a form row: its label, then a bare checkbox in the field column --
+    the shape every other boolean in the editor has."""
+    spec = _SPECS[name]
+    checkbox = QCheckBox()
+    checkbox.setChecked(getattr(MillingAlignment(), name))
+    checkbox.setToolTip(spec.doc)
+    label = QLabel(spec.label)
+    label.setToolTip(spec.doc)
+    layout.addWidget(label, row, 0)
+    layout.addWidget(checkbox, row, 1, alignment=Qt.AlignLeft)
+    return checkbox
 
 
 class FibsemMillingAlignmentWidget(QWidget):
@@ -72,58 +65,24 @@ class FibsemMillingAlignmentWidget(QWidget):
         self.setLayout(layout)
         align_form(layout)
 
-        # Enabled checkbox
-        enabled_config = WIDGET_CONFIG["enabled"]
-        # Each switch is a form row -- label, then a bare checkbox in the field
-        # column -- the shape every other boolean in the editor has.
-        self.enabled_checkbox = QCheckBox()
-        self.enabled_checkbox.setChecked(enabled_config["default"])
-        self.enabled_checkbox.setToolTip(enabled_config["tooltip"])
-        enabled_label = QLabel(enabled_config["label"])
-        enabled_label.setToolTip(enabled_config["tooltip"])
-        layout.addWidget(enabled_label, 0, 0)
-        layout.addWidget(self.enabled_checkbox, 0, 1, alignment=Qt.AlignLeft)
+        self.enabled_checkbox = _check_row(layout, 0, "enabled")
+        self.autocontrast_checkbox = _check_row(layout, 1, "use_autocontrast")
+        self.autofocus_checkbox = _check_row(layout, 2, "use_autofocus")
 
-        use_contrast_config = WIDGET_CONFIG["use_contrast"]
-        self.autocontrast_checkbox = QCheckBox()
-        self.autocontrast_checkbox.setChecked(use_contrast_config["default"])
-        self.autocontrast_checkbox.setToolTip(use_contrast_config["tooltip"])
-        contrast_label = QLabel(use_contrast_config["label"])
-        contrast_label.setToolTip(use_contrast_config["tooltip"])
-        layout.addWidget(contrast_label, 1, 0)
-        layout.addWidget(self.autocontrast_checkbox, 1, 1, alignment=Qt.AlignLeft)
-
-        use_autofocus_config = WIDGET_CONFIG["use_autofocus"]
-        self.autofocus_checkbox = QCheckBox()
-        self.autofocus_checkbox.setChecked(use_autofocus_config["default"])
-        self.autofocus_checkbox.setToolTip(use_autofocus_config["tooltip"])
-        focus_label = QLabel(use_autofocus_config["label"])
-        focus_label.setToolTip(use_autofocus_config["tooltip"])
-        layout.addWidget(focus_label, 2, 0)
-        layout.addWidget(self.autofocus_checkbox, 2, 1, alignment=Qt.AlignLeft)
-
-        # Alignment steps
-        self.steps_label = QLabel("Alignment Steps")
+        steps = _SPECS["steps"]
+        self.steps_label = QLabel(steps.label)
         layout.addWidget(self.steps_label, 3, 0)
-        self.steps_spinbox = IntegerValueSpinBox()
-        steps_config = WIDGET_CONFIG["steps"]
-        self.steps_spinbox.setRange(*steps_config["range"])
-        self.steps_spinbox.setValue(steps_config["default"])
+        self.steps_spinbox = IntegerValueSpinBox(tooltip=steps.doc)
+        self.steps_spinbox.setRange(int(steps.limits.min), int(steps.limits.max))
+        self.steps_spinbox.setValue(MillingAlignment().steps)
         layout.addWidget(self.steps_spinbox, 3, 1)
 
-        # Full frame below a current: shown in pA, stored in amps
-        full_frame_config = WIDGET_CONFIG["full_frame_below"]
-        self.full_frame_label = QLabel(full_frame_config["label"])
-        self.full_frame_label.setToolTip(full_frame_config["tooltip"])
+        full_frame = _SPECS["full_frame_below"]
+        self.full_frame_label = QLabel(full_frame.label)
+        self.full_frame_label.setToolTip(full_frame.doc)
         layout.addWidget(self.full_frame_label, 4, 0)
-        self.full_frame_spinbox = ValueSpinBox(
-            suffix="pA",
-            minimum=0,
-            maximum=100000,
-            step=10,
-            decimals=0,
-            tooltip=full_frame_config["tooltip"],
-        )
+        self.full_frame_spinbox = ValueSpinBox()
+        configure_spinbox(self.full_frame_spinbox, full_frame)
         self.full_frame_spinbox.setSpecialValueText("Off")
         layout.addWidget(self.full_frame_spinbox, 4, 1)
 
@@ -194,7 +153,9 @@ class FibsemMillingAlignmentWidget(QWidget):
         self._settings.use_autocontrast = self.autocontrast_checkbox.isChecked()
         self._settings.use_autofocus = self.autofocus_checkbox.isChecked()
         self._settings.steps = self.steps_spinbox.value()
-        self._settings.full_frame_below = self.full_frame_spinbox.value() * 1e-12
+        self._settings.full_frame_below = (
+            self.full_frame_spinbox.value() / _SPECS["full_frame_below"].scale
+        )
         self._settings.imaging = self.image_settings_widget.get_settings()
         # interval_enabled, interval, and rect are preserved from stored settings
         return self._settings
@@ -219,7 +180,9 @@ class FibsemMillingAlignmentWidget(QWidget):
         self.autocontrast_checkbox.setChecked(settings.use_autocontrast)
         self.autofocus_checkbox.setChecked(settings.use_autofocus)
         self.steps_spinbox.setValue(settings.steps)
-        self.full_frame_spinbox.setValue(settings.full_frame_below * 1e12)
+        self.full_frame_spinbox.setValue(
+            settings.full_frame_below * _SPECS["full_frame_below"].scale
+        )
 
         # Update image settings widget
         self.image_settings_widget.update_from_settings(settings.imaging)
