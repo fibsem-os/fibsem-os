@@ -68,7 +68,7 @@ def _confirm(experiment, px: Point, **named) -> "object":
         TASK,
         Decision(
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             values={"features": [{"name": "LamellaCentre", "px": px}]},
             **named,
         ),
@@ -217,7 +217,7 @@ def test_withdrawn_is_refused_as_a_decision(experiment):
         TASK,
         Decision(
             outcome=DecisionOutcome.Withdrawn,
-            author="agent:x",
+            actor="agent:x",
             reason="taking it back",
             proposal_id=proposal.id,
         ),
@@ -241,7 +241,7 @@ def test_a_plain_result_is_named_the_same_way(experiment):
         TASK,
         Decision(
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             proposal_id=proposal.id,
         ),
     )

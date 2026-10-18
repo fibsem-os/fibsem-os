@@ -298,6 +298,19 @@ def bind_autoscript_stage(
     return stage(microscope, microscope._connection, resources).connect()
 
 
+def _point(value: Any) -> Point:
+    """An AutoScript Point as a fibsem Point."""
+    return Point(float(value.x), float(value.y))
+
+
+def _point_limits(limits: Any) -> Dict[str, RangeLimit]:
+    """An AutoScript Limits2d as a Point parameter's limits."""
+    return {
+        "x": RangeLimit(min=limits.limits_x.min, max=limits.limits_x.max),
+        "y": RangeLimit(min=limits.limits_y.min, max=limits.limits_y.max),
+    }
+
+
 class AutoscriptBeam(Beam):
     """An AutoScript beam: ``connection.beams.electron_beam`` or ``.ion_beam``.
 
@@ -473,6 +486,44 @@ class AutoscriptBeam(Beam):
 
         self._beam.stigmator.value = ThermoPoint(value.x, value.y)
         self._set_log("stigmation", value, "")
+
+    # The electron column's source tilt (radians) and lens alignment (metres), each
+    # an AutoScript Point with Limits2d. A column without one answers unavailable.
+    def available_source_tilt(self) -> bool:
+        return self._has_electron("source_tilt")
+
+    def read_source_tilt(self) -> Point:
+        return _point(self._beam.source_tilt.value)
+
+    def write_source_tilt(self, value: Point) -> None:
+        self._beam.source_tilt.value = [value.x, value.y]
+        self._set_log("source tilt", value, " rad")
+
+    def metadata_source_tilt(self) -> ParameterMetadata:
+        return ParameterMetadata(limits=_point_limits(self._beam.source_tilt.limits))
+
+    def available_lens_alignment(self) -> bool:
+        return self._has_electron("lens_alignment")
+
+    def read_lens_alignment(self) -> Point:
+        return _point(self._beam.lens_alignment.value)
+
+    def write_lens_alignment(self, value: Point) -> None:
+        self._beam.lens_alignment.value = [value.x, value.y]
+        self._set_log("lens alignment", value, " m")
+
+    def metadata_lens_alignment(self) -> ParameterMetadata:
+        return ParameterMetadata(limits=_point_limits(self._beam.lens_alignment.limits))
+
+    def _has_electron(self, name: str) -> bool:
+        """Whether this is the electron column and it has *name*; an AutoScript or
+        an instrument without it is "no"."""
+        if self.beam_type is not BeamType.ELECTRON:
+            return False
+        try:
+            return getattr(self._beam, name) is not None
+        except Exception:  # noqa: BLE001 - an older SDK, or a column without it
+            return False
 
     def read_resolution(self) -> List[int]:
         # a list, as the old get returns it

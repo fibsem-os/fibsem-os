@@ -135,7 +135,7 @@ def test_a_decision_lands_and_is_shown_read_only(tab, experiment):
         TASK,
         Decision(
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             values={"alignment_area": moved},
             proposal_id=proposal.id,
         ),

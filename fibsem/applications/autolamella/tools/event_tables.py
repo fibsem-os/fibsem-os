@@ -40,6 +40,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 import pandas as pd
 
+from fibsem.acting import Actor
 from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
 from fibsem.applications.autolamella.tools.replay import changed_values
 from fibsem.util.timestamps import wall_time_of
@@ -99,8 +100,8 @@ DECISION_COLUMNS = [
     "proposal_id",
     "decision",
     "outcome",
-    "author",
     "actor",
+    "actor_name",
     "via",
     "reason",
     "asked",
@@ -405,8 +406,11 @@ def _decision(
         "proposal_id": payload.get("proposal_id"),
         "decision": payload.get("decision"),
         "outcome": payload.get("outcome"),
-        "author": payload.get("author"),
         "actor": record.get("actor"),
+        # the decision's actor is kind:name; older logs put it under author
+        "actor_name": Actor.parse(
+            payload.get("actor") or payload.get("author") or ""
+        ).name,
         "via": payload.get("via"),
         "reason": payload.get("reason"),
         "asked": question[0] if question is not None else None,

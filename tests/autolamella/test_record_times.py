@@ -101,7 +101,7 @@ def test_an_older_proposal_and_decision_show_the_same_clock(viewer_zone):
         "values": {},
         "provenance": {"task_id": "run-1"},
         "decisions": [
-            {"outcome": "Confirmed", "author": "operator", "timestamp": STAMP + 60}
+            {"outcome": "Confirmed", "actor": "operator", "timestamp": STAMP + 60}
         ],
         "created_at": STAMP,
     }
@@ -118,7 +118,7 @@ def test_an_older_proposal_and_decision_show_the_same_clock(viewer_zone):
 
 
 def test_a_decision_with_no_time_has_none():
-    decision = Decision.from_dict({"outcome": "Confirmed", "author": "operator"})
+    decision = Decision.from_dict({"outcome": "Confirmed", "actor": "operator"})
     assert decision.timestamp is None
     assert clock(decision.timestamp) == ""
 

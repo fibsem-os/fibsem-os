@@ -16,6 +16,7 @@ from psygnal.containers import EventedDict
 
 import fibsem.config as cfg
 from fibsem import utils
+from fibsem.acting import ActorKind
 from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
 from fibsem.applications.autolamella.structures import (
     Attention,
@@ -36,7 +37,6 @@ from fibsem.structures import Point
 from fibsem.workflows.proposals import (
     ALIGNMENT_AREA,
     STATE,
-    AuthorKind,
     Decision,
     DecisionOutcome,
 )
@@ -176,7 +176,7 @@ def test_the_proposal_gates_the_consumer_until_it_is_decided(microscope, tmp_pat
         SETUP,
         Decision(
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             values={"poi": Point(3e-6, 0.0)},
             task_id=lamella.proposal(SETUP).task_id,
         ),
@@ -219,7 +219,7 @@ def test_a_deliberate_rerun_supersedes_a_decided_proposal(microscope, tmp_path):
         SETUP,
         Decision(
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             values={"poi": Point(1e-6, 1e-6)},
             task_id=lamella.proposal(SETUP).task_id,
         ),
@@ -293,7 +293,7 @@ def test_automated_the_value_is_open_until_its_consumer_starts(microscope, tmp_p
         SETUP,
         Decision(
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             values={"poi": Point(1e-6, 0.0)},
             proposal_id=proposal.id,
         ),
@@ -334,10 +334,10 @@ def test_supervised_the_inline_answer_is_the_decision(
     assert proposal.values == {"poi": Point(0.0, 0.0)}, "what the proposer said"
     d = proposal.current
     assert d.outcome is DecisionOutcome.Confirmed and d.via == "workflow"
-    assert d.author.kind is AuthorKind.human
+    assert d.actor.kind is ActorKind.operator
     assert d.values == {"poi": Point(2e-6, -1e-6)}
     assert proposal.delta()["poi"] == Point(2e-6, -1e-6)
-    assert d.author.kind is not AuthorKind.automated, "a person decided it"
+    assert d.actor.kind is not ActorKind.task, "a person decided it"
     assert lamella.poi == Point(2e-6, -1e-6), "applied inline, once"
     assert task.task_manager._defer_reason(lamella, ROUGH) is None
 
@@ -371,7 +371,7 @@ def test_supervised_an_agent_s_inline_answer_is_the_agent_s_decision(
 
     d = exp.positions[0].proposal(SETUP).current
     assert d.outcome is DecisionOutcome.Confirmed and d.via == "workflow"
-    assert str(d.author) == "agent:remote"
+    assert str(d.actor) == "agent:remote"
     assert d.values == {"poi": Point(2e-6, -1e-6)}
 
 

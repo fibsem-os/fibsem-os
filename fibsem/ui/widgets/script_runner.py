@@ -32,8 +32,9 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem.acting import SCRIPT
 from fibsem.cancellation import OperationCancelledError
-from fibsem.control import SCRIPT, MicroscopeBusy
+from fibsem.control import MicroscopeBusy
 from fibsem.scripting import (
     DiscoveredScript,
     ScriptResult,
