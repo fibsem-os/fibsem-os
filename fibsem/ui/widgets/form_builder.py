@@ -55,6 +55,7 @@ from fibsem.ui.widgets.custom_widgets import (
     QLineEdit,
     ValueComboBox,
     ValueSpinBox,
+    unit_suffix,
 )
 
 # Fallback spinbox bounds, used when a field declares no limits.
@@ -180,8 +181,7 @@ def reported_metadata(parameter: Union[Parameter, BoundParameter]) -> ParameterM
 def configure_spinbox(spinbox: QDoubleSpinBox, spec: Parameter) -> None:
     """Set a spin box's suffix, step, decimals, range and tooltip from a field, for
     a panel that keeps its own boxes. What the field leaves out keeps the box's own."""
-    suffix = spec.suffix
-    spinbox.setSuffix(f" {suffix}" if suffix else "")
+    spinbox.setSuffix(unit_suffix(spec.suffix))
     if spec.display.decimals is not None:
         spinbox.setDecimals(spec.display.decimals)
     if spec.display.step is not None:

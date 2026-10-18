@@ -11,11 +11,6 @@ from fibsem import conversions
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.patterning.patterns import LinePattern
-
-# `is_pattern_placement_valid` is pure geometry despite living under `fibsem/ui/napari/`
-# — it validates a pattern against the image bounds and never touches a Viewer or Layer.
-# It is the last thing keeping this module coupled to that package, and it moves out with
-# the geometry extraction tracked on FIB-407 §1.
 from fibsem.milling.patterning.shapes import is_pattern_placement_valid
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.structures import BeamType, FibsemImage, Point

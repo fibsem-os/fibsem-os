@@ -13,6 +13,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
+from fibsem.structures import Configurable, Display, RangeLimit, param
+
 # Mirror the UI constants as plain strings so this module never imports the UI.
 FIT_METHODS = ("None", "Hole", "Gaussian")
 
@@ -71,7 +73,7 @@ class FitSettings:
 
 
 @dataclass
-class RISettings:
+class RISettings(Configurable):
     """RI depth-correction ζ inputs + mode. Mirrors ``ZetaParams`` (tilt / depth /
     NA / n2 / wavelength). ``wavelength_um`` and ``na`` may be seeded from channel
     metadata on FM load (FIB-277).
@@ -86,11 +88,37 @@ class RISettings:
     showed one set and computed ζ from the other (FIB-1234).
     """
 
-    tilt_deg: float = 15.0
-    depth_um: float = 4.0
-    na: float = 0.75
-    n2: float = 1.35
-    wavelength_um: float = 0.515
+    # The bounds are the lookup table's: zeta is only known inside them.
+    tilt_deg: float = param(
+        15.0,
+        limits=RangeLimit(0.0, 30.0),
+        doc="The angle between the FIB column and the sample surface.",
+        display=Display("Milling Angle", unit="°", step=1.0, decimals=0),
+    )
+    depth_um: float = param(
+        4.0,
+        limits=RangeLimit(0.5, 14.5),
+        doc="Estimated depth of the feature below the coverslip (has little effect below ~20 µm).",
+        display=Display("Depth", unit="µm", step=0.5, decimals=1),
+    )
+    na: float = param(
+        0.75,
+        limits=RangeLimit(0.2, 0.9),
+        doc="Numerical aperture of the objective lens.",
+        display=Display("Numerical Aperture", step=0.1, decimals=2),
+    )
+    n2: float = param(
+        1.35,
+        limits=RangeLimit(1.22, 1.46),
+        doc="Refractive index of the sample medium (n=1.0 is vacuum/air).",
+        display=Display("Refractive Index", step=0.04, decimals=2),
+    )
+    wavelength_um: float = param(
+        0.515,
+        limits=RangeLimit(0.42, 0.72),
+        doc="Excitation wavelength of the fluorescence channel.",
+        display=Display("Wavelength (λ)", scale=1e3, unit="nm", step=10.0, decimals=0),
+    )
     mode: str = "pre"  # "pre" (correct POI z before correlation) | "post"
 
     def to_dict(self) -> Dict[str, Any]:
