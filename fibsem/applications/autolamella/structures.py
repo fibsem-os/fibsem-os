@@ -66,6 +66,7 @@ from fibsem.structures import (
 from fibsem.util.durations import format_duration_precise
 from fibsem.util.timestamps import format_time, now, to_datetime, to_iso
 from fibsem.utils import configure_logging as _configure_logging
+from fibsem.workflows.item import ExperimentItem
 from fibsem.workflows.proposals import (
     PROPOSAL_KINDS,
     Author,
@@ -78,13 +79,11 @@ from fibsem.workflows.proposals import (
     _encode_values,
     _quietly,
     auto_author,
-    current_proposal,
     current_proposals,
     human_author,
     prepare_values,
     proposals_from_dict,
     proposals_to_dict,
-    record,
 )
 from fibsem.workflows.status import TaskStatus
 
@@ -1198,50 +1197,9 @@ def _make_thumbnail_placeholder():
 _THUMBNAIL_PLACEHOLDER = None
 
 
-def _latest_status(
-    task_history: List[AutoLamellaTaskState], task_name: str
-) -> Optional[TaskStatus]:
-    """How the latest run of ``task_name`` ended; None if it never ran."""
-    for task in reversed(task_history):
-        if task.name == task_name:
-            return task.status
-    return None
-
-
-def _is_awaiting_decision(
-    task_history: List[AutoLamellaTaskState], task_name: str
-) -> bool:
-    """Whether the latest run of ``task_name`` ended waiting on a decision. The
-    same rule for a lamella and a grid record."""
-    return _latest_status(task_history, task_name) is TaskStatus.AwaitingDecision
-
-
-def _set_task_status(
-    task_history: List[AutoLamellaTaskState],
-    task_state: Optional[AutoLamellaTaskState],
-    task_name: str,
-    status: TaskStatus,
-    message: str = "",
-) -> None:
-    """Move the latest run of ``task_name`` to ``status``, in the history and
-    on the live task_state when that is the same run. The two are separate
-    objects (task_history holds a copy frozen at the end of the run), so a
-    status that changes after the run -- a decision landing on a task that
-    was awaiting one -- has to be written to both. The same rule for a lamella
-    and a grid record."""
-    for task in reversed(task_history):
-        if task.name == task_name:
-            task.status = status
-            task.status_message = message
-            if task_state is not None and task_state.task_id == task.task_id:
-                task_state.status = status
-                task_state.status_message = message
-            return
-
-
 @evented
 @dataclass
-class Lamella:
+class Lamella(ExperimentItem):
     path: Path
     number: int  # TODO: deprecate, use petname instead
     petname: str
@@ -1355,57 +1313,6 @@ class Lamella:
     @stage_position.setter
     def stage_position(self, value: FibsemStagePosition):
         self.milling_pose.stage_position = value
-
-    def has_completed_task(self, task_name: str) -> bool:
-        """Check if the lamella has completed a specific task."""
-        return task_name in self.completed_tasks
-
-    def is_awaiting_decision(self, task_name: str) -> bool:
-        """Whether the latest run of ``task_name`` ended waiting on a decision."""
-        return _is_awaiting_decision(self.task_history, task_name)
-
-    def proposal(
-        self, task_name: str, kind: Optional[str] = None
-    ) -> Optional[Proposal]:
-        """The current proposal from ``task_name``: the last one it made, or
-        the last of ``kind``. None when it never proposed."""
-        return current_proposal(self.proposals.get(task_name), kind)
-
-    def current_proposals(self, task_name: str) -> List[Proposal]:
-        """Every current proposal from ``task_name``: the last of each kind."""
-        return current_proposals(self.proposals.get(task_name))
-
-    def record_proposal(self, task_name: str, proposal: Proposal) -> Proposal:
-        """Put ``proposal`` on the record as the current one from ``task_name``."""
-        return record(self.proposals.setdefault(task_name, []), proposal)
-
-    def latest_run_completed(self, task_name: str) -> bool:
-        """Whether the latest run of ``task_name`` completed: what a task that
-        requires it needs. Not ``has_completed_task``, which an old success
-        satisfies after a rerun failed or was rejected."""
-        return _latest_status(self.task_history, task_name) is TaskStatus.Completed
-
-    def set_task_status(
-        self, task_name: str, status: TaskStatus, message: str = ""
-    ) -> None:
-        """Move the latest run of ``task_name`` to ``status``; see
-        ``_set_task_status``."""
-        _set_task_status(self.task_history, self.task_state, task_name, status, message)
-
-    @property
-    def completed_tasks(self) -> List[str]:
-        """Return a list of completed task names.
-
-        Filtered on status: task_history records every terminal outcome, not just
-        successes (FIB-490), so an unfiltered read would count a failed task as
-        done. That matters most in TaskManager._should_skip, where this gates
-        prerequisites -- a failed trench would otherwise license an undercut.
-        """
-        return [
-            task.name
-            for task in self.task_history
-            if task.status is TaskStatus.Completed
-        ]
 
     @property
     def last_completed_task(self) -> Optional["AutoLamellaTaskState"]:
@@ -1769,7 +1676,7 @@ class OverlayRecord:
 
 
 @dataclass
-class GridRecord:
+class GridRecord(ExperimentItem):
     """A grid as the workflow knows it, distinct from the hardware's `SampleGrid`.
 
     Linked to the hardware by name and to lamellae by `Lamella.grid_id -> id`.
@@ -1822,42 +1729,6 @@ class GridRecord:
                 self.overlays[index] = record
                 return
         self.overlays.append(record)
-
-    def has_completed_task(self, task_name: str) -> bool:
-        return any(
-            t.name == task_name and t.status is TaskStatus.Completed
-            for t in self.task_history
-        )
-
-    def is_awaiting_decision(self, task_name: str) -> bool:
-        """Whether the latest run of ``task_name`` ended waiting on a decision."""
-        return _is_awaiting_decision(self.task_history, task_name)
-
-    def proposal(
-        self, task_name: str, kind: Optional[str] = None
-    ) -> Optional[Proposal]:
-        """The current proposal from ``task_name``: the last one it made, or
-        the last of ``kind``. None when it never proposed."""
-        return current_proposal(self.proposals.get(task_name), kind)
-
-    def current_proposals(self, task_name: str) -> List[Proposal]:
-        """Every current proposal from ``task_name``: the last of each kind."""
-        return current_proposals(self.proposals.get(task_name))
-
-    def record_proposal(self, task_name: str, proposal: Proposal) -> Proposal:
-        """Put ``proposal`` on the record as the current one from ``task_name``."""
-        return record(self.proposals.setdefault(task_name, []), proposal)
-
-    def latest_run_completed(self, task_name: str) -> bool:
-        """Whether the latest run of ``task_name`` completed; see Lamella's."""
-        return _latest_status(self.task_history, task_name) is TaskStatus.Completed
-
-    def set_task_status(
-        self, task_name: str, status: TaskStatus, message: str = ""
-    ) -> None:
-        """Move the latest run of ``task_name`` to ``status``; see
-        ``_set_task_status``."""
-        _set_task_status(self.task_history, self.task_state, task_name, status, message)
 
     @property
     def is_failure(self) -> bool:
