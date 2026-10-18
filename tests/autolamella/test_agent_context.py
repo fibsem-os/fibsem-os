@@ -472,9 +472,11 @@ def test_stage_position_reads_the_cache_only(microscope):
     assert cached["available"] is True
     _assert_json_safe(cached)
 
-    # The facade must not have issued a hardware read itself: poking the cache
-    # attribute directly proves which side it reads from.
-    microscope._stage_position = None
+    # The facade must not have issued a hardware read itself: forgetting the stage
+    # device's cached value directly proves which side it reads from.
+    from fibsem.devices.core import _UNSET
+
+    microscope.stage.position._cached = _UNSET
     assert ctx.stage_position() == {"available": False, "position": None}
 
 

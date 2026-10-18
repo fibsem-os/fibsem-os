@@ -40,10 +40,12 @@ from fibsem import config as cfg
 from fibsem import constants, conversions
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
+    BEAM_ORIENTATIONS,
     BeamType,
     FibsemStagePosition,
     InsertableDeviceState,
     Point,
+    StageSystemSettings,
 )
 from fibsem.ui import notification_service
 from fibsem.ui.qt.threading import thread_worker
@@ -53,6 +55,7 @@ from fibsem.ui.stylesheets import (
     SECONDARY_BUTTON_STYLESHEET,
 )
 from fibsem.ui.utils import install_wheel_blocker
+from fibsem.ui.widgets.form_builder import configure_spinbox
 from fibsem.ui.widgets.stage_position_widget import StagePositionWidget
 
 INSTRUCTIONS_TEXT = (
@@ -64,8 +67,6 @@ INSTRUCTIONS_TEXT = (
 # to "updating images", "taking new images" and, on the orientation path, nothing at
 # all -- so the same phase looked different depending on how the move was started.
 ACQUIRING_IMAGES = "Acquiring images…"
-
-ORIENTATIONS = ("SEM", "FIB", "MILLING")
 
 
 class StageControlWidget(QWidget):
@@ -191,12 +192,9 @@ class StageControlWidget(QWidget):
         self.doubleSpinBox_milling_angle.setValue(
             self.microscope.system.stage.milling_angle
         )  # deg
-        self.doubleSpinBox_milling_angle.setSuffix(constants.DEGREE_SYMBOL)
-        self.doubleSpinBox_milling_angle.setSingleStep(1.0)
-        self.doubleSpinBox_milling_angle.setDecimals(1)
-        self.doubleSpinBox_milling_angle.setRange(0, 45)
-        self.doubleSpinBox_milling_angle.setToolTip(
-            "The milling angle is the difference between the stage and the fib viewing angle."
+        configure_spinbox(
+            self.doubleSpinBox_milling_angle,
+            StageSystemSettings.params["milling_angle"],
         )
         self.doubleSpinBox_milling_angle.setKeyboardTracking(False)
         self.doubleSpinBox_milling_angle.valueChanged.connect(
@@ -602,7 +600,7 @@ class StageControlWidget(QWidget):
 
     def move_to_orientation(self, orientation: str) -> None:
         """Move to the specifed orientation"""
-        if orientation not in ORIENTATIONS:
+        if orientation not in BEAM_ORIENTATIONS:
             raise ValueError(f"Invalid orientation: {orientation}")
         self._toggle_interactions(False)
         self._report_move(f"Moving to the {orientation} orientation…")

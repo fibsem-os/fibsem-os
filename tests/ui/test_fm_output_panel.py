@@ -24,11 +24,9 @@ pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is delibe
 
 from PyQt5.QtWidgets import QApplication
 
+from fibsem.imaging.tiled import stamped_overview_name
+from fibsem.structures import DEFAULT_OVERVIEW_FILENAME
 from fibsem.ui.fm.widgets.fm_overview_settings_widget import FMOverviewSettingsWidget
-from fibsem.ui.widgets.overview_acquisition_settings_widget import (
-    DEFAULT_OVERVIEW_FILENAME,
-    stamped_overview_name,
-)
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
