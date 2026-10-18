@@ -32,6 +32,11 @@ from fibsem.workflows.status import TaskStatus, take_back_finish
 _UNSAFE_IN_FOLDER_NAMES = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
 
+def iteration_folder(iteration: int) -> str:
+    """The folder name of one iteration of an item's tasks: ``0003``."""
+    return f"{iteration:04d}"
+
+
 def run_folder(
     item_dir: Any, task_name: str, started: datetime, iteration: Optional[int] = None
 ) -> str:
@@ -48,7 +53,11 @@ def run_folder(
     from its record (``outputs``), not from this name.
     """
     task_folder = _UNSAFE_IN_FOLDER_NAMES.sub("-", task_name).strip().rstrip(".")
-    leaf = f"{iteration:04d}" if iteration is not None else f"{started:%Y%m%d-%H%M%S}"
+    leaf = (
+        iteration_folder(iteration)
+        if iteration is not None
+        else f"{started:%Y%m%d-%H%M%S}"
+    )
     base = os.path.join(str(item_dir), task_folder or "task", leaf)
     folder, n = base, 1
     while os.path.exists(folder):
