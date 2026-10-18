@@ -199,6 +199,10 @@ class HookContext:
     # WORKFLOW_COMPLETED. A run in which everything was skipped still completes, and
     # this is what says nothing ran (FIB-1357).
     task_counts: Optional[Dict[str, int]] = None
+    # Which round of its item's tasks the work in flight is, for an application
+    # whose items repeat their tasks (a volume position, once per slice). None
+    # for one whose items run each task once, and between tasks.
+    round: Optional[int] = None
     timestamp: float = field(default_factory=time.time)
 
     def __post_init__(self):

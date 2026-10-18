@@ -135,7 +135,7 @@ class TaskManager(BaseTaskManager):
             # Cleared before the scan, so a decision that lands between a scan
             # finding nothing and the wait starting is not lost.
             self._decision_event.clear()
-            item = self.queue.next(skip=self._is_deferred)
+            item = self._next_item()
             if item is None:
                 if self.queue.is_empty:
                     break
