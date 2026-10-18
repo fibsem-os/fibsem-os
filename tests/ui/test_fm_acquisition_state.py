@@ -388,23 +388,19 @@ class TestTheControlWidgetWiring:
     def test_every_way_in_asks_first(self, name):
         assert "_refuse_to_start" in self._calls(self._functions()[name])
 
-    @pytest.mark.parametrize("name", ["acquire_image", "run_autofocus"])
-    def test_every_worker_is_marked_for(self, name):
-        assert "set_acquiring" in self._calls(self._functions()[name])
-
-    @pytest.mark.parametrize("name", ["_image_acquistion_worker", "_autofocus_worker"])
-    def test_every_worker_clears_on_the_way_out(self, name):
-        """In the `finally`, not the happy path: a worker that raises still holds it."""
-        import ast
-
-        node = self._functions()[name]
-        cleared = any(
-            "set_acquiring"
-            in self._calls(ast.Module(body=block.finalbody, type_ignores=[]))
-            for block in ast.walk(node)
-            if isinstance(block, ast.Try)
-        )
-        assert cleared
+    @pytest.mark.parametrize(
+        "name, command",
+        [
+            ("_image_acquistion_worker", "fm_acquire_image"),
+            ("_autofocus_worker", "fm_auto_focus"),
+        ],
+    )
+    def test_every_worker_runs_through_the_imaging_service(self, name, command):
+        """The service marks the FM busy for the whole run and clears it however
+        the run ends, so the operator and the agent share one guard (FIB-1447)."""
+        calls = self._calls(self._functions()[name])
+        assert command in calls
+        assert "set_acquiring" not in calls
 
     def test_it_refuses_a_pose_the_fm_cannot_see_from(self):
         """`start_acquisition` had this check and the other two did not, so an image, a

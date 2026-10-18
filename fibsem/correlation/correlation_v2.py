@@ -1,18 +1,20 @@
 from __future__ import annotations
 
-import contextlib
 import datetime
 import logging
 import os
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 import numpy as np
 import yaml
 
 from fibsem.constants import DATETIME_FILE
 from fibsem.conversions import image_to_microscope_image_coordinates_px
-from fibsem.correlation.pyto.rigid_3d import (
-    Rigid3D,  # NOTE: this is still a 3DCT dependency, migrate
+from fibsem.correlation.solver import (
+    RigidFit,
+    fit_from_seed,
+    fit_rigid,
+    fit_unseeded,
 )
 from fibsem.correlation.structures import (
     Coordinate,
@@ -24,15 +26,8 @@ from fibsem.correlation.structures import (
 )
 from fibsem.structures import Point
 
-DEFAULT_OPTIMIZATION_PARAMETERS = {
-    "random_rotations": True,
-    "rotation_init": "gl2",
-    "restrict_rotations": 0.1,
-    "scale": None,
-    "random_scale": True,
-    "scale_init": "gl2",
-    "ninit": 10,
-}
+# A seed for :func:`correlate`: a 3x3 rotation and a scale (FIB px per FM px).
+Seed = Tuple[np.ndarray, float]
 
 
 def correlate(
@@ -41,10 +36,11 @@ def correlate(
     poi_3d: np.ndarray,
     rotation_center: List[float],
     imageProps: list = None,
-    optimiser_params: Dict = DEFAULT_OPTIMIZATION_PARAMETERS,
+    seed: Optional[Seed] = None,
 ) -> dict:
     """
-    Iteratively calculate the correlation between 3D and 2D markers and reproject the points of interest (POI) into the 2D image
+    Fit the rigid transform from the 3D markers to the 2D markers and reproject the
+    points of interest (POI) into the 2D image.
 
     Args:
         markers_3d: array of correlation marker positions for 3D image
@@ -53,16 +49,8 @@ def correlate(
         rotation_center: center of rotation for the 3D image (x,y,z)
         imageProps: properties of the images
             ([2d_image_shape, 2d_image_pixel_size_um, 3d_image_shape])
-        optimiser_params: dictionary with optimization parameters
-            {
-                'random_rotations': bool,      # random rotations
-                'rotation_init': float,        # initial rotation in degrees
-                'restrict_rotations': float,   # restrict rotations
-                'scale': float,                # scale
-                'random_scale': bool,          # random scale
-                'scale_init': float,           # initial scale
-                'ninit': float                 # number of iterations
-            }
+        seed: ``(rotation, scale)`` to restart the fit from, exactly (one local solve).
+            None searches every rotation (:func:`fibsem.correlation.solver.fit_unseeded`).
     Returns:
         Dictionary with input and output data:
             input: {
@@ -73,7 +61,7 @@ def correlate(
                 "imageProps": list                  # properties of the images
             },
             output: {
-                "transform": Rigid3D,                               # transformation object
+                "transform": RigidFit,                              # the fit
                 "reprojected_3d_coordinates": np.ndarray[float],    # reprojected 3D marker positions in 2D image
                 "reprojected_2d_poi": np.ndarray[float],            # reprojected 3D poi in 2D image
                 "reprojection_error": np.ndarray[float],            # reprojection error between reprojected 3D markers and 2D markers
@@ -81,29 +69,6 @@ def correlate(
                 "modified_translation": list[float]                 # modified translation (rotation center not at 0,0,0)
 
     """
-    # TODO: convert imageProps to a dataclass or dict?
-
-    # read optimization parameters
-    random_rotations = optimiser_params.get(
-        "random_rotations", DEFAULT_OPTIMIZATION_PARAMETERS["random_rotations"]
-    )
-    rotation_init = optimiser_params.get(
-        "rotation_init", DEFAULT_OPTIMIZATION_PARAMETERS["rotation_init"]
-    )
-    restrict_rotations = optimiser_params.get(
-        "restrict_rotations", DEFAULT_OPTIMIZATION_PARAMETERS["restrict_rotations"]
-    )
-    scale = optimiser_params.get("scale", DEFAULT_OPTIMIZATION_PARAMETERS["scale"])
-    random_scale = optimiser_params.get(
-        "random_scale", DEFAULT_OPTIMIZATION_PARAMETERS["random_scale"]
-    )
-    scale_init = optimiser_params.get(
-        "scale_init", DEFAULT_OPTIMIZATION_PARAMETERS["scale_init"]
-    )
-    ninit: float = optimiser_params.get(
-        "ninit", DEFAULT_OPTIMIZATION_PARAMETERS["ninit"]
-    )
-
     assert markers_3d.shape[1] == 3, "Markers 3D do not have 3 dimensions"
 
     # coordinate arrays
@@ -111,77 +76,34 @@ def correlate(
     mark_2d = markers_2d[:, :2].T  # fib markers (2D)
     poi_3d = poi_3d.T  # points of interest (3D)
 
-    # convert Eulers in degrees to Caley-Klein params. A seed is three x-convention
-    # Euler angles in degrees (see fibsem.correlation.geometry.NominalTransform.eulers_deg);
-    # 'gl2' asks the solver for its own 2D-affine initialisation, None for its default.
-    if rotation_init is None or isinstance(rotation_init, str):
-        einit = rotation_init
+    if seed is None:
+        transf = fit_unseeded(mark_3d.T, mark_2d.T)
     else:
-        rotation_init_rad = np.deg2rad(np.asarray(rotation_init, dtype=float))
-        if rotation_init_rad.shape != (3,):
-            raise ValueError(
-                "rotation_init must be 'gl2', None, or three Euler angles in degrees; "
-                f"got {rotation_init!r}"
-            )
-        einit = Rigid3D.euler_to_ck(angles=rotation_init_rad, mode="x")
-
-    # establish correlation
-    # Suppress stdout and stderr
-    with (
-        open(os.devnull, "w") as fnull,
-        contextlib.redirect_stdout(fnull),
-        contextlib.redirect_stderr(fnull),
-    ):
-        transf = Rigid3D.find_32(
-            x=mark_3d,
-            y=mark_2d,
-            scale=scale,
-            randome=random_rotations,
-            einit=einit,
-            einit_dist=restrict_rotations,
-            randoms=random_scale,
-            sinit=scale_init,
-            ninit=ninit,
-        )
+        rotation, scale = seed
+        transf = fit_rigid(mark_3d.T, mark_2d.T, [(np.asarray(rotation), scale)])
 
     if imageProps:
-        # establish correlation for cubic rotation (offset added to coordinates)
+        # the translation for a cubic volume (offset added to coordinates): the same
+        # rotation and scale, so one solve restarted at this fit reproduces them
         shape_2d, pixel_size, shape_3d = imageProps
         offset = (max(shape_3d) - np.array(shape_3d)) * 0.5
-
         mark_3d_cube = np.copy(mark_3d) + offset[::-1, np.newaxis]
-        # Suppress stdout and stderr
-        with (
-            open(os.devnull, "w") as fnull,
-            contextlib.redirect_stdout(fnull),
-            contextlib.redirect_stderr(fnull),
-        ):
-            transf_cube = Rigid3D.find_32(
-                x=mark_3d_cube,
-                y=mark_2d,
-                scale=scale,
-                randome=random_rotations,
-                einit=einit,
-                einit_dist=restrict_rotations,
-                randoms=random_scale,
-                sinit=scale_init,
-                ninit=ninit,
-            )
+        transf_cube = fit_rigid(
+            mark_3d_cube.T, mark_2d.T, [(transf.rotation, transf.scale)]
+        )
     else:
         transf_cube = transf
 
     # reproject_points of interest
     reprojected_poi_2d = None
     if len(poi_3d) > 0:
-        reprojected_poi_2d = transf.transform(x=poi_3d)
+        reprojected_poi_2d = transf.project(poi_3d.T).T
 
     # transform markers
-    reprojected_coordinates_3d = transf.transform(x=mark_3d)
+    reprojected_coordinates_3d = transf.project(mark_3d.T).T
 
     # calculate translation if rotation center is not at (0,0,0)
-    modified_translation = transf_cube.recalculate_translation(
-        rotation_center=rotation_center
-    )
+    modified_translation = transf_cube.translation_about(rotation_center)
 
     # center of mass of 3D markers
     cm_3D_markers = mark_3d.mean(axis=-1).tolist()
@@ -208,27 +130,6 @@ def correlate(
     }
 
 
-def save_results(correlation_results: dict, results_file: str):
-    """
-    Save the results of the correlation to a file (old .txt format)
-    """
-    from tdct.correlation import write_results
-
-    # write transformation params and correlation
-    write_results(
-        transf=correlation_results["output"]["transform"],
-        res_file_name=results_file,
-        spots_3d=correlation_results["input"]["poi_3d"],
-        spots_2d=correlation_results["output"]["reprojected_2d_poi"],
-        markers_3d=correlation_results["input"]["markers_3d"],
-        transformed_3d=correlation_results["output"]["reprojected_3d_coordinates"],
-        markers_2d=correlation_results["input"]["markers_2d"],
-        rotation_center=correlation_results["input"]["rotation_center"],
-        modified_translation=correlation_results["output"]["modified_translation"],
-        imageProps=correlation_results["input"]["imageProps"],
-    )
-
-
 def run_correlation(
     fib_coords: np.ndarray,
     fm_coords: np.ndarray,
@@ -238,7 +139,7 @@ def run_correlation(
     path: Optional[str] = None,
     fib_image_filename: str = "",
     fm_image_filename: str = "",
-    optimiser_params: Optional[Dict] = None,
+    seed: Optional[Seed] = None,
 ) -> dict:
     """Run the correlation between the FIB and FM images"""
     # run the correlation
@@ -248,9 +149,8 @@ def run_correlation(
         poi_3d=poi_coords,
         rotation_center=rotation_center,
         imageProps=image_props,
-        optimiser_params=optimiser_params or DEFAULT_OPTIMIZATION_PARAMETERS,
+        seed=seed,
     )
-
     # input data
     input_data = {
         "fib_coordinates": fib_coords.tolist(),
@@ -321,30 +221,25 @@ def convert_poi_to_microscope_coordinates(
     return poi_image_coordinates
 
 
-def extract_transformation_data(transf, mod_translation, reproj_3d, delta_2d) -> dict:
-    # extract eulers in degrees
-    eulers = transf.extract_euler(r=transf.q, mode="x", ret="one")
-    eulers = eulers * 180 / np.pi
-
-    # RMS error
-    rms_error = transf.rmsError
-
+def extract_transformation_data(
+    transf: RigidFit, mod_translation, reproj_3d, delta_2d
+) -> dict:
     # difference between points after transforming 3D points to 2D
     delta_2d_mean_abs_err = np.absolute(delta_2d).mean(axis=1)
 
     transformation_data = {
         "transformation": {
-            "scale": float(transf.s_scalar),
-            "rotation_eulers": eulers.tolist(),
-            "rotation_quaternion": transf.q.tolist(),
+            "scale": float(transf.scale),
+            "rotation_eulers": transf.eulers_deg().tolist(),
+            "rotation_quaternion": transf.rotation.tolist(),
             "translation_around_rotation_center_custom": mod_translation.tolist(),
-            "translation_around_rotation_center_zero": transf.d.tolist(),
+            "translation_around_rotation_center_zero": transf.translation.tolist(),
         },
         "error": {
             "reprojected_3d": reproj_3d.tolist(),
             "delta_2d": delta_2d.tolist(),
             "mean_absolute_error": delta_2d_mean_abs_err.tolist(),
-            "rms_error": float(rms_error),
+            "rms_error": float(transf.rms),
         },
     }
 
@@ -413,15 +308,15 @@ def _reproject_poi_via_transform(
     """Project (N, 3) FM-space POIs into the FIB image using a fitted transform.
 
     Reconstructs ``y = s * R @ x + d`` from the parsed transformation data.
-    The ``rotation_quaternion`` field stores ``Rigid3D.q``, which is the 3x3
-    rotation matrix (see ``Rigid3D.transform``); ``d`` is the translation
+    The ``rotation_quaternion`` field stores the 3x3 rotation matrix, despite
+    its name; ``d`` is the translation
     around rotation center zero — the same parameters ``correlate()`` uses to
     reproject the POI.
     """
     R = np.asarray(transformation["rotation_quaternion"], dtype=float)
     if R.shape != (3, 3):
         # Unreachable from the only call site — extract_transformation_data
-        # always writes Rigid3D.q — but kept, and kept loud. A (3,) R broadcasts
+        # always writes the 3x3 matrix — but kept, and kept loud. A (3,) R broadcasts
         # cleanly through the matmul below and yields plausible garbage instead
         # of raising, and a broken transform here is the same broken transform
         # that produced the result's own POI, so there is nothing worth
@@ -453,114 +348,13 @@ def _reproject_poi_via_transform(
 
 # ── seeding the fit from the geometry (FIB-881) ───────────────────────────
 
-# Restarts scattered about a seed, in Cayley-Klein distance. The solver's
-# constrained optimiser sometimes fails to leave the exact seed (it returned the
-# seed untouched on three of seven METEOR runs), and a single radius of restarts
-# occasionally settles in a poor local minimum; the exact seed plus two radii of
-# restarts found the optimum on every saved fit. Cheap: each is one local solve.
-_SEED_JITTERS = (0.05, 0.2)
-_SEED_RESTARTS = 8
-# The restarts draw from numpy's global RNG (pyto's `make_random_ck`). Fixed here
-# so a seeded fit is a function of its inputs: the same picks give the same
-# answer on every run, and a flaky restart cannot flip which local minimum wins.
-_SEED_RNG = 20260909
-
-
-def seeded_optimiser_params(
-    eulers_deg, scale: float, jitter: float = 0.0, ninit: int = 1
-) -> Dict:
-    """``correlate`` parameters for a fit started at a known rotation and scale."""
-    return {
-        "random_rotations": jitter > 0,
-        "rotation_init": [float(a) for a in eulers_deg],
-        "restrict_rotations": jitter,
-        "scale": None,  # still fitted; the seed is a start, not a constraint
-        "random_scale": False,
-        "scale_init": float(scale),
-        "ninit": ninit if jitter > 0 else 1,
-    }
-
 
 def _fit_from_seed(
-    fm_coords, fib_coords, eulers_deg, scale
+    fm_coords, fib_coords, rotation, scale
 ) -> Tuple[np.ndarray, float, float]:
-    """Best of the exact seed and jittered restarts about it: ``(R, s, rms)``."""
-    candidates = [seeded_optimiser_params(eulers_deg, scale)]
-    candidates += [
-        seeded_optimiser_params(eulers_deg, scale, jitter, _SEED_RESTARTS)
-        for jitter in _SEED_JITTERS
-    ]
-    state = np.random.get_state()
-    np.random.seed(_SEED_RNG)
-    try:
-        best = None
-        for params in candidates:
-            out = correlate(
-                markers_3d=fm_coords,
-                markers_2d=fib_coords,
-                poi_3d=np.zeros((0, 3), dtype=np.float32),
-                rotation_center=(0, 0, 0),
-                imageProps=None,
-                optimiser_params=params,
-            )
-            transf = out["output"]["transform"]
-            candidate = (
-                np.asarray(transf.q, dtype=float),
-                float(transf.s_scalar),
-                float(transf.rmsError),
-            )
-            if best is None or candidate[2] < best[2]:
-                best = candidate
-    finally:
-        np.random.set_state(state)
-    return best
-
-
-def _fit_around_mirror(
-    fm_coords, fib_coords, eulers_deg, scale
-) -> Tuple[np.ndarray, float, float]:
-    """Best of :func:`_fit_from_seed` and the default restarts centred on the
-    seed, with the scale free as well: ``(R, s, rms)``.
-
-    The seeded restarts hold the scale at the seed's, and from some mirrors that
-    settles in a far worse minimum near the right rotation (RMS 30 where 3.1
-    sat 6 degrees away, on a saved METEOR run); letting the scale move as the
-    unseeded fit's own restarts do reaches it. Same fixed RNG, so the check is
-    a function of the picks (FIB-1249).
-    """
-    best = _fit_from_seed(fm_coords, fib_coords, eulers_deg, scale)
-    params = {
-        **DEFAULT_OPTIMIZATION_PARAMETERS,
-        "rotation_init": [float(a) for a in eulers_deg],
-    }
-    state = np.random.get_state()
-    np.random.seed(_SEED_RNG)
-    try:
-        transf = correlate(
-            markers_3d=fm_coords,
-            markers_2d=fib_coords,
-            poi_3d=np.zeros((0, 3), dtype=np.float32),
-            rotation_center=(0, 0, 0),
-            imageProps=None,
-            optimiser_params=params,
-        )["output"]["transform"]
-    finally:
-        np.random.set_state(state)
-    candidate = (
-        np.asarray(transf.q, dtype=float),
-        float(transf.s_scalar),
-        float(transf.rmsError),
-    )
-    return candidate if candidate[2] < best[2] else best
-
-
-def _eulers_deg(rotation: np.ndarray) -> List[float]:
-    from fibsem.correlation.pyto.rigid_3d import Rigid3D
-
-    return [
-        float(a)
-        for a in np.degrees(Rigid3D.extract_euler(rotation, mode="x", ret="one"))
-    ]
+    """The fit started at a rotation and scale, with nudged restarts: ``(R, s, rms)``."""
+    fit = fit_from_seed(fm_coords, fib_coords, rotation, scale)
+    return fit.rotation, fit.scale, fit.rms
 
 
 def _mirror_rotation(rotation: np.ndarray) -> np.ndarray:
@@ -699,11 +493,11 @@ def run_correlation_from_data(
         from fibsem.correlation.geometry import branch_of
 
         r_n, s_n, rms_n = _fit_from_seed(
-            fm_coords, fib_coords, nominal.eulers_deg(), nominal.scale
+            fm_coords, fib_coords, nominal.rotation, nominal.scale
         )
         mirror = nominal.mirrored()
         r_m, s_m, rms_m = _fit_from_seed(
-            fm_coords, fib_coords, mirror.eulers_deg(), mirror.scale
+            fm_coords, fib_coords, mirror.rotation, mirror.scale
         )
         # the solve started at the nominal seed may itself have crossed over
         on_nominal = [
@@ -752,9 +546,7 @@ def run_correlation_from_data(
             "angle_to_mirror_deg": float(angle_mirror),
             "warning": warning,
         }
-        run_kwargs["optimiser_params"] = seeded_optimiser_params(
-            _eulers_deg(chosen[0]), chosen[1]
-        )
+        run_kwargs["seed"] = (chosen[0], chosen[1])
 
     correlation_data = run_correlation(
         fib_coords=fib_coords,
@@ -773,18 +565,17 @@ def run_correlation_from_data(
     err = out["error"]
 
     # Unseeded: solve the *other* branch of what was found as well, and keep the
-    # better. The random starts all sit near one first guess, so which branch a
-    # run lands on was the draw's: on a saved run 4 of 8 seeds returned the
-    # mirror, RMS 24 against 8 px and the target 74 px off, with nothing said
-    # (FIB-1249). When the mirror wins, the final fit is re-run from it, as the
-    # seeded path does; when the first fit was better, it is returned as before.
+    # better. The unseeded search covers every rotation, but a mirror that fits
+    # nearly as well is a warning in its own right (FIB-1249), so its RMS is
+    # measured here. When the mirror wins, the final fit is re-run from it, as
+    # the seeded path does; when the first fit was better, it is returned as is.
     if branch_check is None and len(fm_coords) >= 3:
         try:
             fitted_r = np.asarray(transf["rotation_quaternion"], dtype=float)
-            r_m, s_m, rms_m = _fit_around_mirror(
+            r_m, s_m, rms_m = _fit_from_seed(
                 fm_coords,
                 fib_coords,
-                _eulers_deg(_mirror_rotation(fitted_r)),
+                _mirror_rotation(fitted_r),
                 float(transf["scale"]),
             )
             from fibsem.correlation.geometry import rotation_angle_deg
@@ -804,7 +595,7 @@ def run_correlation_from_data(
                     path=path,
                     fib_image_filename=data.fib_image_filename or "",
                     fm_image_filename=data.fm_image_filename or "",
-                    optimiser_params=seeded_optimiser_params(_eulers_deg(r_m), s_m),
+                    seed=(r_m, s_m),
                 )
                 out = correlation_data["output"]
                 transf = out["transformation"]

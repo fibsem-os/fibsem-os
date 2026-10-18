@@ -1,6 +1,6 @@
 """Fit-diagnostic data + rendering, split from the fit compute (FIB-281).
 
-The correlation fit functions (:mod:`fibsem.correlation.util`) compute a refined
+The point fitters (:mod:`fibsem.imaging.localise`) compute a refined
 coordinate and return a :class:`FitDiagnostic` — the *data* needed to draw the
 diagnostic figure — without touching matplotlib. :func:`plot_fit_diagnostic`
 renders it, in a light palette by default or the napari-dark palette
@@ -14,47 +14,13 @@ a render parameter (it no longer re-themes a figure after the fact).
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Optional, Tuple
-
-import numpy as np
-
+from fibsem.imaging.localise import FitDiagnostic
 from fibsem.theme.tokens import CANVAS_BG, NEUTRAL_200, NEUTRAL_300, SURFACE_COLOR
 
 # input (red) / fitted (green) are the only saturated colours in every panel;
 # everything else is greyscale so the eye goes to the two markers.
 _C_IN = "#e53935"
 _C_FIT = "#43a047"
-
-
-@dataclass
-class FitDiagnostic:
-    """Everything needed to render a fit's diagnostic figure — no matplotlib.
-
-    The XY panel is always present; the z panel is present only when
-    :attr:`z_signal` is set (the FIB hole fit is XY-only). Marker positions are
-    in ROI pixel coordinates; :attr:`input_xy` carries the sub-pixel click so the
-    input marker lands exactly where the user clicked (FIB-282).
-    """
-
-    title: str
-    roi_xy: np.ndarray  # image shown in the XY panel
-    input_xy: Tuple[float, float]  # red input marker (ROI coords)
-    fitted_xy: Optional[Tuple[float, float]] = None  # green marker, or None → not drawn
-    xy_title: str = "XY"
-    xy_message: Optional[str] = None  # shown when there is no fitted marker
-    # z panel — left None for an XY-only (FIB) fit
-    z_axis: Optional[np.ndarray] = None
-    z_signal: Optional[np.ndarray] = None
-    z_fit: Optional[np.ndarray] = None
-    z_input: Optional[float] = None
-    z_fitted: Optional[float] = None
-    z_inverted: bool = False  # reflection: signal is inverted
-
-    @property
-    def has_z(self) -> bool:
-        """True for the FM fits (z + XY); False for the XY-only FIB fit."""
-        return self.z_signal is not None
 
 
 def plot_fit_diagnostic(d: FitDiagnostic, *, dark: bool = False):

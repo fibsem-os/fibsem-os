@@ -1,7 +1,7 @@
 """Dialog to configure FM z-stack interpolation (FIB-253).
 
 Collects a target z pixel size and interpolation method for
-:func:`fibsem.correlation.util.interpolate_fm_volume`. Interpolation only
+:func:`fibsem.fm.interpolation.interpolate_fm_volume`. Interpolation only
 resamples z, so the natural default is the XY pixel size — an isotropic volume.
 """
 
@@ -22,7 +22,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.correlation.util import INTERPOLATION_METHODS
+from fibsem.fm.interpolation import INTERPOLATION_METHODS
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import fibsem_icon
