@@ -2,7 +2,7 @@
 
 The five coordinate lists and the two canvases each held a copy of the points
 and of the selection, and the tab widget relayed between them. They now share
-one ``CorrelationPointStore``, so they cannot disagree. These check the tab
+one ``PointStore``, so they cannot disagree. These check the tab
 widget after each kind of gesture: every canvas shows exactly its lists' points,
 and highlights exactly what its lists have selected.
 

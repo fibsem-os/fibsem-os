@@ -355,7 +355,7 @@ class PointOverlay(QObject):
     * Delete / Backspace → removes the selected point
 
     With ``multi_select=True`` the selection is an ordered list of indices, the last
-    being the current point (the shape of ``CorrelationPointStore``'s selection):
+    being the current point (the shape of ``PointStore``'s selection):
 
     * Ctrl/Cmd-click a point → toggles it; Shift-click a point → adds it
     * Shift-drag on empty area → box-selects, adding what the box covers. A plain drag

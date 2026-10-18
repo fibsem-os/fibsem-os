@@ -1,10 +1,10 @@
 """Point pairs between an image and the overview it is laid over (FIB-1030).
 
 Users find three clicked pairs easier than a drag, and three pairs are enough for the
-similarity a flat sample allows. Two canvases from the correlation tab -- the
-reference overview on the left, the image on the right -- share one point store, so
-the i-th point on each side is a pair. A live readout says how many pairs there are
-and, once a fit is possible, what it would give.
+similarity a flat sample allows. Two picking canvases, the ones the correlation tab
+uses -- the reference overview on the left, the image on the right -- share one point
+store, so the i-th point on each side is a pair. A live readout says how many pairs
+there are and, once a fit is possible, what it would give.
 
 The dialog does no geometry. The host hands it the two arrays and a callback that
 turns pairs into a preview fit; on accept the host applies the same pairs for real.
@@ -30,11 +30,9 @@ from PyQt5.QtWidgets import (
 from fibsem.correlation.structures import PointType
 from fibsem.geometry.similarity import SimilarityFit
 from fibsem.ui import stylesheets
-from fibsem.ui.correlation.point_store import CorrelationPointStore
-from fibsem.ui.correlation.widgets.correlation_canvas_widget import (
-    CorrelationCanvasWidget,
-)
 from fibsem.ui.tokens import CANVAS_BG, TEXT_COLOR, WARN_COLOR
+from fibsem.ui.widgets.canvas.point_canvas import PointCanvasWidget
+from fibsem.ui.widgets.point_store import PointStore
 
 Pairs = List[Tuple[float, float, float, float]]  # image x, y, reference x, y
 PreviewFit = Callable[[Pairs, bool], Optional[SimilarityFit]]
@@ -68,12 +66,12 @@ class ImageFitDialog(QDialog):
         # How to say a residual: the host knows what a canvas unit is in metres,
         # the dialog does not. Canvas units, labelled as such, when not told.
         self._rms_text = rms_text or (lambda rms: f"RMS {rms:.1f} canvas px")
-        self._store = CorrelationPointStore(self)
+        self._store = PointStore(self)
 
-        self.reference_canvas = CorrelationCanvasWidget(
+        self.reference_canvas = PointCanvasWidget(
             allowed_point_types=[PointType.FIB], store=self._store, side="fib"
         )
-        self.image_canvas = CorrelationCanvasWidget(
+        self.image_canvas = PointCanvasWidget(
             allowed_point_types=[PointType.FM], store=self._store, side="fm"
         )
         for canvas in (self.reference_canvas, self.image_canvas):

@@ -489,17 +489,13 @@ def test_registry_add_select_remove_for_every_type(qapp, point_type):
 
 def test_canvas_allow_lists_derive_from_registry_map(qapp):
     """The right-click add menus and the registry share one source of truth."""
-    from fibsem.ui.correlation.widgets.correlation_tab_widget import (
-        _POINT_TYPE_SIDES,
-    )
+    from fibsem.correlation.points import POINT_RULES, types_on
 
     w = _widget(qapp)
-    fib_expected = [pt for pt, s in _POINT_TYPE_SIDES.items() if s == "fib"]
-    fm_expected = [pt for pt, s in _POINT_TYPE_SIDES.items() if s == "fm"]
-    assert w._fib_canvas.picking._allowed_types == fib_expected
-    assert w._fm_display.picking._allowed_types == fm_expected
+    assert w._fib_canvas.picking._allowed_types == types_on("fib")
+    assert w._fm_display.picking._allowed_types == types_on("fm")
     # every mapped type has a spec (checked at build time too)
-    assert set(w._point_specs) == set(_POINT_TYPE_SIDES)
+    assert set(w._point_specs) == set(POINT_RULES)
 
 
 def test_inconsistent_spec_rejected(qapp):
@@ -750,7 +746,7 @@ def test_canvas_toolbar_buttons_toggle_state(qapp):
     with the View-menu master toggle.
 
     Scalebar and reset come from the shared canvas; legend and labels are
-    correlation's own, added by CorrelationPicking because the shared toolbar has
+    correlation's own, added by PointPicking because the shared toolbar has
     neither and ImagePointCanvas carried both.
     """
     w = _widget(qapp)

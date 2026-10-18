@@ -3,12 +3,17 @@
 The correlation widget has held the same points in three places: the list
 widget, the canvas overlay, and the tab widget relaying between them. Three
 bugs in a week were the copies disagreeing (FIB-958, FIB-965, FIB-972). This is
-the single owner the lists and the canvases are to draw from.
+the single owner the lists and the canvases draw from; the overview's
+image-from-points dialog uses it too, for its two canvases.
 
 Two facts shape it. Selection is one value across every list and both canvases,
 so it lives here and not per point type. A canvas shows several point types, so
 the store answers both ``of_type`` (what a list renders) and ``on_side`` (what a
 canvas renders).
+
+What a change means -- which types replace or clear each other, how an edit
+changes a point's status -- is :mod:`fibsem.correlation.points`. This holds the
+points, the order and the selection, and announces each change.
 
 Every operation finishes its mutation before it emits, so a slot always reads
 the state the signal announces. A bulk operation emits once.
@@ -19,35 +24,13 @@ store holds the caller's objects and never replaces them, because the verdict
 notes and the fit code key on ``id(coord)`` and mutate the objects in place.
 """
 
-from dataclasses import dataclass
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 from PyQt5.QtCore import QObject, pyqtSignal
 
-from fibsem.correlation.structures import (
-    Coordinate,
-    PointProvenance,
-    PointStatus,
-    PointType,
-)
-
-
-@dataclass(frozen=True)
-class PointRule:
-    """What the store enforces for one point type."""
-
-    side: str  # "fib" | "fm": the canvas the points are drawn on
-    max_one: bool = False  # adding replaces the existing point (surfaces)
-    exclusive_group: Optional[str] = None  # adding clears the rest of the group
-
-
-POINT_RULES: Dict[PointType, PointRule] = {
-    PointType.FIB: PointRule("fib"),
-    PointType.SURFACE: PointRule("fib", max_one=True, exclusive_group="surface"),
-    PointType.FM: PointRule("fm"),
-    PointType.POI: PointRule("fm"),
-    PointType.SURFACE_FM: PointRule("fm", max_one=True, exclusive_group="surface"),
-}
+from fibsem.correlation import points
+from fibsem.correlation.points import POINT_RULES
+from fibsem.correlation.structures import Coordinate, PointType
 
 # One selected point per canvas, not one overall: a fiducial named in the
 # verdict selects its pair, the FM point and its FIB partner, so that both
@@ -55,8 +38,6 @@ POINT_RULES: Dict[PointType, PointRule] = {
 # tuple and ``selection_changed`` carries no payload so that raising this
 # changes the views, not the store's subscribers.
 MAX_SELECTION_PER_SIDE = 1
-
-_FIELDS = ("x", "y", "z")
 
 _Coords = Union[Coordinate, Sequence[Coordinate], None]
 
@@ -81,7 +62,7 @@ def _unique(coords: Iterable[Coordinate]) -> List[Coordinate]:
     return out
 
 
-class CorrelationPointStore(QObject):
+class PointStore(QObject):
     """The correlation points, their order, and the selection.
 
     Signals
@@ -127,9 +108,8 @@ class CorrelationPointStore(QObject):
 
     def on_side(self, side: str) -> List[Coordinate]:
         out: List[Coordinate] = []
-        for pt, rule in POINT_RULES.items():
-            if rule.side == side:
-                out += self._points[pt]
+        for pt in points.types_on(side):
+            out += self._points[pt]
         return out
 
     @property
@@ -151,7 +131,7 @@ class CorrelationPointStore(QObject):
     def selected_on(self, side: str) -> Optional[Coordinate]:
         """The selected point drawn on one canvas, or None."""
         for coord in reversed(self._selection):
-            if POINT_RULES[coord.point_type].side == side:
+            if points.side_of(coord.point_type) == side:
                 return coord
         return None
 
@@ -180,19 +160,11 @@ class CorrelationPointStore(QObject):
         """Add a point under its type's rules, and select it.
 
         A ``max_one`` type is replaced rather than appended to, and the other
-        members of its exclusive group are cleared.
+        members of its exclusive group are cleared (``points.cleared_by``).
         """
         self._require_absent([coord])
-        rule = POINT_RULES[coord.point_type]
-        if rule.max_one:
-            self._points[coord.point_type] = []
-        if rule.exclusive_group is not None:
-            for pt, other in POINT_RULES.items():
-                if (
-                    pt is not coord.point_type
-                    and other.exclusive_group == rule.exclusive_group
-                ):
-                    self._points[pt] = []
+        for pt in points.cleared_by(coord.point_type):
+            self._points[pt] = []
         self._points[coord.point_type].append(coord)
         selection_changed = self._set_selection([coord])
         self.structure_changed.emit()
@@ -209,10 +181,7 @@ class CorrelationPointStore(QObject):
         if not coords:
             return
         self._require_absent(coords)
-        for pt, rule in POINT_RULES.items():
-            incoming = sum(1 for c in coords if c.point_type is pt)
-            if rule.max_one and incoming and len(self._points[pt]) + incoming > 1:
-                raise ValueError(f"{pt} holds at most one point")
+        points.check_additions(self._points, coords)
         for coord in coords:
             self._points[coord.point_type].append(coord)
         self.structure_changed.emit()
@@ -331,7 +300,7 @@ class CorrelationPointStore(QObject):
         kept: List[Coordinate] = []
         per_side: Dict[str, int] = {}
         for coord in reversed(ordered):
-            side = POINT_RULES[coord.point_type].side
+            side = points.side_of(coord.point_type)
             if per_side.get(side, 0) < MAX_SELECTION_PER_SIDE:
                 per_side[side] = per_side.get(side, 0) + 1
                 kept.append(coord)
@@ -352,7 +321,7 @@ class CorrelationPointStore(QObject):
         self._require_present([coord])
         coord.point.x = x
         coord.point.y = y
-        self._place_by_hand(coord)
+        points.place_by_hand(coord)
         self.points_changed.emit((coord,))
 
     def move_many(self, coords: Sequence[Coordinate], dx: float, dy: float) -> None:
@@ -363,16 +332,13 @@ class CorrelationPointStore(QObject):
         for coord in coords:
             coord.point.x += dx
             coord.point.y += dy
-            self._place_by_hand(coord)
+            points.place_by_hand(coord)
         self.points_changed.emit(tuple(coords))
 
     def set_field(self, coord: Coordinate, field: str, value: float) -> None:
         """A typed value: the point is the user's now."""
-        if field not in _FIELDS:
-            raise ValueError(f"unknown field {field!r}")
         self._require_present([coord])
-        setattr(coord.point, field, value)
-        self._place_by_hand(coord)
+        points.set_field(coord, field, value)
         self.points_changed.emit((coord,))
 
     def notify_changed(self, coords: _Coords) -> None:
@@ -385,56 +351,30 @@ class CorrelationPointStore(QObject):
         self.points_changed.emit(tuple(coords))
 
     # ------------------------------------------------------------------
-    # Status transitions. Provenance is never written: it is where the point
-    # came from, set once by whoever made it.
+    # Status transitions: the rule is ``points``; the store checks the point
+    # is here and announces the change.
     # ------------------------------------------------------------------
-
-    @staticmethod
-    def _place_by_hand(coord: Coordinate) -> None:
-        """A drag or a typed value makes the point ``placed``.
-
-        A drop on a prediction is the user's answer, and the projection never
-        moves it again. A fitted or accepted point that is moved is no longer
-        what the fitter or the projection said. A rejected point stays rejected.
-        """
-        coord.fitted = False
-        if coord.status in PointStatus.TENTATIVE or coord.status in (
-            PointStatus.FITTED,
-            PointStatus.ACCEPTED,
-        ):
-            coord.status = PointStatus.PLACED
 
     def apply_fit(self, coord: Coordinate, x: float, y: float, z: float) -> None:
         """Commit an accepted fit: move the point and mark it fitted."""
         self._require_present([coord])
-        coord.point.x, coord.point.y, coord.point.z = x, y, z
-        coord.fitted = True
-        coord.status = PointStatus.FITTED
+        points.apply_fit(coord, x, y, z)
         self.points_changed.emit((coord,))
 
     def accept(self, coords: _Coords) -> List[Coordinate]:
         """Take predictions as they are, unmoved. Returns the points accepted."""
         coords = _unique(_as_list(coords))
         self._require_present(coords)
-        accepted = [c for c in coords if c.status in PointStatus.TENTATIVE]
-        for coord in accepted:
-            coord.status = PointStatus.ACCEPTED
+        accepted = points.accept(coords)
         if accepted:
             self.points_changed.emit(tuple(accepted))
         return accepted
 
     def toggle_rejected(self, coord: Coordinate) -> bool:
-        """Leave a point out of the fit, or bring it back. A prediction is not
-        in the fit to begin with, so it cannot be rejected. Returns True when
+        """Leave a point out of the fit, or bring it back. Returns True when
         the status changed, False too for a point that is not here: this is
         called from a row's menu, and an exception in a Qt slot aborts the app."""
-        if coord not in self:
-            return False
-        if coord.status == PointStatus.REJECTED:
-            coord.status = PointStatus.FITTED if coord.fitted else PointStatus.PLACED
-        elif coord.status not in PointStatus.TENTATIVE:
-            coord.status = PointStatus.REJECTED
-        else:
+        if coord not in self or not points.toggle_rejected(coord):
             return False
         self.points_changed.emit((coord,))
         return True
@@ -443,10 +383,8 @@ class CorrelationPointStore(QObject):
         """Make a projected point a guess again. The caller re-projects it and
         then calls ``notify_changed``: the store has no transform. Returns False
         for a point the projection did not make, or one that is not here."""
-        if coord not in self or coord.provenance != PointProvenance.PROJECTED:
+        if coord not in self or not points.reset_to_predicted(coord):
             return False
-        coord.status = PointStatus.PREDICTED
-        coord.fitted = False
         self.points_changed.emit((coord,))
         return True
 

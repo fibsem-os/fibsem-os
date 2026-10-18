@@ -95,6 +95,15 @@ from fibsem.correlation.history import (
     save_run,
 )
 from fibsem.correlation.point_fit import FitStatus, PointFitResult, refine_point
+from fibsem.correlation.points import (
+    POINT_RULES,
+    cleared_by,
+    fiducial_partner,
+    point_name,
+    removal_for,
+    side_of,
+    types_on,
+)
 from fibsem.correlation.prediction import (
     Projection,
     build_projection,
@@ -126,15 +135,10 @@ from fibsem.correlation.verdict import (
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.structures import CameraImageTransform, FibsemImage, Point
 from fibsem.ui import notification_service, stylesheets
-from fibsem.ui.correlation.point_store import POINT_RULES, CorrelationPointStore
 from fibsem.ui.correlation.widgets.coordinate_list_widget import CoordinateListWidget
-from fibsem.ui.correlation.widgets.correlation_canvas_widget import (
-    CorrelationCanvasWidget,
-)
 from fibsem.ui.correlation.widgets.correlation_fm_canvas_widget import (
     CorrelationFMCanvasWidget,
 )
-from fibsem.ui.correlation.widgets.correlation_point_overlay import POINT_COLORS
 from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
     FitConfirmationDialog,
 )
@@ -161,12 +165,15 @@ from fibsem.ui.tokens import (
     state_style,
 )
 from fibsem.ui.utils import install_wheel_blocker
+from fibsem.ui.widgets.canvas.overlays.coordinate_overlay import POINT_COLORS
+from fibsem.ui.widgets.canvas.point_canvas import PointCanvasWidget
 from fibsem.ui.widgets.custom_widgets import (
     QDirectoryLineEdit,
     TitledPanel,
     ValueComboBox,
     form_label,
 )
+from fibsem.ui.widgets.point_store import PointStore
 
 if TYPE_CHECKING:
     from fibsem.ui.correlation.widgets.correlation_setup_section import (
@@ -864,11 +871,11 @@ class _CoordinatesTab(QWidget):
     def __init__(
         self,
         parent: Optional[QWidget] = None,
-        store: Optional[CorrelationPointStore] = None,
+        store: Optional[PointStore] = None,
     ) -> None:
         super().__init__(parent)
         # one store for the five lists, shared with the canvases (FIB-973)
-        self._store = store if store is not None else CorrelationPointStore(self)
+        self._store = store if store is not None else PointStore(self)
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -2058,18 +2065,6 @@ class _RITab(QWidget):
 # ---------------------------------------------------------------------------
 
 
-# Which canvas each point type lives on. Single source of truth: the canvas
-# right-click allow-lists and the registry's adapter binding both derive from
-# this map (declaration order = add-menu order).
-_POINT_TYPE_SIDES: Dict[PointType, str] = {
-    PointType.FIB: "fib",
-    PointType.SURFACE: "fib",
-    PointType.FM: "fm",
-    PointType.POI: "fm",
-    PointType.SURFACE_FM: "fm",
-}
-
-
 def _has_coordinates(data: Optional[CorrelationInputData]) -> bool:
     """Whether a seed payload actually carries points to seed from.
 
@@ -2114,9 +2109,9 @@ class _CanvasAdapter:
 class _PointTypeSpec:
     """Registry entry driving all per-point-type canvas/list plumbing.
 
-    Adding a point type = one _POINT_TYPE_SIDES entry + one spec (plus its
-    list panel) + one POINT_RULES entry in the point store, which owns
-    replace-on-add and mutual exclusivity; the canvas add-menus, generic
+    Adding a point type = one spec (plus its list panel) + one POINT_RULES
+    entry in ``fibsem.correlation.points``, which owns the side, replace-on-add
+    and mutual exclusivity; the canvas add-menus, generic
     handlers, axis maxima, and refit routing all follow from the registry.
     Unregistered point types fail loudly (KeyError) instead of being silently
     misrouted, and inconsistent specs are rejected at construction.
@@ -2130,11 +2125,11 @@ class _PointTypeSpec:
     # last point is removed
 
     def __post_init__(self) -> None:
-        expected_side = _POINT_TYPE_SIDES.get(self.point_type)
+        expected_side = side_of(self.point_type)
         if self.adapter.side != expected_side:
             raise ValueError(
                 f"{self.point_type}: adapter side {self.adapter.side!r} does not "
-                f"match _POINT_TYPE_SIDES ({expected_side!r})"
+                f"match POINT_RULES ({expected_side!r})"
             )
         if (self.adapter.side == "fm") != (self.fm_fit_role is not None):
             raise ValueError(
@@ -2234,7 +2229,7 @@ class CorrelationTabWidget(QWidget):
         layout.addWidget(splitter, stretch=1)
         # The points and the selection, held once: the five lists and both
         # canvases draw from it and write their gestures to it (FIB-973).
-        self._point_store = CorrelationPointStore(self)
+        self._point_store = PointStore(self)
         self._point_store.set_removal_policy(self._pair_removal)
         fib_pane, fm_pane = self._build_image_panes()
         splitter.addWidget(fib_pane)
@@ -2369,8 +2364,8 @@ class CorrelationTabWidget(QWidget):
         self._fib_name_label.setVisible(False)
         fib_layout.addWidget(self._fib_name_label)
 
-        self._fib_canvas = CorrelationCanvasWidget(
-            allowed_point_types=self._point_types_for_side("fib"),
+        self._fib_canvas = PointCanvasWidget(
+            allowed_point_types=types_on("fib"),
             store=self._point_store,
             side="fib",
         )
@@ -2392,7 +2387,7 @@ class CorrelationTabWidget(QWidget):
         fm_layout.addWidget(self._fm_name_label)
 
         self._fm_display = CorrelationFMCanvasWidget(
-            allowed_point_types=self._point_types_for_side("fm"),
+            allowed_point_types=types_on("fm"),
             store=self._point_store,
             side="fm",
         )
@@ -2457,10 +2452,6 @@ class CorrelationTabWidget(QWidget):
         run_layout.addWidget(btn_row)
         return run_bar
 
-    @staticmethod
-    def _point_types_for_side(side: str) -> List[PointType]:
-        return [pt for pt, s in _POINT_TYPE_SIDES.items() if s == side]
-
     def _build_point_registry(self) -> None:
         """One _PointTypeSpec per point type drives all canvas/list plumbing."""
         self._fib_adapter = _CanvasAdapter(self._fib_canvas, side="fib")
@@ -2473,7 +2464,7 @@ class CorrelationTabWidget(QWidget):
             "fib": self._fib_adapter,
             "fm": self._fm_adapter,
         }
-        adapter_for = lambda pt: self._adapters[_POINT_TYPE_SIDES[pt]]  # noqa: E731
+        adapter_for = lambda pt: self._adapters[side_of(pt)]  # noqa: E731
 
         cl = self._coords_tab
         specs = (
@@ -2503,10 +2494,10 @@ class CorrelationTabWidget(QWidget):
         self._point_specs: Dict[PointType, _PointTypeSpec] = {
             spec.point_type: spec for spec in specs
         }
-        if set(self._point_specs) != set(_POINT_TYPE_SIDES):
-            missing = set(_POINT_TYPE_SIDES) ^ set(self._point_specs)
+        if set(self._point_specs) != set(POINT_RULES):
+            missing = set(POINT_RULES) ^ set(self._point_specs)
             raise ValueError(
-                f"Point-type registry and _POINT_TYPE_SIDES disagree on: {missing}"
+                f"Point-type registry and POINT_RULES disagree on: {missing}"
             )
 
     def _connect_signals(self) -> None:
@@ -4130,9 +4121,9 @@ class CorrelationTabWidget(QWidget):
         if index < len(coords):
             store.select(coords[index])
             # the pair: its FIB partner too, so both canvases show it
-            partners = store.of_type(PointType.FIB)
-            if index < len(partners):
-                store.select(partners[index], extend=True)
+            partner = self._fiducial_partner(coords[index])
+            if partner is not None:
+                store.select(partner, extend=True)
 
     def _fib_pixel_size_m(self) -> Optional[float]:
         """FIB pixel size in metres, or None. A result loaded from JSON has no
@@ -4374,28 +4365,18 @@ class CorrelationTabWidget(QWidget):
         choice = self._coords_tab._delete_fiducial_combo.value()
         if choice == DELETE_FIDUCIAL_ASK:
             choice = self._ask_pair_removal(coord, partner)
-        if choice == DELETE_FIDUCIAL_PAIR:
-            return [coord, partner]
-        if choice == DELETE_FIDUCIAL_ONE:
-            return coords
-        return None  # cancelled
+        return removal_for(coord, partner, choice)  # None: cancelled
 
     def _fiducial_partner(self, coord: Coordinate) -> Optional[Coordinate]:
         """The fiducial at the same place in the other side's list, if any."""
-        other = {PointType.FIB: PointType.FM, PointType.FM: PointType.FIB}.get(
-            coord.point_type
+        store = self._point_store
+        return fiducial_partner(
+            coord, store.of_type(PointType.FIB), store.of_type(PointType.FM)
         )
-        if other is None:
-            return None
-        index = self._point_store.index_of(coord)
-        partners = self._point_store.of_type(other)
-        if index is None or index >= len(partners):
-            return None
-        return partners[index]
 
     @staticmethod
-    def _fiducial_name(coord: Coordinate, store: CorrelationPointStore) -> str:
-        return f"{coord.point_type.value} {store.index_of(coord) + 1}"
+    def _fiducial_name(coord: Coordinate, store: PointStore) -> str:
+        return point_name(coord.point_type, store.index_of(coord))
 
     def _ask_pair_removal(self, coord: Coordinate, partner: Coordinate) -> str:
         """Ask what deleting ``coord`` does to its partner; the answer is a
@@ -4441,7 +4422,7 @@ class CorrelationTabWidget(QWidget):
     def _on_canvas_add_requested(self, x: float, y: float, pt: PointType) -> None:
         spec = self._point_specs[pt]
         coord = Coordinate(PointXYZ(x, y, spec.adapter.current_z()), pt)
-        if _POINT_TYPE_SIDES[pt] == "fm" and self._fm_display.max_projection:
+        if side_of(pt) == "fm" and self._fm_display.max_projection:
             # A projection has no plane to give the point (FIB-1241).
             notification_service.show_toast(
                 "Placed at z = 0: the max projection has no plane. "
@@ -4465,15 +4446,9 @@ class CorrelationTabWidget(QWidget):
     def _clear_exclusive_siblings(self, point_type: PointType) -> None:
         """Fire the lifecycle hooks of the types an added point cleared (placing
         a FIB surface point disarms the FM surface's pre-correction factor)."""
-        group = POINT_RULES[point_type].exclusive_group
-        if group is None:
-            return
+        cleared = [pt for pt in cleared_by(point_type) if pt is not point_type]
         for other in self._point_specs.values():
-            if (
-                other.point_type is not point_type
-                and POINT_RULES[other.point_type].exclusive_group == group
-                and other.on_cleared is not None
-            ):
+            if other.point_type in cleared and other.on_cleared is not None:
                 other.on_cleared()
 
     def _on_reset_requested(self, coord: Coordinate) -> None:
