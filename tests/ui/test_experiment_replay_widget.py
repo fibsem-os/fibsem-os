@@ -128,7 +128,7 @@ def _decision_on_a_real_image(tmp_path, kind, proposed, decided):
                 "decided": decided,
                 "decision": 0,
                 "outcome": "Confirmed",
-                "author": "human:op",
+                "actor": "operator:op",
                 "via": "review",
             },
         },

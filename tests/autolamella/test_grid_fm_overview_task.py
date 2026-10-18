@@ -16,10 +16,6 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.task_outputs import (
-    grid_outputs,
-    latest_grid_output,
-)
 from fibsem.applications.autolamella.workflows.tasks.grid import (
     FluorescenceOverviewGridTask,
     FluorescenceOverviewGridTaskConfig,
@@ -31,6 +27,10 @@ from fibsem.fm.structures import ChannelSettings, OverviewParameters, ZParameter
 from fibsem.services.sample_handling import BUILTIN_SLOT_NAME
 from fibsem.structures import InsertableDeviceState, SampleGrid
 from fibsem.workflows.grids import GridRecord
+from fibsem.workflows.outputs import (
+    item_outputs,
+    latest_item_output,
+)
 from fibsem.workflows.status import TaskStatus
 
 
@@ -102,12 +102,12 @@ class TestRun:
         entry = grid.task_history[-1]
         assert entry.status is TaskStatus.Completed
         assert set(entry.outputs) == {"overview_fm", "overview_fm_thumbnail"}
-        (mosaic,) = grid_outputs(experiment, grid, "overview_fm")
+        (mosaic,) = item_outputs(experiment, grid, "overview_fm")
         assert mosaic.startswith(
             str(tmp_path / "exp" / "grids" / "grid-aspen" / "overview_fm")
         )
         assert mosaic.endswith(".ome.tiff")
-        thumbnail = latest_grid_output(experiment, grid, "overview_fm_thumbnail")
+        thumbnail = latest_item_output(experiment, grid, "overview_fm_thumbnail")
         from PIL import Image
 
         with Image.open(thumbnail) as im:

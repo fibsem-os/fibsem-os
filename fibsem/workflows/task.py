@@ -32,23 +32,32 @@ from fibsem.workflows.status import TaskStatus, take_back_finish
 _UNSAFE_IN_FOLDER_NAMES = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
 
+def iteration_folder(iteration: int) -> str:
+    """The folder name of one iteration of an item's tasks: ``0003``."""
+    return f"{iteration:04d}"
+
+
 def run_folder(
-    item_dir: Any, task_name: str, started: datetime, round: Optional[int] = None
+    item_dir: Any, task_name: str, started: datetime, iteration: Optional[int] = None
 ) -> str:
     """Where one run of ``task_name`` on an item saves what it makes:
     ``<item>/<task name>/<YYYYMMDD-HHMMSS>/`` (FIB-1275), so a re-run
-    overwrites nothing; ``<item>/<task name>/<round:04d>/`` for an item that
-    runs in rounds, one folder per round. The item's shared state
+    overwrites nothing; ``<item>/<task name>/<iteration:04d>/`` for an item that
+    runs in iterations, one folder per iteration. The item's shared state
     (``ref_alignment``, the coincidence setup reference) is not a run's, and
     stays in the item's folder (FIB-1258).
 
     The task name is made safe for a folder name; a second run of the same
-    second, or the same round, as one already saved gets ``-2``. Not created
+    second, or the same iteration, as one already saved gets ``-2``. Not created
     here: a run that saves nothing leaves no folder. Readers find a run's files
     from its record (``outputs``), not from this name.
     """
     task_folder = _UNSAFE_IN_FOLDER_NAMES.sub("-", task_name).strip().rstrip(".")
-    leaf = f"{round:04d}" if round is not None else f"{started:%Y%m%d-%H%M%S}"
+    leaf = (
+        iteration_folder(iteration)
+        if iteration is not None
+        else f"{started:%Y%m%d-%H%M%S}"
+    )
     base = os.path.join(str(item_dir), task_folder or "task", leaf)
     folder, n = base, 1
     while os.path.exists(folder):
@@ -98,9 +107,9 @@ class BaseTask(ABC):
         self.parent_ui = parent_ui
         self.task_manager = task_manager
         self.task_id = str(uuid.uuid4())
-        # The round of the item's tasks this run is, when the item runs in
-        # rounds: the queue entry the manager is running.
-        self.round: Optional[int] = getattr(task_manager, "active_round", None)
+        # The iteration of the item's tasks this run is, when the item runs in
+        # iterations: the queue entry the manager is running.
+        self.iteration: Optional[int] = getattr(task_manager, "active_iteration", None)
         # The manager's token, not its raw event: what counts as "cancelled" is
         # the manager's to decide, and a task should not have to know.
         self._stop_event = task_manager.abort_token if task_manager else None
@@ -218,7 +227,7 @@ class BaseTask(ABC):
         state.end_timestamp = None
         state.task_id = self.task_id
         state.task_type = self.task_type
-        state.round = self.round
+        state.iteration = self.iteration
         state.status = TaskStatus.InProgress
         state.status_message = ""
         state.outputs = {}
@@ -323,7 +332,7 @@ class BaseTask(ABC):
                 item_name=self.item.name,
                 task_id=self.task_id,
                 task_name=self.task_name,
-                round=self.round,
+                iteration=self.iteration,
             )
 
     def _clear_workflow_metadata(self) -> None:

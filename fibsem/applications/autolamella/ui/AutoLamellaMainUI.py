@@ -4174,8 +4174,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """The latest overview of an item's grid, SEM before FIB: where a pose
         off the live view is drawn instead. None when there is none."""
         from fibsem.applications.autolamella.server.context import find_item
-        from fibsem.applications.autolamella.task_outputs import latest_grid_output
         from fibsem.structures import FibsemImage
+        from fibsem.workflows.outputs import latest_item_output
 
         experiment = self.autolamella_ui.experiment
         if experiment is None:
@@ -4185,7 +4185,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if grid is None:
             return None
         for role in ("overview_sem", "overview_fib"):
-            path = latest_grid_output(experiment, grid, role)
+            path = latest_item_output(experiment, grid, role)
             if path is None:
                 continue
             try:

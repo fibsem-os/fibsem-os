@@ -388,3 +388,27 @@ def test_the_animation_shows_a_task_run_twice_once_with_its_latest_images(tmp_pa
     assert [name for name, _, _ in steps] == ["Setup", "Mill"]
     _, mill_finals, _ = steps[1]
     assert all("20261014-101544" in p for p in mill_finals) and len(mill_finals) == 2
+
+
+def test_a_lamellas_outputs_read_like_a_grids(tmp_path):
+    """The item readers take a lamella too: its record is relative to its own
+    folder, as the experiment's item_path says."""
+    from fibsem.applications.autolamella.structures import Experiment
+    from fibsem.workflows.outputs import item_outputs, latest_item_output
+
+    experiment = Experiment(path=tmp_path, name="readers")
+    lamella = _lamella(tmp_path)
+    _write(lamella, ["first.tif", "second.tif"])
+    lamella.task_history = [
+        TaskState(name="MillRough", outputs={"final_sem": ["first.tif"]}),
+        TaskState(
+            name="MillPolishing", outputs={"final_sem": ["second.tif", "gone.tif"]}
+        ),
+    ]
+
+    found = item_outputs(experiment, lamella, "final_sem")
+    only = item_outputs(experiment, lamella, "final_sem", task_name="MillRough")
+
+    assert [os.path.basename(p) for p in found] == ["first.tif", "second.tif"]
+    assert [os.path.basename(p) for p in only] == ["first.tif"]
+    assert latest_item_output(experiment, lamella, "final_sem").endswith("second.tif")
