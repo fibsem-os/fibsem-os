@@ -66,3 +66,14 @@ def test_the_workflows_detection_runs_through_the_registered_model(tmp_path):
         microscope, settings, [ImageCentre()], checkpoint="fake-segmentation"
     )
     assert default_manager().get("fake-segmentation") is model
+
+
+def test_a_detection_names_its_registered_model_with_its_version():
+    from fibsem.detection.review import detection_provenance
+
+    det, _ = detection.detect(
+        _model(), np.zeros((8, 8)), ["ImageCentre"], pixel_size=1e-9
+    )
+    assert detection_provenance(det)["proposer"] == "fake-segmentation@0.1.0"
+    det.checkpoint = "models/autolamella-mega-20240107.pt"
+    assert detection_provenance(det)["proposer"] == "autolamella-mega-20240107"

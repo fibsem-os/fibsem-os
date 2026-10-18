@@ -116,9 +116,12 @@ def record_training_data(detection: Any, answer: Any) -> None:
 def detection_provenance(detection: Any) -> Dict[str, Any]:
     """Which model said this. The question's type is not its author, and a
     correction only means something measured against the checkpoint that
-    produced it."""
+    produced it. A registered model is named ``name@version``, whose dots are
+    the version's, not a file's extension."""
     checkpoint = str(getattr(detection, "checkpoint", "") or "")
-    name = os.path.splitext(os.path.basename(checkpoint))[0] if checkpoint else ""
+    name = os.path.basename(checkpoint)
+    if "@" not in name:
+        name = os.path.splitext(name)[0]
     return {
         "proposer": name or "segmentation model",
         "checkpoint": checkpoint,
