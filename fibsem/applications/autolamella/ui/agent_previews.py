@@ -959,7 +959,7 @@ class AgentPreviews:
         agent's own *image*, when it gave one, takes the place of the view. A
         *request* of None takes it down. A suggested point of interest is
         :meth:`show_suggested_point`'s."""
-        from fibsem.applications.autolamella.workflows.interaction import (
+        from fibsem.workflows.interaction import (
             Confirm,
             ConfirmDetection,
             EditAlignmentArea,
@@ -1066,7 +1066,7 @@ class AgentPreviews:
             self._picture(None, None, [], suggestion=True)
             return
         aspect = frame.data.shape[0] / frame.data.shape[1]
-        from fibsem.applications.autolamella.workflows.interaction import (
+        from fibsem.workflows.interaction import (
             ACTION_ACCEPT,
             ACTION_SKIP,
         )

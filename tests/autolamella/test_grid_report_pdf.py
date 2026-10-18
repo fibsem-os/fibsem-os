@@ -15,7 +15,6 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from fibsem.applications.autolamella.structures import Verdict
 from fibsem.applications.autolamella.tools.grid_report_pdf import (
     PRINT_MAX_EDGE,
     REPORT_FILENAME,
@@ -27,6 +26,7 @@ from fibsem.applications.autolamella.tools.grid_report_pdf import (
     scale_bar_length,
 )
 from fibsem.util.timestamps import from_posix
+from fibsem.workflows.quality import Verdict
 
 from .test_grid_report import report, screened  # noqa: F401 - fixtures
 

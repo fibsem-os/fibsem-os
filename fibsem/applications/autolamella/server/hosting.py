@@ -34,12 +34,12 @@ from typing import Callable, List, Optional
 
 from fibsem.acting import AGENT
 from fibsem.applications.autolamella.server.context import AutoLamellaAppContext
-from fibsem.applications.autolamella.server.events import (
+from fibsem.cancellation import NothingToStop
+from fibsem.workflows.events import (
     EventBuffer,
     attach_microscope_taps,
     make_lifecycle_hook,
 )
-from fibsem.cancellation import NothingToStop
 
 __all__ = ["AppServerHost"]
 

@@ -15,9 +15,9 @@ pytest.importorskip("PyQt5")
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
-    GridRecord,
 )
 from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+from fibsem.workflows.grids import GridRecord
 
 
 @pytest.fixture

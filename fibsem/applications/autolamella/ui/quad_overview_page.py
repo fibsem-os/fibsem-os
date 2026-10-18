@@ -58,7 +58,10 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.applications.autolamella.structures import Experiment, GridRecord, Lamella
+from fibsem.applications.autolamella.structures import (
+    Experiment,
+    Lamella,
+)
 from fibsem.applications.autolamella.ui.grid_results_widget import image_for
 from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     LOAD_ENTRY_NAME,
@@ -81,6 +84,7 @@ from fibsem.ui.widgets.stored_overview_canvas import (
     _view_of_beam_image,
 )
 from fibsem.util.timestamps import format_time, from_posix
+from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.status import TaskStatus
 
 logger = logging.getLogger(__name__)

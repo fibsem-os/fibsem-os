@@ -3,7 +3,7 @@
 Renders ``FibsemMillingStage`` patterns (rectangle / circle / line / polygon) on a
 :class:`FibsemImageCanvas`, one colour per stage, with a crosshair at each stage's
 point-of-interest. Reuses the metres→pixel converters from
-``fibsem.ui.napari.patterns`` (which already emit rotated, y-flipped pixel geometry).
+``fibsem.milling.patterning.shapes`` (which already emit rotated, y-flipped pixel geometry).
 
 Display-only: the overlay captures no mouse events, so it coexists cleanly with
 the canvas pan/zoom, double-click-to-move, and right-click menu. Pattern movement

@@ -31,11 +31,11 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtWidgets import QWidget
 
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
-from fibsem.applications.autolamella.workflows.interaction import (
+from fibsem.detection.detection import DetectedFeatures, LamellaCentre
+from fibsem.workflows.interaction import (
     ConfirmDetection,
     ask,
 )
-from fibsem.detection.detection import DetectedFeatures, LamellaCentre
 
 PROMPT = "Confirm Feature Detection. Press Continue to proceed."
 

@@ -9,13 +9,14 @@ import os
 from pathlib import Path
 from typing import List
 
-from fibsem.applications.autolamella.structures import AutoLamellaTaskState, Lamella
+from fibsem.applications.autolamella.structures import Lamella
 from fibsem.applications.autolamella.task_outputs import (
     final_reference_images,
     fluorescence_images,
     images_by_task,
     latest_final_reference_images,
 )
+from fibsem.workflows.status import TaskState
 
 CONVENTIONAL = [
     "ref_MillRough_final_res_01_eb.tif",
@@ -40,7 +41,7 @@ def test_falls_back_to_the_filename_convention_when_nothing_recorded(tmp_path):
     """Old experiments have no outputs; the glob is still the route to their images."""
     lamella = _lamella(tmp_path)
     _write(lamella, CONVENTIONAL)
-    task = AutoLamellaTaskState(name="MillRough")
+    task = TaskState(name="MillRough")
 
     found = final_reference_images(lamella, task)
 
@@ -55,7 +56,7 @@ def test_prefers_recorded_outputs_over_the_glob(tmp_path):
     """
     lamella = _lamella(tmp_path)
     _write(lamella, CONVENTIONAL + ["custom_eb.tif", "custom_ib.tif"])
-    task = AutoLamellaTaskState(
+    task = TaskState(
         name="MillRough",
         outputs={"final_sem": ["custom_eb.tif"], "final_fib": ["custom_ib.tif"]},
     )
@@ -75,10 +76,10 @@ def test_both_routes_agree_on_order(tmp_path):
     lamella = _lamella(tmp_path)
     _write(lamella, CONVENTIONAL)
 
-    globbed = final_reference_images(lamella, AutoLamellaTaskState(name="MillRough"))
+    globbed = final_reference_images(lamella, TaskState(name="MillRough"))
     recorded = final_reference_images(
         lamella,
-        AutoLamellaTaskState(
+        TaskState(
             name="MillRough",
             outputs={
                 "final_sem": [n for n in CONVENTIONAL if n.endswith("_eb.tif")],
@@ -94,7 +95,7 @@ def test_recorded_relative_paths_resolve_under_the_lamella_directory(tmp_path):
     """Records are stored relative; discovery returns absolute paths."""
     lamella = _lamella(tmp_path)
     _write(lamella, ["ref_MillRough_final_res_01_eb.tif"])
-    task = AutoLamellaTaskState(
+    task = TaskState(
         name="MillRough", outputs={"final_sem": ["ref_MillRough_final_res_01_eb.tif"]}
     )
 
@@ -108,7 +109,7 @@ def test_a_run_that_produced_nothing_finds_nothing(tmp_path):
     """No record and no files on disk is an empty result, not an error."""
     lamella = _lamella(tmp_path)
 
-    assert final_reference_images(lamella, AutoLamellaTaskState(name="MillRough")) == []
+    assert final_reference_images(lamella, TaskState(name="MillRough")) == []
 
 
 def test_only_final_outputs_are_offered(tmp_path):
@@ -119,7 +120,7 @@ def test_only_final_outputs_are_offered(tmp_path):
     """
     lamella = _lamella(tmp_path)
     _write(lamella, ["start_eb.tif", "other_eb.tif"])
-    task = AutoLamellaTaskState(
+    task = TaskState(
         name="MillRough",
         outputs={"start_sem": ["start_eb.tif"], "other_sem": ["other_eb.tif"]},
     )
@@ -138,7 +139,7 @@ def test_a_set_acquired_twice_in_one_run_does_not_crowd_out_the_other_beam(tmp_p
     sem = [n for n in CONVENTIONAL if n.endswith("_eb.tif")]
     fib = [n for n in CONVENTIONAL if n.endswith("_ib.tif")]
 
-    task = AutoLamellaTaskState(
+    task = TaskState(
         name="MillRough", outputs={"final_sem": sem * 2, "final_fib": fib * 2}
     )
     found = final_reference_images(lamella, task)
@@ -157,9 +158,7 @@ def test_a_record_whose_images_are_gone_falls_through_to_the_convention(tmp_path
     """
     lamella = _lamella(tmp_path)
     _write(lamella, CONVENTIONAL)
-    task = AutoLamellaTaskState(
-        name="MillRough", outputs={"final_sem": ["deleted_eb.tif"]}
-    )
+    task = TaskState(name="MillRough", outputs={"final_sem": ["deleted_eb.tif"]})
 
     found = final_reference_images(lamella, task)
 
@@ -169,9 +168,7 @@ def test_a_record_whose_images_are_gone_falls_through_to_the_convention(tmp_path
 def test_a_record_of_only_deleted_images_with_nothing_on_disk_finds_nothing(tmp_path):
     """...and with no convention-named files either, the row is skipped as before."""
     lamella = _lamella(tmp_path)
-    task = AutoLamellaTaskState(
-        name="MillRough", outputs={"final_sem": ["deleted_eb.tif"]}
-    )
+    task = TaskState(name="MillRough", outputs={"final_sem": ["deleted_eb.tif"]})
 
     assert final_reference_images(lamella, task) == []
 
@@ -182,7 +179,7 @@ def test_a_record_of_only_deleted_images_with_nothing_on_disk_finds_nothing(tmp_
 def test_fluorescence_images_returns_recorded_stacks(tmp_path):
     lamella = _lamella(tmp_path)
     _write(lamella, ["01-lam-zstack-14-26-25.ome.tiff"])
-    task = AutoLamellaTaskState(
+    task = TaskState(
         name="Acquire Fluorescence Image",
         outputs={"fluorescence": ["01-lam-zstack-14-26-25.ome.tiff"]},
     )
@@ -201,7 +198,7 @@ def test_fluorescence_has_no_filename_fallback(tmp_path):
     lamella = _lamella(tmp_path)
     _write(lamella, ["01-lam-zstack-14-26-25.ome.tiff"])  # on disk, but unrecorded
 
-    assert fluorescence_images(lamella, AutoLamellaTaskState(name="Acquire")) == []
+    assert fluorescence_images(lamella, TaskState(name="Acquire")) == []
 
 
 def test_fluorescence_applies_the_same_guards_as_reference_images(tmp_path):
@@ -209,7 +206,7 @@ def test_fluorescence_applies_the_same_guards_as_reference_images(tmp_path):
     deleted files are live cases here, not hypothetical."""
     lamella = _lamella(tmp_path)
     _write(lamella, ["stack.ome.tiff"])
-    task = AutoLamellaTaskState(
+    task = TaskState(
         name="Mill Coincident",
         outputs={"fluorescence": ["stack.ome.tiff", "stack.ome.tiff", "gone.ome.tiff"]},
     )
@@ -223,7 +220,7 @@ def test_reference_and_fluorescence_are_separate(tmp_path):
     """Each reads only its own roles — a task with both must not cross-contaminate."""
     lamella = _lamella(tmp_path)
     _write(lamella, CONVENTIONAL + ["stack.ome.tiff"])
-    task = AutoLamellaTaskState(
+    task = TaskState(
         name="MillRough",
         outputs={
             "final_sem": [CONVENTIONAL[0]],
@@ -248,10 +245,10 @@ def test_repeated_runs_accumulate_distinct_fluorescence_stacks(tmp_path):
     silently hide every earlier acquisition."""
     lamella = _lamella(tmp_path)
     _write(lamella, ["lam-zstack-10-00-00.ome.tiff", "lam-zstack-11-00-00.ome.tiff"])
-    first = AutoLamellaTaskState(
+    first = TaskState(
         name="Acquire", outputs={"fluorescence": ["lam-zstack-10-00-00.ome.tiff"]}
     )
-    second = AutoLamellaTaskState(
+    second = TaskState(
         name="Acquire", outputs={"fluorescence": ["lam-zstack-11-00-00.ome.tiff"]}
     )
 
@@ -276,8 +273,8 @@ def test_repeated_runs_collapse_when_the_files_are_overwritten(tmp_path):
     lamella = _lamella(tmp_path)
     _write(lamella, CONVENTIONAL)
     outputs = {"final_sem": CONVENTIONAL[:1], "final_fib": CONVENTIONAL[1:2]}
-    first = AutoLamellaTaskState(name="MillRough", outputs=dict(outputs))
-    second = AutoLamellaTaskState(name="MillRough", outputs=dict(outputs))
+    first = TaskState(name="MillRough", outputs=dict(outputs))
+    second = TaskState(name="MillRough", outputs=dict(outputs))
 
     assert final_reference_images(lamella, first, second) == final_reference_images(
         lamella, first
@@ -294,7 +291,7 @@ def test_the_glob_fallback_yields_one_set_however_many_runs(tmp_path):
     """
     lamella = _lamella(tmp_path)
     _write(lamella, CONVENTIONAL)
-    runs = [AutoLamellaTaskState(name="MillRough") for _ in range(3)]
+    runs = [TaskState(name="MillRough") for _ in range(3)]
 
     found = final_reference_images(lamella, *runs)
 
@@ -314,7 +311,7 @@ def _run_in_folder(lamella: Lamella, task: str, stamp: str, **outputs) -> None:
         for name in names:
             (folder / name).write_bytes(b"")
         recorded[role] = [os.path.join(task, stamp, name) for name in names]
-    lamella.task_history.append(AutoLamellaTaskState(name=task, outputs=recorded))
+    lamella.task_history.append(TaskState(name=task, outputs=recorded))
 
 
 FINALS = {
@@ -366,7 +363,7 @@ def test_a_task_whose_runs_record_no_final_images_is_not_found_by_name(tmp_path)
 def test_a_task_from_before_outputs_is_found_by_name(tmp_path):
     lamella = _lamella(tmp_path)
     _write(lamella, CONVENTIONAL)
-    lamella.task_history.append(AutoLamellaTaskState(name="MillRough"))
+    lamella.task_history.append(TaskState(name="MillRough"))
 
     found = latest_final_reference_images(lamella, "MillRough")
 

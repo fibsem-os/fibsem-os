@@ -966,35 +966,47 @@ def test_a_poor_previous_run_does_not_supply_an_offset(loaded):
     assert text == "geometry · placed from stage metadata"
 
 
-def test_a_run_records_the_offset_its_fiducials_measured(loaded):
+def test_a_run_records_the_offset_its_fiducials_measured(loaded, monkeypatch):
     """Only pairs the user placed measure the offset. Predictions accepted
     where the offset-corrected projection put them would echo the previous
     offset back, so a run of accepted pairs records nothing, and accepted
     pairs beside placed ones do not dilute what the placed ones say."""
+    import fibsem.correlation.fit as fit_module
+    from fibsem.correlation.fit import measure_placement_offset
     from fibsem.correlation.structures import CorrelationResult
 
     loaded.set_prior_runs(_offset_runs([3.0, -4.0]))
     loaded.seed_fib_fiducials_from_spot_burns(_burns(ARCTIS))
     loaded.project_fm_from_fib()
     loaded.accept_all_predictions()
-    loaded._run_nominal, _ = loaded._nominal_transform()
+    seed = loaded._seed()
+
+    def measured(result):
+        return measure_placement_offset(
+            result, seed.transform, seed.metadata_translation
+        )
+
     result = CorrelationResult(input_data=loaded.fit_data)
-    assert loaded._measure_placement_offset(result) is None
+    assert measured(result) is None
 
     # move two FM points 10 FM px in x, as a drop would: the FIB-side
     # translation moves by minus the prior's in-plane map of that shift,
     # measured from those two alone
-    P = loaded._run_nominal.projection
+    P = seed.transform.projection
     px_um = ARCTIS["fib"]["pixel_size"] * 1e6
     for c in _fm(loaded)[:2]:
         c.point.x += 10.0
         c.status = PointStatus.PLACED  # the user's, from here on
     result = CorrelationResult(input_data=loaded.fit_data)
     expected = np.array([3.0, -4.0]) - (P[:, :2] @ [10.0, 0.0]) * px_um
-    assert np.allclose(loaded._measure_placement_offset(result), expected, atol=1e-6)
+    assert np.allclose(measured(result), expected, atol=1e-6)
 
-    loaded._on_run_finished(result)
-    assert loaded._result.placement_offset == pytest.approx(list(expected))
+    # a run records it on its result
+    monkeypatch.setattr(
+        fit_module, "run_correlation_from_data", lambda d, nominal: result
+    )
+    fitted = fit_module.fit_transform(loaded.fit_data, seed)
+    assert fitted.placement_offset == pytest.approx(list(expected))
 
 
 def test_a_previous_run_far_from_the_geometry_is_not_used_as_the_prior(loaded):

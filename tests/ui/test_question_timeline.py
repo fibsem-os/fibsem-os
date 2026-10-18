@@ -19,7 +19,7 @@ from fibsem.applications.autolamella.ui import (
     question_timeline_widget as timeline_module,
 )
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
-from fibsem.applications.autolamella.workflows.interaction import Confirm, ask
+from fibsem.workflows.interaction import Confirm, ask
 
 
 @pytest.fixture(autouse=True)

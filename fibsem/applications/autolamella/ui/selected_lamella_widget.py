@@ -17,6 +17,7 @@ from fibsem.applications.autolamella.ui.lamella_pose_list_widget import (
     LamellaPoseListWidget,
 )
 from fibsem.constants import METRE_TO_MICRON
+from fibsem.devices.fm import Objective
 from fibsem.ui.tokens import (
     NEUTRAL_550,
 )
@@ -25,6 +26,7 @@ from fibsem.ui.widgets.custom_widgets import (
     TitledPanel,
     ValueSpinBox,
 )
+from fibsem.ui.widgets.form_builder import configure_spinbox, parameter_spec
 
 
 class SelectedLamellaWidget(QWidget):
@@ -57,9 +59,13 @@ class SelectedLamellaWidget(QWidget):
 
         # --- objective position row ---
         self.label_objective_position = QLabel("Objective Position")
-        self.spinbox_objective_position = ValueSpinBox(
-            suffix="µm", decimals=1, step=1.0, minimum=-20000.0, maximum=20000.0
+        # Shown as the objective's position is (µm, its step and decimals); the range
+        # is wide because a lamella's stored position is not checked against a device.
+        self.spinbox_objective_position = ValueSpinBox()
+        configure_spinbox(
+            self.spinbox_objective_position, parameter_spec(Objective.position)
         )
+        self.spinbox_objective_position.setRange(-20000.0, 20000.0)
         self.btn_objective_actions = IconToolButton(
             "mdi:dots-horizontal", tooltip="Actions"
         )

@@ -33,12 +33,12 @@ from fibsem import utils  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     DefectType,
     Experiment,
-    OverlayRecord,
 )
 from fibsem.applications.autolamella.ui.autolamella_overview_tab import (  # noqa: E402
     AutoLamellaOverviewTab,
 )
 from fibsem.structures import BeamType, FibsemImage, FibsemStagePosition  # noqa: E402
+from fibsem.workflows.grids import OverlayRecord  # noqa: E402
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
@@ -619,7 +619,7 @@ class TestALamellaMarkedOnAGridOverviewBelongsToThatGrid:
         return image
 
     def test_the_overview_grid_is_passed_and_bare_canvas_is_not(self, tab, microscope):
-        from fibsem.applications.autolamella.structures import GridRecord
+        from fibsem.workflows.grids import GridRecord
 
         experiment = tab.experiment
         birch = experiment.add_grid(GridRecord(name="grid-birch"))

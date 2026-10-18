@@ -241,10 +241,10 @@ def test_an_empty_workflow_finishes_now(tmp_path):
 # `estimate_queue` answers the same question as `estimate_workflow` from the other end:
 # against a queue that is part-way through rather than an experiment about to start.
 
-from fibsem.applications.autolamella.workflows.tasks.queue import WorkItem  # noqa: E402
 from fibsem.applications.autolamella.workflows.workflow_estimate import (  # noqa: E402
     estimate_queue,
 )
+from fibsem.workflows.queue import WorkItem  # noqa: E402
 from fibsem.workflows.status import TaskStatus  # noqa: E402
 
 

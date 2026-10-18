@@ -113,8 +113,7 @@ _WORKFLOWS_DIR = Path(workflow_ui.__file__).parent
 def test_update_detection_ui_keeps_the_signature_others_call_it_with():
     """``update_detection_ui`` is called from code outside this repository, so
     its parameters are a contract: their names, their order and which of them
-    may be left out. New behaviour goes in a second function beside it
-    (``review_detection_ui``), not into this one."""
+    may be left out."""
     parameters = inspect.signature(workflow_ui.update_detection_ui).parameters
 
     assert list(parameters) == [
@@ -154,13 +153,11 @@ def test_which_tasks_ask_their_detections_on_the_record():
     three detections go through ``AutoLamellaTask.detect``, and the two in
     ``align_feature_coincident`` through the ``detect`` it is handed. The
     only direct ``update_detection_ui`` calls left are the fallbacks for the
-    preference being off. ``review_detection_ui`` is the bridge for the
-    responder and has no caller in the workflow."""
+    preference being off."""
     direct = {
         os.path.basename(str(path)) for path, _ in _calls_to("update_detection_ui")
     }
     assert direct == {"base.py", "core.py"}, direct
-    assert _calls_to("review_detection_ui") == []
     undercut = Path(workflow_ui.__file__).parent / "tasks" / "undercut.py"
     tree = ast.parse(undercut.read_text(encoding="utf-8"))
     asks = [

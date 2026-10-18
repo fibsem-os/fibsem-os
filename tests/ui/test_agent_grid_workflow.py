@@ -22,7 +22,6 @@ from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
     Experiment,
-    GridRecord,
 )
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI  # noqa: E402
 from fibsem.applications.autolamella.workflows.tasks.grid.imaging import (  # noqa: E402
@@ -33,6 +32,7 @@ from fibsem.applications.autolamella.workflows.tasks.grid.manager import (  # no
 )
 from fibsem.server import AuthConfig, build_server  # noqa: E402
 from fibsem.structures import MicroscopeState  # noqa: E402
+from fibsem.workflows.grids import GridRecord  # noqa: E402
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}

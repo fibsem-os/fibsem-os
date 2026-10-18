@@ -19,11 +19,11 @@ from fibsem.workflows.status import TaskStatus
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import (
-        AutoLamellaTaskState,
         Experiment,
         Lamella,
     )
     from fibsem.hooks import HookContext
+    from fibsem.workflows.status import TaskState
 
 COMPLETION_SUMMARY_FILENAME = "completion-summary.json"
 
@@ -86,7 +86,7 @@ def write_completion_summary(
     return path
 
 
-def _task_record(task: "AutoLamellaTaskState") -> dict:
+def _task_record(task: "TaskState") -> dict:
     """What one completed task contributed, and what it left behind.
 
     ``outputs`` is the point of this: paths are stored relative to lamella.path, and
@@ -95,7 +95,7 @@ def _task_record(task: "AutoLamellaTaskState") -> dict:
     which would lose provenance and collide on shared role names (two tasks both
     writing final_sem).
 
-    Named to match AutoLamellaTaskState.outputs -- the artifact and the record it
+    Named to match TaskState.outputs -- the artifact and the record it
     describes should not need a glossary between them.
     """
     return {

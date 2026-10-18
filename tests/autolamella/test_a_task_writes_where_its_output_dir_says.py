@@ -138,13 +138,24 @@ def test_the_output_folder_is_the_run_s_own(microscope, experiment):
 
 
 def test_a_task_name_a_folder_cannot_hold_is_made_safe(microscope, experiment):
-    from fibsem.applications.autolamella.task_outputs import run_folder
     from fibsem.util.timestamps import now
+    from fibsem.workflows.task import run_folder
 
     lamella = experiment.positions[0]
-    folder = run_folder(lamella, 'Rough: 1/2 "fast"', now())
+    folder = run_folder(lamella.path, 'Rough: 1/2 "fast"', now())
 
     assert os.path.basename(os.path.dirname(folder)) == "Rough- 1-2 -fast-"
+
+
+def test_a_round_has_a_folder_of_its_own(tmp_path):
+    from fibsem.util.timestamps import now
+    from fibsem.workflows.task import run_folder
+
+    folder = run_folder(tmp_path, "Mill", now(), round=3)
+    assert folder == os.path.join(str(tmp_path), "Mill", "0003")
+
+    os.makedirs(folder)  # a re-run of the same round
+    assert run_folder(tmp_path, "Mill", now(), round=3) == folder + "-2"
 
 
 def test_the_wrappers_return_what_they_measured(microscope, experiment):

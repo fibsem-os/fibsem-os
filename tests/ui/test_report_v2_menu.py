@@ -20,14 +20,14 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtGui import QDesktopServices  # noqa: E402
 from PyQt5.QtTest import QTest  # noqa: E402
 
-from fibsem.applications.autolamella.event_recording import (  # noqa: E402
-    EVENTS_FILENAME,
-)
 from fibsem.applications.autolamella.structures import Experiment  # noqa: E402
 from fibsem.applications.autolamella.tools import pdf_export  # noqa: E402
 from fibsem.applications.autolamella.tools.report_v2 import (  # noqa: E402
     REPORT_DIRNAME,
     REPORT_FILENAME,
+)
+from fibsem.workflows.event_recording import (  # noqa: E402
+    EVENTS_FILENAME,
 )
 
 

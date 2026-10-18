@@ -315,13 +315,19 @@ class _Microscope:
     """What `update_info` reads, and an FM whose objective nobody should read."""
 
     fm = _FM()
-    stage = object()  # a stage is fitted, so update_info shows it
     current_grid = "GRID-01"
 
     def __init__(self):
+        from types import SimpleNamespace
+
         from fibsem.structures import FibsemStagePosition
 
-        self._stage_position = FibsemStagePosition(x=0, y=0, z=0, r=0, t=0)
+        # a stage is fitted, so update_info shows it, at its last known position
+        self.stage = SimpleNamespace(
+            position=SimpleNamespace(
+                last_known=FibsemStagePosition(x=0, y=0, z=0, r=0, t=0)
+            )
+        )
 
     def get_stage_orientation(self, stage_position=None):
         return "SEM"
@@ -385,7 +391,7 @@ def test_a_live_value_can_be_removed():
 
 def test_the_stage_is_shown_once_under_the_fourth_cell(controller):
     microscope = _Microscope()
-    microscope._stage_position = FibsemStagePosition(
+    microscope.stage.position.last_known = FibsemStagePosition(
         x=-1.23e-3, y=2.34e-3, z=3.1e-3, r=np.radians(180), t=np.radians(18)
     )
     controller.update_info(microscope)
@@ -412,7 +418,9 @@ def test_the_stage_is_shown_once_under_the_fourth_cell(controller):
 
 def test_an_axis_the_stage_does_not_report_is_dropped(controller):
     microscope = _Microscope()
-    microscope._stage_position = FibsemStagePosition(x=0, y=0, z=0, r=None, t=0)
+    microscope.stage.position.last_known = FibsemStagePosition(
+        x=0, y=0, z=0, r=None, t=0
+    )
     controller.update_info(microscope)
     bar = controller.widget.stage_bar
     _sized(bar, 2000)

@@ -139,7 +139,7 @@ def test_a_suggested_point_of_interest_is_in_the_view_s_pixels():
     import types
 
     from fibsem.applications.autolamella.ui.qt_responder import QtResponder
-    from fibsem.applications.autolamella.workflows.interaction import PickPOI
+    from fibsem.workflows.interaction import PickPOI
 
     image = FibsemImage.generate_blank_image(resolution=(200, 100), hfw=100e-6)
     request = PickPOI(image=image)
@@ -528,12 +528,12 @@ def test_a_task_config_edit_draws_the_milling_as_it_would_be_and_as_it_is():
 def test_a_suggested_area_and_spot_burn_points_are_drawn_on_the_card():
     # FIB-1411: a suggested area (left 0.03, top 0.30, 0.22 × 0.40) was not
     # drawn: only the current green area showed.
-    from fibsem.applications.autolamella.workflows.interaction import (
+    from fibsem.structures import FibsemRectangle
+    from fibsem.workflows.interaction import (
         EditAlignmentArea,
         RunSpotBurn,
         SpotBurnEdit,
     )
-    from fibsem.structures import FibsemRectangle
 
     controller = _Controller()  # 200 × 100 px, 0.5 µm/px
     card = _Card()
@@ -562,7 +562,7 @@ def test_a_suggested_area_and_spot_burn_points_are_drawn_on_the_card():
 def test_suggested_features_are_drawn_on_the_image_they_were_found_in():
     from types import SimpleNamespace
 
-    from fibsem.applications.autolamella.workflows.interaction import (
+    from fibsem.workflows.interaction import (
         ConfirmDetection,
     )
 
@@ -580,11 +580,11 @@ def test_suggested_features_are_drawn_on_the_image_they_were_found_in():
 def test_a_suggested_answer_to_the_mill_question_draws_the_task_s_patterns():
     # FIB-1424: "Run" suggested for RunMillingTask showed nothing, though the
     # patterns are exactly what the operator approves.
-    from fibsem.applications.autolamella.workflows.interaction import (
-        RunMillingTask,
-    )
     from fibsem.milling.base import FibsemMillingStage
     from fibsem.milling.tasks import FibsemMillingTaskConfig
+    from fibsem.workflows.interaction import (
+        RunMillingTask,
+    )
 
     config = FibsemMillingTaskConfig.from_stages(
         [
@@ -609,12 +609,12 @@ def test_a_suggested_answer_to_the_mill_question_draws_the_task_s_patterns():
 def test_a_suggestion_not_to_mill_again_outlines_what_was_milled():
     """Sim session 2026-10-16: "don't mill again" drew the patterns filled, as
     if about to be milled."""
-    from fibsem.applications.autolamella.workflows.interaction import (
+    from fibsem.milling.base import FibsemMillingStage
+    from fibsem.milling.tasks import FibsemMillingTaskConfig
+    from fibsem.workflows.interaction import (
         MillingEdit,
         RunMillingTask,
     )
-    from fibsem.milling.base import FibsemMillingStage
-    from fibsem.milling.tasks import FibsemMillingTaskConfig
 
     config = FibsemMillingTaskConfig.from_stages(
         [FibsemMillingStage(name="Trench")], name="Fiducial"
@@ -630,7 +630,7 @@ def test_a_suggestion_not_to_mill_again_outlines_what_was_milled():
 def test_a_suggested_answer_to_a_position_question_shows_both_beams():
     # FIB-1424: "Continue" on Setup's position question showed nothing; the
     # agent checked it on a fresh SEM and FIB pair.
-    from fibsem.applications.autolamella.workflows.interaction import Confirm
+    from fibsem.workflows.interaction import Confirm
 
     controller = _Controller()  # 200 × 100 px each
     card = _Card()
@@ -650,12 +650,12 @@ def test_a_suggested_answer_to_a_position_question_shows_both_beams():
 def test_a_suggestion_shows_the_agent_s_own_image():
     # FIB-1424: the agent judged a position on its own image; the card shows
     # that image, not the live views, and a mill on its own FIB image.
-    from fibsem.applications.autolamella.workflows.interaction import (
+    from fibsem.milling.base import FibsemMillingStage
+    from fibsem.milling.tasks import FibsemMillingTaskConfig
+    from fibsem.workflows.interaction import (
         Confirm,
         RunMillingTask,
     )
-    from fibsem.milling.base import FibsemMillingStage
-    from fibsem.milling.tasks import FibsemMillingTaskConfig
 
     evidence = FibsemImage.generate_blank_image(resolution=(400, 200), hfw=100e-6)
     evidence.metadata.image_settings.beam_type = BeamType.ION

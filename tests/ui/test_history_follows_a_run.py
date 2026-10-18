@@ -20,22 +20,22 @@ from PyQt5.QtWidgets import QApplication, QLabel  # noqa: E402
 
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskState,
     Experiment,
 )
 from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module  # noqa: E402
 from fibsem.applications.autolamella.ui.lamella_task_image_widget import (  # noqa: E402
     LamellaTaskImageWidget,
 )
-from fibsem.applications.autolamella.workflows.tasks.manager import (  # noqa: E402
-    WorkflowStatusUpdate,
-)
 from fibsem.structures import (  # noqa: E402
     FibsemImage,
     FibsemStagePosition,
     MicroscopeState,
 )
-from fibsem.workflows.status import TaskStatus  # noqa: E402
+from fibsem.workflows.status import (  # noqa: E402
+    TaskState,
+    TaskStatus,
+    WorkflowStatusUpdate,
+)
 
 TASK = "Trench"
 
@@ -89,7 +89,7 @@ def _finish(lamella, task_name=TASK, value=0):
     image.data[:] = value
     image.save(os.path.join(lamella.path, f"ref_{task_name}_final_high_res.tif"))
     lamella.task_history.append(
-        AutoLamellaTaskState(
+        TaskState(
             name=task_name,
             status=TaskStatus.Completed,
             end_timestamp=datetime.now().timestamp(),

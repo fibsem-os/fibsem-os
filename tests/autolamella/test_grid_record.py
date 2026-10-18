@@ -9,15 +9,14 @@ import yaml
 
 from fibsem import utils
 from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskState,
     Experiment,
     GridQuality,
-    GridRecord,
     Lamella,
 )
 from fibsem.services.sample_handling import bind_sample_handling
 from fibsem.structures import SampleGrid
-from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.grids import GridRecord
+from fibsem.workflows.status import TaskState, TaskStatus
 from tests.fixtures.demo_stage import demo_grid_loader
 
 
@@ -45,7 +44,7 @@ class TestGridRecord:
     def test_round_trip(self):
         grid = GridRecord(name="grid-aspen", description="HeLa, batch B")
         grid.quality.verdict = GridQuality.GOOD
-        done = AutoLamellaTaskState(name="overview_sem", status=TaskStatus.Completed)
+        done = TaskState(name="overview_sem", status=TaskStatus.Completed)
         grid.task_history.append(done)
         again = GridRecord.from_dict(yaml.safe_load(yaml.safe_dump(grid.to_dict())))
         assert again.id == grid.id
