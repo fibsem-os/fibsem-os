@@ -12,8 +12,8 @@ import numpy as np
 import pytest
 import yaml
 
-from fibsem.applications.autolamella.structures import (
-    Experiment,
+from fibsem.applications.autolamella.structures import Experiment
+from fibsem.workflows.grids import (
     GridRecord,
     OverlayRecord,
 )

@@ -24,11 +24,6 @@ pytest.importorskip("PyQt5")
 
 from psygnal.containers import EventedDict
 
-from fibsem.applications.autolamella.proposals import (
-    TASK_RESULT,
-    AuthorKind,
-    DecisionOutcome,
-)
 from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskDescription,
@@ -44,6 +39,7 @@ from fibsem.applications.autolamella.workflows.tasks.rough import (
 )
 from fibsem.milling import FibsemMillingStage
 from fibsem.milling.tasks import FibsemMillingTaskConfig
+from fibsem.workflows.proposals import TASK_RESULT, AuthorKind, DecisionOutcome
 
 ROUGH = "Rough Milling"
 MSG = "Run the rough mill."

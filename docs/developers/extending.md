@@ -82,8 +82,9 @@ the full contract; `examples/scripts/` contains three working examples.
 
 ## Plugins
 
-fibsemOS loads four entry-point groups: `fibsem.patterns`,
-`fibsem.strategies`, `fibsem.tasks` and `fibsem.drivers`. A plugin is a Python package that
+fibsemOS loads five entry-point groups: `fibsem.patterns`,
+`fibsem.strategies`, `fibsem.autolamella.tasks`, `fibsem.grid_tasks` and
+`fibsem.drivers`. A plugin is a Python package that
 declares one or more of these in its `pyproject.toml` and is installed into
 the same environment as fibsemOS. No registration calls or files in the
 fibsem tree are needed; the application discovers it on the next start.
@@ -101,9 +102,11 @@ Each group contributes one kind of object:
   to mill. It appears in the pattern list of every milling stage.
 - **A strategy** (`fibsem.strategies`): how a pattern is milled, for example
   in N passes. It appears in the strategy list of every stage.
-- **A task** (`fibsem.tasks`): an `AutoLamellaTask` with its configuration
-  class, as described in the next section. It appears in the Add Task
-  dialog.
+- **A task** (`fibsem.autolamella.tasks`): an `AutoLamellaTask` with its
+  configuration class, as described in the next section. It appears in the
+  Add Task dialog.
+- **A grid task** (`fibsem.grid_tasks`): a `GridTask` with its configuration
+  class, run on a whole grid. It appears in the grid protocol.
 - **A microscope driver** (`fibsem.drivers`): a function returning a
   `DriverEntry` (`fibsem/drivers/registry.py`) that names a
   `FibsemMicroscope` subclass, its manufacturer, its defaults, and how it
@@ -159,7 +162,7 @@ patterns do; the example's tests check this as well.
 A task is one step applied to one lamella. Subclass `AutoLamellaTask`
 (`fibsem/applications/autolamella/workflows/tasks/base.py`) with a matching
 `AutoLamellaTaskConfig`, and register both with `register_task()` in the
-repository or through the `fibsem.tasks` entry point from a plugin.
+repository or through the `fibsem.autolamella.tasks` entry point from a plugin.
 `fiducial.py` is a representative task module of moderate complexity.
 
 Four contracts:

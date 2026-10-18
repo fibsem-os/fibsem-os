@@ -23,7 +23,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem import constants, conversions
+from fibsem import conversions
 from fibsem.applications.autolamella.image_positions import (
     ImagePosition,
     PositionComparison,
@@ -56,6 +56,7 @@ from fibsem.applications.autolamella.workflows.tasks.tasks import (
     AcquireFluorescenceImageConfig,
     SpotBurnFiducialTaskConfig,
 )
+from fibsem.correlation.history import correlation_record
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.structures import (
@@ -209,50 +210,6 @@ def _select_filename(combo: QComboBox, filename: str) -> None:
     if index >= 0:
         combo.setCurrentIndex(index)
     combo.setToolTip(combo.currentData() or "")
-
-
-def correlation_record(
-    result: "CorrelationResult", lamella: Any, run_folder: Optional[str], root: Any
-) -> Dict[str, Any]:
-    """An accepted correlation, for the experiment's record (FIB-1068): what it
-    gave, how well it fits, and the run folder that holds the rest."""
-    data = result.input_data
-    pixel_size = data.fib_image_pixel_size if data is not None else None
-    folder = run_folder
-    if run_folder and root:
-        try:
-            folder = os.path.relpath(run_folder, str(root))
-        except ValueError:  # another drive
-            pass
-    ri = result.refractive_index_correction_mode
-    return {
-        "item": {"id": lamella.id, "name": lamella.name},
-        "poi": result.poi[0].px_m.to_dict(),
-        "rms_px": result.rms_error,
-        "rms_nm": result.rms_error * pixel_size * 1e9 if pixel_size else None,
-        "fiducials": len(result.delta_2d),
-        "refractive_index": (
-            {"mode": ri, "factor": result.refractive_index_correction_factor}
-            if ri
-            else None
-        ),
-        "verdict": _verdict_tier(result.diagnostics),
-        "seeded": result.seed is not None,
-        "folder": folder,
-    }
-
-
-def _verdict_tier(diagnostics: Optional[dict]) -> Optional[str]:
-    """The fit verdict's tier, as the dialog showed it; None for an unseeded fit."""
-    if not diagnostics:
-        return None
-    from fibsem.correlation.verdict import FitDiagnostics, verdict
-
-    try:
-        return verdict(FitDiagnostics.from_dict(diagnostics)).tier
-    except Exception:  # noqa: BLE001 - the tier is a detail of the record
-        logging.debug("could not read the fit verdict", exc_info=True)
-        return None
 
 
 class _PositionNotice(QWidget):
@@ -1438,13 +1395,16 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             logging.error("No lamella selected, cannot open correlation dialog.")
             return
 
-        from fibsem.correlation.history import LamellaCorrelation
+        from fibsem.correlation.history import (
+            LamellaCorrelation,
+            correlation_dir,
+            new_run_dir,
+        )
         from fibsem.ui.correlation.widgets.correlation_tab_widget import (
             CorrelationTabDialog,
         )
 
-        correlation_root = os.path.join(selected_lamella.path, "Correlation")
-        history = LamellaCorrelation.discover(correlation_root)
+        history = LamellaCorrelation.discover(correlation_dir(selected_lamella.path))
 
         experiment = self.parent_widget.experiment if self.parent_widget else None
         protocol = experiment.task_protocol if experiment is not None else None
@@ -1455,10 +1415,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         # behind, which the setup section then offered as a previous correlation
         # to seed from — so an abandoned session became the next open's starting
         # coordinates (FIB-320).
-        project_path = os.path.join(
-            correlation_root,
-            datetime.datetime.now().strftime(constants.DATETIME_FILE),
-        )
+        project_path = new_run_dir(selected_lamella.path)
 
         fib_current = self._image_path(
             selected_lamella, self.combobox_fib_filenames.currentData() or ""

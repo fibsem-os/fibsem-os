@@ -19,13 +19,13 @@ import pytest
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskState,
     AutoLamellaWorkflowConfig,
     DefectType,
     Experiment,
     Lamella,
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
+from fibsem.workflows.status import TaskState
 from fibsem.workflows.status import TaskStatus as Status
 
 
@@ -74,9 +74,7 @@ def make_lamella(
     if is_failure:
         lamella.defect.state = DefectType.FAILURE
     for task_name in completed:
-        lamella.task_history.append(
-            AutoLamellaTaskState(name=task_name, status=Status.Completed)
-        )
+        lamella.task_history.append(TaskState(name=task_name, status=Status.Completed))
     experiment.positions.append(lamella)
     return lamella
 
@@ -281,9 +279,7 @@ def test_missing_prerequisites_are_skipped(tmp_path):
     lamella = experiment.get_lamella_by_name("L1")
     assert m._should_skip(lamella, "Undercut") == "missing_prereqs"
 
-    lamella.task_history.append(
-        AutoLamellaTaskState(name="Trench", status=Status.Completed)
-    )
+    lamella.task_history.append(TaskState(name="Trench", status=Status.Completed))
     assert m._should_skip(lamella, "Undercut") is None
 
 
@@ -305,7 +301,7 @@ def test_a_skip_names_the_requirement_and_the_end_says_nothing_ran(tmp_path):
         tmp_path, requirements={"Undercut": ["Trench"]}, lamella_names=["L1"]
     )
     experiment.get_lamella_by_name("L1").task_history.append(
-        AutoLamellaTaskState(name="Trench", status=Status.Cancelled)
+        TaskState(name="Trench", status=Status.Cancelled)
     )
     hooks, fired = _recorded_hooks()
     m = TaskManager(
@@ -364,9 +360,7 @@ def test_a_prerequisite_still_in_the_queue_defers_rather_than_skips(tmp_path):
     assert m._should_skip(lamella, "Undercut") == "missing_prereqs"
 
     def record_completion(task_name, lam):
-        lam.task_history.append(
-            AutoLamellaTaskState(name=task_name, status=Status.Completed)
-        )
+        lam.task_history.append(TaskState(name=task_name, status=Status.Completed))
 
     executed = run_queue_with(m, record_completion)
     assert executed == [("L1", "Trench"), ("L1", "Undercut")]
@@ -388,12 +382,8 @@ def test_an_old_success_does_not_satisfy_a_requirement_whose_rerun_failed(tmp_pa
     """FIB-1006: the latest run of a requirement is the answer."""
     m, lamella = _one_lamella_manager(tmp_path)
     m.queue.build_from_matrix(["Undercut"], ["L1"])
-    lamella.task_history.append(
-        AutoLamellaTaskState(name="Trench", status=Status.Completed)
-    )
-    lamella.task_history.append(
-        AutoLamellaTaskState(name="Trench", status=Status.Failed)
-    )
+    lamella.task_history.append(TaskState(name="Trench", status=Status.Completed))
+    lamella.task_history.append(TaskState(name="Trench", status=Status.Failed))
     assert lamella.has_completed_task("Trench"), "the old success is still history"
     assert m._should_skip(lamella, "Undercut") == "missing_prereqs"
 
@@ -401,19 +391,13 @@ def test_an_old_success_does_not_satisfy_a_requirement_whose_rerun_failed(tmp_pa
 def test_an_old_success_does_not_satisfy_a_requirement_whose_rerun_was_rejected(
     tmp_path,
 ):
-    from fibsem.applications.autolamella.proposals import (
-        Decision,
-        DecisionOutcome,
-        Proposal,
-    )
+    from fibsem.workflows.proposals import Decision, DecisionOutcome, Proposal
 
     m, lamella = _one_lamella_manager(tmp_path)
     m.queue.build_from_matrix(["Undercut"], ["L1"])
+    lamella.task_history.append(TaskState(name="Trench", status=Status.Completed))
     lamella.task_history.append(
-        AutoLamellaTaskState(name="Trench", status=Status.Completed)
-    )
-    lamella.task_history.append(
-        AutoLamellaTaskState(name="Trench", status=Status.AwaitingDecision)
+        TaskState(name="Trench", status=Status.AwaitingDecision)
     )
     lamella.proposals["Trench"] = [
         Proposal(kind="task_result", provenance={"task_id": "run-2"})
@@ -439,15 +423,13 @@ def test_a_queued_rerun_of_a_requirement_outranks_its_old_success(tmp_path):
     """Undercut is selected before Trench's rerun: it waits for the rerun, and
     is skipped when the rerun fails, whatever the earlier Trench did."""
     m, lamella = _one_lamella_manager(tmp_path)
-    lamella.task_history.append(
-        AutoLamellaTaskState(name="Trench", status=Status.Completed)
-    )
+    lamella.task_history.append(TaskState(name="Trench", status=Status.Completed))
     m.queue.build_from_pairs([("L1", "Undercut"), ("L1", "Trench")])
     assert m._defer_reason(lamella, "Undercut") == "prereq_pending"
 
     def rerun_fails(task_name, lam):
         status = Status.Failed if task_name == "Trench" else Status.Completed
-        lam.task_history.append(AutoLamellaTaskState(name=task_name, status=status))
+        lam.task_history.append(TaskState(name=task_name, status=status))
 
     executed = run_queue_with(m, rerun_fails)
 
@@ -460,11 +442,7 @@ def test_a_task_awaiting_a_decision_defers_its_consumer(tmp_path):
     """Trench ran and waits on a decision: it is not finished, so Undercut waits.
     It stays pending -- not Skipped -- and runs once the decision lands, which
     finishes Trench."""
-    from fibsem.applications.autolamella.proposals import (
-        Decision,
-        DecisionOutcome,
-        Proposal,
-    )
+    from fibsem.workflows.proposals import Decision, DecisionOutcome, Proposal
 
     experiment = make_experiment(
         tmp_path, requirements={"Undercut": ["Trench"]}, lamella_names=["L1", "L2"]
@@ -476,14 +454,12 @@ def test_a_task_awaiting_a_decision_defers_its_consumer(tmp_path):
     experiment.task_protocol.options.review_wait = 0  # do not park on the review
     m.queue.build_from_matrix(["Undercut"], ["L1", "L2"])
     l1 = experiment.get_lamella_by_name("L1")
-    l1.task_history.append(
-        AutoLamellaTaskState(name="Trench", status=Status.AwaitingDecision)
-    )
+    l1.task_history.append(TaskState(name="Trench", status=Status.AwaitingDecision))
     l1.proposals["Trench"] = [
         Proposal(kind="task_result", provenance={"task_id": "run-1"})
     ]
     experiment.get_lamella_by_name("L2").task_history.append(
-        AutoLamellaTaskState(name="Trench", status=Status.Completed)
+        TaskState(name="Trench", status=Status.Completed)
     )
     assert m._defer_reason(l1, "Undercut") == "awaiting_decision"
 
@@ -521,7 +497,7 @@ def test_with_the_flag_off_nothing_is_deferred(tmp_path):
 
 
 def test_the_flag_reads_fail_closed(monkeypatch):
-    from fibsem.applications.autolamella.workflows.tasks import manager as M
+    from fibsem.workflows import manager as M
 
     class _Prefs:
         class features:
@@ -541,11 +517,7 @@ def test_a_rejected_task_is_failed_so_its_consumer_is_skipped(tmp_path):
     """Reject finishes the waiting task as Failed. Its consumer is then Skipped
     for a missing prerequisite, the ordinary rule; the lamella itself is not
     marked defective -- that stays a person's call."""
-    from fibsem.applications.autolamella.proposals import (
-        Decision,
-        DecisionOutcome,
-        Proposal,
-    )
+    from fibsem.workflows.proposals import Decision, DecisionOutcome, Proposal
 
     experiment = make_experiment(
         tmp_path, requirements={"Undercut": ["Trench"]}, lamella_names=["L1"]
@@ -555,9 +527,7 @@ def test_a_rejected_task_is_failed_so_its_consumer_is_skipped(tmp_path):
     )
     m.queue.build_from_matrix(["Undercut"], ["L1"])
     l1 = experiment.get_lamella_by_name("L1")
-    l1.task_history.append(
-        AutoLamellaTaskState(name="Trench", status=Status.AwaitingDecision)
-    )
+    l1.task_history.append(TaskState(name="Trench", status=Status.AwaitingDecision))
     l1.proposals["Trench"] = [
         Proposal(kind="task_result", provenance={"task_id": "run-1"})
     ]
@@ -585,7 +555,7 @@ def test_a_rejected_task_is_failed_so_its_consumer_is_skipped(tmp_path):
 
 def _review_manager(tmp_path, review_wait, hook_manager=None):
     """L1 has Trench awaiting a decision; Undercut requires it."""
-    from fibsem.applications.autolamella.proposals import Proposal
+    from fibsem.workflows.proposals import Proposal
 
     experiment = make_experiment(
         tmp_path, requirements={"Undercut": ["Trench"]}, lamella_names=["L1"]
@@ -600,9 +570,7 @@ def _review_manager(tmp_path, review_wait, hook_manager=None):
     m.review_enabled = True
     m.queue.build_from_matrix(["Undercut"], ["L1"])
     l1 = experiment.get_lamella_by_name("L1")
-    l1.task_history.append(
-        AutoLamellaTaskState(name="Trench", status=Status.AwaitingDecision)
-    )
+    l1.task_history.append(TaskState(name="Trench", status=Status.AwaitingDecision))
     l1.proposals["Trench"] = [
         Proposal(kind="task_result", provenance={"task_id": "run-1"})
     ]
@@ -631,7 +599,7 @@ def test_a_decision_during_the_wait_wakes_the_run(tmp_path, caplog):
     import logging
     import threading
 
-    from fibsem.applications.autolamella.proposals import Decision, DecisionOutcome
+    from fibsem.workflows.proposals import Decision, DecisionOutcome
 
     m, l1 = _review_manager(tmp_path, review_wait=10.0)
     caplog.set_level(logging.INFO)
@@ -723,10 +691,10 @@ def test_run_leaves_out_a_task_awaiting_a_decision(tmp_path):
         microscope=NoMicroscope(), experiment=experiment, parent_ui=RecordingUI()
     )
     experiment.get_lamella_by_name("L1").task_history.append(
-        AutoLamellaTaskState(name="Trench", status=Status.AwaitingDecision)
+        TaskState(name="Trench", status=Status.AwaitingDecision)
     )
     experiment.get_lamella_by_name("L2").task_history.append(
-        AutoLamellaTaskState(name="Trench", status=Status.Completed)
+        TaskState(name="Trench", status=Status.Completed)
     )
     m._run_queue = lambda: None
     m.review_enabled = True
@@ -842,7 +810,7 @@ def test_a_parked_run_holds_the_window_and_says_who_releases_it(tmp_path):
     the lamella/task pairs waiting, and the sentence that releases it. Gone
     again when the park ends; the give-up says it gave up, on the status bar
     too, so it never reads as a finish."""
-    from fibsem.applications.autolamella.workflows.tasks.status import HoldKind
+    from fibsem.workflows.status import HoldKind
 
     experiment = make_experiment(
         tmp_path, requirements={"Undercut": ["Trench"]}, lamella_names=["L1", "L2"]
@@ -854,7 +822,7 @@ def test_a_parked_run_holds_the_window_and_says_who_releases_it(tmp_path):
     m.queue.build_from_matrix(["Undercut"], ["L1", "L2"])
     for name in ("L1", "L2"):
         experiment.get_lamella_by_name(name).task_history.append(
-            AutoLamellaTaskState(name="Trench", status=Status.AwaitingDecision)
+            TaskState(name="Trench", status=Status.AwaitingDecision)
         )
     holds = []
     real = m._set_hold
@@ -876,7 +844,7 @@ def test_a_parked_run_holds_the_window_and_says_who_releases_it(tmp_path):
 
 
 def test_the_names_a_hold_reads_out():
-    from fibsem.applications.autolamella.workflows.tasks.manager import _named
+    from fibsem.workflows.manager import _named
 
     assert _named([]) == ""
     assert _named(["L1"]) == "L1"

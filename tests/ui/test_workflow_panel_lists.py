@@ -17,7 +17,6 @@ pytest.importorskip("PyQt5")
 
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskDescription,
-    AutoLamellaTaskState,
     Lamella,
 )
 from fibsem.applications.autolamella.ui import list_chrome  # noqa: E402
@@ -28,6 +27,7 @@ from fibsem.applications.autolamella.ui.lamella_list_widget import (  # noqa: E4
 from fibsem.applications.autolamella.ui.workflow_config_widget import (  # noqa: E402
     WorkflowConfigWidget,
 )
+from fibsem.workflows.status import TaskState  # noqa: E402
 
 
 @pytest.fixture
@@ -189,7 +189,7 @@ def test_the_status_says_when_after_a_dot():
         day = datetime.now() - timedelta(days=days_ago)
         return day.replace(hour=13, minute=44, second=0, microsecond=0).astimezone()
 
-    task = AutoLamellaTaskState(name="Rough Milling", end_timestamp=at_1344(0))
+    task = TaskState(name="Rough Milling", end_timestamp=at_1344(0))
     assert completed_text(task) == "Rough Milling \u00b7 1:44PM"
     task.end_timestamp = at_1344(0).astimezone(timezone.utc)  # recorded elsewhere
     assert completed_text(task) == "Rough Milling \u00b7 1:44PM"
@@ -199,4 +199,4 @@ def test_the_status_says_when_after_a_dot():
     assert completed_text(task) == (
         f"Rough Milling \u00b7 {earlier:%b} {earlier.day}, 1:44PM"
     )
-    assert completed_text(AutoLamellaTaskState(name="Polishing")) == "Polishing"
+    assert completed_text(TaskState(name="Polishing")) == "Polishing"

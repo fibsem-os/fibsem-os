@@ -13,22 +13,21 @@ from pathlib import Path
 
 import pytest
 
-from fibsem.applications.autolamella.proposals import (
-    POINT_OF_INTEREST,
+from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
+from fibsem.applications.autolamella.structures import (
+    Experiment,
+)
+from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
+from fibsem.structures import Point
+from fibsem.workflows.proposals import (
     TASK_RESULT,
     Decision,
     DecisionOutcome,
     Proposal,
     Standing,
 )
-from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskState,
-    Experiment,
-    standing,
-)
-from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
-from fibsem.structures import Point
-from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.review import standing
+from fibsem.workflows.status import TaskState, TaskStatus
 from tests.autolamella.test_task_manager_status import (
     NoMicroscope,
     RecordingUI,
@@ -86,9 +85,7 @@ def test_a_question_the_task_is_parked_on_is_not_expired(experiment):
 def test_a_result_the_run_is_holding_for_is_not_expired(experiment):
     lamella = experiment.positions[0]
     lamella.task_history.append(
-        AutoLamellaTaskState(
-            name="Trench", task_id=RUN, status=TaskStatus.AwaitingDecision
-        )
+        TaskState(name="Trench", task_id=RUN, status=TaskStatus.AwaitingDecision)
     )
     proposal = lamella.record_proposal("Trench", _proposal())
     assert [p for _i, _t, p in experiment.pending_proposals()] == [proposal]
@@ -143,9 +140,7 @@ def test_the_manager_expires_what_a_task_consumes_when_it_starts(tmp_path):
             lam.record_proposal("Trench", _proposal())
             # what a real run leaves: the completed entry the requirement reads
             lam.task_history.append(
-                AutoLamellaTaskState(
-                    name="Trench", task_id=RUN, status=TaskStatus.Completed
-                )
+                TaskState(name="Trench", task_id=RUN, status=TaskStatus.Completed)
             )
         if task_name == "Undercut":
             seen["trench_when_undercut_started"] = lam.proposal("Trench").current
@@ -173,7 +168,7 @@ def test_a_task_downstream_through_another_consumes_it_too(tmp_path):
     lamella.record_proposal("Trench", _proposal(POINT_OF_INTEREST, poi=Point(0, 0)))
     for name in ("Trench", "Undercut"):
         lamella.task_history.append(
-            AutoLamellaTaskState(name=name, task_id=RUN, status=TaskStatus.Completed)
+            TaskState(name=name, task_id=RUN, status=TaskStatus.Completed)
         )
     m.queue.build_from_matrix(["Polishing"], ["L1"])
     seen = {}

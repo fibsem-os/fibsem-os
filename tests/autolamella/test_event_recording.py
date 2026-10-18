@@ -15,8 +15,9 @@ from datetime import datetime
 import pytest
 
 from fibsem import utils
-from fibsem.applications.autolamella import event_recording
-from fibsem.applications.autolamella.event_recording import (
+from fibsem.structures import FibsemStagePosition
+from fibsem.workflows import event_recording
+from fibsem.workflows.event_recording import (
     EVENTS_FILENAME,
     EventFileWriter,
     EventRecorder,
@@ -24,8 +25,7 @@ from fibsem.applications.autolamella.event_recording import (
     read_events_before,
     read_new_events,
 )
-from fibsem.applications.autolamella.server.events import EventBuffer
-from fibsem.structures import FibsemStagePosition
+from fibsem.workflows.events import EventBuffer
 
 
 @pytest.fixture(scope="module")
@@ -609,8 +609,8 @@ def test_a_failing_subscriber_costs_the_record_not_the_acquisition(
 def test_a_tap_that_fails_never_reaches_the_emitting_thread(microscope):
     """psygnal hands a subscriber's exception back to the emitter -- for milling
     progress, the milling thread. The taps swallow their own failures."""
-    from fibsem.applications.autolamella.server.events import attach_microscope_taps
     from fibsem.milling.progress import MillingProgress, MillingProgressStatus
+    from fibsem.workflows.events import attach_microscope_taps
 
     class BrokenBuffer(EventBuffer):
         def append(self, kind, payload):

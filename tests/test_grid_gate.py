@@ -10,13 +10,13 @@ from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
-    GridRecord,
 )
 from fibsem.applications.autolamella.workflows.grid_gate import (
     lamellae_off_the_stage,
     run_refusal,
 )
 from fibsem.structures import MicroscopeState
+from fibsem.workflows.grids import GridRecord
 
 
 @pytest.fixture

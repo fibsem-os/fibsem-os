@@ -24,9 +24,9 @@ pytest.importorskip("PyQt5")
 
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
 from fibsem.applications.autolamella.workflows import ui as workflow_ui
-from fibsem.applications.autolamella.workflows.interaction import ask
 from fibsem.applications.autolamella.workflows.ui import set_images_ui
 from fibsem.structures import BeamType
+from fibsem.workflows.interaction import ask
 
 
 @pytest.fixture
@@ -137,7 +137,7 @@ def test_an_unhandled_request_type_fails_fast_not_by_timeout(ui, qapp):
     # this test survives every conversion.
     from dataclasses import dataclass
 
-    from fibsem.applications.autolamella.workflows.interaction import Request
+    from fibsem.workflows.interaction import Request
 
     @dataclass(frozen=True)
     class NeverHandled(Request[None]):
@@ -222,7 +222,7 @@ def test_a_milling_config_lands_in_the_editor_and_fronts_its_tab(ui, qapp):
 
     config = FibsemMillingTaskConfig(name="from-the-workflow")
 
-    from fibsem.applications.autolamella.workflows.interaction import (
+    from fibsem.workflows.interaction import (
         SetMillingConfig,
     )
 
@@ -238,11 +238,11 @@ def test_a_milling_config_lands_in_the_editor_and_fronts_its_tab(ui, qapp):
 
 
 def test_clearing_the_milling_config_resets_the_editor(ui, qapp):
-    from fibsem.applications.autolamella.workflows.interaction import (
+    from fibsem.milling.tasks import FibsemMillingTaskConfig
+    from fibsem.workflows.interaction import (
         ClearMillingConfig,
         SetMillingConfig,
     )
-    from fibsem.milling.tasks import FibsemMillingTaskConfig
 
     _call_on_worker_thread(
         qapp,

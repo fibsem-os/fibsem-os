@@ -41,12 +41,12 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QApplication
 
-from fibsem.applications.autolamella.structures import AutoLamellaTaskState, Lamella
+from fibsem.applications.autolamella.structures import Lamella
 from fibsem.applications.autolamella.ui.lamella_name_list_widget import (
     LamellaNameListWidget,
     _LamellaRow,
 )
-from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.status import TaskState, TaskStatus
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
@@ -55,7 +55,7 @@ def lamella(tmp_path, number: int = 1) -> Lamella:
     lam = Lamella(
         path=str(tmp_path / f"lam{number}"), number=number, petname=f"lam-{number}"
     )
-    lam.task_state = AutoLamellaTaskState(name="MillTrench")
+    lam.task_state = TaskState(name="MillTrench")
     return lam
 
 

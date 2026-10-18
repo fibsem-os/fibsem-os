@@ -34,20 +34,20 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
 )
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
-from fibsem.applications.autolamella.workflows.interaction import (
-    ACTION_EDIT,
-    ACTION_RUN,
-    MillingEdit,
-)
 from fibsem.applications.autolamella.workflows.tasks import base
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.applications.autolamella.workflows.tasks.rough import (
     MillRoughTask,
     MillRoughTaskConfig,
 )
-from fibsem.applications.autolamella.workflows.tasks.status import HoldKind
 from fibsem.milling import FibsemMillingStage
 from fibsem.milling.tasks import FibsemMillingTaskConfig
+from fibsem.workflows.interaction import (
+    ACTION_EDIT,
+    ACTION_RUN,
+    MillingEdit,
+)
+from fibsem.workflows.status import HoldKind
 
 ROUGH = "Rough Milling"
 MSG = "Mill the lamella."
@@ -478,7 +478,7 @@ def test_a_mill_run_by_hand_is_not_the_task_s(ui, qapp, monkeypatch):
 
 def test_the_question_is_the_task_s_and_the_answer_the_operator_s(ui, qapp, tmp_path):
     from fibsem.acting import OPERATOR
-    from fibsem.applications.autolamella.event_recording import (
+    from fibsem.workflows.event_recording import (
         EVENTS_FILENAME,
         EventRecorder,
         read_events,

@@ -75,7 +75,6 @@ __all__ = [
     "Request",
     "Confirm",
     "ConfirmDetection",
-    "ReviewDetection",
     "EditAlignmentArea",
     "PickPOI",
     "RunMillingTask",
@@ -313,27 +312,6 @@ class ConfirmDetection(Request["DetectedFeatures"]):
             and abs(live[name].y - px.y) <= 0.5
             for name, px in value.items()
         )
-
-
-@dataclass(frozen=True)
-class ReviewDetection(ConfirmDetection):
-    """The same question, from an asker that says who it is -- so it can go on
-    that item's record and be answered in the Review tab (FIB-1025).
-
-    A type of its own rather than two optional fields on ``ConfirmDetection``:
-    that request, the prompt it puts up and the helper that asks it are used as
-    they are, in this repository and outside it, and stay exactly that. Asking
-    this one instead is a choice a caller makes.
-
-    ``item_id`` and ``task_name`` are the item the detection was made for and
-    the task that made it. A responder has no other honest way to learn them:
-    "whatever is running" is a guess about the screen, not something the
-    request said. A responder that cannot record the question asks it as the
-    ``ConfirmDetection`` it also is.
-    """
-
-    item_id: str = ""
-    task_name: str = ""
 
 
 @dataclass(frozen=True)
@@ -886,15 +864,16 @@ class RunSpotBurn(RunAgainQuestion, Request[Optional[SpotBurnDecision]]):
     last_error: Optional[str] = None
 
     def describe(self) -> Dict[str, Any]:
-        from fibsem.imaging.spot import EXPOSURE_LIMITS
+        from fibsem.imaging.spot import SpotBurnSettings
 
+        exposure = SpotBurnSettings.params["exposure_time"].limits
         settings = self.settings
         return {
             **self._loop_state(off="", ran="The spot burn has run"),
             "points": [pt.to_dict() for pt in getattr(settings, "coordinates", [])],
             "milling_current": getattr(settings, "milling_current", None),
             "exposure_time": getattr(settings, "exposure_time", None),
-            "exposure_limits": list(EXPOSURE_LIMITS),
+            "exposure_limits": [exposure.min, exposure.max],
             "coordinates": "points are fractions of the frame (origin "
             "top-left, +y down), so they need no rescaling against the "
             "preview; milling_current is in amps, exposure_time in seconds "
@@ -905,7 +884,7 @@ class RunSpotBurn(RunAgainQuestion, Request[Optional[SpotBurnDecision]]):
     def parse_value(self, value: Dict[str, Any]) -> SpotBurnEdit:
         import math
 
-        from fibsem.imaging.spot import EXPOSURE_LIMITS
+        from fibsem.imaging.spot import SpotBurnSettings
         from fibsem.services.spot_burn import in_frame
         from fibsem.structures import Point
 
@@ -948,7 +927,8 @@ class RunSpotBurn(RunAgainQuestion, Request[Optional[SpotBurnDecision]]):
             ):
                 raise InvalidAnswerValue(f"{key} is a positive number.")
             numbers[key] = float(number)
-        low, high = EXPOSURE_LIMITS
+        limits = SpotBurnSettings.params["exposure_time"].limits
+        low, high = limits.min, limits.max
         exposure = numbers["exposure_time"]
         if exposure is not None and not low <= exposure <= high:
             raise InvalidAnswerValue(

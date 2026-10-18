@@ -10,9 +10,7 @@ pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is delibe
 
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskState,
     Experiment,
-    GridRecord,
 )
 from fibsem.applications.autolamella.ui.grid_results_widget import (
     GridResultsWidget,
@@ -29,11 +27,12 @@ from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     LOAD_ENTRY_NAME,
 )
 from fibsem.imaging.thumbnail import write_thumbnail
-from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.grids import GridRecord
+from fibsem.workflows.status import TaskState, TaskStatus
 
 
 def entry(name, status, message="", outputs=None, seconds=60):
-    state = AutoLamellaTaskState(name=name, status=status, status_message=message)
+    state = TaskState(name=name, status=status, status_message=message)
     state.end_timestamp = state.start_timestamp + timedelta(seconds=seconds)
     state.outputs = outputs or {}
     return state

@@ -30,7 +30,7 @@ from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
     WorkflowProgressWidget,
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
-from fibsem.applications.autolamella.workflows.tasks.queue import TaskQueue
+from fibsem.workflows.queue import TaskQueue
 from fibsem.workflows.status import TaskStatus as Status
 
 

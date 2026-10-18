@@ -15,24 +15,19 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.devices.fm import Camera, LightSource
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.fm.structures import ChannelSettings
 from fibsem.ui.fm.widgets.emission_filter_combo import EmissionFilterComboBox
 from fibsem.ui.fm.widgets.fm_limits import (
-    exposure_range_ms,
+    channel_range,
+    channel_spinbox,
     gain_scale,
-    power_range_percent,
     power_scale,
     show_native_units,
+    shown_channel_value,
+    stored_channel_value,
 )
-from fibsem.ui.widgets.custom_widgets import TitledPanel, ValueComboBox, ValueSpinBox
-from fibsem.ui.widgets.form_builder import configure_spinbox, parameter_spec
-
-_MS_TO_S = 1e-3
-_S_TO_MS = 1e3
-_PCT_TO_FRAC = 1e-2
-_FRAC_TO_PCT = 1e2
+from fibsem.ui.widgets.custom_widgets import TitledPanel, ValueComboBox
 
 
 class ChannelSettingsWidget(QWidget):
@@ -99,27 +94,20 @@ class ChannelSettingsWidget(QWidget):
         self.emission_combo = EmissionFilterComboBox(items=self._emission_items)
         form.addRow("Emission", self.emission_combo)
 
-        # Unit, step and decimals are the devices' display hints; the exposure and
-        # power ranges are what the FM reports.
-        exposure = parameter_spec(Camera.exposure_time)
-        self.exposure_spin = ValueSpinBox()
-        configure_spinbox(self.exposure_spin, exposure)
-        self.exposure_spin.setRange(
-            *exposure_range_ms(self._fm, exposure.display.decimals)
+        # Unit, step and decimals as ChannelSettings declares them (its devices'
+        # display hints); the ranges are what the FM's devices allow.
+        self.exposure_spin = channel_spinbox(
+            "exposure_time", channel_range(self._fm, "exposure_time")
         )
         self.exposure_spin.setToolTip("Exposure time (ms)")
         form.addRow("Exposure", self.exposure_spin)
 
-        power = parameter_spec(LightSource.power)
-        self.power_spin = ValueSpinBox()
-        configure_spinbox(self.power_spin, power)
-        self.power_spin.setRange(*power_range_percent(self._fm, power.display.decimals))
+        self.power_spin = channel_spinbox("power", channel_range(self._fm, "power"))
         self.power_spin.setToolTip("Light source power (%)")
         show_native_units(self.power_spin, power_scale(self._fm))
         form.addRow("Power", self.power_spin)
 
-        self.gain_spin = ValueSpinBox()
-        configure_spinbox(self.gain_spin, parameter_spec(Camera.gain))
+        self.gain_spin = channel_spinbox("gain", channel_range(self._fm, "gain"))
         self.gain_spin.setToolTip("Detector gain (%)")
         show_native_units(self.gain_spin, gain_scale(self._fm))
         form.addRow("Gain", self.gain_spin)
@@ -187,11 +175,12 @@ class ChannelSettingsWidget(QWidget):
         self.excitation_combo.set_value(self._channel.excitation_wavelength)
         idx = self.emission_combo.index_of(self._channel.emission_filter)
         self.emission_combo.setCurrentIndex(idx if idx >= 0 else 0)
-        self.exposure_spin.setValue(self._channel.exposure_time * _S_TO_MS)
-        power = self._channel.power if self._channel.power is not None else 0.0
-        self.power_spin.setValue(power * _FRAC_TO_PCT)
-        gain = self._channel.gain if self._channel.gain is not None else 0.0
-        self.gain_spin.setValue(gain * _FRAC_TO_PCT)
+        for name, spin in (
+            ("exposure_time", self.exposure_spin),
+            ("power", self.power_spin),
+            ("gain", self.gain_spin),
+        ):
+            spin.setValue(shown_channel_value(self._channel, name))
         self._block_all(False)
 
     # ------------------------------------------------------------------
@@ -235,7 +224,7 @@ class ChannelSettingsWidget(QWidget):
     def _on_exposure_changed(self) -> None:
         if self._channel is None:
             return
-        value_s = self.exposure_spin.value() * _MS_TO_S
+        value_s = stored_channel_value(self.exposure_spin, "exposure_time")
         if value_s == self._channel.exposure_time:
             return
         self._channel.exposure_time = value_s
@@ -245,7 +234,7 @@ class ChannelSettingsWidget(QWidget):
     def _on_power_changed(self) -> None:
         if self._channel is None:
             return
-        value = self.power_spin.value() * _PCT_TO_FRAC
+        value = stored_channel_value(self.power_spin, "power")
         if value == self._channel.power:
             return
         self._channel.power = value
@@ -255,7 +244,7 @@ class ChannelSettingsWidget(QWidget):
     def _on_gain_changed(self) -> None:
         if self._channel is None:
             return
-        value = self.gain_spin.value() * _PCT_TO_FRAC
+        value = stored_channel_value(self.gain_spin, "gain")
         if value == self._channel.gain:
             return
         self._channel.gain = value

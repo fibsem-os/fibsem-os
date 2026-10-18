@@ -94,6 +94,8 @@ STOP_COMMANDS = frozenset(("stop", "stop_live"))
 
 # The instrument half of the API; /app is the application's.
 MICROSCOPE = "/microscope"
+# The analysis services, which need no microscope (`fibsem.services.analysis`).
+SERVICES = "/services"
 
 _watch = require_level(AgentLevel.WATCH)
 _assist = require_level(AgentLevel.ASSIST)
@@ -418,6 +420,7 @@ def build_server(
     app_context=None,
     auth: Optional[AuthConfig] = None,
     serve_microscope: bool = True,
+    services: Optional[Mapping[str, Any]] = None,
 ) -> FastAPI:
     """Build the server app around an already-connected microscope.
 
@@ -431,6 +434,10 @@ def build_server(
     instrument too. False leaves each answering 404 ``microscope_off``, and
     /capabilities reports ``routers.microscope`` off. The App Server passes its
     preference, which is off by default.
+
+    ``services`` are the analysis services (`fibsem.services.analysis`), served
+    under ``/services`` whatever ``serve_microscope`` is, since they use no
+    device: by default a new copy of each.
     """
     if auth is None:
         auth = AuthConfig.generate()
@@ -439,6 +446,11 @@ def build_server(
     app.add_middleware(_AgentActs)
     app.state.auth = auth
     app.state.microscope = microscope
+    if services is None:
+        from fibsem.services.analysis import analysis_services
+
+        services = analysis_services()
+    app.state.services = services
 
     @app.exception_handler(StarletteHTTPException)
     async def _refused(request: Request, exc: StarletteHTTPException) -> Response:
@@ -495,7 +507,11 @@ def build_server(
     def capabilities():
         return {
             "api_version": API_VERSION,
-            "routers": {"microscope": serve_microscope, "app": app_context is not None},
+            "routers": {
+                "microscope": serve_microscope,
+                "services": True,
+                "app": app_context is not None,
+            },
             # The agent level (FIB-1035): what the agent may do right now.
             "level": auth.level.value,
             # The code the server runs, so a sidecar can tell it imports
@@ -533,9 +549,23 @@ def build_server(
         return {"status": "ok"}
 
     app.include_router(base)
+    refuse = _refuse(app_context)
+    # The analysis services read saved data and use no device, so they are
+    # served with or without the microscope: reads and queries at Watch, a
+    # command at Drive with no control taken, and the same allowlist.
+    app.include_router(
+        build_device_router(
+            lambda: services,
+            read=[Depends(_watch)],
+            write=[Depends(_drive)],
+            command=[Depends(_drive)],
+            prefix=SERVICES,
+            refuse=refuse,
+            noun="service",
+        )
+    )
     if serve_microscope:
         app.include_router(whole)
-        refuse = _refuse(app_context)
         # Every device's parameters and commands, as the device server serves
         # them: reads at Watch, writes and commands at Drive with control of the
         # microscope. The chamber's state and pressure are read here; pumping
@@ -602,7 +632,9 @@ def build_server(
         # The agent's requests (FIB-1283): actions the operator approves in the
         # app, run through the routes above. The app decides them through
         # app.state.requests.
-        mounted = {"base", "app"} | ({"microscope"} if serve_microscope else set())
+        mounted = {"base", "app", "services"} | (
+            {"microscope"} if serve_microscope else set()
+        )
         app.state.requests = RequestStore(
             app,
             auth,

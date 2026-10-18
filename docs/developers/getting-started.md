@@ -37,7 +37,8 @@ fibsem/                     the instrument library (no application logic)
   server/                   the App Server for agents (build_server)
   mcp/                      the fibsem-mcp sidecar (MCP to HTTP)
   plugins/                  entry-point loading: fibsem.patterns,
-                            fibsem.strategies, fibsem.tasks, fibsem.drivers
+                            fibsem.strategies, fibsem.autolamella.tasks,
+                            fibsem.grid_tasks, fibsem.drivers
 
 fibsem/applications/autolamella/
   structures.py             Experiment, Lamella, AutoLamellaTaskProtocol

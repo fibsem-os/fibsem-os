@@ -6,7 +6,6 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar, List, Optional, Tuple, Type
 
-from fibsem.applications.autolamella.proposals import ALIGNMENT_AREA
 from fibsem.applications.autolamella.protocol.constants import (
     FIDUCIAL_KEY,
     MILL_POLISHING_KEY,
@@ -32,6 +31,7 @@ from fibsem.structures import (
     Point,
     param,
 )
+from fibsem.workflows.proposals import ALIGNMENT_AREA
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Lamella
