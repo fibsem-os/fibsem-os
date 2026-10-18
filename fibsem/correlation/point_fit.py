@@ -49,7 +49,7 @@ class PointFitResult:
     message: Optional[str] = None
     channel_name: Optional[str] = None  # display label for `channel` (FM only)
     detail: Optional[str] = None  # raw error, surfaced as a tooltip
-    diagnostic: object = None  # FitDiagnostic; rendered on demand, not serialised
+    diagnostic: object = None  # PointFitDiagnostic; rendered on demand, not serialised
 
     @property
     def delta_px(self) -> float:

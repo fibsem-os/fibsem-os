@@ -64,7 +64,7 @@ class NominalTransform:
     for FM coordinates in *isotropic* units: x and y in FM pixels, z in FM pixels of
     depth (metres / xy pixel size). In those units the rows of ``P`` are orthogonal
     with norm ``scale``, so ``P / scale`` completes to a proper rotation -- the same
-    ``R`` the fit stores as ``rotation_quaternion`` -- which is what a seed needs.
+    ``R`` the fit stores as ``rotation_matrix`` -- which is what a seed needs.
 
     ``translation`` is where FM pixel (0, 0) *on the sample surface* lands in the FIB
     image according to the stage positions alone. It carries the stage repeatability

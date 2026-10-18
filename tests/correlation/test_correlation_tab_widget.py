@@ -1314,7 +1314,7 @@ def test_the_results_tab_reports_the_transform_a_person_can_check(qapp):
     ]
     result = CorrelationResult(
         scale=2.0,
-        rotation_quaternion=rot,
+        rotation_matrix=rot,
         rotation_eulers=[180.0, 75.0, -180.0],
         translation=[-100.0, 50.0, 0.0],
         fm_z_scale=10.0,
@@ -1657,7 +1657,7 @@ def test_fit_dialog_sizes_wide_figure_to_aspect(qapp):
     import numpy as np
     from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 
-    from fibsem.correlation.fit_diagnostics import FitDiagnostic
+    from fibsem.correlation.fit_diagnostics import PointFitDiagnostic
     from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
         FitConfirmationDialog,
         FitStatus,
@@ -1665,7 +1665,7 @@ def test_fit_dialog_sizes_wide_figure_to_aspect(qapp):
     )
 
     # a z + XY diagnostic renders wide (9x4.5), like the FM fits
-    diag = FitDiagnostic(
+    diag = PointFitDiagnostic(
         title="t",
         roi_xy=np.zeros((10, 10)),
         input_xy=(5.0, 5.0),
@@ -1785,7 +1785,7 @@ def test_error_dialog_splits_title_and_wrapped_reason(qapp):
 def test_diagnostic_toggle_reveals_and_hides_figure(qapp):
     import numpy as np
 
-    from fibsem.correlation.fit_diagnostics import FitDiagnostic
+    from fibsem.correlation.fit_diagnostics import PointFitDiagnostic
     from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
         FitConfirmationDialog,
         FitStatus,
@@ -1793,7 +1793,9 @@ def test_diagnostic_toggle_reveals_and_hides_figure(qapp):
     )
 
     def _result():
-        diag = FitDiagnostic(title="t", roi_xy=np.zeros((10, 10)), input_xy=(5.0, 5.0))
+        diag = PointFitDiagnostic(
+            title="t", roi_xy=np.zeros((10, 10)), input_xy=(5.0, 5.0)
+        )
         return PointFitResult(
             coordinate=_coord(pt=PointType.FM),
             method="Hole",
@@ -1829,14 +1831,14 @@ def test_accept_is_default_button_not_the_toggle(qapp):
     import numpy as np
     from PyQt5.QtWidgets import QPushButton
 
-    from fibsem.correlation.fit_diagnostics import FitDiagnostic
+    from fibsem.correlation.fit_diagnostics import PointFitDiagnostic
     from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
         FitConfirmationDialog,
         FitStatus,
         PointFitResult,
     )
 
-    diag = FitDiagnostic(title="t", roi_xy=np.zeros((10, 10)), input_xy=(5.0, 5.0))
+    diag = PointFitDiagnostic(title="t", roi_xy=np.zeros((10, 10)), input_xy=(5.0, 5.0))
     result = PointFitResult(
         coordinate=_coord(pt=PointType.FM),
         method="Hole",
@@ -2072,7 +2074,7 @@ def test_run_point_fit_does_not_mutate_coordinate(qapp, monkeypatch):
 
     w = _widget(qapp)
     w._fib_image = SimpleNamespace(filtered_data=np.zeros((64, 64), dtype=np.float32))
-    diag = object()  # stand-in FitDiagnostic
+    diag = object()  # stand-in PointFitDiagnostic
     monkeypatch.setattr(
         localise, "hole_fitting_FIB", lambda img, x, y: (x + 3.0, y + 4.0, diag)
     )

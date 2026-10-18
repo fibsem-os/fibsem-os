@@ -10,7 +10,9 @@ import yaml
 
 from fibsem.constants import DATETIME_FILE
 from fibsem.conversions import image_to_microscope_image_coordinates_px
+from fibsem.correlation.refractive_index import apply_z_surface_correction
 from fibsem.correlation.solver import (
+    MIN_PAIRS,
     RigidFit,
     fit_from_seed,
     fit_rigid,
@@ -22,7 +24,6 @@ from fibsem.correlation.structures import (
     CorrelationPointOfInterest,
     CorrelationResult,
     PointXYZ,
-    apply_z_surface_correction,
 )
 from fibsem.structures import Point
 
@@ -231,7 +232,7 @@ def extract_transformation_data(
         "transformation": {
             "scale": float(transf.scale),
             "rotation_eulers": transf.eulers_deg().tolist(),
-            "rotation_quaternion": transf.rotation.tolist(),
+            "rotation_matrix": transf.rotation.tolist(),
             "translation_around_rotation_center_custom": mod_translation.tolist(),
             "translation_around_rotation_center_zero": transf.translation.tolist(),
         },
@@ -308,12 +309,11 @@ def _reproject_poi_via_transform(
     """Project (N, 3) FM-space POIs into the FIB image using a fitted transform.
 
     Reconstructs ``y = s * R @ x + d`` from the parsed transformation data.
-    The ``rotation_quaternion`` field stores the 3x3 rotation matrix, despite
-    its name; ``d`` is the translation
+    ``rotation_matrix`` is the 3x3 rotation matrix; ``d`` is the translation
     around rotation center zero — the same parameters ``correlate()`` uses to
     reproject the POI.
     """
-    R = np.asarray(transformation["rotation_quaternion"], dtype=float)
+    R = np.asarray(transformation["rotation_matrix"], dtype=float)
     if R.shape != (3, 3):
         # Unreachable from the only call site — extract_transformation_data
         # always writes the 3x3 matrix — but kept, and kept loud. A (3,) R broadcasts
@@ -489,7 +489,7 @@ def run_correlation_from_data(
     seed: Optional[dict] = None
     branch_check: Optional[dict] = None
     run_kwargs: dict = {}
-    if nominal is not None and len(fm_coords) >= 3:
+    if nominal is not None and len(fm_coords) >= MIN_PAIRS:
         from fibsem.correlation.geometry import branch_of
 
         r_n, s_n, rms_n = _fit_from_seed(
@@ -569,9 +569,9 @@ def run_correlation_from_data(
     # nearly as well is a warning in its own right (FIB-1249), so its RMS is
     # measured here. When the mirror wins, the final fit is re-run from it, as
     # the seeded path does; when the first fit was better, it is returned as is.
-    if branch_check is None and len(fm_coords) >= 3:
+    if branch_check is None and len(fm_coords) >= MIN_PAIRS:
         try:
-            fitted_r = np.asarray(transf["rotation_quaternion"], dtype=float)
+            fitted_r = np.asarray(transf["rotation_matrix"], dtype=float)
             r_m, s_m, rms_m = _fit_from_seed(
                 fm_coords,
                 fib_coords,
@@ -641,7 +641,7 @@ def run_correlation_from_data(
         poi_uncorrected=poi_uncorrected,
         scale=transf["scale"],
         rotation_eulers=transf["rotation_eulers"],
-        rotation_quaternion=transf["rotation_quaternion"],
+        rotation_matrix=transf["rotation_matrix"],
         translation=transf["translation_around_rotation_center_zero"],
         translation_custom=transf["translation_around_rotation_center_custom"],
         rms_error=err["rms_error"],

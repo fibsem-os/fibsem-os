@@ -62,6 +62,7 @@ class Correlation(Service):
         metres from the image centre, the verdict (good, check, bad, with its
         reasons), what the fit started from, and the saved paths.
         """
+        from fibsem.correlation.config import MIN_FIDUCIAL_PAIRS
         from fibsem.correlation.fit import fit_transform, seed_for
         from fibsem.correlation.history import new_run_dir, save_run
         from fibsem.correlation.prior import experiment_runs
@@ -80,8 +81,10 @@ class Correlation(Service):
                 f"fib_points and fm_points are pairs: {len(fib_points)} FIB "
                 f"points, {len(fm_points)} FM points"
             )
-        if len(fib_points) < 4:
-            raise ValueError("a correlation needs at least four fiducial pairs")
+        if len(fib_points) < MIN_FIDUCIAL_PAIRS:
+            raise ValueError(
+                f"a correlation needs at least {MIN_FIDUCIAL_PAIRS} fiducial pairs"
+            )
         if not poi_points:
             raise ValueError("poi_points: give at least one point of interest")
 
@@ -187,7 +190,7 @@ class Correlation(Service):
         *run_path*: ``(x, y, z)`` pixels and slices of the stack it was fitted on,
         to FIB image pixels and metres from the image centre. No
         refractive-index correction: points, not a target at depth."""
-        from fibsem.correlation.fit import predict
+        from fibsem.correlation.fit import fm_to_fib
         from fibsem.correlation.history import load_run
 
         try:
@@ -198,7 +201,7 @@ class Correlation(Service):
             raise ValueError(f"the run at {run_path} has no fitted result")
         return {
             "run_path": run_path,
-            "points": [_point(p) for p in predict(state.result, fm_points)],
+            "points": [_point(p) for p in fm_to_fib(state.result, fm_points)],
         }
 
 
@@ -212,12 +215,12 @@ def _point(poi: Any) -> Dict[str, Any]:
 
 def _summary(result: Any, data: Any, seed: Any) -> Dict[str, Any]:
     """What a correlation found, for the answer."""
-    from fibsem.correlation.verdict import FitDiagnostics, verdict
+    from fibsem.correlation.verdict import FitEvidence, verdict
 
     pixel_size = data.fib_image_pixel_size
     judged = None
     if result.diagnostics:
-        v = verdict(FitDiagnostics.from_dict(result.diagnostics))
+        v = verdict(FitEvidence.from_dict(result.diagnostics))
         judged = {
             "tier": v.tier,
             "headline": v.headline,

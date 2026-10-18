@@ -13,13 +13,13 @@ import pytest
 
 import fibsem.correlation.correlation_v2 as correlation_v2
 from fibsem.correlation.correlation_v2 import run_correlation_from_data
+from fibsem.correlation.refractive_index import apply_z_surface_correction
 from fibsem.correlation.structures import (
     Coordinate,
     CorrelationInputData,
     CorrelationResult,
     PointType,
     PointXYZ,
-    apply_z_surface_correction,
 )
 
 
@@ -107,7 +107,7 @@ def _fake_run_correlation(captured):
                     "rotation_eulers": [0.0, 0.0, 0.0],
                     # NOTE: despite the name, this field stores the 3x3
                     # rotation matrix (identity here)
-                    "rotation_quaternion": np.eye(3).tolist(),
+                    "rotation_matrix": np.eye(3).tolist(),
                     "translation_around_rotation_center_zero": [0.0, 0.0, 0.0],
                     "translation_around_rotation_center_custom": [0.0, 0.0, 0.0],
                 },

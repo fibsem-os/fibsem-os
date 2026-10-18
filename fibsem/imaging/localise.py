@@ -2,7 +2,7 @@
 
 Each fitter refines a click to the centre of the feature under it -- a burnt hole
 in a FIB image, a hole in a reflection z-stack, a fluorescent target in an FM
-z-stack -- and returns the refined position with a :class:`FitDiagnostic`, the data
+z-stack -- and returns the refined position with a :class:`PointFitDiagnostic`, the data
 needed to draw the fit's diagnostic figure. Nothing here draws; rendering is
 :func:`fibsem.correlation.fit_diagnostics.plot_fit_diagnostic`.
 
@@ -21,7 +21,7 @@ from scipy.optimize import curve_fit
 
 
 @dataclass
-class FitDiagnostic:
+class PointFitDiagnostic:
     """Everything needed to render a fit's diagnostic figure — no matplotlib.
 
     The XY panel is always present; the z panel is present only when
@@ -188,7 +188,7 @@ def hole_fitting_FIB(
         cutout: size of the cutout around the point in x,y
     Returns:
         xr, yr: refined x, y coordinates
-        diagnostic: FitDiagnostic for the (XY-only) diagnostic figure
+        diagnostic: PointFitDiagnostic for the (XY-only) diagnostic figure
     Raises:
         FitOutsideWindow: no burn-shaped dark spot in the region searched.
     """
@@ -233,7 +233,7 @@ def hole_fitting_FIB(
     yr = yopt + y0
 
     # --- Diagnostic (XY only — no z for the FIB image) ---
-    diagnostic = FitDiagnostic(
+    diagnostic = PointFitDiagnostic(
         title="FIB hole fit",
         roi_xy=roi,
         input_xy=(x - x0, y - y0),  # the sub-pixel click, in the window's frame
@@ -259,7 +259,7 @@ def target_fitting_fluorescence(
         use_xy_fitting: whether to use xy fitting or just return the input x, y
     Returns:
         xr, yr, zr: refined x, y, z coordinates
-        diagnostic: FitDiagnostic for the z + XY diagnostic figure
+        diagnostic: PointFitDiagnostic for the z + XY diagnostic figure
     """
     # round the (possibly sub-pixel) click for slicing; keep the fraction for
     # the input marker so it lands exactly where the user clicked (FIB-282).
@@ -303,7 +303,7 @@ def target_fitting_fluorescence(
 
     # --- confirmation-friendly diagnostic: z (left) + XY hero (right) ---
     z_axis = np.arange(len(intensity))
-    diagnostic = FitDiagnostic(
+    diagnostic = PointFitDiagnostic(
         title="Fluorescence target fit",
         roi_xy=slc_init,
         input_xy=(x - x0, y - y0),
@@ -414,7 +414,7 @@ def hole_fitting_reflection(da, x, y, z, cutout) -> tuple:
     z_axis = np.arange(zmin1, zmin1 + len(intensity))
     gauss_curve = gauss1d(np.arange(len(intensity)), *popt) + intensity.min()
 
-    diagnostic = FitDiagnostic(
+    diagnostic = PointFitDiagnostic(
         title="Reflection hole fit",
         roi_xy=gaussian_filter(roi_fitted, sigma=1),
         input_xy=(x - fx0, y - fy0),  # the sub-pixel click, in the window's frame

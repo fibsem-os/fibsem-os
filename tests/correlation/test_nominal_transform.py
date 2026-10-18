@@ -301,7 +301,7 @@ def test_run_seeds_when_the_images_carry_geometry():
     assert result.branch_check["angle_to_nominal_deg"] < 8.0
     # raw slices were scaled to xy pixels for the fit
     assert result.fm_z_scale == pytest.approx(nominal.z_anisotropy)
-    assert branch_of(np.asarray(result.rotation_quaternion), nominal)[0] == "nominal"
+    assert branch_of(np.asarray(result.rotation_matrix), nominal)[0] == "nominal"
     # depth per *slice*, back in the picked stack's units, on the fit's z column
     dz = result.dimage_dz_px_per_slice
     assert dz[1] == pytest.approx(nominal.dimage_dz_px_per_slice[1], rel=0.2)
