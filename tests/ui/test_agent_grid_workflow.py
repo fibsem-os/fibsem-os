@@ -33,6 +33,8 @@ from fibsem.workflows.grid.manager import (  # noqa: E402
     LOAD_ENTRY_NAME,
 )
 from fibsem.workflows.grids import GridRecord  # noqa: E402
+from fibsem.workflows.runner import GRIDS
+from tests.run_state import hold_runs
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -104,29 +106,25 @@ def _post(qapp, client, path, body):
     return posted["response"]
 
 
-class _AliveThread:
-    @staticmethod
-    def is_alive():
-        return True
+def test_grid_start_validates_and_starts_on_the_gui_thread(ui, qapp, monkeypatch):
+    held = hold_runs(monkeypatch, GRIDS)
+    runner = ui.session.runner
 
+    def calls():
+        return [
+            (
+                list(r.task_names),
+                list(r.names) if r.names is not None else None,
+                r.option("inventory_first"),
+            )
+            for r in held.requests
+        ]
 
-def test_grid_start_validates_and_starts_on_the_gui_thread(ui, qapp):
-    calls = []
-
-    ends = []
-
-    def fake_start(
-        task_names,
-        grid_names,
-        inventory_first,
-        unload_at_end=False,
-        report_at_end=False,
-    ):
-        calls.append((task_names, grid_names, inventory_first))
-        ends.append((unload_at_end, report_at_end))
-        ui._task_worker_thread = _AliveThread()
-
-    ui._start_run_grid_workflow_thread = fake_start
+    def ends():
+        return [
+            (r.option("unload_at_end"), r.option("report_at_end"))
+            for r in held.requests
+        ]
 
     with _client(ui, arm_control=True) as client:
         # The protocol read names the grid tasks a run can use.
@@ -162,7 +160,7 @@ def test_grid_start_validates_and_starts_on_the_gui_thread(ui, qapp):
         ).json()
         assert refused["started"] is False
         assert "screen_all" in refused["reason"]
-        assert calls == []
+        assert calls() == []
 
         # Omitted grids means every recorded grid; the plan comes back with it.
         started = _post(
@@ -176,7 +174,7 @@ def test_grid_start_validates_and_starts_on_the_gui_thread(ui, qapp):
             {"grid": "grid-birch", "step": LOAD_ENTRY_NAME},
             {"grid": "grid-birch", "step": "overview_sem"},
         ]
-        assert calls == [(["overview_sem"], ["grid-aspen", "grid-birch"], False)]
+        assert calls() == [(["overview_sem"], ["grid-aspen", "grid-birch"], False)]
 
         # One worker slot: while it is "running", neither kind of run may start.
         again = _post(
@@ -189,7 +187,7 @@ def test_grid_start_validates_and_starts_on_the_gui_thread(ui, qapp):
         ).json()
         assert lamella["started"] is False
         assert "already running" in lamella["reason"]
-        ui._task_worker_thread = None
+        held.end(runner)
 
         # Screen all grids: inventory first, no grid list, no plan to promise.
         screened = _post(
@@ -199,11 +197,11 @@ def test_grid_start_validates_and_starts_on_the_gui_thread(ui, qapp):
             {"task_names": ["overview_sem"], "screen_all": True},
         ).json()
         assert screened == {"available": True, "started": True, "screen_all": True}
-        assert calls[-1] == (["overview_sem"], None, True)
-        ui._task_worker_thread = None
+        assert calls()[-1] == (["overview_sem"], None, True)
+        held.end(runner)
 
         # The confirmation's end-of-run options reach the run.
-        assert ends[-1] == (False, False)
+        assert ends()[-1] == (False, False)
         ended = _post(
             qapp,
             client,
@@ -215,8 +213,8 @@ def test_grid_start_validates_and_starts_on_the_gui_thread(ui, qapp):
             },
         ).json()
         assert ended["started"] is True
-        assert ends[-1] == (True, True)
-        ui._task_worker_thread = None
+        assert ends()[-1] == (True, True)
+        held.end(runner)
 
 
 def test_grid_start_requires_control_and_a_valid_body(ui, qapp):

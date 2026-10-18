@@ -44,6 +44,7 @@ from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.outputs import item_outputs
 from fibsem.workflows.status import TaskStatus as Status
 from fibsem.workflows.status import WorkflowStatusEvent
+from tests.run_state import stub_session
 
 GRIDS = ["Grid-01", "Grid-02", "Grid-03"]  # what the sim magazine holds
 
@@ -61,7 +62,7 @@ class RecordingUI:
 
     def __init__(self):
         self.workflow_status_signal = _Recorder()
-        self._task_manager = None  # _check_for_abort reads this
+        self.session = stub_session()  # _check_for_abort reads its runner
 
     @property
     def reports(self):
@@ -143,7 +144,7 @@ def run_with_stub(manager: GridTaskManager, task_names, grid_names, on_task=None
         grid.task_state.status_message = ""
         return None
 
-    manager.parent_ui._task_manager = manager
+    manager.parent_ui.session.runner.manager = manager
     manager._run_single_task = _run_single_task
     manager.run(task_names, grid_names)
     return executed
@@ -410,7 +411,7 @@ class TestProtocolEditedMidRun:
             raise KeyError("Grid task type 'NOT_A_TYPE' is not registered.")
 
         monkeypatch.setattr(manager_module, "run_grid_task", unregistered)
-        manager.parent_ui._task_manager = manager
+        manager.parent_ui.session.runner.manager = manager
         manager.run(["overview_sem"], ["Grid-01"])
 
         grid = experiment.get_grid_by_name("Grid-01")
@@ -430,7 +431,7 @@ class TestProtocolEditedMidRun:
             raise RuntimeError("beam off")
 
         monkeypatch.setattr(manager_module, "run_grid_task", fails_after_recording)
-        manager.parent_ui._task_manager = manager
+        manager.parent_ui.session.runner.manager = manager
         manager.run(["overview_sem"], ["Grid-01"])
 
         grid = experiment.get_grid_by_name("Grid-01")

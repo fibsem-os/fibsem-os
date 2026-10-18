@@ -9,7 +9,7 @@ any server runs, and owns:
 * the buffer, with every event stamped with where in the run it happened;
 * the taps feeding it: the microscope's signals, the prompt events, the
   open experiment's questions and decisions, and the task lifecycle hook
-  (which ``setup_hooks`` registers on every run);
+  (which the runner registers on every run);
 * an :class:`EventFileWriter` recording every event to ``events.jsonl`` beside
   the experiment's ``logfile.log``.
 

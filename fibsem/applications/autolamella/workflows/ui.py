@@ -41,17 +41,13 @@ INSTRUCTION_TIMEOUT_S = 30
 def _abort_requested(parent_ui: Optional["AutoLamellaUI"]) -> bool:
     """Whether the workflow has been asked to stop. Never raises.
 
-    Asks the manager rather than reading its stop event: the same predicate
+    Asks the session's runner, which asks the run's manager: the same predicate
     AutoLamellaTask._check_for_abort uses, so the two cannot disagree about what
-    counts as cancelled. Falls back to the legacy UI event for the window before
-    the manager exists. Also the ``abort`` predicate for :func:`interaction.ask`.
+    counts as cancelled. Also the ``abort`` predicate for :func:`interaction.ask`.
     """
     if parent_ui is None:
         return False
-    task_manager = getattr(parent_ui, "_task_manager", None)
-    if task_manager is not None:
-        return task_manager.should_abort
-    return parent_ui._workflow_stop_event.is_set()
+    return parent_ui.session.runner.should_abort
 
 
 def _check_for_abort(

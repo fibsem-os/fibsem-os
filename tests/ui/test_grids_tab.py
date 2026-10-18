@@ -24,6 +24,7 @@ from fibsem.workflows.grid.manager import (
 )
 from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.status import TaskState, TaskStatus
+from tests.run_state import StubRunner
 
 
 @pytest.fixture
@@ -562,15 +563,12 @@ class TestNamingOnTheSampleView:
         """The run's queue holds grids by name."""
         ui, microscope, exp = _window_with_magazine(main_ui, tmp_path)
 
-        class _Running:
-            def is_alive(self):
-                return True
-
-        ui._task_worker_thread = _Running()
+        runner = ui.session.runner
+        ui.session.runner = StubRunner(is_running=True)
         try:
             _name_on_the_sample_view(ui, 1, "grid-birch")
         finally:
-            ui._task_worker_thread = None  # or closing the window waits on it
+            ui.session.runner = runner
         assert [g.name for g in exp.grids] == ["Grid-01", "Grid-02", "Grid-03"]
         assert "while a workflow is running" in (
             ui.sample_widget.loader_widget.status_label.text()

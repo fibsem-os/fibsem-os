@@ -3,7 +3,8 @@
 An :class:`AppSession` holds what a session of an application is: the
 microscope it is connected to, the experiment it has open, the event stream of
 that connection, whoever answers the run's questions, where an edit to the
-experiment runs, and the App Server over them when one is hosted. A window
+experiment runs, the run controller, and the App Server over them when one is
+hosted. A window
 attaches to it as one client and reads and writes these through it; a headless
 server can be another, so nothing here may need a widget.
 """
@@ -18,6 +19,7 @@ from typing import Any, Callable, Dict, Optional
 from fibsem.acting import OPERATOR
 from fibsem.imaging.latest import LatestImages
 from fibsem.workflows.event_recording import EventRecorder
+from fibsem.workflows.runner import WorkflowRunner
 
 EditExecutor = Callable[[Callable[[], Any]], "Future[Any]"]
 
@@ -63,6 +65,8 @@ class AppSession:
         # The latest image of each beam, as the window shows it: what the App
         # Server serves and a question's marker is placed on (FIB-1451).
         self.images = LatestImages()
+        # Where every run starts, whoever asks (FIB-1448).
+        self.runner = WorkflowRunner(self)
         # The App Server over this session (FIB-845), while one is hosted.
         self.app_server: Optional[Any] = None
         # What outlives a restart of it: the agent's token and level

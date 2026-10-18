@@ -27,6 +27,7 @@ pytest.importorskip("PyQt5")
 from fibsem.applications.autolamella.workflows.ui import select_poi_ui
 from fibsem.structures import BeamType, Point
 from fibsem.workflows.status import Hold, HoldKind
+from tests.run_state import Stopped
 
 
 @pytest.fixture(scope="module")
@@ -432,10 +433,10 @@ def test_an_out_of_bounds_point_is_refused_and_the_marker_stands(window, ui, qap
 def test_a_stop_interrupts_a_pick_nobody_confirms(ui, qapp):
     thread, outcome = _pick_on_worker_thread(ui, qapp, _fib_image(ui))
 
-    ui._workflow_stop_event.set()
+    ui.session.runner.manager = Stopped()
     try:
         _finish(thread, qapp)
     finally:
-        ui._workflow_stop_event.clear()
+        ui.session.runner.manager = None
 
     assert isinstance(outcome.get("error"), InterruptedError)

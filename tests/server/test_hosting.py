@@ -14,13 +14,15 @@ from fibsem.applications.autolamella.server.context import (  # noqa: E402
 )
 from fibsem.server.hosting import AppServerHost  # noqa: E402
 from fibsem.workflows.session import AppSession  # noqa: E402
+from tests.run_state import stub_session
 
 
 class Window:
     experiment = None
     microscope = None
-    _task_manager = None
-    is_workflow_running = False
+
+    def __init__(self):
+        self.session = stub_session()
 
 
 def _context(buffer):
@@ -107,7 +109,7 @@ def test_lifecycle_events_reach_the_agent_through_the_hook(host, microscope):
     from fibsem.hooks import HookContext, HookEvent, HookManager
 
     host.start()
-    # The app registers this hook per run (setup_hooks); simulate one firing.
+    # The runner registers this hook per run (run_hooks); simulate one firing.
     manager = HookManager()
     manager.register(host.lifecycle_hook)
     manager.fire(

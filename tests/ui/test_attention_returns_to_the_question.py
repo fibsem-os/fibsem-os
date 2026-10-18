@@ -91,7 +91,7 @@ def _ask_on_worker_thread(ui, qapp):
             outcome["answer"] = ask(
                 ui.ui_responder,
                 ConfirmDetection(detection=_detection()),
-                abort=ui._workflow_stop_event.is_set,
+                abort=lambda: ui.session.runner.should_abort,
             )
         except Exception as exc:  # noqa: BLE001 - the test inspects it
             outcome["error"] = exc

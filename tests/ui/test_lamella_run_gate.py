@@ -24,6 +24,8 @@ from fibsem.applications.autolamella.workflows.tasks.reference_image import (
     AcquireReferenceImageConfig,
 )
 from fibsem.structures import FibsemStagePosition
+from fibsem.workflows.runner import ITEMS
+from tests.run_state import hold_runs, started_with
 
 
 @pytest.fixture
@@ -78,7 +80,7 @@ def test_run_is_refused_by_name_until_the_grid_is_loaded(
     assert main_ui.lamella_workflow_widget.get_selected_lamella()
     assert main_ui.lamella_workflow_widget.get_selected_tasks()
 
-    warnings, confirmations, starts = [], [], []
+    warnings, confirmations = [], []
     monkeypatch.setattr(
         module.QMessageBox, "warning", lambda *a, **k: warnings.append(a[2])
     )
@@ -87,19 +89,17 @@ def test_run_is_refused_by_name_until_the_grid_is_loaded(
         "confirm_run_workflow_dialog",
         lambda *a, **k: (confirmations.append(a), False)[1],
     )
-    monkeypatch.setattr(
-        ui, "_start_run_workflow_thread", lambda *a, **k: starts.append(a)
-    )
+    held = hold_runs(monkeypatch, ITEMS)
 
     main_ui._on_run_workflow_clicked()
     assert warnings == [
         "Cannot run: on-two is on Grid-02, which is not on the stage. "
         "Load Grid-02 from the Grids tab first, or leave that lamella out."
     ]
-    assert confirmations == [] and starts == []
+    assert confirmations == [] and started_with(held) == []
 
     stage.ensure_loaded("Grid-02")
     main_ui._on_run_workflow_clicked()
     assert len(warnings) == 1  # no new refusal
     assert len(confirmations) == 1  # went on to the confirmation, which declined
-    assert starts == []
+    assert started_with(held) == []

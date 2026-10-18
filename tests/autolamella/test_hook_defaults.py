@@ -40,9 +40,13 @@ def test_the_default_set_is_what_it_is():
         HookEvent.TASK_FAILED,
         HookEvent.TASK_CANCELLED,
     ]
-    assert [hooks[n].notification_type for n in
-            ("completion_toast", "failure_toast", "cancellation_toast")] == [
-        "success", "error", "warning",
+    assert [
+        hooks[n].notification_type
+        for n in ("completion_toast", "failure_toast", "cancellation_toast")
+    ] == [
+        "success",
+        "error",
+        "warning",
     ]
 
 
@@ -80,7 +84,7 @@ def test_the_defaults_survive_a_round_trip():
 def test_each_call_returns_fresh_hooks():
     """set_notifier injects a callable into every NotificationHook and the config widget
     edits hooks in place, so a shared module-level list would leak one run's state into
-    the next. setup_hooks() runs once per workflow run."""
+    the next. lamella_run_hooks() runs once per workflow run."""
     first, second = default_hooks(), default_hooks()
 
     assert all(a is not b for a, b in zip(first, second))
@@ -97,7 +101,7 @@ def test_each_call_returns_fresh_hooks():
 
 
 def test_a_notifier_reaches_every_default_notification_hook():
-    """What setup_hooks does after registering: the toasts must actually deliver."""
+    """What the runner does after building the hooks: the toasts must actually deliver."""
     delivered = []
     manager = HookManager()
     for hook in default_hooks():

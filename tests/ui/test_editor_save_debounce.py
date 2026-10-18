@@ -24,6 +24,7 @@ pinned here:
 * **No handler bypasses the debounce.** Ten call sites route through `_save_experiment`;
   one calling `experiment.save()` directly would keep its 0.84 s and nobody would notice.
 """
+
 import ast
 import inspect
 import os
@@ -202,10 +203,15 @@ class TestTheWindowFlushesToo:
         from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
             AutoLamellaSingleWindowUI,
         )
+        from fibsem.workflows.runner import WorkflowRunner
 
-        source = inspect.getsource(AutoLamellaSingleWindowUI._on_run_workflow_clicked)
-        flush = source.index("lamella_widget.flush_pending_save()")
-        start = source.index("_start_run_workflow_thread")
+        # Every start, the agent's too: the window flushes on the runner's
+        # starting signal, which goes out before the run's thread starts.
+        chrome = inspect.getsource(AutoLamellaSingleWindowUI._on_run_starting)
+        assert "lamella_widget.flush_pending_save()" in chrome
+        source = inspect.getsource(WorkflowRunner.start)
+        flush = source.index("self.starting.emit(")
+        start = source.index("thread.start()")
 
         assert flush < start, (
             "the run starts before the editor's pending edit is written -- the worker "
@@ -232,7 +238,9 @@ class TestNothingBypassesIt:
         source = Path(editor_module.__file__).read_text(encoding="utf-8")
         offenders = []
         for node in ast.walk(ast.parse(source)):
-            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+            if not (
+                isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+            ):
                 continue
             if node.func.attr == "save" and isinstance(node.func.value, ast.Attribute):
                 if node.func.value.attr == "experiment":
@@ -254,7 +262,9 @@ class TestNothingBypassesIt:
         """
         passes_the_flag = [
             node.lineno
-            for node in ast.walk(ast.parse(Path(editor_module.__file__).read_text(encoding="utf-8")))
+            for node in ast.walk(
+                ast.parse(Path(editor_module.__file__).read_text(encoding="utf-8"))
+            )
             if isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
             and node.func.attr == "save"

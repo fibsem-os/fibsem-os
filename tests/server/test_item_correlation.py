@@ -30,6 +30,7 @@ from fibsem.correlation.structures import (  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
 from fibsem.structures import MicroscopeState, Point  # noqa: E402
 from fibsem.workflows.events import EventBuffer  # noqa: E402
+from tests.run_state import stub_session
 
 TOKEN = "test-token"
 TARGET = Point(3e-6, -2e-6)
@@ -40,8 +41,9 @@ class Host:
     tested with the GUI."""
 
     microscope = None
-    _task_manager = None
-    is_workflow_running = False
+
+    def __init__(self):
+        self.session = stub_session()
 
     def __init__(self, experiment):
         self.experiment = experiment

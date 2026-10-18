@@ -59,6 +59,8 @@ def run_task(
 class TaskManager(BaseTaskManager):
     """Manages execution of autolamella tasks across lamellas."""
 
+    RUN_DESCRIPTION = "a lamella run"
+
     def __init__(
         self,
         microscope: FibsemMicroscope,

@@ -31,7 +31,6 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.acting import WORKFLOW
 from fibsem.applications.autolamella.ui.lamella_name_list_widget import (
     LamellaNameListWidget,
 )
@@ -39,9 +38,7 @@ from fibsem.applications.autolamella.ui.qt_responder import QtResponder
 from fibsem.applications.autolamella.ui.selected_lamella_widget import (
     SelectedLamellaWidget,
 )
-from fibsem.cancellation import OperationCancelledError
 from fibsem.constants import METRE_TO_MICRON, MICRON_TO_METRE
-from fibsem.control import MicroscopeBusy
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
     BeamType,
@@ -62,7 +59,6 @@ from fibsem.ui import (
 from fibsem.ui import utils as fui
 from fibsem.ui.FibsemSampleWidget import FibsemSampleWidget
 from fibsem.ui.fm.widgets import FMImageViewerWidget
-from fibsem.ui.qt.threading import FunctionWorker
 
 if (
     DETECTION_AVAILABLE
@@ -74,13 +70,9 @@ if (
 from psygnal import EmissionInfo
 from superqt import ensure_main_thread
 
-# Paired with the disabled completion_summary hook in setup_hooks; FunctionHook and
-# HookEvent come back from fibsem.hooks below at the same time.
-# from fibsem.applications.autolamella.tools.artifacts import write_completion_summary
 import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella import config as cfg
 from fibsem.applications.autolamella.experiment_setup import load_for_adoption
-from fibsem.applications.autolamella.hook_defaults import build_hook_manager
 from fibsem.applications.autolamella.poses import (
     add_lamella,
     current_objective_position,
@@ -109,14 +101,12 @@ from fibsem.applications.autolamella.ui.autolamella_overview_image_widget import
     create_overview_image_widget,
 )
 from fibsem.applications.autolamella.workflows.grid_gate import run_refusal
-from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
-from fibsem.hooks import HookManager
 from fibsem.ui.widgets.fluorescence_control_widget import FMControlWidget
 from fibsem.ui.widgets.workflow_summary_dialog import (
     WorkflowSummaryDialog,
     run_counts_text,
 )
-from fibsem.workflows.attention import Attention
+from fibsem.workflows.runner import GRIDS, ITEMS, RunRequest
 from fibsem.workflows.session import AppSession
 
 if TYPE_CHECKING:
@@ -319,17 +309,9 @@ class AutoLamellaUI(QMainWindow):
         # A run is active but nothing is executing -- today only during a
         # scheduled-start wait. Set from the worker thread, read by the border.
         self.WORKFLOW_PENDING: bool = False
-        self._workflow_stop_event: threading.Event = threading.Event()
-        self._task_worker_thread: Optional[FunctionWorker] = None
-        self._task_manager: Optional[TaskManager] = None
-        self._last_run_summary: Optional["pd.DataFrame"] = None
-        # Why the last run ended short of done, for the run summary's
-        # headline: a run that gave up waiting for a review must not read as
-        # a finish. Empty when it finished or was stopped.
-        self._last_run_note: str = ""
         # The summary already toasted (by identity): the run-end toast is
-        # once-per-run, while _last_run_summary itself must survive as the
-        # record remote readers see.
+        # once-per-run, while the runner's last_summary itself must survive as
+        # the record remote readers see.
         self._shown_run_summary: Optional["pd.DataFrame"] = None
 
         # setup connections
@@ -405,33 +387,6 @@ class AutoLamellaUI(QMainWindow):
                 self.experiment.task_protocol if self.experiment is not None else None
             )
 
-    @property
-    def is_workflow_running(self) -> bool:
-        return (
-            self._task_worker_thread is not None and self._task_worker_thread.is_alive()
-        )
-
-    def _script_runner_is_busy(self) -> bool:
-        """Whether a user script is currently driving the microscope (FIB-340).
-
-        Reached through the parent window, which owns the Scripts menu. Absent in
-        the tests and in any host that never built one, so this stays optional
-        rather than asserting the attribute exists.
-        """
-        controller = getattr(self.parent_widget, "script_menu_controller", None)
-        return bool(controller is not None and controller.runner.is_running)
-
-    def _someone_else_in_control(self) -> bool:
-        """Whether someone is in control of the microscope (FIB-1270), a command
-        from the App Server say, so a run would be refused. Says so if so."""
-        current = self.microscope.control.current if self.microscope else None
-        if current is None:
-            return False
-        msg = f"Can't start the workflow: {current.describe()}."
-        logging.warning(msg)
-        notification_service.show_toast(msg, "warning")
-        return True
-
     def setup_connections(self):
 
         # lamella controls
@@ -460,6 +415,13 @@ class AutoLamellaUI(QMainWindow):
         # signals
         self.workflow_status_signal.connect(self.handle_workflow_status)
         self._workflow_finished_signal.connect(self._workflow_finished)  # type: ignore
+        # Every run starts and ends through the session's runner, whoever
+        # started it: the window hears the run's status, and redraws.
+        runner = self.session.runner
+        runner.window = self
+        runner.starting.connect(self._on_run_starting)
+        runner.finished.connect(self._on_run_finished)
+        runner.notice.connect(self._on_run_notice)
 
         # workflow info
         self.set_current_workflow_message(msg=None, show=False)
@@ -1149,144 +1111,18 @@ class AutoLamellaUI(QMainWindow):
 
     #### TASK WORKFLOW
 
-    def _start_run_workflow_thread(
-        self, selected_tasks: List[str], selected_lamella: List[str]
-    ) -> None:
-        """Start the workflow thread with the selected tasks and lamella, and update the UI accordingly."""
+    def _on_run_starting(self, request) -> None:
+        """Where the run was started, before its thread starts."""
+        if self.milling_task_config_widget is not None:
+            self.milling_task_config_widget.clear()
 
-        # A user script may be driving the microscope right now. Scripts are already
-        # blocked while a workflow runs; this is the other direction, so the two
-        # cannot end up moving the stage at the same time (FIB-340).
-        if self._script_runner_is_busy():
-            msg = "A microscope script is running. Stop it before starting a workflow."
-            logging.warning(msg)
-            notification_service.show_toast(msg, "warning")
-            return
-        if self._someone_else_in_control():
-            return
+    def _on_run_finished(self, cancelled: bool) -> None:
+        """The run's thread: over to the GUI thread."""
+        self._workflow_finished_signal.emit(cancelled)  # type: ignore
 
-        # clear milling task config
-        self.milling_task_config_widget.clear()  # type: ignore
-
-        # Start acquisition thread
-        self._task_worker_thread = FunctionWorker(
-            self._run_tasks_worker, selected_tasks, selected_lamella
-        )
-        self._task_worker_thread.start()
-
-    def _start_run_grid_workflow_thread(
-        self,
-        task_names: List[str],
-        grid_names: Optional[List[str]],
-        inventory_first: bool = False,
-        unload_at_end: bool = False,
-        report_at_end: bool = False,
-    ) -> None:
-        """Start a grid run on the workflow thread: the lamella run's twin.
-
-        `grid_names` None with `inventory_first` is "Screen all grids": the worker
-        runs the inventory, records every present grid, and runs over them all.
-        `unload_at_end` and `report_at_end` are the confirmation's end-of-run
-        options, carried out by the manager.
-        Shares the worker slot, the manager slot and the finished signal with the
-        lamella run, so Stop, the timeline and the run summary work unchanged and
-        the two cannot overlap.
-        """
-        if self._script_runner_is_busy():
-            msg = "A microscope script is running. Stop it before starting a workflow."
-            logging.warning(msg)
-            notification_service.show_toast(msg, "warning")
-            return
-        if self._someone_else_in_control():
-            return
-        self._task_worker_thread = FunctionWorker(
-            self._run_grid_tasks_worker,
-            task_names,
-            grid_names,
-            inventory_first,
-            unload_at_end,
-            report_at_end,
-        )
-        self._task_worker_thread.start()
-
-    def _run_grid_tasks_worker(
-        self,
-        task_names: List[str],
-        grid_names: Optional[List[str]],
-        inventory_first: bool,
-        unload_at_end: bool = False,
-        report_at_end: bool = False,
-    ) -> None:
-        """Worker thread for a grid run."""
-        from fibsem.workflows.grid.manager import (
-            GridTaskManager,
-        )
-        from fibsem.workflows.grid.screening import (
-            present_grids,
-        )
-
-        try:
-            self._workflow_stop_event.clear()
-            if self.microscope is None or self.experiment is None:
-                logging.error("No microscope or experiment loaded.")
-                return
-            # Made before the set-up below, as for a lamella run (FIB-1353).
-            self._task_manager = GridTaskManager(
-                microscope=self.microscope,
-                experiment=self.experiment,
-                parent_ui=self,
-                hook_manager=self.setup_hooks(),
-                unload_at_end=unload_at_end,
-                report_at_end=report_at_end,
-            )
-            # In control for the whole run, the inventory included (FIB-1270).
-            with self.microscope.control.take(WORKFLOW, "a grid run"):
-                if not self.microscope.is_on(BeamType.ELECTRON):
-                    self.microscope.turn_on(BeamType.ELECTRON)
-                if not self.microscope.is_on(BeamType.ION):
-                    self.microscope.turn_on(BeamType.ION)
-                if inventory_first:
-                    grid_names = present_grids(self.microscope, self.experiment)
-                logging.info(
-                    f"Starting grid tasks: {task_names}, for grids: {grid_names}"
-                )
-                if self._workflow_stop_event.is_set():
-                    self._task_manager.stop()
-                self._task_manager.run(task_names, grid_names)
-        except MicroscopeBusy as e:
-            logging.warning(f"Grid workflow not started: {e}")
-            self._end_unstarted_run(e)
-        except (InterruptedError, OperationCancelledError) as e:
-            logging.info(f"Grid workflow cancelled: {e}")
-            self._end_unstarted_run(e)
-        except Exception as e:
-            logging.error(f"Error during grid workflow: {e}", exc_info=True)
-            self._end_unstarted_run(e)
-        finally:
-            cancelled = self._task_manager is not None and self._task_manager.is_stopped
-            if self._task_manager is not None:
-                try:
-                    self._last_run_summary = (
-                        self._task_manager.build_run_summary_dataframe()
-                    )
-                except Exception as e:
-                    logging.warning(f"Failed to build grid run summary: {e}")
-                    self._last_run_summary = None
-                self._last_run_note = self._task_manager.closing_note()
-            self._task_manager = None
-            self._task_worker_thread = None
-            self._workflow_finished_signal.emit(cancelled)  # type: ignore
-
-    def _end_unstarted_run(self, error: BaseException) -> None:
-        """Workflow thread. End a run that died in the set-up above before it
-        began, so whoever was told it started sees it end (FIB-1353)."""
-        manager = self._task_manager
-        if manager is None:
-            return
-        try:
-            manager.end_unstarted_run(error)
-        except Exception:
-            logging.exception("reporting the end of a run that never began failed")
+    def _on_run_notice(self, message: str, notification_type: str) -> None:
+        """A hook's notice, from the run's thread: signals are thread-safe."""
+        self._hook_toast_signal.emit(message, notification_type)
 
     def _run_on_gui_thread(self, call) -> "Future":
         """The session's executor: ``call()`` on the GUI thread as whoever
@@ -1325,79 +1161,20 @@ class AutoLamellaUI(QMainWindow):
     ) -> "Future":
         """Start a workflow as the Run button would; any thread.
 
-        The agent-facing start: marshalled to the GUI thread (which owns the
-        worker creation and the window chrome), resolving to a plain dict —
-        ``{"started": True}`` or a structured refusal with the valid names.
-        The agent at Drive is the consent that replaces the Run click's
-        confirm dialog.
+        The agent-facing start: marshalled to where the experiment is edited,
+        resolving to a plain dict -- ``{"started": True}`` or a structured
+        refusal with the valid names. The agent at Drive is the consent that
+        replaces the Run click's confirm dialog.
         """
-        return self.session.run_edit(
-            functools.partial(
-                self._start_workflow_for_agent, list(task_names), item_names
-            )
+        request = RunRequest(
+            kind=ITEMS,
+            task_names=tuple(task_names),
+            names=tuple(item_names) if item_names is not None else None,
         )
+        return self.session.run_edit(functools.partial(self._start_run, request))
 
-    def _start_workflow_for_agent(
-        self, task_names: List[str], item_names: Optional[List[str]]
-    ) -> dict:
-        """Validate and start, mirroring the Run click's path (GUI thread)."""
-        if self.is_workflow_running:
-            return {"started": False, "reason": "a workflow is already running"}
-        if self.microscope is None:
-            return {"started": False, "reason": "no microscope is connected"}
-        experiment = self.experiment
-        protocol = self.protocol
-        if experiment is None or protocol is None:
-            return {"started": False, "reason": "no experiment is loaded"}
-        known_tasks = [t.name for t in protocol.workflow_config.tasks]
-        unknown = [t for t in task_names if t not in known_tasks]
-        if not task_names or unknown:
-            return {
-                "started": False,
-                "reason": f"unknown tasks: {unknown!r}" if unknown else "no tasks",
-                "task_names": known_tasks,
-            }
-        known_items = [p.name for p in experiment.positions]
-        if item_names is not None:
-            missing = [n for n in item_names if n not in known_items]
-            if missing:
-                return {
-                    "started": False,
-                    "reason": f"unknown items: {missing!r}",
-                    "item_names": known_items,
-                }
-        names = list(item_names) if item_names is not None else known_items
-        # The Run click's grid gate: a lamella whose grid is not on the stage
-        # is refused by name, with no override, before anything moves.
-        refused = self.lamella_run_refusal(
-            [p for p in experiment.positions if p.name in names]
-        )
-        if refused:
-            return {"started": False, "reason": refused}
-        # The chrome the Run click supplies around the shared start. Guarded:
-        # the standalone window has no parent to decorate.
-        parent = self.parent_widget
-        if parent is not None:
-            try:
-                # FIB-683 one-writer rule: land any edit still in the editor
-                # before the run's thread becomes the experiment's writer.
-                parent.lamella_widget.flush_pending_save()
-            except Exception:
-                logging.exception("flush before agent start failed; continuing")
-        self._start_run_workflow_thread(task_names, names)
-        started = self.is_workflow_running
-        if started and parent is not None:
-            try:
-                supervised = (
-                    protocol.get_attention(task_names[0]) is Attention.supervised
-                )
-                parent._set_border_state("supervised" if supervised else "automated")
-                # Show the Stop button immediately — a remotely started run
-                # must be just as cancellable as a clicked one.
-                parent.set_workflow_running()
-            except Exception:
-                logging.exception("window chrome after agent start failed")
-        return {"started": started}
+    def _start_run(self, request: RunRequest) -> dict:
+        return self.session.runner.start(self.experiment, request).as_dict()
 
     def lamella_run_refusal(self, lamellae) -> str:
         """Why these lamellae cannot run now, or "": a lamella linked to a grid
@@ -1423,100 +1200,17 @@ class AutoLamellaUI(QMainWindow):
         any thread. Same marshal as :meth:`request_start_workflow`.
         ``unload_at_end`` and ``report_at_end`` are the confirmation's
         end-of-run options."""
-        return self.session.run_edit(
-            functools.partial(
-                self._start_grid_workflow_for_agent,
-                list(task_names),
-                grid_names,
-                bool(inventory_first),
-                bool(unload_at_end),
-                bool(report_at_end),
-            )
+        request = RunRequest(
+            kind=GRIDS,
+            task_names=tuple(task_names),
+            names=tuple(grid_names) if grid_names is not None else None,
+            options={
+                "inventory_first": bool(inventory_first),
+                "unload_at_end": bool(unload_at_end),
+                "report_at_end": bool(report_at_end),
+            },
         )
-
-    def _start_grid_workflow_for_agent(
-        self,
-        task_names: List[str],
-        grid_names: Optional[List[str]],
-        inventory_first: bool,
-        unload_at_end: bool = False,
-        report_at_end: bool = False,
-    ) -> dict:
-        """Validate and start, mirroring the Grids view's Run path (GUI thread).
-
-        One worker slot serves lamella and grid runs alike, so "a workflow is
-        already running" refuses either kind. ``inventory_first`` is "Screen
-        all grids": the worker inventories and runs over every present grid,
-        so ``grid_names`` must be omitted; otherwise omitted grids means every
-        grid the experiment records, as the manager's own default does.
-        """
-        from fibsem.workflows.grid.manager import (
-            plan_grid_run,
-        )
-
-        if self.is_workflow_running:
-            return {"started": False, "reason": "a workflow is already running"}
-        if self.microscope is None:
-            return {"started": False, "reason": "no microscope is connected"}
-        experiment = self.experiment
-        if experiment is None or experiment.task_protocol is None:
-            return {"started": False, "reason": "no experiment is loaded"}
-        known_tasks = list(experiment.grid_protocol.ordered_task_names)
-        unknown = [t for t in task_names if t not in known_tasks]
-        if not task_names or unknown:
-            return {
-                "started": False,
-                "reason": f"unknown grid tasks: {unknown!r}" if unknown else "no tasks",
-                "task_names": known_tasks,
-            }
-        known_grids = [g.name for g in experiment.grids]
-        if inventory_first:
-            if grid_names is not None:
-                return {
-                    "started": False,
-                    "reason": "screen_all runs over every present grid; "
-                    "do not name grids with it",
-                }
-        elif grid_names is None:
-            grid_names = known_grids
-        else:
-            missing = [n for n in grid_names if n not in known_grids]
-            if missing:
-                return {
-                    "started": False,
-                    "reason": f"unknown grids: {missing!r}",
-                    "grid_names": known_grids,
-                }
-        if not inventory_first and not grid_names:
-            return {"started": False, "reason": "no grids", "grid_names": known_grids}
-        parent = self.parent_widget
-        if parent is not None:
-            try:
-                # FIB-683 one-writer rule, as the Grids view's Run does.
-                parent.lamella_widget.flush_pending_save()
-            except Exception:
-                logging.exception("flush before agent grid start failed; continuing")
-        self._start_run_grid_workflow_thread(
-            task_names,
-            list(grid_names) if grid_names is not None else None,
-            inventory_first,
-            unload_at_end=unload_at_end,
-            report_at_end=report_at_end,
-        )
-        started = self.is_workflow_running
-        if started and parent is not None:
-            try:
-                parent._set_border_state("automated")
-                parent.set_workflow_running()
-            except Exception:
-                logging.exception("window chrome after agent grid start failed")
-        result = {"started": started, "screen_all": inventory_first}
-        if not inventory_first:
-            result["plan"] = [
-                {"grid": grid, "step": step}
-                for grid, step in plan_grid_run(task_names, grid_names or [])
-            ]
-        return result
+        return self.session.run_edit(functools.partial(self._start_run, request))
 
     def request_apply_task_config_patch(
         self, item_name: str, task_name: str, patch: dict, version: str
@@ -2048,77 +1742,11 @@ class AutoLamellaUI(QMainWindow):
         except Exception:
             logging.exception("editor refresh after agent config patch failed")
 
-    def _run_tasks_worker(
-        self, task_names: List[str], lamella_names: Optional[List[str]] = None
-    ) -> None:
-        """Worker thread for task worker."""
-        try:
-            self._workflow_stop_event.clear()
-            if self.microscope is None or self.experiment is None:
-                logging.error("No microscope or experiment loaded.")
-                return
-
-            # Made before the set-up below, so a failure in it still ends the
-            # run with an event (FIB-1353).
-            self._task_manager = TaskManager(
-                microscope=self.microscope,
-                experiment=self.experiment,
-                parent_ui=self,
-                hook_manager=self.setup_hooks(),
-            )
-            # In control for the whole run, beams on included (FIB-1270).
-            with self.microscope.control.take(WORKFLOW, "a lamella run"):
-                # turn beams on if required
-                if not self.microscope.is_on(BeamType.ELECTRON):
-                    self.microscope.turn_on(BeamType.ELECTRON)
-                if not self.microscope.is_on(BeamType.ION):
-                    self.microscope.turn_on(BeamType.ION)
-
-                logging.info(
-                    f"Starting tasks: {task_names}, for lamella: {lamella_names}"
-                )
-                # Honor a stop requested before the manager existed (clicked
-                # as the worker started, while _task_manager was still None).
-                if self._workflow_stop_event.is_set():
-                    self._task_manager.stop()
-                self._task_manager.run(
-                    task_names=task_names,
-                    required_lamella=lamella_names,
-                )
-        except MicroscopeBusy as e:
-            logging.warning(f"Workflow not started: {e}")
-            self._end_unstarted_run(e)
-        except (InterruptedError, OperationCancelledError) as e:
-            # A user Stop, not a failure: both cancellation types unwind through
-            # here, and anyone scanning the log for problems (or filtering on
-            # ERROR) must not see one per Stop press. The task layer has already
-            # recorded the outcome as Cancelled; this is the worker's exit note.
-            logging.info(f"Workflow cancelled: {e}")
-            self._end_unstarted_run(e)
-        except Exception as e:
-            logging.error(f"Error during running tasks: {e}", exc_info=True)
-            self._end_unstarted_run(e)
-
-        finally:
-            cancelled = self._task_manager is not None and self._task_manager.is_stopped
-            # capture the per-run summary before the manager is torn down
-            if self._task_manager is not None:
-                try:
-                    self._last_run_summary = (
-                        self._task_manager.build_run_summary_dataframe()
-                    )
-                except Exception as e:
-                    logging.warning(f"Failed to build workflow run summary: {e}")
-                    self._last_run_summary = None
-                self._last_run_note = self._task_manager.closing_note()
-            self._task_manager = None
-            self._task_worker_thread = None
-            self._workflow_finished_signal.emit(cancelled)  # type: ignore
-
     def stop_task_workflow(self):
-        if not self.is_workflow_running:
+        if not self.session.runner.is_running:
             return
-        self._stop_workflow_thread()
+        self.session.runner.stop()
+        self.stop_current_operations()
         self.workflow_stopping_signal.emit()
 
     def stop_current_task(self) -> None:
@@ -2128,82 +1756,15 @@ class AutoLamellaUI(QMainWindow):
         task is being abandoned, and bring the hardware to a halt. Without the
         second, the task stops waiting for the mill but the mill keeps going.
         """
-        if self._task_manager is not None:
-            self._task_manager.stop_task()
+        self.session.runner.stop_task()
         self.stop_current_operations()
-
-    def setup_hooks(self) -> HookManager:
-        """Build the HookManager for one workflow run.
-
-        Called per run from the workflow worker, not once at startup, so the hook set is
-        rebuilt each time — which is what will let a user's saved configuration take
-        effect on the next run without a restart, and means the config dialog can never
-        be editing a manager a running workflow is holding. See FIB-497.
-
-        The hook set comes from the user's saved configuration when there is one, and
-        from hook_defaults.default_hooks() when there is not. Re-read here rather than
-        cached at startup, so editing user-preferences.yaml by hand takes effect on the
-        next run of a workflow instead of needing a restart.
-
-        Code-registered hooks go after: a configuration load replaces the *defaults*,
-        and must never be able to remove a hook that only exists in Python.
-        """
-        preferences = fibsem_cfg.load_user_preferences()
-        manager = build_hook_manager(preferences.hooks)
-
-        # The event stream's lifecycle feed is registered by the task manager for
-        # its run, the same path a run without the GUI takes (FIB-1044). The agent
-        # server shares the recorder's hook; one of its own (a host started
-        # without a recorder) is registered here, per run, as before.
-        recorder = self.session.recorder
-        host = self.session.app_server
-        if (
-            host is not None
-            and host.running
-            and host.lifecycle_hook is not None
-            and (recorder is None or host.lifecycle_hook is not recorder.lifecycle_hook)
-        ):
-            manager.register(host.lifecycle_hook)
-
-        # Deliberately not registered yet. The trigger is proven end to end and the
-        # writer is tested, but completion-summary.json is a placeholder for the real
-        # artifacts (the PDF and the overview PNG), and turning it on here would start
-        # writing a throwaway file into every user's lamella directories. Re-enable when
-        # the artifact is the one people actually want -- see FIB-461. Three imports at
-        # the top of this file come back with it: write_completion_summary, and
-        # FunctionHook + HookEvent from fibsem.hooks.
-        #
-        # Per lamella, not per experiment: a lamella is what gets delivered, and an
-        # experiment with one abandoned lamella never reaches completion at all, so
-        # hanging the artifact off the experiment would mean it was almost never
-        # written.
-        #
-        # A FunctionHook rather than a template-driven one because this needs the
-        # experiment itself, which the context deliberately does not carry -- the path
-        # is derivable from the record, and in-process hooks can reach the record. A
-        # webhook could not, which is the distinction.
-        #
-        # HookManager.fire contains what this raises, so a summary that cannot be
-        # written is logged and the run carries on. FIB-461 asks for exactly that, and
-        # it comes for free rather than needing a second guard here.
-        #
-        # manager.register(
-        #     FunctionHook(
-        #         name="completion_summary",
-        #         events=[HookEvent.ITEM_COMPLETED],
-        #         callback=lambda ctx: write_completion_summary(self.experiment, ctx),
-        #     )
-        # )
-        # Signals are thread-safe to emit; hooks fire on the task worker thread.
-        manager.set_notifier(self._hook_toast_signal.emit)
-        return manager
 
     #### UI UPDATES
 
     def update_ui(self):
         """Update the ui based on the current state of the application."""
 
-        if self.is_workflow_running:
+        if self.session.runner.is_running:
             self.selected_lamella_widget.setEnabled(False)
 
             return
@@ -2237,13 +1798,13 @@ class AutoLamellaUI(QMainWindow):
             self.selected_lamella_widget.set_lamella(None)
 
         # disable lamella controls while workflow is running
-        self.selected_lamella_widget.setEnabled(not self.is_workflow_running)
+        self.selected_lamella_widget.setEnabled(not self.session.runner.is_running)
 
         # Current Lamella Status
         if has_lamella and self.experiment is not None:
             self.update_lamella_ui()
 
-        if self.is_workflow_running:
+        if self.session.runner.is_running:
             return
 
         # Nothing to say while idle. The same guidance is in the window's status
@@ -2264,7 +1825,7 @@ class AutoLamellaUI(QMainWindow):
     def update_lamella_combobox(self, latest: bool = False):
         if self.experiment is None:
             return
-        if self.is_workflow_running:
+        if self.session.runner.is_running:
             return
 
         # detail lamella list
@@ -2285,7 +1846,7 @@ class AutoLamellaUI(QMainWindow):
         if self.protocol is None:
             return
 
-        if self.is_workflow_running:
+        if self.session.runner.is_running:
             return
 
         idx = self.lamella_list.selected_index
@@ -2894,13 +2455,6 @@ class AutoLamellaUI(QMainWindow):
         if self.spot_burn_widget is not None:
             self.spot_burn_widget.cancel_spot_burn()
 
-    def _stop_workflow_thread(self):
-        if self._task_manager is not None:
-            self._task_manager.stop()
-        else:
-            self._workflow_stop_event.set()
-        self.stop_current_operations()
-
     def _workflow_finished(self):
         """Handle the completion of the workflow."""
         logging.info("Workflow finished.")
@@ -2917,7 +2471,6 @@ class AutoLamellaUI(QMainWindow):
         if self.experiment is None or self.protocol is None:
             return
 
-        self._workflow_stop_event.clear()
         self.tabWidget.setCurrentIndex(self.tabWidget.indexOf(self.tab))
 
         self.hold = None
@@ -2968,20 +2521,19 @@ class AutoLamellaUI(QMainWindow):
         starting many short runs, or a run ending overnight, left standing
         over the app. That is also when to turn it off.
 
-        Show-once, but never consume: ``_last_run_summary`` is also the
-        record the App Server's ``run_summary`` endpoint reads after the
-        worker nulls the manager — nulling it here meant the record lived
-        only for the milliseconds between the worker's capture and this
-        handler, and every remote read found nothing. The record stays until
-        the next run's capture overwrites it; only the toast is once-only.
+        Show-once, but never consume: the runner's ``last_summary`` is also
+        the record the App Server's ``run_summary`` endpoint reads after the
+        manager is gone. The record stays until the next run's capture
+        overwrites it; only the toast is once-only.
         """
-        summary = self._last_run_summary
+        runner = self.session.runner
+        summary = runner.last_summary
         if summary is None or summary is self._shown_run_summary:
             return
         self._shown_run_summary = summary
         if summary.empty:
             return
-        note = self._last_run_note
+        note = runner.last_note
         failed = (
             "task_status" in summary.columns
             and (summary["task_status"] == "Failed").any()

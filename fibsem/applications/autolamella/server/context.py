@@ -1,9 +1,9 @@
 """AutoLamellaAppContext: the read-side facade an embedded server sees the app through.
 
 Deliberately not the ``AutoLamellaUI`` object, for the same reasons
-``ScriptContext`` isn't: the window's ``experiment`` is rebound on load, its
-``_task_manager`` is created per run and nulled in the worker's ``finally``,
-and the GUI's internals are still moving. This facade resolves those
+``ScriptContext`` isn't: the window's ``experiment`` is rebound on load, the
+runner's task manager is created per run and dropped when it ends, and the
+GUI's internals are still moving. This facade resolves those
 references **at call time, on every call**, and returns plain JSON-able data —
 never live objects, never Qt, never a pointer into a widget.
 
@@ -21,10 +21,10 @@ Vocabulary: the surface speaks ``item_name`` throughout. ``lamella_name`` is
 the deprecated alias scheduled to drop with the HookContext shims after v0.6
 and never appears in these payloads.
 
-The host is anything carrying the four attributes the facade resolves through
-(``experiment``, ``microscope``, ``_task_manager``, ``is_workflow_running``) —
-the real ``AutoLamellaUI`` in production, a plain holder of real domain objects
-in tests.
+The host is anything carrying the attributes the facade resolves through
+(``experiment``, ``microscope``, and the ``session`` whose ``runner`` says what
+runs) — the real ``AutoLamellaUI`` in production, a plain holder of real
+domain objects in tests. A host with no session has nothing running.
 """
 
 import logging
@@ -410,8 +410,18 @@ class AutoLamellaAppContext:
         return {"path": path, "image": block, "points": points}
 
     @property
+    def _runner(self):
+        return getattr(getattr(self._host, "session", None), "runner", None)
+
+    @property
     def _manager(self):
-        return getattr(self._host, "_task_manager", None)
+        runner = self._runner
+        return runner.manager if runner is not None else None
+
+    @property
+    def _running(self) -> bool:
+        runner = self._runner
+        return runner is not None and runner.is_running
 
     @property
     def _microscope(self):
@@ -422,7 +432,7 @@ class AutoLamellaAppContext:
     def status(self) -> Dict[str, Any]:
         """What the app is doing right now, at a glance."""
         experiment = self._experiment
-        running = bool(getattr(self._host, "is_workflow_running", False))
+        running = self._running
         payload: Dict[str, Any] = {
             "microscope_connected": self._microscope is not None,
             "experiment": None,
@@ -508,7 +518,8 @@ class AutoLamellaAppContext:
                 "available": True,
                 "items": _records(manager.build_run_summary_dataframe()),
             }
-        last = getattr(self._host, "_last_run_summary", None)
+        runner = self._runner
+        last = runner.last_summary if runner is not None else None
         if last is not None:
             return {"available": True, "items": _records(last)}
         return {"available": False, "items": []}
@@ -1071,7 +1082,7 @@ class AutoLamellaAppContext:
     def _not_while_running(self, what: str) -> Optional[Dict[str, Any]]:
         """The refusal while a workflow runs (*what* to do when it has
         stopped), or None."""
-        if getattr(self._host, "is_workflow_running", False):
+        if self._running:
             return {
                 "error_type": "task_running",
                 "error": f"A workflow is running; {what} when it has stopped.",
@@ -2270,7 +2281,7 @@ class AutoLamellaAppContext:
         host = self._host
         if not hasattr(host, "stop_task_workflow"):
             return {"available": False, "stopped": False}
-        if not bool(getattr(host, "is_workflow_running", False)):
+        if not self._running:
             return {
                 "available": True,
                 "stopped": False,

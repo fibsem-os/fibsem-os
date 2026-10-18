@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pytest
 
 from fibsem.applications.autolamella.server import log_tail
+from tests.run_state import stub_session
 
 T0 = datetime(2026, 10, 12, 9, 0, 0)
 
@@ -150,8 +151,9 @@ AUTH = {"Authorization": f"Bearer {TOKEN}"}
 class Host:
     experiment = None
     microscope = None
-    _task_manager = None
-    is_workflow_running = False
+
+    def __init__(self):
+        self.session = stub_session()
 
 
 @pytest.fixture(scope="module")

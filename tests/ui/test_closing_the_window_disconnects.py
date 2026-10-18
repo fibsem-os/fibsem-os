@@ -76,25 +76,37 @@ def test_a_disconnect_that_fails_does_not_stop_the_close(qapp):
 
 
 @pytest.fixture
-def running(no_quit, qapp):
-    """AutoLamella on Demo with a workflow running: a real worker that runs
-    until Stop Workflow's signal, as a run between steps does."""
+def running(no_quit, qapp, monkeypatch, tmp_path):
+    """AutoLamella on Demo with a workflow running: a run started through the
+    runner that holds until Stop Workflow, as a run between steps does."""
+    from fibsem.applications.autolamella.structures import (
+        AutoLamellaTaskDescription,
+        AutoLamellaTaskProtocol,
+        Experiment,
+    )
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
-    from fibsem.ui.qt.threading import FunctionWorker
+    from fibsem.workflows.runner import ITEMS, RunRequest
+    from tests.run_state import hold_runs
 
     window = module.AutoLamellaSingleWindowUI()
     ui = window.autolamella_ui
     ui.system_widget.connect_to_microscope()
     microscope = ui.microscope
-    ui._task_worker_thread = FunctionWorker(ui._workflow_stop_event.wait, 10)
-    ui._task_worker_thread.start()
+    experiment = Experiment(path=tmp_path, name="closing")
+    experiment.task_protocol = AutoLamellaTaskProtocol()
+    experiment.task_protocol.workflow_config.tasks.append(
+        AutoLamellaTaskDescription(name="Trench", required=True)
+    )
+    window.held = hold_runs(monkeypatch, ITEMS)
+    started = ui.session.runner.start(
+        experiment, RunRequest(kind=ITEMS, task_names=("Trench",))
+    )
+    assert started.started, started.reason
     window.show()
     try:
         yield window
     finally:
-        ui._workflow_stop_event.set()
-        ui._task_worker_thread.join(5)
-        ui._task_worker_thread = None
+        window.held.end(ui.session.runner)
         if window.isVisible():  # a second close re-runs the whole closeEvent
             window.close()
         microscope.disconnect()
@@ -124,8 +136,8 @@ def test_closing_during_a_workflow_can_be_cancelled(running):
     running.close()
 
     assert running.isVisible()
-    assert ui.is_workflow_running
-    assert not ui._workflow_stop_event.is_set()
+    assert ui.session.runner.is_running
+    assert not running.held.managers[0].is_stopped
     assert ui.microscope._connection.connected
     assert ui.session.recorder is not None
 
@@ -140,5 +152,5 @@ def test_confirming_the_close_stops_the_workflow_and_disconnects(running):
     running.close()
 
     assert not running.isVisible()
-    assert ui._workflow_stop_event.is_set()
+    assert running.held.managers[0].is_stopped
     assert not microscope._connection.connected

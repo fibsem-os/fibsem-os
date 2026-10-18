@@ -348,11 +348,11 @@ def test_a_rename_the_grids_tab_would_refuse_is_refused(recording, arctis):
     assert missing.status_code == 404
     assert missing.json()["detail"]["grid_names"] == ["G1", "G2", "Grid-03"]
 
-    recording.host.is_workflow_running = True
+    recording.host.session.runner.is_running = True
     try:
         running = _call(recording, "grid_rename", grid_name="G2", name="Lyso-2")
     finally:
-        recording.host.is_workflow_running = False
+        recording.host.session.runner.is_running = False
     assert running.status_code == 409
 
 

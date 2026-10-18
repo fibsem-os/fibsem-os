@@ -27,6 +27,7 @@ from fibsem.applications.autolamella.workflows import ui as workflow_ui
 from fibsem.applications.autolamella.workflows.ui import set_images_ui
 from fibsem.structures import BeamType
 from fibsem.workflows.interaction import ask
+from tests.run_state import Stopped
 
 
 @pytest.fixture
@@ -193,12 +194,12 @@ def test_a_stop_interrupts_the_wait(ui):
     thread = threading.Thread(target=target, daemon=True)
     thread.start()
     time.sleep(0.3)  # past the entry check and into the wait
-    ui._workflow_stop_event.set()  # legacy event: no task manager in this harness
+    ui.session.runner.manager = Stopped()
     try:
         thread.join(timeout=10.0)
         assert not thread.is_alive(), "Stop did not interrupt the wait"
     finally:
-        ui._workflow_stop_event.clear()
+        ui.session.runner.manager = None
 
     assert isinstance(outcome.get("error"), InterruptedError)
 

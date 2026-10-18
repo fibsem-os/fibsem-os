@@ -23,6 +23,8 @@ from fibsem.applications.autolamella.server import AutoLamellaAppContext
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
 from fibsem.server import AuthConfig, build_server
 from fibsem.workflows.interaction import Confirm, ask
+from fibsem.workflows.runner import ITEMS
+from tests.run_state import hold_runs, started_with
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -386,7 +388,7 @@ def test_stop_workflow_needs_the_control_scope(ui, qapp):
         }
 
 
-def test_start_workflow_validates_and_starts_on_the_gui_thread(ui, qapp):
+def test_start_workflow_validates_and_starts_on_the_gui_thread(ui, qapp, monkeypatch):
     from psygnal.containers import EventedDict
 
     from fibsem.applications.autolamella.structures import (
@@ -407,18 +409,7 @@ def test_start_workflow_validates_and_starts_on_the_gui_thread(ui, qapp):
     experiment.add_new_lamella(MicroscopeState(), EventedDict())
     ui.experiment = experiment
 
-    calls = []
-
-    class _AliveThread:
-        @staticmethod
-        def is_alive():
-            return True
-
-    def fake_start(task_names, item_names):
-        calls.append((task_names, item_names))
-        ui._task_worker_thread = _AliveThread()
-
-    ui._start_run_workflow_thread = fake_start
+    held = hold_runs(monkeypatch, ITEMS)
 
     with _client(ui, arm_control=True) as client:
         posted = {}
@@ -437,7 +428,7 @@ def test_start_workflow_validates_and_starts_on_the_gui_thread(ui, qapp):
         refused = posted["response"].json()
         assert refused["started"] is False
         assert refused["task_names"] == ["Mill Fiducial"]
-        assert calls == []
+        assert started_with(held) == []
 
         # Valid start; omitted items means every item in the experiment.
         posted.clear()
@@ -447,7 +438,9 @@ def test_start_workflow_validates_and_starts_on_the_gui_thread(ui, qapp):
         poster.start()
         _spin_until(qapp, lambda: "response" in posted)
         assert posted["response"].json() == {"available": True, "started": True}
-        assert calls == [(["Mill Fiducial"], [experiment.positions[0].name])]
+        assert started_with(held) == [
+            (["Mill Fiducial"], [experiment.positions[0].name])
+        ]
 
         # And now that it is "running", a second start is refused.
         posted.clear()
@@ -457,7 +450,7 @@ def test_start_workflow_validates_and_starts_on_the_gui_thread(ui, qapp):
         poster.start()
         _spin_until(qapp, lambda: "response" in posted)
         assert posted["response"].json()["started"] is False
-        ui._task_worker_thread = None
+        held.end(ui.session.runner)
 
     ui.experiment = None
 

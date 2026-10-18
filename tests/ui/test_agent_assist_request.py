@@ -30,6 +30,8 @@ from fibsem.server import AuthConfig, build_server  # noqa: E402
 from fibsem.server.auth import AgentLevel  # noqa: E402
 from fibsem.structures import MicroscopeState  # noqa: E402
 from fibsem.workflows.attention import Attention
+from fibsem.workflows.runner import ITEMS
+from tests.run_state import hold_runs, started_with
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -93,20 +95,9 @@ def _post(qapp, client, path, body):
     return posted["response"]
 
 
-class _AliveThread:
-    @staticmethod
-    def is_alive():
-        return True
+def test_an_approved_request_starts_the_run_from_the_gui_thread(ui, qapp, monkeypatch):
 
-
-def test_an_approved_request_starts_the_run_from_the_gui_thread(ui, qapp):
-    calls = []
-
-    def fake_start(task_names, item_names):
-        calls.append((task_names, item_names))
-        ui._task_worker_thread = _AliveThread()
-
-    ui._start_run_workflow_thread = fake_start
+    held = hold_runs(monkeypatch, ITEMS)
 
     auth = AuthConfig(token=TOKEN)
     auth.set_level(AgentLevel.ASSIST)
@@ -116,7 +107,7 @@ def test_an_approved_request_starts_the_run_from_the_gui_thread(ui, qapp):
         refused = _post(qapp, client, "/app/workflow/start", START["arguments"])
         assert refused.status_code == 403
         assert refused.json()["detail"]["error_type"] == "ask_first"
-        assert calls == []
+        assert started_with(held) == []
 
         filed = _post(
             qapp,
@@ -126,7 +117,7 @@ def test_an_approved_request_starts_the_run_from_the_gui_thread(ui, qapp):
         )
         assert filed.status_code == 202, filed.text
         request_id = filed.json()["request_id"]
-        assert calls == []
+        assert started_with(held) == []
 
         # The operator's Approve, on the GUI thread: it must not block it, since
         # the start it runs is marshalled back onto this thread.
@@ -137,7 +128,10 @@ def test_an_approved_request_starts_the_run_from_the_gui_thread(ui, qapp):
         done = store.get(request_id)
         assert done.status == "applied", done.results
         assert done.results[0]["result"] == {"available": True, "started": True}
-        assert calls == [(["Mill Fiducial"], [ui.experiment.positions[0].name])]
+        assert started_with(held) == [
+            (["Mill Fiducial"], [ui.experiment.positions[0].name])
+        ]
 
         read = client.get(f"/app/agent/requests/{request_id}", headers=AUTH)
         assert read.json()["status"] == "applied"
+    held.end(ui.session.runner)

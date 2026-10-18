@@ -357,8 +357,8 @@ def test_screen_all_grids_from_the_window_runs_on_the_named_grids(
         window.workflow_left_tabs.setCurrentWidget(window.grid_workflow_widget)
 
         window._on_screen_all_grids()
-        assert ui.is_workflow_running
-        _wait(lambda: not ui.is_workflow_running, 90.0)
+        assert ui.session.runner.is_running
+        _wait(lambda: not ui.session.runner.is_running, 90.0)
         QTest.qWait(200)  # let the finished signal land
 
         assert ran == [
