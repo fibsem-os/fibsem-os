@@ -183,7 +183,7 @@ def _print_events(events, since, out):
             out(f"PROMPT question={data.get('question_id')} type={data.get('type')}")
         elif kind == "prompt_answered":
             line = (
-                f"ANSWERED question={data.get('question_id')} by={data.get('answered_by')} "
+                f"ANSWERED question={data.get('question_id')} by={event.get('actor')} "
                 f"response={data.get('response')}"
             )
             # The operator took the agent's suggestion (FIB-1283).

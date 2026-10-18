@@ -727,7 +727,6 @@ def _prompt_event(record: LogRecord, m: "re.Match", item, task, step) -> ReplayE
         data={
             "prompt": kind,
             "response": response == "True",
-            "answered_by": by,
             "adjusted": adjusted == "True",
         },
         actor=by,  # the one thing the log says about who acted
