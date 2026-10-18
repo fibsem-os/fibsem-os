@@ -55,6 +55,12 @@ lists where each key went.
   configuration that names a holder now loads it into the same service
   (`sample_handling.load_holder()`) rather than building a new one, so subscribers
   stay connected.
+- **`microscope.sem_acquisition_signal` and `microscope.fib_acquisition_signal` are
+  removed.** Show an image in the app's SEM or FIB view with
+  `microscope.imaging.show(image)`; its own beam type picks the view. Listen on
+  `microscope.imaging.image_shown`. As before, only images sent there are shown,
+  never every acquisition, and the App Server event kinds are still
+  `sem_acquisition` and `fib_acquisition`.
 - **`microscope.stage_position_changed` is removed.** Listen on the stage device
   instead: `microscope.stage.position.changed.connect(slot)`. It fires on any read or
   move of the stage, not only from `get_stage_position()`. The last position is

@@ -173,8 +173,8 @@ def test_display_images_are_served_read_scope(ui, qapp):
 def test_display_images_follow_a_one_shot_acquisition(ui, qapp):
     """The post-mill inspect image reaches /app/experiment/images, pixels AND acquired_at.
 
-    A milling task's inspect acquisition is a one-shot emit on
-    fib_acquisition_signal with no live stream running. On the 2026-08-31
+    A milling task's inspect acquisition is a one-shot `imaging.show` with no
+    live stream running. On the 2026-08-31
     supervised run, /app/experiment/images kept serving the pre-mill reference through
     the whole inspect prompt — the supervising agent refuses images whose
     acquired_at predates the mill, so staleness here blocks supervision."""
@@ -193,7 +193,7 @@ def test_display_images_follow_a_one_shot_acquisition(ui, qapp):
 
     with _client(ui, arm_control=False) as client:
         assert not ui.microscope.is_acquiring, "this test pins the one-shot path"
-        ui.microscope.fib_acquisition_signal.emit(inspect_image)
+        ui.microscope.imaging.show(inspect_image)
         qapp.processEvents()
         fib = client.get("/app/experiment/images", headers=AUTH).json()["fib"]
         # With its UTC offset, as the event stream's times carry theirs (FIB-1190).

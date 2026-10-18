@@ -125,6 +125,11 @@ _HEADER_BG = CANVAS_BG
 COINCIDENCE_REVIEW_TASK_NAME = "Coincidence Milling"
 
 
+def _beam_type(image) -> Optional[BeamType]:
+    """The beam an image came from, or None when it has no metadata."""
+    return getattr(getattr(image, "metadata", None), "beam_type", None)
+
+
 def _fmt_timestamp(ts: float) -> str:
     """Format a Unix timestamp as h:MM:SSam/pm (e.g. '6:50:20PM')."""
     dt = datetime.datetime.fromtimestamp(ts)
@@ -1319,10 +1324,13 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         # Live FM acquisition → FM canvas
         self.microscope.fm.acquisition_signal.connect(self._on_fm_live_image)
 
-        # FIB acquisition signal (e.g. post-milling) → FIB canvas
-        self.microscope.fib_acquisition_signal.connect(
-            lambda image: self._fib_image_ready.emit(image)
-        )
+        # A FIB image someone asked to show (e.g. post-milling) → FIB canvas
+        def show_fib(image) -> None:
+            if _beam_type(image) is BeamType.ION:
+                self._fib_image_ready.emit(image)
+
+        if self.microscope.imaging is not None:
+            self.microscope.imaging.image_shown.connect(show_fib)
         # Live FIB view → FIB canvas, from the ion beam itself
         ion = getattr(self.microscope, "beams", {}).get(BeamType.ION)
         if ion is not None:

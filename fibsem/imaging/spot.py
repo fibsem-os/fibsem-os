@@ -127,7 +127,8 @@ def show_after_burn(microscope: FibsemMicroscope) -> None:
     """Take a FIB image of what a burn left and push it to the view, so whoever
     looks next sees the marks."""
     image = microscope.acquire_image(beam_type=BeamType.ION)
-    microscope.fib_acquisition_signal.emit(image)
+    if microscope.imaging is not None:
+        microscope.imaging.show(image)
 
 
 def run_spot_burn(

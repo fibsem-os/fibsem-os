@@ -518,7 +518,8 @@ class FibsemMillingTask:
                 fib_image = acquire.acquire_current_image(
                     self.microscope, self.config.channel
                 )
-                self.microscope.fib_acquisition_signal.emit(fib_image)
+                if self.microscope.imaging is not None:
+                    self.microscope.imaging.show(fib_image)
         except Exception as e:
             logging.error(f"Error acquiring image after milling task: {e}")
 
@@ -788,12 +789,12 @@ class FibsemMillingTask:
         )
 
         try:
-            if sem_image is not None:
-                self.microscope.sem_acquisition_signal.emit(sem_image)  # sem image
-            if fib_image is not None:
-                self.microscope.fib_acquisition_signal.emit(fib_image)  # ion image
+            imaging = self.microscope.imaging
+            for image in (sem_image, fib_image):
+                if image is not None and imaging is not None:
+                    imaging.show(image)
         except Exception as e:
-            logging.error(f"Error emitting acquisition signals: {e}")
+            logging.error(f"Error showing the images after milling: {e}")
 
 
 def _strategy_result(stage: FibsemMillingStage, result: Any) -> Dict[str, Any]:

@@ -94,12 +94,10 @@ def test_microscope_taps_capture_real_emissions(microscope):
     buffer = EventBuffer()
     disposers = attach_microscope_taps(buffer, microscope)
     try:
-        # A real image through the real signal. Note: one-shot acquire_image
-        # does NOT emit on the acquisition signals today -- only the streaming
-        # worker does (a documented upstream gap) -- so the test emits the way
-        # the worker would, with a genuinely acquired image.
+        # A real image, shown the way a milling task shows its result: an
+        # acquisition alone is never shown, so it never reaches the stream here.
         image = microscope.acquire_image(beam_type=BeamType.ION)
-        microscope.fib_acquisition_signal.emit(image)
+        microscope.imaging.show(image)
         from fibsem.structures import FibsemStagePosition
 
         microscope.move_stage_relative(
@@ -130,7 +128,7 @@ def test_disposers_detach_the_taps(microscope):
     for dispose in attach_microscope_taps(buffer, microscope):
         dispose()
     image = microscope.acquire_image(beam_type=BeamType.ION)
-    microscope.fib_acquisition_signal.emit(image)
+    microscope.imaging.show(image)
     assert buffer.events_since(0)["events"] == []
 
 
@@ -252,3 +250,27 @@ def test_to_plain_handles_the_awkward_types():
     assert to_plain(TaskStatus.InProgress) == "InProgress"
     assert to_plain(np.float64(1.5)) == 1.5
     assert to_plain({"a": (1, 2)}) == {"a": [1, 2]}
+
+
+def test_an_acquisition_alone_never_reaches_the_stream(microscope):
+    """Only images someone shows are recorded as sem/fib_acquisition: an
+    alignment or reduced-area acquisition stays out, as it stays out of the views."""
+    from fibsem.structures import BeamType
+
+    buffer = EventBuffer()
+    disposers = attach_microscope_taps(buffer, microscope)
+    try:
+        microscope.acquire_image(beam_type=BeamType.ELECTRON)
+        kinds = [e["kind"] for e in buffer.events_since(0)["events"]]
+        assert "sem_acquisition" not in kinds
+        assert "fib_acquisition" not in kinds
+
+        microscope.imaging.show(microscope.acquire_image(beam_type=BeamType.ELECTRON))
+        kinds = [e["kind"] for e in buffer.events_since(0)["events"]]
+        assert kinds.count("sem_acquisition") == 1
+        assert "fib_acquisition" not in kinds
+        assert not hasattr(microscope, "sem_acquisition_signal")
+        assert not hasattr(microscope, "fib_acquisition_signal")
+    finally:
+        for dispose in disposers:
+            dispose()

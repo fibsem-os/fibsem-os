@@ -239,14 +239,14 @@ def test_client_parameter_metadata_and_list(fibsem_client):
     ],
 )
 def test_an_acquired_image_reaches_the_apps_views(armed_client, microscope, path, body):
-    # FIB-1375: the app's FIB view listens on this signal, as for the workflow's
-    # images, so an agent's frame replaces the one from before its move.
+    # FIB-1375: the app's views show what `imaging.show` is given, as for the
+    # workflow's images, so an agent's frame replaces the one from before its move.
     shown = []
-    microscope.fib_acquisition_signal.connect(shown.append)
+    microscope.imaging.image_shown.connect(shown.append)
     try:
         resp = armed_client.post(path, json=body)
     finally:
-        microscope.fib_acquisition_signal.disconnect(shown.append)
+        microscope.imaging.image_shown.disconnect(shown.append)
     assert resp.status_code == 200
     assert len(shown) == 1
     assert shown[0].metadata.beam_type is BeamType.ION

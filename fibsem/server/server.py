@@ -57,18 +57,17 @@ API_VERSION = "0.3.0"
 
 
 def _show_in_app(microscope: FibsemMicroscope, image) -> None:
-    """Send an image a route acquired to the microscope's acquisition signal, as
-    the workflow's one-shots do, so the app's SEM/FIB views show it (FIB-1375).
+    """Show an image a route acquired in the app's SEM/FIB views, as the
+    workflow's one-shots do (FIB-1375).
 
     Before this, an agent's image went back to the agent only: the app kept the
     frame from before the agent's move, and a question raised next showed that.
     """
     metadata = getattr(image, "metadata", None)
     beam_type = getattr(metadata, "beam_type", None) if metadata is not None else None
-    if beam_type is BeamType.ELECTRON:
-        microscope.sem_acquisition_signal.emit(image)
-    elif beam_type is BeamType.ION:
-        microscope.fib_acquisition_signal.emit(image)
+    imaging = getattr(microscope, "imaging", None)
+    if beam_type in (BeamType.ELECTRON, BeamType.ION) and imaging is not None:
+        imaging.show(image)
 
 
 class _RefusingRoute(APIRoute):
