@@ -2067,14 +2067,14 @@ def test_run_point_fit_does_not_mutate_coordinate(qapp, monkeypatch):
 
     import numpy as np
 
-    import fibsem.correlation.util as util
+    import fibsem.imaging.localise as localise
     from fibsem.ui.correlation.widgets.fit_confirmation_dialog import FitStatus
 
     w = _widget(qapp)
     w._fib_image = SimpleNamespace(filtered_data=np.zeros((64, 64), dtype=np.float32))
     diag = object()  # stand-in FitDiagnostic
     monkeypatch.setattr(
-        util, "hole_fitting_FIB", lambda img, x, y: (x + 3.0, y + 4.0, diag)
+        localise, "hole_fitting_FIB", lambda img, x, y: (x + 3.0, y + 4.0, diag)
     )
 
     coord = _coord(20.0, 20.0, 0.0, PointType.FIB)  # FIB method defaults to "Hole"
@@ -2095,13 +2095,13 @@ def test_refit_applies_on_accept_not_on_reject(qapp, monkeypatch):
     import numpy as np
     from PyQt5.QtWidgets import QDialog
 
-    import fibsem.correlation.util as util
+    import fibsem.imaging.localise as localise
     import fibsem.ui.correlation.widgets.correlation_tab_widget as ctw
 
     w = _widget(qapp)
     w._fib_image = SimpleNamespace(filtered_data=np.zeros((64, 64), dtype=np.float32))
     monkeypatch.setattr(
-        util, "hole_fitting_FIB", lambda img, x, y: (x + 3.0, y + 4.0, None)
+        localise, "hole_fitting_FIB", lambda img, x, y: (x + 3.0, y + 4.0, None)
     )
     coord = _coord(20.0, 20.0, 0.0, PointType.FIB)
     w._coords_tab.fib_list.add_coordinate(coord)

@@ -1,5 +1,4 @@
 import logging
-import threading
 from typing import TYPE_CHECKING, Optional
 
 from PyQt5.QtCore import pyqtSignal
@@ -17,7 +16,7 @@ from fibsem.milling.progress import (
     MillingProgress,
     MillingProgressStatus,
 )
-from fibsem.milling.tasks import FibsemMillingTaskConfig, run_milling_task
+from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.structures import MillingState
 from fibsem.ui import stylesheets
 from fibsem.ui.qt.threading import FunctionWorker
@@ -43,7 +42,6 @@ class FibsemMillingWidget2(QWidget):
         self.parent_widget = parent
 
         self._milling_thread: Optional[FunctionWorker] = None
-        self._milling_stop_event = threading.Event()
         # Why the last mill failed, or None. Set on the worker thread before its
         # `finished`, so a listener of `finished_milling_signal` reads this run's.
         self.milling_error: Optional[Exception] = None
@@ -200,8 +198,7 @@ class FibsemMillingWidget2(QWidget):
             logging.warning("Milling task is already running.")
             return
 
-        # clear the stop event, disable gui elements
-        self._milling_stop_event.clear()
+        # disable gui elements
         self.milling_error = None
         self.pushButton_run_milling.setEnabled(False)
 
@@ -244,13 +241,12 @@ class FibsemMillingWidget2(QWidget):
             if not milling_task_config.enabled_stages:
                 raise ValueError("No milling stages defined in the configuration.")
 
-            run_milling_task(
-                microscope=microscope,
-                config=milling_task_config,
-                stop_event=self._milling_stop_event,
-                raise_on_failure=True,
-                output_dir=output_dir,
-            )
+            # The milling service's run, the one the agent and the workflow use
+            # (FIB-1451). Without a task's folder, the run saves where the
+            # config's imaging path says, as it always has from this button.
+            if output_dir is None:
+                output_dir = milling_task_config.acquisition.imaging.path
+            microscope.milling.run_task(milling_task_config, path=output_dir)
 
         except Exception as e:
             logging.error(
@@ -262,11 +258,9 @@ class FibsemMillingWidget2(QWidget):
             self._milling_thread = None
 
     def stop_milling(self):
-        if self._own_run:
-            self._milling_stop_event.set()
-            self.microscope.stop_milling()
-        elif self._service_task:
-            # The workflow's mill: the service's stop ends the whole task.
+        if self._own_run or self._service_task:
+            # This widget's mill or the workflow's, both a task on the milling
+            # service: its stop ends the whole task.
             try:
                 self.microscope.milling.stop()
             except Exception as e:  # noqa: BLE001 - already ended

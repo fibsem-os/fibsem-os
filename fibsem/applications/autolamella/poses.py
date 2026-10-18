@@ -339,6 +339,28 @@ def remove_lamella(experiment, lamella) -> bool:
     return True
 
 
+def set_objective_position(experiment, lamella, value: float) -> None:
+    """Store *value* as the objective position on *lamella*'s fluorescence pose,
+    and save *experiment* when there is one. The selected lamella's spinbox and
+    Use current, and the App Server's."""
+    lamella.fluorescence_pose.objective_position = value
+    if experiment is not None:
+        experiment.save()
+
+
+def set_objective_position_on_all(experiment, value: float) -> int:
+    """Store *value* on every lamella with a fluorescence pose, saved: Apply to
+    All. How many it was stored on."""
+    count = 0
+    for lamella in experiment.positions:
+        if lamella.fluorescence_pose is not None:
+            lamella.fluorescence_pose.objective_position = value
+            count += 1
+    if count:
+        experiment.save()
+    return count
+
+
 def current_objective_position(fm) -> Optional[float]:
     """The FM objective position to store on a fluorescence pose: where it is
     when inserted, else its focus position. None when it can't be read."""

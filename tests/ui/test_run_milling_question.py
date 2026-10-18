@@ -462,14 +462,14 @@ def test_every_mill_is_the_task_s_and_writes_under_its_folder(ui, qapp):
 def test_a_mill_run_by_hand_is_not_the_task_s(ui, qapp, monkeypatch):
     """The editor's own Run, outside any question: unmarked, the operator's,
     with no task folder."""
-    from fibsem.ui.widgets import milling_widget as mw
+    from fibsem.services.milling import Milling
 
     runs = []
 
-    def by_hand(microscope, config, **kwargs):
-        runs.append((current_actor(), kwargs.get("output_dir")))
+    def by_hand(service, config, path=None):
+        runs.append((current_actor(), path))
 
-    monkeypatch.setattr(mw, "run_milling_task", by_hand)
+    monkeypatch.setattr(Milling, "run_task", by_hand)
     ui.ui_responder._milling_widget().milling_widget.run_milling(_config("by-hand"))
     _wait(qapp, lambda: runs)
 

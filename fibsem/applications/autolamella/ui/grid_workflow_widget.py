@@ -1024,9 +1024,10 @@ class GridWorkflowWidget(QWidget):
         protocol = self._protocol()
         if protocol is None or task_name not in protocol.task_config:
             return
-        protocol.task_config[task_name].requires = [
-            n for n in protocol.ordered_task_names if n in names and n != task_name
-        ]
+        why = protocol.set_requires(task_name, [n for n in names if n != task_name])
+        if why:
+            logging.warning(why)
+            return
         self._save_protocol()
         self._refresh_dependents()
         for row in self._task_rows.values():
@@ -1047,7 +1048,11 @@ class GridWorkflowWidget(QWidget):
         if protocol is None or names == list(protocol.ordered_task_names):
             self._rebuild()
             return
-        protocol.order = list(names)
+        why = protocol.reorder(list(names))
+        if why:
+            logging.warning(why)
+            self._rebuild()
+            return
         self._save_protocol()
         self._rebuild()
         self.protocol_changed.emit()
