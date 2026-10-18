@@ -707,7 +707,7 @@ class ThermoMicroscope(FibsemMicroscope):
     def _build_parts(self) -> None:
         """Build the chamber, its camera and the manipulator, and keep the
         manipulator only when it says it is fitted; then the GIS and the sputter
-        coater, on an Arctis. Then
+        coater, on an Arctis or a Hydra Bio. Then
         build any other device the configuration adds.
 
         ``pump``, ``vent`` and the manipulator's raw moves then go through the
@@ -730,8 +730,8 @@ class ThermoMicroscope(FibsemMicroscope):
         self._build_devices([], exclude_types=_OWN_TYPES)
 
     def _build_gis(self) -> None:
-        """The ``gis`` device, built on an Arctis that lists a GIS port or a
-        multichem, unless the configuration switches it off. No other Thermo
+        """The ``gis`` device, built on an Arctis or a Hydra Bio that lists a GIS port
+        or a multichem, unless the configuration switches it off. No other Thermo
         instrument gets one; a configuration that names one there fails to build it."""
         from fibsem.drivers.autoscript.devices import gis_fitted
 
@@ -741,9 +741,10 @@ class ThermoMicroscope(FibsemMicroscope):
         self._build_devices(fitted, _GIS_TYPES)
 
     def _build_sputter_coater(self) -> None:
-        """The ``sputter_coater`` device, built on an Arctis whose coater reports
-        installed, unless the configuration switches it off. No other Thermo
-        instrument gets one; a configuration that names one there fails to build it."""
+        """The ``sputter_coater`` device, built on an Arctis or a Hydra Bio whose
+        coater reports installed, unless the configuration switches it off. No other
+        Thermo instrument gets one; a configuration that names one there fails to
+        build it."""
         from fibsem.drivers.autoscript.devices import sputter_coater_fitted
 
         fitted = []

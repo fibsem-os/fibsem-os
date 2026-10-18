@@ -1280,11 +1280,15 @@ def bind_autoscript_manipulator(
     ).connect()
 
 
-# -- The gas injector ---------------------------------------------------------------
+# -- The gas injector and the sputter coater ----------------------------------------
 #
-# Built on an Arctis only (``is_arctis``): it is the one Thermo instrument fibsem-os
-# drives a GIS on. Anything else gets no ``gis`` device, and a configuration that
-# names one there is refused.
+# Built on an Arctis and a Hydra Bio only (``thermo_variant``), the Thermo instruments
+# fibsem-os drives them on. Anything else gets neither device, and a configuration
+# that names one there is refused. An entry's ``variant`` forces one on a bench.
+
+ARCTIS = "arctis"
+HYDRA_BIO = "hydra_bio"
+THERMO_VARIANTS = (ARCTIS, HYDRA_BIO)
 
 MULTICHEM = "Multichem"
 """The ``port`` a ``gis`` entry names to use the multichem rather than a GIS port."""
@@ -1299,11 +1303,44 @@ GIS_HEATED_TEMPERATURE = 300.0
 GIS_HEATER_TIMEOUT = 15.0
 """Seconds ``heater_on`` waits for ``GIS_HEATED_TEMPERATURE`` before it fails."""
 
+HYDRA_BIO_GIS_PORT = "Pt dep Cryo"
+"""The port a Hydra Bio deposits from, when the entry names none and it is listed:
+the cryo platinum port the bench runs used."""
 
-def is_arctis(microscope: ThermoMicroscope) -> bool:
-    """Whether the instrument is an Arctis, by the model name xT reports."""
-    model = getattr(microscope.system.info, "model", None) or ""
-    return "arctis" in str(model).lower()
+HYDRA_BIO_SPUTTER_CURRENT = 1.2e-7
+"""Amperes (0.12 uA). A Hydra Bio coater runs at 1 nA unless set, so each run sets
+the device's current, this until a caller sets another."""
+
+
+def thermo_variant(
+    microscope: ThermoMicroscope, entry: Optional[DeviceEntry] = None
+) -> Optional[str]:
+    """``ARCTIS`` or ``HYDRA_BIO`` by the model name xT reports, or None for any other
+    instrument. An entry's ``variant`` wins. A Hydra is taken for a Hydra Bio: the
+    devices' own ``is_installed`` keeps one without a coater or GIS from building."""
+    forced = entry.options.get("variant") if entry is not None else None
+    if forced is not None:
+        if forced not in THERMO_VARIANTS:
+            raise ValueError(f"variant is one of {THERMO_VARIANTS}, not {forced!r}")
+        return forced
+    model = str(getattr(microscope.system.info, "model", None) or "").lower()
+    if "arctis" in model:
+        return ARCTIS
+    if "hydra" in model:
+        return HYDRA_BIO
+    return None
+
+
+def _supported_variant(
+    microscope: ThermoMicroscope, entry: DeviceEntry, what: str
+) -> str:
+    variant = thermo_variant(microscope, entry)
+    if variant is None:
+        raise ValueError(
+            f"a Thermo {what} is supported on an Arctis or a Hydra Bio only, not on "
+            f"{microscope.system.info.model!r}"
+        )
+    return variant
 
 
 def gis_read_back_supported(connection: AutoScriptConnection) -> bool:
@@ -1534,22 +1571,16 @@ class AutoscriptMultichem(_AutoscriptGasInjector):
         self._heated = False
 
 
-class AutoscriptArctisSputterCoater(SputterCoater):
-    """The Arctis sputter coater (xT 28, AutoScript 4.8 and later),
-    ``specimen.sputter_coater``.
+class _AutoscriptSputterCoater(SputterCoater):
+    """What the Arctis and Hydra Bio coaters share, ``specimen.sputter_coater``: the
+    current and its limits, and around a run both beams on, the ion voltage put back
+    and the stage position read back.
 
-    On an Arctis, ``run(time)`` homes the FLM, moves the compustage to the sputter
-    position and back, and sputters whatever is on the stage, so ``coats_grids`` is
-    False. ``prepare()`` and ``recover()`` aren't supported there, and nor is
-    ``is_inserted``: ``inserted`` reads True only while this device's own run is on.
-
-    Around a run, following the AutoScript reference's Arctis example: both beams
-    on (a Hydra Bio refused with "MicroSputter operation cannot start: IonBeam is
-    off"), then ``compustage.home()``. Whether the home is needed is a bench
-    question; AutoScript known issue AST-2132 reads "Arctis - MicroSputter -
-    Sputtering from AS fails under certain conditions". The ion voltage is put back
-    after the run, in a ``finally``, because the coater changes it on a Hydra Bio.
-    The stage's position is read back afterwards, since the run moves it.
+    Both beams on, because a Hydra Bio refused with "MicroSputter operation cannot
+    start: IonBeam is off". The ion voltage is put back after the run, in a
+    ``finally``, because the coater changes it (seen on a Hydra Bio, where the bench
+    runs set it back to 30 kV); this puts back what it was before the run. The run
+    moves the stage, so its position is read back.
     """
 
     def __init__(
@@ -1580,9 +1611,6 @@ class AutoscriptArctisSputterCoater(SputterCoater):
         limits = self._coater.current.limits
         return ParameterMetadata(limits=RangeLimit(min=limits.min, max=limits.max))
 
-    def read_inserted(self) -> bool:
-        return self._running
-
     def _run(self, seconds: float, grids: Optional[Tuple[int, ...]]) -> None:
         whole = int(round(seconds))  # the vendor takes whole seconds
         if whole < 1:
@@ -1595,11 +1623,12 @@ class AutoscriptArctisSputterCoater(SputterCoater):
         for beam in (sdk.beams.electron_beam, ion):
             if not beam.is_on:
                 beam.turn_on()
-        sdk.specimen.compustage.home()
-        logging.info(f"Sputtering for {seconds} s...")
+        self._before_run()
+        on = f" on grids {list(grids)}" if grids else ""
+        logging.info(f"Sputtering for {whole} s{on}...")
         self._running = True
         try:
-            self._coater.run(whole)
+            self._vendor_run(whole, grids)
         finally:
             self._running = False
             ion.high_voltage.value = voltage
@@ -1607,11 +1636,83 @@ class AutoscriptArctisSputterCoater(SputterCoater):
             if stage is not None:
                 stage.position.get_value()
 
+    def _before_run(self) -> None:
+        """What the instrument needs after the beams are on and before the run."""
+
+    def _vendor_run(self, seconds: int, grids: Optional[Tuple[int, ...]]) -> None:
+        raise NotImplementedError
+
+
+class AutoscriptArctisSputterCoater(_AutoscriptSputterCoater):
+    """The Arctis sputter coater (xT 28, AutoScript 4.8 and later).
+
+    On an Arctis, ``run(time)`` homes the FLM, moves the compustage to the sputter
+    position and back, and sputters whatever is on the stage, so ``coats_grids`` is
+    False. ``prepare()`` and ``recover()`` aren't supported there, and nor is
+    ``is_inserted``: ``inserted`` reads True only while this device's own run is on.
+
+    Following the AutoScript reference's Arctis example, ``compustage.home()`` before
+    the run. Whether the home is needed is a bench question; AutoScript known issue
+    AST-2132 reads "Arctis - MicroSputter - Sputtering from AS fails under certain
+    conditions".
+    """
+
+    def read_inserted(self) -> bool:
+        return self._running
+
+    def _before_run(self) -> None:
+        self.connection.sdk.specimen.compustage.home()
+
+    def _vendor_run(self, seconds: int, grids: Optional[Tuple[int, ...]]) -> None:
+        self._coater.run(seconds)
+
+
+class AutoscriptHydraBioSputterCoater(_AutoscriptSputterCoater):
+    """The Hydra Bio MicroSputter (AutoScript 4.12 and later).
+
+    ``run(seconds, grids)`` moves the stage to each numbered grid itself, so
+    ``coats_grids`` is True and a run names its grids: the coater numbers the two
+    grids on the shuttle 1 and 2. ``inserted`` is the coater's ``is_inserted``.
+
+    The coater runs at 1 nA unless its current is set, so each run sets the
+    device's current first: ``HYDRA_BIO_SPUTTER_CURRENT`` (0.12 uA, the bench value)
+    until a caller sets another. Whether ``seconds`` is per grid or for the whole run
+    is not known yet; the bench runs coated both grids with one 120 s run.
+    """
+
+    coats_grids = True
+
+    def __init__(
+        self,
+        parent: ThermoMicroscope,
+        connection: AutoScriptConnection,
+        current: float = HYDRA_BIO_SPUTTER_CURRENT,
+        resources: Optional[Resources] = None,
+    ):
+        super().__init__(parent, connection, resources)
+        self._run_current = float(current)
+
+    def write_current(self, value: float) -> None:
+        super().write_current(value)
+        self._run_current = float(value)
+
+    def read_inserted(self) -> bool:
+        return bool(self._coater.is_inserted)
+
+    def _before_run(self) -> None:
+        logging.info(f"Setting the sputter current to {self._run_current:.2e} A.")
+        self._coater.current.value = self._run_current
+
+    def _vendor_run(self, seconds: int, grids: Optional[Tuple[int, ...]]) -> None:
+        if not grids:
+            raise ValueError(f"{self.name}: name the grids to coat (1, 2).")
+        self._coater.run(seconds, list(grids))
+
 
 def gis_fitted(microscope: ThermoMicroscope) -> bool:
-    """Whether to build a ``gis`` by default: an Arctis that lists a GIS port or a
-    multichem. False when AutoScript can't say."""
-    if not is_arctis(microscope):
+    """Whether to build a ``gis`` by default: an Arctis or a Hydra Bio that lists a
+    GIS port or a multichem. False when AutoScript can't say."""
+    if thermo_variant(microscope) is None:
         return False
     try:
         gas = microscope._connection.sdk.gas
@@ -1621,9 +1722,9 @@ def gis_fitted(microscope: ThermoMicroscope) -> bool:
 
 
 def sputter_coater_fitted(microscope: ThermoMicroscope) -> bool:
-    """Whether to build a ``sputter_coater`` by default: an Arctis whose coater
-    reports installed. False when AutoScript can't say."""
-    if not is_arctis(microscope):
+    """Whether to build a ``sputter_coater`` by default: an Arctis or a Hydra Bio
+    whose coater reports installed. False when AutoScript can't say."""
+    if thermo_variant(microscope) is None:
         return False
     try:
         return bool(microscope._connection.sdk.specimen.sputter_coater.is_installed)
@@ -1692,15 +1793,16 @@ def build_autoscript_sample_loader(
 
 def build_autoscript_sputter_coater(
     entry: DeviceEntry, context: BuildContext
-) -> AutoscriptArctisSputterCoater:
-    """The sputter coater, on an Arctis only."""
+) -> _AutoscriptSputterCoater:
+    """The sputter coater, on an Arctis or a Hydra Bio. A Hydra Bio entry's
+    ``current`` (amperes) replaces ``HYDRA_BIO_SPUTTER_CURRENT``."""
     microscope = context.microscope
-    if not is_arctis(microscope):
-        raise ValueError(
-            f"a Thermo sputter coater is supported on an Arctis only, not on "
-            f"{microscope.system.info.model!r}"
-        )
-    device = AutoscriptArctisSputterCoater(microscope, microscope._connection)
+    connection = microscope._connection
+    if _supported_variant(microscope, entry, "sputter coater") == HYDRA_BIO:
+        current = float(entry.options.get("current", HYDRA_BIO_SPUTTER_CURRENT))
+        device = AutoscriptHydraBioSputterCoater(microscope, connection, current)
+    else:
+        device = AutoscriptArctisSputterCoater(microscope, connection)
     if not device.is_installed():
         raise ValueError("the instrument reports no sputter coater")
     return _named(device, entry)
@@ -1709,18 +1811,18 @@ def build_autoscript_sputter_coater(
 def build_autoscript_gis(
     entry: DeviceEntry, context: BuildContext
 ) -> _AutoscriptGasInjector:
-    """The gas injector, on an Arctis only: the port an entry's ``port`` names
-    (``MULTICHEM`` for the multichem), else the multichem where there is one, else the
-    first GIS port."""
+    """The gas injector, on an Arctis or a Hydra Bio: the port an entry's ``port``
+    names (``MULTICHEM`` for the multichem), else on a Hydra Bio
+    ``HYDRA_BIO_GIS_PORT`` where it is listed, else the multichem where there is one,
+    else the first GIS port."""
     microscope = context.microscope
-    if not is_arctis(microscope):
-        raise ValueError(
-            f"a Thermo GIS is supported on an Arctis only, not on "
-            f"{microscope.system.info.model!r}"
-        )
+    variant = _supported_variant(microscope, entry, "GIS")
     connection = microscope._connection
     gas = connection.sdk.gas
     port = entry.options.get("port")
+    if port is None and variant == HYDRA_BIO:
+        if HYDRA_BIO_GIS_PORT in gas.list_all_gis_ports():
+            port = HYDRA_BIO_GIS_PORT
     if port is None:
         if gas.list_all_multichem_ports():
             port = MULTICHEM
