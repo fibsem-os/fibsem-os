@@ -335,21 +335,18 @@ def test_a_previous_run_gives_the_rotation_unless_far_from_the_geometry(geometri
     geometry = nominal_transform(geometric.fib_image, geometric.fm_image)
 
     geometric.prior_runs = _fitted_run(geometry.rotation, geometry)
-    prior, rejected = geometric.prior_transform()
-    assert prior.source == "02-other, run r" and rejected is None
-    assert geometric.seed().prior.source == "02-other, run r"
+    seed = geometric.seed()
+    assert seed.prior.source == "02-other, run r" and seed.prior_rejected is None
 
     a = np.radians(60.0)
     about_x = np.array(
         [[1, 0, 0], [0, np.cos(a), -np.sin(a)], [0, np.sin(a), np.cos(a)]]
     )
     geometric.prior_runs = _fitted_run(about_x @ geometry.rotation, geometry)
-    prior, rejected = geometric.prior_transform()
-    assert prior is None
-    assert rejected[0] == "02-other, run r"
-    assert rejected[1] == pytest.approx(60.0, abs=1.0)
     seed = geometric.seed()
     assert seed.prior is None
+    assert seed.prior_rejected[0] == "02-other, run r"
+    assert seed.prior_rejected[1] == pytest.approx(60.0, abs=1.0)
     assert np.allclose(seed.transform.projection, geometry.projection)
 
 
@@ -388,6 +385,21 @@ def test_a_run_with_no_seed_given_starts_where_the_tab_did(geometric, ignore):
     assert result.placement_offset == pytest.approx(expected.placement_offset)
     assert result.poi[0].image_px.x == pytest.approx(expected.poi[0].image_px.x)
     assert result.poi[0].image_px.y == pytest.approx(expected.poi[0].image_px.y)
+
+
+def test_the_last_seed_goes_with_the_result_it_described(ready, tmp_path):
+    """A loaded or discarded result is not the last run's: the status line
+    must not describe it with that run's seed."""
+    ready.run()
+    assert ready.last_seed is not None
+    ready.discard_result()
+    assert ready.last_seed is None
+
+    ready.run()
+    path = tmp_path / "saved.json"
+    ready.save(str(path))
+    ready.load(str(path))
+    assert ready.last_seed is None
 
 
 def test_points_differing_from_the_last_seed_are_manual_edits(ready):
@@ -430,6 +442,45 @@ def test_an_armed_pre_correction_is_recorded_run_and_cleared(ready, tmp_path):
     ready.clear_pre_correction()
     assert ready.data.ri_pre_correction_factor is None
     assert ready.data.ri_pre_correction_params is None
+
+
+def test_a_factor_alone_is_armed_with_the_experiments_optics(ready):
+    """From a script the factor is enough: the record is the experiment's RI
+    settings along the optical axis, and the factor is recorded as entered."""
+    ready.points.add(Coordinate(PointXYZ(80.0, 80.0, 2.0), PointType.SURFACE_FM))
+    ri = ready.config.ri
+
+    ready.arm_pre_correction(1.3)
+
+    assert ready.data.ri_pre_correction_factor == 1.3
+    assert ready.data.ri_pre_correction_params == {
+        "tilt_deg": 0.0,
+        "depth_um": ri.depth_um,
+        "na": ri.na,
+        "n2": ri.n2,
+        "wavelength_um": ri.wavelength_um,
+        "computed": False,
+    }
+    assert ready.run().refractive_index_correction_factor == pytest.approx(1.3)
+
+
+def test_a_refused_second_correction_keeps_the_result_stale(ready):
+    """FIB-315: Apply, drag the FIB surface (the result is stale), Apply again.
+    The second is refused, and must not record the dragged surface on the
+    result first, which made the stale result read as current."""
+    result = ready.run()
+    surface = Coordinate(PointXYZ(10.0, 100.0, 0.0), PointType.SURFACE)
+    ready.points.add(surface)
+    assert ready.apply_post_correction(1.5) is True
+    ready.points.move(surface, 10.0, 120.0)
+    assert not result.matches_inputs(ready.fit_data)
+
+    with pytest.raises(ValueError, match="already been applied"):
+        ready.apply_post_correction(1.5)
+
+    assert result.input_data.surface_coordinate.point.y == 100.0
+    assert not result.matches_inputs(ready.fit_data)
+    assert "points changed" in ready.next_step()
 
 
 def test_a_post_correction_moves_poi_1_about_the_fib_surface(ready):

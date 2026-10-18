@@ -85,6 +85,7 @@ from fibsem.correlation.config import (
     RISettings,
 )
 from fibsem.correlation.export import save_correlation_plot, write_csv
+from fibsem.correlation.fit import Seed
 from fibsem.correlation.history import (
     CORRELATION_FILENAME,
     discover_project,
@@ -1615,6 +1616,10 @@ class _RITab(QWidget):
         self._lbl_warning.setStyleSheet(self._WARNING_STYLES[level])
         self._lbl_warning.setText(text)
 
+    def report_refused_correction(self, reason: object) -> None:
+        """Say that a correction was not applied, and why."""
+        self._set_warning(f"Correction not applied: {reason}")
+
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -2853,7 +2858,7 @@ class CorrelationTabWidget(QWidget):
             )
         )
         self._discard_result()
-        self._session.seeded_positions = None
+        self._session.mark_seeded()  # nothing on screen, so nothing edited
         return True
 
     def _discard_result(self) -> None:
@@ -2995,12 +3000,14 @@ class CorrelationTabWidget(QWidget):
         loaded = (
             self._session.fib_image is not None and self._session.fm_image is not None
         )
-        seed = self._session.seed()  # unseeded without both images
+        # Once per refresh: the transform, the prior and the run passed over
+        # all come from it. Unseeded without both images.
+        seed = self._session.seed()
         nominal, note = seed.transform, seed.note
         can_project = loaded and nominal is not None and bool(fib)
-        source = self._transform_source() if loaded else ""
+        source = self._transform_source(seed) if loaded else ""
         cl.set_projection_text(
-            *(self._projection_line(nominal) if loaded else ("none", ""))
+            *(self._projection_line(seed) if loaded else ("none", ""))
         )
         cl.btn_project.setEnabled(can_project)
         cl.btn_project.setStyleSheet(
@@ -3034,9 +3041,7 @@ class CorrelationTabWidget(QWidget):
                 )
             else:
                 source = (
-                    "the previous run's"
-                    if self._session.prior_transform()[0] is not None
-                    else "the geometry's"
+                    "the previous run's" if seed.prior is not None else "the geometry's"
                 )
                 hint = (
                     f"{n_tentative} predicted, {n_pairs} placed. Project again to "
@@ -3472,11 +3477,12 @@ class CorrelationTabWidget(QWidget):
         """``"02-pro-moose, run 2026-…"`` -> ``"02-pro-moose"``; own runs -> ``"this lamella"``."""
         return source.split(", run ")[0]
 
-    def _projection_line(self, nominal) -> Tuple[str, str]:
+    def _projection_line(self, seed: Seed) -> Tuple[str, str]:
         """The Method panel's projection row: one line, and the numbers as a tooltip."""
+        nominal = seed.transform
         if nominal is None:
             return "none", ""
-        prior, rejected = self._session.prior_transform()
+        prior, rejected = seed.prior, seed.prior_rejected
         rotation = (
             f"previous run ({self._run_label(prior.source)})"
             if prior is not None
@@ -3544,11 +3550,10 @@ class CorrelationTabWidget(QWidget):
             )
         return f"{rotation} · {placement}", "\n".join(lines)
 
-    def _transform_source(self) -> str:
+    def _transform_source(self, seed: Seed) -> str:
         """One clause naming where the transform prior comes from."""
-        prior, _ = self._session.prior_transform()
-        if prior is not None:
-            return f"from a previous run ({prior.source})"
+        if seed.prior is not None:
+            return f"from a previous run ({seed.prior.source})"
         assumed = self._fm_transform_assumption()
         return "from geometry" + (f" ({assumed})" if assumed else "")
 
@@ -3858,7 +3863,7 @@ class CorrelationTabWidget(QWidget):
             live = self._session.apply_post_correction(factor)
         except ValueError as exc:
             logging.exception("RI post-correction refused")
-            self._ri_tab._set_warning(f"Correction not applied: {exc}")
+            self._ri_tab.report_refused_correction(exc)
             return
         result = self._session.result
         self._overlay_result_on_fib(result)

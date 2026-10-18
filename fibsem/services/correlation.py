@@ -50,7 +50,8 @@ class Correlation(Service):
 
         *fib_points* are ``(x, y)`` pixels in the FIB image at *fib_image_path*;
         *fm_points* the same fiducials as ``(x, y, z)`` pixels and slices in the
-        FM stack at *fm_image_path*, in the same order (at least four pairs);
+        FM stack at *fm_image_path*, in the same order (at least
+        :data:`~fibsem.correlation.config.MIN_FIDUCIAL_PAIRS` pairs);
         *poi_points* the targets as ``(x, y, z)`` in the FM stack.
 
         With *lamella_path*, the fit starts from the experiment's previous runs
@@ -62,26 +63,13 @@ class Correlation(Service):
         metres from the image centre, the verdict (good, check, bad, with its
         reasons), what the fit started from, and the saved paths.
         """
-        from fibsem.correlation.config import MIN_FIDUCIAL_PAIRS
         from fibsem.correlation.export import save_overlay
-        from fibsem.correlation.history import new_run_dir, save_run
+        from fibsem.correlation.history import CORRELATION_FILENAME, new_run_dir
         from fibsem.correlation.prior import experiment_runs
         from fibsem.correlation.session import CorrelationSession
         from fibsem.correlation.structures import Coordinate, PointType, PointXYZ
         from fibsem.fm.structures import FluorescenceImage
         from fibsem.structures import FibsemImage
-
-        if len(fib_points) != len(fm_points):
-            raise ValueError(
-                f"fib_points and fm_points are pairs: {len(fib_points)} FIB "
-                f"points, {len(fm_points)} FM points"
-            )
-        if len(fib_points) < MIN_FIDUCIAL_PAIRS:
-            raise ValueError(
-                f"a correlation needs at least {MIN_FIDUCIAL_PAIRS} fiducial pairs"
-            )
-        if not poi_points:
-            raise ValueError("poi_points: give at least one point of interest")
 
         def coordinates(points, kind, dims):
             out = []
@@ -102,6 +90,11 @@ class Correlation(Service):
             + coordinates(fm_points, PointType.FM, 3)
             + coordinates(poi_points, PointType.POI, 3)
         )
+        if not session.can_run():
+            raise ValueError(
+                _refusal(len(fib_points), len(fm_points), len(poi_points))
+                or session.next_step()
+            )
         if lamella_path:
             session.prior_runs = experiment_runs(
                 os.path.dirname(os.path.abspath(lamella_path)), lamella_path
@@ -112,7 +105,7 @@ class Correlation(Service):
         answer = _summary(result, data, session.last_seed)
         if lamella_path:
             run_path = new_run_dir(lamella_path)
-            save_run(run_path, session.state)
+            session.save(os.path.join(run_path, CORRELATION_FILENAME))
             overlay_path = os.path.join(run_path, OVERLAY_FILENAME)
             save_overlay(overlay_path, session.fib_image, data, result)
             answer.update(run_path=run_path, overlay_path=overlay_path)
@@ -202,6 +195,23 @@ def _point(poi: Any) -> Dict[str, Any]:
         "image_px": [poi.image_px.x, poi.image_px.y],
         "px_m": [poi.px_m.x, poi.px_m.y],
     }
+
+
+def _refusal(n_fib: int, n_fm: int, n_poi: int) -> str:
+    """Why the session's gate refused ``correlate``'s points, in the query's
+    own terms (its parameters), or "" to use the gate's own sentence. The
+    gate decides; this only words it, as the query always has."""
+    from fibsem.correlation.config import MIN_FIDUCIAL_PAIRS
+
+    if n_fib != n_fm:
+        return (
+            f"fib_points and fm_points are pairs: {n_fib} FIB points, {n_fm} FM points"
+        )
+    if n_fib < MIN_FIDUCIAL_PAIRS:
+        return f"a correlation needs at least {MIN_FIDUCIAL_PAIRS} fiducial pairs"
+    if not n_poi:
+        return "poi_points: give at least one point of interest"
+    return ""
 
 
 def _summary(result: Any, data: Any, seed: Any) -> Dict[str, Any]:

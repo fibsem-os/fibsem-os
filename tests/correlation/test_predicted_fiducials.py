@@ -1000,6 +1000,19 @@ def test_a_run_records_the_offset_its_fiducials_measured(loaded, monkeypatch):
     assert fitted.placement_offset == pytest.approx(list(expected))
 
 
+def test_a_refresh_works_out_the_seed_once(loaded, monkeypatch):
+    """The projection row, its tooltip, the source clause and the hint all read
+    one seed: each used to work out the prior again."""
+    session = loaded.session
+    real_seed = session.seed
+    calls = []
+    monkeypatch.setattr(session, "seed", lambda: calls.append(1) or real_seed())
+
+    loaded._refresh_prediction_panel()
+
+    assert len(calls) == 1
+
+
 def test_a_previous_run_far_from_the_geometry_is_not_used_as_the_prior(loaded):
     """One saved Arctis run was an unseeded fit 62 degrees from the geometry;
     used as a prior it would project every ring on the wrong line."""
@@ -1030,7 +1043,7 @@ def test_a_previous_run_far_from_the_geometry_is_not_used_as_the_prior(loaded):
         return [("02-other, run r", run)]
 
     loaded.set_prior_runs(runs(about_x @ geometry.rotation))
-    assert loaded.session.prior_transform()[0] is None
+    assert loaded.session.seed().prior is None
     nominal = loaded.session.seed().transform
     assert np.allclose(nominal.projection, geometry.projection)
     row = loaded._coords_tab._lbl_projection
@@ -1040,7 +1053,7 @@ def test_a_previous_run_far_from_the_geometry_is_not_used_as_the_prior(loaded):
     )
 
     loaded.set_prior_runs(runs(geometry.rotation))
-    assert loaded.session.prior_transform()[0] is not None
+    assert loaded.session.seed().prior is not None
     assert loaded._coords_tab._lbl_projection.text().startswith(
         "previous run (02-other) ·"
     )

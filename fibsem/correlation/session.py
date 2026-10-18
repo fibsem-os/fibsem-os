@@ -15,23 +15,19 @@ from __future__ import annotations
 
 import contextlib
 import copy
+import dataclasses
 import enum
 import logging
 import os
-from dataclasses import dataclass
 from typing import Iterator, List, Optional, Tuple
 
 from fibsem.correlation.config import MIN_FIDUCIAL_PAIRS, CorrelationConfig
-from fibsem.correlation.fit import Seed, fit_transform, prior_transform, seed_for
+from fibsem.correlation.fit import Seed, fit_transform, seed_for
 from fibsem.correlation.history import CorrelationRun, save_run
 from fibsem.correlation.points import SELECTION, STRUCTURE, CorrelationPoints
 from fibsem.correlation.prediction import excluded_indices
-from fibsem.correlation.prior import (
-    PlacementOffset,
-    PriorTransform,
-    placement_offset_from_runs,
-)
-from fibsem.correlation.refractive_index import ZetaParams
+from fibsem.correlation.prior import PlacementOffset, placement_offset_from_runs
+from fibsem.correlation.refractive_index import ZetaParams, zeta_params_from_settings
 from fibsem.correlation.structures import (
     CorrelationInputData,
     CorrelationResult,
@@ -57,7 +53,7 @@ class RunOutcome(enum.Enum):
     SUPERSEDED = "superseded"
 
 
-@dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True)
 class PendingRun:
     """A run that has started and not delivered: a copy of the points it fits,
     the transform it starts from, and the session's result generation then."""
@@ -287,11 +283,24 @@ class CorrelationSession:
     # ------------------------------------------------------------------
 
     def arm_pre_correction(
-        self, factor: float, params: ZetaParams, computed: bool
+        self,
+        factor: float,
+        params: Optional[ZetaParams] = None,
+        computed: bool = False,
     ) -> None:
         """Arm ``factor`` as the pre-correlation RI factor a run applies, with
         the optical parameters it is recorded with and whether it is ζ of them
-        (``computed``) or was entered. Arms the auto-save."""
+        (``computed``) or was entered. Arms the auto-save.
+
+        Without ``params`` the record is the experiment's RI settings
+        (``config.ri``) at tilt 0, since the pre-correction acts along the
+        optical axis, and the factor is recorded as entered: from a script,
+        ``session.arm_pre_correction(1.3)``.
+        """
+        if params is None:
+            params = dataclasses.replace(
+                zeta_params_from_settings(self.config.ri), tilt_deg=0.0
+            )
         self.arm_auto_save()
         self.ri_pre_correction_factor = factor
         self.ri_pre_correction_params = {
@@ -316,7 +325,8 @@ class CorrelationSession:
 
         Raises ValueError when there is no result with its inputs or no FIB
         surface point, and what the correction raises when it refuses (a
-        result already corrected, one never associated with an image).
+        result already corrected, one never associated with an image); a
+        refusal leaves the result as it was.
         """
         result = self._result
         if result is None or result.input_data is None:
@@ -327,12 +337,20 @@ class CorrelationSession:
         # Record the surface this correction is about, as a *copy*: input_data is
         # the snapshot the transform was fitted to. Storing the live coordinate
         # would let a later drag of the surface line rewrite history — and, worse,
-        # launder an already-stale result back to "current" (FIB-315).
+        # launder an already-stale result back to "current" (FIB-315). The
+        # correction reads it from there, so it goes in first and comes out
+        # again if the correction refuses: a second Apply on a corrected result
+        # must not record a surface dragged since.
+        recorded = result.input_data.surface_coordinate
         result.input_data.surface_coordinate = copy.deepcopy(surface[0])
-        # Corrects POI 0 and propagates (reads input_data internally). It
-        # refuses when it cannot correct px_m, which is the number Continue
-        # commits.
-        result.apply_refractive_index_correction(factor)
+        try:
+            # Corrects POI 0 and propagates (reads input_data internally). It
+            # refuses when it cannot correct px_m, which is the number Continue
+            # commits, and when the result is corrected already.
+            result.apply_refractive_index_correction(factor)
+        except Exception:
+            result.input_data.surface_coordinate = recorded
+            raise
         self.set_result(result)
         # A FIB surface placed after the run is a transform input, so placing it
         # made the result stale; recording that surface on the result can make
@@ -343,27 +361,16 @@ class CorrelationSession:
     # The seed
     # ------------------------------------------------------------------
 
-    def prior_transform(
-        self, translation=None
-    ) -> Tuple[Optional[PriorTransform], Optional[Tuple[str, float]]]:
-        """The fitted transform of a previous run, in these images' units, and
-        any previous run passed over for disagreeing with the geometry (see
-        :func:`fibsem.correlation.fit.prior_transform`)."""
-        return prior_transform(
-            self.fib_image,
-            self.fm_image,
-            self.prior_runs,
-            translation=translation,
-            assumed_fm_transform=self.assumed_fm_transform,
-        )
-
     def placement_offset(self) -> Optional[PlacementOffset]:
         """A previous run's placement offset, or None (see FIB-979)."""
         return placement_offset_from_runs(self.prior_runs) if self.prior_runs else None
 
     def seed(self) -> Seed:
         """The transform a run of the loaded images starts from (see
-        :func:`fibsem.correlation.fit.seed_for`)."""
+        :func:`fibsem.correlation.fit.seed_for`), with the previous run its
+        rotation and scale came from (``prior``) and any previous run passed
+        over for disagreeing with the geometry (``prior_rejected``). Worked
+        out on each call; a caller that needs several of these asks once."""
         return seed_for(
             self.fib_image,
             self.fm_image,
@@ -478,8 +485,10 @@ class CorrelationSession:
 
     def supersede_run(self) -> None:
         """Make a run in flight deliver nothing: what it was started on has
-        been replaced (FIB-1242)."""
+        been replaced (FIB-1242). Its seed goes too, so the status line of a
+        result loaded or adopted next does not describe it."""
         self._generation += 1
+        self.last_seed = None
 
     def discard_result(self) -> bool:
         """Drop the result, and supersede a run in flight. Returns whether
