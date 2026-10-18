@@ -250,10 +250,10 @@ def describe(action: str, op: QueueOp) -> str:
     from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
         AutoLamellaSingleWindowUI,
     )
-    from fibsem.workflows.queue import QueueResult
+    from fibsem.workflows.queue import QueueResult, WorkItem
 
     return AutoLamellaSingleWindowUI._queue_action_message(
-        action, "Trench for L1", QueueResult(op, 1)
+        action, WorkItem(item_name="L1", task_name="Trench"), QueueResult(op, 1)
     )
 
 
@@ -282,6 +282,77 @@ def test_a_vanished_row_is_reported():
         describe("move_up", QueueOp.NOT_FOUND)
         == "Trench for L1 is no longer in the queue."
     )
+
+
+def _window(manager, refusal=""):
+    """Just what _on_queue_action reads off the window."""
+    from types import SimpleNamespace
+
+    from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
+        AutoLamellaSingleWindowUI,
+    )
+
+    experiment = SimpleNamespace(get_lamella_by_name=lambda name: object())
+    window = SimpleNamespace(
+        autolamella_ui=SimpleNamespace(_task_manager=manager, experiment=experiment),
+        messages=[],
+        _lamella_run_refusal=lambda lamellae: refusal,
+        _queue_action_message=AutoLamellaSingleWindowUI._queue_action_message,
+    )
+    window._show_queue_message = window.messages.append
+    return window, AutoLamellaSingleWindowUI._on_queue_action
+
+
+def _manager(queue):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(queue=queue, notify_queue_changed=lambda: None)
+
+
+def test_run_again_twice_queues_the_pair_once(queue):
+    """FIB-1453: the timeline's Run again checks what the App Server's requeue does."""
+    done = queue.next()
+    queue.mark_done(done, Status.Completed)
+    window, on_queue_action = _window(_manager(queue))
+
+    on_queue_action(window, "run_again", done.id)
+    on_queue_action(window, "run_again", done.id)
+
+    waiting = [
+        i
+        for i in queue.pending
+        if (i.item_name, i.task_name) == (done.item_name, done.task_name)
+    ]
+    assert len(waiting) == 1
+    assert (
+        window.messages[-1]
+        == f"{done.task_name} for {done.item_name} is already waiting in the queue."
+    )
+
+
+def test_run_again_refuses_a_lamella_whose_grid_is_not_on_the_stage(queue):
+    done = queue.next()
+    queue.mark_done(done, Status.Completed)
+    window, on_queue_action = _window(
+        _manager(queue), refusal="L1's grid is not on the stage."
+    )
+    before = len(queue.pending)
+
+    on_queue_action(window, "run_again", done.id)
+
+    assert len(queue.pending) == before
+    assert window.messages == ["L1's grid is not on the stage."]
+
+
+def test_the_grid_load_step_stays_put():
+    q = TaskQueue(fixed_tasks=["Load grid"])
+    q.build_from_pairs([("grid-1", "Load grid"), ("grid-1", "Overview")])
+    window, on_queue_action = _window(_manager(q))
+
+    on_queue_action(window, "remove", q.pending[0].id)
+
+    assert [i.task_name for i in q.pending] == ["Load grid", "Overview"]
+    assert window.messages == ["Load grid stays with grid-1's tasks."]
 
 
 def test_the_dark_theme_greys_disabled_menu_items():

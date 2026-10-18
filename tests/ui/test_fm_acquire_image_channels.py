@@ -59,27 +59,25 @@ def started(monkeypatch, widget):
             widget.fm.set_acquiring(False)
 
     monkeypatch.setattr(module, "FunctionWorker", _Worker)
-    monkeypatch.setattr(
-        widget, "_generate_acquisition_filename", lambda name: f"/tmp/{name}.ome.tiff"
-    )
+    monkeypatch.setattr(widget, "_acquisition_destination", lambda name: ("/tmp", name))
     return calls
 
 
 def test_acquire_image_takes_every_channel_on_one_plane(widget, started):
     widget.pushButton_acquire_single_image.click()
     assert len(started) == 1
-    channels, zparams, filename = started[0]
+    channels, zparams, path, name = started[0]
     assert [c.name for c in channels] == ["one", "two", "three"]
     assert zparams is None
-    assert filename.endswith("image.ome.tiff")
+    assert name == "image"
 
 
 def test_acquire_z_stack_takes_the_same_channels_with_planes(widget, started):
     widget.pushButton_acquire_zstack.click()
-    channels, zparams, filename = started[0]
+    channels, zparams, path, name = started[0]
     assert [c.name for c in channels] == ["one", "two", "three"]
     assert zparams is not None
-    assert filename.endswith("z-stack.ome.tiff")
+    assert name == "z-stack"
 
 
 def test_the_live_view_still_streams_the_selected_channel(widget, monkeypatch):
@@ -93,3 +91,41 @@ def test_the_live_view_still_streams_the_selected_channel(widget, monkeypatch):
     widget.channelSettingsWidget._list._set_selected(channels[1])
     widget.toggle_acquisition()
     assert [c.name for c in streamed] == ["two"]
+
+
+def test_an_image_is_acquired_and_saved_through_the_imaging_service(
+    widget, tmp_path, monkeypatch
+):
+    """FIB-1447: the button's worker is the service's acquisition, a run the agent
+    can see, and the FM is free again after."""
+    monkeypatch.setattr(
+        widget, "_acquisition_destination", lambda name: (str(tmp_path), name)
+    )
+    finished = []
+    widget.acquisition_finished_signal.connect(lambda: finished.append(True))
+
+    widget._image_acquistion_worker(
+        widget.channelSettingsWidget.channel_settings[:1], None, str(tmp_path), "image"
+    )
+
+    assert [p.name for p in tmp_path.glob("image-*.ome.tiff")]
+    assert widget.fm.is_acquiring is False
+    assert widget.microscope.imaging.runs.latest.command == "fm_acquire_image"
+    assert finished
+
+
+def test_cancel_stops_the_service_run(widget, monkeypatch):
+    stopped = []
+    monkeypatch.setattr(widget.microscope.imaging, "stop", lambda: stopped.append(1))
+
+    class _Alive:
+        def is_alive(self):
+            return True
+
+        def join(self, timeout=None):
+            pass
+
+    widget._acquisition_thread = _Alive()
+    widget.cancel_acquisition()
+
+    assert stopped == [1]

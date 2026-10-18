@@ -40,6 +40,7 @@ from fibsem.applications.autolamella.structures import Attention
 from fibsem.server.files import jpeg_preview
 from fibsem.util.timestamps import to_iso, wall_time_of
 from fibsem.workflows.outputs import item_outputs, latest_item_output
+from fibsem.workflows.queue import QUEUE_ACTIONS, QueueOp
 from fibsem.workflows.status import TaskStatus
 
 __all__ = [
@@ -1624,11 +1625,9 @@ class AutoLamellaAppContext:
                 "error": "The objective position is unavailable.",
             }
 
-        def store():
-            lamella.fluorescence_pose.objective_position = value
-            experiment.save()
+        from fibsem.applications.autolamella.poses import set_objective_position
 
-        self._agent_call(store)
+        self._agent_call(lambda: set_objective_position(experiment, lamella, value))
         return {"applied": True, "item_name": item_name, "objective_position": value}
 
     def move_objective_to_item(self, item_name: str) -> Dict[str, Any]:
@@ -2706,26 +2705,22 @@ class AutoLamellaAppContext:
         experiment, config, refusal = self._workflow_edit("reorder tasks")
         if refusal:
             return refusal
-        names = config.workflow
-        if sorted(order) != sorted(names):
-            return {
-                "error_type": "invalid",
-                "error": "Give every task in the workflow, each once.",
-                "task_names": names,
-            }
-        by_name = {task.name: task for task in config.tasks}
-        reordered = [by_name[name] for name in order]
-        issues = type(config)(tasks=reordered).validate()
-        if issues:
-            return {"error_type": "invalid", "error": " ".join(issues)}
 
         def reorder():
-            config.tasks[:] = reordered
+            why = config.reorder(list(order))
+            if why:
+                return why
             return self._protocol_changed(
                 experiment, {"field": "order", "order": order}
             )
 
         saved = self._agent_call(reorder)
+        if isinstance(saved, str):
+            return {
+                "error_type": "invalid",
+                "error": saved,
+                "task_names": config.workflow,
+            }
         return {"applied": True, "saved": saved, "task_names": config.workflow}
 
     def set_task_requirements(
@@ -2748,21 +2743,11 @@ class AutoLamellaAppContext:
                 "error": f"No task named {task_name!r} in the workflow.",
                 "task_names": config.workflow,
             }
-        if requires is not None:
-            earlier = config.workflow[: config.workflow.index(task_name)]
-            wrong = [name for name in requires if name not in earlier]
-            if wrong:
-                return {
-                    "error_type": "invalid",
-                    "error": f"{task_name} can only require tasks before it: "
-                    f"{', '.join(earlier) or 'none'}; not {', '.join(wrong)}.",
-                }
 
         def edit():
-            if requires is not None:
-                task.requires = list(requires)
-            if required is not None:
-                task.required = bool(required)
+            why = config.set_requirements(task_name, requires, required)
+            if why:
+                return why
             return self._protocol_changed(
                 experiment,
                 {
@@ -2774,6 +2759,8 @@ class AutoLamellaAppContext:
             )
 
         saved = self._agent_call(edit)
+        if isinstance(saved, str):
+            return {"error_type": "invalid", "error": saved}
         return {
             "applied": True,
             "saved": saved,
@@ -2949,21 +2936,22 @@ class AutoLamellaAppContext:
         )
         if refusal:
             return refusal
-        names = grid_protocol.ordered_task_names
-        if sorted(order) != sorted(names):
-            return {
-                "error_type": "invalid",
-                "error": "Give every grid task, each once.",
-                "task_names": names,
-            }
 
         def reorder():
-            grid_protocol.order = list(order)
+            why = grid_protocol.reorder(list(order))
+            if why:
+                return why
             return self._protocol_changed(
                 experiment, {"field": "grid_order", "order": order}
             )
 
         saved = self._agent_call(reorder)
+        if isinstance(saved, str):
+            return {
+                "error_type": "invalid",
+                "error": saved,
+                "task_names": grid_protocol.ordered_task_names,
+            }
         return {
             "applied": True,
             "saved": saved,
@@ -2981,32 +2969,28 @@ class AutoLamellaAppContext:
         config, refusal = self._grid_task(grid_protocol, task_name)
         if refusal:
             return refusal
-        others = [n for n in grid_protocol.ordered_task_names if n != task_name]
-        wrong = [name for name in requires if name not in others]
-        if wrong:
-            return {
-                "error_type": "invalid",
-                "error": f"{task_name} can require {', '.join(others) or 'no task'}; "
-                f"not {', '.join(wrong)}.",
-            }
 
         def edit():
-            config.requires = list(requires)
+            why = grid_protocol.set_requires(task_name, list(requires))
+            if why:
+                return why
             return self._protocol_changed(
                 experiment,
                 {
                     "field": "grid_requirements",
                     "task_name": task_name,
-                    "requires": requires,
+                    "requires": list(config.requires),
                 },
             )
 
         saved = self._agent_call(edit)
+        if isinstance(saved, str):
+            return {"error_type": "invalid", "error": saved}
         return {
             "applied": True,
             "saved": saved,
             "task_name": task_name,
-            "requires": list(requires),
+            "requires": list(config.requires),
         }
 
     def requeue_task(
@@ -3053,7 +3037,8 @@ class AutoLamellaAppContext:
             refused = refusal([lamella])
             if refused:
                 return {"available": True, "queued": False, "reason": refused}
-        if manager.queue.has_pending_pair(item_name, task_name):
+        result = manager.queue.requeue(item_name, task_name, front=bool(front))
+        if result.op is QueueOp.ALREADY_QUEUED:
             # A re-ask after a partial failure would queue it twice (FIB-1405).
             return {
                 "available": True,
@@ -3062,9 +3047,14 @@ class AutoLamellaAppContext:
                 "reason": f"{item_name} / {task_name} is already waiting in the "
                 "queue; it runs once.",
             }
-        item = manager.queue.add(item_name, task_name, front=bool(front))
-        if item is None:
-            return {"available": True, "queued": False, "reason": "add refused"}
+        if result.op is QueueOp.FIXED:
+            return {
+                "available": True,
+                "queued": False,
+                "error_type": "fixed",
+                "reason": f"{task_name} stays with {item_name}'s tasks.",
+            }
+        item = result.item
         manager.notify_queue_changed()
         self._record_queue_change("requeue_front" if front else "requeue", item)
         return {
@@ -3139,11 +3129,6 @@ class AutoLamellaAppContext:
         is refused (``not_pending``) -- stopping it is ``stop_workflow`` -- and
         so is one that already ran.
         """
-        from fibsem.workflows.queue import (
-            QUEUE_ACTIONS,
-            QueueOp,
-        )
-
         if action not in QUEUE_ACTIONS:
             return {
                 "available": True,
@@ -3168,6 +3153,14 @@ class AutoLamellaAppContext:
                 "error": f"{item_name} / {task_name} is not in the queue.",
             }
         result = manager.queue.apply(item.id, action)
+        if result.op is QueueOp.FIXED:
+            # The grid load step: the plan shows where the exchanges fall.
+            return {
+                "available": True,
+                "applied": False,
+                "error_type": "fixed",
+                "error": f"{task_name} stays with {item_name}'s tasks.",
+            }
         if result.op is QueueOp.NOT_PENDING:
             if item.status is TaskStatus.InProgress:
                 state = "is running now; stop it instead"
