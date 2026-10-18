@@ -246,7 +246,6 @@ def make(compustage, fm_inserted=False):
     microscope = object.__new__(A.ThermoMicroscope)
     microscope.system = copy.deepcopy(SYSTEM)
     microscope.fm = _FM() if fm_inserted else None
-    microscope._stage_position = None
     connection = Node("connection")
     object.__setattr__(connection.beams.electron_beam.working_distance, "value", 4e-3)
     if compustage:

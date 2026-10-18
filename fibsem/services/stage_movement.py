@@ -885,8 +885,8 @@ class StageMovement(Service):
         param.write_through(wd)
 
     def _position(self) -> FibsemStagePosition:
-        """The stage position, read the way the microscope reads it, so its
-        ``stage_position_changed`` still says where the stage went."""
+        """The stage position, read the way the microscope reads it, so
+        ``stage.position.changed`` still says where the stage went."""
         return self.parent.get_stage_position()
 
     def _move_stage(
