@@ -320,14 +320,6 @@ class AutoLamellaUI(QMainWindow):
         self._workflow_stop_event: threading.Event = threading.Event()
         self._task_worker_thread: Optional[FunctionWorker] = None
         self._task_manager: Optional[TaskManager] = None
-        # The embedded App Server (FIB-845): built on microscope connect when the
-        # App Server preference is on; None means the feature is off.
-        self._app_server_host = None
-        # Whether this session serves the microscope (FIB-1359): the
-        # operator's choice in Tools → App Server, per session like the agent
-        # level. None until the server first starts, which reads the
-        # preference's start-up default.
-        self._app_server_microscope: Optional[bool] = None
         self._last_run_summary: Optional["pd.DataFrame"] = None
         # Why the last run ended short of done, for the run summary's
         # headline: a run that gave up waiting for a review must not read as
@@ -740,14 +732,9 @@ class AutoLamellaUI(QMainWindow):
         whenever that widget refreshes while connected -- not once per connection
         -- so it can run again for a microscope that already has a stream, and
         that microscope keeps it. A different microscope (the connection dialog can
-        hand one back) gets a new stream, and a running App Server is stopped so
-        it restarts on the new buffer: left alone it would serve a closed one.
+        hand one back) gets a new stream, and the session stops a running App
+        Server so it restarts on the new buffer.
         """
-        recorder = self.session.recorder
-        if recorder is not None and recorder.microscope is not self.microscope:
-            host = self._app_server_host
-            if host is not None and host.running:
-                host.stop()
         self.session.start_recording()
 
     def closeEvent(self, event) -> None:
@@ -762,25 +749,20 @@ class AutoLamellaUI(QMainWindow):
         """Host the App Server over this session, if the preference asks for it.
 
         The agent starts at Watch; never raises — an optional observer
-        must not be able to take the session down (see hosting.py).
+        must not be able to take the session down (see fibsem/server/hosting.py).
         """
         preference = fibsem_cfg.load_user_preferences().app_server
         if preference.enabled:
-            from fibsem.applications.autolamella.server.hosting import AppServerHost
+            from fibsem.applications.autolamella.server.context import (
+                AutoLamellaAppContext,
+            )
 
-            if self._app_server_microscope is None:
-                self._app_server_microscope = preference.microscope
-            if self._app_server_host is None:
-                self._app_server_host = AppServerHost(
-                    self, serve_microscope=self._app_server_microscope
-                )
-            recorder = self.session.recorder
-            self._app_server_host.start(
-                self.microscope,
-                event_buffer=recorder.buffer if recorder is not None else None,
-                lifecycle_hook=recorder.lifecycle_hook
-                if recorder is not None
-                else None,
+            if self.session.serve_microscope is None:
+                # the operator's choice in Tools → App Server is per session,
+                # like the agent level; it starts at the preference's default
+                self.session.serve_microscope = preference.microscope
+            self.session.start_app_server(
+                lambda buffer: AutoLamellaAppContext(self, event_buffer=buffer)
             )
 
     def sync_app_server_with_preference(self) -> None:
@@ -791,7 +773,7 @@ class AutoLamellaUI(QMainWindow):
         server wraps it); without one this is a no-op and the connect path
         picks the preference up as before.
         """
-        host = self._app_server_host
+        host = self.session.app_server
         preference = fibsem_cfg.load_user_preferences().app_server
         if preference.enabled:
             if self.microscope is not None and (host is None or not host.running):
@@ -808,25 +790,17 @@ class AutoLamellaUI(QMainWindow):
         carry over, so a connected agent carries on.
         """
         serve = bool(serve)
-        if serve == self._app_server_microscope:
+        if serve == self.session.serve_microscope:
             return
-        self._app_server_microscope = serve
         logging.info(
             "App Server: the microscope %s by the operator",
             "served" if serve else "no longer served",
         )
-        host = self._app_server_host
-        if host is None or host.serve_microscope == serve:
-            return
-        was_running = host.running
-        host.stop()
-        self._app_server_host = None
-        if was_running and self.microscope is not None:
+        if self.session.set_serve_microscope(serve) and self.microscope is not None:
             self._start_app_server()
 
     def disconnect_from_microscope(self):
-        if self._app_server_host is not None:
-            self._app_server_host.stop()
+        self.session.stop_app_server()
         self.session.stop_recording()
         self._follow_stage(None)
         self.microscope = None
@@ -2179,7 +2153,7 @@ class AutoLamellaUI(QMainWindow):
         # server shares the recorder's hook; one of its own (a host started
         # without a recorder) is registered here, per run, as before.
         recorder = self.session.recorder
-        host = self._app_server_host
+        host = self.session.app_server
         if (
             host is not None
             and host.running
