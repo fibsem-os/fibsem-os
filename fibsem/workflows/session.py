@@ -87,7 +87,10 @@ class AppSession:
         # operator), while they are attached.
         self._answerers: List[ActorKind] = []
         self._analysis_services: Optional[Dict[str, Any]] = None
+        # The correlation (``CorrelationSession``), made under the lock the
+        # first time any thread asks for it.
         self._correlation: Optional[Any] = None
+        self._correlation_lock = threading.Lock()
 
     @property
     def analysis_services(self) -> Dict[str, Any]:
@@ -134,12 +137,14 @@ class AppSession:
     @property
     def correlation(self) -> Any:
         """The session's correlation (``CorrelationSession``), made when first
-        asked for, so nothing here imports the correlation package until then."""
-        if self._correlation is None:
-            from fibsem.correlation.session import CorrelationSession
+        asked for, so nothing here imports the correlation package until then.
+        A new experiment starts a new one (see :meth:`adopt`)."""
+        with self._correlation_lock:
+            if self._correlation is None:
+                from fibsem.correlation.session import CorrelationSession
 
-            self._correlation = CorrelationSession()
-        return self._correlation
+                self._correlation = CorrelationSession()
+            return self._correlation
 
     def run_edit(self, call: Callable[[], Any]) -> "Future[Any]":
         """Run ``call()`` where the experiment is edited; any thread. Resolves
@@ -148,8 +153,11 @@ class AppSession:
 
     def adopt(self, experiment: Any) -> None:
         """Open ``experiment``: the session's, and the one its events are
-        recorded to from now on."""
+        recorded to from now on. The correlation belongs to the experiment it
+        was made in, so the next one asked for is a fresh one."""
         self.experiment = experiment
+        with self._correlation_lock:
+            self._correlation = None
         if self.recorder is not None:
             self.recorder.set_experiment(experiment.path, experiment)
 

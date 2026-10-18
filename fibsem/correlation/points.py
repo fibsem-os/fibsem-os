@@ -365,12 +365,23 @@ class CorrelationPoints:
     def set_removal_policy(
         self,
         policy: Optional[Callable[[List[Coordinate]], Optional[List[Coordinate]]]],
-    ) -> None:
+    ) -> Callable[[], None]:
         """Decide, before a removal, what it removes: given the points asked
         for, return the points to remove (more, for a fiducial's partner), or
         None to remove nothing. Every view removes through :meth:`remove`, so a
-        canvas, a list row and the Delete key all go through it (FIB-1243)."""
+        canvas, a list row and the Delete key all go through it (FIB-1243).
+
+        Returns an uninstaller that restores the default (remove what is asked
+        for) while ``policy`` is still the one installed: a view that asks the
+        user calls it when it goes, so a later removal does not ask a window
+        that no longer exists."""
         self._removal_policy = policy
+
+        def uninstall() -> None:
+            if self._removal_policy is policy:
+                self._removal_policy = None
+
+        return uninstall
 
     # ------------------------------------------------------------------
     # Queries

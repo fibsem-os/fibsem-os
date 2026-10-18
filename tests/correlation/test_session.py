@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 
 from fibsem.correlation import points as point_rules
-from fibsem.correlation.session import RUNNING, CorrelationSession
+from fibsem.correlation.session import RUNNING, CorrelationSession, RunOutcome
 from fibsem.correlation.structures import (
     Coordinate,
     CorrelationInputData,
@@ -143,7 +143,7 @@ def test_a_rejected_pair_leaves_the_fit_and_its_row_is_kept(ready):
     assert len(ready.fit_data.fib_coordinates) == 4
     assert len(ready.fit_data.fm_coordinates) == 4
     assert len(ready.data.fib_coordinates) == 5  # the record keeps it
-    assert ready.fit_rows() == [0, 2, 3, 4]
+    assert ready.fit_rows == [0, 2, 3, 4]
     assert ready.next_step() == "Ready to run with 4 pairs."
 
 
@@ -192,7 +192,7 @@ def test_a_run_in_flight_holds_the_gate(ready):
     with pytest.raises(RuntimeError):
         ready.start_run()
 
-    assert ready.finish_run(pending.compute()) is True
+    assert ready.finish_run(pending.compute()) is RunOutcome.LIVE
     assert not ready.running and ready.result is not None
 
 
@@ -201,7 +201,7 @@ def test_a_run_finishing_after_the_result_is_discarded_is_dropped(ready):
     pending = ready.start_run()
     ready.discard_result()
 
-    assert ready.finish_run(pending.compute()) is None
+    assert ready.finish_run(pending.compute()) is RunOutcome.SUPERSEDED
     assert ready.result is None
     assert not ready.running
 
@@ -214,13 +214,35 @@ def test_a_failed_run_lets_the_next_one_start(ready):
     assert ready.can_run()
 
 
+def test_an_abandoned_run_opens_the_gate_and_delivers_nothing(ready):
+    """Whoever computed it has gone (a closed window): the session must not
+    stay running forever."""
+    pending = ready.start_run()
+    ready.abandon_run(pending)
+
+    assert not ready.running
+    assert ready.can_run()
+    assert ready.result is None
+
+
+def test_abandoning_a_finished_run_leaves_the_next_one_alone(ready):
+    first = ready.start_run()
+    ready.finish_run(first.compute())
+    second = ready.start_run()
+
+    ready.abandon_run(first)
+
+    assert ready.running
+    assert ready.finish_run(second.compute()) is RunOutcome.LIVE
+
+
 def test_the_run_reads_a_copy_of_the_points(ready):
     pending = ready.start_run()
     ready.points.of_type(PointType.FM)[0].point.x += 20.0
 
-    live = ready.finish_run(pending.compute())
+    outcome = ready.finish_run(pending.compute())
 
-    assert live is False  # the result is for the points as they were
+    assert outcome is RunOutcome.STALE  # the result is for the points as they were
     assert pending.data.fm_coordinates[0].point.x == 40.0
 
 
@@ -269,6 +291,57 @@ def test_one_surface_point_and_no_factor_without_the_fm_surface(session):
     assert session.ri_pre_correction_params is None
 
 
+def test_removing_the_fm_surface_through_the_points_disarms_the_factor(ready):
+    """The factor goes with the FM surface however the surface goes, not only
+    through the tab: a script removing it must not run with the factor."""
+    fm_surface = Coordinate(PointXYZ(100.0, 100.0, 5.0), PointType.SURFACE_FM)
+    ready.points.add(fm_surface)
+    ready.ri_pre_correction_factor = 1.3
+    ready.ri_pre_correction_params = {"tilt_deg": 0.0, "computed": False}
+
+    ready.points.remove(fm_surface)
+    result = ready.run()
+
+    assert ready.data.ri_pre_correction_factor is None
+    assert ready.data.ri_pre_correction_params is None
+    assert result.input_data.ri_pre_correction_factor is None
+
+
+def test_moving_the_fm_surface_keeps_the_factor(ready):
+    fm_surface = Coordinate(PointXYZ(100.0, 100.0, 5.0), PointType.SURFACE_FM)
+    ready.points.add(fm_surface)
+    ready.ri_pre_correction_factor = 1.3
+
+    ready.points.move(fm_surface, 110.0, 100.0)
+    ready.points.add(Coordinate(PointXYZ(1.0, 1.0, 0.0), PointType.FIB))
+
+    assert ready.ri_pre_correction_factor == 1.3
+
+
+def test_a_removal_policy_can_be_uninstalled_while_it_is_the_one_installed(session):
+    fib = Coordinate(PointXYZ(1.0, 1.0, 0.0), PointType.FIB)
+    session.points.add(fib)
+    asked = []
+
+    def ask(coords):
+        asked.append(coords)
+        return None  # cancelled
+
+    uninstall = session.points.set_removal_policy(ask)
+    assert not session.points.remove(fib)
+    uninstall()
+    assert session.points.remove(fib)
+    assert len(asked) == 1
+
+    keep = session.points.set_removal_policy(ask)
+    stale = session.points.set_removal_policy(lambda coords: coords)
+    keep()  # no longer installed: the newer policy stays
+    session.points.add(fib)
+    assert session.points.remove(fib)
+    assert len(asked) == 1
+    stale()
+
+
 # ---------------------------------------------------------------------------
 # The app's session
 # ---------------------------------------------------------------------------
@@ -281,6 +354,49 @@ def test_the_app_session_makes_one_correlation_when_asked():
 
     assert isinstance(app.correlation, CorrelationSession)
     assert app.correlation is app.correlation
+
+
+def test_threads_asking_at_once_get_the_same_correlation(monkeypatch):
+    import threading
+    import time
+
+    from fibsem.workflows.session import AppSession
+
+    made = []
+    real_init = CorrelationSession.__init__
+
+    def slow_init(self):
+        made.append(self)
+        time.sleep(0.05)  # a window wide enough for a second thread to enter
+        real_init(self)
+
+    monkeypatch.setattr(CorrelationSession, "__init__", slow_init)
+    app = AppSession()
+    got = []
+    threads = [
+        threading.Thread(target=lambda: got.append(app.correlation)) for _ in range(4)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert len(made) == 1
+    assert all(c is made[0] for c in got)
+
+
+def test_a_new_experiment_starts_a_new_correlation(tmp_path):
+    from fibsem.applications.autolamella.structures import Experiment
+    from fibsem.workflows.session import AppSession
+
+    app = AppSession()
+    first = app.correlation
+    first.points.add(_target())
+
+    app.adopt(Experiment(path=tmp_path, name="next"))
+
+    assert app.correlation is not first
+    assert len(app.correlation.points) == 0
 
 
 def test_the_app_session_does_not_import_the_correlation_until_asked():

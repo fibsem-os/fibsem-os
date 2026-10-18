@@ -14,13 +14,14 @@ only because it is an input to the run.
 from __future__ import annotations
 
 import copy
+import enum
 import logging
 from dataclasses import dataclass
 from typing import List, Optional
 
 from fibsem.correlation.config import MIN_FIDUCIAL_PAIRS, CorrelationConfig
 from fibsem.correlation.fit import Seed, fit_transform
-from fibsem.correlation.points import CorrelationPoints
+from fibsem.correlation.points import STRUCTURE, CorrelationPoints
 from fibsem.correlation.prediction import excluded_indices
 from fibsem.correlation.structures import (
     CorrelationInputData,
@@ -32,6 +33,17 @@ from fibsem.fm.structures import FluorescenceImage
 from fibsem.structures import FibsemImage
 
 RUNNING = "Running…"
+
+
+class RunOutcome(enum.Enum):
+    """What :meth:`CorrelationSession.finish_run` did with a run's result."""
+
+    # Adopted, and it describes the points as they are now.
+    LIVE = "live"
+    # Adopted, but a point was moved while it ran (FIB-321).
+    STALE = "stale"
+    # Not adopted: the result was cleared or replaced while it ran (FIB-1242).
+    SUPERSEDED = "superseded"
 
 
 @dataclass(frozen=True)
@@ -62,9 +74,11 @@ class CorrelationSession:
         # draw from them through a Qt point store (FIB-973).
         self.points = CorrelationPoints()
         # Pre-correlation RI factor (FM surface mode) and the optical
-        # parameters it was armed with; set by the RI tab's Apply.
+        # parameters it was armed with; set by the RI tab's Apply. Removing
+        # the FM surface disarms it (see _disarm_without_fm_surface).
         self.ri_pre_correction_factor: Optional[float] = None
         self.ri_pre_correction_params: Optional[dict] = None
+        self.points.subscribe(self._disarm_without_fm_surface)
         # Experiment-global config; passed in on open, read back on close
         # (FIB-298). The fit and RI choices on screen are the tab's widgets.
         self.config = CorrelationConfig()
@@ -141,6 +155,15 @@ class CorrelationSession:
             else None
         )
 
+    def _disarm_without_fm_surface(self, change: str, _coords) -> None:
+        """The pre-correction factor's lifecycle is tied to the FM surface
+        point: once it is gone, however it went, the factor is disarmed so it
+        cannot silently re-apply on a later run."""
+        if change != STRUCTURE or self.points.of_type(PointType.SURFACE_FM):
+            return
+        self.ri_pre_correction_factor = None
+        self.ri_pre_correction_params = None
+
     @property
     def data(self) -> CorrelationInputData:
         """Everything a run reads, and everything a saved run records."""
@@ -170,6 +193,7 @@ class CorrelationSession:
         """
         return _for_fit(self.data)
 
+    @property
     def fit_rows(self) -> List[int]:
         """The row of each pair the fit will see, in fit order (see ``fit_data``)."""
         data = self.data
@@ -311,27 +335,39 @@ class CorrelationSession:
         self._pending = PendingRun(
             data=copy.deepcopy(self.fit_data),
             seed=seed,
-            rows=self.fit_rows(),
+            rows=self.fit_rows,
             generation=self._generation,
         )
         return self._pending
 
-    def finish_run(self, result: CorrelationResult) -> Optional[bool]:
+    def finish_run(self, result: CorrelationResult) -> RunOutcome:
         """Adopt a run's result, judged against the points as they are now.
 
-        Returns whether the result is live (it still describes the current
-        points: a point can be dragged while a run is in flight, FIB-321), or
-        None, adopting nothing, for a run whose result was cleared or replaced
-        while it ran (FIB-1242).
+        Returns LIVE when the result still describes the current points, STALE
+        when a point was dragged while it ran (FIB-321), and SUPERSEDED,
+        adopting nothing, for a run whose result was cleared or replaced while
+        it ran (FIB-1242).
         """
         pending, self._pending = self._pending, None
         if pending is not None and pending.generation != self._generation:
-            return None
+            return RunOutcome.SUPERSEDED
         self._result = result
-        return result.matches_inputs(self.fit_data)
+        if result.matches_inputs(self.fit_data):
+            return RunOutcome.LIVE
+        return RunOutcome.STALE
 
     def fail_run(self) -> None:
         """The run in flight failed; another may start."""
+        self._pending = None
+
+    def abandon_run(self, pending: PendingRun) -> None:
+        """``pending`` will never be delivered: whoever was computing it has
+        gone (a closed window). If it is still the run in flight, it delivers
+        nothing should it arrive, and another may start. A later run is left
+        alone."""
+        if self._pending is not pending:
+            return
+        self.supersede_run()
         self._pending = None
 
     def run(self, seed: Optional[Seed] = None) -> CorrelationResult:

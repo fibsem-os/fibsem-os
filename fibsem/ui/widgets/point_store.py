@@ -66,8 +66,8 @@ class PointStore(QObject):
     def set_removal_policy(
         self,
         policy: Optional[Callable[[List[Coordinate]], Optional[List[Coordinate]]]],
-    ) -> None:
-        self.points.set_removal_policy(policy)
+    ) -> Callable[[], None]:
+        return self.points.set_removal_policy(policy)
 
     # Queries
 

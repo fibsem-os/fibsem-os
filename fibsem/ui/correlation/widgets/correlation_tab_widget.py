@@ -115,7 +115,12 @@ from fibsem.correlation.refractive_index import (
     scale_about_surface,
     zeta_params_from_settings,
 )
-from fibsem.correlation.session import RUNNING, CorrelationSession, PendingRun
+from fibsem.correlation.session import (
+    RUNNING,
+    CorrelationSession,
+    PendingRun,
+    RunOutcome,
+)
 from fibsem.correlation.structures import (
     Coordinate,
     CorrelationInputData,
@@ -326,6 +331,27 @@ class _CorrelationWorker(QThread):
             self.result_ready.emit(self._pending.compute())
         except Exception as exc:
             self.errored.emit(str(exc))
+
+
+class _SessionHold:
+    """What a correlation view has put on a session that can outlive it, and
+    hands back when the view is destroyed: the removal policy that asks the
+    user, and the run its worker was computing. Without this a closed window
+    left the session running forever and a later removal asking a deleted
+    widget."""
+
+    def __init__(self, session: CorrelationSession) -> None:
+        self.session = session
+        self.uninstall_policy: Optional[Callable[[], None]] = None
+        self.run: Optional[PendingRun] = None
+
+    def release(self) -> None:
+        if self.uninstall_policy is not None:
+            self.uninstall_policy()
+            self.uninstall_policy = None
+        if self.run is not None:
+            self.session.abandon_run(self.run)
+            self.run = None
 
 
 class _ProgressRelay(QObject):
@@ -2153,6 +2179,9 @@ class CorrelationTabWidget(QWidget):
         # The images, the points, the result and the config this is a view
         # of; a window opened on its own makes its own.
         self._session = session if session is not None else CorrelationSession()
+        hold = self._session_hold = _SessionHold(self._session)
+        # A lambda, not a bound method: the slot runs once this is deleted.
+        self.destroyed.connect(lambda *_: hold.release())
         self._worker: Optional[_CorrelationWorker] = None
         # FM z-stack interpolation (background) — held for the op's lifetime
         self._interp_worker = None
@@ -2216,7 +2245,9 @@ class CorrelationTabWidget(QWidget):
         # The points and the selection, held once: the five lists and both
         # canvases draw from it and write their gestures to it (FIB-973).
         self._point_store = PointStore(self, points=self._session.points)
-        self._point_store.set_removal_policy(self._pair_removal)
+        self._session_hold.uninstall_policy = self._point_store.set_removal_policy(
+            self._pair_removal
+        )
         fib_pane, fm_pane = self._build_image_panes()
         splitter.addWidget(fib_pane)
         splitter.addWidget(fm_pane)
@@ -2478,7 +2509,6 @@ class CorrelationTabWidget(QWidget):
                 cl.fm_surface_list,
                 adapter_for(PointType.SURFACE_FM),
                 fm_fit_role="fid",
-                on_cleared=self._clear_pre_correction_factor,
             ),
         )
         self._point_specs: Dict[PointType, _PointTypeSpec] = {
@@ -3527,7 +3557,8 @@ class CorrelationTabWidget(QWidget):
         self._set_result_live(False)
         seed = self._seed()
         self._seed_note = seed.note
-        self._worker = _CorrelationWorker(self._session.start_run(seed))
+        pending = self._session_hold.run = self._session.start_run(seed)
+        self._worker = _CorrelationWorker(pending)
         self._worker.result_ready.connect(self._on_run_finished)
         self._worker.errored.connect(self._on_run_error)
         self._worker.start()
@@ -3758,11 +3789,11 @@ class CorrelationTabWidget(QWidget):
         a seed, a loaded file) delivers nothing: on the new image it would be
         drawn, auto-saved and offered as the answer (FIB-1242).
         """
-        live = self._session.finish_run(result)
-        if live is None:
+        outcome = self._session.finish_run(result)
+        if outcome is RunOutcome.SUPERSEDED:
             self._update_run_button()
             return
-        self._on_result_ready(result, live=live)
+        self._on_result_ready(result, live=outcome is RunOutcome.LIVE)
 
     def _on_result_ready(self, result: CorrelationResult, live: bool = True) -> None:
         """Adopt a result. ``live`` is False for a result that no longer describes
@@ -4065,13 +4096,6 @@ class CorrelationTabWidget(QWidget):
             "computed": ri.factor_is_computed(),
         }
 
-    def _clear_pre_correction_factor(self) -> None:
-        """The pre-correction factor's lifecycle is tied to the FM surface point:
-        removing the surface disarms the factor so it cannot silently re-apply
-        on a later run."""
-        self._session.ri_pre_correction_factor = None
-        self._session.ri_pre_correction_params = None
-
     def _on_run_error(self, msg: str) -> None:
         self._session.fail_run()
         # Refresh first: its readiness text would otherwise replace the error
@@ -4238,8 +4262,8 @@ class CorrelationTabWidget(QWidget):
             )
 
     def _clear_exclusive_siblings(self, point_type: PointType) -> None:
-        """Fire the lifecycle hooks of the types an added point cleared (placing
-        a FIB surface point disarms the FM surface's pre-correction factor)."""
+        """Fire the lifecycle hooks of the types an added point cleared. (The
+        FM surface's pre-correction factor is the session's to disarm.)"""
         cleared = [pt for pt in cleared_by(point_type) if pt is not point_type]
         for other in self._point_specs.values():
             if other.point_type in cleared and other.on_cleared is not None:

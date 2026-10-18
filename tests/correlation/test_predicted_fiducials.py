@@ -583,16 +583,16 @@ def test_the_verdict_names_rows_the_fit_skipped_over(loaded):
     loaded._coords_tab.fib_list.coordinates[1].status = PointStatus.REJECTED
     loaded.data_changed.emit(loaded.data)
     n = len(_fm(loaded))
-    assert loaded.session.fit_rows() == [i for i in range(n) if i != 1]
+    assert loaded.session.fit_rows == [i for i in range(n) if i != 1]
 
     # the worker's diagnostics carry the rows; fake one the way it would
     diag = _diag([0.2, 0.3, 0.25, 0.2, 0.3, 1.4], worst=5, suggested_z=5.0)
-    for p, row in zip(diag["pairs"], loaded.session.fit_rows()):
+    for p, row in zip(diag["pairs"], loaded.session.fit_rows):
         p["index"] = row
     loaded._on_run_finished(_fake_seeded_result(loaded, diag))
 
     status = loaded._lbl_status.text()
-    worst_row = loaded.session.fit_rows()[5]
+    worst_row = loaded.session.fit_rows[5]
     assert f"Check FM {worst_row + 1}." in status
     assert f'href="pair:{worst_row}"' in status
     lw = loaded._coords_tab.fm_list

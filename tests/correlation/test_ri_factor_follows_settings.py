@@ -121,5 +121,5 @@ def test_the_record_travels_with_the_run_and_goes_with_the_surface(tab):
 
     tab.set_data(back)
     assert tab.data.ri_pre_correction_params == params
-    tab._clear_pre_correction_factor()
+    tab.session.points.remove(back.fm_surface_coordinate)
     assert tab.data.ri_pre_correction_params is None
