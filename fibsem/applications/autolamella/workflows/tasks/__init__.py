@@ -21,12 +21,6 @@ from fibsem.applications.autolamella.workflows.tasks.manager import (
     run_task,
     run_tasks,
 )
-from fibsem.applications.autolamella.workflows.tasks.queue import (
-    QueueOp,
-    QueueResult,
-    TaskQueue,
-    WorkItem,
-)
 
 # Built-in task classes
 # Built-in task config classes
@@ -62,6 +56,12 @@ from fibsem.applications.autolamella.workflows.tasks.tasks import (
     SpotBurnFiducialTask,
     SpotBurnFiducialTaskConfig,
     get_task_supervision,
+)
+from fibsem.workflows.queue import (
+    QueueOp,
+    QueueResult,
+    TaskQueue,
+    WorkItem,
 )
 
 

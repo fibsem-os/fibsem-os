@@ -71,7 +71,6 @@ from fibsem.applications.autolamella.workflows.tasks.grid.registry import (
     run_grid_task,
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import BaseTaskManager
-from fibsem.applications.autolamella.workflows.tasks.queue import WorkItem
 from fibsem.applications.autolamella.workflows.ui import update_status_ui
 from fibsem.cancellation import OperationCancelledError
 from fibsem.control import WORKFLOW
@@ -79,6 +78,7 @@ from fibsem.devices.sample_loader import GridExchangeError
 from fibsem.hooks import HookEvent, HookManager
 from fibsem.structures import SampleGrid
 from fibsem.util import timestamps
+from fibsem.workflows.queue import WorkItem
 from fibsem.workflows.status import TaskStatus
 
 if TYPE_CHECKING:

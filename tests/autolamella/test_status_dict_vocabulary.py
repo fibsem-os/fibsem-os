@@ -86,7 +86,7 @@ def test_the_positioning_fields_keep_their_names(manager: TaskManager):
     """
     import dataclasses
 
-    from fibsem.applications.autolamella.workflows.tasks.status import (
+    from fibsem.workflows.status import (
         WorkflowStatusUpdate,
     )
 

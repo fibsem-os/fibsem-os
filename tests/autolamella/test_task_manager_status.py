@@ -842,7 +842,7 @@ def test_a_parked_run_holds_the_window_and_says_who_releases_it(tmp_path):
     the lamella/task pairs waiting, and the sentence that releases it. Gone
     again when the park ends; the give-up says it gave up, on the status bar
     too, so it never reads as a finish."""
-    from fibsem.applications.autolamella.workflows.tasks.status import HoldKind
+    from fibsem.workflows.status import HoldKind
 
     experiment = make_experiment(
         tmp_path, requirements={"Undercut": ["Trench"]}, lamella_names=["L1", "L2"]
