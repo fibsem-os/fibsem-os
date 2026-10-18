@@ -4043,9 +4043,14 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         host = self._running_app_server()
         if host is not None:
             previous = host.auth.level
-            host.auth.set_level(level)
-            logging.info("Agent level set to %s by the operator", level.value)
-            self._record_agent_event("agent_level_set", previous=previous, level=level)
+            refused = self.autolamella_ui.session.set_agent_level(level)
+            if refused:
+                notification_service.show_toast(refused, "error")
+            else:
+                logging.info("Agent level set to %s by the operator", level.value)
+                self._record_agent_event(
+                    "agent_level_set", previous=previous, level=level
+                )
         self._refresh_agent_chip()
 
     def _on_stop_agent(self) -> None:

@@ -12,16 +12,22 @@ server can be another, so nothing here may need a widget.
 from __future__ import annotations
 
 import logging
+import os
 import threading
 from concurrent.futures import Future
+from datetime import datetime
 from typing import Any, Callable, Dict, Optional
 
+from fibsem import config as cfg
 from fibsem.acting import OPERATOR
 from fibsem.imaging.latest import LatestImages
 from fibsem.workflows.event_recording import EventRecorder
 from fibsem.workflows.runner import WorkflowRunner
 
 EditExecutor = Callable[[Callable[[], Any]], "Future[Any]"]
+
+# Where a session's plain experiments go, one folder per session that needed one.
+SESSIONS_PATH = os.path.join(cfg.LOG_PATH, "sessions")
 
 
 class LockedExecutor:
@@ -51,6 +57,9 @@ class AppSession:
     ) -> None:
         self.microscope: Optional[Any] = None
         self.experiment: Optional[Any] = None
+        # Where what is done is recorded while no application's experiment is
+        # open: a plain FibsemExperiment, made the first time the agent may act.
+        self.plain_experiment: Optional[Any] = None
         # Whoever answers the run's questions: the window's QtResponder, or a
         # server-side one when there is no window. The recorder records the
         # prompts it puts up.
@@ -99,6 +108,46 @@ class AppSession:
         if self.recorder is not None:
             self.recorder.set_experiment(experiment.path, experiment)
 
+    def recording_experiment(self) -> Any:
+        """The experiment what is done now is recorded to: the open one, or else
+        the session's plain one, made under the log folder the first time it is
+        needed. Raises OSError when it cannot be made."""
+        if self.experiment is not None:
+            return self.experiment
+        if self.plain_experiment is None:
+            from fibsem.workflows.experiment import FibsemExperiment
+
+            name = datetime.now().strftime("session-%Y-%m-%d-%H-%M-%S")
+            self.plain_experiment = FibsemExperiment.create(SESSIONS_PATH, name)
+            if self.recorder is not None:
+                self.recorder.set_experiment(
+                    self.plain_experiment.path, self.plain_experiment
+                )
+        return self.plain_experiment
+
+    def set_agent_level(self, level: Any) -> Optional[str]:
+        """Set the agent's level; returns why not, or None when it is set.
+
+        Assist and Drive act, so they need an experiment to record what is
+        done: the open one, or else the session's plain one, made now. Watch
+        and Off record nothing of their own.
+        """
+        from fibsem.server.levels import AgentLevel
+
+        level = AgentLevel(level)
+        if self.agent_auth is None:
+            return "The App Server isn't running."
+        if level in (AgentLevel.ASSIST, AgentLevel.DRIVE):
+            try:
+                self.recording_experiment()
+            except OSError as exc:
+                return (
+                    f"There's nowhere to record what the agent does ({exc}). "
+                    "Open or create an experiment first."
+                )
+        self.agent_auth.set_level(level)
+        return None
+
     def start_recording(self) -> None:
         """Record events for the connected microscope.
 
@@ -118,15 +167,16 @@ class AppSession:
         self.stop_recording()
         if self.microscope is None:
             return
+        recorded = self.experiment or self.plain_experiment
         try:
             self.recorder = EventRecorder(
                 self.microscope,
                 responder=self.responder,
-                experiment_path=self.experiment.path if self.experiment else None,
+                experiment_path=recorded.path if recorded else None,
                 # tasks and the agent mark their own calls; the rest are the
                 # operator's
                 default_actor=OPERATOR,
-                experiment=self.experiment,
+                experiment=recorded,
             )
         except Exception:
             logging.exception("event stream failed to start; continuing without it")
