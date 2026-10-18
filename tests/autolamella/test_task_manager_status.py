@@ -521,7 +521,7 @@ def test_with_the_flag_off_nothing_is_deferred(tmp_path):
 
 
 def test_the_flag_reads_fail_closed(monkeypatch):
-    from fibsem.applications.autolamella.workflows.tasks import manager as M
+    from fibsem.workflows import manager as M
 
     class _Prefs:
         class features:
@@ -876,7 +876,7 @@ def test_a_parked_run_holds_the_window_and_says_who_releases_it(tmp_path):
 
 
 def test_the_names_a_hold_reads_out():
-    from fibsem.applications.autolamella.workflows.tasks.manager import _named
+    from fibsem.workflows.manager import _named
 
     assert _named([]) == ""
     assert _named(["L1"]) == "L1"
