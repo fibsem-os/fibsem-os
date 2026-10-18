@@ -56,9 +56,9 @@ class TaskState:
     task_type: str = ""
     # The item the run is on (a lamella, a grid, a volume position).
     item_id: str = ""
-    # Which round of the item's tasks this run belongs to, for an item that
+    # Which iteration of the item's tasks this run belongs to, for an item that
     # repeats its tasks; None for one that does not.
-    round: Optional[int] = None
+    iteration: Optional[int] = None
     # When the run started and ended: aware datetimes, written as ISO 8601 with
     # their offset (FIB-1197). Files written before that hold POSIX floats, which
     # read as this machine's zone -- the clock time they always displayed.
@@ -176,10 +176,10 @@ class WorkflowStatusUpdate:
     task_names: List[str] = field(default_factory=list)
     lamella_names: List[str] = field(default_factory=list)
     # The queue entry this report is about, so a timeline matches its row by id
-    # rather than by (item, task), which repeats when items run in rounds.
+    # rather than by (item, task), which repeats when items run in iterations.
     work_item_id: str = ""
-    # Its round (WorkItem.round): None for items that run their tasks once.
-    round: Optional[int] = None
+    # Its iteration (WorkItem.iteration): None for items that run their tasks once.
+    iteration: Optional[int] = None
 
     @property
     def lamella_name(self) -> str:

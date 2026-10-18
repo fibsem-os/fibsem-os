@@ -470,7 +470,7 @@ def _group_column_width() -> int:
     """Wide enough for the longest group string, and no wider.
 
     They are fixed (``report.GROUP_NAMES``) and never change at runtime, so this is
-    a measurement rather than a guess -- a fixed width elides `fibsem.strategies`
+    a measurement rather than a guess -- a fixed width elides `fibsem.milling.strategies`
     on some platforms and wastes a column on others.
     """
     metrics = QFontMetrics(_group_font())

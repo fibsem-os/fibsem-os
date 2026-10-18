@@ -80,7 +80,7 @@ class Extension:
     """One row of the listing."""
 
     group: str
-    """Entry point group, e.g. ``"fibsem.patterns"``."""
+    """Entry point group, e.g. ``"fibsem.milling.patterns"``."""
 
     name: Optional[str]
     """The name it registered under. ``None`` when nothing registered."""
@@ -131,7 +131,7 @@ class ExtensionGroup:
     """One entry point group and everything registered under it."""
 
     group: str
-    """The literal entry point group string, e.g. ``"fibsem.patterns"``.
+    """The literal entry point group string, e.g. ``"fibsem.milling.patterns"``.
 
     Shown verbatim rather than only the friendly label: a group name mistyped
     in a plugin's pyproject registers nothing and produces no error anywhere,
@@ -280,13 +280,13 @@ def _group(group: str, label: str, module: str, attribute: str):
 # test_the_group_table_matches_the_registries.
 _GROUPS: Tuple[Tuple[str, str, str, Callable[[], ExtensionGroup]], ...] = (
     _group(
-        "fibsem.patterns",
+        "fibsem.milling.patterns",
         "Milling patterns",
         "fibsem.milling.patterning",
         "PATTERN_PLUGINS",
     ),
     _group(
-        "fibsem.strategies",
+        "fibsem.milling.strategies",
         "Milling strategies",
         "fibsem.milling.strategy",
         "STRATEGY_PLUGINS",
@@ -298,7 +298,7 @@ _GROUPS: Tuple[Tuple[str, str, str, Callable[[], ExtensionGroup]], ...] = (
         "TASK_PLUGINS",
     ),
     _group(
-        "fibsem.grid_tasks",
+        "fibsem.grid.tasks",
         "Grid tasks",
         "fibsem.applications.autolamella.workflows.tasks.grid",
         "GRID_TASK_PLUGINS",

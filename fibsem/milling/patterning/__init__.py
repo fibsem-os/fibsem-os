@@ -62,12 +62,12 @@ DEFAULT_PATTERN = RectanglePattern
 DEFAULT_PATTERN_NAME = DEFAULT_PATTERN.name
 
 
-PATTERN_ENTRY_POINT_GROUP = "fibsem.patterns"
+PATTERN_ENTRY_POINT_GROUP = "fibsem.milling.patterns"
 
-# Built-ins, runtime registrations and the fibsem.patterns entry points. To add a
+# Built-ins, runtime registrations and the fibsem.milling.patterns entry points. To add a
 # plugin pattern, add to your package's pyproject.toml:
 #
-#     [project.entry-points.'fibsem.patterns']
+#     [project.entry-points.'fibsem.milling.patterns']
 #     my_pattern = "my_package.patterns:MyCustomPattern"
 PATTERN_PLUGINS: PluginRegistry[Type[BasePattern]] = PluginRegistry(
     group=PATTERN_ENTRY_POINT_GROUP,
@@ -94,7 +94,7 @@ def register_pattern(pattern_cls: Type[BasePattern]) -> None:
 
 
 def get_pattern_plugin_records() -> Tuple[PluginRecord, ...]:
-    """Every ``fibsem.patterns`` entry point and what became of it."""
+    """Every ``fibsem.milling.patterns`` entry point and what became of it."""
     return PATTERN_PLUGINS.plugin_records()
 
 

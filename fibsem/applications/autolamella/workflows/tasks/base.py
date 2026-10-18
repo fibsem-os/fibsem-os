@@ -190,7 +190,7 @@ class AutoLamellaTask(BaseTask):
         )
         # This task object is one run: its folder is fixed as it starts (FIB-1275).
         self._output_dir = run_folder(
-            lamella.path, config.task_name, now(), round=self.round
+            lamella.path, config.task_name, now(), iteration=self.iteration
         )
         # Every task's reference images are acquired with its config's imaging
         # settings; they are saved under its output folder. Set here, once, for
