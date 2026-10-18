@@ -31,7 +31,6 @@ sys.path.insert(0, os.path.dirname(__file__))  # not str.rsplit: Windows paths
 from test_milling_lockout import _config_with_a_stage  # noqa: E402
 
 from fibsem import utils  # noqa: E402
-from fibsem.ui.widgets import milling_widget as milling_widget_module  # noqa: E402
 from fibsem.ui.widgets.milling_task_viewer_widget import (  # noqa: E402
     MillingTaskViewerWidget,
 )
@@ -73,7 +72,7 @@ def milling(qapp):
 class _Mill:
     """A milling task the test starts and ends on purpose.
 
-    `run_milling_task` is replaced by something that blocks until `finish()`. A stub
+    The milling service's `run_task` is replaced by something that blocks until `finish()`. A stub
     that returned immediately would be worse than useless here: the worker would be over
     before `run_milling` reached its own closing `_update_button_states()`, so that call
     would find `is_milling` already False and unlock the controls itself. Every
@@ -86,8 +85,8 @@ class _Mill:
         self.started = threading.Event()
         self._release = threading.Event()
 
-    def __call__(self, **kwargs):
-        self.calls.append(kwargs)
+    def __call__(self, config, path=None):
+        self.calls.append({"config": config, "path": path})
         self.started.set()
         self._release.wait(timeout=10)
 
@@ -102,7 +101,10 @@ class _Mill:
 @pytest.fixture
 def mill(monkeypatch):
     gate = _Mill()
-    monkeypatch.setattr(milling_widget_module, "run_milling_task", gate)
+    from fibsem.services.milling import Milling
+
+    # The widget's mill is the milling service's task (FIB-1451).
+    monkeypatch.setattr(Milling, "run_task", gate)
     yield gate
     gate.finish()
 
@@ -260,3 +262,24 @@ def test_a_failed_mill_is_kept_for_the_finished_signals_listeners(qapp):
     finally:
         viewer.close()
         microscope.disconnect()
+
+
+def test_stop_ends_the_widget_s_own_mill_through_the_milling_service(
+    milling, monkeypatch
+):
+    """FIB-1451: the Run button's mill is a milling-service task, so its Stop is
+    the service's, which ends the task and not only the pattern."""
+    stopped = []
+    monkeypatch.setattr(milling.microscope.milling, "stop", lambda: stopped.append(1))
+
+    class _Alive:
+        def is_alive(self):
+            return True
+
+    milling._milling_thread = _Alive()
+    try:
+        milling.stop_milling()
+    finally:
+        milling._milling_thread = None
+
+    assert stopped == [1]
