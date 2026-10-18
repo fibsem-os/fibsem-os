@@ -24,7 +24,6 @@ import yaml
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.acting import ActorKind
-from fibsem.applications.autolamella.proposals import OVERVIEW_POSITIONS
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
@@ -41,6 +40,7 @@ from fibsem.workflows.grid.manager import (
 )
 from fibsem.workflows.grid.protocol import GridTaskProtocol
 from fibsem.workflows.outputs import latest_item_output
+from fibsem.workflows.positions import OVERVIEW_POSITIONS
 from fibsem.workflows.proposals import Decision, DecisionOutcome, Standing
 from fibsem.workflows.review import standing
 from fibsem.workflows.status import TaskStatus

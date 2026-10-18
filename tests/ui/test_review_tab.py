@@ -742,8 +742,8 @@ def microscope():
 def _positions_waiting(experiment, positions=(), name="Grid-02"):
     """A grid's overview under review for where the lamellae go, with its
     stitched image on disk."""
-    from fibsem.applications.autolamella.proposals import OVERVIEW_POSITIONS
     from fibsem.workflows.grids import GridRecord
+    from fibsem.workflows.positions import OVERVIEW_POSITIONS
 
     grid = experiment.add_grid(GridRecord(name=name))
     directory = experiment.grid_path(grid) / "SEM Overview"

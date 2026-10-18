@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import logging
 from copy import deepcopy
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional
 
 from fibsem.structures import (
@@ -27,6 +26,7 @@ from fibsem.structures import (
     InsertableDeviceState,
     MicroscopeState,
 )
+from fibsem.workflows.positions import ItemPoses
 
 if TYPE_CHECKING:  # pragma: no cover - annotation only
     from fibsem.microscope import FibsemMicroscope
@@ -38,26 +38,13 @@ MILLING_ORIENTATION = "MILLING"
 FLUORESCENCE_ORIENTATION = "FM"
 
 
-@dataclass(frozen=True)
-class LamellaPoses:
-    """Both poses for a lamella, whichever side it was marked from.
-
-    `fluorescence` is None when the microscope has no fluorescence detector — there is
-    nothing to derive it from, and a pose invented for an instrument that does not exist
-    would be worse than its absence.
-    """
-
-    milling: MicroscopeState
-    fluorescence: Optional[MicroscopeState] = None
-
-
 def build_lamella_poses(
     microscope: "FibsemMicroscope",
     position: Optional[FibsemStagePosition] = None,
     objective_position: Optional[float] = None,
     state: Optional[MicroscopeState] = None,
     marked_at: Optional[str] = None,
-) -> LamellaPoses:
+) -> ItemPoses:
     """The milling and fluorescence poses for a lamella marked at *position*.
 
     *position* may be in any orientation. A position in the fluorescence orientation is
@@ -114,7 +101,7 @@ def build_lamella_poses(
     milling.stage_position = milling_position
 
     if microscope.fm is None or fluorescence_position is None:
-        return LamellaPoses(milling=milling, fluorescence=None)
+        return ItemPoses(milling=milling, fluorescence=None)
 
     fluorescence = deepcopy(state)
     fluorescence.stage_position = fluorescence_position
@@ -122,7 +109,7 @@ def build_lamella_poses(
         objective_position = microscope.fm.objective.focus_position
     fluorescence.objective_position = objective_position
 
-    return LamellaPoses(milling=milling, fluorescence=fluorescence)
+    return ItemPoses(milling=milling, fluorescence=fluorescence)
 
 
 def sync_fluorescence_pose(microscope: "FibsemMicroscope", lamella) -> bool:
