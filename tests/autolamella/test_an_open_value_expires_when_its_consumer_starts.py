@@ -16,7 +16,6 @@ import pytest
 from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
 from fibsem.applications.autolamella.structures import (
     Experiment,
-    standing,
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.structures import Point
@@ -27,6 +26,7 @@ from fibsem.workflows.proposals import (
     Proposal,
     Standing,
 )
+from fibsem.workflows.review import standing
 from fibsem.workflows.status import TaskState, TaskStatus
 from tests.autolamella.test_task_manager_status import (
     NoMicroscope,

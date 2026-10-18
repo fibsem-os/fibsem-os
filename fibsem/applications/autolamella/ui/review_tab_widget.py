@@ -61,7 +61,6 @@ from fibsem.applications.autolamella.structures import (
     Attention,
     Experiment,
     GridRecord,
-    standing,
 )
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.structures import (
@@ -101,6 +100,7 @@ from fibsem.workflows.proposals import (
     Standing,
     kind_label,
 )
+from fibsem.workflows.review import standing
 
 __all__ = [
     "REVIEW_RENDERERS",
