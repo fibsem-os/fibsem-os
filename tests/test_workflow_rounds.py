@@ -106,3 +106,43 @@ def test_a_status_report_names_its_queue_entry_and_round():
 
     assert reports[-1].work_item_id == entry.id
     assert reports[-1].round == 0
+
+
+def test_a_run_knows_its_round():
+    from fibsem.workflows.task import BaseTask
+
+    class _Task(BaseTask):
+        review = False
+
+        def _run(self):
+            pass
+
+        def pre_task(self):
+            pass
+
+        def post_task(self):
+            pass
+
+    manager = _Rounds(rounds=2)
+    manager.queue.add("p1", "Mill", round=1)
+    manager._next_item()
+    config = SimpleNamespace(task_name="Mill", task_type="MILL", display_name="Mill")
+    item = SimpleNamespace(name="p1", id="p1", task_state=SimpleNamespace())
+
+    task = _Task(None, config, item, task_manager=manager)
+    task._start_task_state()
+
+    assert task.round == 1
+    assert item.task_state.round == 1
+    assert manager.hook_run_context()["round"] == 1
+
+
+def test_an_image_says_which_round_took_it():
+    from fibsem.structures import FibsemExperimentRef
+
+    ref = FibsemExperimentRef(id="e", name="e")
+    ref.set_workflow_metadata(item_id="p1", task_name="Mill", round=4)
+
+    assert FibsemExperimentRef.from_dict(ref.to_dict()).round == 4
+    ref.clear_workflow_metadata()
+    assert ref.round is None

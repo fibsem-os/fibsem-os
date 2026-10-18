@@ -59,7 +59,6 @@ from superqt import ensure_main_thread
 
 from fibsem import conversions
 from fibsem.applications.autolamella.poses import sync_fluorescence_pose
-from fibsem.applications.autolamella.task_outputs import run_folder
 from fibsem.applications.autolamella.ui.lamella_name_list_widget import (
     LamellaNameListWidget,
 )
@@ -104,6 +103,7 @@ from fibsem.ui.widgets.custom_widgets import (
     scrollable,
 )
 from fibsem.util import timestamps
+from fibsem.workflows.task import run_folder
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment, Lamella
@@ -2271,7 +2271,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         try:
             now = timestamps.now()
             filename = os.path.join(
-                run_folder(lamella, COINCIDENCE_REVIEW_TASK_NAME, now),
+                run_folder(lamella.path, COINCIDENCE_REVIEW_TASK_NAME, now),
                 f"ref_{COINCIDENCE_REVIEW_TASK_NAME}_final_res_01_ib.tif",
             )
             written = image.save(filename)

@@ -4426,6 +4426,9 @@ class FibsemExperimentRef:
     item_name: Optional[str] = None
     task_id: Optional[str] = None
     task_name: Optional[str] = None
+    # Which round of the item's tasks, for an item that repeats them (a volume
+    # position's slices); None for one that does not.
+    round: Optional[int] = None
 
     def set_workflow_metadata(
         self,
@@ -4433,6 +4436,7 @@ class FibsemExperimentRef:
         item_name: Optional[str] = None,
         task_id: Optional[str] = None,
         task_name: Optional[str] = None,
+        round: Optional[int] = None,
     ) -> None:
         """Record what subsequent images should say about where in the run they were
         taken, leaving experiment identity alone.
@@ -4445,6 +4449,7 @@ class FibsemExperimentRef:
         self.item_name = item_name
         self.task_id = task_id
         self.task_name = task_name
+        self.round = round
 
     def clear_workflow_metadata(self) -> None:
         """Stop stamping an item and task, keeping the experiment.
@@ -4465,6 +4470,7 @@ class FibsemExperimentRef:
             "item_name": self.item_name,
             "task_id": self.task_id,
             "task_name": self.task_name,
+            "round": self.round,
         }
 
     @staticmethod
@@ -4491,6 +4497,7 @@ class FibsemExperimentRef:
             item_name=settings.get("item_name"),
             task_id=settings.get("task_id"),
             task_name=settings.get("task_name"),
+            round=settings.get("round"),
         )
 
 
