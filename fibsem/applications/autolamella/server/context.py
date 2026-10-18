@@ -1207,12 +1207,20 @@ class AutoLamellaAppContext:
     # --- lamella positions: the Lamella tab's buttons, for an agent at Drive ------
 
     def _agent_call(self, call, select_latest: bool = False, timeout: float = 30.0):
-        """``call()`` on the GUI thread through the host, or inline where the host
-        has no GUI thread to offer (a test host, a headless session)."""
-        request = getattr(self._host, "request_agent_call", None)
-        if request is None:
+        """``call()`` where the session edits the experiment, then the window's
+        redraw; inline where the host has no session (a test host)."""
+        session = getattr(self._host, "session", None)
+        if session is None:
             return call()
-        return request(call, select_latest=select_latest).result(timeout=timeout)
+        redraw = getattr(self._host, "after_agent_edit", None)
+
+        def edit():
+            result = call()
+            if redraw is not None:
+                redraw(select_latest)
+            return result
+
+        return session.run_edit(edit).result(timeout=timeout)
 
     def _editable(self):
         """The experiment and microscope an edit needs, or a refusal."""
@@ -3230,17 +3238,6 @@ class AutoLamellaAppContext:
 
         payload = serialize_request(request)
         payload["question_id"] = question_id
-        recorded = responder.recorded_question()
-        if recorded is not None:
-            # On the item's record as a proposal, and answered there: the same
-            # decision an agent makes on any other review. Answering the prompt
-            # would decide nothing, so it says so up front.
-            payload["answer_via"] = "decide"
-            payload["decide"] = {
-                "item_id": recorded[0],
-                "task_name": recorded[1],
-                "proposal_id": recorded[2],
-            }
         dismissed = getattr(responder, "dismissed_reason", lambda: None)()
         if dismissed is not None:
             # The operator dismissed the agent's suggestion: say so, and why,
@@ -3364,21 +3361,6 @@ class AutoLamellaAppContext:
             InvalidAnswerValue,
             StalePromptError,
         )
-
-        recorded = responder.recorded_question()
-        _request, pending_question_id = responder.pending_question_and_id()
-        if recorded is not None and pending_question_id == int(question_id):
-            # Nothing was clicked. This question is decided, not answered: see
-            # ``answer_via`` on the pending prompt.
-            return {
-                "available": True,
-                "applied": False,
-                "stale": False,
-                "answer_via": "decide",
-                "item_id": recorded[0],
-                "task_name": recorded[1],
-                "proposal_id": recorded[2],
-            }
 
         request, parsed, refusal = self._parse_answer_value(
             responder, int(question_id), value

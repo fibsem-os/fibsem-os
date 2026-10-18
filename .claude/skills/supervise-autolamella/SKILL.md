@@ -43,10 +43,7 @@ leave the click to the operator, with a note saying why.
    carries, as proposed or adjusted. Rejected needs a reason and fails the
    task that asked, so when unsure hold and escalate rather than reject.
    Take a `holding_the_run` review before anything else in the inbox:
-   nothing runs until it is decided. (An older path still exists: a prompt
-   whose payload says `answer_via: "decide"` carries a `decide` block with
-   the same three fields; `prompt_answer` on it is refused with nothing
-   clicked, and `review_decide` is the answer there too.)
+   nothing runs until it is decided.
 
 ## Write down why
 

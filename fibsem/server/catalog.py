@@ -2023,7 +2023,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="prompt_get",
-        description='The supervision question awaiting an answer, if any — message, options, and context images. A question that is also on the item\'s record says answer_via: "decide" and gives the item_id, task_name and proposal_id: it is decided with review_decide, like any other review, and prompt_answer will refuse it. suggestion_dismissed: {reason} when the operator dismissed your suggested answer to it.',
+        description="The supervision question awaiting an answer, if any — message, options, and context images. suggestion_dismissed: {reason} when the operator dismissed your suggested answer to it.",
         method="GET",
         path="/app/workflow/prompt",
         level="watch",
@@ -2058,7 +2058,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="prompt_answer",
-        description='Answer the pending supervision question, exactly as clicking the matching button would. Not for a question whose prompt says answer_via: "decide" -- that one is refused here, with nothing clicked, and decided with review_decide. True = the positive option. Echo the question_id from prompt_get; if that question is no longer pending the answer is refused (409 stale_prompt) — re-read and answer the current one. A question whose prompt has a value field takes a value in the shape that field gives: the edit the operator could make in that widget, placed into it (the operator sees it land) and then answered through the same click path; value_required means the answer must carry one (the action, at the milling and spot burn questions). When your value moved the widget, moved_from in the answer is what it showed before, in the same shape as value; absent when it already showed your value. The value is what is stored. An out-of-bounds or wrong-shape value is refused (422 invalid_value) without clicking anything.',
+        description="Answer the pending supervision question, exactly as clicking the matching button would. True = the positive option. Echo the question_id from prompt_get; if that question is no longer pending the answer is refused (409 stale_prompt) — re-read and answer the current one. A question whose prompt has a value field takes a value in the shape that field gives: the edit the operator could make in that widget, placed into it (the operator sees it land) and then answered through the same click path; value_required means the answer must carry one (the action, at the milling and spot burn questions). When your value moved the widget, moved_from in the answer is what it showed before, in the same shape as value; absent when it already showed your value. The value is what is stored. An out-of-bounds or wrong-shape value is refused (422 invalid_value) without clicking anything.",
         method="POST",
         path="/app/workflow/prompt/answer",
         level="drive",
@@ -2072,7 +2072,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="prompt_suggest_answer",
-        description="Suggest an answer to the pending supervision question, for the operator to take or not. Nothing is answered: the prompt shows 'Agent suggests: <the button>' with your reason under it, and the operator's click on it answers as theirs, recorded with you as the one who suggested it (prompt_suggested, then prompt_answered with suggested_by). Answering any other way ignores it; the operator may dismiss it, saying why (prompt_suggestion_dismissed, with their reason); a new posting of the question drops it. Echo the question_id from prompt_get (409 stale_prompt if it has gone). value is as for prompt_answer, and is placed in the widget only when the operator takes the suggestion. Not for a question whose prompt says answer_via: \"decide\" (409 not_suggestible): at Assist, decide it through request_create.",
+        description="Suggest an answer to the pending supervision question, for the operator to take or not. Nothing is answered: the prompt shows 'Agent suggests: <the button>' with your reason under it, and the operator's click on it answers as theirs, recorded with you as the one who suggested it (prompt_suggested, then prompt_answered with suggested_by). Answering any other way ignores it; the operator may dismiss it, saying why (prompt_suggestion_dismissed, with their reason); a new posting of the question drops it. Echo the question_id from prompt_get (409 stale_prompt if it has gone). value is as for prompt_answer, and is placed in the widget only when the operator takes the suggestion.",
         method="POST",
         path="/app/workflow/prompt/suggest",
         level="assist",
