@@ -30,6 +30,7 @@ __all__ = [
     "PointRule",
     "POINT_RULES",
     "POINT_FIELDS",
+    "identity_index",
     "side_of",
     "types_on",
     "cleared_by",
@@ -41,7 +42,7 @@ __all__ = [
     "point_names",
     "place_by_hand",
     "set_field",
-    "apply_fit",
+    "apply_refinement",
     "accept",
     "toggle_rejected",
     "reset_to_predicted",
@@ -75,7 +76,8 @@ _PARTNER_TYPES: Dict[PointType, PointType] = {
 }
 
 
-def _position(coords: Sequence[Coordinate], coord: Coordinate) -> Optional[int]:
+def identity_index(coords: Sequence[Coordinate], coord: Coordinate) -> Optional[int]:
+    """Where ``coord`` is in ``coords``, found by identity, or None."""
     return next((i for i, c in enumerate(coords) if c is coord), None)
 
 
@@ -148,7 +150,7 @@ def fiducial_partner(
     if other is None:
         return None
     own, partners = (fib, fm) if coord.point_type is PointType.FIB else (fm, fib)
-    index = _position(own, coord)
+    index = identity_index(own, coord)
     if index is None or index >= len(partners):
         return None
     return partners[index]
@@ -225,8 +227,9 @@ def set_field(coord: Coordinate, field: str, value: float) -> None:
     place_by_hand(coord)
 
 
-def apply_fit(coord: Coordinate, x: float, y: float, z: float) -> None:
-    """Commit an accepted fit: move the point and mark it fitted."""
+def apply_refinement(coord: Coordinate, x: float, y: float, z: float) -> None:
+    """Commit an accepted refinement of one point: move it to the refined
+    position and mark it fitted."""
     coord.point.x, coord.point.y, coord.point.z = x, y, z
     coord.fitted = True
     coord.status = PointStatus.FITTED

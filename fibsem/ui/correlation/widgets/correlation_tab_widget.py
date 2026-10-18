@@ -4891,7 +4891,9 @@ class CorrelationTabWidget(QWidget):
         if result.fitted is None:
             return
         fitted = result.fitted
-        self._point_store.apply_fit(result.coordinate, fitted.x, fitted.y, fitted.z)
+        self._point_store.apply_refinement(
+            result.coordinate, fitted.x, fitted.y, fitted.z
+        )
         self.data_changed.emit(self.data)
 
 

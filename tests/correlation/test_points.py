@@ -16,7 +16,7 @@ from fibsem.correlation.config import (
 from fibsem.correlation.points import (
     POINT_RULES,
     accept,
-    apply_fit,
+    apply_refinement,
     check_additions,
     cleared_by,
     fiducial_partner,
@@ -192,9 +192,9 @@ def test_an_unknown_field_is_an_error_and_changes_nothing():
     assert coord.status == PointStatus.PREDICTED
 
 
-def test_apply_fit_moves_the_point_and_marks_it_fitted():
+def test_apply_refinement_moves_the_point_and_marks_it_fitted():
     coord = _coord()
-    apply_fit(coord, 1.0, 2.0, 3.0)
+    apply_refinement(coord, 1.0, 2.0, 3.0)
     assert (coord.point.x, coord.point.y, coord.point.z) == (1.0, 2.0, 3.0)
     assert coord.fitted is True
     assert coord.status == PointStatus.FITTED
@@ -253,7 +253,7 @@ def test_no_transition_writes_provenance():
     )
     accept([coord])
     place_by_hand(coord)
-    apply_fit(coord, 2.0, 2.0, 0.0)
+    apply_refinement(coord, 2.0, 2.0, 0.0)
     toggle_rejected(coord)
     toggle_rejected(coord)
     reset_to_predicted(coord)

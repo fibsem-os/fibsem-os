@@ -29,7 +29,7 @@ from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple, Un
 from PyQt5.QtCore import QObject, pyqtSignal
 
 from fibsem.correlation import points
-from fibsem.correlation.points import POINT_RULES
+from fibsem.correlation.points import POINT_RULES, identity_index
 from fibsem.correlation.structures import Coordinate, PointType
 
 # One selected point per canvas, not one overall: a fiducial named in the
@@ -50,14 +50,10 @@ def _as_list(coords: _Coords) -> List[Coordinate]:
     return list(coords)
 
 
-def _position(coords: Sequence[Coordinate], coord: Coordinate) -> Optional[int]:
-    return next((i for i, c in enumerate(coords) if c is coord), None)
-
-
 def _unique(coords: Iterable[Coordinate]) -> List[Coordinate]:
     out: List[Coordinate] = []
     for coord in coords:
-        if _position(out, coord) is None:
+        if identity_index(out, coord) is None:
             out.append(coord)
     return out
 
@@ -144,7 +140,7 @@ class PointStore(QObject):
 
     def index_of(self, coord: Coordinate) -> Optional[int]:
         """The coordinate's row within its own point type, or None."""
-        return _position(self._points[coord.point_type], coord)
+        return identity_index(self._points[coord.point_type], coord)
 
     def __contains__(self, coord: object) -> bool:
         return isinstance(coord, Coordinate) and self.index_of(coord) is not None
@@ -213,7 +209,10 @@ class PointStore(QObject):
                 return 0
             present = [c for c in _unique(decided) if c in self]
         anchor = present[0]
-        if self.current is not None and _position(present, self.current) is not None:
+        if (
+            self.current is not None
+            and identity_index(present, self.current) is not None
+        ):
             anchor = self.current
         anchor_type = anchor.point_type
         lowest = min(self.index_of(c) for c in present if c.point_type is anchor_type)
@@ -233,7 +232,9 @@ class PointStore(QObject):
         """Put one type's points in the given order; the same points, by identity."""
         coords = list(coords)
         held = self._points[point_type]
-        if len(coords) != len(held) or any(_position(coords, c) is None for c in held):
+        if len(coords) != len(held) or any(
+            identity_index(coords, c) is None for c in held
+        ):
             raise ValueError(f"reorder of {point_type} must keep the same points")
         if all(a is b for a, b in zip(coords, held)):
             return
@@ -290,7 +291,7 @@ class PointStore(QObject):
     def deselect(self, coords: _Coords) -> None:
         """Take points out of the selection and leave the rest of it."""
         gone = _as_list(coords)
-        kept = [c for c in self._selection if _position(gone, c) is None]
+        kept = [c for c in self._selection if identity_index(gone, c) is None]
         if self._set_selection(kept):
             self.selection_changed.emit()
 
@@ -355,10 +356,11 @@ class PointStore(QObject):
     # is here and announces the change.
     # ------------------------------------------------------------------
 
-    def apply_fit(self, coord: Coordinate, x: float, y: float, z: float) -> None:
-        """Commit an accepted fit: move the point and mark it fitted."""
+    def apply_refinement(self, coord: Coordinate, x: float, y: float, z: float) -> None:
+        """Commit an accepted refinement of one point: move it and mark it
+        fitted."""
         self._require_present([coord])
-        points.apply_fit(coord, x, y, z)
+        points.apply_refinement(coord, x, y, z)
         self.points_changed.emit((coord,))
 
     def accept(self, coords: _Coords) -> List[Coordinate]:

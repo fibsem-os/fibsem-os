@@ -383,9 +383,9 @@ def test_notify_changed_announces_without_touching_status():
     assert log.events == [("points", (coord,))]
 
 
-def test_apply_fit_moves_the_point_and_marks_it_fitted():
+def test_apply_refinement_moves_the_point_and_marks_it_fitted():
     store, coords = _store(1)
-    store.apply_fit(coords[0], 1.0, 2.0, 3.0)
+    store.apply_refinement(coords[0], 1.0, 2.0, 3.0)
     p = coords[0].point
     assert (p.x, p.y, p.z) == (1.0, 2.0, 3.0)
     assert coords[0].fitted is True
@@ -472,7 +472,7 @@ def test_no_transition_writes_provenance():
     store.replace_all([coord])
     store.accept(coord)
     store.move(coord, 1.0, 1.0)
-    store.apply_fit(coord, 2.0, 2.0, 0.0)
+    store.apply_refinement(coord, 2.0, 2.0, 0.0)
     store.toggle_rejected(coord)
     store.toggle_rejected(coord)
     store.reset_to_predicted(coord)
