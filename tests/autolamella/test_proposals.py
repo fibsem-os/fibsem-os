@@ -31,6 +31,7 @@ from fibsem.structures import (
     MicroscopeState,
     Point,
 )
+from fibsem.workflows.experiment import EXPERIMENT_WRITE_LOCK
 from fibsem.workflows.proposals import (
     ALIGNMENT_AREA,
     PROPOSAL_KINDS,
@@ -1361,7 +1362,7 @@ def test_decide_and_save_share_the_write_lock(tmp_path):
     release = threading.Event()
 
     def hold_the_lock():
-        with S.EXPERIMENT_WRITE_LOCK:
+        with EXPERIMENT_WRITE_LOCK:
             order.append("locked")
             holding.set()
             release.wait(5)
