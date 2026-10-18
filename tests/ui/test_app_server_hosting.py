@@ -150,7 +150,7 @@ def test_the_microscope_is_off_by_default_and_restarts_when_changed(
     ui.connect_to_microscope()
     first = ui.session.app_server
     assert first is not None and first.running
-    assert _routers(first) == {"microscope": False, "app": True}
+    assert _routers(first) == {"microscope": False, "services": True, "app": True}
 
     # Turning the microscope on in Tools → App Server rebuilds the server with the
     # instrument routes, keeping the agent's token (FIB-1359).
@@ -158,7 +158,7 @@ def test_the_microscope_is_off_by_default_and_restarts_when_changed(
     second = ui.session.app_server
     assert second is not first and not first.running and second.running
     assert second.auth is first.auth
-    assert _routers(second) == {"microscope": True, "app": True}
+    assert _routers(second) == {"microscope": True, "services": True, "app": True}
 
     # Unchanged: no restart.
     ui.set_app_server_microscope(True)

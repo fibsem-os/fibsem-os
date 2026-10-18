@@ -176,8 +176,9 @@ def test_env_override_starts_at_drive(microscope, tmp_path, monkeypatch):
 
 def test_a_restart_keeps_the_token_and_the_level(microscope, tmp_path):
     """A microscope reconnect or devices toggle restarts the server; the
-    agent's token and the level the operator set survive it, for the app
-    session only (FIB-1035 app test #5 and the reconnect question)."""
+    agent's token, the level the operator set and the analysis services (a
+    loaded model) survive it, for the app session only (FIB-1035 app test #5
+    and the reconnect question)."""
     from fibsem.server.auth import AgentLevel
 
     session = _session(microscope)
@@ -190,6 +191,8 @@ def test_a_restart_keeps_the_token_and_the_level(microscope, tmp_path):
     assert first.start()
     first.auth.set_level(AgentLevel.DRIVE)
     token = first.auth.token
+    services = first._app.state.services
+    assert services is session.analysis_services
     first.stop()
     second = AppServerHost(
         session,
@@ -202,6 +205,7 @@ def test_a_restart_keeps_the_token_and_the_level(microscope, tmp_path):
         body = _get(second, "/capabilities").json()
         assert second.auth.token == token
         assert body["level"] == "drive"
+        assert second._app.state.services is services
     finally:
         second.stop()
     # A new app session -- a new window -- starts at Watch with a new token.
