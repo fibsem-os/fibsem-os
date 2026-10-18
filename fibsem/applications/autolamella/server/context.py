@@ -296,13 +296,7 @@ def _attendance_line(task_protocol: Any, task_name: str) -> str:
         attendance_for,
     )
 
-    try:
-        review_on = bool(
-            fibsem_cfg.load_user_preferences().features.proposer_reviewer_workflow_enabled
-        )
-    except Exception:
-        review_on = False
-    att = attendance_for(task_protocol, task_name, review_on)
+    att = attendance_for(task_protocol, task_name)
     return att.line if att is not None else ""
 
 
@@ -1912,6 +1906,7 @@ class AutoLamellaAppContext:
             waiting_on,
         )
         from fibsem.workflows.events import to_plain
+        from fibsem.workflows.proposals import rejected_fails_task
 
         protocol = getattr(experiment, "task_protocol", None)
 
@@ -1930,6 +1925,9 @@ class AutoLamellaAppContext:
                     # The task that made it is stopped on the answer: nothing
                     # else runs until it is decided, so it comes first.
                     "holding_the_run": bool(proposal.asking),
+                    # What Rejected does, as the kind declares it: fail the
+                    # task, or (a state question) "don't" and carry on.
+                    "rejected_fails_task": rejected_fails_task(proposal.kind),
                     "gated": is_gated(experiment, task_name, item),
                     "waiting_on": waiting_on(experiment, task_name, item),
                 }

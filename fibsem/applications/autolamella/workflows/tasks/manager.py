@@ -95,9 +95,7 @@ class TaskManager(BaseTaskManager):
         tab -- which is left out: running it again would re-move the stage
         and supersede the proposal someone is about to decide, or just did.
         Re-running it is a deliberate act on that task, not a side effect of
-        pressing Run. With the Review surface off there is no way to decide,
-        so the exception is not made: Run re-runs it and the producer confirms
-        its own record, as it does for every task with the flag off.
+        pressing Run.
         """
         if required_lamella is None:
             required_lamella = [p.name for p in self.experiment.positions]
@@ -105,7 +103,7 @@ class TaskManager(BaseTaskManager):
             (name, task)
             for task in task_names
             for name in required_lamella
-            if not (self.review_enabled and self._awaiting_decision(name, task))
+            if not self._awaiting_decision(name, task)
         ]
         self.queue.build_from_pairs(
             pairs, task_names=task_names, item_names=required_lamella

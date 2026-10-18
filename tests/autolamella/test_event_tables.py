@@ -43,7 +43,6 @@ from fibsem.applications.autolamella.workflows.tasks.rough import MillRoughTaskC
 from fibsem.applications.autolamella.workflows.tasks.select_position import (
     SelectMillingPositionTaskConfig,
 )
-from fibsem.workflows import manager as manager_module
 from fibsem.workflows.event_recording import (
     EVENTS_FILENAME,
     read_events,
@@ -131,7 +130,12 @@ def test_a_run_s_tasks_steps_and_milling_are_read(microscope, experiment):
     assert list(milling["depth"]) == [stage.pattern.depth for stage in planned]
     assert set(milling["task_id"]) == set(runs[runs["task"] == ROUGH]["task_id"])
 
-    assert tables.decisions.empty
+    # Setup's two state questions and its alignment area, on the record
+    # unasked: nobody decided
+    decisions = tables.decisions
+    assert list(decisions["kind"]) == ["state", "state", "alignment_area"]
+    assert set(decisions["task"]) == {SETUP}
+    assert set(decisions["outcome"]) == {"Unreviewed"}
 
     # every record counted once, and a run's steps are the task's
     actors = tables.actors
@@ -142,13 +146,9 @@ def test_a_run_s_tasks_steps_and_milling_are_read(microscope, experiment):
     assert steps["count"].iloc[0] == len(tables.steps)
 
 
-def test_decisions_nobody_was_asked_are_read_as_the_task_s(
-    microscope, experiment, monkeypatch
-):
-    """With review on and no window to ask in, Setup's questions go straight
-    on the record as Unreviewed: nobody waited, and nothing moved."""
-    monkeypatch.setattr(manager_module, "review_enabled", lambda: True)
-
+def test_decisions_nobody_was_asked_are_read_as_the_task_s(microscope, experiment):
+    """With no window to ask in, Setup's questions go straight on the record
+    as Unreviewed: nobody waited, and nothing moved."""
     run_tasks(microscope, experiment, [SETUP])
 
     decisions = read_event_tables(experiment.path).decisions

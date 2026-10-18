@@ -112,14 +112,26 @@ class Standing(Enum):
 class ProposalKind:
     """A kind names the set of values a proposal may carry. A value exists
     because a later task consumes it; a kind with no values is a result for
-    someone to look at. What a decision does to the run is not a property of
-    the kind: a task that waits on a decision is AwaitingDecision, and the
-    decision finishes it (Completed or Failed) like any other task."""
+    someone to look at. A task that waits on a decision is AwaitingDecision,
+    and the decision finishes it (Completed or Failed) like any other task;
+    what a reject means is the kind's to say."""
 
     name: str
     values: Tuple[str, ...]  # the value names a proposal of this kind may carry
     # How the kind is named to a person: on a Review tab row, in a sentence.
     label: str = ""
+    # Whether a reject fails the task: "nothing further here", so nothing that
+    # requires it runs. Off for a question that asks leave to do something
+    # (``state``: tilt now?), where a reject is "don't": the task does not do
+    # it and carries on.
+    rejected_fails_task: bool = True
+
+
+def rejected_fails_task(kind: str) -> bool:
+    """Whether rejecting a proposal of ``kind`` fails its task. A kind this
+    build has not registered does, as every kind did before kinds said."""
+    registered = PROPOSAL_KINDS.get(kind)
+    return registered is None or registered.rejected_fails_task
 
 
 PROPOSAL_KINDS: Dict[str, ProposalKind] = {}
@@ -145,7 +157,12 @@ register_proposal_kind(
     ProposalKind(name=DETECTION, values=("features",), label="Detection")
 )
 register_proposal_kind(
-    ProposalKind(name=STATE, values=("stage_position",), label="Position")
+    ProposalKind(
+        name=STATE,
+        values=("stage_position",),
+        label="Position",
+        rejected_fails_task=False,
+    )
 )
 register_proposal_kind(
     ProposalKind(

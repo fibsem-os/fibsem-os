@@ -117,7 +117,6 @@ def test_with_no_finished_image_the_task_takes_one_frame_to_ask_on(
     lamella.path.mkdir(parents=True, exist_ok=True)
     lamella.milling_pose = microscope.get_microscope_state()
     manager = TaskManager(microscope=microscope, experiment=exp, parent_ui=None)
-    manager.review_enabled = True
     task = MillFiducialTask(
         microscope=microscope,
         config=lamella.task_config[FIDUCIAL],

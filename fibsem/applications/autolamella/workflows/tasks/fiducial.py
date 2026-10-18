@@ -246,14 +246,9 @@ class MillFiducialTask(AutoLamellaTask):
         # session's finished acquisition when it saved one (off by default),
         # else one FIB frame taken now. A question on the record needs the
         # frame it is about, and the pre-mill reference does not show the
-        # fiducial; the old prompt sat on the display, which had the mill's
-        # own unsaved post-mill image.
+        # fiducial.
         image = self._milling_result_image_file(milling_task_config)
-        if (
-            not image
-            and self._asks_on_the_record
-            and self.config.confirm_alignment_area
-        ):
+        if not image and self.config.confirm_alignment_area:
             self._acquire_channels(
                 image_settings,
                 filename=f"ref_{self.task_name}_post_mill",

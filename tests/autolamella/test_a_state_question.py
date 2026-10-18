@@ -1,10 +1,9 @@
 """The ``state`` kind: a task's position, confirmed before it goes on.
 
-Acquire Reference Image is the first task to ask through ``ask``: with the
-review preference on it asks a ``state`` question in place of its "Press
-Continue when ready" prompt. Headless nobody is there, so the position goes
-on the record as proposed, ``Unreviewed``. With the preference off nothing
-changes: the old prompt, and no record.
+Acquire Reference Image was the first task to ask through ``ask``: it asks
+a ``state`` question in place of its "Press Continue when ready" prompt,
+whether the review preference is on or off. Headless nobody is there, so the
+position goes on the record as proposed, ``Unreviewed``.
 """
 
 import math
@@ -68,9 +67,8 @@ def _experiment(tmp_path: Path, microscope, attention=Attention.automated):
     return exp
 
 
-def _task(microscope, exp, review_enabled=True) -> AcquireReferenceImageTask:
+def _task(microscope, exp) -> AcquireReferenceImageTask:
     manager = TaskManager(microscope=microscope, experiment=exp, parent_ui=None)
-    manager.review_enabled = review_enabled
     lamella = exp.positions[0]
     return AcquireReferenceImageTask(
         microscope=microscope,
@@ -99,12 +97,6 @@ def test_headless_the_position_goes_on_the_record_unreviewed(microscope, tmp_pat
     assert question.current.values["stage_position"] == pose, "used as proposed"
     assert "Press Continue" in question.provenance["message"]
     assert not question.provenance["reference_image"], "asked before an image"
-
-
-def test_with_the_preference_off_nothing_is_recorded(microscope, tmp_path):
-    exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
-    _task(microscope, exp, review_enabled=False).run()
-    assert [p.kind for p in exp.positions[0].proposals_from(REF)] == [TASK_RESULT]
 
 
 def test_the_position_survives_the_file(microscope, tmp_path):

@@ -9,9 +9,11 @@ dispatches to a registered renderer rather than growing an ``if`` per kind.
 
 Two verbs. **Confirm** submits whatever the renderer currently shows; the
 delta against the proposal is computed by ``Experiment.decide``, never
-declared here. **Reject** means *nothing further here*: the task that was
-waiting on the decision is failed, so nothing that requires it runs. There is
-no defer button on purpose: items commit independently, so walking away is
+declared here. **Reject** means what the kind says it does
+(``ProposalKind.rejected_fails_task``): mostly *nothing further here*, the
+task that was waiting on the decision is failed, so nothing that requires it
+runs; for a ``state`` question it is *don't*, and the task carries on. There
+is no defer button on purpose: items commit independently, so walking away is
 deferral.
 
 Every action here is self-contained and never touches hardware. The one write
@@ -94,6 +96,7 @@ from fibsem.workflows.proposals import (
     Proposal,
     Standing,
     kind_label,
+    rejected_fails_task,
 )
 from fibsem.workflows.review import standing
 
@@ -436,12 +439,9 @@ class TaskResultReviewRenderer(ReviewRenderer):
         self.btn_confirm = QPushButton(self.CONFIRM_LABEL)
         self.btn_confirm.setStyleSheet(stylesheets.CONFIRM_BUTTON_STYLESHEET)
         self.btn_confirm.setToolTip(self.PENDING_HINT)
-        self.btn_reject = QPushButton("Reject · mark task failed")
+        self.btn_reject = QPushButton()
         self.btn_reject.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
-        self.btn_reject.setToolTip(
-            "R — nothing further here; the task is failed and what requires it "
-            "does not run"
-        )
+        self._set_reject_words(fails=True)
         actions = QHBoxLayout()
         actions.addWidget(self.position)
         actions.addWidget(self.btn_open)
@@ -603,6 +603,7 @@ class TaskResultReviewRenderer(ReviewRenderer):
         )
         self.btn_confirm.setText(self.CONFIRM_LABEL)
         self.btn_confirm.setToolTip(self.PENDING_HINT)
+        self._set_reject_words(fails=rejected_fails_task(proposal.kind))
         # everything the last proposal put up goes first: images, overlays and
         # the FM composite, so a result without a readable image shows none
         self._controller.clear()
@@ -615,6 +616,20 @@ class TaskResultReviewRenderer(ReviewRenderer):
             view.show_beams()
         self._show_proposal()
         self._refresh_line()
+
+    def _set_reject_words(self, fails: bool) -> None:
+        """Reject says what it does, as the kind declares it."""
+        if fails:
+            self.btn_reject.setText("Reject · mark task failed")
+            self.btn_reject.setToolTip(
+                "R — nothing further here; the task is failed and what requires "
+                "it does not run"
+            )
+        else:
+            self.btn_reject.setText("Reject · don't")
+            self.btn_reject.setToolTip(
+                "R — don't: the task does not do what it asked and carries on"
+            )
 
     def set_running(self, running: bool) -> None:
         self._running = running
@@ -2366,7 +2381,10 @@ class ReviewTabWidget(QWidget):
             self,
             "Reject",
             f"Why is there nothing further here for {item.name}? "
-            f"{task_name} is marked failed; nothing that requires it runs.",
+            f"{task_name} is marked failed; nothing that requires it runs."
+            if rejected_fails_task(proposal.kind)
+            else f"Why not, for {item.name}? {task_name} does not do what it "
+            "asked, and carries on.",
         )
         reason = reason.strip()
         if not ok or not reason:

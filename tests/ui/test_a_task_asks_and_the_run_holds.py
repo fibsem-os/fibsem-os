@@ -70,8 +70,6 @@ def window(qapp, tmp_path):
     experiment.positions[0].path.mkdir(parents=True, exist_ok=True)
     ui.experiment = experiment
     win._on_experiment_update()
-    win._preferences.features.proposer_reviewer_workflow_enabled = True
-    win._apply_review_visibility()
     win.tab_widget.setCurrentIndex(0)
     win._started = []  # (manager, thread) pairs, stopped before teardown
 
@@ -117,7 +115,6 @@ def _task(window):
         responder=ui.ui_responder,
         answerers=ui.session.answerers,
     )
-    manager.review_enabled = True
     lamella = experiment.positions[0]
     task = _AsksForADetection(
         microscope=ui.microscope,

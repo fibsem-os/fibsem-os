@@ -183,9 +183,8 @@ A workflow asks in one of two ways:
 - **A prompt** (`PROMPT`): read `prompt_get` and take its `question_id`. At
   Drive you answer it (`prompt_answer`), at Assist you suggest
   (`prompt_suggest_answer`), at Watch you say what you would answer.
-- **A recorded question** (`QUESTION`): with the review preference on, a task
-  asks a detection or a position confirmation on the item's record and stops
-  on it. `review_list` lists it with `holding_the_run: true`. It is decided
+- **A recorded question** (`QUESTION`): a task asks a position, an alignment
+  area or a detection on the item's record and stops on it. `review_list` lists it with `holding_the_run: true`. It is decided
   with `review_decide`, never answered or suggested (`409 not_suggestible`).
 
 The operator outranks you: if they answer first, your job for that question

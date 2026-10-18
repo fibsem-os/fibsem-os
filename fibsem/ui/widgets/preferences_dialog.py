@@ -74,13 +74,6 @@ _TIP_CONNECTION_CHIP = (
     "reconnecting and disconnecting. The Connection tab still works and is still "
     "where connecting happens; this is the header half of replacing it."
 )
-_LBL_PROPOSE_REVIEW = "Review workflow (early access)"
-_TIP_PROPOSE_REVIEW = (
-    "Show the Review tab and let a task's answer wait there for you to confirm "
-    "or reject, instead of the next task running straight away. Every task "
-    "records what it did whether this is on or not; this shows the tab and "
-    "allows a task to be set to Review. Early access."
-)
 # Experiment defaults
 _LBL_EXP_DIR = "Default Experiment Directory"
 _TIP_EXP_DIR = "Directory where new experiments will be saved. Pre-fills the directory field when creating a new experiment."
@@ -180,9 +173,6 @@ class PreferencesDialog(QDialog):
         self._chk_connection_chip.setToolTip(_TIP_CONNECTION_CHIP)
         features_form.addRow(_LBL_COINCIDENCE, self._chk_coincidence_milling)
         features_form.addRow(_LBL_CONNECTION_CHIP, self._chk_connection_chip)
-        self._chk_propose_review = QCheckBox()
-        self._chk_propose_review.setToolTip(_TIP_PROPOSE_REVIEW)
-        features_form.addRow(_LBL_PROPOSE_REVIEW, self._chk_propose_review)
         self._stack.addWidget(features_page)
 
         # --- Experiment Defaults ---
@@ -251,7 +241,6 @@ class PreferencesDialog(QDialog):
         f = prefs.features
         self._chk_coincidence_milling.setChecked(f.coincidence_milling_enabled)
         self._chk_connection_chip.setChecked(f.connection_chip)
-        self._chk_propose_review.setChecked(f.proposer_reviewer_workflow_enabled)
 
         self._chk_update_check.setChecked(prefs.reporting.update_check_enabled)
 
@@ -314,7 +303,6 @@ class PreferencesDialog(QDialog):
         f = prefs.features
         f.coincidence_milling_enabled = self._chk_coincidence_milling.isChecked()
         f.connection_chip = self._chk_connection_chip.isChecked()
-        f.proposer_reviewer_workflow_enabled = self._chk_propose_review.isChecked()
 
         m = prefs.movement
         m.acquire_sem_after_stage_movement = self._chk_acquire_sem.isChecked()

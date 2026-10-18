@@ -57,7 +57,6 @@ from fibsem.applications.autolamella.ui.workflow_config_widget import (
     ATTENTION_LABELS,
     _chip_style,
     _requires_phrase,
-    _review_available,
 )
 from fibsem.applications.autolamella.ui.workflow_preflight_dialog import (
     _task_block as task_block,
@@ -356,8 +355,7 @@ class _TaskRow(QWidget):
         self.detail_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         layout.addWidget(self.detail_label)
         # Who decides the record, as on the lamella task list, with the two
-        # states a grid task has: Automated or Review. A click toggles. Hidden
-        # while the review preference is off, when there is nothing to choose.
+        # states a grid task has: Automated or Review. A click toggles.
         self.btn_attention = QToolButton()
         self.btn_attention.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.btn_attention.setIconSize(QSize(14, 14))
@@ -425,15 +423,12 @@ class _TaskRow(QWidget):
         )
         # the column carries the warning when a Review holds nothing; a reason
         # this system cannot run the task still comes first
-        nothing_waits = (
-            available and _review_available() and self._reviewed_without_dependents
-        )
+        nothing_waits = available and self._reviewed_without_dependents
         # the right column, most pressing first: why it cannot run, that a
         # Review holds nothing, what it waits for (as the lamella list says
         # it), and otherwise the task's kind
-        reviewed = self._reviewed if _review_available() else set()
         after = (
-            "after " + _requires_phrase(self.config.requires, reviewed)
+            "after " + _requires_phrase(self.config.requires, self._reviewed)
             if self.config.requires
             else ""
         )
@@ -468,10 +463,6 @@ class _TaskRow(QWidget):
         )
 
     def _refresh_attention(self) -> None:
-        review_available = _review_available()
-        self.btn_attention.setVisible(review_available)
-        if not review_available:
-            return
         reviewed = self.config.attention is Attention.supervised
         state = "supervised" if reviewed else "automated"
         if reviewed:

@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import ast
 import inspect
-import os
 from pathlib import Path
 from typing import List, Tuple
 
@@ -76,7 +75,9 @@ def _called_helper_name(func: ast.expr):
 def test_the_helpers_are_discoverable():
     """Guard against the discovery above silently finding nothing, which would make every
     other test in this file vacuously pass."""
-    assert "ask_user" in _HELPERS, f"ask_user not discovered; found {sorted(_HELPERS)}"
+    assert "update_status_ui" in _HELPERS, (
+        f"update_status_ui not discovered; found {sorted(_HELPERS)}"
+    )
     assert _call_sites(), "no workflow-ui call sites found — discovery is broken"
 
 
@@ -147,17 +148,12 @@ def _calls_to(name: str) -> List[Tuple[Path, int]]:
 
 
 def test_which_tasks_ask_their_detections_on_the_record():
-    """Moving a task over changes where an operator answers a detection (the
-    Review tab, with the review preference on) so it is a decision made on
-    purpose, and it has to change this test. The undercut has moved: its
-    three detections go through ``AutoLamellaTask.detect``, and the two in
-    ``align_feature_coincident`` through the ``detect`` it is handed. The
-    only direct ``update_detection_ui`` calls left are the fallbacks for the
-    preference being off."""
-    direct = {
-        os.path.basename(str(path)) for path, _ in _calls_to("update_detection_ui")
-    }
-    assert direct == {"base.py", "core.py"}, direct
+    """Every workflow detection is asked on the record: the undercut's three
+    go through ``AutoLamellaTask.detect``, and the two in
+    ``align_feature_coincident`` through the ``detect`` it is handed. No
+    workflow code calls ``update_detection_ui``, the Detection tab prompt;
+    it stays for the callers outside this repository."""
+    assert _calls_to("update_detection_ui") == []
     undercut = Path(workflow_ui.__file__).parent / "tasks" / "undercut.py"
     tree = ast.parse(undercut.read_text(encoding="utf-8"))
     asks = [

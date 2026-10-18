@@ -355,7 +355,6 @@ def test_a_prerequisite_still_in_the_queue_defers_rather_than_skips(tmp_path):
     m = TaskManager(
         microscope=NoMicroscope(), experiment=experiment, parent_ui=RecordingUI()
     )
-    m.review_enabled = True
     m.queue.build_from_pairs([("L1", "Undercut"), ("L1", "Trench")])
     lamella = experiment.get_lamella_by_name("L1")
     assert m._defer_reason(lamella, "Undercut") == "prereq_pending"
@@ -376,7 +375,6 @@ def _one_lamella_manager(tmp_path):
     m = TaskManager(
         microscope=NoMicroscope(), experiment=experiment, parent_ui=RecordingUI()
     )
-    m.review_enabled = True
     return m, experiment.get_lamella_by_name("L1")
 
 
@@ -454,7 +452,6 @@ def test_a_task_awaiting_a_decision_defers_its_consumer(tmp_path):
     m = TaskManager(
         microscope=NoMicroscope(), experiment=experiment, parent_ui=RecordingUI()
     )
-    m.review_enabled = True
     experiment.task_protocol.options.review_wait = 0  # do not park on the review
     m.queue.build_from_matrix(["Undercut"], ["L1", "L2"])
     l1 = experiment.get_lamella_by_name("L1")
@@ -484,39 +481,6 @@ def test_a_task_awaiting_a_decision_defers_its_consumer(tmp_path):
     assert l1.has_completed_task("Trench"), "the decision finished it"
     assert m._defer_reason(l1, "Undercut") is None
     assert run_queue_with(m) == [("L1", "Undercut")]
-
-
-def test_with_the_flag_off_nothing_is_deferred(tmp_path):
-    """The whole path is behind proposer_reviewer_workflow_enabled: off, the
-    prerequisite check is terminal exactly as it was."""
-    experiment = make_experiment(
-        tmp_path, requirements={"Undercut": ["Trench"]}, lamella_names=["L1"]
-    )
-    m = TaskManager(
-        microscope=NoMicroscope(), experiment=experiment, parent_ui=RecordingUI()
-    )
-    m.review_enabled = False
-    m.queue.build_from_pairs([("L1", "Undercut"), ("L1", "Trench")])
-    executed = run_queue_with(m)
-    assert executed == [("L1", "Trench")]
-    assert [i.status for i in m.queue.items] == [Status.Skipped, Status.Completed]
-
-
-def test_the_flag_reads_fail_closed(monkeypatch):
-    from fibsem.workflows import manager as M
-
-    class _Prefs:
-        class features:
-            proposer_reviewer_workflow_enabled = True
-
-    monkeypatch.setattr(M.fibsem_cfg, "load_user_preferences", lambda: _Prefs())
-    assert M.review_enabled() is True
-
-    def boom():
-        raise OSError("unreadable")
-
-    monkeypatch.setattr(M.fibsem_cfg, "load_user_preferences", boom)
-    assert M.review_enabled() is False
 
 
 def test_a_rejected_task_is_failed_so_its_consumer_is_skipped(tmp_path):
@@ -573,7 +537,6 @@ def _review_manager(tmp_path, review_wait, hook_manager=None):
         parent_ui=RecordingUI(),
         hook_manager=hook_manager,
     )
-    m.review_enabled = True
     m.queue.build_from_matrix(["Undercut"], ["L1"])
     l1 = experiment.get_lamella_by_name("L1")
     l1.task_history.append(TaskState(name="Trench", status=Status.AwaitingDecision))
@@ -677,7 +640,6 @@ def test_unrunnable_work_with_nothing_to_unblock_it_exits_with_an_error(tmp_path
     m = TaskManager(
         microscope=NoMicroscope(), experiment=experiment, parent_ui=RecordingUI()
     )
-    m.review_enabled = True
     m.queue.build_from_matrix(["Undercut"], ["L1"])
     # Make the scan defer it, then remove what it was waiting on.
     m._is_deferred = lambda item: True
@@ -703,18 +665,12 @@ def test_run_leaves_out_a_task_awaiting_a_decision(tmp_path):
         TaskState(name="Trench", status=Status.Completed)
     )
     m._run_queue = lambda: None
-    m.review_enabled = True
     m.run(["Trench", "Undercut"], ["L1", "L2"])
     assert [(i.lamella_name, i.task_name) for i in m.queue.items] == [
         ("L2", "Trench"),
         ("L1", "Undercut"),
         ("L2", "Undercut"),
     ]
-    # With the Review surface off nobody can decide, so the exception is not
-    # made and Run re-runs it, as it re-runs any other completed pair.
-    m.review_enabled = False
-    m.run(["Trench", "Undercut"], ["L1", "L2"])
-    assert len(m.queue.items) == 4
 
 
 def test_no_requirements_runs(manager):
@@ -823,7 +779,6 @@ def test_a_parked_run_holds_the_window_and_says_who_releases_it(tmp_path):
     )
     ui = RecordingUI()
     m = TaskManager(microscope=NoMicroscope(), experiment=experiment, parent_ui=ui)
-    m.review_enabled = True
     experiment.task_protocol.options.review_wait = 0.2
     m.queue.build_from_matrix(["Undercut"], ["L1", "L2"])
     for name in ("L1", "L2"):

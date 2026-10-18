@@ -83,7 +83,7 @@ lists where each key went.
   imports the old name from `fibsem.applications.autolamella.structures` imports
   `from fibsem.workflows.status import TaskStatus` instead.
 
-### Workflow (early access)
+### Workflow
 
 - **Every task records what it did.** A task that proposes something (Setup
   proposes the milling position; milling tasks record their result with the final
@@ -91,11 +91,12 @@ lists where each key went.
   decided it and where: your answer in the workflow when supervised; nobody when
   automated, in which case the value is used as proposed, stays open to correct in
   the Review tab until a later task uses it, and is then recorded as unreviewed
-  rather than as agreed. Nothing about how a run behaves has changed; the record
-  is new. The Review tab, where a task's answer can wait for your decision before
-  the next task runs, is behind the "Review workflow (early access)" preference.
-  A task waiting there is not finished: it shows as awaiting a decision, confirming
-  completes it, and rejecting fails it (the lamella is not marked defective).
+  rather than as agreed. The Review tab is always shown, and a supervised task's
+  result waits there for your decision before the tasks that require it run; the
+  "Review workflow (early access)" preference is gone, and a preferences file that
+  still names it loads. A task waiting there is not finished: it shows as awaiting
+  a decision, confirming completes it, and rejecting fails it (the lamella is not
+  marked defective).
 - **One `attention` per task in the protocol.** A workflow task says `attention:
   automated` or `supervised` in place of the `supervise` and `review` flags;
   protocols saved with the flags still load and are written back in the new form.
@@ -108,35 +109,37 @@ lists where each key went.
   its result; it is recorded as yours and the task does not wait again in the
   Review tab. There is no third mode: development builds had one, `review`, and
   it is read as `supervised`.
-- **Setup's confirmations are on the record, and each has a switch.** With the
-  review preference on, the tilt to the milling angle and the move to the milling
-  position are asked on the prompt bar as before, and each Continue is recorded as
-  your decision with the stage position as it stood. Two new task settings,
-  `confirm_tilt` and `confirm_position` (both on), turn either prompt off: the task
+- **Setup's confirmations are on the record, and each has a switch.** The tilt to
+  the milling angle and the move to the milling position are asked on the prompt
+  bar as before, and each Continue is recorded as your decision with the stage
+  position as it stood. Two new task settings, `confirm_tilt` and
+  `confirm_position` (both on), turn either prompt off: the task
   then tilts, or uses the position as arrived at, and the record says nobody was
   asked. Off, `confirm_position` is only as safe as the automatic positioning that
-  put the stage there. The Tilt/Skip choice is gone with the preference on:
-  Continue tilts, and Stop is the way not to.
+  put the stage there. The Tilt/Skip choice is gone: Continue tilts, and rejecting
+  the question in the Review tab ("Reject · don't") is the way not to; the task
+  then carries on at the angle it is at.
+- **A supervised task asks whoever can answer.** Its questions are asked while
+  someone can answer them: you, at the window, or a connected agent at Drive. With
+  nobody to answer, a run with no window and no agent, each question is recorded
+  as used unreviewed instead of holding the run.
 - **A Review tab row says what it is about.** A task that asks more than one
   thing in a run (Setup confirms its tilt, then its position, then leaves its
   point of interest for afterwards) lists one row per question under the same
   task name; the row now names the kind, "Setup Lamella Position · Position",
   where it is not the task's own result.
-- **The fluorescence tasks' confirmations are on the record.** With the review
-  preference on, Select Fluorescence Position's "move to the fluorescence
-  position" and Acquire Fluorescence Image's "run autofocus" prompts are asked on
-  the prompt bar as before, and each Continue is recorded as your decision with
-  the stage position as it stood. Automated, the position is used as arrived at
-  and the record says nobody was asked.
+- **The fluorescence tasks' confirmations are on the record.** Select Fluorescence
+  Position's "move to the fluorescence position" and Acquire Fluorescence Image's
+  "run autofocus" prompts are asked on the prompt bar as before, and each Continue
+  is recorded as your decision with the stage position as it stood. Automated,
+  the position is used as arrived at and the record says nobody was asked.
 - **The undercut's detections are answered in the Review tab, on the record.**
-  With the review preference on, each of Mill Undercut's four detections (two in
-  the coincident alignment, one per undercut, one to finish) is a question on the
-  lamella: the run holds, the Review tab is fronted with the model's features on
-  the image it ran on, and Confirm, with a marker dragged or not, is the decision
+  Each of Mill Undercut's four detections (two in the coincident alignment, one
+  per undercut, one to finish) is a question on the lamella: the run holds, the
+  Review tab is fronted with the model's features on the image it ran on, and Confirm, with a marker dragged or not, is the decision
   the stage moves by. Reject fails the task. The training data the Detection tab
   wrote on its Continue is still written. Automated, nobody is asked and each
-  detection is recorded as used unreviewed. With the preference off the Detection
-  tab prompt asks exactly as before.
+  detection is recorded as used unreviewed.
 - **A result an agent looked at is still yours to check.** The Review tab's "to
   check" group clears when a person acknowledges, not when a connected agent does.
 - **A question the app closed on is withdrawn when the experiment loads.** A
@@ -147,13 +150,11 @@ lists where each key went.
   stay on the image in orange while you drag a marker, a line under the image says
   how far each feature has moved ("LamellaCentre moved 1.3 µm"), and clicking a
   marker turns Put them back into putting back that one.
-- **The alignment area is checked on the record.** With the review preference on,
-  Setup and Mill Fiducial ask you to check the alignment area in the Review tab, as a
+- **The alignment area is checked on the record.** Setup and Mill Fiducial ask you to check the alignment area in the Review tab, as a
   rectangle on the last FIB image (for the fiducial, the image the mill left behind),
   before the alignment reference is taken in it; the answer, and how far you moved
   it, are on the lamella's record. Each task has a Confirm Alignment Area setting;
-  off, the area is used as it stands and still recorded. With the preference off the
-  prompt is as it has always been.
+  off, the area is used as it stands and still recorded.
 - **A run's end closes nothing in the Review tab.** An automated task's result used
   to be recorded as unreviewed when the run ended; now it stays open in "to check"
   until you look, the same as its value does until a later task uses it.

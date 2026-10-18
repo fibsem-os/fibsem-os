@@ -30,6 +30,7 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
 )
 from fibsem.milling.patterning.utils import get_patterns_bounding_box
 from fibsem.structures import FibsemImage, FibsemRectangle, Point
+from tests.autolamella._on_the_record import manager_for
 
 CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
 SETUP, FIDUCIAL, ROUGH = "Setup", "Mill Fiducial", "Rough Milling"
@@ -90,6 +91,7 @@ def _run_setup(microscope, lamella, **config) -> SelectMillingPositionTask:
             task_name=SETUP, use_autofocus=False, select_poi=False, **config
         ),
         lamella=lamella,
+        task_manager=manager_for(microscope, lamella),
     )
     task._run()
     return task
