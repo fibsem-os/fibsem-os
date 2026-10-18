@@ -1,12 +1,14 @@
-"""Embedded hosting: the App Server running inside the AutoLamella process.
+"""Embedded hosting: the App Server running inside an application's process.
 
 This is the piece that turns the factory into the app's public interface: when
 a microscope connects (and the App Server preference, ``app_server.enabled``, is on), the
-app builds ``build_server(microscope, app_context=AutoLamellaAppContext(ui, buffer))``
-and runs it on a daemon thread. One process, one microscope connection, one
-commander — the whole reason embedded hosting exists. The buffer is the
-app's event stream (``event_recording.EventRecorder``), which exists
-whether or not this runs.
+app's session builds ``build_server(microscope, app_context=...)`` and runs it on a
+daemon thread. One process, one microscope connection, one commander — the whole
+reason embedded hosting exists. The microscope, the event stream
+(``event_recording.EventRecorder``, which exists whether or not this runs), the
+responder and the agent's token are the session's (``fibsem.workflows.session``);
+the ``/app`` view over them is the application's own (AutoLamella's is
+``AutoLamellaAppContext``).
 
 Threading notes, because this file is where the server meets Qt:
 
@@ -14,8 +16,7 @@ Threading notes, because this file is where the server meets Qt:
   handling disabled — ``uvicorn.run()`` wants the main thread, which belongs
   to Qt. The thread owns no Qt objects (main-thread-only GC: off-thread Qt
   finalization is the Windows crash class).
-* Request handlers only ever touch the app through the ``AutoLamellaAppContext``
-  facade, which returns plain-data snapshots — nothing here adds a new way
+* Request handlers only ever touch the app through its app context facade, which returns plain-data snapshots — nothing here adds a new way
   for a server thread to reach into widgets.
 * ``stop()`` asks uvicorn to exit (``should_exit``) and joins briefly; the
   thread is a daemon either way, so a wedged shutdown cannot hang app exit.
@@ -30,10 +31,9 @@ import logging
 import os
 import threading
 import time
-from typing import Callable, List, Optional
+from typing import Any, Callable, List, Optional
 
 from fibsem.acting import AGENT
-from fibsem.applications.autolamella.server.context import AutoLamellaAppContext
 from fibsem.cancellation import NothingToStop
 from fibsem.workflows.events import (
     EventBuffer,
@@ -69,17 +69,24 @@ _START_TIMEOUT_S = 10.0
 
 
 class AppServerHost:
-    """Owns the embedded server's lifecycle: buffer, taps, thread, discovery."""
+    """Owns the embedded server's lifecycle: buffer, taps, thread, discovery.
+
+    ``session`` is the application's ``AppSession``. ``app_context`` builds the
+    app's ``/app`` view over an event buffer: the session's stream, or one the
+    host feeds itself when the session records none.
+    """
 
     def __init__(
         self,
-        ui,
+        session,
+        app_context: Callable[[EventBuffer], Any],
         host: str = "127.0.0.1",
         port: int = 8001,
         discovery_path=None,
         serve_microscope: bool = False,
     ):
-        self._ui = ui
+        self._session = session
+        self._app_context = app_context
         # Whether the /microscope routes are served (FIB-1035). Fixed for the
         # host's life; a change builds a new one.
         self.serve_microscope = serve_microscope
@@ -152,22 +159,22 @@ class AppServerHost:
     def url(self) -> str:
         return f"http://{self._host}:{self._port}"
 
-    def start(self, microscope, event_buffer=None, lifecycle_hook=None) -> bool:
-        """Start serving. Returns False (and logs) rather than ever raising.
+    def start(self) -> bool:
+        """Serve the session's microscope. Returns False (and logs) rather than
+        ever raising.
 
-        ``event_buffer`` and ``lifecycle_hook`` are the app's event stream
-        (``event_recording.EventRecorder``), whose taps and prompt feed are
-        already attached and which outlives the server. Without them the host
-        builds and feeds a buffer of its own, as it did before the stream moved.
+        The session's event stream (``event_recording.EventRecorder``) has its
+        taps and prompt feed attached already and outlives the server. A
+        session recording none gets a buffer the host builds and feeds itself.
         """
         try:
-            return self._start(microscope, event_buffer, lifecycle_hook)
+            return self._start()
         except Exception:
             logging.exception("App Server failed to start; continuing without it")
             self.stop()
             return False
 
-    def _start(self, microscope, event_buffer=None, lifecycle_hook=None) -> bool:
+    def _start(self) -> bool:
         import uvicorn
 
         from fibsem.server import AuthConfig, build_server
@@ -200,24 +207,23 @@ class AppServerHost:
                 "App Server: agent level DRIVE via FIBSEM_AGENT_ARM_CONTROL "
                 "(developer override)"
             )
-        # One AuthConfig per app session, kept on the window across server
+        # One AuthConfig per app session, kept on the session across server
         # restarts (a microscope reconnect, a microscope toggle): the agent's
         # token stays valid, so a connected sidecar carries on, and the level
         # the operator set stands. It starts at Watch at every launch and is
         # never written to disk (FIB-1035). The override is Drive.
-        self.auth = getattr(self._ui, "_app_server_auth", None)
-        if self.auth is None:
-            self.auth = AuthConfig.generate(
+        session = self._session
+        microscope = session.microscope
+        if session.agent_auth is None:
+            session.agent_auth = AuthConfig.generate(
                 level=AgentLevel.DRIVE if arm_control else AgentLevel.WATCH
             )
-            try:
-                self._ui._app_server_auth = self.auth
-            except AttributeError:
-                pass
-        if event_buffer is not None:
+        self.auth = session.agent_auth
+        recorder = session.recorder
+        if recorder is not None:
             # The app's stream: already fed, and not ours to detach on stop.
-            self.event_buffer = event_buffer
-            self.lifecycle_hook = lifecycle_hook
+            self.event_buffer = recorder.buffer
+            self.lifecycle_hook = recorder.lifecycle_hook
         else:
             self.event_buffer = EventBuffer()
             self.lifecycle_hook = make_lifecycle_hook(self.event_buffer)
@@ -227,7 +233,7 @@ class AppServerHost:
             # prompt_cancelled straight from the responder into the buffer, so a
             # supervising agent can sleep on the events long-poll instead of
             # polling /app/workflow/prompt, and answers carry who answered them.
-            responder = getattr(self._ui, "ui_responder", None)
+            responder = session.responder
             if responder is not None:
                 self._disposers.append(
                     responder.add_question_observer(self.event_buffer.append)
@@ -235,7 +241,7 @@ class AppServerHost:
 
         app = build_server(
             microscope,
-            app_context=AutoLamellaAppContext(self._ui, event_buffer=self.event_buffer),
+            app_context=self._app_context(self.event_buffer),
             auth=self.auth,
             serve_microscope=self.serve_microscope,
         )
