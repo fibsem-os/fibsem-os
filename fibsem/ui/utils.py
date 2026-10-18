@@ -19,7 +19,7 @@ from PyQt5.QtWidgets import (
 
 from fibsem import config as cfg
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import BeamType, Parameter, declared_device_parameter
+from fibsem.structures import BeamType, Parameter
 
 
 def beam_choices(microscope: FibsemMicroscope, name: str, beam_type: BeamType) -> list:
@@ -39,19 +39,13 @@ def beam_spec(
     microscope: Optional[FibsemMicroscope] = None,
     beam_type: Optional[BeamType] = None,
 ) -> Parameter:
-    """A field with what the beam allows in place of its own limits and choices, for
-    a field bound to a beam parameter (``device_parameter="beam.<name>"``): what ``beam_type``
-    reports, else what every beam declares (a form with no instrument still gets
-    them). A field bound to nothing the beam declares comes back as it is."""
-    from fibsem.ui.widgets.form_builder import reported_metadata
+    """``bound_spec`` with ``beam_type``'s beam as the beam: a field bound to a beam
+    parameter (``device_parameter="beam.<name>"``) takes what that beam reports, else
+    what every beam declares."""
+    from fibsem.ui.widgets.form_builder import bound_spec
 
-    name = spec.bound_name
-    declared = declared_device_parameter(spec.device_parameter)
-    if declared is None or not spec.device_parameter.startswith("beam."):
-        return spec
     beam = None if microscope is None else microscope.beams.get(beam_type)
-    parameter = None if beam is None else beam.parameters.get(name)
-    return spec.with_reported(reported_metadata(parameter or declared))
+    return bound_spec(spec, {"beam": beam})
 
 
 def find_data(combo: QtWidgets.QComboBox, value) -> int:

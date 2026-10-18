@@ -623,6 +623,51 @@ def build_sidecar(client, capabilities):
             beam=beam,
         )
 
+    def correlation_correlate(
+        fib_image_path: str,
+        fm_image_path: str,
+        fib_points: list,
+        fm_points: list,
+        poi_points: list,
+        lamella_path: str = "",
+    ):
+        arguments = dict(
+            fib_image_path=fib_image_path,
+            fm_image_path=fm_image_path,
+            fib_points=fib_points,
+            fm_points=fm_points,
+            poi_points=poi_points,
+        )
+        if lamella_path:
+            arguments["lamella_path"] = lamella_path
+        return _routed("correlation_correlate", "correlation", **arguments)
+
+    def correlation_refine_point(
+        image_path: str,
+        x: float,
+        y: float,
+        z: float = 0.0,
+        beam: str = "fib",
+        method: str = "",
+        channel: int = 0,
+    ):
+        return _routed(
+            "correlation_refine_point",
+            "point",
+            image_path=image_path,
+            x=x,
+            y=y,
+            z=z,
+            beam=beam,
+            method=method,
+            channel=channel,
+        )
+
+    def correlation_predict(run_path: str, fm_points: list):
+        return _routed(
+            "correlation_predict", "prediction", run_path=run_path, fm_points=fm_points
+        )
+
     def milling_stop(reason: str):
         data, err = _route("milling_stop", reason=reason)
         return err if err else {"status": "ok"}
@@ -1141,6 +1186,12 @@ def build_sidecar(client, capabilities):
             f"/poses/{quote(pose, safe='')}"
         )
 
+    def item_apply_correlation(item_name: str, run_path: str):
+        return _app_post(
+            f"/app/experiment/items/{quote(item_name, safe='')}/correlation",
+            {"run_path": run_path},
+        )
+
     def item_set_objective_position(item_name: str):
         return _app_post(
             f"/app/experiment/items/{quote(item_name, safe='')}/objective_position"
@@ -1487,6 +1538,9 @@ def build_sidecar(client, capabilities):
             alignment_align_to_reference,
             alignment_measure_shift,
             alignment_compare_methods,
+            correlation_correlate,
+            correlation_refine_point,
+            correlation_predict,
             milling_check_stages,
             milling_list_options,
             device_call_query,
@@ -1582,6 +1636,7 @@ def build_sidecar(client, capabilities):
             item_remove,
             item_move_to_pose,
             item_set_pose,
+            item_apply_correlation,
             item_set_objective_position,
             experiment_add_note,
             request_create,

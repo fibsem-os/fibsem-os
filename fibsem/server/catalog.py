@@ -102,6 +102,7 @@ GROUP_TITLES: Dict[str, str] = {
     "fm": "FM",
     "milling": "Milling",
     "alignment": "Alignment",
+    "correlation": "Correlation",
     "app": "App",
     "experiment": "Experiment",
     "protocol": "Protocol",
@@ -120,6 +121,7 @@ _WRITES_AT_WATCH = frozenset(
         "request_create",
         "request_withdraw",
         "item_measure_thickness",  # saves its result beside the image
+        "correlation_correlate",  # saves a run in the lamella's Correlation folder
     }
 )
 
@@ -440,6 +442,77 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "beam": "the beam the target is centred in: ELECTRON (default) or ION",
         },
         optional=("x", "y", "beam"),
+    ),
+    ToolSpec(
+        name="correlation_correlate",
+        description=(
+            "Correlate a saved FM stack to a saved FIB image, as the correlation "
+            "tab does: fit the transform to fiducial pairs and map the points of "
+            "interest into the FIB image. fib_points are (x, y) FIB pixels; "
+            "fm_points the same fiducials, in the same order, as (x, y, z) FM "
+            "pixels and slices (at least 4 pairs); poi_points the targets as "
+            "(x, y, z) in the FM stack. Answers the RMS error (px, nm), each point "
+            "of interest in FIB image pixels and metres from the image centre, the "
+            "verdict (good, check, bad, with reasons) and what the fit started "
+            "from. With lamella_path it starts from the experiment's previous runs "
+            "and saves a new run in the lamella's Correlation folder, with an "
+            "overlay to look at (overlay_path, experiment_read_file: o picked, "
+            "x fitted, + targets). Paths inside the open experiment. Does not move "
+            "the lamella's point of interest. Moves nothing."
+        ),
+        method="POST",
+        path="/microscope/services/correlation/queries/correlate",
+        level="watch",
+        params={
+            "fib_image_path": "the saved FIB image the fib_points are in",
+            "fm_image_path": "the saved FM stack the fm_points and poi_points are in",
+            "fib_points": "fiducials as [[x, y], ...] FIB pixels",
+            "fm_points": "the same fiducials as [[x, y, z], ...] FM pixels and slices",
+            "poi_points": "targets as [[x, y, z], ...] FM pixels and slices",
+            "lamella_path": "the lamella's folder, to start from previous runs and save the run there",
+        },
+        optional=("lamella_path",),
+    ),
+    ToolSpec(
+        name="correlation_refine_point",
+        description=(
+            "Move a picked point onto the feature under it, as the correlation "
+            "tab's point fit does: a hole in a FIB image (beam fib, method Hole), "
+            "or a reflection hole (Hole) or fluorescent target (Gaussian, the "
+            "default) in a channel of an FM stack (beam fm). Answers the status "
+            "(ok, unchanged, error), the fitted (x, y, z), how far it moved in "
+            "pixels, and why it failed. A proposal: nothing is saved or moved."
+        ),
+        method="POST",
+        path="/microscope/services/correlation/queries/refine_point",
+        level="watch",
+        params={
+            "image_path": "the saved FIB image or FM stack, inside the open experiment",
+            "x": "the picked x, pixels",
+            "y": "the picked y, pixels",
+            "z": "the picked slice, for an FM point (default 0)",
+            "beam": "fib or fm (default fib)",
+            "method": "Hole or Gaussian (default Hole for fib, Gaussian for fm)",
+            "channel": "the FM channel index (default 0)",
+        },
+        optional=("z", "beam", "method", "channel"),
+    ),
+    ToolSpec(
+        name="correlation_predict",
+        description=(
+            "Map FM points through a saved correlation run (run_path from "
+            "correlation_correlate, or a run folder in a lamella's Correlation "
+            "folder): (x, y, z) FM pixels and slices to FIB image pixels and "
+            "metres from the image centre. No refractive-index correction. Reads "
+            "the run and moves nothing."
+        ),
+        method="POST",
+        path="/microscope/services/correlation/queries/predict",
+        level="watch",
+        params={
+            "run_path": "a correlation run folder inside the open experiment",
+            "fm_points": "[[x, y, z], ...] FM pixels and slices",
+        },
     ),
     ToolSpec(
         name="milling_stop",
@@ -1566,6 +1639,18 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         level="drive",
         router="app",
         params={"item_name": "the item (lamella) name", "pose": "the pose name"},
+    ),
+    ToolSpec(
+        name="item_apply_correlation",
+        description="Move a lamella's point of interest to a saved correlation's target, as the correlation tab's Continue does: run_path is a run folder in the lamella's Correlation folder, as correlation_correlate saves it with lamella_path. The patterns that follow the point move with it; the correlation is recorded with its run. Saved; answers with the changes.",
+        method="POST",
+        path="/app/experiment/items/{item_name}/correlation",
+        level="drive",
+        router="app",
+        params={
+            "item_name": "the item (lamella) name",
+            "run_path": "the run folder correlation_correlate answered",
+        },
     ),
     ToolSpec(
         name="item_set_objective_position",
