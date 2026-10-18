@@ -14,11 +14,11 @@ from psygnal.containers import EventedDict
 from fibsem import utils
 from fibsem.applications.autolamella.server import AutoLamellaAppContext
 from fibsem.applications.autolamella.structures import (
-    Attention,
     AutoLamellaTaskProtocol,
     Experiment,
 )
 from fibsem.structures import MicroscopeState
+from fibsem.workflows.attention import Attention
 from fibsem.workflows.status import TaskStatus
 
 
@@ -533,7 +533,7 @@ def test_edit_queue_removes_or_moves_a_waiting_pair(experiment, microscope):
 
 def test_edit_queue_keeps_the_grid_load_step(experiment, microscope):
     """FIB-1454: the server refuses what the timeline refuses."""
-    from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+    from fibsem.workflows.grid.manager import (
         LOAD_ENTRY_NAME,
         GridTaskManager,
     )

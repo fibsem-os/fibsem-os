@@ -148,7 +148,7 @@ def test_task_plugin_survives_protocol_load():
 
 
 def test_grid_task_plugin_resolves_through_the_registry():
-    from fibsem.applications.autolamella.workflows.tasks.grid import (
+    from fibsem.workflows.grid import (
         get_grid_tasks,
         load_grid_task_configs,
     )

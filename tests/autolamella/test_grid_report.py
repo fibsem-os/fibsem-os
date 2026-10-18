@@ -25,14 +25,6 @@ from fibsem.applications.autolamella.tools.grid_report import (
     collect_grid_report,
     read_beam_metadata,
 )
-from fibsem.applications.autolamella.workflows.tasks.grid import (
-    BeamOverviewGridTaskConfig,
-    FluorescenceOverviewGridTaskConfig,
-    run_grid_task,
-)
-from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
-    LOAD_ENTRY_NAME,
-)
 from fibsem.fm.structures import ChannelSettings, OverviewParameters
 from fibsem.services.sample_handling import BUILTIN_SLOT_NAME
 from fibsem.structures import (
@@ -42,6 +34,14 @@ from fibsem.structures import (
     MicroscopeState,
     OverviewAcquisitionSettings,
     SampleGrid,
+)
+from fibsem.workflows.grid import (
+    BeamOverviewGridTaskConfig,
+    FluorescenceOverviewGridTaskConfig,
+    run_grid_task,
+)
+from fibsem.workflows.grid.manager import (
+    LOAD_ENTRY_NAME,
 )
 from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.quality import Verdict

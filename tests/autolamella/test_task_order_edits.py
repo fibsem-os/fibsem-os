@@ -7,9 +7,9 @@ from typing import ClassVar
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
     AutoLamellaWorkflowConfig,
-    GridTaskProtocol,
 )
-from fibsem.applications.autolamella.workflows.tasks.grid.base import GridTaskConfig
+from fibsem.workflows.grid.base import GridTaskConfig
+from fibsem.workflows.grid.protocol import GridTaskProtocol
 
 
 def _workflow():

@@ -30,10 +30,7 @@ from dataclasses import dataclass
 from typing import ClassVar, Optional, Type
 
 from fibsem import timing
-from fibsem.applications.autolamella.structures import (
-    Attention,
-    AutoLamellaTaskConfig,
-)
+from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 from fibsem.structures import (
     Display,
@@ -43,6 +40,7 @@ from fibsem.structures import (
     RangeLimit,
     param,
 )
+from fibsem.workflows.attention import Attention
 
 SETUP_COINCIDENCE_MILLING_KEY = "SETUP_COINCIDENCE_MILLING"
 

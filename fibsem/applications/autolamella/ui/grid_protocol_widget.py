@@ -34,17 +34,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.applications.autolamella.structures import Experiment, GridTaskProtocol
-from fibsem.applications.autolamella.workflows.tasks.grid import (
-    BeamOverviewGridTaskConfig,
-    FluorescenceOverviewGridTaskConfig,
-    GridTaskConfig,
-    get_grid_tasks,
-)
-from fibsem.applications.autolamella.workflows.tasks.grid.reach import (
-    describe_reach,
-    overview_reach,
-)
+from fibsem.applications.autolamella.structures import Experiment
 from fibsem.ui.tokens import NEUTRAL_200, TEXT_MUTED_COLOR, WARN_COLOR
 from fibsem.ui.widgets.custom_widgets import (
     IconToolButton,
@@ -53,6 +43,17 @@ from fibsem.ui.widgets.custom_widgets import (
 )
 from fibsem.ui.widgets.fibsem_overview_settings_widget import (
     FibsemOverviewSettingsWidget,
+)
+from fibsem.workflows.grid import (
+    BeamOverviewGridTaskConfig,
+    FluorescenceOverviewGridTaskConfig,
+    GridTaskConfig,
+    get_grid_tasks,
+)
+from fibsem.workflows.grid.protocol import GridTaskProtocol
+from fibsem.workflows.grid.reach import (
+    describe_reach,
+    overview_reach,
 )
 
 # The name a new task gets, by type, before the person renames it. The role the

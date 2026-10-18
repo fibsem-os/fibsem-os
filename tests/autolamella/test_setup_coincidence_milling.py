@@ -248,7 +248,7 @@ def _managed_task(microscope, lamella, tmp_path, attention, listed=True):
 
 
 def test_an_automated_setup_is_refused_before_anything_moves(microscope, tmp_path):
-    from fibsem.applications.autolamella.structures import Attention
+    from fibsem.workflows.attention import Attention
 
     lamella = _lamella(microscope, tmp_path)
     before = microscope.get_stage_position()
@@ -264,7 +264,7 @@ def test_an_automated_setup_is_refused_before_anything_moves(microscope, tmp_pat
 
 
 def test_a_supervised_setup_runs(microscope, tmp_path):
-    from fibsem.applications.autolamella.structures import Attention
+    from fibsem.workflows.attention import Attention
 
     lamella = _lamella(microscope, tmp_path)
     task = _managed_task(microscope, lamella, tmp_path, Attention.supervised)
@@ -275,7 +275,7 @@ def test_a_supervised_setup_runs(microscope, tmp_path):
 def test_a_setup_the_workflow_does_not_list_is_not_refused(microscope, tmp_path):
     """The protocol reads an unlisted task as automated; running Setup on its
     own is not asking for that."""
-    from fibsem.applications.autolamella.structures import Attention
+    from fibsem.workflows.attention import Attention
 
     lamella = _lamella(microscope, tmp_path)
     task = _managed_task(

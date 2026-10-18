@@ -6,21 +6,21 @@ import logging
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any, Dict, Type
 
-from fibsem.applications.autolamella.workflows.tasks.grid.base import (
+from fibsem.plugins.loader import PluginRegistry, subclass_of
+from fibsem.workflows.grid.base import (
     GridTask,
     GridTaskConfig,
 )
-from fibsem.applications.autolamella.workflows.tasks.grid.fluorescence import (
+from fibsem.workflows.grid.fluorescence import (
     FluorescenceOverviewGridTask,
 )
-from fibsem.applications.autolamella.workflows.tasks.grid.imaging import (
+from fibsem.workflows.grid.imaging import (
     BeamOverviewGridTask,
 )
-from fibsem.plugins.loader import PluginRegistry, subclass_of
 
 if TYPE_CHECKING:
-    from fibsem.applications.autolamella.structures import Experiment
     from fibsem.microscope import FibsemMicroscope
+    from fibsem.workflows.grid.protocol import GridExperiment
     from fibsem.workflows.grids import GridRecord
 
 BUILTIN_GRID_TASKS: Dict[str, Type[GridTask]] = {
@@ -87,7 +87,7 @@ def load_grid_task_configs(
 def run_grid_task(
     microscope: "FibsemMicroscope",
     task_name: str,
-    experiment: "Experiment",
+    experiment: "GridExperiment",
     grid: "GridRecord",
     parent_ui=None,
     task_manager=None,

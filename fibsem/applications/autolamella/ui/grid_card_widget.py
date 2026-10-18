@@ -33,16 +33,6 @@ from fibsem.applications.autolamella.ui.lamella_list_widget import (
     add_verdict_actions,
     mark_current_verdict,
 )
-from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
-    EXCHANGE_ENTRY_NAMES as _EXCHANGE_ENTRY_NAMES,
-)
-from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
-    LOAD_ENTRY_NAME as _LOAD_ENTRY_NAME,
-)
-from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
-    NAME_FIXED_REASON,
-    grid_has_run,
-)
 from fibsem.config import CARD_MODES, MODE_COMPACT, MODE_COZY, MODE_STANDARD
 from fibsem.structures import GridInventoryEntry, GridSlotState
 from fibsem.ui import stylesheets
@@ -60,6 +50,16 @@ from fibsem.ui.tokens import (
 )
 from fibsem.ui.widgets.custom_widgets import ElidedLabel, chip
 from fibsem.ui.widgets.sample_loader_widget import ICON_LOAD, ICON_UNLOAD
+from fibsem.workflows.grid.manager import (
+    EXCHANGE_ENTRY_NAMES as _EXCHANGE_ENTRY_NAMES,
+)
+from fibsem.workflows.grid.manager import (
+    LOAD_ENTRY_NAME as _LOAD_ENTRY_NAME,
+)
+from fibsem.workflows.grid.manager import (
+    NAME_FIXED_REASON,
+    grid_has_run,
+)
 from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.outputs import latest_item_output
 from fibsem.workflows.quality import Verdict

@@ -15,10 +15,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, List, Optional, Tuple, Type
 
 from fibsem import timing
-from fibsem.applications.autolamella.workflows.tasks.grid.base import (
-    GridTask,
-    GridTaskConfig,
-)
 from fibsem.autofunctions.autofocus import AutoFocusSettings
 from fibsem.fm.acquisition import OverviewDestination, acquire_fm_tiled_overview
 from fibsem.fm.preview import composite_projection
@@ -34,6 +30,10 @@ from fibsem.structures import (
     InsertableDeviceState,
     Parameter,
     param,
+)
+from fibsem.workflows.grid.base import (
+    GridTask,
+    GridTaskConfig,
 )
 
 if TYPE_CHECKING:

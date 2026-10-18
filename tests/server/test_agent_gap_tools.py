@@ -341,7 +341,7 @@ def test_grid_tasks_join_only_a_running_grid_run(driving):
 
 
 def test_grid_tasks_are_queued_after_what_waits(driving):
-    from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+    from fibsem.workflows.grid.manager import (
         GridTaskManager,
     )
     from fibsem.workflows.queue import TaskQueue

@@ -8,15 +8,15 @@ import pytest
 
 from fibsem import utils
 from fibsem.applications.autolamella.structures import Experiment
-from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
-    GridTaskManager,
-    run_grid_tasks,
-)
 from fibsem.applications.autolamella.workflows.tasks.manager import (
     TaskManager,
     run_tasks,
 )
 from fibsem.control import MicroscopeBusy
+from fibsem.workflows.grid.manager import (
+    GridTaskManager,
+    run_grid_tasks,
+)
 
 
 @pytest.fixture(scope="module")

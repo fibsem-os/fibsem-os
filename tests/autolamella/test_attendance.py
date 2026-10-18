@@ -7,7 +7,6 @@ Derived from what the task type declares (``questions``, ``sessions``,
 from psygnal.containers import EventedDict
 
 from fibsem.applications.autolamella.structures import (
-    Attention,
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
     AutoLamellaWorkflowConfig,
@@ -35,6 +34,7 @@ from fibsem.applications.autolamella.workflows.tasks.undercut import (
     MillUndercutTask,
     MillUndercutTaskConfig,
 )
+from fibsem.workflows.attention import Attention
 
 SETUP = "Setup Lamella Position"
 ROUGH = "Rough Milling"

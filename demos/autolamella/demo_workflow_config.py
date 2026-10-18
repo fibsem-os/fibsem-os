@@ -14,7 +14,6 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.applications.autolamella.structures import (
-    Attention,
     AutoLamellaTaskDescription,
     AutoLamellaWorkflowConfig,
 )
@@ -24,6 +23,7 @@ from fibsem.applications.autolamella.ui.workflow_config_widget import (
 from fibsem.applications.autolamella.ui.workflow_task_editor_widget import (
     WorkflowTaskEditorWidget,
 )
+from fibsem.workflows.attention import Attention
 
 SAMPLE_CONFIG = AutoLamellaWorkflowConfig(
     name="Standard Cryo-Lamella",

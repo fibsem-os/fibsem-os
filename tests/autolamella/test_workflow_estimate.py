@@ -9,7 +9,6 @@ from datetime import datetime, timedelta
 import pytest
 
 from fibsem.applications.autolamella.structures import (
-    Attention,
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
     AutoLamellaWorkflowConfig,
@@ -25,6 +24,7 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
 from fibsem.applications.autolamella.workflows.workflow_estimate import (
     estimate_workflow,
 )
+from fibsem.workflows.attention import Attention
 
 NOW = datetime(2026, 8, 18, 14, 0, 0)
 

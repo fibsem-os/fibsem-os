@@ -13,24 +13,24 @@ import logging
 from collections import Counter
 from typing import TYPE_CHECKING, Dict, List, Mapping, Optional, Tuple
 
-from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+from fibsem.hooks import HookManager
+from fibsem.structures import GridInventoryEntry
+from fibsem.workflows.grid.manager import (
     GridTaskManager,
     grid_rename_refusal,
     name_slot_grid,
     plan_grid_run,
     run_grid_tasks,
 )
-from fibsem.hooks import HookManager
-from fibsem.structures import GridInventoryEntry
 
 if TYPE_CHECKING:
-    from fibsem.applications.autolamella.structures import Experiment
-    from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
     from fibsem.microscope import FibsemMicroscope
+    from fibsem.workflows.grid.protocol import GridExperiment
+    from fibsem.workflows.manager import WorkflowWindow
 
 
 def present_grids(
-    microscope: "FibsemMicroscope", experiment: "Experiment"
+    microscope: "FibsemMicroscope", experiment: "GridExperiment"
 ) -> List[str]:
     """Refresh the inventory, record every present grid, and return their names
     in slot order. The selection "Screen all grids" runs over."""
@@ -69,7 +69,7 @@ def screen_names(
 
 
 def naming_problems(
-    experiment: "Experiment",
+    experiment: "GridExperiment",
     inventory: List[GridInventoryEntry],
     names: Mapping[str, str],
 ) -> List[str]:
@@ -91,7 +91,7 @@ def naming_problems(
 
 
 def name_and_record_grids(
-    stage, experiment: "Experiment", names: Mapping[str, str]
+    stage, experiment: "GridExperiment", names: Mapping[str, str]
 ) -> List[str]:
     """Screen all grids' one commit: name the slots, record the grids, and return
     the names to screen, in slot order.
@@ -136,7 +136,7 @@ def name_and_record_grids(
 
 def screening_plan(
     microscope: "FibsemMicroscope",
-    experiment: "Experiment",
+    experiment: "GridExperiment",
     task_names: Optional[List[str]] = None,
 ) -> List[Tuple[str, str]]:
     """What "Screen all grids" would run, for a confirmation: the load and task
@@ -148,9 +148,9 @@ def screening_plan(
 
 def screen_grids(
     microscope: "FibsemMicroscope",
-    experiment: "Experiment",
+    experiment: "GridExperiment",
     task_names: Optional[List[str]] = None,
-    parent_ui: Optional["AutoLamellaUI"] = None,
+    parent_ui: Optional[WorkflowWindow] = None,
     hook_manager: Optional[HookManager] = None,
     unload_at_end: bool = False,
     report_at_end: bool = False,

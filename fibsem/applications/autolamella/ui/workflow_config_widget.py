@@ -18,7 +18,6 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.applications.autolamella.structures import (
-    Attention,
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
     AutoLamellaWorkflowConfig,
@@ -47,6 +46,7 @@ from fibsem.ui.tokens import (
     NEUTRAL_700,
 )
 from fibsem.ui.widgets.custom_widgets import ElidedLabel, IconToolButton
+from fibsem.workflows.attention import Attention
 
 # The dependency column: present, but never competing with the name it belongs to.
 # Fixed width, so the entries line up down the list and the text elides inside it

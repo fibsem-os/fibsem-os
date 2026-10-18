@@ -390,12 +390,12 @@ def test_start_workflow_validates_and_starts_on_the_gui_thread(ui, qapp):
     from psygnal.containers import EventedDict
 
     from fibsem.applications.autolamella.structures import (
-        Attention,
         AutoLamellaTaskDescription,
         AutoLamellaTaskProtocol,
         Experiment,
     )
     from fibsem.structures import MicroscopeState
+    from fibsem.workflows.attention import Attention
 
     experiment = Experiment(path="/tmp/agent-start", name="agent-start")
     experiment.task_protocol = AutoLamellaTaskProtocol()

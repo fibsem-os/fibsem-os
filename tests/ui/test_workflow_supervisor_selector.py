@@ -13,11 +13,11 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from fibsem.applications.autolamella.structures import (
-    Attention,
     AutoLamellaTaskDescription,
     AutoLamellaWorkflowConfig,
 )
 from fibsem.applications.autolamella.ui import workflow_config_widget as module
+from fibsem.workflows.attention import Attention
 
 
 @pytest.fixture

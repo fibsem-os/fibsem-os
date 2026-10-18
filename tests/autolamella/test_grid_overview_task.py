@@ -18,12 +18,6 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.workflows.tasks.grid import (
-    BeamOverviewGridTask,
-    BeamOverviewGridTaskConfig,
-    get_grid_tasks,
-    run_grid_task,
-)
 from fibsem.imaging.thumbnail import write_thumbnail
 from fibsem.imaging.tiled import acquire_tiled_overview, stamped_overview_name
 from fibsem.services.sample_handling import bind_sample_handling
@@ -34,6 +28,12 @@ from fibsem.structures import (
     OverviewAcquisitionSettings,
     SampleGrid,
     SlotCalibration,
+)
+from fibsem.workflows.grid import (
+    BeamOverviewGridTask,
+    BeamOverviewGridTaskConfig,
+    get_grid_tasks,
+    run_grid_task,
 )
 from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.outputs import (

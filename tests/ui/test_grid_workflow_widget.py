@@ -16,20 +16,12 @@ from PyQt5.QtWidgets import QDialog, QLabel
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.structures import (
-    Attention,
     AutoLamellaTaskProtocol,
     Experiment,
 )
 from fibsem.applications.autolamella.ui.grid_workflow_widget import (
     GridRunPreflightDialog,
     GridWorkflowWidget,
-)
-from fibsem.applications.autolamella.workflows.tasks.grid import (
-    BeamOverviewGridTaskConfig,
-    FluorescenceOverviewGridTaskConfig,
-)
-from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
-    LOAD_ENTRY_NAME,
 )
 from fibsem.services.sample_handling import bind_sample_handling
 from fibsem.structures import (
@@ -39,6 +31,14 @@ from fibsem.structures import (
     OverviewAcquisitionSettings,
     SampleGrid,
     SlotCalibration,
+)
+from fibsem.workflows.attention import Attention
+from fibsem.workflows.grid import (
+    BeamOverviewGridTaskConfig,
+    FluorescenceOverviewGridTaskConfig,
+)
+from fibsem.workflows.grid.manager import (
+    LOAD_ENTRY_NAME,
 )
 from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.outputs import item_outputs
@@ -704,11 +704,11 @@ def test_adding_grids_to_a_running_queue_appends_their_blocks(
     """The Grids view's selection goes onto the end of a grid run's queue as
     load-plus-tasks blocks, after a confirmation; a lamella run refuses it."""
     from fibsem.applications.autolamella.ui import grid_workflow_widget as view_module
-    from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+    from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
+    from fibsem.workflows.grid.manager import (
         GridTaskManager,
         plan_grid_run,
     )
-    from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 
     ui = main_ui.autolamella_ui
     ui.system_widget.connect_to_microscope()

@@ -32,7 +32,6 @@ import fibsem.config as fibsem_config
 from fibsem import conversions
 from fibsem.acting import ActorKind
 from fibsem.applications.autolamella.structures import (
-    Attention,
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
     AutoLamellaWorkflowConfig,
@@ -44,6 +43,7 @@ from fibsem.applications.autolamella.workflows.tasks.undercut import (
     MillUndercutTaskConfig,
 )
 from fibsem.structures import FibsemImage, Point
+from fibsem.workflows.attention import Attention
 from fibsem.workflows.proposals import DETECTION, Decision, DecisionOutcome
 from fibsem.workflows.status import HoldKind, TaskStatus
 

@@ -18,7 +18,7 @@ from fibsem.applications.autolamella.proposals import (
     OVERVIEW_POSITIONS,
     POINT_OF_INTEREST,
 )
-from fibsem.applications.autolamella.structures import Attention
+from fibsem.workflows.attention import Attention
 from fibsem.workflows.proposals import ALIGNMENT_AREA, DETECTION, STATE, TASK_RESULT
 from fibsem.workflows.proposals import kind_label as proposal_kind_label
 

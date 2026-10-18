@@ -12,7 +12,6 @@ pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is delibe
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.structures import (
-    Attention,
     AutoLamellaTaskProtocol,
     Experiment,
 )
@@ -24,12 +23,13 @@ from fibsem.applications.autolamella.ui.protocol_details_dialog import (
     ProtocolDetailsDialog,
     ProtocolHeaderWidget,
 )
-from fibsem.applications.autolamella.workflows.tasks.grid import (
+from fibsem.fm.structures import ChannelSettings, ZParameters
+from fibsem.structures import BeamType
+from fibsem.workflows.attention import Attention
+from fibsem.workflows.grid import (
     BeamOverviewGridTaskConfig,
     FluorescenceOverviewGridTaskConfig,
 )
-from fibsem.fm.structures import ChannelSettings, ZParameters
-from fibsem.structures import BeamType
 
 BEAM = BeamOverviewGridTaskConfig.task_type
 FM = FluorescenceOverviewGridTaskConfig.task_type

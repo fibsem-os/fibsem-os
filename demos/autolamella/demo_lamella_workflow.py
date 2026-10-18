@@ -14,7 +14,6 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.applications.autolamella.structures import (
-    Attention,
     AutoLamellaTaskDescription,
     AutoLamellaWorkflowConfig,
     DefectState,
@@ -25,6 +24,7 @@ from fibsem.applications.autolamella.ui.lamella_workflow_widget import (
     LamellaWorkflowWidget,
 )
 from fibsem.ui.stylesheets import NAPARI_STYLE
+from fibsem.workflows.attention import Attention
 from fibsem.workflows.status import TaskState, TaskStatus
 
 # ── sample data ──────────────────────────────────────────────────────────────
