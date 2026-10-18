@@ -20,6 +20,8 @@ What the generic codec can't know, a type or a mixin here says:
 - `Array`: a numpy array, written as nested lists.
 - `Timestamp`: a time, read from any form ``fibsem.util.timestamps`` reads and
   written as ISO 8601 with its offset.
+- `saved`: a field saved under another key, read as something other than its
+  default when its key is absent, or required to be present.
 
 Files in older shapes are upgraded before they reach ``decode``, by the reader for
 that kind of file; nothing in a class reads an old shape.
@@ -27,9 +29,19 @@ that kind of file; nothing in a class reads an old shape.
 
 from __future__ import annotations
 
+import copy
 import functools
 from datetime import datetime
-from typing import Annotated, Any, Type, TypeVar
+from typing import (
+    Annotated,
+    Any,
+    Callable,
+    Mapping,
+    Optional,
+    Sequence,
+    Type,
+    TypeVar,
+)
 
 import numpy as np
 from pydantic import BeforeValidator, PlainSerializer, PlainValidator, TypeAdapter
@@ -193,6 +205,78 @@ class Tagged:
                 write, when_used="json"
             ),
         )
+
+
+def saved(
+    *,
+    keys: Optional[Mapping[str, str]] = None,
+    reads: Optional[Mapping[str, str]] = None,
+    absent: Optional[Mapping[str, Any]] = None,
+    required: Sequence[str] = (),
+) -> Callable[[type], type]:
+    """Decorate a dataclass whose saved shape differs from its fields::
+
+        @saved(keys={"image_settings": "image"})
+        @dataclass
+        class FibsemImageMetadata: ...
+
+    ``keys``: a field written and read under another key, by field name.
+    ``reads``: another key a field is also read from when its own is absent, as a
+    configuration spells it; it is written under the field's name.
+    ``absent``: what a field reads as when its key is absent, where that differs
+    from the default a new instance gets (a missing date is unknown, not now).
+    ``required``: fields whose key must be present, though a new instance has a
+    default (a point read with no ``y`` is a mistake, not the origin).
+
+    The rules hold wherever the class is decoded, on its own or inside another.
+    Old file shapes are not for this: those belong to the reader for the file.
+    """
+    keys = dict(keys or {})
+    reads = dict(reads or {})
+    absent = dict(absent or {})
+    required = tuple(required)
+
+    def before(data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        data = dict(data)
+        for name, key in keys.items():
+            if key in data:
+                data[name] = data.pop(key)
+        for name, key in reads.items():
+            if name not in data and key in data:
+                data[name] = data.pop(key)
+        for name, value in absent.items():
+            if name not in data:
+                data[name] = copy.deepcopy(value)
+        missing = [name for name in required if name not in data]
+        if missing:
+            raise ValueError(f"missing {', '.join(missing)}")
+        return data
+
+    def write(value: Any, handler: Any) -> Any:
+        data = handler(value)
+        for name, key in keys.items():
+            if name in data:
+                data[key] = data.pop(name)
+        return data
+
+    def apply(cls: type) -> type:
+        previous = getattr(cls, "__get_pydantic_core_schema__", None)
+
+        def schema(owner: type, source: Any, handler: Any) -> Any:
+            inner = previous(source, handler) if previous else handler(source)
+            outer = core_schema.no_info_before_validator_function(before, inner)
+            if keys:
+                outer["serialization"] = (
+                    core_schema.wrap_serializer_function_ser_schema(write, schema=inner)
+                )
+            return outer
+
+        cls.__get_pydantic_core_schema__ = classmethod(schema)
+        return cls
+
+    return apply
 
 
 def _array(value: Any) -> np.ndarray:

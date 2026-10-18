@@ -170,7 +170,7 @@ def test_spot_burn_payload_carries_points_and_settings():
     )
     payload = serialize_request(RunSpotBurn(settings=settings, message="Burn"))
 
-    assert payload["points"] == [{"x": 0.25, "y": 0.5}]
+    assert payload["points"] == [{"x": 0.25, "y": 0.5, "name": None}]
     assert payload["milling_current"] == pytest.approx(60e-12)
     assert payload["exposure_time"] == 5.0
     assert payload["positive"] == "Run Spot Burn"

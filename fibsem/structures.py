@@ -41,7 +41,7 @@ import yaml
 from numpy.typing import NDArray
 
 import fibsem
-from fibsem.codec import NamedEnum, decode, encode
+from fibsem.codec import NamedEnum, decode, encode, saved
 from fibsem.config import (
     DEFAULT_STANDARD_RESOLUTION_LIST,
     METADATA_VERSION,
@@ -68,6 +68,7 @@ TFibsemPatternSettings = TypeVar(
 )
 
 
+@saved(required=("min", "max"))
 @dataclass
 class RangeLimit:
     min: float
@@ -639,6 +640,7 @@ def _plain_number(value: Any) -> Any:
     return value
 
 
+@saved(required=("x", "y"))
 @dataclass
 class Point(Configurable):
     x: float = param(
@@ -1069,6 +1071,7 @@ class FibsemAxesPosition(Configurable):
         return self._pretty_axes(self.AXES, units=True)
 
 
+@saved(required=("x", "y", "z", "r", "t", "coordinate_system"))
 @dataclass
 class FibsemStagePosition(FibsemAxesPosition):
     """Data class for storing stage position data.
@@ -1137,6 +1140,7 @@ class FibsemStagePosition(FibsemAxesPosition):
         return decode(cls, data)
 
 
+@saved(required=("x", "y", "z", "r", "t"))
 @dataclass
 class FibsemManipulatorPosition(FibsemAxesPosition):
     """Data class for storing manipulator position data.
@@ -1193,6 +1197,12 @@ class FibsemManipulatorPosition(FibsemAxesPosition):
         None, doc="The frame the coordinates are in, as the driver names it."
     )
 
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        # in capitals, as it has always been saved
+        if self.coordinate_system:
+            self.coordinate_system = self.coordinate_system.upper()
+
     def to_dict(self) -> dict:
         return encode(self)
 
@@ -1201,6 +1211,7 @@ class FibsemManipulatorPosition(FibsemAxesPosition):
         return decode(cls, data)
 
 
+@saved(required=("left", "top", "width", "height"))
 @dataclass
 class FibsemRectangle(Configurable):
     """Universal Rectangle class used for ReducedArea"""
