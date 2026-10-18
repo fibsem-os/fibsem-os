@@ -260,6 +260,19 @@ class TestLifecycle:
             tmp_path / "exp" / "grids" / "grid-birch" / "echo" / "hello-0.txt"
         ).exists()
 
+    def test_an_iteration_has_a_folder_of_its_own(self, microscope, experiment):
+        from types import SimpleNamespace
+
+        grid = _grid(experiment)
+        task = EchoTask(
+            microscope,
+            EchoConfig(task_name="echo"),
+            grid,
+            experiment,
+            task_manager=SimpleNamespace(active_iteration=3, abort_token=None),
+        )
+        assert task.output_dir == experiment.grid_path(grid) / "echo" / "0003"
+
     def test_the_same_output_recorded_twice_is_one_file(self, microscope, experiment):
         grid = _grid(experiment)
         task = EchoTask(microscope, EchoConfig(task_name="echo"), grid, experiment)
