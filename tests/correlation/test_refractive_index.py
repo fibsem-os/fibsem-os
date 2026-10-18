@@ -1,20 +1,15 @@
 """Pytest tests for fibsem.correlation.refractive_index."""
 
+import numpy as np
 import pytest
 
 from fibsem.correlation.refractive_index import (
-    _LUT_PATH,
     SliceScalingFactorLUT,
     ZetaParams,
     get_lut,
     lookup_zeta,
+    pack_lut,
 )
-
-pytestmark = pytest.mark.skipif(
-    not _LUT_PATH.exists(),
-    reason=f"LUT CSV not found: {_LUT_PATH}",
-)
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -43,7 +38,9 @@ def test_known_values(lut: SliceScalingFactorLUT) -> None:
     assert abs(zeta_bead - 1.45) < 0.01, f"Expected ~1.45, got {zeta_bead:.4f}"
 
     # Cell targeting case: tilt=15, depth=4, NA=0.7, n2=1.35, wavelength=0.515 → ~1.47
-    zeta_cell = lut.lookup(tilt_deg=15, depth_um=4, NA=0.7, n2=1.35, wavelength_um=0.515)
+    zeta_cell = lut.lookup(
+        tilt_deg=15, depth_um=4, NA=0.7, n2=1.35, wavelength_um=0.515
+    )
     assert abs(zeta_cell - 1.47) < 0.01, f"Expected ~1.47, got {zeta_cell:.4f}"
 
 
@@ -94,3 +91,42 @@ def test_singleton_get_lut() -> None:
     a = get_lut()
     b = get_lut()
     assert a is b
+
+
+def test_the_table_ships_with_the_package(lut: SliceScalingFactorLUT) -> None:
+    """The full grid, read from the package: nothing is downloaded."""
+    shape = tuple(
+        len(a) for a in (lut.tilts, lut.depths, lut.n2s, lut.wavelengths, lut.nas)
+    )
+    assert shape == (31, 29, 7, 7, 8)
+
+
+def _write_csv(path, zeta, drop_last=False) -> None:
+    rows = ["tilt_deg,depth_um,NA,n2,wavelength_um,zeta"]
+    for i, (t, d) in enumerate([(0, 1), (0, 2), (10, 1), (10, 2)]):
+        for na in (0.5, 0.8):
+            rows.append(f"{t},{d},{na},1.3,0.5,{zeta(i, na)}")
+    path.write_text("\n".join(rows[:-1] if drop_last else rows))
+
+
+def test_pack_lut_round_trips_a_csv_exactly(tmp_path) -> None:
+    csv, npz = tmp_path / "lut.csv", tmp_path / "lut.npz"
+    _write_csv(csv, lambda i, na: round(1.2 + 0.07 * i + na / 10, 2))
+    pack_lut(csv, npz)
+
+    packed = SliceScalingFactorLUT(npz)
+
+    assert packed.lookup(10, 2, 0.8, 1.3, 0.5) == pytest.approx(1.2 + 0.21 + 0.08)
+    assert packed.lookup(5, 1.5, 0.65, 1.3, 0.5) == pytest.approx(
+        np.mean([1.2 + 0.07 * i for i in range(4)]) + 0.065
+    )
+
+
+def test_pack_lut_refuses_an_incomplete_grid_or_extra_decimals(tmp_path) -> None:
+    csv, npz = tmp_path / "lut.csv", tmp_path / "lut.npz"
+    _write_csv(csv, lambda i, na: 1.5, drop_last=True)
+    with pytest.raises(ValueError, match="incomplete"):
+        pack_lut(csv, npz)
+    _write_csv(csv, lambda i, na: 1.5 + i / 1000)
+    with pytest.raises(ValueError, match="decimals"):
+        pack_lut(csv, npz)
