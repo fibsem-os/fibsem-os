@@ -59,7 +59,7 @@ def _fiducials(path: Path):
     except Exception as exc:  # an unreadable file is not the solver's problem
         pytest.skip(f"cannot read {path}: {exc}")
     result = state.result
-    if result is None or not result.rotation_quaternion:
+    if result is None or not result.rotation_matrix:
         pytest.skip("no fitted result saved")
     data = result.input_data or state.input_data
     fm = _coords_to_array(data.fm_coordinates).astype(float)
@@ -74,7 +74,7 @@ def _check(path: Path) -> None:
     fm, fib, result = _fiducials(path)
 
     new = solver.fit_unseeded(fm, fib)
-    saved_r = np.asarray(result.rotation_quaternion, dtype=float)
+    saved_r = np.asarray(result.rotation_matrix, dtype=float)
     seeded = solver.fit_from_seed(fm, fib, saved_r, result.scale)
     print(
         f"\n{path}: n={len(fm)} saved {result.rms_error:.3f} | unseeded "

@@ -26,6 +26,7 @@ from fibsem.correlation.refractive_index import (
     _LUT_PATH,
     ZetaParams,
     lookup_zeta,
+    zeta_params_from_settings,
 )
 from fibsem.ui.tokens import (
     CONTROL_STYLE,
@@ -46,14 +47,7 @@ _LUT_MISSING_MSG = (
 
 # The one default set lives on RISettings, where the protocol reads it too; see
 # its docstring for where the values come from (FIB-1234).
-_RI_DEFAULTS = RISettings()
-_DEFAULTS = ZetaParams(
-    tilt_deg=_RI_DEFAULTS.tilt_deg,
-    depth_um=_RI_DEFAULTS.depth_um,
-    NA=_RI_DEFAULTS.na,
-    n2=_RI_DEFAULTS.n2,
-    wavelength_um=_RI_DEFAULTS.wavelength_um,
-)
+_DEFAULTS = zeta_params_from_settings(RISettings())
 
 # Only used when the lookup table cannot be read. Must equal the LUT's value at
 # _DEFAULTS — pinned by tests/correlation/test_default_correction_factor.py, so

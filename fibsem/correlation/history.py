@@ -126,6 +126,8 @@ def correlation_record(
     """An accepted correlation, for the experiment's record (FIB-1068): what it
     gave, how well it fits, and the run folder that holds the rest. Whoever
     moves an item's point of interest to a run's answer records this."""
+    from fibsem.correlation.verdict import verdict_tier
+
     data = result.input_data
     pixel_size = data.fib_image_pixel_size if data is not None else None
     folder = run_folder
@@ -146,20 +148,7 @@ def correlation_record(
             if ri
             else None
         ),
-        "verdict": _verdict_tier(result.diagnostics),
+        "verdict": verdict_tier(result.diagnostics),
         "seeded": result.seed is not None,
         "folder": folder,
     }
-
-
-def _verdict_tier(diagnostics: Optional[dict]) -> Optional[str]:
-    """The fit verdict's tier, as the dialog showed it; None for an unseeded fit."""
-    if not diagnostics:
-        return None
-    from fibsem.correlation.verdict import FitDiagnostics, verdict
-
-    try:
-        return verdict(FitDiagnostics.from_dict(diagnostics)).tier
-    except Exception:  # noqa: BLE001 - the tier is a detail of the record
-        logging.debug("could not read the fit verdict", exc_info=True)
-        return None

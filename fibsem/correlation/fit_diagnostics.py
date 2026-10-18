@@ -1,7 +1,7 @@
 """Fit-diagnostic data + rendering, split from the fit compute (FIB-281).
 
 The point fitters (:mod:`fibsem.imaging.localise`) compute a refined
-coordinate and return a :class:`FitDiagnostic` — the *data* needed to draw the
+coordinate and return a :class:`PointFitDiagnostic` — the *data* needed to draw the
 diagnostic figure — without touching matplotlib. :func:`plot_fit_diagnostic`
 renders it, in a light palette by default or the napari-dark palette
 (``dark=True``) used by the confirm dialog.
@@ -14,7 +14,7 @@ a render parameter (it no longer re-themes a figure after the fact).
 
 from __future__ import annotations
 
-from fibsem.imaging.localise import FitDiagnostic
+from fibsem.imaging.localise import PointFitDiagnostic
 from fibsem.theme.tokens import CANVAS_BG, NEUTRAL_200, NEUTRAL_300, SURFACE_COLOR
 
 # input (red) / fitted (green) are the only saturated colours in every panel;
@@ -23,8 +23,8 @@ _C_IN = "#e53935"
 _C_FIT = "#43a047"
 
 
-def plot_fit_diagnostic(d: FitDiagnostic, *, dark: bool = False):
-    """Render a :class:`FitDiagnostic` to a matplotlib ``Figure``.
+def plot_fit_diagnostic(d: PointFitDiagnostic, *, dark: bool = False):
+    """Render a :class:`PointFitDiagnostic` to a matplotlib ``Figure``.
 
     Uses the object-oriented ``Figure`` API (no pyplot), so the figure isn't
     held in pyplot's global registry — it's freed with its canvas and needs no
@@ -54,7 +54,7 @@ def plot_fit_diagnostic(d: FitDiagnostic, *, dark: bool = False):
     return fig
 
 
-def _draw_z_panel(ax, d: FitDiagnostic) -> None:
+def _draw_z_panel(ax, d: PointFitDiagnostic) -> None:
     ax.plot(d.z_axis, d.z_signal, color="0.55", lw=1.3)
     if d.z_fit is not None:
         ax.plot(d.z_axis, d.z_fit, color="0.15", ls="--", lw=1.2)
@@ -72,7 +72,7 @@ def _draw_z_panel(ax, d: FitDiagnostic) -> None:
     ax.legend(fontsize=7, framealpha=0.6)
 
 
-def _draw_xy_panel(ax, d: FitDiagnostic) -> None:
+def _draw_xy_panel(ax, d: PointFitDiagnostic) -> None:
     ax.imshow(d.roi_xy, cmap="gray")
     ax.plot(d.input_xy[0], d.input_xy[1], "+", color=_C_IN, ms=16, mew=2, label="input")
     if d.fitted_xy is not None:

@@ -67,7 +67,7 @@ def transform_from_result(
     current one: the same camera and objective, and a run does not record it.
     Returns None when the result holds no usable rotation.
     """
-    R = np.asarray(result.rotation_quaternion, dtype=float)
+    R = np.asarray(result.rotation_matrix, dtype=float)
     if R.shape != (3, 3) or not result.scale or not np.all(np.isfinite(R)):
         return None
     scale = float(result.scale)

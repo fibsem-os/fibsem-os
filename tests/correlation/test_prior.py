@@ -33,7 +33,7 @@ def _result(entry: dict, *, fm_z_scale: float, fib_px: float) -> CorrelationResu
     fit = entry["fit"]
     return CorrelationResult(
         scale=float(fit["scale"]),
-        rotation_quaternion=fit["rotation"],
+        rotation_matrix=fit["rotation"],
         translation=fit["translation"],
         fm_z_scale=fm_z_scale,
         input_data=CorrelationInputData(stored_fib_image_pixel_size=fib_px),

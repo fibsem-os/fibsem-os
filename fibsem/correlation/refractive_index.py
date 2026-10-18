@@ -27,10 +27,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Union
+from typing import TYPE_CHECKING, Optional, Union
 
 import numpy as np
 from scipy.interpolate import RegularGridInterpolator
+
+if TYPE_CHECKING:
+    from fibsem.correlation.config import RISettings
 
 #: The table, shipped with the package: the five axes and zeta x 100 as uint16.
 #: Every zeta in the source CSV has two decimals, so this holds it exactly, in
@@ -50,6 +53,57 @@ class ZetaParams:
     NA: float  # objective numerical aperture, 0.2–0.9
     n2: float  # immersion medium refractive index, 1.22–1.46
     wavelength_um: float  # emission wavelength (µm), 0.42–0.72
+
+
+def zeta_params_from_settings(ri: "RISettings") -> ZetaParams:
+    """The lookup's inputs from a protocol's :class:`RISettings` (its ``mode``
+    is not an optical parameter and is dropped)."""
+    return ZetaParams(
+        tilt_deg=ri.tilt_deg,
+        depth_um=ri.depth_um,
+        NA=ri.na,
+        n2=ri.n2,
+        wavelength_um=ri.wavelength_um,
+    )
+
+
+# --- applying zeta: scaling depth about the surface ------------------------
+
+
+def scale_about_surface(value, surface, correction_factor):
+    """Scale a depth-like value about a surface reference.
+
+    ``surface + (value - surface) * correction_factor`` — the single source of
+    the refractive-index depth-scaling formula. Signed (works regardless of
+    axis direction) and unit-free; accepts scalars or numpy arrays.
+    """
+    return surface + (value - surface) * correction_factor
+
+
+def apply_z_surface_correction(
+    poi_coords: np.ndarray, surface_z: float, correction_factor: float
+) -> np.ndarray:
+    """Scale POI z about the FM surface z (pre-correlation RI correction).
+
+    corrected_z = surface_z + (z - surface_z) * correction_factor
+
+    The scaling is signed, so it is independent of the stack z direction, and
+    unit-free, so it is valid in voxel indices for a uniform z-step.
+
+    Args:
+        poi_coords: (N, 3) array of POI coordinates (x, y, z) in FM voxels.
+        surface_z: z of the surface point in the FM volume (voxels).
+        correction_factor: depth scaling factor (zeta).
+
+    Returns:
+        A corrected copy; the input array is not modified.
+    """
+    corrected = np.array(poi_coords, dtype=np.float32, copy=True)
+    if corrected.size:
+        corrected[:, 2] = scale_about_surface(
+            corrected[:, 2], surface_z, correction_factor
+        )
+    return corrected
 
 
 def pack_lut(

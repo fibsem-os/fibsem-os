@@ -9,7 +9,7 @@ outside the tab is seeded, judged and recorded the way the tab's is.
   placed with a previous run's calibrated offset (FIB-979).
 - :func:`fit_transform` runs the fit from that seed and attaches the verdict's
   evidence (FIB-956) and the placement offset this run measured (FIB-979).
-- :func:`predict` maps more FM points through a fitted result.
+- :func:`fm_to_fib` maps more FM points through a fitted result.
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
 
+from fibsem.correlation.config import MIN_FIDUCIAL_PAIRS
 from fibsem.correlation.correlation_v2 import run_correlation_from_data
 from fibsem.correlation.geometry import NominalTransform
 from fibsem.correlation.history import CorrelationRun
@@ -42,9 +43,9 @@ __all__ = [
     "Seed",
     "diagnostics_for",
     "fit_transform",
+    "fm_to_fib",
     "geometry_transform",
     "measure_placement_offset",
-    "predict",
     "prior_transform",
     "seed_for",
 ]
@@ -225,7 +226,7 @@ def diagnostics_for(
     ``rows`` are each fitted pair's row in the user's lists (the fit skips
     rejected pairs), so the verdict names the row the user sees.
     """
-    if nominal is None or len(data.fib_coordinates) < 4:
+    if nominal is None or len(data.fib_coordinates) < MIN_FIDUCIAL_PAIRS:
         return None
     try:
         from fibsem.correlation.verdict import diagnose
@@ -305,7 +306,7 @@ def fit_transform(
     return result
 
 
-def predict(
+def fm_to_fib(
     result: CorrelationResult, fm_points: Sequence[Sequence[float]]
 ) -> List[CorrelationPointOfInterest]:
     """Where FM points land in the FIB image under a fitted ``result``.
@@ -323,7 +324,7 @@ def predict(
     data = result.input_data
     return _reproject_poi_via_transform(
         {
-            "rotation_quaternion": result.rotation_quaternion,
+            "rotation_matrix": result.rotation_matrix,
             "scale": result.scale,
             "translation_around_rotation_center_zero": result.translation,
         },

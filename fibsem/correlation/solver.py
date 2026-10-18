@@ -28,6 +28,11 @@ from scipy.spatial.transform import Rotation
 # A start: a proper 3x3 rotation and a scale (FIB px per FM px).
 Start = Tuple[np.ndarray, float]
 
+# The fewest pairs that determine a fit: the centroids take the translation, leaving
+# two offset vectors (four equations) for the four unknowns of rotation and scale.
+# The floor for a run the user is shown is higher (config.MIN_FIDUCIAL_PAIRS).
+MIN_PAIRS = 3
+
 # Small fixed turns tried about a seed as well as the seed itself, so a seed a few
 # tens of degrees out still reaches its basin. Degrees, about each axis both ways.
 _SEED_NUDGE_DEG = 15.0
@@ -92,8 +97,10 @@ def _pairs(fm_xyz, fib_xy) -> Tuple[np.ndarray, np.ndarray]:
     fib = fib.reshape(len(fib), -1)[:, :2]
     if len(fm) != len(fib):
         raise ValueError(f"{len(fm)} FM points but {len(fib)} FIB points")
-    if len(fm) < 3:
-        raise ValueError(f"A rigid fit needs at least 3 point pairs, got {len(fm)}")
+    if len(fm) < MIN_PAIRS:
+        raise ValueError(
+            f"A rigid fit needs at least {MIN_PAIRS} point pairs, got {len(fm)}"
+        )
     return fm, fib
 
 
