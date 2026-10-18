@@ -12,9 +12,12 @@ from contextlib import contextmanager
 from typing import Any, Dict, List, Optional, Protocol, Set, Tuple
 
 from fibsem import config as fibsem_cfg
+from fibsem.acting import WORKFLOW
 from fibsem.cancellation import AnyStopEvent, OperationCancelledError
+from fibsem.control import MicroscopeBusy
 from fibsem.hooks import HookEvent, HookManager, fire_event
 from fibsem.microscope import FibsemMicroscope
+from fibsem.structures import BeamType
 from fibsem.util.durations import format_duration_precise
 from fibsem.workflows.event_recording import run_recorder
 from fibsem.workflows.queue import TaskQueue, WorkItem
@@ -458,6 +461,61 @@ class BaseTaskManager:
             status_bar=f"Workflow stalled: {self.closing_note()}",
         )
 
+    # What the run is called to whoever else wants the microscope while it
+    # holds control: "Can't move: a lamella run is in control".
+    RUN_DESCRIPTION = "a run"
+
+    def beams_needed(self) -> Tuple[BeamType, ...]:
+        """The beams turned on before the run, if they are off. Both, unless
+        the app's work needs fewer: a workflow that never uses the ion beam
+        should not switch it on."""
+        return (BeamType.ELECTRON, BeamType.ION)
+
+    def _names_for_run(self, names: Optional[List[str]]) -> Optional[List[str]]:
+        """The items to run over, resolved in control at the start of the run:
+        ``names`` as given, unless the manager finds them itself."""
+        return names
+
+    def execute(self, task_names: List[str], names: Optional[List[str]] = None) -> None:
+        """The whole run, as whoever starts one calls it; never raises.
+
+        In control of the microscope for all of it (FIB-1270), the beams it
+        needs turned on, then ``run``. A failure before the run began -- someone
+        else in control, a beam that will not come on -- still ends the run
+        with an event, so whoever was told it started sees it end (FIB-1353).
+        """
+        try:
+            with self.microscope.control.take(WORKFLOW, self.RUN_DESCRIPTION):
+                for beam in self.beams_needed():
+                    if not self.microscope.is_on(beam):
+                        self.microscope.turn_on(beam)
+                names = self._names_for_run(names)
+                logging.info(
+                    f"Starting tasks: {task_names}, for {self.ITEM_NOUN}: {names}"
+                )
+                self.run(task_names, names)
+        except MicroscopeBusy as e:
+            logging.warning(f"Workflow not started: {e}")
+            self._end_unstarted_quietly(e)
+        except (InterruptedError, OperationCancelledError) as e:
+            # A Stop, not a failure: anyone scanning the log for problems must
+            # not see one per Stop press. The task layer has already recorded
+            # the outcome as Cancelled.
+            logging.info(f"Workflow cancelled: {e}")
+            self._end_unstarted_quietly(e)
+        except Exception as e:
+            logging.error(f"Error during the workflow: {e}", exc_info=True)
+            self._end_unstarted_quietly(e)
+
+    def run(self, task_names: List[str], names: Optional[List[str]] = None) -> None:
+        raise NotImplementedError
+
+    def _end_unstarted_quietly(self, error: BaseException) -> None:
+        try:
+            self.end_unstarted_run(error)
+        except Exception:
+            logging.exception("reporting the end of a run that never began failed")
+
     def stop(self) -> None:
         """Signal the manager to stop after current task completes."""
         self._stop_event.set()
@@ -579,9 +637,8 @@ class BaseTaskManager:
     def end_unstarted_run(self, error: BaseException) -> None:
         """Report a run that died in the launcher's set-up, before it began.
 
-        Whoever launches the run (the app's workflow worker) does work of its
-        own between being asked and calling ``run``: taking control, turning
-        the beams on, the grid inventory. A failure there used to end a run
+        ``execute`` does work of its own before calling ``run``: taking
+        control, turning the beams on, the grid inventory. A failure there used to end a run
         that start_workflow had already answered ``started`` for with no event
         (FIB-1353). It ends with workflow_failed now, or workflow_cancelled
         for a Stop, through this run's recording. A run that began reports

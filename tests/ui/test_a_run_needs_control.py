@@ -1,87 +1,111 @@
-"""The app's run start takes control of the microscope (FIB-1270): a run is in
-control from beams-on to its end, and Run is refused, by name, while someone
-else is in control -- a command from the App Server, say."""
+"""A run takes control of the microscope (FIB-1270): it is in control from
+beams-on to its end, and a start is refused, by name, while someone else is in
+control -- a command from the App Server, say. Both through the session's
+runner, with no window: what any caller, headless included, gets."""
 
 import os
 
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-
 import pytest
 
-pytest.importorskip("PyQt5")
-
-from fibsem.applications.autolamella.structures import Experiment
-from fibsem.applications.autolamella.ui import AutoLamellaUI as module
-from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
-from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
-from fibsem.workflows.grid.manager import (
-    GridTaskManager,
+from fibsem import utils
+from fibsem.applications.autolamella.structures import (
+    AutoLamellaTaskProtocol,
+    Experiment,
 )
+from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
+from fibsem.hooks import FunctionHook, HookEvent, HookManager
+from fibsem.workflows.grid.manager import GridTaskManager
+from fibsem.workflows.runner import GRIDS, ITEMS, RunRequest
+from fibsem.workflows.session import AppSession
 
 
-@pytest.fixture
-def ui(qapp, monkeypatch, tmp_path):
+@pytest.fixture(scope="module")
+def microscope():
     import fibsem.config as fibsem_config
 
+    os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
     config = os.path.join(
         os.path.dirname(fibsem_config.__file__),
         "config",
         "sim-arctis-configuration.yaml",
     )
-    widget = AutoLamellaUI(parent_ui=None)
-    monkeypatch.setattr(
-        widget.system_widget,
-        "load_configuration",
-        lambda configuration_name=None: config,
-    )
-    widget.system_widget.connect_to_microscope()
-    widget.experiment = Experiment(path=tmp_path, name="control")
-    yield widget
-    if widget.microscope is not None:
-        widget.microscope.disconnect()
-    widget.close()
-    widget.deleteLater()
-    qapp.processEvents()
+    microscope, _ = utils.setup_session(config_path=config)
+    yield microscope
+    microscope.disconnect()
 
 
 @pytest.fixture
-def toasts(monkeypatch):
-    shown = []
-    monkeypatch.setattr(
-        module.notification_service,
-        "show_toast",
-        lambda message, *args, **kwargs: shown.append(message),
+def experiment(tmp_path):
+    experiment = Experiment(path=tmp_path, name="control")
+    experiment.task_protocol = AutoLamellaTaskProtocol()
+    return experiment
+
+
+@pytest.fixture
+def session(microscope, experiment):
+    session = AppSession()
+    session.microscope = microscope
+    session.experiment = experiment
+    return session
+
+
+@pytest.mark.parametrize(
+    "request_",
+    [
+        RunRequest(kind=ITEMS, task_names=("Trench",), names=("lamella-01",)),
+        RunRequest(kind=GRIDS, task_names=("Overview",), names=("Grid-01",)),
+    ],
+    ids=["lamella", "grid"],
+)
+def test_a_start_is_refused_by_name_while_someone_else_is_in_control(
+    session, experiment, request_
+):
+    with session.microscope.control.take("agent", "POST /move_stage_relative"):
+        outcome = session.runner.start(experiment, request_)
+
+    assert not session.runner.is_running, "nothing started"
+    assert outcome.as_dict() == {
+        "started": False,
+        "reason": "Can't start the workflow: the agent is in control "
+        "(POST /move_stage_relative).",
+    }
+
+
+def test_a_run_starts_and_ends_with_no_window(session, experiment, monkeypatch):
+    """The runner runs the app's manager on its own thread, and keeps the
+    summary after the manager is gone."""
+    experiment.task_protocol.workflow_config.tasks.clear()
+    from fibsem.applications.autolamella.structures import (
+        AutoLamellaTaskDescription,
     )
-    return shown
+
+    experiment.task_protocol.workflow_config.tasks.append(
+        AutoLamellaTaskDescription(name="Trench", required=True)
+    )
+    ran, ended = [], []
+    monkeypatch.setattr(
+        TaskManager, "run", lambda self, *args: ran.append((args, self.parent_ui))
+    )
+    session.runner.finished.connect(ended.append)
+
+    outcome = session.runner.start(
+        experiment, RunRequest(kind=ITEMS, task_names=("Trench",))
+    )
+
+    assert outcome.started, outcome.reason
+    assert session.runner.join(10)
+    assert ran == [((["Trench"], []), None)]
+    assert ended == [False]
+    assert session.runner.manager is None
+    assert session.runner.last_summary is not None
 
 
 @pytest.mark.parametrize(
-    "start",
-    [
-        lambda ui: ui._start_run_workflow_thread(["Trench"], ["lamella-01"]),
-        lambda ui: ui._start_run_grid_workflow_thread(["Overview"], ["Grid-01"]),
-    ],
-    ids=["lamella", "grid"],
+    "manager", [TaskManager, GridTaskManager], ids=["lamella", "grid"]
 )
-def test_run_is_refused_by_name_while_someone_else_is_in_control(ui, toasts, start):
-    with ui.microscope.control.take("agent", "POST /move_stage_relative"):
-        start(ui)
-
-    assert ui._task_worker_thread is None, "nothing started"
-    assert toasts == [
-        "Can't start the workflow: the agent is in control (POST /move_stage_relative)."
-    ]
-
-
-@pytest.mark.parametrize(
-    "manager, worker",
-    [
-        (TaskManager, lambda ui: ui._run_tasks_worker([], [])),
-        (GridTaskManager, lambda ui: ui._run_grid_tasks_worker([], [], False)),
-    ],
-    ids=["lamella", "grid"],
-)
-def test_the_run_is_in_control_for_its_whole_length(ui, monkeypatch, manager, worker):
+def test_the_run_is_in_control_for_its_whole_length(
+    microscope, experiment, monkeypatch, manager
+):
     seen = []
     monkeypatch.setattr(
         manager,
@@ -89,63 +113,58 @@ def test_the_run_is_in_control_for_its_whole_length(ui, monkeypatch, manager, wo
         lambda self, *args, **kwargs: seen.append(self.microscope.control.current),
     )
 
-    worker(ui)
+    manager(microscope, experiment).execute([], [])
 
     assert seen[0].by == "workflow"
-    assert ui.microscope.control.current is None
+    assert microscope.control.current is None
 
 
 @pytest.mark.parametrize(
-    "manager, worker",
-    [
-        (TaskManager, lambda ui: ui._run_tasks_worker([], [])),
-        (GridTaskManager, lambda ui: ui._run_grid_tasks_worker([], [], False)),
-    ],
-    ids=["lamella", "grid"],
+    "manager", [TaskManager, GridTaskManager], ids=["lamella", "grid"]
 )
 def test_a_run_that_loses_the_race_for_control_does_not_start(
-    ui, monkeypatch, manager, worker
+    microscope, experiment, monkeypatch, manager
 ):
-    # Past the check on Run, someone took control first: the worker is refused
+    # Past the check on start, someone took control first: the run is refused
     # at its entry point and ends like any run that never began.
-    ran = []
+    ran, fired = [], []
     monkeypatch.setattr(manager, "run", lambda self, *a, **k: ran.append(True))
+    hooks = HookManager()
+    hooks.register(
+        FunctionHook(name="seen", events=list(HookEvent), callback=fired.append)
+    )
 
-    with ui.microscope.control.take("agent", "POST /move_stage_relative"):
-        worker(ui)
+    with microscope.control.take("agent", "POST /move_stage_relative"):
+        manager(microscope, experiment, hook_manager=hooks).execute([], [])
 
     assert not ran
-    assert ui._task_manager is None
+    assert [c.event for c in fired] == ["workflow_failed"]
 
 
 @pytest.mark.parametrize(
-    "worker",
-    [
-        lambda ui: ui._run_tasks_worker(["Trench"], []),
-        lambda ui: ui._run_grid_tasks_worker(["Overview"], [], False),
-    ],
+    "manager, task",
+    [(TaskManager, "Trench"), (GridTaskManager, "Overview")],
     ids=["lamella", "grid"],
 )
-def test_a_run_that_dies_in_set_up_ends_with_workflow_failed(ui, monkeypatch, worker):
-    """FIB-1353: start_workflow has answered started by the time the worker
-    turns the beams on; a failure there ends the run with an event."""
-    from fibsem.hooks import FunctionHook, HookEvent, HookManager
-
+def test_a_run_that_dies_in_set_up_ends_with_workflow_failed(
+    microscope, experiment, monkeypatch, manager, task
+):
+    """FIB-1353: the start has answered started by the time the run turns the
+    beams on; a failure there ends the run with an event."""
     fired = []
     hooks = HookManager()
     hooks.register(
         FunctionHook(name="seen", events=list(HookEvent), callback=fired.append)
     )
-    monkeypatch.setattr(ui, "setup_hooks", lambda: hooks)
-    monkeypatch.setattr(ui.microscope, "is_on", lambda beam_type: False)
+    monkeypatch.setattr(microscope, "is_on", lambda beam_type: False)
 
     def beam_fails(beam_type):
         raise RuntimeError("the beam would not turn on")
 
-    monkeypatch.setattr(ui.microscope, "turn_on", beam_fails)
+    monkeypatch.setattr(microscope, "turn_on", beam_fails)
 
-    worker(ui)
+    manager(microscope, experiment, hook_manager=hooks).execute([task], [])
 
     assert [c.event for c in fired] == ["workflow_failed"]
     assert fired[0].error == "the beam would not turn on"
-    assert ui.microscope.control.current is None
+    assert microscope.control.current is None

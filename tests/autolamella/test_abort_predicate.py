@@ -25,6 +25,7 @@ import pytest
 from fibsem.applications.autolamella.structures import Experiment, Lamella
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.applications.autolamella.workflows.ui import _check_for_abort
+from tests.run_state import stub_session
 
 
 class NoMicroscope:
@@ -41,10 +42,11 @@ def manager(tmp_path: Path) -> TaskManager:
 
 
 class FakeUI:
-    """A parent_ui is all workflows.ui._check_for_abort ever gets."""
+    """A parent_ui is all workflows.ui._check_for_abort ever gets: it asks the
+    session's runner, which asks the run's manager."""
 
     def __init__(self, task_manager: Optional[TaskManager]):
-        self._task_manager = task_manager
+        self.session = stub_session(task_manager)
 
 
 # ── The predicate ─────────────────────────────────────────────────────────────

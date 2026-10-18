@@ -46,6 +46,7 @@ from fibsem.workflows.interaction import (
     SpotBurnEdit,
 )
 from fibsem.workflows.status import HoldKind
+from tests.run_state import Stopped
 
 SPOT = "Spot Burn Fiducial"
 FIRST_HINT = "Press Run Spot Burn to burn, or Skip to go on without burning."
@@ -130,7 +131,7 @@ def ui(window):
     ui._burn_failures.clear()
     ui._supervision["supervised"] = True
     yield ui
-    ui._workflow_stop_event.clear()
+    ui.session.runner.manager = None
 
 
 def _task(ui, points=((0.5, 0.5),)):
@@ -423,7 +424,7 @@ def test_a_stop_interrupts_the_prompt(ui, qapp):
     task, thread, outcome = _start(ui, qapp)
 
     task._manager.stop()
-    ui._workflow_stop_event.set()
+    ui.session.runner.manager = Stopped()
     _finish(thread, qapp)
 
     assert isinstance(outcome.get("error"), InterruptedError)

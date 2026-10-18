@@ -35,6 +35,7 @@ from fibsem.workflows.interaction import (
     ask,
 )
 from fibsem.workflows.status import Hold, HoldKind
+from tests.run_state import Stopped
 
 PROMPT = "Confirm Feature Detection. Press Continue to proceed."
 
@@ -99,7 +100,7 @@ def _ask_on_worker_thread(ui, qapp, detection):
             outcome["answer"] = ask(
                 ui.ui_responder,
                 ConfirmDetection(detection=detection),
-                abort=ui._workflow_stop_event.is_set,
+                abort=lambda: ui.session.runner.should_abort,
             )
         except Exception as exc:  # noqa: BLE001 - the test inspects it
             outcome["error"] = exc
@@ -203,11 +204,11 @@ def test_a_failing_read_back_reraises_on_the_workflow_thread(ui, qapp):
 def test_a_stop_interrupts_a_detection_nobody_confirms(ui, qapp):
     thread, outcome = _ask_on_worker_thread(ui, qapp, _make_detection())
 
-    ui._workflow_stop_event.set()
+    ui.session.runner.manager = Stopped()
     try:
         _finish(thread, qapp)
     finally:
-        ui._workflow_stop_event.clear()
+        ui.session.runner.manager = None
 
     assert isinstance(outcome.get("error"), InterruptedError)
 

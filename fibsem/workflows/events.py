@@ -27,7 +27,7 @@ so — a visible gap instead of silent continuity.
 
 Wiring that deliberately does NOT live here: constructing the buffer when a
 microscope connects, attaching the taps, and re-registering the lifecycle hook
-inside ``setup_hooks()`` — the app rebuilds its hook set every run, so a
+inside ``WorkflowRunner.run_hooks()`` — the app rebuilds its hook set every run, so a
 once-at-startup registration silently goes deaf after the first run. That is
 ``event_recording.EventRecorder`` (FIB-1031), which also records the stream to
 disk; the App Server reads the same buffer when it runs.
@@ -331,8 +331,8 @@ def attach_microscope_taps(buffer: EventBuffer, microscope) -> List[Callable[[],
 def make_lifecycle_hook(buffer: EventBuffer):
     """A FunctionHook feeding workflow lifecycle events into the buffer.
 
-    Must be registered per run (the app rebuilds its HookManager in
-    setup_hooks each run); HookContext already deep-copies task_state, so
+    Must be registered per run (the runner rebuilds the HookManager for
+    each run); HookContext already deep-copies task_state, so
     serializing here reads a stable snapshot.
     """
     from fibsem.hooks import FunctionHook, HookContext, HookEvent

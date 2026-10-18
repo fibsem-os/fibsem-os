@@ -26,6 +26,7 @@ pytest.importorskip("PyQt5")
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
 from fibsem.applications.autolamella.workflows.ui import ask_user
 from fibsem.workflows.status import Hold, HoldKind
+from tests.run_state import Stopped
 
 
 @pytest.fixture
@@ -122,11 +123,11 @@ def test_the_prompt_comes_down_with_the_answer(ui, qapp):
 def test_a_stop_interrupts_a_prompt_nobody_answers(ui, qapp):
     thread, outcome = _ask_on_worker_thread(ui, qapp)
 
-    ui._workflow_stop_event.set()
+    ui.session.runner.manager = Stopped()
     try:
         _finish(thread, qapp)
     finally:
-        ui._workflow_stop_event.clear()
+        ui.session.runner.manager = None
 
     assert isinstance(outcome.get("error"), InterruptedError)
 
@@ -135,11 +136,11 @@ def test_a_question_after_an_aborted_one_still_works(ui, qapp):
     # The aborted question's future is still parked in the responder; the next
     # question must cancel that corpse and proceed, not trip over it.
     thread, outcome = _ask_on_worker_thread(ui, qapp)
-    ui._workflow_stop_event.set()
+    ui.session.runner.manager = Stopped()
     try:
         _finish(thread, qapp)
     finally:
-        ui._workflow_stop_event.clear()
+        ui.session.runner.manager = None
     assert isinstance(outcome.get("error"), InterruptedError)
 
     thread, outcome = _ask_on_worker_thread(ui, qapp, msg="Try again?")

@@ -146,7 +146,7 @@ class FunctionWorker(QObject):
         """Whether the worker thread has been started and has not yet finished.
 
         Drop-in for ``threading.Thread.is_alive`` at the stored-thread lifecycle sites
-        (``is_acquiring`` / ``is_milling`` / ``is_workflow_running``). ``False`` before
+        (``is_acquiring`` / ``is_milling``). ``False`` before
         :meth:`start`.
         """
         return self._thread is not None and self._thread.is_alive()

@@ -29,6 +29,7 @@ from fibsem.applications.autolamella.structures import (
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.workflows.status import TaskStatus as Status
+from tests.run_state import stub_session
 
 TASKS = ["Trench", "Undercut"]
 
@@ -256,7 +257,7 @@ class RecordingUI:
     """
 
     def __init__(self, manager: TaskManager):
-        self._task_manager = manager
+        self.session = stub_session(manager)
         self.WORKFLOW_PENDING = False
         self.pending_at_each_emit: List[bool] = []
         # Everything the workflow says arrives on workflow_status_signal now

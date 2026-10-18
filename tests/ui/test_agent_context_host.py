@@ -130,12 +130,12 @@ def toasts(monkeypatch):
 
 def test_run_summary_survives_the_run_end_toast(ui, toasts):
     # The live-run regression: _show_workflow_summary used to consume
-    # _last_run_summary to make the dialog once-only, so a remote read after
+    # the last run summary to make the dialog once-only, so a remote read after
     # the run always found nothing. The run's end is shown once; the record
     # stays readable.
     import pandas as pd
 
-    ui._last_run_summary = pd.DataFrame(
+    ui.session.runner.last_summary = pd.DataFrame(
         [
             {
                 "lamella_name": "01",
@@ -154,7 +154,7 @@ def test_run_summary_survives_the_run_end_toast(ui, toasts):
     assert action[0] == "Show summary"
     # No experiment, so no option set: the summary opens, as it always has,
     # but without blocking the window.
-    assert _Dialog.opened == [(ui._last_run_summary, ""), "show"]
+    assert _Dialog.opened == [(ui.session.runner.last_summary, ""), "show"]
 
     payload = AutoLamellaAppContext(ui).run_summary()
     assert payload["available"] is True
@@ -162,7 +162,7 @@ def test_run_summary_survives_the_run_end_toast(ui, toasts):
     json.dumps(payload)
 
     # The next run's capture is a new object: it shows again.
-    ui._last_run_summary = pd.DataFrame([{"task_name": "Polishing"}])
+    ui.session.runner.last_summary = pd.DataFrame([{"task_name": "Polishing"}])
     ui._show_workflow_summary()
     assert len(toasts) == 2
 
@@ -179,8 +179,8 @@ def test_with_the_summary_off_only_the_toast_shows(ui, toasts, tmp_path):
     summary = pd.DataFrame(
         [{"lamella_name": "01", "task_name": "Polishing", "task_status": "Failed"}]
     )
-    ui._last_run_summary = summary
-    ui._last_run_note = ""
+    ui.session.runner.last_summary = summary
+    ui.session.runner.last_note = ""
 
     ui._show_workflow_summary()
     assert _Dialog.opened == []

@@ -190,6 +190,7 @@ class GridTaskManager(BaseTaskManager):
     # A task loads its grid on its own anyway, so moving or removing the step
     # would only make the plan lie about when the exchange happens.
     FIXED_TASKS = (LOAD_ENTRY_NAME,)
+    RUN_DESCRIPTION = "a grid run"
 
     def __init__(
         self,
@@ -199,11 +200,15 @@ class GridTaskManager(BaseTaskManager):
         hook_manager: Optional[HookManager] = None,
         unload_at_end: bool = False,
         report_at_end: bool = False,
+        inventory_first: bool = False,
     ):
         """``unload_at_end`` and ``report_at_end``: the end-of-run options (see
         the module docstring). Set for the run; work added to it mid-run ends
-        the way the run it joined does."""
+        the way the run it joined does. ``inventory_first`` is "Screen all
+        grids": the run reads the inventory, records every present grid, and
+        runs over them all."""
         super().__init__(microscope, experiment, parent_ui, hook_manager)
+        self.inventory_first = inventory_first
         self.unload_at_end = unload_at_end
         self.report_at_end = report_at_end
         # Grids this run could not bring onto the stage, and why. One attempt per
@@ -213,6 +218,14 @@ class GridTaskManager(BaseTaskManager):
         self._not_loaded: Dict[str, str] = {}
 
     # --- Public API ---
+
+    def _names_for_run(self, names: Optional[List[str]]) -> Optional[List[str]]:
+        """Screen all grids inventories in control, as part of the run."""
+        if not self.inventory_first:
+            return names
+        from fibsem.workflows.grid.screening import present_grids
+
+        return present_grids(self.microscope, self.experiment)
 
     def run(
         self, task_names: List[str], grid_names: Optional[List[str]] = None

@@ -142,7 +142,7 @@ def test_the_agent_adds_reorders_requires_and_removes_a_task(driving):
 
 
 def test_the_workflow_is_not_edited_while_it_runs(driving):
-    driving.host.is_workflow_running = True
+    driving.host.session.runner.is_running = True
     refused = _call(driving, "protocol_reorder_tasks", order=list(_workflow(driving)))
     assert refused.status_code == 409
 
@@ -283,7 +283,7 @@ def test_stop_task_stops_only_the_task_named(driving):
     )
     assert nothing["stopped"] is False and stops == []
 
-    driving.host._task_manager = _Manager(_Item())
+    driving.host.session.runner.manager = _Manager(_Item())
     other = _ok(
         _call(
             driving,
@@ -328,7 +328,7 @@ def test_grid_tasks_join_only_a_running_grid_run(driving):
         )
     )
     assert answer["queued"] is False
-    driving.host._task_manager = _Manager(None)
+    driving.host.session.runner.manager = _Manager(None)
     lamella_run = _ok(
         _call(
             driving,
@@ -351,7 +351,7 @@ def test_grid_tasks_are_queued_after_what_waits(driving):
     manager.queue = TaskQueue()
     manager.notify_queue_changed = lambda: None
     manager.queue.add("G1", "Load Grid")
-    driving.host._task_manager = manager
+    driving.host.session.runner.manager = manager
 
     answer = _ok(
         _call(

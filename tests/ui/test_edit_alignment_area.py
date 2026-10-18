@@ -27,6 +27,7 @@ pytest.importorskip("PyQt5")
 from fibsem.applications.autolamella.workflows.ui import update_alignment_area_ui
 from fibsem.structures import FibsemRectangle
 from fibsem.workflows.status import Hold, HoldKind
+from tests.run_state import Stopped
 
 INITIAL = FibsemRectangle(left=0.3, top=0.3, width=0.2, height=0.25)
 
@@ -245,10 +246,10 @@ def test_headless_and_unvalidated_return_the_input(ui):
 def test_a_stop_interrupts_an_edit_nobody_confirms(ui, qapp):
     thread, outcome = _edit_on_worker_thread(ui, qapp)
 
-    ui._workflow_stop_event.set()
+    ui.session.runner.manager = Stopped()
     try:
         _finish(thread, qapp)
     finally:
-        ui._workflow_stop_event.clear()
+        ui.session.runner.manager = None
 
     assert isinstance(outcome.get("error"), InterruptedError)

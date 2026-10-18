@@ -17,6 +17,7 @@ from fibsem import utils  # noqa: E402
 from fibsem.applications.autolamella import config as cfg  # noqa: E402
 from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
+from tests.run_state import stub_session
 
 TOKEN = "test-token"
 SHIPPED_PROTOCOL = str(cfg.TASK_PROTOCOL_PATH)
@@ -25,8 +26,9 @@ SHIPPED_PROTOCOL = str(cfg.TASK_PROTOCOL_PATH)
 class Host:
     experiment = None
     microscope = None
-    _task_manager = None
-    is_workflow_running = False
+
+    def __init__(self):
+        self.session = stub_session()
 
 
 @pytest.fixture
@@ -125,7 +127,7 @@ def test_a_protocol_is_loaded_into_the_open_experiment(driver, host):
 
 def test_nothing_changes_experiment_while_a_run_is_on(driver, host):
     driver.post("/app/experiment/create", json={"name": "running"})
-    host.is_workflow_running = True
+    host.session.runner.is_running = True
     assert driver.post("/app/experiment/create", json={"name": "x"}).status_code == 409
     assert (
         driver.post(

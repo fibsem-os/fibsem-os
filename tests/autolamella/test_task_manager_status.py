@@ -28,6 +28,7 @@ from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.workflows.status import TaskState
 from fibsem.workflows.status import TaskStatus as Status
 from tests.proposal_records import set_proposals
+from tests.run_state import stub_session
 
 
 class RecordingUI:
@@ -43,7 +44,7 @@ class RecordingUI:
         # Everything the workflow says arrives on workflow_status_signal now
         # (the dict signal is gone).
         self.workflow_status_signal = _Recorder()
-        self._task_manager = None  # _check_for_abort reads this
+        self.session = stub_session()  # _check_for_abort reads its runner
 
 
 class _Recorder:
@@ -124,7 +125,7 @@ def run_queue_with(manager: TaskManager, on_task=None):
             on_task(task_name, lamella)
         return None
 
-    manager.parent_ui._task_manager = manager
+    manager.parent_ui.session.runner.manager = manager
     manager._run_single_task = _run_single_task
     manager._run_queue()
     return executed

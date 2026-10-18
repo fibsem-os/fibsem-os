@@ -20,6 +20,7 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.structures import MicroscopeState
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.status import TaskStatus
+from tests.run_state import stub_session
 
 
 class Host:
@@ -27,8 +28,9 @@ class Host:
 
     experiment = None
     microscope = None
-    _task_manager = None
-    is_workflow_running = False
+
+    def __init__(self):
+        self.session = stub_session()
 
 
 @pytest.fixture
@@ -273,7 +275,7 @@ def test_stop_workflow_takes_the_stop_path_only_while_running():
     }
     assert calls == []
 
-    host.is_workflow_running = True
+    host.session.runner.is_running = True
     assert ctx.stop_workflow() == {"available": True, "stopped": True}
     assert calls == ["stop"]
 
@@ -408,7 +410,7 @@ def test_requeue_task_reruns_a_completed_pair(experiment, microscope):
     manager.queue.build_from_matrix(
         ["Rough Milling"], [p.name for p in experiment.positions]
     )
-    host._task_manager = manager
+    host.session.runner.manager = manager
     name = experiment.positions[0].name
 
     # A pair still waiting runs once: asking again is refused, not queued twice.
@@ -444,7 +446,7 @@ def test_queue_snapshot_uses_item_name_vocabulary(experiment, microscope):
 
     host = Host()
     host.experiment = experiment
-    host._task_manager = manager
+    host.session.runner.manager = manager
     ctx = AutoLamellaAppContext(host)
 
     queue = ctx.queue()
@@ -500,7 +502,7 @@ def test_edit_queue_removes_or_moves_a_waiting_pair(experiment, microscope):
 
     manager = TaskManager(microscope, experiment, parent_ui=None)
     manager.queue.build_from_matrix(["Rough Milling"], [first, second])
-    host._task_manager = manager
+    host.session.runner.manager = manager
 
     running = manager.queue.next()
     assert running.item_name == first
@@ -545,7 +547,7 @@ def test_edit_queue_keeps_the_grid_load_step(experiment, microscope):
     manager.queue.build_from_pairs(
         [("grid-1", LOAD_ENTRY_NAME), ("grid-1", "Overview")]
     )
-    host._task_manager = manager
+    host.session.runner.manager = manager
 
     refused = ctx.edit_queue("grid-1", LOAD_ENTRY_NAME, "remove")
 
