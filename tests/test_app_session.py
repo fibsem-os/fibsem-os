@@ -149,3 +149,32 @@ def test_a_new_microscope_stops_the_server_on_the_old_stream(
     session.start_recording()
 
     assert not session.app_server.running
+
+
+def test_an_edit_runs_and_resolves_to_its_result():
+    session = AppSession()
+
+    assert session.run_edit(lambda: 42).result(timeout=1) == 42
+
+
+def test_a_failing_edit_resolves_to_its_exception():
+    session = AppSession()
+
+    def fail():
+        raise ValueError("no such lamella")
+
+    with pytest.raises(ValueError, match="no such lamella"):
+        session.run_edit(fail).result(timeout=1)
+
+
+def test_edits_run_where_the_client_says():
+    ran = []
+
+    def executor(call):
+        ran.append(call)
+        return AppSession().run_edit(call)
+
+    session = AppSession(executor=executor)
+
+    assert session.run_edit(lambda: "done").result(timeout=1) == "done"
+    assert len(ran) == 1

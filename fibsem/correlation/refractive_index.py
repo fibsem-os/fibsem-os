@@ -25,43 +25,55 @@ Usage::
 
 from __future__ import annotations
 
-import logging
-import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 
 import numpy as np
-import pandas as pd
 from scipy.interpolate import RegularGridInterpolator
 
-_LUT_FILENAME = "table_refractive_index_lookup.csv"
-_LUT_PATH = Path(__file__).parent / "data" / _LUT_FILENAME
-_LUT_URL = (
-    "https://github.com/fibsem-os/fibsem-os/releases/download/data-0.1.0/"
-    + _LUT_FILENAME
-)
+#: The table, shipped with the package: the five axes and zeta x 100 as uint16.
+#: Every zeta in the source CSV has two decimals, so this holds it exactly, in
+#: 66 KB where the CSV took 9 MB. :func:`pack_lut` writes it from that CSV.
+_LUT_PATH = Path(__file__).parent / "data" / "zeta_lut.npz"
 
-
-def _ensure_lut() -> None:
-    """Download the LUT CSV from the data release if not present locally."""
-    if _LUT_PATH.exists():
-        return
-    logging.info(f"Lookup table not found — downloading from {_LUT_URL}")
-    _LUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    urllib.request.urlretrieve(_LUT_URL, _LUT_PATH)
-    logging.info(f"Lookup table saved to {_LUT_PATH}")
+#: The table's axes, in the order of the zeta grid's dimensions.
+_AXES = ("tilt_deg", "depth_um", "n2", "wavelength_um", "NA")
 
 
 @dataclass
 class ZetaParams:
     """Optical parameters used to look up the slice scaling factor."""
 
-    tilt_deg: float       # stage tilt angle (°), 0–30
-    depth_um: float       # feature depth below coverslip (µm), 0.5–14.5
-    NA: float             # objective numerical aperture, 0.2–0.9
-    n2: float             # immersion medium refractive index, 1.22–1.46
+    tilt_deg: float  # stage tilt angle (°), 0–30
+    depth_um: float  # feature depth below coverslip (µm), 0.5–14.5
+    NA: float  # objective numerical aperture, 0.2–0.9
+    n2: float  # immersion medium refractive index, 1.22–1.46
     wavelength_um: float  # emission wavelength (µm), 0.42–0.72
+
+
+def pack_lut(
+    csv_path: Union[str, Path], npz_path: Union[str, Path] = _LUT_PATH
+) -> None:
+    """Write the shipped table from the source CSV (columns ``tilt_deg, depth_um,
+    NA, n2, wavelength_um, zeta``): how ``zeta_lut.npz`` was made. Refuses a CSV
+    that is not one full grid, or whose zeta has more than two decimals."""
+    import pandas as pd
+
+    lut = pd.read_csv(csv_path).sort_values(by=list(_AXES))
+    axes = {name: np.sort(lut[name].unique()) for name in _AXES}
+    shape = tuple(len(axes[name]) for name in _AXES)
+    if len(lut) != int(np.prod(shape)) or lut.duplicated(list(_AXES)).any():
+        raise ValueError(
+            f"LUT grid is incomplete: expected {int(np.prod(shape))} rows, "
+            f"found {len(lut)}"
+        )
+    zeta_x100 = np.round(lut["zeta"].to_numpy() * 100)
+    if not np.allclose(zeta_x100 / 100, lut["zeta"].to_numpy()):
+        raise ValueError("zeta has more than two decimals; uint16 x 100 would lose it")
+    np.savez_compressed(
+        npz_path, zeta_x100=zeta_x100.astype(np.uint16).reshape(shape), **axes
+    )
 
 
 class SliceScalingFactorLUT:
@@ -69,41 +81,19 @@ class SliceScalingFactorLUT:
 
     Parameters
     ----------
-    csv_path:
-        Path to ``scaling_factor_lookup_table.csv``.  Defaults to the file
-        bundled with the package.
+    path:
+        The packed table (see :func:`pack_lut`). Defaults to the one shipped
+        with the package.
     """
 
-    def __init__(self, csv_path: Path = _LUT_PATH) -> None:
-        if csv_path == _LUT_PATH:
-            _ensure_lut()
-        lut = pd.read_csv(csv_path)
-
-        # Sort in the order that defines the tensor axes
-        sort_cols = ["tilt_deg", "depth_um", "n2", "wavelength_um", "NA"]
-        lut_sorted = lut.sort_values(by=sort_cols)
-
-        self.tilts: np.ndarray = np.sort(lut["tilt_deg"].unique())
-        self.depths: np.ndarray = np.sort(lut["depth_um"].unique())
-        self.n2s: np.ndarray = np.sort(lut["n2"].unique())
-        self.wavelengths: np.ndarray = np.sort(lut["wavelength_um"].unique())
-        self.nas: np.ndarray = np.sort(lut["NA"].unique())
-
-        grid_shape = (
-            len(self.tilts),
-            len(self.depths),
-            len(self.n2s),
-            len(self.wavelengths),
-            len(self.nas),
-        )
-        expected = np.prod(grid_shape)
-        if len(lut_sorted) != expected:
-            raise ValueError(
-                f"LUT grid is incomplete: expected {expected} rows, found {len(lut_sorted)}. "
-                "The CSV may be corrupt or missing entries."
-            )
-
-        zeta_grid = lut_sorted["zeta"].values.reshape(grid_shape)
+    def __init__(self, path: Path = _LUT_PATH) -> None:
+        with np.load(path) as lut:
+            self.tilts: np.ndarray = lut["tilt_deg"]
+            self.depths: np.ndarray = lut["depth_um"]
+            self.n2s: np.ndarray = lut["n2"]
+            self.wavelengths: np.ndarray = lut["wavelength_um"]
+            self.nas: np.ndarray = lut["NA"]
+            zeta_grid = lut["zeta_x100"] / 100.0
 
         self._interp = RegularGridInterpolator(
             points=(self.tilts, self.depths, self.n2s, self.wavelengths, self.nas),
