@@ -25,7 +25,6 @@ from fibsem.correlation.config import RISettings
 from fibsem.correlation.refractive_index import (
     _LUT_PATH,
     ZetaParams,
-    _ensure_lut,
     lookup_zeta,
 )
 from fibsem.ui.tokens import (
@@ -149,10 +148,6 @@ class RefractiveIndexWidget(QWidget):
         self._factor_computed = False
         # Params the user has typed by hand; metadata seeding leaves these alone.
         self._user_edited: set = set()
-        try:
-            _ensure_lut()
-        except Exception as e:
-            logging.warning(f"Failed to download refractive index LUT: {e}")
         self._setup_ui()
         self._connect_signals()
         self._recompute()

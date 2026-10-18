@@ -187,6 +187,16 @@ INSTRUCTIONS = {
 }
 
 
+def _complete(call, outcome) -> None:
+    """Complete ``outcome`` with ``call()``'s result, or its exception."""
+    try:
+        result = call()
+    except Exception as exc:  # noqa: BLE001 - the requester owns the failure
+        outcome.set_exception(exc)
+        return
+    outcome.set_result(result)
+
+
 class AutoLamellaUI(QMainWindow):
     # Everything the workflow says without needing an answer, as a
     # WorkflowStatusEvent. Questions and instructions do not travel on a signal
@@ -256,6 +266,8 @@ class AutoLamellaUI(QMainWindow):
         self.ui_responder.add_question_observer(self.question_timeline.record)
         # A bound method, not a lambda: the slot must run on this window's thread.
         self._agent_call.connect(self._run_agent_call)
+        # Edits to the experiment run on this thread: its widgets listen to it.
+        self.session.executor = self._run_on_gui_thread
 
         self._protocol_lock = threading.RLock()
 
@@ -1275,38 +1287,25 @@ class AutoLamellaUI(QMainWindow):
         except Exception:
             logging.exception("reporting the end of a run that never began failed")
 
-    def _marshal(self, apply, *args) -> None:
-        """Run ``apply(*args)`` on the GUI thread as whoever called this."""
-        from fibsem.acting import carried
-
-        self._agent_call.emit(carried(functools.partial(apply, *args)))
-
-    def _run_agent_call(self, call) -> None:
-        """GUI thread. Run a call :meth:`_marshal` sent."""
-        call()
-
-    def request_agent_call(self, call, select_latest: bool = False) -> "Future":
-        """Run ``call()`` on the GUI thread for an agent; any thread.
-
-        For the App Server's edits to the experiment (adding a lamella, setting a
-        pose): the experiment's listeners redraw widgets, so it is changed where
-        they live. Resolves to ``call``'s result, or its exception; the views are
-        refreshed afterwards, as after the Lamella tab's own buttons, selecting the
-        newest lamella when ``select_latest``.
-        """
+    def _run_on_gui_thread(self, call) -> "Future":
+        """The session's executor: ``call()`` on the GUI thread as whoever
+        called this; any thread. Resolves to its result, or its exception."""
         from concurrent.futures import Future as _Future
 
+        from fibsem.acting import carried
+
         outcome: "_Future" = _Future()
-        self._marshal(self._apply_agent_call, call, select_latest, outcome)
+        self._agent_call.emit(carried(functools.partial(_complete, call, outcome)))
         return outcome
 
-    def _apply_agent_call(self, call, select_latest: bool, outcome: "Future") -> None:
-        """GUI thread. Complete ``outcome`` with ``call()`` and redraw."""
-        try:
-            result = call()
-        except Exception as exc:  # noqa: BLE001 - the requester owns the failure
-            outcome.set_exception(exc)
-            return
+    def _run_agent_call(self, call) -> None:
+        """GUI thread. Run a call :meth:`_run_on_gui_thread` sent."""
+        call()
+
+    def after_agent_edit(self, select_latest: bool = False) -> None:
+        """GUI thread. Redraw after an agent's edit to the experiment (adding a
+        lamella, setting a pose), as after the Lamella tab's own buttons,
+        selecting the newest lamella when ``select_latest``."""
         try:
             self.update_lamella_combobox(latest=select_latest)
             self.update_ui()
@@ -1319,7 +1318,6 @@ class AutoLamellaUI(QMainWindow):
                 self.experiment.positions.events.changed.emit()
         except Exception:
             logging.exception("redraw after an agent's experiment edit failed")
-        outcome.set_result(result)
 
     def request_start_workflow(
         self, task_names: List[str], item_names: Optional[List[str]] = None
@@ -1332,24 +1330,11 @@ class AutoLamellaUI(QMainWindow):
         The agent at Drive is the consent that replaces the Run click's
         confirm dialog.
         """
-        from concurrent.futures import Future as _Future
-
-        outcome: "_Future" = _Future()
-        self._marshal(
-            self._apply_agent_start_workflow, list(task_names), item_names, outcome
+        return self.session.run_edit(
+            functools.partial(
+                self._start_workflow_for_agent, list(task_names), item_names
+            )
         )
-        return outcome
-
-    def _apply_agent_start_workflow(
-        self, task_names: List[str], item_names, outcome: "Future"
-    ) -> None:
-        """GUI thread. Complete ``outcome`` with the start result."""
-        try:
-            result = self._start_workflow_for_agent(task_names, item_names)
-        except Exception as exc:  # noqa: BLE001 - the requester owns the failure
-            outcome.set_exception(exc)
-            return
-        outcome.set_result(result)
 
     def _start_workflow_for_agent(
         self, task_names: List[str], item_names: Optional[List[str]]
@@ -1437,38 +1422,16 @@ class AutoLamellaUI(QMainWindow):
         any thread. Same marshal as :meth:`request_start_workflow`.
         ``unload_at_end`` and ``report_at_end`` are the confirmation's
         end-of-run options."""
-        from concurrent.futures import Future as _Future
-
-        outcome: "_Future" = _Future()
-        self._marshal(
-            self._apply_agent_start_grid_workflow,
-            list(task_names),
-            grid_names,
-            bool(inventory_first),
-            bool(unload_at_end),
-            bool(report_at_end),
-            outcome,
-        )
-        return outcome
-
-    def _apply_agent_start_grid_workflow(
-        self,
-        task_names: List[str],
-        grid_names,
-        inventory_first: bool,
-        unload_at_end: bool,
-        report_at_end: bool,
-        outcome,
-    ) -> None:
-        """GUI thread. Complete ``outcome`` with the start result."""
-        try:
-            result = self._start_grid_workflow_for_agent(
-                task_names, grid_names, inventory_first, unload_at_end, report_at_end
+        return self.session.run_edit(
+            functools.partial(
+                self._start_grid_workflow_for_agent,
+                list(task_names),
+                grid_names,
+                bool(inventory_first),
+                bool(unload_at_end),
+                bool(report_at_end),
             )
-        except Exception as exc:  # noqa: BLE001 - the requester owns the failure
-            outcome.set_exception(exc)
-            return
-        outcome.set_result(result)
+        )
 
     def _start_grid_workflow_for_agent(
         self,
@@ -1564,19 +1527,16 @@ class AutoLamellaUI(QMainWindow):
         changes, or a structured refusal (stale version, invalid patch,
         unknown names). The agent at Drive is the consent.
         """
-        from concurrent.futures import Future as _Future
-
-        outcome: "_Future" = _Future()
-        self._marshal(
-            self._apply_agent_config_patch,
-            "item",
-            item_name,
-            task_name,
-            patch,
-            version,
-            outcome,
+        return self.session.run_edit(
+            functools.partial(
+                self._agent_config_patch,
+                "item",
+                item_name,
+                task_name,
+                patch,
+                version,
+            )
         )
-        return outcome
 
     def request_apply_item_patch(
         self, item_name: str, patch: dict, version: str
@@ -1586,19 +1546,16 @@ class AutoLamellaUI(QMainWindow):
         Same marshal as the config patches; the editable set is
         ITEM_PATCH_FIELDS, and the version comes from item_detail.
         """
-        from concurrent.futures import Future as _Future
-
-        outcome: "_Future" = _Future()
-        self._marshal(
-            self._apply_agent_config_patch,
-            "item_fields",
-            item_name,
-            "",
-            patch,
-            version,
-            outcome,
+        return self.session.run_edit(
+            functools.partial(
+                self._agent_config_patch,
+                "item_fields",
+                item_name,
+                "",
+                patch,
+                version,
+            )
         )
-        return outcome
 
     def request_reorder_milling_stages(
         self,
@@ -1615,19 +1572,16 @@ class AutoLamellaUI(QMainWindow):
         stage name, against the config version the caller read. ``level`` is
         "item" or "protocol".
         """
-        from concurrent.futures import Future as _Future
-
-        outcome: "_Future" = _Future()
-        self._marshal(
-            self._apply_agent_config_patch,
-            "reorder_stages",
-            item_name,
-            task_name,
-            {"level": level, "milling_key": milling_key, "order": list(order)},
-            version,
-            outcome,
+        return self.session.run_edit(
+            functools.partial(
+                self._agent_config_patch,
+                "reorder_stages",
+                item_name,
+                task_name,
+                {"level": level, "milling_key": milling_key, "order": list(order)},
+                version,
+            )
         )
-        return outcome
 
     def request_apply_protocol_to_item(self, item_name: str, task_names) -> "Future":
         """Re-copy protocol task configs onto an existing item; any thread.
@@ -1637,19 +1591,16 @@ class AutoLamellaUI(QMainWindow):
         an existing item up to date. ``task_names`` of None means every task
         the protocol defines.
         """
-        from concurrent.futures import Future as _Future
-
-        outcome: "_Future" = _Future()
-        self._marshal(
-            self._apply_agent_config_patch,
-            "apply_protocol",
-            item_name,
-            "",
-            {"task_names": task_names},
-            "",
-            outcome,
+        return self.session.run_edit(
+            functools.partial(
+                self._agent_config_patch,
+                "apply_protocol",
+                item_name,
+                "",
+                {"task_names": task_names},
+                "",
+            )
         )
-        return outcome
 
     def request_apply_protocol_task_config_patch(
         self, task_name: str, patch: dict, version: str
@@ -1660,30 +1611,26 @@ class AutoLamellaUI(QMainWindow):
         what new items copy, so a running task is never affected (it holds
         its item's copy) and no task-running guard applies.
         """
-        from concurrent.futures import Future as _Future
-
-        outcome: "_Future" = _Future()
-        self._marshal(
-            self._apply_agent_config_patch,
-            "protocol",
-            "",
-            task_name,
-            patch,
-            version,
-            outcome,
+        return self.session.run_edit(
+            functools.partial(
+                self._agent_config_patch,
+                "protocol",
+                "",
+                task_name,
+                patch,
+                version,
+            )
         )
-        return outcome
 
-    def _apply_agent_config_patch(
+    def _agent_config_patch(
         self,
         level: str,
         item_name: str,
         task_name: str,
         patch,
         version: str,
-        outcome: "Future",
-    ) -> None:
-        """GUI thread. Complete ``outcome`` with the patch result."""
+    ) -> dict:
+        """GUI thread. Apply the agent's patch, recorded as the agent's."""
         from fibsem.acting import AGENT, acting
         from fibsem.applications.autolamella.ui.edit_recording import (
             PendingEdits,
@@ -1698,15 +1645,11 @@ class AutoLamellaUI(QMainWindow):
                 edits, self.experiment, level, item_name, task_name, patch
             )
             try:
-                result = self._apply_task_config_patch_for_agent(
+                return self._apply_task_config_patch_for_agent(
                     level, item_name, task_name, patch, version
                 )
-            except Exception as exc:  # noqa: BLE001 - the requester owns the failure
-                outcome.set_exception(exc)
-                return
             finally:
                 edits.flush()
-        outcome.set_result(result)
 
     def _apply_task_config_patch_for_agent(
         self, level: str, item_name: str, task_name: str, patch: dict, version: str

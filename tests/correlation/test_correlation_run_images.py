@@ -124,12 +124,10 @@ def test_a_result_at_another_fib_pixel_size_is_not_current():
 @pytest.fixture
 def widget(qapp, monkeypatch):
     pytest.importorskip("PyQt5")
-    import fibsem.ui.correlation.widgets.refractive_index_widget as riw
     from fibsem.ui.correlation.widgets.correlation_tab_widget import (
         CorrelationTabWidget,
     )
 
-    monkeypatch.setattr(riw, "_ensure_lut", lambda: None)
     w = CorrelationTabWidget()
     yield w
     w.close()
