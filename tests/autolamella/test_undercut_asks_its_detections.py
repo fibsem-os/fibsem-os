@@ -126,10 +126,10 @@ def test_headless_every_detection_goes_on_the_record_unreviewed(
 
     _task(microscope, exp).run()
 
-    assert [p.kind for p in lamella.proposals[UNDERCUT]] == [DETECTION] * 4 + [
+    assert [p.kind for p in lamella.proposals_from(UNDERCUT)] == [DETECTION] * 4 + [
         TASK_RESULT
     ], "two in the coincident alignment, one per undercut, one to finish"
-    detections = [p for p in lamella.proposals[UNDERCUT] if p.kind == DETECTION]
+    detections = [p for p in lamella.proposals_from(UNDERCUT) if p.kind == DETECTION]
     assert [p.provenance["features"] for p in detections] == [
         ["LamellaCentre"],
         ["LamellaCentre"],
@@ -181,7 +181,7 @@ def test_with_the_preference_off_the_detection_tab_prompt_asks_as_before(
         "LamellaTopEdge",
         "LamellaCentre",
     ]
-    assert [p.kind for p in lamella.proposals[UNDERCUT]] == [TASK_RESULT], (
+    assert [p.kind for p in lamella.proposals_from(UNDERCUT)] == [TASK_RESULT], (
         "no record of the detections"
     )
 

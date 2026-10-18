@@ -44,6 +44,7 @@ from fibsem.workflows.attention import Attention
 from fibsem.workflows.events import EventBuffer  # noqa: E402
 from fibsem.workflows.proposals import Decision, DecisionOutcome, Proposal  # noqa: E402
 from fibsem.workflows.status import TaskState, TaskStatus  # noqa: E402
+from tests.proposal_records import set_proposals  # noqa: E402
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -100,17 +101,21 @@ def ui(qapp, monkeypatch, tmp_path):
     lamella.task_history.append(
         TaskState(name=SETUP, status=TaskStatus.AwaitingDecision)
     )
-    lamella.proposals[SETUP] = [
-        Proposal(
-            kind=POINT_OF_INTEREST,
-            values={"poi": Point(0.0, 0.0)},
-            provenance={
-                "proposer": "centre-of-image",
-                "reference_image": ref + ".tif",
-                "task_id": RUN,
-            },
-        )
-    ]
+    set_proposals(
+        lamella,
+        SETUP,
+        [
+            Proposal(
+                kind=POINT_OF_INTEREST,
+                values={"poi": Point(0.0, 0.0)},
+                provenance={
+                    "proposer": "centre-of-image",
+                    "reference_image": ref + ".tif",
+                    "task_id": RUN,
+                },
+            )
+        ],
+    )
     widget.experiment = exp
     yield widget
     if widget.microscope is not None:
@@ -442,13 +447,17 @@ def test_decide_by_an_id_that_is_no_longer_on_the_record_is_stale(ui, qapp):
     run as well does not excuse it -- the id decides."""
     lamella = ui.experiment.positions[0]
     shown = lamella.proposal(SETUP).id
-    lamella.proposals[SETUP] = [
-        Proposal(
-            kind=POINT_OF_INTEREST,
-            values={"poi": Point(1e-6, 0.0)},
-            provenance=dict(lamella.proposal(SETUP).provenance),
-        )
-    ]
+    set_proposals(
+        lamella,
+        SETUP,
+        [
+            Proposal(
+                kind=POINT_OF_INTEREST,
+                values={"poi": Point(1e-6, 0.0)},
+                provenance=dict(lamella.proposal(SETUP).provenance),
+            )
+        ],
+    )
     body = {
         "item_id": lamella.id,
         "task_name": SETUP,

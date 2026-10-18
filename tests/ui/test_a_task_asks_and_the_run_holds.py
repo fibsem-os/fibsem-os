@@ -192,7 +192,7 @@ def test_the_run_holds_on_the_question_until_it_is_decided(window, qapp):
     # The question is decided; the task's own result is not: supervised with
     # the preference on and no inline confirmation of the result, it waits for
     # one in the Review tab, as any supervised task's does.
-    question, result_proposal = lamella.proposals[ROUGH]
+    question, result_proposal = lamella.proposals_from(ROUGH)
     assert question is proposal and result_proposal.kind == "task_result"
     assert not question.pending and result_proposal.pending
     assert lamella.task_state.status is TaskStatus.AwaitingDecision

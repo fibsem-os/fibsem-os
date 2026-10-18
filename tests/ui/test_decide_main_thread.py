@@ -27,6 +27,7 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (  #
 )
 from fibsem.structures import FibsemStagePosition, MicroscopeState, Point  # noqa: E402
 from fibsem.workflows.proposals import Decision, DecisionOutcome, Proposal  # noqa: E402
+from tests.proposal_records import set_proposals  # noqa: E402
 
 SETUP = "Setup Lamella Position"
 
@@ -39,13 +40,17 @@ def _experiment(tmp_path) -> Experiment:
         MicroscopeState(stage_position=FibsemStagePosition()),
         EventedDict({SETUP: SelectMillingPositionTaskConfig(task_name=SETUP)}),
     )
-    exp.positions[0].proposals[SETUP] = [
-        Proposal(
-            kind=POINT_OF_INTEREST,
-            values={"poi": Point(0.0, 0.0)},
-            provenance={"task_id": "run-1"},
-        )
-    ]
+    set_proposals(
+        exp.positions[0],
+        SETUP,
+        [
+            Proposal(
+                kind=POINT_OF_INTEREST,
+                values={"poi": Point(0.0, 0.0)},
+                provenance={"task_id": "run-1"},
+            )
+        ],
+    )
     return exp
 
 
@@ -112,7 +117,7 @@ def test_an_error_on_the_main_thread_is_raised_in_the_worker(qapp, tmp_path):
     It is the worker's error now, and the experiment says it is unsaved."""
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
-    proposal = lamella.proposals[SETUP][0]
+    proposal = lamella.proposals_from(SETUP)[0]
     proposal.values = {"poi": Point(3e-6, 0.0)}
     # A directory where the file goes: the open fails, whoever runs the test
     # (IsADirectoryError on POSIX, PermissionError on Windows).

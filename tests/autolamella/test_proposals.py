@@ -49,6 +49,7 @@ from fibsem.workflows.proposals import (
 from fibsem.workflows.quality import Verdict
 from fibsem.workflows.review import standing
 from fibsem.workflows.status import TaskState, TaskStatus
+from tests.proposal_records import set_proposals
 
 SETUP = "Setup Lamella Position"
 # the run a proposal is from, and that a decision names
@@ -159,12 +160,20 @@ def test_a_tasks_proposals_are_a_list_oldest_first_and_the_last_is_current():
         Point(0, 1e-6),
     ], "oldest first, flat"
     assert proposals[0].current.values["poi"] == Point(2e-6, 0)
-    again = proposals_from_dict(
-        yaml.safe_load(yaml.safe_dump(proposals_to_dict({"t": proposals})))
-    )["t"]
+    for p in proposals:
+        p.asked_by = Actor.task("t")
+    saved = yaml.safe_load(yaml.safe_dump(proposals_to_dict(proposals)))
+    again = proposals_from_dict(saved)
     assert len(again) == 3
     assert again[0].delta()["poi"].x == pytest.approx(1e-6)
     assert [p.id for p in again] == [p.id for p in proposals]
+    assert {p.asked_by for p in again} == {Actor.task("t")}
+    # A file from before proposals said who asked keyed them by the task.
+    for p in saved:
+        del p["asked_by"]
+    older = proposals_from_dict({"t": saved})
+    assert [p.id for p in older] == [p.id for p in proposals]
+    assert {p.asked_by for p in older} == {Actor.task("t")}
 
 
 def test_a_kind_has_a_name_for_a_person():
@@ -404,11 +413,13 @@ def test_kinds_declare_their_values_in_code():
 def test_items_persist_their_proposals(tmp_path):
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
-    lamella.proposals[SETUP] = [_proposal()]
+    set_proposals(lamella, SETUP, [_proposal()])
     grid = exp.add_grid(GridRecord(name="Grid-01"))
-    grid.proposals["overview"] = [
-        Proposal(kind="site_pick", values={"n": 3}, provenance={"task_id": RUN})
-    ]
+    set_proposals(
+        grid,
+        "overview",
+        [Proposal(kind="site_pick", values={"n": 3}, provenance={"task_id": RUN})],
+    )
     exp.save()
 
     again = Experiment.load(Path(exp.path) / "experiment.yaml")
@@ -429,7 +440,7 @@ def test_old_experiments_load_with_no_proposals(tmp_path):
     for p in data["positions"]:
         del p["proposals"]
     again = Experiment.from_dict(data)
-    assert again.positions[0].proposals == {}
+    assert again.positions[0].proposals == []
 
 
 # ── decide ───────────────────────────────────────────────────────────────────
@@ -438,7 +449,7 @@ def test_old_experiments_load_with_no_proposals(tmp_path):
 def test_confirm_writes_the_value_through_and_syncs_patterns(tmp_path):
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
-    lamella.proposals[SETUP] = [_proposal(Point(0.0, 0.0))]
+    set_proposals(lamella, SETUP, [_proposal(Point(0.0, 0.0))])
     rough_point_before = (
         lamella.task_config[ROUGH].milling["mill_rough"].stages[0].pattern.point
     )
@@ -480,7 +491,7 @@ def test_a_decision_finishes_a_task_that_was_awaiting_one(tmp_path):
     lamella = exp.positions[0]
     lamella.task_state = TaskState(name=SETUP, status=TaskStatus.AwaitingDecision)
     lamella.task_history.append(deepcopy(lamella.task_state))
-    lamella.proposals[SETUP] = [_proposal()]
+    set_proposals(lamella, SETUP, [_proposal()])
     assert lamella.is_awaiting_decision(SETUP) and not lamella.has_completed_task(SETUP)
 
     exp.decide(
@@ -505,7 +516,7 @@ def test_reject_fails_the_waiting_task_and_leaves_the_lamella_alone(tmp_path):
     lamella.task_history.append(
         TaskState(name=SETUP, status=TaskStatus.AwaitingDecision)
     )
-    lamella.proposals[SETUP] = [_proposal()]
+    set_proposals(lamella, SETUP, [_proposal()])
 
     result = exp.decide(
         lamella.id,
@@ -533,7 +544,7 @@ def test_a_decision_on_a_finished_task_changes_only_the_record(tmp_path):
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
     lamella.task_history.append(TaskState(name=SETUP, status=TaskStatus.Completed))
-    lamella.proposals[SETUP] = [_proposal()]
+    set_proposals(lamella, SETUP, [_proposal()])
 
     exp.decide(
         lamella.id,
@@ -554,9 +565,11 @@ def test_reject_on_a_grid_proposal_creates_nothing_and_retires_nothing(tmp_path)
     exp = _experiment(tmp_path)
     register_proposal_kind(ProposalKind(name="site_pick", values=("sites",)))
     grid = exp.add_grid(GridRecord(name="Grid-01"))
-    grid.proposals["overview"] = [
-        Proposal(kind="site_pick", values={"sites": []}, provenance={"task_id": RUN})
-    ]
+    set_proposals(
+        grid,
+        "overview",
+        [Proposal(kind="site_pick", values={"sites": []}, provenance={"task_id": RUN})],
+    )
 
     result = exp.decide(
         grid.id,
@@ -585,9 +598,11 @@ def _grid_awaiting(exp: Experiment, task_name: str = "Overview") -> GridRecord:
     state.task_id = "run-1"
     state.status = TaskStatus.AwaitingDecision
     grid.task_history.append(deepcopy(state))
-    grid.proposals[task_name] = [
-        Proposal(kind=TASK_RESULT, provenance={"task_id": state.task_id})
-    ]
+    set_proposals(
+        grid,
+        task_name,
+        [Proposal(kind=TASK_RESULT, provenance={"task_id": state.task_id})],
+    )
     return grid
 
 
@@ -708,9 +723,9 @@ def test_a_repeated_grid_task_is_decided_on_its_latest_run_only(tmp_path):
     grid.task_state.task_id = "run-2"
     grid.task_state.status = TaskStatus.AwaitingDecision
     grid.task_history.append(deepcopy(grid.task_state))
-    grid.proposals["Overview"] = [
-        Proposal(kind=TASK_RESULT, provenance={"task_id": "run-2"})
-    ]
+    set_proposals(
+        grid, "Overview", [Proposal(kind=TASK_RESULT, provenance={"task_id": "run-2"})]
+    )
     assert grid.is_awaiting_decision("Overview")
 
     exp.decide(
@@ -757,7 +772,7 @@ def test_an_earlier_run_awaiting_a_decision_does_not_make_a_later_one_wait(
 def test_reject_needs_a_reason(tmp_path):
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
-    lamella.proposals[SETUP] = [_proposal()]
+    set_proposals(lamella, SETUP, [_proposal()])
     result = exp.decide(
         lamella.id,
         SETUP,
@@ -773,7 +788,7 @@ def test_confirming_a_value_nothing_consumes_is_refused_before_anything_is_writt
 ):
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
-    lamella.proposals[SETUP] = [_proposal()]
+    set_proposals(lamella, SETUP, [_proposal()])
     result = exp.decide(
         lamella.id,
         SETUP,
@@ -801,12 +816,7 @@ def _snapshot(lamella):
             for milling in (config.milling or {}).values()
             for stage in milling.stages
         ],
-        [
-            deepcopy(d)
-            for ps in lamella.proposals.values()
-            for p in ps
-            for d in p.decisions
-        ],
+        [deepcopy(d) for p in lamella.proposals for d in p.decisions],
         [(t.name, t.status, t.status_message) for t in lamella.task_history],
     )
 
@@ -816,7 +826,7 @@ def _awaiting(exp, kind_proposal, task_name=SETUP):
     lamella.task_history.append(
         TaskState(name=task_name, status=TaskStatus.AwaitingDecision)
     )
-    lamella.proposals[task_name] = [kind_proposal]
+    set_proposals(lamella, task_name, [kind_proposal])
     return lamella
 
 
@@ -885,7 +895,7 @@ def test_a_value_the_proposals_kind_does_not_carry_is_refused(tmp_path):
 def test_an_item_that_cannot_take_the_value_is_refused(tmp_path):
     exp = _experiment(tmp_path)
     grid = exp.add_grid(GridRecord(name="Grid-01"))
-    grid.proposals["overview"] = [_proposal()]
+    set_proposals(grid, "overview", [_proposal()])
 
     result = exp.decide(
         grid.id,
@@ -1047,7 +1057,7 @@ def test_looking_at_an_earlier_result_is_not_refused_by_a_later_run(tmp_path):
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
     lamella.task_history.append(TaskState(name=SETUP, status=TaskStatus.Completed))
-    lamella.proposals[SETUP] = [_proposal()]
+    set_proposals(lamella, SETUP, [_proposal()])
     lamella.proposal(SETUP).decisions.append(
         Decision(
             task_id=RUN,
@@ -1146,7 +1156,7 @@ def test_decide_refuses_a_value_written_under_any_running_task(tmp_path):
     """Values reach the item a running task is reading: that is a stop."""
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
-    lamella.proposals[SETUP] = [_proposal()]
+    set_proposals(lamella, SETUP, [_proposal()])
     _running(lamella, ROUGH)
 
     result = exp.decide(
@@ -1171,7 +1181,7 @@ def test_decisions_append_and_the_latest_is_current(tmp_path):
     decision stays the first."""
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
-    lamella.proposals[SETUP] = [_proposal(Point(0.0, 0.0))]
+    set_proposals(lamella, SETUP, [_proposal(Point(0.0, 0.0))])
     first = Decision(
         task_id=RUN,
         outcome=DecisionOutcome.Confirmed,
@@ -1218,13 +1228,17 @@ def test_a_decision_on_a_run_the_task_has_since_replaced_is_refused(tmp_path):
     exp = _experiment(tmp_path)
     lamella = _awaiting(exp, _proposal())
     seen = lamella.proposal(SETUP)
-    lamella.proposals[SETUP] = [
-        Proposal(
-            kind=POINT_OF_INTEREST,
-            values={"poi": Point(7e-6, 0)},
-            provenance={"task_id": "run-2"},
-        )
-    ]
+    set_proposals(
+        lamella,
+        SETUP,
+        [
+            Proposal(
+                kind=POINT_OF_INTEREST,
+                values={"poi": Point(7e-6, 0)},
+                provenance={"task_id": "run-2"},
+            )
+        ],
+    )
     before = _snapshot(lamella)
 
     result = exp.decide(
@@ -1265,7 +1279,7 @@ def test_an_acknowledgement_with_values_is_refused_and_nothing_moves(tmp_path):
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
     lamella.task_history.append(TaskState(name=SETUP, status=TaskStatus.Completed))
-    lamella.proposals[SETUP] = [_proposal(Point(1e-6, 0))]
+    set_proposals(lamella, SETUP, [_proposal(Point(1e-6, 0))])
     assert exp.decide(
         lamella.id,
         SETUP,
@@ -1319,7 +1333,7 @@ def test_a_producer_applied_proposal_is_to_check_until_someone_looks(tmp_path):
     applied decision is still the one whose values were written."""
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
-    lamella.proposals[SETUP] = [_proposal(Point(0.0, 0.0))]
+    set_proposals(lamella, SETUP, [_proposal(Point(0.0, 0.0))])
     proposal = lamella.proposal(SETUP)
     assert not proposal.to_check and proposal.applied is None, "pending, not applied"
     auto = Decision(
@@ -1361,7 +1375,7 @@ def test_decide_and_save_share_the_write_lock(tmp_path):
 
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
-    lamella.proposals[SETUP] = [_proposal(Point(0.0, 0.0))]
+    set_proposals(lamella, SETUP, [_proposal(Point(0.0, 0.0))])
     order = []
     holding = threading.Event()
     release = threading.Event()

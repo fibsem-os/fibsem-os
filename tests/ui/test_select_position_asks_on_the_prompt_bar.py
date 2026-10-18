@@ -230,7 +230,7 @@ def test_the_tilt_and_the_position_are_confirmed_on_the_prompt_bar(window, qapp)
     assert area.current.outcome is DecisionOutcome.Confirmed
     assert area.current.values["alignment_area"] == area.values["alignment_area"]
     assert lamella.alignment_area == area.values["alignment_area"]
-    assert [p.kind for p in lamella.proposals[SETUP]] == [
+    assert [p.kind for p in lamella.proposals_from(SETUP)] == [
         STATE,
         STATE,
         ALIGNMENT_AREA,

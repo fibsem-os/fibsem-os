@@ -567,12 +567,11 @@ class ProposalTap:
         # (proposal id, decision index) -> whether it was recorded with values
         self._decided: Dict[Tuple[str, int], bool] = {}
         for item in experiment.items():
-            for proposals in list(item.proposals.values()):
-                for proposal in list(proposals):
-                    if proposal.asking:
-                        self._asked.add(proposal.id)
-                    for index, decision in enumerate(list(proposal.decisions)):
-                        self._decided[(proposal.id, index)] = bool(decision.values)
+            for proposal in list(item.proposals):
+                if proposal.asking:
+                    self._asked.add(proposal.id)
+                for index, decision in enumerate(list(proposal.decisions)):
+                    self._decided[(proposal.id, index)] = bool(decision.values)
         experiment.asked.connect(self._on_asked)
         experiment.decided.connect(self._on_decided)
 
@@ -589,7 +588,7 @@ class ProposalTap:
     def _on_asked(self, item_id: str, task_name: str) -> None:
         try:
             item = self._experiment.get_item_by_id(item_id)
-            for proposal in list(item.proposals.get(task_name) or []):
+            for proposal in item.proposals_from(task_name):
                 if proposal.asking and proposal.id not in self._asked:
                     self._asked.add(proposal.id)
                     payload = _proposal_payload(item, task_name, proposal)
@@ -601,7 +600,7 @@ class ProposalTap:
     def _on_decided(self, item_id: str, task_name: str) -> None:
         try:
             item = self._experiment.get_item_by_id(item_id)
-            for proposal in list(item.proposals.get(task_name) or []):
+            for proposal in item.proposals_from(task_name):
                 for index, decision in enumerate(list(proposal.decisions)):
                     seen = self._decided.get((proposal.id, index))
                     if seen is None or (seen is False and decision.values):

@@ -30,6 +30,7 @@ from fibsem.workflows.proposals import (
     Proposal,
 )
 from fibsem.workflows.status import TaskStatus
+from tests.proposal_records import set_proposals
 
 TASK = "Mill Undercut"
 RUN = "run-1"
@@ -234,7 +235,7 @@ def test_a_plain_result_is_named_the_same_way(experiment):
     lamella = experiment.positions[0]
     lamella.task_state.status = TaskStatus.Completed
     proposal = Proposal(kind=TASK_RESULT, provenance={"task_id": RUN})
-    lamella.proposals[TASK] = [proposal]
+    set_proposals(lamella, TASK, [proposal])
 
     result = experiment.decide(
         lamella.id,

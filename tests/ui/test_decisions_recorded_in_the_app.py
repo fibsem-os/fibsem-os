@@ -23,6 +23,7 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
 from fibsem.structures import MicroscopeState, Point  # noqa: E402
 from fibsem.workflows.proposals import Decision, DecisionOutcome, Proposal  # noqa: E402
 from fibsem.workflows.status import TaskStatus  # noqa: E402
+from tests.proposal_records import set_proposals  # noqa: E402
 
 TASK = "Setup Lamella Position"
 RUN = "run-1"
@@ -65,7 +66,7 @@ def _decide(experiment):
         values={"poi": Point(0.0, 0.0)},
         provenance={"task_id": RUN, "proposer": "current-poi"},
     )
-    lamella.proposals[TASK] = [proposal]
+    set_proposals(lamella, TASK, [proposal])
     result = experiment.decide(
         lamella.id,
         TASK,

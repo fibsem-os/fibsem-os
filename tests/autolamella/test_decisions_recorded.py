@@ -35,6 +35,7 @@ from fibsem.workflows.proposals import (
     Proposal,
 )
 from fibsem.workflows.status import TaskStatus
+from tests.proposal_records import set_proposals
 
 TASK = "Setup Lamella Position"
 RUN = "run-1"
@@ -84,7 +85,7 @@ def _poi_proposal(lamella, x=0.0):
             "reference_image": "ref_final_ib.tif",
         },
     )
-    lamella.proposals[TASK] = [proposal]
+    set_proposals(lamella, TASK, [proposal])
     return proposal
 
 
@@ -151,7 +152,7 @@ def test_a_detection_names_the_model_that_made_it(experiment, recorder):
         values=detection_values(detection),
         provenance={"task_id": RUN, **detection_provenance(detection)},
     )
-    experiment.positions[0].proposals[TASK] = [proposal]
+    set_proposals(experiment.positions[0], TASK, [proposal])
     corrected = {"features": [{"name": feature.name, "px": Point(12.0, 20.0)}]}
 
     _decide(experiment, proposal, "operator:op", corrected)
