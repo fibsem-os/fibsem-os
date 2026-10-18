@@ -40,6 +40,9 @@ dependencies = [
     # fluorescence images people bring from other microscopes are exactly that -- a
     # Zeiss ZEN export and a METEOR ImageJ stack are both LZW.
     "imagecodecs",
+    # fibsem.codec, which saves and loads the structures. Present via ome_types all
+    # along; 2.12 is the first that refuses unknown keys per call (`extra=`).
+    "pydantic>=2.12",
 ]
 
 [project.urls]

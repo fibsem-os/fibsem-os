@@ -1,0 +1,119 @@
+{
+  "experiment": {
+    "date": "2026-08-04T03:10:17.683109+00:00",
+    "id": "test-experiment",
+    "item_id": null,
+    "item_name": null,
+    "iteration": null,
+    "name": null,
+    "task_id": null,
+    "task_name": null
+  },
+  "hardware_geometry": {
+    "camera_tilt": 0.0,
+    "column_tilt": 0,
+    "fib_column_tilt": 52,
+    "fm_is_pose": true,
+    "mirrors_back_view": true,
+    "poses": {},
+    "rotation_180": 0,
+    "rotation_centre": [
+      -0.00048774038889328543,
+      0.0008062916666666666
+    ],
+    "rotation_reference": 0,
+    "shuttle_pre_tilt": 0,
+    "stage_frame": null,
+    "transform": null
+  },
+  "image": {
+    "autocontrast": false,
+    "beam_type": "ION",
+    "drift_correction": false,
+    "dwell_time": 1e-06,
+    "filename": "ref_ot_initial_alignment_1785813018_628903",
+    "frame_integration": null,
+    "hfw": 0.00015,
+    "line_integration": null,
+    "path": "D:\\SharedData\\user\\test-experiment\\01-test-lamella",
+    "reduced_area": {
+      "height": 0.4,
+      "left": 0.7,
+      "top": 0.3,
+      "width": 0.25
+    },
+    "resolution": [
+      1536,
+      1024
+    ],
+    "save": true,
+    "scan_interlacing": null
+  },
+  "microscope_state": {
+    "electron_beam": null,
+    "electron_detector": null,
+    "ion_beam": {
+      "beam_current": 2e-11,
+      "beam_type": "ION",
+      "dwell_time": 1e-06,
+      "hfw": 0.00015,
+      "preset": null,
+      "resolution": [
+        1536,
+        1024
+      ],
+      "scan_rotation": 0.0,
+      "shift": {
+        "x": 0.0,
+        "y": 0.0
+      },
+      "stigmation": {
+        "x": 0.0,
+        "y": 0.0
+      },
+      "voltage": 30000,
+      "working_distance": 0.0165
+    },
+    "ion_detector": {
+      "brightness": 0.5,
+      "contrast": 0.5,
+      "mode": "SecondaryElectrons",
+      "type": "ETD"
+    },
+    "objective_position": null,
+    "stage_position": {
+      "coordinate_system": "RAW",
+      "name": null,
+      "r": 0.0,
+      "t": -0.017453292519943295,
+      "x": 0.0,
+      "y": 0.0,
+      "z": 0.0
+    },
+    "timestamp": 1785813018.629308
+  },
+  "pixel_size": {
+    "x": 9.765624999999999e-08,
+    "y": 9.765624999999999e-08
+  },
+  "roles": {},
+  "system_info": {
+    "application": null,
+    "fibsem_revision": "v0.5.1-111-ga09d57e6-dirty",
+    "fibsem_version": "0.5.2.dev0",
+    "hardware_version": "v0.23",
+    "ip_address": "127.0.0.1",
+    "manufacturer": "Demo",
+    "model": "DemoMicroscope",
+    "name": "test-configuration",
+    "serial_number": "0000000",
+    "software_version": "0.1"
+  },
+  "user": {
+    "email": "null",
+    "hostname": "TEST-PC",
+    "name": "user",
+    "organization": "null"
+  },
+  "version": "v4"
+}
