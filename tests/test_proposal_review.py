@@ -27,7 +27,7 @@ class Position(ExperimentItem):
     description: str = ""
     task_state: TaskState = field(default_factory=TaskState)
     task_history: List[TaskState] = field(default_factory=list)
-    proposals: Dict[str, List[Proposal]] = field(default_factory=dict)
+    proposals: List[Proposal] = field(default_factory=list)
 
 
 class Volume(BaseExperiment, ProposalReview):

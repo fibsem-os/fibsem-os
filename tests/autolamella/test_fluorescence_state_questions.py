@@ -135,7 +135,7 @@ def test_select_position_headless_the_position_goes_on_the_record_unreviewed(
 
     _task(SelectFluorescencePositionTask, SELECT, microscope, exp).run()
 
-    question, result = lamella.proposals[SELECT]
+    question, result = lamella.proposals_from(SELECT)
     assert question.kind == STATE and result.kind == TASK_RESULT
     assert question.unreviewed
     pose = question.values["stage_position"]
@@ -179,5 +179,5 @@ def test_with_the_preference_off_the_old_prompts_run_and_nothing_is_recorded(
     assert [pos for _m, pos in asked] == ["Continue", "Continue"]
     assert "Move to fluorescence position" in asked[0][0]
     assert "Run autofocus" in asked[1][0]
-    assert [p.kind for p in lamella.proposals[SELECT]] == [TASK_RESULT]
-    assert [p.kind for p in lamella.proposals[ACQUIRE]] == [TASK_RESULT]
+    assert [p.kind for p in lamella.proposals_from(SELECT)] == [TASK_RESULT]
+    assert [p.kind for p in lamella.proposals_from(ACQUIRE)] == [TASK_RESULT]

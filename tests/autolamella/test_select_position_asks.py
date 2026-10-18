@@ -164,7 +164,7 @@ def test_headless_both_confirmations_go_on_the_record_unreviewed(microscope, tmp
 
     _task(microscope, exp).run()
 
-    tilt, position, area, point = lamella.proposals[SETUP]
+    tilt, position, area, point = lamella.proposals_from(SETUP)
     assert [p.kind for p in (tilt, position, area, point)] == [
         STATE,
         STATE,
@@ -219,7 +219,7 @@ def test_a_switched_off_confirmation_is_recorded_and_not_asked(
 
     _task(microscope, exp).run()
 
-    tilt, position = [p for p in lamella.proposals[SETUP] if p.kind == STATE]
+    tilt, position = [p for p in lamella.proposals_from(SETUP) if p.kind == STATE]
     assert tilt.unreviewed and "turned off" in tilt.current.reason
     assert position.unreviewed and "no window" in position.current.reason, (
         "asked, but headless there is nobody to answer"
@@ -252,7 +252,7 @@ def test_with_the_preference_off_the_old_prompts_run_and_nothing_is_recorded(
     assert microscope.get_current_milling_angle() == pytest.approx(38.0), (
         "Skip still skips"
     )
-    assert [p.kind for p in lamella.proposals[SETUP]] == [POINT_OF_INTEREST], (
+    assert [p.kind for p in lamella.proposals_from(SETUP)] == [POINT_OF_INTEREST], (
         "no record of either prompt"
     )
 

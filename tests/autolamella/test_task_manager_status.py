@@ -27,6 +27,7 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.workflows.status import TaskState
 from fibsem.workflows.status import TaskStatus as Status
+from tests.proposal_records import set_proposals
 from tests.run_state import stub_session
 
 
@@ -400,9 +401,11 @@ def test_an_old_success_does_not_satisfy_a_requirement_whose_rerun_was_rejected(
     lamella.task_history.append(
         TaskState(name="Trench", status=Status.AwaitingDecision)
     )
-    lamella.proposals["Trench"] = [
-        Proposal(kind="task_result", provenance={"task_id": "run-2"})
-    ]
+    set_proposals(
+        lamella,
+        "Trench",
+        [Proposal(kind="task_result", provenance={"task_id": "run-2"})],
+    )
     assert m._defer_reason(lamella, "Undercut") == "awaiting_decision"
 
     m.experiment._decide(
@@ -456,9 +459,9 @@ def test_a_task_awaiting_a_decision_defers_its_consumer(tmp_path):
     m.queue.build_from_matrix(["Undercut"], ["L1", "L2"])
     l1 = experiment.get_lamella_by_name("L1")
     l1.task_history.append(TaskState(name="Trench", status=Status.AwaitingDecision))
-    l1.proposals["Trench"] = [
-        Proposal(kind="task_result", provenance={"task_id": "run-1"})
-    ]
+    set_proposals(
+        l1, "Trench", [Proposal(kind="task_result", provenance={"task_id": "run-1"})]
+    )
     experiment.get_lamella_by_name("L2").task_history.append(
         TaskState(name="Trench", status=Status.Completed)
     )
@@ -531,9 +534,9 @@ def test_a_rejected_task_is_failed_so_its_consumer_is_skipped(tmp_path):
     m.queue.build_from_matrix(["Undercut"], ["L1"])
     l1 = experiment.get_lamella_by_name("L1")
     l1.task_history.append(TaskState(name="Trench", status=Status.AwaitingDecision))
-    l1.proposals["Trench"] = [
-        Proposal(kind="task_result", provenance={"task_id": "run-1"})
-    ]
+    set_proposals(
+        l1, "Trench", [Proposal(kind="task_result", provenance={"task_id": "run-1"})]
+    )
     experiment.decide(
         l1.id,
         "Trench",
@@ -574,9 +577,9 @@ def _review_manager(tmp_path, review_wait, hook_manager=None):
     m.queue.build_from_matrix(["Undercut"], ["L1"])
     l1 = experiment.get_lamella_by_name("L1")
     l1.task_history.append(TaskState(name="Trench", status=Status.AwaitingDecision))
-    l1.proposals["Trench"] = [
-        Proposal(kind="task_result", provenance={"task_id": "run-1"})
-    ]
+    set_proposals(
+        l1, "Trench", [Proposal(kind="task_result", provenance={"task_id": "run-1"})]
+    )
     return m, l1
 
 

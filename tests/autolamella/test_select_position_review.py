@@ -113,7 +113,7 @@ def _task(microscope, exp: Experiment, flag: bool) -> SelectMillingPositionTask:
 def _points(lamella) -> list:
     """Setup's point-of-interest proposals, leaving out the two position
     confirmations it also records with the flag on."""
-    return [p for p in lamella.proposals[SETUP] if p.kind == POINT_OF_INTEREST]
+    return [p for p in lamella.proposals_from(SETUP) if p.kind == POINT_OF_INTEREST]
 
 
 def test_under_review_the_task_records_a_proposal_and_awaits_a_decision(

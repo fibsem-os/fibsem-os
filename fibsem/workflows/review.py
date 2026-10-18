@@ -26,7 +26,6 @@ from fibsem.workflows.proposals import (
     ValueRefused,
     _encode_values,
     _quietly,
-    current_proposals,
     prepare_values,
 )
 from fibsem.workflows.status import TaskStatus
@@ -582,7 +581,7 @@ class ProposalReview:
         decision it waits on."""
         expired = 0
         for item in self.items():
-            for task_name in list(item.proposals):
+            for task_name in item.asking_tasks():
                 expired += self.expire_open(item.id, task_name, reason)
         return expired
 
@@ -675,30 +674,29 @@ class ProposalReview:
         withdrawn = 0
         with EXPERIMENT_WRITE_LOCK:
             for item in self.items():
-                for task_name, proposals in item.proposals.items():
-                    for proposal in proposals:
-                        if not proposal.pending or not proposal.provenance.get("asked"):
-                            continue
-                        proposal.asking = False
-                        proposal.decisions.append(
-                            Decision(
-                                outcome=DecisionOutcome.Withdrawn,
-                                actor=Actor.task("workflow"),
-                                reason=reason,
-                                via="workflow",
-                                task_id=proposal.task_id,
-                                proposal_id=proposal.id,
-                            )
+                for proposal in item.proposals:
+                    if not proposal.pending or not proposal.provenance.get("asked"):
+                        continue
+                    proposal.asking = False
+                    proposal.decisions.append(
+                        Decision(
+                            outcome=DecisionOutcome.Withdrawn,
+                            actor=Actor.task("workflow"),
+                            reason=reason,
+                            via="workflow",
+                            task_id=proposal.task_id,
+                            proposal_id=proposal.id,
                         )
-                        withdrawn += 1
-                        logging.debug(
-                            {
-                                "msg": "proposal_withdrawn",
-                                "item": item.name,
-                                "task_name": task_name,
-                                "reason": reason,
-                            }
-                        )
+                    )
+                    withdrawn += 1
+                    logging.debug(
+                        {
+                            "msg": "proposal_withdrawn",
+                            "item": item.name,
+                            "asked_by": str(proposal.asked_by),
+                            "reason": reason,
+                        }
+                    )
         return withdrawn
 
     def withdraw_proposal(
@@ -790,8 +788,8 @@ class ProposalReview:
     def _with_standing(self, *standings: Standing) -> List[Tuple[Any, str, Proposal]]:
         listed = []
         for item in self.items():
-            for task_name, proposals in item.proposals.items():
-                for proposal in current_proposals(proposals):
+            for task_name in item.asking_tasks():
+                for proposal in item.current_proposals(task_name):
                     if standing(item, task_name, proposal) in standings:
                         listed.append((item, task_name, proposal))
         return listed

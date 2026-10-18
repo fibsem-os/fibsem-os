@@ -257,7 +257,7 @@ def test_each_detection_is_answered_in_the_review_tab_and_the_stage_follows(
 
     assert _pump(qapp, lambda: not thread.is_alive()), "the task went on to its end"
     assert "error" not in seen, seen
-    detections = [p for p in lamella.proposals[UNDERCUT] if p.kind == DETECTION]
+    detections = [p for p in lamella.proposals_from(UNDERCUT) if p.kind == DETECTION]
     assert [p.id for p in detections] == [first.id, second.id, third.id, fourth.id]
     for proposal in detections:
         decision = proposal.current
@@ -272,6 +272,8 @@ def test_each_detection_is_answered_in_the_review_tab_and_the_stage_follows(
     # the record survives the file
     ui.experiment.save()
     again = Experiment.load(Path(ui.experiment.path) / "experiment.yaml")
-    saved = [p for p in again.positions[0].proposals[UNDERCUT] if p.kind == DETECTION]
+    saved = [
+        p for p in again.positions[0].proposals_from(UNDERCUT) if p.kind == DETECTION
+    ]
     assert [p.current.outcome for p in saved] == [DecisionOutcome.Confirmed] * 4
     assert saved[0].delta()["features"]

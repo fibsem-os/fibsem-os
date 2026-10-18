@@ -891,14 +891,14 @@ class Lamella(ExperimentItem):
     # does not track grids (every experiment before grid records existed). A
     # back-reference only; grid -> lamella is derived by filtering on it.
     grid_id: Optional[str] = None
-    # What tasks proposed for this lamella and what was decided, keyed by the
-    # producing task's name: every proposal that task made, oldest first (a
-    # question asked mid-run, then the run's result; a re-run after them).
-    # The last one is the current one; ``proposal()`` returns it. A current
+    # What was proposed for this lamella and what was decided, oldest first,
+    # each saying who asked it: every proposal a task made (a question asked
+    # mid-run, then the run's result; a re-run after them). A task's last one
+    # is its current one; ``proposal()`` returns it. A current
     # proposal with no decisions is pending; the consumer that requires that
     # task is deferred until one is appended. See proposals.py and
     # Experiment.decide.
-    proposals: Dict[str, List[Proposal]] = field(default_factory=dict)
+    proposals: List[Proposal] = field(default_factory=list)
 
     def __post_init__(self):
         # Deliberately does not create ``path``. Constructing a Lamella is not a

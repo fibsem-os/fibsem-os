@@ -101,7 +101,7 @@ def test_an_undeclared_kind_is_refused_and_nothing_is_recorded(microscope, tmp_p
     task = _task(microscope, exp, cls=MillRoughTask)
     with pytest.raises(ValueError, match="does not declare"):
         task.ask(POINT_OF_INTEREST, {"poi": Point(0, 0)})
-    assert exp.positions[0].proposals == {}
+    assert exp.positions[0].proposals == []
 
 
 def test_a_value_the_kind_does_not_carry_is_refused(microscope, tmp_path):
@@ -131,7 +131,7 @@ def test_with_nobody_to_ask_the_proposed_value_is_used_and_recorded_unreviewed(
     assert decision.values == {"poi": Point(1e-6, 2e-6)}, "used as proposed"
     assert decision.actor.kind is ActorKind.task
     # On the record, before the run's own result, and listed to check.
-    question, result = lamella.proposals[ROUGH]
+    question, result = lamella.proposals_from(ROUGH)
     assert question.kind == POINT_OF_INTEREST and question.unreviewed
     assert question.provenance["reference_image"] == "ref.tif"
     assert question.provenance["task_id"] == result.provenance["task_id"]
@@ -196,9 +196,9 @@ def test_unreviewed_survives_the_file(microscope, tmp_path):
     proposal = again.positions[0].proposal(ROUGH)
     assert proposal.unreviewed and proposal.current.values["poi"] == Point(3e-6, 0)
     raw = yaml.safe_load(Path(exp.path, "experiment.yaml").read_text())
-    assert raw["positions"][0]["proposals"][ROUGH][0]["decisions"][0]["outcome"] == (
-        "Unreviewed"
-    )
+    (saved,) = raw["positions"][0]["proposals"]
+    assert saved["asked_by"] == f"task:{ROUGH}"
+    assert saved["decisions"][0]["outcome"] == "Unreviewed"
 
 
 def test_every_task_type_declares_kinds_the_record_knows():
@@ -220,7 +220,7 @@ def test_a_question_and_the_runs_result_are_both_current(microscope, tmp_path):
         exp,
         body=lambda t: t.ask(POINT_OF_INTEREST, {"poi": Point(0, 0)}),
     ).run()
-    question, result = lamella.proposals[ROUGH]
+    question, result = lamella.proposals_from(ROUGH)
     assert lamella.current_proposals(ROUGH) == [question, result]
     listed = [p for _i, _t, p in exp.proposals_to_check()]
     assert listed == [question, result]

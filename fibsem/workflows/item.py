@@ -3,16 +3,17 @@
 A lamella, a grid and a volume position are items. Each has an ``id``, a
 ``name``, a ``description``, a ``task_state`` (the run in hand, mutated in
 place, never replaced), a ``task_history`` (each run's state, frozen when it
-ended) and ``proposals`` (what its tasks proposed and what was decided, keyed
-by the producing task's name). :class:`ExperimentItem` answers what the
+ended) and ``proposals`` (what was proposed for it and what was decided, oldest
+first, each saying who asked it). :class:`ExperimentItem` answers what the
 engine asks of any of them from those fields; an application's item classes
 declare the fields and add their own.
 """
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 
+from fibsem.acting import Actor, ActorKind
 from fibsem.workflows.proposals import (
     Proposal,
     current_proposal,
@@ -34,7 +35,7 @@ class ExperimentItem:
     description: str
     task_state: Any
     task_history: List[Any]
-    proposals: Dict[str, List[Proposal]]
+    proposals: List[Proposal]
 
     @property
     def completed_tasks(self) -> List[str]:
@@ -92,17 +93,33 @@ class ExperimentItem:
                     state.status_message = message
                 return
 
+    def proposals_from(self, task_name: str) -> List[Proposal]:
+        """Everything ``task_name`` asked about this item, oldest first."""
+        return [p for p in self.proposals if p.asked_by_task(task_name)]
+
+    def asking_tasks(self) -> List[str]:
+        """The tasks that asked something about this item, in the order they
+        first did."""
+        names: List[str] = []
+        for p in self.proposals:
+            asked_by = p.asked_by
+            if asked_by is not None and asked_by.kind is ActorKind.task:
+                if asked_by.name not in names:
+                    names.append(asked_by.name)
+        return names
+
     def proposal(
         self, task_name: str, kind: Optional[str] = None
     ) -> Optional[Proposal]:
         """The current proposal from ``task_name``: the last one it made, or
         the last of ``kind``. None when it never proposed."""
-        return current_proposal(self.proposals.get(task_name), kind)
+        return current_proposal(self.proposals_from(task_name), kind)
 
     def current_proposals(self, task_name: str) -> List[Proposal]:
         """Every current proposal from ``task_name``: the last of each kind."""
-        return current_proposals(self.proposals.get(task_name))
+        return current_proposals(self.proposals_from(task_name))
 
     def record_proposal(self, task_name: str, proposal: Proposal) -> Proposal:
         """Put ``proposal`` on the record as the current one from ``task_name``."""
-        return record(self.proposals.setdefault(task_name, []), proposal)
+        proposal.asked_by = Actor.task(task_name)
+        return record(self.proposals, proposal)

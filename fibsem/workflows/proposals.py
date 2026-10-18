@@ -1,7 +1,7 @@
 """What a task proposed, and what a reviewer decided about it.
 
-A producing task completes and leaves a ``Proposal`` on its item, keyed by the
-task's name. Nothing downstream reads the proposal directly: the consumer of
+A producing task completes and leaves a ``Proposal`` on its item, saying who
+asked it (``asked_by``: the task, today). Nothing downstream reads the proposal directly: the consumer of
 the decision is gated until somebody appends a ``Decision``, and confirming
 writes the decided values through to the item. The proposed values are never
 overwritten -- the delta between what was proposed and what was confirmed is
@@ -551,6 +551,13 @@ class Proposal:
     # stops being unique the moment a task asks twice. Opaque: nothing reads
     # anything out of it.
     id: str = field(default_factory=lambda: uuid.uuid4().hex)
+    # Who asked: the task that made it, an agent or a model. None for one that
+    # nothing asked yet; the item's record stamps it when it is recorded.
+    asked_by: Optional[Actor] = None
+
+    def asked_by_task(self, task_name: str) -> bool:
+        """Whether *task_name* asked this: what a task's view of an item reads."""
+        return self.asked_by == Actor.task(task_name)
 
     @property
     def pending(self) -> bool:
@@ -633,6 +640,7 @@ class Proposal:
             "decisions": [d.to_dict() for d in self.decisions],
             "created_at": to_iso(self.created_at),
             "id": self.id,
+            "asked_by": str(self.asked_by) if self.asked_by is not None else None,
         }
 
     @classmethod
@@ -648,6 +656,7 @@ class Proposal:
             decisions=[Decision.from_dict(d) for d in data.get("decisions", [])],
             created_at=to_datetime(data.get("created_at")),
             id=data.get("id") or _id_for_a_record_without_one(data),
+            asked_by=Actor.parse(data["asked_by"]) if data.get("asked_by") else None,
         )
 
 
@@ -713,10 +722,10 @@ class TaskResultProposer:
 
 
 def record(proposals: List[Proposal], proposal: Proposal) -> Proposal:
-    """Append ``proposal`` to an item's list for one task, and return it.
+    """Append ``proposal`` to an item's list, and return it.
 
-    The list is the record of everything that task proposed on the item,
-    oldest first: a deliberate re-run leaves the old answer -- and its delta --
+    The list is the record of everything proposed on the item, oldest first;
+    what follows is about the proposals of the same asker: a deliberate re-run leaves the old answer -- and its delta --
     on the record and puts the new one after it; a question the task asked
     mid-run sits before the run's own result. The old value is never carried
     over as the new default; a stale default is the rubber stamp the delta
@@ -729,7 +738,10 @@ def record(proposals: List[Proposal], proposal: Proposal) -> Proposal:
     it when the re-run's own result lands).
     """
     for i in range(len(proposals) - 1, -1, -1):
-        if proposals[i].kind == proposal.kind:
+        if (
+            proposals[i].kind == proposal.kind
+            and proposals[i].asked_by == proposal.asked_by
+        ):
             if proposals[i].pending:
                 del proposals[i]
             break
@@ -776,16 +788,26 @@ def current_proposals(proposals: Optional[List[Proposal]]) -> List[Proposal]:
     ]
 
 
-def proposals_to_dict(proposals: Dict[str, List[Proposal]]) -> Dict[str, list]:
-    return {name: [p.to_dict() for p in ps] for name, ps in proposals.items()}
+def proposals_to_dict(proposals: List[Proposal]) -> List[dict]:
+    return [p.to_dict() for p in proposals]
 
 
 def proposals_from_dict(
-    data: Optional[Dict[str, list]],
-) -> Dict[str, List[Proposal]]:
-    return {
-        name: [Proposal.from_dict(p) for p in ps] for name, ps in (data or {}).items()
-    }
+    data: Union[List[dict], Dict[str, list], None],
+) -> List[Proposal]:
+    """An item's proposals as saved: a list, each saying who asked it. A file
+    saved before then keyed them by the task that asked, which is read as
+    that task's asking."""
+    if isinstance(data, dict):
+        out = []
+        for name, ps in data.items():
+            for p in ps:
+                proposal = Proposal.from_dict(p)
+                if proposal.asked_by is None:
+                    proposal.asked_by = Actor.task(name)
+                out.append(proposal)
+        return out
+    return [Proposal.from_dict(p) for p in data or []]
 
 
 @dataclass

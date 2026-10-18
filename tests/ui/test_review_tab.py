@@ -47,6 +47,7 @@ from fibsem.workflows.proposals import (  # noqa: E402
     Proposal,
 )
 from fibsem.workflows.status import TaskState, TaskStatus  # noqa: E402
+from tests.proposal_records import set_proposals  # noqa: E402
 
 SETUP = "Setup Lamella Position"
 FIDUCIAL = "Mill Fiducial"
@@ -94,17 +95,21 @@ def experiment(tmp_path) -> Experiment:
     )
     ref = os.path.join(str(lamella.path), "ref_setup_ib")
     _fib_image().save(ref)
-    lamella.proposals[SETUP] = [
-        Proposal(
-            kind=POINT_OF_INTEREST,
-            values={"poi": Point(0.0, 0.0)},
-            provenance={
-                "task_id": RUN,
-                "proposer": "centre-of-image",
-                "reference_image": ref + ".tif",
-            },
-        )
-    ]
+    set_proposals(
+        lamella,
+        SETUP,
+        [
+            Proposal(
+                kind=POINT_OF_INTEREST,
+                values={"poi": Point(0.0, 0.0)},
+                provenance={
+                    "task_id": RUN,
+                    "proposer": "centre-of-image",
+                    "reference_image": ref + ".tif",
+                },
+            )
+        ],
+    )
     return exp
 
 
@@ -148,7 +153,7 @@ def test_a_row_names_its_kind_when_it_is_not_the_tasks_result(tab, experiment):
     )
     position.decisions.append(unasked)
     result = Proposal(kind=TASK_RESULT, values={}, provenance={"task_id": RUN})
-    lamella.proposals[SETUP] = [position, *lamella.proposals[SETUP], result]
+    set_proposals(lamella, SETUP, [position, *lamella.proposals_from(SETUP), result])
     tab.refresh()
 
     rows = [t for t in tab.row_summaries() if t.count(" · ") >= 2]
@@ -255,9 +260,11 @@ def test_a_decision_made_elsewhere_refreshes_the_inbox(tab, experiment):
 
 def test_an_unregistered_kind_still_gets_the_two_verbs(tab, experiment, qapp):
     lamella = experiment.positions[0]
-    lamella.proposals["other"] = [
-        Proposal(kind="site_pick_v9", values={}, provenance={"task_id": RUN})
-    ]
+    set_proposals(
+        lamella,
+        "other",
+        [Proposal(kind="site_pick_v9", values={}, provenance={"task_id": RUN})],
+    )
     lamella.task_history.append(
         TaskState(name="other", status=TaskStatus.AwaitingDecision)
     )
@@ -387,13 +394,17 @@ def test_after_an_acknowledgement_the_next_row_is_selected(tab, experiment, qapp
     """A run of acknowledgements is a run of Returns."""
     lamella = experiment.positions[0]
     _auto_confirm(lamella.proposal(SETUP))
-    lamella.proposals[FIDUCIAL] = [
-        Proposal(
-            kind=POINT_OF_INTEREST,
-            values={"poi": Point(0.0, 0.0)},
-            provenance={"task_id": RUN, "proposer": "centre-of-image"},
-        )
-    ]
+    set_proposals(
+        lamella,
+        FIDUCIAL,
+        [
+            Proposal(
+                kind=POINT_OF_INTEREST,
+                values={"poi": Point(0.0, 0.0)},
+                provenance={"task_id": RUN, "proposer": "centre-of-image"},
+            )
+        ],
+    )
     _auto_confirm(lamella.proposal(FIDUCIAL))
     tab.refresh()
     assert tab.check_count == 2
@@ -414,21 +425,29 @@ def test_mark_all_as_checked_records_a_look_on_every_to_check_row(
     is waiting for a real decision is untouched."""
     lamella = experiment.positions[0]
     _auto_confirm(lamella.proposal(SETUP))
-    lamella.proposals[FIDUCIAL] = [
-        Proposal(
-            kind=POINT_OF_INTEREST,
-            values={"poi": Point(0.0, 0.0)},
-            provenance={"task_id": RUN},
-        )
-    ]
+    set_proposals(
+        lamella,
+        FIDUCIAL,
+        [
+            Proposal(
+                kind=POINT_OF_INTEREST,
+                values={"poi": Point(0.0, 0.0)},
+                provenance={"task_id": RUN},
+            )
+        ],
+    )
     _auto_confirm(lamella.proposal(FIDUCIAL))
-    lamella.proposals[ROUGH] = [
-        Proposal(
-            kind=POINT_OF_INTEREST,
-            values={"poi": Point(0.0, 0.0)},
-            provenance={"task_id": RUN},
-        )
-    ]
+    set_proposals(
+        lamella,
+        ROUGH,
+        [
+            Proposal(
+                kind=POINT_OF_INTEREST,
+                values={"poi": Point(0.0, 0.0)},
+                provenance={"task_id": RUN},
+            )
+        ],
+    )
     lamella.task_history.append(
         TaskState(name=ROUGH, status=TaskStatus.AwaitingDecision)
     )
@@ -493,29 +512,33 @@ def test_a_task_result_renders_both_images_and_confirms_with_no_values(
     """The generic kind: what a task did, for someone to look at. Nothing to
     drag, nothing written; the verbs are the same two."""
     lamella = experiment.positions[0]
-    del lamella.proposals[SETUP]
+    set_proposals(lamella, SETUP, [])
     eb = os.path.join(str(lamella.path), "ref_rough_eb")
     _fib_image().save(eb)
     lamella.task_history.append(
         TaskState(name=ROUGH, status=TaskStatus.AwaitingDecision)
     )
-    lamella.proposals[ROUGH] = [
-        Proposal(
-            kind=TASK_RESULT,
-            values={},
-            provenance={
-                "task_id": RUN,
-                "proposer": "task",
-                "task_name": ROUGH,
-                "status": "Completed",
-                "started_at": started,
-                "ended_at": ended,
-                "reference_image": "ref_setup_ib.tif",
-                "reference_image_eb": "ref_rough_eb.tif",
-                "failure": "",
-            },
-        )
-    ]
+    set_proposals(
+        lamella,
+        ROUGH,
+        [
+            Proposal(
+                kind=TASK_RESULT,
+                values={},
+                provenance={
+                    "task_id": RUN,
+                    "proposer": "task",
+                    "task_name": ROUGH,
+                    "status": "Completed",
+                    "started_at": started,
+                    "ended_at": ended,
+                    "reference_image": "ref_setup_ib.tif",
+                    "reference_image_eb": "ref_rough_eb.tif",
+                    "failure": "",
+                },
+            )
+        ],
+    )
     tab.refresh()
     assert tab.pending_count == 1
     renderer = tab.stack.currentWidget()
@@ -536,18 +559,22 @@ def test_a_task_result_renders_both_images_and_confirms_with_no_values(
     assert R.describe_decision(proposal, experiment).startswith("Confirmed by you")
 
     # a failed run reads as such, and an auto-recorded one is to check
-    lamella.proposals[FIDUCIAL] = [
-        Proposal(
-            kind=TASK_RESULT,
-            values={},
-            provenance={
-                "task_id": RUN,
-                "task_name": FIDUCIAL,
-                "status": "Failed",
-                "failure": "drift",
-            },
-        )
-    ]
+    set_proposals(
+        lamella,
+        FIDUCIAL,
+        [
+            Proposal(
+                kind=TASK_RESULT,
+                values={},
+                provenance={
+                    "task_id": RUN,
+                    "task_name": FIDUCIAL,
+                    "status": "Failed",
+                    "failure": "drift",
+                },
+            )
+        ],
+    )
     _auto_confirm(lamella.proposal(FIDUCIAL), proposer="task")
     tab.refresh()
     assert tab.check_count == 1
@@ -615,13 +642,17 @@ def test_a_decision_on_a_run_replaced_while_shown_is_refused(
     """The tab shows run-1; the task re-runs underneath it. Confirm names the
     run it showed, so it is refused with a warning and nothing is written."""
     lamella = experiment.positions[0]
-    lamella.proposals[SETUP] = [
-        Proposal(
-            kind=POINT_OF_INTEREST,
-            values={"poi": Point(7e-6, 0.0)},
-            provenance={"task_id": "run-2"},
-        )
-    ]  # not refreshed: the tab still shows run-1
+    set_proposals(
+        lamella,
+        SETUP,
+        [
+            Proposal(
+                kind=POINT_OF_INTEREST,
+                values={"poi": Point(7e-6, 0.0)},
+                provenance={"task_id": "run-2"},
+            )
+        ],
+    )  # not refreshed: the tab still shows run-1
 
     tab.confirm_current()
     qapp.processEvents()
@@ -644,7 +675,7 @@ def test_mark_all_as_checked_acknowledges_only_the_runs_it_listed(
         provenance={"task_id": "run-2"},
     )
     _auto_confirm(rerun)
-    lamella.proposals[SETUP] = [rerun]  # re-ran after the list was drawn
+    set_proposals(lamella, SETUP, [rerun])  # re-ran after the list was drawn
 
     tab.acknowledge_all()
     qapp.processEvents()
@@ -693,12 +724,19 @@ def _grid_waiting(experiment):
     grid.task_history.append(
         TaskState(name="SEM Overview", status=TaskStatus.AwaitingDecision)
     )
-    grid.proposals["SEM Overview"] = [
-        Proposal(
-            kind=TASK_RESULT,
-            provenance={"task_id": RUN, "reference_image": "SEM Overview/overview.tif"},
-        )
-    ]
+    set_proposals(
+        grid,
+        "SEM Overview",
+        [
+            Proposal(
+                kind=TASK_RESULT,
+                provenance={
+                    "task_id": RUN,
+                    "reference_image": "SEM Overview/overview.tif",
+                },
+            )
+        ],
+    )
     return grid
 
 
@@ -752,16 +790,20 @@ def _positions_waiting(experiment, positions=(), name="Grid-02"):
     grid.task_history.append(
         TaskState(name="SEM Overview", status=TaskStatus.AwaitingDecision)
     )
-    grid.proposals["SEM Overview"] = [
-        Proposal(
-            kind=OVERVIEW_POSITIONS,
-            values={"positions": list(positions)},
-            provenance={
-                "task_id": f"{RUN}-{name}",
-                "reference_image": "SEM Overview/overview.tif",
-            },
-        )
-    ]
+    set_proposals(
+        grid,
+        "SEM Overview",
+        [
+            Proposal(
+                kind=OVERVIEW_POSITIONS,
+                values={"positions": list(positions)},
+                provenance={
+                    "task_id": f"{RUN}-{name}",
+                    "reference_image": "SEM Overview/overview.tif",
+                },
+            )
+        ],
+    )
     return grid
 
 
@@ -1007,12 +1049,16 @@ def _fm_grid_proposal(experiment, filename="overview.ome.tiff", write=True):
     grid.task_history.append(
         TaskState(name="FM Overview", status=TaskStatus.AwaitingDecision)
     )
-    grid.proposals["FM Overview"] = [
-        Proposal(
-            kind=TASK_RESULT,
-            provenance={"task_id": RUN, "reference_image": relative},
-        )
-    ]
+    set_proposals(
+        grid,
+        "FM Overview",
+        [
+            Proposal(
+                kind=TASK_RESULT,
+                provenance={"task_id": RUN, "reference_image": relative},
+            )
+        ],
+    )
     return grid, target
 
 
@@ -1087,8 +1133,14 @@ def test_a_result_with_no_image_recorded_says_so(tab, experiment):
     grid.task_history.append(
         TaskState(name="SEM Overview", status=TaskStatus.AwaitingDecision)
     )
-    grid.proposals["SEM Overview"] = [
-        Proposal(kind=TASK_RESULT, provenance={"task_id": RUN, "reference_image": ""})
-    ]
+    set_proposals(
+        grid,
+        "SEM Overview",
+        [
+            Proposal(
+                kind=TASK_RESULT, provenance={"task_id": RUN, "reference_image": ""}
+            )
+        ],
+    )
     renderer = _select(tab, grid)
     assert renderer.no_image.text() == "No image was recorded for this result."

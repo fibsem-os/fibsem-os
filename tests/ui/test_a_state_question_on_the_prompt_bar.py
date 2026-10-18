@@ -163,7 +163,7 @@ def test_the_question_is_asked_on_the_prompt_bar_and_continue_decides_it(window,
         "the prompt bar asks",
         ui.label_instructions.text(),
         ui.hold,
-        {k: [p.kind for p in v] for k, v in lamella.proposals.items()},
+        [(str(p.asked_by), p.kind) for p in lamella.proposals],
         seen,
     )
     assert ui.pushButton_yes.text() == "Continue"
