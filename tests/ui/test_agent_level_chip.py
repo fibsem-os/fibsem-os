@@ -561,10 +561,12 @@ class _Store:
 def host(main_ui):
     pytest.importorskip("fastapi")
     ui = main_ui.autolamella_ui
-    previous = ui.session.app_server
+    previous = ui.session.app_server, ui.session.agent_auth
     ui.session.app_server = _Host()
+    # As the real host does, the session holds the auth the host checks.
+    ui.session.agent_auth = ui.session.app_server.auth
     yield ui.session.app_server
-    ui.session.app_server = previous
+    ui.session.app_server, ui.session.agent_auth = previous
     main_ui._refresh_agent_chip()
 
 

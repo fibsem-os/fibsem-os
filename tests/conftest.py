@@ -128,6 +128,17 @@ def _isolate_session_state(tmp_path_factory, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_plain_experiments(tmp_path_factory, monkeypatch):
+    """A session's plain experiment (made when the agent is first let act with
+    no experiment open) goes to a per-test directory, not the log folder."""
+    import fibsem.workflows.session as session
+
+    monkeypatch.setattr(
+        session, "SESSIONS_PATH", str(tmp_path_factory.mktemp("sessions"))
+    )
+
+
+@pytest.fixture(autouse=True)
 def _isolate_cwd(tmp_path, monkeypatch):
     """Run every test from its own tmp dir.
 
