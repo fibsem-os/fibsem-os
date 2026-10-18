@@ -17,6 +17,8 @@ from typing import Any, Callable, Dict, List, Optional, Type
 
 import yaml
 
+from fibsem.structures import Configurable, Display, RangeLimit, param
+
 
 class HookEvent(str, Enum):
     TASK_STARTED = "task_started"
@@ -293,7 +295,7 @@ def render_template(template: str, context: HookContext) -> str:
 
 
 @dataclass
-class Hook(ABC):
+class Hook(Configurable, ABC):
     name: str = ""
     # Event names, group names, or a mix. See EVENT_GROUPS.
     events: List[str] = field(default_factory=list)
@@ -333,7 +335,12 @@ class Hook(ABC):
 
 @dataclass
 class LoggingHook(Hook):
-    level: str = "INFO"
+    level: str = param(
+        "INFO",
+        choices=("DEBUG", "INFO", "WARNING", "ERROR"),
+        doc="The log level each event is written at.",
+        display=Display("Level"),
+    )
 
     def run(self, context: HookContext) -> None:
         level = getattr(logging, self.level.upper(), logging.INFO)
@@ -358,8 +365,17 @@ class LoggingHook(Hook):
 
 @dataclass
 class NotificationHook(Hook):
-    notification_type: str = "info"
-    message_template: str = DEFAULT_MESSAGE_TEMPLATE
+    notification_type: str = param(
+        "info",
+        choices=("info", "success", "warning", "error"),
+        doc="How the notification is shown.",
+        display=Display("Notification type"),
+    )
+    message_template: str = param(
+        DEFAULT_MESSAGE_TEMPLATE,
+        doc="The notification's text; {placeholders} are filled from the event.",
+        display=Display("Message template"),
+    )
     _notify: Optional[Callable[[str, str], None]] = field(default=None, repr=False)
 
     def run(self, context: HookContext) -> None:
@@ -390,7 +406,7 @@ class NotificationHook(Hook):
         )
 
 
-_WEBHOOK_ALLOWED_METHODS = {"POST", "GET"}
+_WEBHOOK_ALLOWED_METHODS = ("POST", "GET")
 _WEBHOOK_ALLOWED_SCHEMES = {"http", "https"}
 
 
@@ -441,9 +457,20 @@ def _validate_webhook_url(url: str) -> str:
 class WebhookHook(Hook):
     """Hook that POSTs a JSON payload to a URL. Fires in a daemon thread (non-blocking)."""
 
-    url: str = ""
-    method: str = "POST"
-    timeout: int = 5
+    url: str = param("", doc="Where the event is posted.", display=Display("URL"))
+    method: str = param(
+        "POST",
+        choices=_WEBHOOK_ALLOWED_METHODS,
+        doc="The HTTP method the event is sent with.",
+        display=Display("Method"),
+    )
+    timeout: int = param(
+        5,
+        unit="s",
+        limits=RangeLimit(1, 60),
+        doc="How long to wait for the service to answer.",
+        display=Display("Timeout"),
+    )
 
     def __post_init__(self):
         super().__post_init__()  # subscription validation
