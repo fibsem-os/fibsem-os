@@ -1,7 +1,7 @@
 """The perforation milling task: registration, defaults and config round trip.
 
 Ported from the circular-suspension plugin, where it was registered through the
-``fibsem.tasks`` entry point. In tree it is a built-in, so what needs pinning is the
+``fibsem.autolamella.tasks`` entry point. In tree it is a built-in, so what needs pinning is the
 registration itself (a task the registry does not know is silently dropped when a
 protocol names it — ``load_task_config`` logs a warning and moves on) and the config
 round trip, since ``orientation`` reaches disk through the base's ``parameters``

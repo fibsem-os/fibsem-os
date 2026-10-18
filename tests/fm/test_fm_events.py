@@ -10,11 +10,6 @@ import os
 import pytest
 
 from fibsem import utils
-from fibsem.applications.autolamella.event_recording import (
-    EVENTS_FILENAME,
-    EventRecorder,
-    read_events,
-)
 from fibsem.fm.acquisition import acquire_image
 from fibsem.fm.calibration import run_coarse_fine_autofocus
 from fibsem.fm.structures import (
@@ -25,6 +20,11 @@ from fibsem.fm.structures import (
     FocusMethod,
     OverviewParameters,
     ZParameters,
+)
+from fibsem.workflows.event_recording import (
+    EVENTS_FILENAME,
+    EventRecorder,
+    read_events,
 )
 
 CHANNEL = ChannelSettings(

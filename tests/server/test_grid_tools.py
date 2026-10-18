@@ -329,8 +329,7 @@ def test_a_grid_with_no_record_yet_is_named_on_its_slot(recording, arctis):
 
 
 def test_a_rename_the_grids_tab_would_refuse_is_refused(recording, arctis):
-    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
-    from fibsem.workflows.status import TaskStatus
+    from fibsem.workflows.status import TaskState, TaskStatus
 
     _call(recording, "grid_add")
     taken = _call(recording, "grid_rename", grid_name="G1", name="G2")
@@ -338,7 +337,7 @@ def test_a_rename_the_grids_tab_would_refuse_is_refused(recording, arctis):
     assert taken.json()["detail"]["message"] == "There is already a grid named G2."
 
     recording.host.experiment.get_grid_by_name("G1").task_history.append(
-        AutoLamellaTaskState(name="Overview", status=TaskStatus.Completed)
+        TaskState(name="Overview", status=TaskStatus.Completed)
     )
     ran = _call(recording, "grid_rename", grid_name="G1", name="Lyso-1")
     assert ran.status_code == 422

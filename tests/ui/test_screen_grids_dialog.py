@@ -17,9 +17,7 @@ import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskState,
     Experiment,
-    GridRecord,
 )
 from fibsem.applications.autolamella.ui.screen_grids_dialog import (
     NOT_SCANNED,
@@ -34,6 +32,8 @@ from fibsem.services.sample_handling import (
     bind_sample_handling,
 )
 from fibsem.structures import FibsemStagePosition
+from fibsem.workflows.grids import GridRecord
+from fibsem.workflows.status import TaskState
 from tests.fixtures.demo_stage import demo_grid_loader
 
 
@@ -212,7 +212,7 @@ def test_the_review_says_how_the_run_ends(qapp, arctis, experiment):
 
 def test_a_grid_that_has_run_keeps_its_name(qapp, arctis, experiment):
     ran = experiment.add_grid(GridRecord(name="Grid-01"))
-    ran.task_history.append(AutoLamellaTaskState(name="overview_sem"))
+    ran.task_history.append(TaskState(name="overview_sem"))
     dialog = _dialog(arctis, experiment)
     row = dialog._rows["Slot-01"]
     assert row.field.isReadOnly()
@@ -309,7 +309,7 @@ def test_screen_all_grids_from_the_window_runs_on_the_named_grids(
         ran.append((grid.name, task_name))
         grid.task_state.name = task_name
         grid.task_state.status = TaskStatus.Completed
-        grid.task_history.append(AutoLamellaTaskState(name=task_name))
+        grid.task_history.append(TaskState(name=task_name))
         return None
 
     monkeypatch.setattr(GridTaskManager, "_run_single_task", _run_single_task)

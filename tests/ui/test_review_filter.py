@@ -14,22 +14,13 @@ pytest.importorskip("PyQt5")
 import numpy as np  # noqa: E402
 from psygnal.containers import EventedDict  # noqa: E402
 
-from fibsem.applications.autolamella.proposals import (  # noqa: E402
-    POINT_OF_INTEREST,
-    TASK_RESULT,
-    Decision,
-    DecisionOutcome,
-    Proposal,
-    auto_author,
-)
+from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     Attention,
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskState,
     AutoLamellaWorkflowConfig,
     Experiment,
-    GridRecord,
 )
 from fibsem.applications.autolamella.ui import review_tab_widget as R  # noqa: E402
 from fibsem.applications.autolamella.workflows.tasks.grid import (  # noqa: E402
@@ -47,7 +38,15 @@ from fibsem.structures import (  # noqa: E402
     MicroscopeState,
     Point,
 )
-from fibsem.workflows.status import TaskStatus  # noqa: E402
+from fibsem.workflows.grids import GridRecord  # noqa: E402
+from fibsem.workflows.proposals import (  # noqa: E402
+    TASK_RESULT,
+    Decision,
+    DecisionOutcome,
+    Proposal,
+    auto_author,
+)
+from fibsem.workflows.status import TaskState, TaskStatus  # noqa: E402
 
 SETUP = "Setup Lamella Position"
 ROUGH = "Rough Milling"
@@ -106,16 +105,14 @@ def experiment(tmp_path) -> Experiment:
 
     for lamella in exp.positions[:2]:
         lamella.task_history.append(
-            AutoLamellaTaskState(name=ROUGH, status=TaskStatus.AwaitingDecision)
+            TaskState(name=ROUGH, status=TaskStatus.AwaitingDecision)
         )
         lamella.proposals[ROUGH] = [
             Proposal(kind=TASK_RESULT, provenance={"task_id": RUN})
         ]
     # the third is a look, not a decision: it lands in "To check"
     third = exp.positions[2]
-    third.task_history.append(
-        AutoLamellaTaskState(name=SETUP, status=TaskStatus.Completed)
-    )
+    third.task_history.append(TaskState(name=SETUP, status=TaskStatus.Completed))
     proposal = _poi()
     proposal.decisions.append(
         Decision(
@@ -146,7 +143,7 @@ def experiment(tmp_path) -> Experiment:
         directory.mkdir(parents=True)
         _image(BeamType.ELECTRON).save(str(directory / "overview"))
         grid.task_history.append(
-            AutoLamellaTaskState(name=task, status=TaskStatus.AwaitingDecision)
+            TaskState(name=task, status=TaskStatus.AwaitingDecision)
         )
         grid.proposals[task] = [
             Proposal(

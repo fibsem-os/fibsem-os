@@ -11,9 +11,7 @@ from __future__ import annotations
 
 import logging
 import os
-import uuid
-from abc import ABC, abstractmethod
-from copy import deepcopy
+from abc import ABC
 from dataclasses import dataclass, field, fields
 from datetime import datetime
 from enum import Enum
@@ -31,30 +29,23 @@ from typing import (
     get_type_hints,
 )
 
-from fibsem.acting import TASK, acting
-from fibsem.applications.autolamella.proposals import Proposer, TaskResultProposer
 from fibsem.applications.autolamella.structures import (
     Attention,
     Configurable,
-    GridRecord,
     Parameter,
     attention_from,
     field_specs,
 )
-from fibsem.applications.autolamella.workflows.tasks.proposing import settle
-from fibsem.applications.autolamella.workflows.tasks.status import take_back_finish
-from fibsem.cancellation import OperationCancelledError
 from fibsem.structures import Display, param
-from fibsem.util.timestamps import now, now_iso
+from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.task import BaseTask
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment
     from fibsem.microscope import FibsemMicroscope
     from fibsem.services.sample_handling import SampleHandling
     from fibsem.structures import GridSlot
-
-_LIFECYCLE_STEPS = {"STARTED", "FINISHED"}
 
 
 @dataclass
@@ -196,14 +187,12 @@ def _deserialise(hint: Any, value: Any) -> Any:
     return value
 
 
-class GridTask(ABC):
-    """Base class for grid tasks. Subclasses implement `_run`."""
+class GridTask(BaseTask):
+    """Base class for grid tasks: a task on a grid. Subclasses implement `_run`."""
 
     config_cls: ClassVar[Type[GridTaskConfig]]
     config: GridTaskConfig
-    # What this task type proposes for the Review tab, as on AutoLamellaTask:
-    # its result, with the image it recorded under its role.
-    proposer: ClassVar[Optional[Proposer]] = TaskResultProposer()
+    item_type: ClassVar[str] = "grid"
 
     def __init__(
         self,
@@ -214,33 +203,26 @@ class GridTask(ABC):
         parent_ui=None,
         task_manager=None,
     ) -> None:
-        self.microscope = microscope
-        self.config = config
-        self.grid = grid
-        self.experiment = experiment
-        self.parent_ui = parent_ui
-        self.task_manager = task_manager
-        self.task_id = str(uuid.uuid4())
-        # The manager's token, not its raw event: what counts as "cancelled" is the
-        # manager's to decide. Same line as AutoLamellaTask, on purpose.
-        self._stop_event = task_manager.abort_token if task_manager else None
+        super().__init__(
+            microscope,
+            config,
+            grid,
+            experiment=experiment,
+            parent_ui=parent_ui,
+            task_manager=task_manager,
+        )
         # What the history entry says on success, when there is more to say than
         # "Finished": an overview that skipped tiles out of the stage's reach.
         self.completion_note = ""
 
-    # -- identity --------------------------------------------------------------
-
     @property
-    def task_type(self) -> str:
-        return self.config.task_type
+    def grid(self) -> GridRecord:
+        """The grid this task runs on: its item."""
+        return self.item
 
-    @property
-    def task_name(self) -> str:
-        return self.config.task_name
-
-    @property
-    def display_name(self) -> str:
-        return self.config.display_name
+    @grid.setter
+    def grid(self, grid: GridRecord) -> None:
+        self.item = grid
 
     @property
     def review(self) -> bool:
@@ -285,94 +267,12 @@ class GridTask(ABC):
 
     # -- lifecycle -------------------------------------------------------------
 
-    # Everything the task does, on its own thread, is the task's (FIB-1062).
-    @acting(TASK)
-    def run(self) -> None:
-        self.pre_task()
-        self._fire_hook("task_started")
-        try:
-            self._run()
-        except Exception as e:
-            cancelled = self._is_cancellation(e)
-            try:
-                self.grid.task_state.status = (
-                    TaskStatus.Cancelled if cancelled else TaskStatus.Failed
-                )
-                self.grid.task_state.status_message = (
-                    "Cancelled by user." if cancelled else str(e)
-                )
-                self._record_outcome()
-                # A failure is exactly when someone wants to look; a Stop is
-                # not, whoever pressed it already knows.
-                if not cancelled:
-                    self._settle(failure=str(e))
-            except Exception:
-                logging.exception(f"Could not record the outcome of {self.task_name}")
-            self._fire_hook(
-                "task_cancelled" if cancelled else "task_failed", error=str(e)
-            )
-            raise
-        finally:
-            self._clear_workflow_metadata()
-        try:
-            self.post_task()
-            self._settle()
-        except Exception as e:
-            # The work finished, but what follows it failed: settling its result
-            # can save the experiment, and a save that fails leaves nothing on
-            # disk to say so. It did not complete (FIB-1374).
-            cancelled = self._is_cancellation(e)
-            try:
-                take_back_finish(
-                    self.grid,
-                    self.task_id,
-                    TaskStatus.Cancelled if cancelled else TaskStatus.Failed,
-                    "Cancelled by user."
-                    if cancelled
-                    else f"Finished, but its result could not be recorded: {e}",
-                )
-            except Exception:
-                logging.exception(f"Could not record the outcome of {self.task_name}")
-            self._fire_hook(
-                "task_cancelled" if cancelled else "task_failed", error=str(e)
-            )
-            raise
-        self._fire_hook("task_completed")
-
-    def _settle(self, failure: str = "") -> None:
-        """Propose this run's result on the grid and decide it; see
-        ``proposing.settle``. A grid task asks no question, so there is never
-        an inline decision."""
-        settle(
-            self,
-            self.grid,
-            proposer=type(self).proposer,
-            result_images=self.result_images,
-            review=self.review,
-            inline_decision=None,
-            experiment=self.experiment,
-            failure=failure,
-        )
-
-    @abstractmethod
-    def _run(self) -> None: ...
-
     def pre_task(self) -> None:
         logging.info(
             f"Running {self.task_name}, {self.task_type} ({self.task_id}) "
             f"for grid {self.grid.name} ({self.grid.id})"
         )
-        # One task_state object per record, reused across runs and subscribed to by
-        # the UI: reset field by field, never replace it.
-        state = self.grid.task_state
-        state.name = self.task_name
-        state.start_timestamp = now()
-        state.end_timestamp = None
-        state.task_id = self.task_id
-        state.task_type = self.task_type
-        state.status = TaskStatus.InProgress
-        state.status_message = ""
-        state.outputs = {}
+        self._start_task_state()
         self._set_workflow_metadata()
         self.log_status_message("STARTED", "Started")
 
@@ -397,21 +297,6 @@ class GridTask(ABC):
             f"are past the stage's reach and are skipped: {tiles}"
         )
 
-    def _record_outcome(self) -> None:
-        """Freeze the finished task_state into task_history, on every terminal path."""
-        self.grid.task_state.end_timestamp = now()
-        self.grid.task_history.append(deepcopy(self.grid.task_state))
-
-    def _is_cancellation(self, exc: Exception) -> bool:
-        if isinstance(exc, (OperationCancelledError, InterruptedError)):
-            return True
-        return bool(getattr(self.task_manager, "should_abort", False))
-
-    def _check_for_abort(self) -> None:
-        """Raise InterruptedError if this task should stop. Call between steps."""
-        if self._stop_event is not None and self._stop_event.is_set():
-            raise InterruptedError("Workflow aborted by user.")
-
     # -- outputs ---------------------------------------------------------------
 
     def record_output(self, role: str, output: Union[str, Path, Any, None]) -> None:
@@ -432,74 +317,3 @@ class GridTask(ABC):
         paths = self.grid.task_state.outputs.setdefault(role, [])
         if relative not in paths:
             paths.append(relative)
-
-    # -- status, metadata, hooks -----------------------------------------------
-
-    def log_status_message(
-        self, message: str, display_message: Optional[str] = None
-    ) -> None:
-        logging.debug(
-            {
-                "msg": "status",
-                "timestamp": now_iso(),
-                "grid": self.grid.name,
-                "grid_id": self.grid.id,
-                "task_id": self.task_id,
-                "task_type": self.task_type,
-                "task_name": self.task_name,
-                "task_step": message,
-            }
-        )
-        self.grid.task_state.step = message
-        self.grid.task_state.status_message = display_message or ""
-        record = getattr(self.microscope, "record_event", None)
-        if message not in _LIFECYCLE_STEPS and record is not None:
-            # STARTED / FINISHED are recorded as task_started / task_completed.
-            record(
-                "task_step",
-                {
-                    "step": message,
-                    "display_message": display_message,
-                    "item_type": "grid",
-                    "task_type": self.task_type,
-                },
-            )
-        signal = getattr(self.parent_ui, "step_update_signal", None)
-        if message not in _LIFECYCLE_STEPS and signal is not None:
-            signal.emit(display_message or message)
-
-    def _set_workflow_metadata(self) -> None:
-        """Stamp acquisitions with which grid and task produced them (FIB-466)."""
-        ref = getattr(self.microscope, "experiment", None)
-        setter = getattr(ref, "set_workflow_metadata", None)
-        if setter is not None:
-            setter(
-                item_id=self.grid.id,
-                item_name=self.grid.name,
-                task_id=self.task_id,
-                task_name=self.task_name,
-            )
-
-    def _clear_workflow_metadata(self) -> None:
-        ref = getattr(self.microscope, "experiment", None)
-        clear = getattr(ref, "clear_workflow_metadata", None)
-        if clear is not None:
-            clear()
-
-    def _fire_hook(self, event: str, error: Optional[str] = None) -> None:
-        from fibsem.hooks import fire_event
-
-        get_run_context = getattr(self.task_manager, "hook_run_context", None)
-        run_context = get_run_context() if callable(get_run_context) else {}
-        fire_event(
-            getattr(self.task_manager, "hook_manager", None),
-            event,
-            task_name=self.task_name,
-            task_type=self.task_type,
-            item_name=self.grid.name,
-            item_id=self.grid.id,
-            task_id=self.task_id,
-            task_state=self.grid.task_state,
-            error=error,
-            **run_context,
-        )

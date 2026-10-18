@@ -178,9 +178,8 @@ propose auto*: propose switching the milling tasks to auto only after one
 lamella's mills all passed first time; the switch is a request too, and so
 is turning supervision back on.
 
-A **recorded question** (`QUESTION item=… task=…`, or a prompt saying
-`answer_via: "decide"`) is decided, not answered, so a suggestion is
-refused (`409 not_suggestible`). At Assist, file the `review_decide` call
+A **recorded question** (`QUESTION item=… task=…`) is decided, not
+answered, so a suggestion is refused (`409 not_suggestible`). At Assist, file the `review_decide` call
 as a request, with your reason.
 
 A suggestion leaves the click to the operator, so the supervise skill's

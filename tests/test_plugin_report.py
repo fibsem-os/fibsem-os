@@ -32,7 +32,7 @@ from fibsem.plugins.report import (
 
 def _extension(**kwargs) -> Extension:
     defaults = dict(
-        group="fibsem.tasks",
+        group="fibsem.autolamella.tasks",
         name="MY_TASK",
         source=ExtensionSource.PLUGIN,
         target="lab_patterns.tasks.MyTask",
@@ -44,7 +44,7 @@ def _extension(**kwargs) -> Extension:
 
 
 def _group(
-    *extensions: Extension, group="fibsem.tasks", label="AutoLamella tasks"
+    *extensions: Extension, group="fibsem.autolamella.tasks", label="AutoLamella tasks"
 ) -> ExtensionGroup:
     return ExtensionGroup(group=group, label=label, extensions=tuple(extensions))
 
@@ -224,7 +224,7 @@ def test_script_row_shows_its_path_and_keeps_the_class():
 
 def test_empty_group_says_so_rather_than_rendering_nothing():
     text = render_report([_group()])
-    assert "fibsem.tasks  (nothing registered)" in text
+    assert "fibsem.autolamella.tasks  (nothing registered)" in text
 
 
 # ---------------------------------------------------------------------------
@@ -238,7 +238,7 @@ def _boom():
 
 def test_a_group_that_cannot_be_inspected_becomes_one_row_saying_so():
     group = report._collect_group(
-        "fibsem.tasks",
+        "fibsem.autolamella.tasks",
         "AutoLamella tasks",
         "fibsem.applications.autolamella.workflows.tasks",
         _boom,
@@ -264,7 +264,12 @@ def test_one_unreadable_group_does_not_take_the_others_down(monkeypatch):
         report,
         "_GROUPS",
         tuple(
-            (group, label, module, _boom if group == "fibsem.tasks" else collect)
+            (
+                group,
+                label,
+                module,
+                _boom if group == "fibsem.autolamella.tasks" else collect,
+            )
             for group, label, module, collect in report._GROUPS
         ),
     )
@@ -274,10 +279,11 @@ def test_one_unreadable_group_does_not_take_the_others_down(monkeypatch):
     assert set(groups) == {
         "fibsem.patterns",
         "fibsem.strategies",
-        "fibsem.tasks",
+        "fibsem.autolamella.tasks",
+        "fibsem.grid_tasks",
         "fibsem.drivers",
     }
-    assert [e.source for e in groups["fibsem.tasks"].extensions] == [
+    assert [e.source for e in groups["fibsem.autolamella.tasks"].extensions] == [
         ExtensionSource.FAILED
     ]
     # The other groups are not merely present, they are populated: every
@@ -291,12 +297,12 @@ def test_one_unreadable_group_does_not_take_the_others_down(monkeypatch):
 def test_an_unreadable_group_still_renders(monkeypatch):
     """Rendering must not assume a row has a name or a distribution."""
     group = report._collect_group(
-        "fibsem.tasks", "AutoLamella tasks", "some.module", _boom
+        "fibsem.autolamella.tasks", "AutoLamella tasks", "some.module", _boom
     )
 
     text = render_report([group])
 
-    assert "fibsem.tasks" in text
+    assert "fibsem.autolamella.tasks" in text
     assert "some.module" in text
     assert "! ImportError: No module named 'psygnal'" in text
 
@@ -308,6 +314,9 @@ def test_the_group_table_matches_the_registries():
     not be importable -- so the duplication gets pinned here instead.
     """
     from fibsem.applications.autolamella.workflows.tasks import TASK_ENTRY_POINT_GROUP
+    from fibsem.applications.autolamella.workflows.tasks.grid import (
+        GRID_TASK_ENTRY_POINT_GROUP,
+    )
     from fibsem.drivers.registry import DRIVER_ENTRY_POINT_GROUP
     from fibsem.milling.patterning import PATTERN_ENTRY_POINT_GROUP
     from fibsem.milling.strategy import STRATEGY_ENTRY_POINT_GROUP
@@ -316,6 +325,7 @@ def test_the_group_table_matches_the_registries():
         PATTERN_ENTRY_POINT_GROUP,
         STRATEGY_ENTRY_POINT_GROUP,
         TASK_ENTRY_POINT_GROUP,
+        GRID_TASK_ENTRY_POINT_GROUP,
         DRIVER_ENTRY_POINT_GROUP,
     ]
     # The module named in the fallback row has to be the one actually imported,

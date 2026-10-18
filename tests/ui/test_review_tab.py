@@ -15,19 +15,11 @@ from psygnal.containers import EventedDict
 
 pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
 
-from fibsem.applications.autolamella.proposals import (  # noqa: E402
-    POINT_OF_INTEREST,
-    TASK_RESULT,
-    AuthorKind,
-    Decision,
-    DecisionOutcome,
-    Proposal,
-)
+from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     Attention,
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskState,
     AutoLamellaWorkflowConfig,
     Experiment,
 )
@@ -47,7 +39,14 @@ from fibsem.structures import (  # noqa: E402
     MicroscopeState,
     Point,
 )
-from fibsem.workflows.status import TaskStatus  # noqa: E402
+from fibsem.workflows.proposals import (  # noqa: E402
+    TASK_RESULT,
+    AuthorKind,
+    Decision,
+    DecisionOutcome,
+    Proposal,
+)
+from fibsem.workflows.status import TaskState, TaskStatus  # noqa: E402
 
 SETUP = "Setup Lamella Position"
 FIDUCIAL = "Mill Fiducial"
@@ -91,7 +90,7 @@ def experiment(tmp_path) -> Experiment:
     lamella = exp.positions[0]
     lamella.path.mkdir(parents=True, exist_ok=True)
     lamella.task_history.append(
-        AutoLamellaTaskState(name=SETUP, status=TaskStatus.AwaitingDecision)
+        TaskState(name=SETUP, status=TaskStatus.AwaitingDecision)
     )
     ref = os.path.join(str(lamella.path), "ref_setup_ib")
     _fib_image().save(ref)
@@ -134,12 +133,7 @@ def test_a_row_names_its_kind_when_it_is_not_the_tasks_result(tab, experiment):
     point for afterwards: three rows under one task name. The kind is what
     tells them apart, so the row says it. The task's own result is the plain
     case and says nothing extra."""
-    from fibsem.applications.autolamella.proposals import (
-        STATE,
-        TASK_RESULT,
-        Decision,
-        DecisionOutcome,
-    )
+    from fibsem.workflows.proposals import STATE, TASK_RESULT, Decision, DecisionOutcome
 
     lamella = experiment.positions[0]
     unasked = Decision(
@@ -265,7 +259,7 @@ def test_an_unregistered_kind_still_gets_the_two_verbs(tab, experiment, qapp):
         Proposal(kind="site_pick_v9", values={}, provenance={"task_id": RUN})
     ]
     lamella.task_history.append(
-        AutoLamellaTaskState(name="other", status=TaskStatus.AwaitingDecision)
+        TaskState(name="other", status=TaskStatus.AwaitingDecision)
     )
     tab.refresh()
     assert tab.pending_count == 2
@@ -436,7 +430,7 @@ def test_mark_all_as_checked_records_a_look_on_every_to_check_row(
         )
     ]
     lamella.task_history.append(
-        AutoLamellaTaskState(name=ROUGH, status=TaskStatus.AwaitingDecision)
+        TaskState(name=ROUGH, status=TaskStatus.AwaitingDecision)
     )
     tab.refresh()
     assert tab.check_count == 2 and tab.pending_count == 1
@@ -503,7 +497,7 @@ def test_a_task_result_renders_both_images_and_confirms_with_no_values(
     eb = os.path.join(str(lamella.path), "ref_rough_eb")
     _fib_image().save(eb)
     lamella.task_history.append(
-        AutoLamellaTaskState(name=ROUGH, status=TaskStatus.AwaitingDecision)
+        TaskState(name=ROUGH, status=TaskStatus.AwaitingDecision)
     )
     lamella.proposals[ROUGH] = [
         Proposal(
@@ -676,10 +670,10 @@ def _sem_image() -> FibsemImage:
 def _grid_waiting(experiment):
     """Grid-01's SEM overview under review, its stitched image on disk, and a
     FIB overview that requires it."""
-    from fibsem.applications.autolamella.structures import GridRecord
     from fibsem.applications.autolamella.workflows.tasks.grid import (
         BeamOverviewGridTaskConfig,
     )
+    from fibsem.workflows.grids import GridRecord
 
     protocol = experiment.grid_protocol
     protocol.add(
@@ -697,7 +691,7 @@ def _grid_waiting(experiment):
     directory.mkdir(parents=True)
     _sem_image().save(str(directory / "overview"))
     grid.task_history.append(
-        AutoLamellaTaskState(name="SEM Overview", status=TaskStatus.AwaitingDecision)
+        TaskState(name="SEM Overview", status=TaskStatus.AwaitingDecision)
     )
     grid.proposals["SEM Overview"] = [
         Proposal(
@@ -749,14 +743,14 @@ def _positions_waiting(experiment, positions=(), name="Grid-02"):
     """A grid's overview under review for where the lamellae go, with its
     stitched image on disk."""
     from fibsem.applications.autolamella.proposals import OVERVIEW_POSITIONS
-    from fibsem.applications.autolamella.structures import GridRecord
+    from fibsem.workflows.grids import GridRecord
 
     grid = experiment.add_grid(GridRecord(name=name))
     directory = experiment.grid_path(grid) / "SEM Overview"
     directory.mkdir(parents=True, exist_ok=True)
     _sem_image().save(str(directory / "overview"))
     grid.task_history.append(
-        AutoLamellaTaskState(name="SEM Overview", status=TaskStatus.AwaitingDecision)
+        TaskState(name="SEM Overview", status=TaskStatus.AwaitingDecision)
     )
     grid.proposals["SEM Overview"] = [
         Proposal(
@@ -853,7 +847,7 @@ class TestOverviewPositions:
         offered "Add Position Here" and the click did nothing. A decided
         proposal is looked at, not changed, so the canvas is told to offer
         neither -- an action that silently does nothing reads as broken."""
-        from fibsem.applications.autolamella.proposals import Decision, DecisionOutcome
+        from fibsem.workflows.proposals import Decision, DecisionOutcome
 
         grid = _positions_waiting(experiment)
         renderer = _positions_renderer(tab, grid)
@@ -1003,7 +997,7 @@ def _fluorescence_overview(path: Path):
 
 
 def _fm_grid_proposal(experiment, filename="overview.ome.tiff", write=True):
-    from fibsem.applications.autolamella.structures import GridRecord
+    from fibsem.workflows.grids import GridRecord
 
     grid = experiment.add_grid(GridRecord(name="Grid-FM"))
     relative = f"FM Overview/{filename}"
@@ -1011,7 +1005,7 @@ def _fm_grid_proposal(experiment, filename="overview.ome.tiff", write=True):
     if write:
         _fluorescence_overview(target)
     grid.task_history.append(
-        AutoLamellaTaskState(name="FM Overview", status=TaskStatus.AwaitingDecision)
+        TaskState(name="FM Overview", status=TaskStatus.AwaitingDecision)
     )
     grid.proposals["FM Overview"] = [
         Proposal(
@@ -1087,11 +1081,11 @@ def test_an_unreadable_image_clears_the_last_one_and_says_so(tab, experiment, qa
 
 
 def test_a_result_with_no_image_recorded_says_so(tab, experiment):
-    from fibsem.applications.autolamella.structures import GridRecord
+    from fibsem.workflows.grids import GridRecord
 
     grid = experiment.add_grid(GridRecord(name="Grid-None"))
     grid.task_history.append(
-        AutoLamellaTaskState(name="SEM Overview", status=TaskStatus.AwaitingDecision)
+        TaskState(name="SEM Overview", status=TaskStatus.AwaitingDecision)
     )
     grid.proposals["SEM Overview"] = [
         Proposal(kind=TASK_RESULT, provenance={"task_id": RUN, "reference_image": ""})

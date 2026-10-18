@@ -1,11 +1,10 @@
-"""Manual test for the hook system with toast notifications and config widget.
+"""Manual test for the hook system with toast notifications.
 
 Usage:
     python demos/widgets/demo_hooks_manual.py
 
 Buttons fire hook events directly into a HookManager wired to a real
 ToastManager — no microscope or experiment required.
-Click "Manage Hooks..." to open the HookConfigWidget and add/edit/remove hooks.
 """
 
 import sys
@@ -13,7 +12,6 @@ import sys
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
     QApplication,
-    QDialog,
     QLabel,
     QMainWindow,
     QPushButton,
@@ -29,7 +27,6 @@ from fibsem.hooks import (
     LoggingHook,
     NotificationHook,
 )
-from fibsem.ui.widgets.hook_config_widget import HookConfigWidget
 from fibsem.ui.widgets.notifications import NotificationBell, ToastManager
 
 
@@ -199,24 +196,7 @@ class HookTestWindow(QMainWindow):
             btn.clicked.connect(lambda _, c=ctx: self.manager.fire(c))
             layout.addWidget(btn)
 
-        layout.addWidget(self._section("Configuration"))
-        btn_manage = QPushButton("Manage Hooks...")
-        btn_manage.setStyleSheet(btn_style)
-        btn_manage.clicked.connect(self._on_manage_hooks)
-        layout.addWidget(btn_manage)
-
         layout.addStretch()
-
-    def _on_manage_hooks(self):
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Hook Configuration")
-        dlg.resize(500, 400)
-        dlg_layout = QVBoxLayout(dlg)
-        # No re-wiring on change: the manager applies the notifier to hooks the widget
-        # registers, so a hook added here toasts without being wired again.
-        widget = HookConfigWidget(manager=self.manager, parent=dlg)
-        dlg_layout.addWidget(widget)
-        dlg.exec_()
 
     def _section(self, text: str) -> QLabel:
         lbl = QLabel(text)

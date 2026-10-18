@@ -10,7 +10,7 @@ in without changes to callers.
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import List, Optional, Tuple, Union
+from typing import List, Mapping, Optional, Tuple, Union
 
 from PyQt5.QtCore import QEvent, QSize, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QColor, QIcon, QPixmap
@@ -31,6 +31,7 @@ from PyQt5.QtWidgets import (
     QWidgetAction,
 )
 
+from fibsem.fm.composite import AVAILABLE_COLORS
 from fibsem.fm.config import (
     fm_session_state,
     load_recent_channels,
@@ -46,14 +47,14 @@ from fibsem.fm.structures import (
 from fibsem.ui import stylesheets
 from fibsem.ui.fm.widgets.emission_filter_combo import EmissionFilterComboBox
 from fibsem.ui.fm.widgets.fm_limits import (
-    EXPOSURE_RANGE_MS,
-    POWER_RANGE_PERCENT,
     NativeScale,
-    exposure_range_ms,
+    channel_ranges,
+    channel_spinbox,
     gain_scale,
-    power_range_percent,
     power_scale,
     show_native_units,
+    shown_channel_value,
+    stored_channel_value,
 )
 from fibsem.ui.icon import DRAG_HANDLE_HEIGHT, DRAG_HANDLE_WIDTH, drag_handle_pixmap
 from fibsem.ui.tokens import (
@@ -62,7 +63,7 @@ from fibsem.ui.tokens import (
     NEUTRAL_700,
     ORANGE_COLOR,
 )
-from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueComboBox, ValueSpinBox
+from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueComboBox
 
 _NAME_MIN_WIDTH = 130
 _EXCITATION_FIXED_WIDTH = 90
@@ -74,17 +75,10 @@ _BTN_SIZE = QSize(32, 32)
 _ROW_HEIGHT = 40
 _BTN_SPACER_WIDTH = _BTN_SIZE.width() * 2 + 8  # color + remove
 
-_MS_TO_S = 1e-3
-_S_TO_MS = 1e3
-_PCT_TO_FRAC = 1e-2
-_FRAC_TO_PCT = 1e2
-
 _NAME_EDIT_STYLE = (
     "QLineEdit { background: transparent; border: none; }"
     f"QLineEdit:focus {{ background: {CANVAS_BG}; border: 1px solid #555; border-radius: 2px; }}"
 )
-
-AVAILABLE_COLORS = ["violet", "blue", "cyan", "green", "yellow", "red", "gray"]
 
 
 def _make_color_icon(color_name: str, size: int = 16) -> QIcon:
@@ -176,8 +170,7 @@ class ChannelRowWidget(QWidget):
         excitation_items: List[float],
         enabled: bool = True,
         parent: Optional[QWidget] = None,
-        exposure_range: Tuple[float, float] = EXPOSURE_RANGE_MS,
-        power_range: Tuple[float, float] = POWER_RANGE_PERCENT,
+        ranges: Optional[Mapping[str, Tuple[float, float]]] = None,
         power_units: Optional[NativeScale] = None,
         gain_units: Optional[NativeScale] = None,
     ) -> None:
@@ -219,38 +212,22 @@ class ChannelRowWidget(QWidget):
         self.emission_combo.setFixedWidth(_EMISSION_FIXED_WIDTH)
         layout.addWidget(self.emission_combo)
 
-        self.exposure_spin = ValueSpinBox(
-            suffix="ms",
-            minimum=exposure_range[0],
-            maximum=exposure_range[1],
-            step=1.0,
-            decimals=1,
-        )
+        # What the FM's devices allow, else what they declare.
+        ranges = ranges or channel_ranges(None)
+        self.exposure_spin = channel_spinbox("exposure_time", ranges["exposure_time"])
         self.exposure_spin.setFixedWidth(_EXPOSURE_FIXED_WIDTH)
         self.exposure_spin.setToolTip("Exposure time (ms)")
         self.exposure_spin.setVisible(False)
         layout.addWidget(self.exposure_spin)
 
-        self.gain_spin = ValueSpinBox(
-            suffix="%",
-            minimum=0.0,
-            maximum=100.0,
-            step=1.0,
-            decimals=1,
-        )
+        self.gain_spin = channel_spinbox("gain", ranges["gain"])
         self.gain_spin.setFixedWidth(_GAIN_FIXED_WIDTH)
         self.gain_spin.setToolTip("Gain (%)")
         show_native_units(self.gain_spin, gain_units)
         self.gain_spin.setVisible(False)
         layout.addWidget(self.gain_spin)
 
-        self.power_spin = ValueSpinBox(
-            suffix="%",
-            minimum=power_range[0],
-            maximum=power_range[1],
-            step=1.0,
-            decimals=1,
-        )
+        self.power_spin = channel_spinbox("power", ranges["power"])
         self.power_spin.setFixedWidth(_POWER_FIXED_WIDTH)
         self.power_spin.setToolTip("Light source power (%)")
         show_native_units(self.power_spin, power_units)
@@ -364,16 +341,12 @@ class ChannelRowWidget(QWidget):
             self._emission_index(self.channel.emission_filter)
         )
 
-        # Exposure time: stored as seconds, show as ms
-        self.exposure_spin.setValue(self.channel.exposure_time * _S_TO_MS)
-
-        # Gain: stored as fraction, show as %
-        gain = self.channel.gain if self.channel.gain is not None else 0.0
-        self.gain_spin.setValue(gain * _FRAC_TO_PCT)
-
-        # Power: stored as fraction, show as %
-        power = self.channel.power if self.channel.power is not None else 0.0
-        self.power_spin.setValue(power * _FRAC_TO_PCT)
+        for name, spin in (
+            ("exposure_time", self.exposure_spin),
+            ("gain", self.gain_spin),
+            ("power", self.power_spin),
+        ):
+            spin.setValue(shown_channel_value(self.channel, name))
 
         # Color icon
         color = self.channel.color if self.channel.color in AVAILABLE_COLORS else "gray"
@@ -417,7 +390,7 @@ class ChannelRowWidget(QWidget):
         self.channel_changed.emit(self.channel)
 
     def _on_exposure_changed(self) -> None:
-        value_s = self.exposure_spin.value() * _MS_TO_S
+        value_s = stored_channel_value(self.exposure_spin, "exposure_time")
         if value_s == self.channel.exposure_time:
             return
         self.channel.exposure_time = value_s
@@ -425,7 +398,7 @@ class ChannelRowWidget(QWidget):
         self.channel_changed.emit(self.channel)
 
     def _on_gain_changed(self) -> None:
-        value = self.gain_spin.value() * _PCT_TO_FRAC
+        value = stored_channel_value(self.gain_spin, "gain")
         if value == self.channel.gain:
             return
         self.channel.gain = value
@@ -433,7 +406,7 @@ class ChannelRowWidget(QWidget):
         self.channel_changed.emit(self.channel)
 
     def _on_power_changed(self) -> None:
-        value = self.power_spin.value() * _PCT_TO_FRAC
+        value = stored_channel_value(self.power_spin, "power")
         if value == self.channel.power:
             return
         self.channel.power = value
@@ -683,8 +656,7 @@ class ChannelListWidget(QWidget):
             if fm is not None
             else []
         )
-        self._exposure_range = exposure_range_ms(fm)
-        self._power_range = power_range_percent(fm)
+        self._ranges = channel_ranges(fm)
         self._power_units = power_scale(fm)
         self._gain_units = gain_scale(fm)
 
@@ -937,8 +909,7 @@ class ChannelListWidget(QWidget):
             emission_items=self._emission_items,
             excitation_items=self._excitation_items,
             enabled=enabled,
-            exposure_range=self._exposure_range,
-            power_range=self._power_range,
+            ranges=self._ranges,
             power_units=self._power_units,
             gain_units=self._gain_units,
         )
@@ -1177,8 +1148,7 @@ class ChannelListWidget(QWidget):
                 emission_items=self._emission_items,
                 excitation_items=self._excitation_items,
                 enabled=enabled,
-                exposure_range=self._exposure_range,
-                power_range=self._power_range,
+                ranges=self._ranges,
                 power_units=self._power_units,
                 gain_units=self._gain_units,
             )

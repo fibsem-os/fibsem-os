@@ -14,14 +14,14 @@ import pytest
 pytest.importorskip("PIL")
 
 from fibsem.applications.autolamella.server.prompts import serialize_request
-from fibsem.applications.autolamella.workflows.interaction import (
+from fibsem.imaging.spot import SpotBurnSettings
+from fibsem.structures import FibsemImage, FibsemRectangle, Point
+from fibsem.workflows.interaction import (
     EditAlignmentArea,
     PickPOI,
     RunMillingTask,
     RunSpotBurn,
 )
-from fibsem.imaging.spot import SpotBurnSettings
-from fibsem.structures import FibsemImage, FibsemRectangle, Point
 
 
 def _image(resolution=(1536, 1024), hfw=100e-6) -> FibsemImage:
@@ -68,7 +68,7 @@ def test_confirm_detection_bare_array_reports_source_dimensions():
         rgb=None,
         pixelsize=6.5e-8,
     )
-    from fibsem.applications.autolamella.workflows.interaction import (
+    from fibsem.workflows.interaction import (
         ConfirmDetection,
     )
 
@@ -123,7 +123,7 @@ def test_run_milling_payload_explains_every_field():
 
 
 def test_a_milling_answer_is_an_action_with_its_edits():
-    from fibsem.applications.autolamella.workflows.interaction import (
+    from fibsem.workflows.interaction import (
         InvalidAnswerValue,
         apply_milling_edit,
     )
@@ -156,7 +156,7 @@ def test_a_whole_config_reorders_and_removes_stages():
     document["stages"] = [document["stages"][1]]
     edit = request.parse_value({"action": "run", "config": document})
 
-    from fibsem.applications.autolamella.workflows.interaction import (
+    from fibsem.workflows.interaction import (
         apply_milling_edit,
     )
 
@@ -195,7 +195,7 @@ def _detection():
 
 
 def test_a_detection_value_moves_named_features_inside_the_image():
-    from fibsem.applications.autolamella.workflows.interaction import (
+    from fibsem.workflows.interaction import (
         ConfirmDetection,
         InvalidAnswerValue,
     )
@@ -218,7 +218,7 @@ def test_a_detection_value_moves_named_features_inside_the_image():
 
 
 def test_a_spot_burn_value_is_an_action_and_its_edits():
-    from fibsem.applications.autolamella.workflows.interaction import (
+    from fibsem.workflows.interaction import (
         InvalidAnswerValue,
         SpotBurnEdit,
         apply_spot_burn_edit,
@@ -276,7 +276,7 @@ def test_a_spot_burn_value_is_an_action_and_its_edits():
 def test_an_answer_says_what_it_decided():
     """Sim session 2026-10-16: the agent card's Recent says what an answer
     decided, not the prompt's instructions."""
-    from fibsem.applications.autolamella.workflows.interaction import (
+    from fibsem.workflows.interaction import (
         Confirm,
         MillingDecision,
     )
@@ -305,7 +305,7 @@ def test_a_suggestion_at_a_mill_again_question_says_what_it_decides():
     """Sim session 2026-10-16: "Answer: Continue" for "don't mill again"."""
     pytest.importorskip("PyQt5")
     from fibsem.applications.autolamella.ui.qt_responder import QtResponder
-    from fibsem.applications.autolamella.workflows.interaction import MillingEdit
+    from fibsem.workflows.interaction import MillingEdit
 
     again = RunMillingTask(config=None, passes=6)
     label = QtResponder._button_label(again, False, MillingEdit(action="accept"))

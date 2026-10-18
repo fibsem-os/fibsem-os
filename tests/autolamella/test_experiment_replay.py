@@ -12,10 +12,6 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from fibsem.applications.autolamella.event_recording import (
-    EVENTS_FILENAME,
-    read_events,
-)
 from fibsem.applications.autolamella.tools.replay import (
     EventKind,
     load_replay,
@@ -24,6 +20,10 @@ from fibsem.applications.autolamella.tools.replay import (
     read_log_records,
 )
 from fibsem.milling.base import FibsemMillingStage
+from fibsem.workflows.event_recording import (
+    EVENTS_FILENAME,
+    read_events,
+)
 
 from ._replay_experiment import (
     FM_CHANNELS,

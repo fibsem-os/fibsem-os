@@ -18,7 +18,7 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
-from fibsem.applications.autolamella.workflows.interaction import (
+from fibsem.workflows.interaction import (
     Confirm,
     answered_by,
     ask,
@@ -138,7 +138,7 @@ def test_an_answer_naming_the_question_applies(ui, qapp):
 
 
 def test_a_wrong_question_id_is_refused_and_clicks_nothing(ui, qapp):
-    from fibsem.applications.autolamella.workflows.interaction import (
+    from fibsem.workflows.interaction import (
         StalePromptError,
     )
 

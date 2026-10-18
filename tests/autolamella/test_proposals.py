@@ -13,9 +13,25 @@ import pytest
 import yaml
 from psygnal.containers import EventedDict
 
-from fibsem.applications.autolamella.proposals import (
+from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
+from fibsem.applications.autolamella.structures import (
+    AutoLamellaTaskProtocol,
+    Experiment,
+)
+from fibsem.applications.autolamella.workflows.tasks.rough import MillRoughTaskConfig
+from fibsem.applications.autolamella.workflows.tasks.select_position import (
+    SelectMillingPositionTaskConfig,
+)
+from fibsem.structures import (
+    FibsemRectangle,
+    FibsemStagePosition,
+    MicroscopeState,
+    Point,
+)
+from fibsem.workflows.experiment import EXPERIMENT_WRITE_LOCK
+from fibsem.workflows.grids import GridRecord
+from fibsem.workflows.proposals import (
     ALIGNMENT_AREA,
-    POINT_OF_INTEREST,
     PROPOSAL_KINDS,
     TASK_RESULT,
     Alternative,
@@ -32,25 +48,9 @@ from fibsem.applications.autolamella.proposals import (
     prepare_values,
     register_proposal_kind,
 )
-from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskProtocol,
-    AutoLamellaTaskState,
-    Experiment,
-    GridRecord,
-    Verdict,
-    standing,
-)
-from fibsem.applications.autolamella.workflows.tasks.rough import MillRoughTaskConfig
-from fibsem.applications.autolamella.workflows.tasks.select_position import (
-    SelectMillingPositionTaskConfig,
-)
-from fibsem.structures import (
-    FibsemRectangle,
-    FibsemStagePosition,
-    MicroscopeState,
-    Point,
-)
-from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.quality import Verdict
+from fibsem.workflows.review import standing
+from fibsem.workflows.status import TaskState, TaskStatus
 
 SETUP = "Setup Lamella Position"
 # the run a proposal is from, and that a decision names
@@ -123,7 +123,7 @@ def test_a_decision_records_where_it_was_made():
 
 
 def test_a_tasks_proposals_are_a_list_oldest_first_and_the_last_is_current():
-    from fibsem.applications.autolamella.proposals import (
+    from fibsem.workflows.proposals import (
         current_proposal,
         proposals_from_dict,
         proposals_to_dict,
@@ -167,13 +167,8 @@ def test_a_tasks_proposals_are_a_list_oldest_first_and_the_last_is_current():
 
 
 def test_a_kind_has_a_name_for_a_person():
-    from fibsem.applications.autolamella.proposals import (
-        DETECTION,
-        OVERVIEW_POSITIONS,
-        STATE,
-        TASK_RESULT,
-        kind_label,
-    )
+    from fibsem.applications.autolamella.proposals import OVERVIEW_POSITIONS
+    from fibsem.workflows.proposals import DETECTION, STATE, TASK_RESULT, kind_label
 
     assert kind_label(POINT_OF_INTEREST) == "Point of interest"
     assert kind_label(STATE) == "Position"
@@ -191,7 +186,7 @@ def test_a_runs_questions_of_one_kind_all_stand_and_a_rerun_replaces_them():
     question, not a replaced one. A re-run's question of the same kind does
     replace them. A proposal with no run stamped on it goes by the old
     last-of-kind rule."""
-    from fibsem.applications.autolamella.proposals import STATE, current_proposals
+    from fibsem.workflows.proposals import STATE, current_proposals
 
     def question(run: str, stamped: bool = True) -> Proposal:
         return Proposal(
@@ -226,7 +221,7 @@ def test_recording_replaces_only_an_unanswered_proposal_of_the_same_kind():
     """A re-run's first question lands after the point the last run left
     open. That point is another kind: it stays for ``expire_open`` to close,
     rather than being dropped as if it were the question asked again."""
-    from fibsem.applications.autolamella.proposals import STATE, record
+    from fibsem.workflows.proposals import STATE, record
 
     open_point = _proposal()
     proposals = [open_point]
@@ -243,7 +238,7 @@ def test_recording_replaces_only_an_unanswered_proposal_of_the_same_kind():
 def test_recording_over_an_unanswered_proposal_replaces_it():
     """Nobody answered it, so there is nothing to keep; two open proposals
     for one task would be two questions where one was asked."""
-    from fibsem.applications.autolamella.proposals import record
+    from fibsem.workflows.proposals import record
 
     proposals = []
     record(proposals, _proposal(Point(1e-6, 0)))
@@ -313,9 +308,7 @@ def test_standing_is_one_lifecycle_read_off_the_item(tmp_path):
     p.asking = False
 
     lamella.task_history.append(
-        AutoLamellaTaskState(
-            name=SETUP, task_id=RUN, status=TaskStatus.AwaitingDecision
-        )
+        TaskState(name=SETUP, task_id=RUN, status=TaskStatus.AwaitingDecision)
     )
     assert standing(lamella, SETUP, p) is Standing.Awaiting, "consumers wait"
     lamella.task_history.pop()
@@ -482,9 +475,7 @@ def test_a_decision_finishes_a_task_that_was_awaiting_one(tmp_path):
     history entry and on the live task_state when that is the same run."""
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
-    lamella.task_state = AutoLamellaTaskState(
-        name=SETUP, status=TaskStatus.AwaitingDecision
-    )
+    lamella.task_state = TaskState(name=SETUP, status=TaskStatus.AwaitingDecision)
     lamella.task_history.append(deepcopy(lamella.task_state))
     lamella.proposals[SETUP] = [_proposal()]
     assert lamella.is_awaiting_decision(SETUP) and not lamella.has_completed_task(SETUP)
@@ -509,7 +500,7 @@ def test_reject_fails_the_waiting_task_and_leaves_the_lamella_alone(tmp_path):
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
     lamella.task_history.append(
-        AutoLamellaTaskState(name=SETUP, status=TaskStatus.AwaitingDecision)
+        TaskState(name=SETUP, status=TaskStatus.AwaitingDecision)
     )
     lamella.proposals[SETUP] = [_proposal()]
 
@@ -538,9 +529,7 @@ def test_a_decision_on_a_finished_task_changes_only_the_record(tmp_path):
     stays Completed: the decision is about the record, the outcome stands."""
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
-    lamella.task_history.append(
-        AutoLamellaTaskState(name=SETUP, status=TaskStatus.Completed)
-    )
+    lamella.task_history.append(TaskState(name=SETUP, status=TaskStatus.Completed))
     lamella.proposals[SETUP] = [_proposal()]
 
     exp.decide(
@@ -822,7 +811,7 @@ def _snapshot(lamella):
 def _awaiting(exp, kind_proposal, task_name=SETUP):
     lamella = exp.positions[0]
     lamella.task_history.append(
-        AutoLamellaTaskState(name=task_name, status=TaskStatus.AwaitingDecision)
+        TaskState(name=task_name, status=TaskStatus.AwaitingDecision)
     )
     lamella.proposals[task_name] = [kind_proposal]
     return lamella
@@ -1054,9 +1043,7 @@ def test_looking_at_an_earlier_result_is_not_refused_by_a_later_run(tmp_path):
     acknowledgement writes nothing, so it lands."""
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
-    lamella.task_history.append(
-        AutoLamellaTaskState(name=SETUP, status=TaskStatus.Completed)
-    )
+    lamella.task_history.append(TaskState(name=SETUP, status=TaskStatus.Completed))
     lamella.proposals[SETUP] = [_proposal()]
     lamella.proposal(SETUP).decisions.append(
         Decision(
@@ -1272,9 +1259,7 @@ def test_an_acknowledgement_with_values_is_refused_and_nothing_moves(tmp_path):
     with values it would be an edit, and is refused."""
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
-    lamella.task_history.append(
-        AutoLamellaTaskState(name=SETUP, status=TaskStatus.Completed)
-    )
+    lamella.task_history.append(TaskState(name=SETUP, status=TaskStatus.Completed))
     lamella.proposals[SETUP] = [_proposal(Point(1e-6, 0))]
     assert exp.decide(
         lamella.id,
@@ -1377,7 +1362,7 @@ def test_decide_and_save_share_the_write_lock(tmp_path):
     release = threading.Event()
 
     def hold_the_lock():
-        with S.EXPERIMENT_WRITE_LOCK:
+        with EXPERIMENT_WRITE_LOCK:
             order.append("locked")
             holding.set()
             release.wait(5)

@@ -27,11 +27,11 @@ from PyQt5.QtWidgets import QDialog, QLabel
 from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
     confirm_add_to_queue_dialog,
 )
-from fibsem.applications.autolamella.workflows.tasks.queue import WorkItem
 from fibsem.applications.autolamella.workflows.workflow_estimate import (
     estimate_addition,
 )
 from fibsem.ui.stylesheets import NAPARI_STYLE
+from fibsem.workflows.queue import WorkItem
 
 NOW = datetime(2026, 8, 19, 14, 0, 0)
 LAMELLA = ["01-lamella", "02-lamella"]

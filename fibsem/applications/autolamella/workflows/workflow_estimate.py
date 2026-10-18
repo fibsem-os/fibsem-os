@@ -28,7 +28,7 @@ from fibsem.applications.autolamella.workflows.tasks.attendance import (
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment
-    from fibsem.applications.autolamella.workflows.tasks.queue import WorkItem
+    from fibsem.workflows.queue import WorkItem
 
 
 @dataclass(frozen=True)
@@ -507,7 +507,7 @@ def estimate_addition(
     Returns:
         AdditionEstimate: the work added, and the delay it causes.
     """
-    from fibsem.applications.autolamella.workflows.tasks.queue import WorkItem
+    from fibsem.workflows.queue import WorkItem
 
     clock = now if now is not None else datetime.now()
     added = [WorkItem(item_name=ln, task_name=tn) for ln, tn in pairs]

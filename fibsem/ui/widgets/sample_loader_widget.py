@@ -91,14 +91,6 @@ _STATE_TIP = {
 }
 
 
-def slot_state(slot: GridSlot, loaded: bool) -> str:
-    """The row state for a slot the stage has answered for. UNKNOWN rows are
-    handed their state directly, from the inventory."""
-    if slot.loaded_grid is None:
-        return "empty"
-    return "loaded" if loaded else "occupied"
-
-
 class _MagazineRow(QWidget):
     """One magazine slot: number, the grid's name (editable when there is one),
     its state, and Load."""

@@ -186,8 +186,7 @@ A workflow asks in one of two ways:
 - **A recorded question** (`QUESTION`): with the review preference on, a task
   asks a detection or a position confirmation on the item's record and stops
   on it. `review_list` lists it with `holding_the_run: true`. It is decided
-  with `review_decide`, never answered or suggested (`409 not_suggestible`). A
-  prompt whose payload says `answer_via: "decide"` is one too.
+  with `review_decide`, never answered or suggested (`409 not_suggestible`).
 
 The operator outranks you: if they answer first, your job for that question
 is over. A `409 stale_prompt` means the question changed under you, usually
@@ -463,6 +462,17 @@ angle, where it sits against the POI, and any holes. Use it instead of
 measuring a preview yourself. When `resolution.under_resolved` is true the
 band is under 8 px: take the next image at the suggested field width before
 trusting the number.
+
+**Correlating FM to FIB.** `correlation_correlate` fits a saved FM stack to
+a saved FIB image from fiducial pairs you give (FIB pixels; FM pixels and
+slices, same order, at least four) and maps the targets into the FIB image.
+Refine each pick first with `correlation_refine_point`, and look at the
+overlay before trusting the answer. Pass `lamella_path` so the fit starts from
+earlier runs and is saved where the correlation tab finds it. A verdict of
+`check` or `bad` names the fiducial to look at. The answer does not move the
+lamella's POI: `item_apply_correlation` with the run's `run_path` does, as the
+tab's Continue (Drive; at Assist, ask). Only move it on a `good` verdict, or
+when the operator agrees.
 
 **Overviews and focus stacks.** `beam_acquire_overview` images a grid of
 tiles around where the stage is and stitches them; the stage moves to each

@@ -16,14 +16,7 @@ from psygnal.containers import EventedDict
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.applications.autolamella.proposals import (
-    ALIGNMENT_AREA,
-    POINT_OF_INTEREST,
-    STATE,
-    AuthorKind,
-    Decision,
-    DecisionOutcome,
-)
+from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
 from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskDescription,
@@ -40,6 +33,13 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
     consumed_values,
 )
 from fibsem.structures import Point
+from fibsem.workflows.proposals import (
+    ALIGNMENT_AREA,
+    STATE,
+    AuthorKind,
+    Decision,
+    DecisionOutcome,
+)
 from fibsem.workflows.status import TaskStatus
 
 SETUP = "Setup Lamella Position"
@@ -347,12 +347,12 @@ def test_supervised_an_agent_s_inline_answer_is_the_agent_s_decision(
 ):
     """The agent answered the workflow's point question over the App Server:
     the decision is the agent's, not the operator at the window (FIB-1328)."""
-    from fibsem.applications.autolamella.workflows.interaction import (
+    from fibsem.applications.autolamella.workflows.tasks import select_position as S
+    from fibsem.workflows.interaction import (
         PickPOI,
         ask,
         mark_answered_by,
     )
-    from fibsem.applications.autolamella.workflows.tasks import select_position as S
 
     class AgentAnswers:
         def submit(self, request, future):
