@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import numbers
 import os
 import sys
 import weakref
@@ -646,6 +647,10 @@ class Point(Configurable):
     y: float = param(0.0, doc="The y value, in the same unit as x.")
     name: Optional[str] = param(None, doc="A name for the point.")
 
+    # numpy would otherwise read a Point as the sequence [x, y] and answer
+    # np.float64(2) * point with an array instead of calling __rmul__.
+    __array_ufunc__ = None
+
     def __post_init__(self) -> None:
         self.x = _plain_number(self.x)
         self.y = _plain_number(self.y)
@@ -674,6 +679,25 @@ class Point(Configurable):
     def __sub__(self, other) -> "Point":
         return Point(self.x - other.x, self.y - other.y)
 
+    def __mul__(self, scale: float) -> "Point":
+        """Both coordinates times a number, e.g. pixels times a pixel size. Only a
+        number: the point carries no unit, so the result is in whatever unit the
+        number makes it."""
+        if not isinstance(scale, numbers.Real):
+            return NotImplemented
+        return Point(self.x * scale, self.y * scale)
+
+    __rmul__ = __mul__
+
+    def __truediv__(self, scale: float) -> "Point":
+        """Both coordinates divided by a number, e.g. metres by a pixel size."""
+        if not isinstance(scale, numbers.Real):
+            return NotImplemented
+        return Point(self.x / scale, self.y / scale)
+
+    def __neg__(self) -> "Point":
+        return Point(-self.x, -self.y)
+
     def __len__(self) -> int:
         return 2
 
@@ -684,12 +708,6 @@ class Point(Configurable):
             return self.y
         else:
             raise IndexError("Index out of range")
-
-    def _to_metres(self, pixel_size: float) -> "Point":
-        return Point(self.x * pixel_size, self.y * pixel_size)
-
-    def _to_pixels(self, pixel_size: float) -> "Point":
-        return Point(self.x / pixel_size, self.y / pixel_size)
 
     def distance(self, other: "Point") -> "Point":
         """Calculate the distance between two points. (other - self)"""

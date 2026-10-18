@@ -15,6 +15,7 @@ from fibsem.structures import (
     ImageSettings,
     MicroscopeState,
     OverviewAcquisitionSettings,
+    Point,
     ReferenceImageParameters,
     TileOrderStrategy,
 )
@@ -793,3 +794,29 @@ def test_geometry_holds_plain_numbers_not_numpy_scalars():
     assert type(stage.x) is float and stage.y is None and type(stage.t) is float
     manipulator = FibsemManipulatorPosition(x=np.float64(1e-3))
     assert type(manipulator.x) is float
+
+
+def test_a_point_scales_by_a_number():
+    p = Point(2.0, -4.0)
+    assert (p * 0.5).to_list() == [1.0, -2.0]
+    assert (3 * p).to_list() == [6.0, -12.0]
+    assert (p / 2).to_list() == [1.0, -2.0]
+    assert (-p).to_list() == [-2.0, 4.0]
+
+
+def test_a_numpy_number_on_the_left_still_gives_a_point():
+    import numpy as np
+
+    scaled = np.float64(1e6) * Point(1e-6, 2e-6)
+    assert isinstance(scaled, Point)
+    assert scaled.to_list() == pytest.approx([1.0, 2.0])
+    assert type(scaled.x) is float
+
+
+def test_a_point_does_not_multiply_a_point():
+    import numpy as np
+
+    with pytest.raises(TypeError):
+        Point(1.0, 2.0) * Point(3.0, 4.0)
+    with pytest.raises(TypeError):
+        np.array([1.0, 2.0]) * Point(1.0, 2.0)

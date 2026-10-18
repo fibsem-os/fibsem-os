@@ -44,7 +44,7 @@ def calculate_reprojected_stage_position(
     dy = dy if (delta.y < 0) else -dy
 
     pt_delta = Point(dx, dy)
-    px_delta = pt_delta._to_pixels(image.metadata.pixel_size.x)
+    px_delta = pt_delta / image.metadata.pixel_size.x
 
     beam_type = image.metadata.image_settings.beam_type
     if beam_type is BeamType.ELECTRON:
@@ -53,8 +53,7 @@ def calculate_reprojected_stage_position(
         scan_rotation = image.metadata.microscope_state.ion_beam.scan_rotation
 
     if np.isclose(scan_rotation, np.pi):
-        px_delta.x *= -1.0
-        px_delta.y *= -1.0
+        px_delta = -px_delta
 
     # turned over, on an instrument that mirrors its images of the back of the grid
     # (an image with no geometry recorded keeps the flip it always had)
@@ -177,11 +176,10 @@ def calculate_reprojected_stage_position2(
     )  # type: ignore
 
     pt_delta = Point(dx, -dy)
-    px_delta = pt_delta._to_pixels(pixel_size)
+    px_delta = pt_delta / pixel_size
 
     if np.isclose(scan_rotation, np.pi):
-        px_delta.x *= -1.0
-        px_delta.y *= -1.0
+        px_delta = -px_delta
 
     image_centre = Point(x=image.data.shape[1] / 2, y=image.data.shape[0] / 2)
     point = image_centre + px_delta
