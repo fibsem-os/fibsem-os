@@ -11,8 +11,8 @@ import math
 import numpy as np
 import pytest
 
-import fibsem.correlation.correlation_v2 as correlation_v2
-from fibsem.correlation.correlation_v2 import run_correlation_from_data
+import fibsem.correlation.fit as fit
+from fibsem.correlation.fit import run_correlation_from_data
 from fibsem.correlation.refractive_index import apply_z_surface_correction
 from fibsem.correlation.structures import (
     Coordinate,
@@ -84,7 +84,7 @@ class TestApplyZSurfaceCorrection:
 
 
 def _fake_run_correlation(captured):
-    """Stub for correlation_v2.run_correlation that records its POI input."""
+    """Stub for fit.run_correlation that records its POI input."""
 
     def fake(
         fib_coords,
@@ -92,7 +92,6 @@ def _fake_run_correlation(captured):
         poi_coords,
         image_props,
         rotation_center,
-        path=None,
         fib_image_filename="",
         fm_image_filename="",
     ):
@@ -147,9 +146,7 @@ class TestRunCorrelationPreCorrection:
     @pytest.fixture
     def captured(self, monkeypatch):
         captured = {}
-        monkeypatch.setattr(
-            correlation_v2, "run_correlation", _fake_run_correlation(captured)
-        )
+        monkeypatch.setattr(fit, "run_correlation", _fake_run_correlation(captured))
         return captured
 
     def test_correction_applied_to_all_pois(self, captured):

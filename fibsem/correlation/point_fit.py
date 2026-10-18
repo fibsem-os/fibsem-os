@@ -5,6 +5,12 @@ coordinate. It never moves the coordinate: the proposal is a
 :class:`PointFitResult`, which the correlation tab shows for the user to accept
 or reject and which anything else fitting points (a service, a script) gets
 back the same way.
+
+The fitters (:mod:`fibsem.imaging.localise`) return a :class:`PointFitDiagnostic`,
+the *data* needed to draw the diagnostic figure, without touching matplotlib
+(FIB-281). :func:`plot_fit_diagnostic` renders it on demand, in a light palette by
+default or the napari-dark palette (``dark=True``) the confirm dialog uses, so the
+compute path stays matplotlib-free and a figure is built only when one is shown.
 """
 
 from __future__ import annotations
@@ -12,16 +18,21 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from fibsem.correlation.config import FitSettings
 from fibsem.correlation.structures import Coordinate, PointXYZ
+from fibsem.theme.tokens import CANVAS_BG, NEUTRAL_200, NEUTRAL_300, SURFACE_COLOR
+
+if TYPE_CHECKING:  # pragma: no cover - annotations only
+    from fibsem.imaging.localise import PointFitDiagnostic
 
 __all__ = [
     "FitStatus",
     "PointFitResult",
     "refine_point",
     "humanize_fit_error",
+    "plot_fit_diagnostic",
 ]
 
 # Per-axis displacement below which a fit is treated as "no change" (the fit
@@ -219,3 +230,142 @@ def refine_point(
         detail=error_detail,
         diagnostic=diag,
     )
+
+
+# ── the diagnostic figure ────────────────────────────────────────────────
+
+# input (red) / fitted (green) are the only saturated colours in every panel;
+# everything else is greyscale so the eye goes to the two markers.
+_C_IN = "#e53935"
+_C_FIT = "#43a047"
+
+
+def plot_fit_diagnostic(d: PointFitDiagnostic, *, dark: bool = False):
+    """Render a :class:`PointFitDiagnostic` to a matplotlib ``Figure``.
+
+    Uses the object-oriented ``Figure`` API (no pyplot), so the figure isn't
+    held in pyplot's global registry — it's freed with its canvas and needs no
+    ``plt.close``. Pass ``dark=True`` for the napari-dark confirm-dialog palette.
+    """
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
+
+    if d.has_z:
+        fig = Figure(figsize=(9, 4.5))
+        FigureCanvasAgg(
+            fig
+        )  # gives tight_layout a renderer; replaced by the Qt canvas on embed
+        ax_z, ax_xy = fig.subplots(1, 2, gridspec_kw={"width_ratios": [1, 1.4]})
+        _draw_z_panel(ax_z, d)
+    else:
+        fig = Figure(figsize=(5, 5))
+        FigureCanvasAgg(fig)
+        ax_xy = fig.subplots(1, 1)
+
+    _draw_xy_panel(ax_xy, d)
+    fig.suptitle(d.title)
+
+    if dark:
+        _apply_dark_theme(fig)
+    fig.tight_layout()
+    return fig
+
+
+def _draw_z_panel(ax, d: PointFitDiagnostic) -> None:
+    ax.plot(d.z_axis, d.z_signal, color="0.55", lw=1.3)
+    if d.z_fit is not None:
+        ax.plot(d.z_axis, d.z_fit, color="0.15", ls="--", lw=1.2)
+    ax.axvline(d.z_input, color=_C_IN, ls="--", lw=1.6, label=f"input {d.z_input:.1f}")
+    ax.axvline(
+        d.z_fitted, color=_C_FIT, ls="--", lw=1.6, label=f"fitted {d.z_fitted:.1f}"
+    )
+    ax.set_title("z", fontsize=10)
+    ax.set_xlabel("z slice", fontsize=8)
+    if d.z_inverted:
+        # the hole is dark, so the signal is inverted — the peak is the hole
+        ax.set_ylabel("signal (inverted)", fontsize=8)
+    ax.set_yticks([])
+    ax.tick_params(labelsize=8)
+    ax.legend(fontsize=7, framealpha=0.6)
+
+
+def _draw_xy_panel(ax, d: PointFitDiagnostic) -> None:
+    ax.imshow(d.roi_xy, cmap="gray")
+    ax.plot(d.input_xy[0], d.input_xy[1], "+", color=_C_IN, ms=16, mew=2, label="input")
+    if d.fitted_xy is not None:
+        ax.plot(
+            d.fitted_xy[0],
+            d.fitted_xy[1],
+            "+",
+            color=_C_FIT,
+            ms=16,
+            mew=2,
+            label="fitted",
+        )
+    elif d.xy_message:
+        # A failed / out-of-region fit has no marker to show; say so instead of
+        # letting matplotlib silently chase a marker off-axes.
+        ax.text(
+            0.5,
+            0.5,
+            d.xy_message,
+            transform=ax.transAxes,
+            ha="center",
+            va="center",
+            color=_C_IN,
+            fontsize=11,
+            bbox=dict(boxstyle="round", fc="black", ec=_C_IN, alpha=0.65),
+        )
+    n = d.roi_xy.shape[0]
+    ax.set_xlim(-0.5, n - 0.5)
+    ax.set_ylim(n - 0.5, -0.5)
+    ax.set_title(d.xy_title)
+    ax.legend(loc="upper right", fontsize=8, framealpha=0.6)
+    ax.axis("off")
+
+
+# --- dark theme -----------------------------------------------------------
+# The napari-dark palette for the confirm dialog. This is the exact re-theming
+# that shipped in #144 (formerly _apply_dark_theme in fit_confirmation_dialog);
+# it now lives here so the dialog just passes dark=True. Only theme-agnostic
+# chrome is touched — the saturated input/fitted markers and the grayscale image
+# are left as authored (they read correctly on dark).
+_FIG_BG = CANVAS_BG  # == the dialog background: figure margins blend in
+_AXES_BG = SURFACE_COLOR  # a subtle lift so the z line-plot reads as a panel
+_FG = NEUTRAL_300  # labels, ticks, legend text
+_FG_TITLE = NEUTRAL_200  # titles / suptitle, a touch brighter
+_SPINE = "#4a4d53"  # no token; the shared plot theme (FIB-1285) replaces it
+# A line darker than this is invisible on the dark panel; the only such artist
+# is the gaussian-fit overlay (drawn at 0.15 grey). Lift it to a light grey.
+_DARK_LINE_LUM = 0.25
+_DARK_LINE_TARGET = "0.8"
+
+
+def _luminance(color) -> float:
+    from matplotlib.colors import to_rgb
+
+    r, g, b = to_rgb(color)
+    return 0.299 * r + 0.587 * g + 0.114 * b
+
+
+def _apply_dark_theme(fig) -> None:
+    fig.set_facecolor(_FIG_BG)
+    for txt in fig.texts:  # figure-level text == the suptitle
+        txt.set_color(_FG_TITLE)
+    for ax in fig.axes:
+        ax.set_facecolor(_AXES_BG)
+        ax.title.set_color(_FG_TITLE)
+        ax.xaxis.label.set_color(_FG)
+        ax.yaxis.label.set_color(_FG)
+        ax.tick_params(colors=_FG)
+        for spine in ax.spines.values():
+            spine.set_color(_SPINE)
+        for line in ax.get_lines():
+            if _luminance(line.get_color()) < _DARK_LINE_LUM:
+                line.set_color(_DARK_LINE_TARGET)
+        legend = ax.get_legend()
+        if legend is not None:
+            legend.get_frame().set_facecolor(_AXES_BG)
+            legend.get_frame().set_edgecolor(_SPINE)
+            for text in legend.get_texts():
+                text.set_color(_FG)

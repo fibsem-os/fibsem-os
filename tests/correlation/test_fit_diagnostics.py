@@ -17,9 +17,10 @@ matplotlib.use("Agg")
 import numpy as np
 import pytest
 
-from fibsem.correlation.fit_diagnostics import PointFitDiagnostic, plot_fit_diagnostic
+from fibsem.correlation.point_fit import plot_fit_diagnostic
 from fibsem.imaging.localise import (
     FitOutsideWindow,
+    PointFitDiagnostic,
     fit_gauss_2d_mod,
     hole_fitting_FIB,
     hole_fitting_reflection,

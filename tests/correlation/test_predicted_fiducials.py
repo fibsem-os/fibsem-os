@@ -18,6 +18,7 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
+from fibsem.correlation.history import find_spot_burns  # noqa: E402
 from fibsem.correlation.structures import (  # noqa: E402
     Coordinate,
     PointProvenance,
@@ -43,7 +44,6 @@ from fibsem.structures import (  # noqa: E402
 )
 from fibsem.ui.correlation.widgets.correlation_tab_widget import (  # noqa: E402
     CorrelationTabWidget,
-    find_spot_burns,
 )
 
 FIXTURE = Path(__file__).parent / "fixtures" / "nominal_transform.json"

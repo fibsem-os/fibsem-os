@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from fibsem.correlation import correlation_v2
+from fibsem.correlation import fit, solver
 from fibsem.correlation.geometry import (
     NominalTransform,
     NominalTransformError,
@@ -177,9 +177,7 @@ def test_eulers_round_trip():
 def test_seeded_fit_finds_the_saved_solution(entry):
     nominal = _nominal(entry)
     fib, fm = _isotropic_coords(entry, nominal)
-    rotation, scale, rms = correlation_v2._fit_from_seed(
-        fm, fib, nominal.rotation, nominal.scale
-    )
+    rotation, scale, rms = fit._fit_from_seed(fm, fib, nominal.rotation, nominal.scale)
     assert branch_of(rotation, nominal)[0] == "nominal"
     assert rotation_angle_deg(rotation, _fitted_rotation(entry)) < 8.0
     # the saved fits were on raw slices (bar the interpolated Arctis one), so their
@@ -192,15 +190,13 @@ def test_mirror_seed_finds_the_mirror_branch(entry):
     nominal = _nominal(entry)
     fib, fm = _isotropic_coords(entry, nominal)
     mirror = nominal.mirrored()
-    rotation, _, _ = correlation_v2._fit_from_seed(
-        fm, fib, mirror.rotation, mirror.scale
-    )
+    rotation, _, _ = fit._fit_from_seed(fm, fib, mirror.rotation, mirror.scale)
     assert branch_of(rotation, nominal)[0] == "mirror"
 
 
 def test_correlate_rejects_a_malformed_seed():
     with pytest.raises(ValueError, match="3x3"):
-        correlation_v2.correlate(
+        solver.correlate(
             markers_3d=np.zeros((3, 3)),
             markers_2d=np.zeros((3, 2)),
             poi_3d=np.zeros((0, 3)),
@@ -350,7 +346,7 @@ def test_an_unseeded_fit_keeps_the_better_branch_whatever_the_draw(index):
 
 
 def test_the_mirror_warning_is_for_branches_within_a_quarter():
-    warn = correlation_v2._unseeded_mirror_warning
+    warn = fit._unseeded_mirror_warning
     assert warn(10.0, None) is None  # no mirror solved
     assert warn(10.0, 12.4).startswith("The mirror branch fits nearly as well")
     assert warn(10.0, 12.6) is None  # more than 25 % apart: the points decide
@@ -379,7 +375,7 @@ def test_pre_correction_scales_with_the_stack():
 
 
 def run(data: CorrelationInputData, nominal) -> CorrelationResult:
-    return correlation_v2.run_correlation_from_data(data, nominal=nominal)
+    return fit.run_correlation_from_data(data, nominal=nominal)
 
 
 # ── refusing to guess ─────────────────────────────────────────────────────

@@ -1972,7 +1972,7 @@ class FibsemOverviewWidget(QWidget):
             return image_pixels, targets
 
         def preview(pairs, fix_scale):
-            from fibsem.correlation.similarity import fit_similarity
+            from fibsem.geometry.similarity import fit_similarity
 
             image_pixels, targets = to_canvas(pairs)
             placed = [
@@ -1983,7 +1983,7 @@ class FibsemOverviewWidget(QWidget):
         per_px = (self.canvas.reference_pixel_size or 0.0) * constants.SI_TO_MICRO
 
         def hint(pairs, fix_scale):
-            from fibsem.correlation.similarity import looks_mirrored
+            from fibsem.geometry.similarity import looks_mirrored
 
             image_pixels, targets = to_canvas(pairs)
             placed = [

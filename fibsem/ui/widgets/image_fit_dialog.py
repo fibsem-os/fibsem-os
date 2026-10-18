@@ -27,8 +27,8 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.correlation.similarity import SimilarityFit
 from fibsem.correlation.structures import PointType
+from fibsem.geometry.similarity import SimilarityFit
 from fibsem.ui import stylesheets
 from fibsem.ui.correlation.point_store import CorrelationPointStore
 from fibsem.ui.correlation.widgets.correlation_canvas_widget import (

@@ -19,7 +19,7 @@ import numpy as np
 import pytest
 
 from fibsem.correlation import solver
-from fibsem.correlation.correlation_v2 import (
+from fibsem.correlation.fit import (
     _coords_to_array,
     run_correlation_from_data,
 )

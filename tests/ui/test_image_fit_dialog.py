@@ -16,8 +16,8 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QApplication
 
-from fibsem.correlation.similarity import SimilarityFit
 from fibsem.correlation.structures import PointType
+from fibsem.geometry.similarity import SimilarityFit
 from fibsem.ui.widgets.image_fit_dialog import MIN_PAIRS, ImageFitDialog
 
 

@@ -1,5 +1,5 @@
 """The correlation steps the tab used to own run without Qt: point fits, the
-seed and the fit, and writing a run folder."""
+seed and the fit, writing a run folder, finding a project's files and exporting."""
 
 import datetime
 import os
@@ -37,6 +37,7 @@ def test_the_library_imports_no_qt():
     code = (
         "import sys, fibsem.correlation.fit, fibsem.correlation.point_fit, "
         "fibsem.correlation.history, fibsem.correlation.refractive_index, "
+        "fibsem.correlation.export, "
         "fibsem.imaging.localise, fibsem.fm.interpolation; "
         "assert 'PyQt5' not in sys.modules"
     )
@@ -136,3 +137,49 @@ def test_a_saved_run_is_in_the_lamella_history(tmp_path):
     history = LamellaCorrelation.discover(correlation_dir(lamella))
     assert [r.path for r in history.runs] == [run_dir]
     assert history.latest().state.result.rms_error == 1.5
+
+
+def test_a_run_folder_finds_the_images_its_run_records(tmp_path):
+    from fibsem.correlation.history import discover_project
+    from fibsem.correlation.structures import CorrelationInputData
+
+    (tmp_path / "experiment.yaml").write_text("{}")
+    lamella = tmp_path / "01-lamella"
+    run = lamella / "Correlation" / "2026-10-16_12-00-00"
+    run.mkdir(parents=True)
+    (lamella / "ref_Spot Burn Fiducial_final_res_02_ib.tif").write_bytes(b"")
+    (lamella / "ref_Other_final_res_01_ib.tif").write_bytes(b"")
+    data = CorrelationInputData(
+        stored_fib_image_filename="ref_Other_final_res_01_ib.tif"
+    )
+    save_run(str(run), CorrelationState(input_data=data))
+
+    found = discover_project(str(run))
+
+    assert found["fib"] == str(lamella / "ref_Other_final_res_01_ib.tif")
+    assert found["fm"] is None
+    assert found["correlation"] == str(run / CORRELATION_FILENAME)
+
+
+def test_the_exports_are_written_without_qt(tmp_path):
+    from fibsem.correlation.export import save_overlay, write_csv
+    from fibsem.correlation.structures import CorrelationInputData, PointXYZ
+
+    data = CorrelationInputData(
+        fib_coordinates=[_coord(10.0, 12.0, 0.0), _coord(30.0, 8.0, 0.0)]
+    )
+    result = CorrelationResult(
+        input_data=data,
+        reprojected_3d=[PointXYZ(11.0, 12.5, 0.0), PointXYZ(29.0, 8.5, 0.0)],
+    )
+    image = SimpleNamespace(data=np.zeros((40, 60), dtype=np.uint8))
+
+    csv = tmp_path / "result.csv"
+    write_csv(result, str(csv))
+    png = tmp_path / "overlay.png"
+    save_overlay(str(png), image, data, result)
+
+    text = csv.read_text()
+    assert text.startswith("# Input Coordinates\n")
+    assert "# Marker Reprojection Error" in text
+    assert png.read_bytes().startswith(b"\x89PNG")
