@@ -4,7 +4,7 @@ to the fit, a drop confirms a pair, and projecting again moves only what the
 user has not touched.
 
 Images are built from the nominal-transform fixture's metadata over blank
-pixels; the fits themselves are covered by the correlation util tests.
+pixels; the fits themselves are covered by tests/correlation/test_fit_diagnostics.py.
 """
 
 from __future__ import annotations

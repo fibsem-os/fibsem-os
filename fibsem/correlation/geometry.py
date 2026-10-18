@@ -64,7 +64,7 @@ class NominalTransform:
     for FM coordinates in *isotropic* units: x and y in FM pixels, z in FM pixels of
     depth (metres / xy pixel size). In those units the rows of ``P`` are orthogonal
     with norm ``scale``, so ``P / scale`` completes to a proper rotation -- the same
-    ``R`` the pyto fit stores as ``rotation_quaternion`` -- which is what a seed needs.
+    ``R`` the fit stores as ``rotation_quaternion`` -- which is what a seed needs.
 
     ``translation`` is where FM pixel (0, 0) *on the sample surface* lands in the FIB
     image according to the stage positions alone. It carries the stage repeatability
@@ -106,10 +106,10 @@ class NominalTransform:
         return float(s[1] / s[0]) if s[0] else 0.0
 
     def eulers_deg(self) -> np.ndarray:
-        """Euler angles in pyto's x-convention, degrees: the form ``correlate`` seeds with."""
-        from fibsem.correlation.pyto.rigid_3d import Rigid3D
+        """Euler angles in the x-convention saved runs record, degrees."""
+        from fibsem.correlation.solver import eulers_deg
 
-        return np.degrees(Rigid3D.extract_euler(self.rotation, mode="x", ret="one"))
+        return eulers_deg(self.rotation)
 
     def mirrored(self) -> "NominalTransform":
         """The other branch: the same in-plane map with the depth axis reversed.

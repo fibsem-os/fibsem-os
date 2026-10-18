@@ -475,11 +475,13 @@ class Imaging(Service):
         settings: Optional[AutoFocusSettings] = None,
         path: Optional[str] = None,
         name: str = "autofocus",
+        channel: Optional[ChannelSettings] = None,
     ) -> Dict[str, Any]:
         """Focus the fluorescence microscope by sweeping its objective, a coarse
         then a fine pass by default, scoring a frame at each step on its current
-        channel (``settings.channel_name`` picks another), as the FM tab's
-        auto-focus does (`fibsem.fm.calibration.run_coarse_fine_autofocus`).
+        channel (``settings.channel_name`` picks another, and ``channel`` sets
+        one outright, as the FM tab's selected channel does)
+        (`fibsem.fm.calibration.run_coarse_fine_autofocus`).
 
         Refused while the FM is in use (live view, the device's own included, a
         tileset, the tab's own sweep), and unless the stage is at the FM's pose:
@@ -503,6 +505,7 @@ class Imaging(Service):
             result = run_coarse_fine_autofocus(
                 fm,
                 autofocus_settings=settings or AutoFocusSettings(),
+                channel_settings=channel,
                 stop_event=self._stop_requested,
                 path=path,
                 name=name,
