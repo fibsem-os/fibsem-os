@@ -20,6 +20,7 @@ pytest.importorskip("PyQt5")
 from psygnal.containers import EventedDict
 from PyQt5.QtCore import QCoreApplication, QEvent
 
+from fibsem.acting import ActorKind
 from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskDescription,
@@ -33,7 +34,7 @@ from fibsem.applications.autolamella.workflows.tasks.rough import (
     MillRoughTaskConfig,
 )
 from fibsem.structures import Point
-from fibsem.workflows.proposals import DETECTION, AuthorKind, Decision, DecisionOutcome
+from fibsem.workflows.proposals import DETECTION, Decision, DecisionOutcome
 from fibsem.workflows.status import HoldKind, TaskStatus
 
 ROUGH = "Rough Milling"
@@ -174,7 +175,7 @@ def test_the_run_holds_on_the_question_until_it_is_decided(window, qapp):
         ROUGH,
         Decision(
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             values=moved,
             proposal_id=proposal.id,
         ),
@@ -185,7 +186,7 @@ def test_the_run_holds_on_the_question_until_it_is_decided(window, qapp):
     decision = seen["decision"]
     assert decision.outcome is DecisionOutcome.Confirmed
     assert decision.values["features"][0]["px"] == Point(12, 26), "the decided value"
-    assert decision.author.kind is AuthorKind.human
+    assert decision.actor.kind is ActorKind.operator
     assert ui.hold is None
     assert "error" not in seen
     # The question is decided; the task's own result is not: supervised with
@@ -302,7 +303,7 @@ def test_the_run_lends_control_while_the_question_stands(window, qapp):
             ROUGH,
             Decision(
                 outcome=DecisionOutcome.Confirmed,
-                author="human:op",
+                actor="operator:op",
                 values=PROPOSED,
                 proposal_id=proposal.id,
             ),

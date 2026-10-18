@@ -38,10 +38,7 @@ import logging
 import os
 import time
 from dataclasses import dataclass
-from functools import partial
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple
-
-logging.basicConfig(level=logging.INFO)
 
 import numpy as np
 from PyQt5.QtCore import QObject, QSize, Qt, QThread, QTimer, pyqtSignal
@@ -83,6 +80,7 @@ from fibsem.correlation.config import (
     DELETE_FIDUCIAL_CHOICES,
     DELETE_FIDUCIAL_ONE,
     DELETE_FIDUCIAL_PAIR,
+    FIT_METHODS,
     CorrelationConfig,
     FitSettings,
     RISettings,
@@ -97,7 +95,6 @@ from fibsem.correlation.prediction import (
     independent_pairs,
     place_predictions,
     predictions_for,
-    usable_pairs,
 )
 from fibsem.correlation.refractive_index import ZetaParams
 from fibsem.correlation.structures import (
@@ -106,7 +103,6 @@ from fibsem.correlation.structures import (
     CorrelationPointOfInterest,
     CorrelationResult,
     CorrelationState,
-    PointProvenance,
     PointStatus,
     PointType,
     PointXYZ,
@@ -157,6 +153,7 @@ from fibsem.ui.widgets.custom_widgets import (
     QDirectoryLineEdit,
     TitledPanel,
     ValueComboBox,
+    form_label,
 )
 
 if TYPE_CHECKING:
@@ -164,7 +161,6 @@ if TYPE_CHECKING:
         CorrelationSetupSection,
     )
 
-_FIT_METHODS = ["None", "Hole", "Gaussian"]
 _DELETE_FIDUCIAL_LABELS = {
     DELETE_FIDUCIAL_ASK: "Ask",
     DELETE_FIDUCIAL_PAIR: "With its pair",
@@ -344,21 +340,6 @@ def _render_canvas_to_axes(canvas, ax, *, dpi: int = _PLOT_DPI) -> None:
     ax.axis("off")
 
 
-def _form_label(text: str) -> QLabel:
-    """A form-row label: small and muted, so the value reads louder than its name.
-
-    ``QFormLayout.addRow("Name:", w)`` builds the label at the default app font
-    size, which renders *larger* than the 11-12px values in these panels — the
-    field name ends up shouting over its own data. Pass this instead.
-
-    No trailing colon: the rows here read as name and value side by side,
-    and the colon was the one piece of punctuation on the tab.
-    """
-    lbl = QLabel(text.rstrip(":"))
-    lbl.setStyleSheet(CAPTION_STYLE)
-    return lbl
-
-
 # ---------------------------------------------------------------------------
 # Background worker
 # ---------------------------------------------------------------------------
@@ -445,7 +426,7 @@ def _format_fm_pixel_size(metadata) -> str:
     text = " · ".join(parts)
     if not z:
         return text + f" · {_NO_SLICE_THICKNESS}"
-    if xy and abs(z / xy - 1.0) > 0.05:
+    if xy and abs(z / xy - 1.0) > _ISOTROPIC_TOLERANCE:
         text += f" ({z / xy:.1f}× anisotropic)"
     return text
 
@@ -622,14 +603,14 @@ class _ImagesTab(QWidget):
         self._proj_path = QDirectoryLineEdit()
         self._proj_path.lineEdit.setPlaceholderText("No project directory set")
         self._proj_path.editingFinished.connect(self._on_project_dir_edited)
-        grid.addWidget(_form_label("Project"), 0, 0)
+        grid.addWidget(form_label("Project"), 0, 0)
         grid.addWidget(self._proj_path, 0, 1)
 
         self._fib_picker = _ImagePicker("TIFF (*.tif *.tiff);;All Files (*)")
         self._fib_picker.path_selected.connect(self._load_fib)
         self._lbl_fib_info = QLabel("—")
         self._lbl_fib_info.setStyleSheet(CAPTION_VALUE_STYLE)
-        grid.addWidget(_form_label("FIB"), 1, 0)
+        grid.addWidget(form_label("FIB"), 1, 0)
         grid.addWidget(self._fib_picker, 1, 1)
         grid.addWidget(self._lbl_fib_info, 2, 1)
         grid.setRowMinimumHeight(3, 4)
@@ -644,7 +625,7 @@ class _ImagesTab(QWidget):
         self._lbl_fm_px = QLabel("—")
         self._lbl_fm_px.setStyleSheet(CAPTION_VALUE_STYLE)
         self._lbl_fm_px.setWordWrap(True)
-        grid.addWidget(_form_label("FM"), 4, 0)
+        grid.addWidget(form_label("FM"), 4, 0)
         grid.addWidget(self._fm_picker, 4, 1)
         grid.addWidget(self._lbl_fm_px, 5, 1)
 
@@ -1072,26 +1053,26 @@ class _CoordinatesTab(QWidget):
         self._lbl_projection.setTextFormat(Qt.RichText)
         self._lbl_projection.setStyleSheet(BODY_STYLE)
         self._lbl_projection.linkActivated.connect(self.projection_link_activated)
-        fit_form.addRow(_form_label("Projection"), self._lbl_projection)
+        fit_form.addRow(form_label("Projection"), self._lbl_projection)
 
         # ValueComboBox installs a WheelBlocker, so scrolling this panel can't
         # silently change a fit setting on the way past. The channel combos start
         # empty and are refilled by rebuild_channel_combos — the blocker lives on
         # the widget, so it survives clear()/addItem().
-        self._fib_method_combo = ValueComboBox(_FIT_METHODS, value="Hole")
-        fit_form.addRow(_form_label("FIB method"), self._fib_method_combo)
+        self._fib_method_combo = ValueComboBox(FIT_METHODS, value="Hole")
+        fit_form.addRow(form_label("FIB method"), self._fib_method_combo)
 
-        self._fm_fid_method_combo = ValueComboBox(_FIT_METHODS, value="None")
-        fit_form.addRow(_form_label("FM Fid. method"), self._fm_fid_method_combo)
+        self._fm_fid_method_combo = ValueComboBox(FIT_METHODS, value="None")
+        fit_form.addRow(form_label("FM Fid. method"), self._fm_fid_method_combo)
 
-        self._fm_poi_method_combo = ValueComboBox(_FIT_METHODS, value="Gaussian")
-        fit_form.addRow(_form_label("FM POI method"), self._fm_poi_method_combo)
+        self._fm_poi_method_combo = ValueComboBox(FIT_METHODS, value="Gaussian")
+        fit_form.addRow(form_label("FM POI method"), self._fm_poi_method_combo)
 
         self._fm_fid_ch_combo = ValueComboBox([])
-        fit_form.addRow(_form_label("FM Fid. channel"), self._fm_fid_ch_combo)
+        fit_form.addRow(form_label("FM Fid. channel"), self._fm_fid_ch_combo)
 
         self._fm_poi_ch_combo = ValueComboBox([])
-        fit_form.addRow(_form_label("FM POI channel"), self._fm_poi_ch_combo)
+        fit_form.addRow(form_label("FM POI channel"), self._fm_poi_ch_combo)
 
         # FIB and FM fiducials pair by their place in the lists, so deleting one
         # side shifts every later pair (FIB-1243). Asked on delete until "Don't
@@ -1106,7 +1087,7 @@ class _CoordinatesTab(QWidget):
             "side.\nFiducials pair by their place in the lists: removing only one "
             "side re-pairs every later fiducial."
         )
-        fit_form.addRow(_form_label("Delete fiducial"), self._delete_fiducial_combo)
+        fit_form.addRow(form_label("Delete fiducial"), self._delete_fiducial_combo)
 
         # A checkbox carries its own label: the two share one row.
         self._show_diag_check = QCheckBox("Show diagnostic")
@@ -1124,7 +1105,7 @@ class _CoordinatesTab(QWidget):
         # for every one of them (FIB-1020).
         self._auto_rerun_check = QCheckBox("Re-run on change")
 
-        # Match the 11-12px labels these sit beside (see _form_label).
+        # Match the 11-12px labels these sit beside (see form_label).
         for _ctl in (
             self._fib_method_combo,
             self._fm_fid_method_combo,
@@ -1284,13 +1265,13 @@ class _ResultsTab(QWidget):
         self._lbl_scale = self._val("—")
         self._lbl_seed = self._val("—")
         self._lbl_pairs = self._val("—")
-        summary_form.addRow(_form_label("Fiducials agree within"), self._lbl_agree)
-        summary_form.addRow(_form_label("Worst fiducial"), self._lbl_worst)
-        summary_form.addRow(_form_label("Depth direction"), self._lbl_depth)
-        summary_form.addRow(_form_label("Fiducial depth span"), self._lbl_span)
-        summary_form.addRow(_form_label("Scale vs pixel sizes"), self._lbl_scale)
-        summary_form.addRow(_form_label("Seeded from"), self._lbl_seed)
-        summary_form.addRow(_form_label("Pairs"), self._lbl_pairs)
+        summary_form.addRow(form_label("Fiducials agree within"), self._lbl_agree)
+        summary_form.addRow(form_label("Worst fiducial"), self._lbl_worst)
+        summary_form.addRow(form_label("Depth direction"), self._lbl_depth)
+        summary_form.addRow(form_label("Fiducial depth span"), self._lbl_span)
+        summary_form.addRow(form_label("Scale vs pixel sizes"), self._lbl_scale)
+        summary_form.addRow(form_label("Seeded from"), self._lbl_seed)
+        summary_form.addRow(form_label("Pairs"), self._lbl_pairs)
         layout.addWidget(TitledPanel("Summary", content=summary_body))
 
         # The transform itself. The review took the Euler angles off this tab
@@ -1309,11 +1290,11 @@ class _ResultsTab(QWidget):
         self._lbl_fitted_scale = self._val("—")
         self._lbl_depth_gain = self._val("—")
         self._lbl_translation = self._val("—")
-        tform_form.addRow(_form_label("Tilt out of plane"), self._lbl_tilt)
-        tform_form.addRow(_form_label("In-plane rotation"), self._lbl_inplane)
-        tform_form.addRow(_form_label("Scale"), self._lbl_fitted_scale)
-        tform_form.addRow(_form_label("Depth gain"), self._lbl_depth_gain)
-        tform_form.addRow(_form_label("Translation"), self._lbl_translation)
+        tform_form.addRow(form_label("Tilt out of plane"), self._lbl_tilt)
+        tform_form.addRow(form_label("In-plane rotation"), self._lbl_inplane)
+        tform_form.addRow(form_label("Scale"), self._lbl_fitted_scale)
+        tform_form.addRow(form_label("Depth gain"), self._lbl_depth_gain)
+        tform_form.addRow(form_label("Translation"), self._lbl_translation)
         tform_layout.addLayout(tform_form)
 
         # The raw numbers, for a message to a collaborator or a script. Folded
@@ -2293,9 +2274,7 @@ class CorrelationTabWidget(QWidget):
         splitter = QSplitter(Qt.Orientation.Horizontal)
         layout.addWidget(splitter, stretch=1)
         # The points and the selection, held once: the five lists and both
-        # canvases draw from it (FIB-973). The slots below still relay between
-        # them as if each held its own copy; with one store that is redundant
-        # rather than wrong, and they go next.
+        # canvases draw from it and write their gestures to it (FIB-973).
         self._point_store = CorrelationPointStore(self)
         self._point_store.set_removal_policy(self._pair_removal)
         fib_pane, fm_pane = self._build_image_panes()
@@ -2340,12 +2319,6 @@ class CorrelationTabWidget(QWidget):
 
         self._build_point_registry()
 
-    # The four builders below are what `_setup_ui` is made of, split out so a
-    # widget that arranges the same parts differently (the guided widget) composes
-    # them rather than copying them: every handler in this class reaches its
-    # parts by attribute name, so what matters is that the builders create the
-    # same attributes, not where they are laid out.
-
     def _on_splitter_moved(self, *_) -> None:
         self._splitter_user_set = True
 
@@ -2376,6 +2349,10 @@ class CorrelationTabWidget(QWidget):
         total = want_fib + want_fm
         fib_px = int(round(available * want_fib / total))
         self._splitter.setSizes([fib_px, available - fib_px, side])
+
+    # The four builders below are what `_setup_ui` is made of. Every handler in
+    # this class reaches its parts by attribute name, not by where they are laid
+    # out.
 
     def _build_menubar(self) -> QMenuBar:
         menubar = QMenuBar()
@@ -2519,7 +2496,6 @@ class CorrelationTabWidget(QWidget):
         btn_layout.addWidget(self._btn_continue)
 
         run_layout.addWidget(btn_row)
-        self._run_button_row = btn_layout
         return run_bar
 
     @staticmethod
@@ -2607,8 +2583,8 @@ class CorrelationTabWidget(QWidget):
             lw.coordinate_removed.connect(self._on_point_removed)
             lw.order_changed.connect(self._on_point_edited)
             lw.refit_requested.connect(self._on_refit_requested)
-            lw.reset_requested.connect(partial(self._on_reset_requested, spec))
-            lw.reject_toggled.connect(partial(self._on_reject_toggled, spec))
+            lw.reset_requested.connect(self._on_reset_requested)
+            lw.reject_toggled.connect(self._on_reject_toggled)
 
         # File menu
         self._action_load_fib.triggered.connect(self._menu_load_fib)
@@ -2780,7 +2756,7 @@ class CorrelationTabWidget(QWidget):
         # z-interpolation reset the fit settings (FIB-636).
         #
         # Only the channel combos are rebuilt. The method combos are populated
-        # from _FIT_METHODS at construction and are untouched by an image change,
+        # from FIT_METHODS at construction and are untouched by an image change,
         # so nothing here may write to them.
         previous_fid, previous_poi = self._coords_tab.channel_selection()
         self._coords_tab.rebuild_channel_combos(fm_image)
@@ -4552,7 +4528,7 @@ class CorrelationTabWidget(QWidget):
             ):
                 other.on_cleared()
 
-    def _on_reset_requested(self, spec: _PointTypeSpec, coord: Coordinate) -> None:
+    def _on_reset_requested(self, coord: Coordinate) -> None:
         """Back to a prediction: the point is a guess again and re-projects."""
         if not self._point_store.reset_to_predicted(coord):
             return  # not a point the projection made
@@ -4562,7 +4538,7 @@ class CorrelationTabWidget(QWidget):
         self._discard_result()
         self.data_changed.emit(self.data)
 
-    def _on_reject_toggled(self, spec: _PointTypeSpec, coord: Coordinate) -> None:
+    def _on_reject_toggled(self, coord: Coordinate) -> None:
         """Leave a point out of the fit, or bring it back; it stays on screen."""
         if not self._point_store.toggle_rejected(coord):
             return  # a prediction is not in the fit to begin with
@@ -5407,6 +5383,8 @@ def main() -> None:
     import sys
 
     from PyQt5.QtWidgets import QApplication
+
+    logging.basicConfig(level=logging.INFO)
 
     parser = argparse.ArgumentParser(description="FIB-FM correlation widget")
     parser.add_argument(

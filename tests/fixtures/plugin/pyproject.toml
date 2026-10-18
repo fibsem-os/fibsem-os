@@ -15,12 +15,12 @@ requires-python = ">=3.8"
 # One module per group, not one shared module: the three registries are built
 # at different points in fibsem's own import sequence, and a pattern module in
 # particular cannot reach fibsem.milling.base. See patterns.py.
-[project.entry-points."fibsem.patterns"]
+[project.entry-points."fibsem.milling.patterns"]
 fixture_pattern = "fibsem_test_plugin.patterns:FixturePattern"
 # Claims a built-in's name on purpose; built-ins must still win.
 clashing_pattern = "fibsem_test_plugin.patterns:ClashingPattern"
 
-[project.entry-points."fibsem.strategies"]
+[project.entry-points."fibsem.milling.strategies"]
 fixture_strategy = "fibsem_test_plugin.strategies:FixtureMillingStrategy"
 
 [project.entry-points."fibsem.autolamella.tasks"]
@@ -31,7 +31,7 @@ fixture_task = "fibsem_test_plugin.tasks:FixtureTask"
 wrong_base_class = "fibsem_test_plugin.tasks:NotATask"
 missing_module = "fibsem_test_plugin.nonexistent:Whatever"
 
-[project.entry-points."fibsem.grid_tasks"]
+[project.entry-points."fibsem.grid.tasks"]
 fixture_grid_task = "fibsem_test_plugin.grid_tasks:FixtureGridTask"
 
 # A driver entry point names a function returning a DriverEntry, not a class.

@@ -13,6 +13,7 @@ import pytest
 import yaml
 from psygnal.containers import EventedDict
 
+from fibsem.acting import Actor, ActorKind
 from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
@@ -35,15 +36,12 @@ from fibsem.workflows.proposals import (
     PROPOSAL_KINDS,
     TASK_RESULT,
     Alternative,
-    Author,
-    AuthorKind,
     Decision,
     DecisionOutcome,
     Proposal,
     ProposalKind,
     Standing,
     ValueRefused,
-    auto_author,
     compute_delta,
     prepare_values,
     register_proposal_kind,
@@ -99,7 +97,7 @@ def test_proposal_round_trips_through_yaml_with_points_intact():
         Decision(
             task_id=RUN,
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             values={"poi": Point(1.5e-6, 2e-6)},
         )
     )
@@ -116,10 +114,13 @@ def test_proposal_round_trips_through_yaml_with_points_intact():
 
 def test_a_decision_records_where_it_was_made():
     d = Decision(
-        task_id=RUN, outcome=DecisionOutcome.Confirmed, author="human:a", via="workflow"
+        task_id=RUN,
+        outcome=DecisionOutcome.Confirmed,
+        actor="operator:a",
+        via="workflow",
     )
     assert Decision.from_dict(d.to_dict()).via == "workflow"
-    assert Decision.from_dict({"outcome": "Confirmed", "author": "human:a"}).via == ""
+    assert Decision.from_dict({"outcome": "Confirmed", "actor": "operator:a"}).via == ""
 
 
 def test_a_tasks_proposals_are_a_list_oldest_first_and_the_last_is_current():
@@ -135,7 +136,7 @@ def test_a_tasks_proposals_are_a_list_oldest_first_and_the_last_is_current():
         Decision(
             task_id=RUN,
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             values={"poi": Point(2e-6, 0)},
         )
     )
@@ -146,7 +147,7 @@ def test_a_tasks_proposals_are_a_list_oldest_first_and_the_last_is_current():
         Decision(
             task_id=RUN,
             outcome=DecisionOutcome.Rejected,
-            author="human:op",
+            actor="operator:op",
             reason="no",
         )
     )
@@ -209,7 +210,9 @@ def test_a_runs_questions_of_one_kind_all_stand_and_a_rerun_replaces_them():
 
     withdrawn = question("run-3")
     withdrawn.decisions.append(
-        Decision(task_id="run-3", outcome=DecisionOutcome.Withdrawn, author="human:op")
+        Decision(
+            task_id="run-3", outcome=DecisionOutcome.Withdrawn, actor="operator:op"
+        )
     )
     asked_again = question("run-3")
     assert current_proposals([withdrawn, asked_again]) == [asked_again], (
@@ -253,7 +256,7 @@ def test_delta_is_computed_from_proposed_and_confirmed_never_declared():
         Decision(
             task_id=RUN,
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             values={"poi": Point(1e-6, 2e-6)},
         )
     )
@@ -262,7 +265,7 @@ def test_delta_is_computed_from_proposed_and_confirmed_never_declared():
         Decision(
             task_id=RUN,
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             values={"poi": Point(3e-6, 2e-6)},
         )
     )
@@ -274,22 +277,22 @@ def test_delta_is_computed_from_proposed_and_confirmed_never_declared():
 
 
 def test_an_author_is_a_kind_and_a_name_and_travels_as_kind_colon_name():
-    a = Author.parse("agent:claude")
-    assert a == Author(AuthorKind.agent, "claude") and str(a) == "agent:claude"
+    a = Actor.parse("agent:claude")
+    assert a == Actor(ActorKind.agent, "claude") and str(a) == "agent:claude"
     assert a.label == "agent · claude"
-    assert Author.parse("human:op").label == "op"
-    assert Author.parse("human:").label == "someone"
-    assert Author.parse("auto:").label == "auto · unknown"
-    assert Author.parse("Pat") == Author(AuthorKind.human, "Pat"), (
+    assert Actor.parse("operator:op").label == "op"
+    assert Actor.parse("operator:").label == "someone"
+    assert Actor.parse("task:").label == "task · unknown"
+    assert Actor.parse("Pat") == Actor(ActorKind.operator, "Pat"), (
         "no known prefix: a person whose name is the whole string"
     )
-    assert Author.parse(a) is a
+    assert Actor.parse(a) is a
     d = Decision(
-        task_id=RUN, outcome=DecisionOutcome.Confirmed, author="auto:current-poi"
+        task_id=RUN, outcome=DecisionOutcome.Confirmed, actor="task:current-poi"
     )
-    assert d.author == auto_author("current-poi"), "a string in is parsed"
-    assert Decision.from_dict(d.to_dict()).author == d.author
-    assert d.to_dict()["author"] == "auto:current-poi", "the file form is unchanged"
+    assert d.actor == Actor.task("current-poi"), "a string in is parsed"
+    assert Decision.from_dict(d.to_dict()).actor == d.actor
+    assert d.to_dict()["actor"] == "task:current-poi", "the file form is unchanged"
 
 
 def test_standing_is_one_lifecycle_read_off_the_item(tmp_path):
@@ -314,17 +317,17 @@ def test_standing_is_one_lifecycle_read_off_the_item(tmp_path):
     lamella.task_history.pop()
 
     p.decisions.append(
-        Decision(task_id=RUN, outcome=DecisionOutcome.Unreviewed, author="auto:x")
+        Decision(task_id=RUN, outcome=DecisionOutcome.Unreviewed, actor="task:x")
     )
     assert standing(lamella, SETUP, p) is Standing.Unchecked
     p.decisions.append(
-        Decision(task_id=RUN, outcome=DecisionOutcome.Confirmed, author="human:op")
+        Decision(task_id=RUN, outcome=DecisionOutcome.Confirmed, actor="operator:op")
     )
     assert standing(lamella, SETUP, p) is Standing.Closed
 
     withdrawn = Proposal(kind=TASK_RESULT, provenance={"task_id": RUN})
     withdrawn.decisions.append(
-        Decision(task_id=RUN, outcome=DecisionOutcome.Withdrawn, author="auto:x")
+        Decision(task_id=RUN, outcome=DecisionOutcome.Withdrawn, actor="task:x")
     )
     assert standing(lamella, SETUP, withdrawn) is Standing.Closed, (
         "taken back: nothing for anyone to do"
@@ -378,16 +381,16 @@ def test_to_check_clears_only_when_a_person_looked():
         Decision(
             task_id=RUN,
             outcome=DecisionOutcome.Confirmed,
-            author=auto_author("current-poi"),
+            actor=Actor.task("current-poi"),
         )
     )
     assert p.to_check
     p.decisions.append(
-        Decision(task_id=RUN, outcome=DecisionOutcome.Confirmed, author="agent:x")
+        Decision(task_id=RUN, outcome=DecisionOutcome.Confirmed, actor="agent:x")
     )
     assert p.to_check, "an agent looked; a person has not"
     p.decisions.append(
-        Decision(task_id=RUN, outcome=DecisionOutcome.Confirmed, author="human:op")
+        Decision(task_id=RUN, outcome=DecisionOutcome.Confirmed, actor="operator:op")
     )
     assert not p.to_check
 
@@ -448,7 +451,7 @@ def test_confirm_writes_the_value_through_and_syncs_patterns(tmp_path):
         Decision(
             task_id=RUN,
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             values={"poi": Point(2e-6, -1e-6)},
         ),
     )
@@ -486,7 +489,7 @@ def test_a_decision_finishes_a_task_that_was_awaiting_one(tmp_path):
         Decision(
             task_id=RUN,
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             values={"poi": _proposal().values["poi"]},
         ),
     )
@@ -510,7 +513,7 @@ def test_reject_fails_the_waiting_task_and_leaves_the_lamella_alone(tmp_path):
         Decision(
             task_id=RUN,
             outcome=DecisionOutcome.Rejected,
-            author="human:op",
+            actor="operator:op",
             reason="no usable site",
         ),
     )
@@ -538,7 +541,7 @@ def test_a_decision_on_a_finished_task_changes_only_the_record(tmp_path):
         Decision(
             task_id=RUN,
             outcome=DecisionOutcome.Rejected,
-            author="human:op",
+            actor="operator:op",
             reason="meh",
         ),
     )
@@ -561,7 +564,7 @@ def test_reject_on_a_grid_proposal_creates_nothing_and_retires_nothing(tmp_path)
         Decision(
             task_id=RUN,
             outcome=DecisionOutcome.Rejected,
-            author="human:op",
+            actor="operator:op",
             reason="empty",
         ),
     )
@@ -600,7 +603,7 @@ def test_a_decision_finishes_a_grid_task_that_was_awaiting_one(tmp_path):
         Decision(
             task_id=grid.proposal("Overview").task_id,
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             values={},
         ),
     )
@@ -622,7 +625,7 @@ def test_reject_fails_the_waiting_grid_task_and_leaves_its_quality_alone(tmp_pat
         Decision(
             task_id=grid.proposal("Overview").task_id,
             outcome=DecisionOutcome.Rejected,
-            author="human:op",
+            actor="operator:op",
             reason="all ice",
         ),
     )
@@ -647,7 +650,7 @@ def test_confirming_values_on_a_grid_is_refused_before_anything_is_written(tmp_p
         Decision(
             task_id=grid.proposal("Overview").task_id,
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             values={"poi": Point(1e-6, 0)},
         ),
     )
@@ -669,7 +672,7 @@ def test_a_decision_on_a_finished_grid_task_changes_only_the_record(tmp_path):
         Decision(
             task_id=grid.proposal("Overview").task_id,
             outcome=DecisionOutcome.Rejected,
-            author="human:op",
+            actor="operator:op",
             reason="meh",
         ),
     )
@@ -716,7 +719,7 @@ def test_a_repeated_grid_task_is_decided_on_its_latest_run_only(tmp_path):
         Decision(
             task_id=grid.proposal("Overview").task_id,
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             values={},
         ),
     )
@@ -743,7 +746,7 @@ def test_an_earlier_run_awaiting_a_decision_does_not_make_a_later_one_wait(
         Decision(
             task_id=grid.proposal("Overview").task_id,
             outcome=DecisionOutcome.Rejected,
-            author="human:op",
+            actor="operator:op",
             reason="no",
         ),
     )
@@ -758,7 +761,7 @@ def test_reject_needs_a_reason(tmp_path):
     result = exp.decide(
         lamella.id,
         SETUP,
-        Decision(task_id=RUN, outcome=DecisionOutcome.Rejected, author="human:op"),
+        Decision(task_id=RUN, outcome=DecisionOutcome.Rejected, actor="operator:op"),
     )
     assert result.applied is False
     assert lamella.proposal(SETUP).pending
@@ -777,7 +780,7 @@ def test_confirming_a_value_nothing_consumes_is_refused_before_anything_is_writt
         Decision(
             task_id=RUN,
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             values={"n": 3},
         ),
     )
@@ -841,7 +844,7 @@ def test_a_wrongly_typed_value_is_refused_and_nothing_moves(tmp_path, value):
         Decision(
             task_id=RUN,
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             values={"poi": value},
         ),
     )
@@ -868,7 +871,7 @@ def test_a_value_the_proposals_kind_does_not_carry_is_refused(tmp_path):
         Decision(
             task_id=RUN,
             outcome=DecisionOutcome.Confirmed,
-            author="agent:model",
+            actor="agent:model",
             values={"poi": Point(5e-6, 5e-6)},
         ),
     )
@@ -890,7 +893,7 @@ def test_an_item_that_cannot_take_the_value_is_refused(tmp_path):
         Decision(
             task_id=RUN,
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             values={"poi": Point(1e-6, 0.0)},
         ),
     )
@@ -918,7 +921,7 @@ def test_a_planning_error_is_refused_before_the_decision_is_appended(
         Decision(
             task_id=RUN,
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             values={"poi": Point(1e-6, 0.0)},
         ),
     )
@@ -948,7 +951,7 @@ def test_a_subscriber_that_raises_on_the_poi_write_undoes_the_decision(tmp_path)
         Decision(
             task_id=RUN,
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             values={"poi": Point(2e-6, -1e-6)},
         ),
     )
@@ -973,7 +976,7 @@ def test_a_failure_moving_the_task_status_undoes_the_values_too(tmp_path):
         Decision(
             task_id=RUN,
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             values={"poi": Point(2e-6, -1e-6)},
         ),
     )
@@ -995,7 +998,7 @@ def test_a_decided_subscriber_that_raises_does_not_unmake_the_decision(tmp_path)
         Decision(
             task_id=RUN,
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             values={"poi": Point(2e-6, -1e-6)},
         ),
     )
@@ -1024,7 +1027,7 @@ def test_decide_refuses_a_missing_item_or_proposal(tmp_path):
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
     confirm = Decision(
-        task_id=RUN, outcome=DecisionOutcome.Confirmed, author="human:op", values={}
+        task_id=RUN, outcome=DecisionOutcome.Confirmed, actor="operator:op", values={}
     )
     assert exp.decide("no-such-id", SETUP, confirm).applied is False
     assert exp.decide(lamella.id, SETUP, confirm).applied is False
@@ -1049,7 +1052,7 @@ def test_looking_at_an_earlier_result_is_not_refused_by_a_later_run(tmp_path):
         Decision(
             task_id=RUN,
             outcome=DecisionOutcome.Confirmed,
-            author=auto_author("centre"),
+            actor=Actor.task("centre"),
             values={"poi": Point(1e-6, 2e-6)},
         )
     )
@@ -1059,7 +1062,7 @@ def test_looking_at_an_earlier_result_is_not_refused_by_a_later_run(tmp_path):
     result = exp.decide(
         lamella.id,
         SETUP,
-        Decision(task_id=RUN, outcome=DecisionOutcome.Confirmed, author="human:op"),
+        Decision(task_id=RUN, outcome=DecisionOutcome.Confirmed, actor="operator:op"),
     )
 
     assert result.applied is True and result.running is False
@@ -1078,7 +1081,7 @@ def test_rejecting_a_task_that_is_not_the_one_running_lands(tmp_path):
         Decision(
             task_id=RUN,
             outcome=DecisionOutcome.Rejected,
-            author="human:op",
+            actor="operator:op",
             reason="no site",
         ),
     )
@@ -1102,7 +1105,7 @@ def test_deciding_the_run_that_is_in_progress_is_still_refused(tmp_path):
         Decision(
             task_id=RUN,
             outcome=DecisionOutcome.Rejected,
-            author="human:op",
+            actor="operator:op",
             reason="stop",
         ),
     )
@@ -1128,7 +1131,7 @@ def test_a_rerun_of_the_same_task_does_not_block_looking_at_the_earlier_run(
         Decision(
             task_id=RUN,
             outcome=DecisionOutcome.Rejected,
-            author="human:op",
+            actor="operator:op",
             reason="the first attempt missed",
         ),
     )
@@ -1152,7 +1155,7 @@ def test_decide_refuses_a_value_written_under_any_running_task(tmp_path):
         Decision(
             task_id=RUN,
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             values={"poi": Point(1e-6, 0)},
         ),
     )
@@ -1172,14 +1175,16 @@ def test_decisions_append_and_the_latest_is_current(tmp_path):
     first = Decision(
         task_id=RUN,
         outcome=DecisionOutcome.Confirmed,
-        author="human:a",
+        actor="operator:a",
         values={"poi": Point(1e-6, 0)},
     )
-    second = Decision(task_id=RUN, outcome=DecisionOutcome.Confirmed, author="human:b")
+    second = Decision(
+        task_id=RUN, outcome=DecisionOutcome.Confirmed, actor="operator:b"
+    )
     assert exp.decide(lamella.id, SETUP, first).applied
     assert exp.decide(lamella.id, SETUP, second).applied
     proposal = lamella.proposal(SETUP)
-    assert [str(d.author) for d in proposal.decisions] == ["human:a", "human:b"]
+    assert [str(d.actor) for d in proposal.decisions] == ["operator:a", "operator:b"]
     assert proposal.current is second
     assert proposal.applied is first
     assert lamella.poi == Point(1e-6, 0)
@@ -1198,7 +1203,7 @@ def test_a_decision_that_names_no_run_is_refused(tmp_path):
         SETUP,
         Decision(
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             values={"poi": Point(1e-6, 0)},
         ),
     )
@@ -1228,7 +1233,7 @@ def test_a_decision_on_a_run_the_task_has_since_replaced_is_refused(tmp_path):
         Decision(
             task_id=seen.task_id,
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             values=dict(seen.values),
         ),
     )
@@ -1246,7 +1251,7 @@ def test_a_proposal_recorded_before_runs_were_named_cannot_be_decided(tmp_path):
     result = exp.decide(
         lamella.id,
         ROUGH,
-        Decision(task_id=RUN, outcome=DecisionOutcome.Rejected, author="a", reason="x"),
+        Decision(task_id=RUN, outcome=DecisionOutcome.Rejected, actor="a", reason="x"),
     )
 
     assert result.applied is False and result.error_type == "stale_review"
@@ -1267,7 +1272,7 @@ def test_an_acknowledgement_with_values_is_refused_and_nothing_moves(tmp_path):
         Decision(
             task_id=RUN,
             outcome=DecisionOutcome.Confirmed,
-            author=auto_author("current-poi"),
+            actor=Actor.task("current-poi"),
             values={"poi": Point(1e-6, 0)},
         ),
     ).applied
@@ -1280,7 +1285,7 @@ def test_an_acknowledgement_with_values_is_refused_and_nothing_moves(tmp_path):
         Decision(
             task_id=RUN,
             outcome=DecisionOutcome.Confirmed,
-            author="agent:model",
+            actor="agent:model",
             values={"poi": Point(9e-6, 9e-6)},
         ),
     )
@@ -1299,7 +1304,7 @@ def test_an_empty_confirm_on_a_pending_proposal_with_values_is_refused(tmp_path)
     result = exp.decide(
         lamella.id,
         SETUP,
-        Decision(task_id=RUN, outcome=DecisionOutcome.Confirmed, author="human:op"),
+        Decision(task_id=RUN, outcome=DecisionOutcome.Confirmed, actor="operator:op"),
     )
 
     assert result.applied is False and result.error_type == "invalid_value"
@@ -1320,7 +1325,7 @@ def test_a_producer_applied_proposal_is_to_check_until_someone_looks(tmp_path):
     auto = Decision(
         task_id=RUN,
         outcome=DecisionOutcome.Confirmed,
-        author="auto:centre-of-image",
+        actor="task:centre-of-image",
         values={"poi": Point(2e-6, 0)},
     )
     assert exp.decide(lamella.id, SETUP, auto).applied
@@ -1330,7 +1335,7 @@ def test_a_producer_applied_proposal_is_to_check_until_someone_looks(tmp_path):
     assert [t for _i, t, _p in exp.proposals_to_check()] == [SETUP]
 
     ack = Decision(
-        task_id=RUN, outcome=DecisionOutcome.Confirmed, author="human:a", values={}
+        task_id=RUN, outcome=DecisionOutcome.Confirmed, actor="operator:a", values={}
     )
     result = exp.decide(lamella.id, SETUP, ack)
     assert result.applied and result.synced_tasks == [] and result.delta == {}
@@ -1342,9 +1347,9 @@ def test_a_producer_applied_proposal_is_to_check_until_someone_looks(tmp_path):
 
 def test_author_names_the_declared_operator(tmp_path):
     exp = Experiment(path=tmp_path, name="e", metadata={"user": "Operator Name"})
-    assert str(exp.author()) == "human:Operator Name"
+    assert str(exp.actor()) == "operator:Operator Name"
     anonymous = Experiment(path=tmp_path, name="f")
-    assert anonymous.author().kind is AuthorKind.human
+    assert anonymous.actor().kind is ActorKind.operator
 
 
 def test_decide_and_save_share_the_write_lock(tmp_path):
@@ -1384,7 +1389,7 @@ def test_decide_and_save_share_the_write_lock(tmp_path):
                 Decision(
                     task_id=RUN,
                     outcome=DecisionOutcome.Confirmed,
-                    author="human:op",
+                    actor="operator:op",
                     values={"poi": Point(1e-6, 0)},
                 ),
             ),

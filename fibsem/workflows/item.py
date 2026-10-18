@@ -22,14 +22,6 @@ from fibsem.workflows.proposals import (
 from fibsem.workflows.status import TaskStatus
 
 
-def latest_status(task_history: List[Any], task_name: str) -> Optional[TaskStatus]:
-    """How the latest run of ``task_name`` ended; None if it never ran."""
-    for task in reversed(task_history):
-        if task.name == task_name:
-            return task.status
-    return None
-
-
 class ExperimentItem:
     """The task record every item keeps, and what the engine reads from it.
 
@@ -63,17 +55,22 @@ class ExperimentItem:
         """Whether any run of ``task_name`` completed."""
         return task_name in self.completed_tasks
 
+    def latest_status(self, task_name: str) -> Optional[TaskStatus]:
+        """How the latest run of ``task_name`` ended; None if it never ran."""
+        for task in reversed(self.task_history):
+            if task.name == task_name:
+                return task.status
+        return None
+
     def latest_run_completed(self, task_name: str) -> bool:
         """Whether the latest run of ``task_name`` completed: what a task that
         requires it needs. Not ``has_completed_task``, which an old success
         satisfies after a rerun failed or was rejected."""
-        return latest_status(self.task_history, task_name) is TaskStatus.Completed
+        return self.latest_status(task_name) is TaskStatus.Completed
 
     def is_awaiting_decision(self, task_name: str) -> bool:
         """Whether the latest run of ``task_name`` ended waiting on a decision."""
-        return (
-            latest_status(self.task_history, task_name) is TaskStatus.AwaitingDecision
-        )
+        return self.latest_status(task_name) is TaskStatus.AwaitingDecision
 
     def set_task_status(
         self, task_name: str, status: TaskStatus, message: str = ""

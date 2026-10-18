@@ -13,12 +13,12 @@ BUILTIN_STRATEGIES: typing.Dict[str, typing.Type[MillingStrategy[typing.Any]]] =
     OvertiltTrenchMillingStrategy.name: OvertiltTrenchMillingStrategy,
     CoincidenceMillingStrategy.name: CoincidenceMillingStrategy,
 }
-STRATEGY_ENTRY_POINT_GROUP = "fibsem.strategies"
+STRATEGY_ENTRY_POINT_GROUP = "fibsem.milling.strategies"
 
-# Built-ins, runtime registrations and the fibsem.strategies entry points. To add
+# Built-ins, runtime registrations and the fibsem.milling.strategies entry points. To add
 # a plugin strategy, add to your package's pyproject.toml:
 #
-#     [project.entry-points.'fibsem.strategies']
+#     [project.entry-points.'fibsem.milling.strategies']
 #     my_strategy = "my_package.strategies:MyCustomStrategy"
 STRATEGY_PLUGINS: PluginRegistry[typing.Type[MillingStrategy[typing.Any]]] = (
     PluginRegistry(
@@ -51,5 +51,5 @@ def register_strategy(strategy_cls: typing.Type[MillingStrategy[typing.Any]]) ->
 
 
 def get_strategy_plugin_records() -> typing.Tuple[PluginRecord, ...]:
-    """Every ``fibsem.strategies`` entry point and what became of it."""
+    """Every ``fibsem.milling.strategies`` entry point and what became of it."""
     return STRATEGY_PLUGINS.plugin_records()

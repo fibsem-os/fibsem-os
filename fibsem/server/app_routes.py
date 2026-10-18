@@ -232,7 +232,7 @@ class AppContext(Protocol):
         outcome: str,
         values: Optional[Dict[str, Any]] = None,
         reason: str = "",
-        author: str = "",
+        actor: str = "",
         task_id: str = "",
         proposal_id: str = "",
     ) -> Dict[str, Any]: ...
@@ -768,7 +768,7 @@ def build_app_control_router(context: AppContext) -> APIRouter:
             outcome,
             values=values,
             reason=str(body.get("reason", "")),
-            author=str(body.get("author", "")),
+            actor=str(body.get("actor", "")),
             task_id=task_id,
             proposal_id=proposal_id,
         )
