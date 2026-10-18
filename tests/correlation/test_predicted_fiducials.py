@@ -55,13 +55,6 @@ ARCTIS = next(
 )
 
 
-@pytest.fixture(autouse=True)
-def _no_lut_download(monkeypatch):
-    import fibsem.ui.correlation.widgets.refractive_index_widget as riw
-
-    monkeypatch.setattr(riw, "_ensure_lut", lambda *a, **k: None, raising=False)
-
-
 def _images(entry: dict, *, fm_geometry: bool):
     from fibsem.correlation.geometry import fm_geometry_for
 

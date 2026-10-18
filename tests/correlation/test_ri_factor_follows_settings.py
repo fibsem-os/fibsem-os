@@ -20,7 +20,7 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from fibsem.correlation.config import CorrelationConfig, RISettings
-from fibsem.correlation.refractive_index import _LUT_PATH, lookup_zeta
+from fibsem.correlation.refractive_index import lookup_zeta
 from fibsem.correlation.structures import (
     Coordinate,
     CorrelationInputData,
@@ -28,11 +28,6 @@ from fibsem.correlation.structures import (
     PointXYZ,
 )
 from fibsem.ui.correlation.widgets.refractive_index_widget import _DEFAULTS
-
-# These compare the factor with the real table; CI has no table (FIB-637).
-requires_lut = pytest.mark.skipif(
-    not _LUT_PATH.exists(), reason="real refractive-index LUT not present"
-)
 
 
 def _zeta(params) -> float:
@@ -63,7 +58,6 @@ def test_there_is_one_default_set():
     )
 
 
-@requires_lut
 def test_a_protocols_settings_set_the_factor_they_show(tab):
     """No FM stack, so nothing else recomputes: the settings alone must."""
     tab.set_correlation_config(
@@ -74,7 +68,6 @@ def test_a_protocols_settings_set_the_factor_they_show(tab):
     assert ri.get_factor() == pytest.approx(1.567, abs=1e-3)  # was 1.502
 
 
-@requires_lut
 def test_the_tilt_lock_gives_the_tilt_0_factor(tab):
     ri = tab._ri_tab._ri_widget
     ri.set_tilt_locked(True)
@@ -84,7 +77,6 @@ def test_the_tilt_lock_gives_the_tilt_0_factor(tab):
     assert ri.get_factor() == pytest.approx(_zeta(_DEFAULTS), abs=1e-3)
 
 
-@requires_lut
 def test_placing_the_fm_surface_arms_the_tilt_0_factor_and_records_why(tab):
     tab.set_correlation_config(
         CorrelationConfig(ri=RISettings(na=0.75, n2=1.4, wavelength_um=0.635))
