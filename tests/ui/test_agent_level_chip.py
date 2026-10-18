@@ -600,9 +600,9 @@ def test_stop_agent_drops_to_watch_and_is_the_operator_s_on_the_record(main_ui, 
     os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
     microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
     ui = main_ui.autolamella_ui
-    previous = ui._event_recorder
+    previous = ui.session.recorder
     recorder = EventRecorder(microscope, default_actor="operator")
-    ui._event_recorder = recorder
+    ui.session.recorder = recorder
     try:
         main_ui.agent_chip.level_chosen.emit(AgentLevel.DRIVE)
         main_ui.agent_chip.stop_clicked.emit()
@@ -620,7 +620,7 @@ def test_stop_agent_drops_to_watch_and_is_the_operator_s_on_the_record(main_ui, 
         ]
         assert all(e["actor"] == "operator" for e in events)
     finally:
-        ui._event_recorder = previous
+        ui.session.recorder = previous
         recorder.close()
         microscope.disconnect()
 

@@ -3858,7 +3858,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def _refresh_agent_chip(self) -> None:
         """Show the chip while the App Server runs, at the level its auth holds."""
-        recorder = getattr(self.autolamella_ui, "_event_recorder", None)
+        recorder = self.autolamella_ui.session.recorder
         self.agent_activity.follow_events(getattr(recorder, "buffer", None))
         host = self._running_app_server()
         if host is None:
@@ -4029,7 +4029,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         ``task_cancelled``, which does not say who stopped it (FIB-1397). The
         agent's stop records itself (``agent_stop``)."""
         logging.info("%s stopped by the operator (%s)", stopped.capitalize(), by)
-        recorder = getattr(self.autolamella_ui, "_event_recorder", None)
+        recorder = self.autolamella_ui.session.recorder
         if recorder is None:
             return
         recorder.buffer.append("workflow_stop", {"stopped": stopped, "by": by, **extra})
@@ -4038,7 +4038,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """GUI thread, from the card: put the operator's message to the agent on
         the session's record, where the agent's watch hears it as a ``MESSAGE``
         line and the agent answers with a note naming its id (FIB-1423)."""
-        recorder = getattr(self.autolamella_ui, "_event_recorder", None)
+        recorder = self.autolamella_ui.session.recorder
         if recorder is None:
             notification_service.show_toast(
                 "No experiment is recording: the agent can't hear messages", "warning"
@@ -4051,7 +4051,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     def _record_agent_event(self, kind: str, previous, level, **extra) -> None:
         """Put a level change on the session's record (events.jsonl). Emitted
         here, on the GUI thread, so the recorder names the operator."""
-        recorder = getattr(self.autolamella_ui, "_event_recorder", None)
+        recorder = self.autolamella_ui.session.recorder
         if recorder is None:
             return
         recorder.buffer.append(
@@ -4718,7 +4718,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # so a window closed without disconnecting leaves it running.
         if self.autolamella_ui is not None:
             try:
-                self.autolamella_ui._stop_event_recorder()
+                self.autolamella_ui.session.stop_recording()
             except Exception as e:
                 logging.warning(f"Could not close the event recorder on close: {e}")
         # Last, so everything above has the microscope it needs. Let the
