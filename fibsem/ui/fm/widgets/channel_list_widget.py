@@ -10,7 +10,7 @@ in without changes to callers.
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import List, Optional, Tuple, Union
+from typing import List, Mapping, Optional, Tuple, Union
 
 from PyQt5.QtCore import QEvent, QSize, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QColor, QIcon, QPixmap
@@ -47,14 +47,10 @@ from fibsem.fm.structures import (
 from fibsem.ui import stylesheets
 from fibsem.ui.fm.widgets.emission_filter_combo import EmissionFilterComboBox
 from fibsem.ui.fm.widgets.fm_limits import (
-    EXPOSURE_RANGE_MS,
-    GAIN_RANGE_PERCENT,
-    POWER_RANGE_PERCENT,
     NativeScale,
+    channel_ranges,
     channel_spinbox,
-    exposure_range_ms,
     gain_scale,
-    power_range_percent,
     power_scale,
     show_native_units,
     shown_channel_value,
@@ -174,8 +170,7 @@ class ChannelRowWidget(QWidget):
         excitation_items: List[float],
         enabled: bool = True,
         parent: Optional[QWidget] = None,
-        exposure_range: Tuple[float, float] = EXPOSURE_RANGE_MS,
-        power_range: Tuple[float, float] = POWER_RANGE_PERCENT,
+        ranges: Optional[Mapping[str, Tuple[float, float]]] = None,
         power_units: Optional[NativeScale] = None,
         gain_units: Optional[NativeScale] = None,
     ) -> None:
@@ -217,20 +212,22 @@ class ChannelRowWidget(QWidget):
         self.emission_combo.setFixedWidth(_EMISSION_FIXED_WIDTH)
         layout.addWidget(self.emission_combo)
 
-        self.exposure_spin = channel_spinbox("exposure_time", exposure_range)
+        # What the FM's devices allow, else what they declare.
+        ranges = ranges or channel_ranges(None)
+        self.exposure_spin = channel_spinbox("exposure_time", ranges["exposure_time"])
         self.exposure_spin.setFixedWidth(_EXPOSURE_FIXED_WIDTH)
         self.exposure_spin.setToolTip("Exposure time (ms)")
         self.exposure_spin.setVisible(False)
         layout.addWidget(self.exposure_spin)
 
-        self.gain_spin = channel_spinbox("gain", GAIN_RANGE_PERCENT)
+        self.gain_spin = channel_spinbox("gain", ranges["gain"])
         self.gain_spin.setFixedWidth(_GAIN_FIXED_WIDTH)
         self.gain_spin.setToolTip("Gain (%)")
         show_native_units(self.gain_spin, gain_units)
         self.gain_spin.setVisible(False)
         layout.addWidget(self.gain_spin)
 
-        self.power_spin = channel_spinbox("power", power_range)
+        self.power_spin = channel_spinbox("power", ranges["power"])
         self.power_spin.setFixedWidth(_POWER_FIXED_WIDTH)
         self.power_spin.setToolTip("Light source power (%)")
         show_native_units(self.power_spin, power_units)
@@ -659,8 +656,7 @@ class ChannelListWidget(QWidget):
             if fm is not None
             else []
         )
-        self._exposure_range = exposure_range_ms(fm)
-        self._power_range = power_range_percent(fm)
+        self._ranges = channel_ranges(fm)
         self._power_units = power_scale(fm)
         self._gain_units = gain_scale(fm)
 
@@ -913,8 +909,7 @@ class ChannelListWidget(QWidget):
             emission_items=self._emission_items,
             excitation_items=self._excitation_items,
             enabled=enabled,
-            exposure_range=self._exposure_range,
-            power_range=self._power_range,
+            ranges=self._ranges,
             power_units=self._power_units,
             gain_units=self._gain_units,
         )
@@ -1153,8 +1148,7 @@ class ChannelListWidget(QWidget):
                 emission_items=self._emission_items,
                 excitation_items=self._excitation_items,
                 enabled=enabled,
-                exposure_range=self._exposure_range,
-                power_range=self._power_range,
+                ranges=self._ranges,
                 power_units=self._power_units,
                 gain_units=self._gain_units,
             )
