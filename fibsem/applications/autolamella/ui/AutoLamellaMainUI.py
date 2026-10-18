@@ -103,6 +103,7 @@ from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     grid_has_run,
     grid_rename_refusal,
     plan_grid_run,
+    rename_grid,
 )
 from fibsem.applications.autolamella.workflows.tasks.tasks import get_task_supervision
 from fibsem.applications.autolamella.workflows.workflow_estimate import (
@@ -3017,10 +3018,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         its history, verdict, note and lamellae, instead of the next inventory
         sync adding a second record under the new name."""
         experiment = getattr(self.autolamella_ui, "experiment", None)
-        grid = experiment.get_grid_by_name(old) if experiment is not None else None
-        if grid is None:
+        if experiment is None or experiment.get_grid_by_name(old) is None:
             return  # no record yet: the sync adds one under the new name
-        grid.name = new
+        # The Grids tab's and the App Server's rename. The slot already has the
+        # new name, so only the record changes here.
+        stage = getattr(self.autolamella_ui.microscope, "sample_handling", None)
+        rename_grid(experiment, stage, old, new)
         try:
             experiment.save()
         except Exception as e:  # noqa: BLE001 - renamed in memory; saved next time
