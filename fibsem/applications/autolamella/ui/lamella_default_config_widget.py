@@ -25,6 +25,7 @@ from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 from fibsem.ui.widgets.canvas.overlays.alignment_overlay import AlignmentAreaOverlay
 from fibsem.ui.widgets.canvas.overlays.point_overlay import PointOverlay
 from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, ValueSpinBox
+from fibsem.ui.widgets.form_builder import configure_spinbox
 
 _DEFAULT_AA = FibsemRectangle.from_dict(DEFAULT_ALIGNMENT_AREA)
 _DEFAULT_POI = Point(0, 0)
@@ -155,44 +156,39 @@ class LamellaDefaultConfigWidget(QWidget):
         left.setContentsMargins(4, 4, 4, 4)
         left.setSpacing(4)
 
+        defaults = LamellaDefaultConfig.params
         self.use_petname_cb = QCheckBox()
-        self.use_petname_cb.setToolTip(
-            "When checked, a random two-word petname (e.g. 'brave-tiger') is appended\n"
-            "to the lamella name. When unchecked, names use 'Lamella-01' format."
-        )
-        left.addLayout(_row("Use petname", self.use_petname_cb))
+        self.use_petname_cb.setToolTip(defaults["use_petname"].doc)
+        left.addLayout(_row(defaults["use_petname"].label, self.use_petname_cb))
 
         self.name_prefix_edit = QLineEdit()
         self.name_prefix_edit.setPlaceholderText("e.g. GridA")
-        self.name_prefix_edit.setToolTip(
-            "Optional text prefix prepended to every new lamella name.\n"
-            "A dash separator is inserted automatically (e.g. 'GridA' → 'GridA-Lamella-01')."
-        )
-        left.addLayout(_row("Prefix", self.name_prefix_edit))
+        self.name_prefix_edit.setToolTip(defaults["name_prefix"].doc)
+        left.addLayout(_row(defaults["name_prefix"].label, self.name_prefix_edit))
 
         aa_lbl = QLabel("ALIGNMENT AREA")
         aa_lbl.setStyleSheet(_SECTION_STYLE)
         left.addWidget(aa_lbl)
 
-        self.aa_left = ValueSpinBox(minimum=0.0, maximum=1.0, decimals=2, step=0.01)
-        self.aa_left.setFixedWidth(_AA_SPIN_W)
-        self.aa_top = ValueSpinBox(minimum=0.0, maximum=1.0, decimals=2, step=0.01)
-        self.aa_top.setFixedWidth(_AA_SPIN_W)
-        self.aa_width = ValueSpinBox(minimum=0.0, maximum=1.0, decimals=2, step=0.01)
-        self.aa_width.setFixedWidth(_AA_SPIN_W)
-        self.aa_height = ValueSpinBox(minimum=0.0, maximum=1.0, decimals=2, step=0.01)
-        self.aa_height.setFixedWidth(_AA_SPIN_W)
-        self._aa_widgets = [self.aa_left, self.aa_top, self.aa_width, self.aa_height]
-
+        # Each edge as FibsemRectangle declares it, with what the area is for.
         _aa_tip = (
-            "The alignment area is a sub-region of the image used for cross-correlation\n"
-            "based alignment during the lamella workflow. Values are normalised image\n"
-            "coordinates in the range [0, 1] where (0, 0) is the top-left corner."
+            "The alignment area is the part of the image the lamella workflow aligns "
+            "on, by cross-correlation."
         )
-        self.aa_left.setToolTip(f"Left edge of the alignment area.\n{_aa_tip}")
-        self.aa_width.setToolTip(f"Width of the alignment area.\n{_aa_tip}")
-        self.aa_top.setToolTip(f"Top edge of the alignment area.\n{_aa_tip}")
-        self.aa_height.setToolTip(f"Height of the alignment area.\n{_aa_tip}")
+
+        def _aa_spinbox(name: str) -> ValueSpinBox:
+            spec = FibsemRectangle.params[name]
+            spinbox = ValueSpinBox()
+            configure_spinbox(spinbox, spec)
+            spinbox.setToolTip(f"{spec.doc}\n{_aa_tip}")
+            spinbox.setFixedWidth(_AA_SPIN_W)
+            return spinbox
+
+        self.aa_left = _aa_spinbox("left")
+        self.aa_top = _aa_spinbox("top")
+        self.aa_width = _aa_spinbox("width")
+        self.aa_height = _aa_spinbox("height")
+        self._aa_widgets = [self.aa_left, self.aa_top, self.aa_width, self.aa_height]
 
         left.addLayout(_row("Left / Width", self.aa_left, self.aa_width))
         left.addLayout(_row("Top / Height", self.aa_top, self.aa_height))
