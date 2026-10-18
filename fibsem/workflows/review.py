@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Tuple
 
+from fibsem.acting import Actor
 from fibsem.workflows.experiment import EXPERIMENT_WRITE_LOCK
 from fibsem.workflows.proposals import (
     PROPOSAL_KINDS,
@@ -25,7 +26,6 @@ from fibsem.workflows.proposals import (
     ValueRefused,
     _encode_values,
     _quietly,
-    auto_author,
     current_proposals,
     prepare_values,
 )
@@ -369,7 +369,7 @@ class ProposalReview:
                         item.set_task_status(
                             task_name,
                             TaskStatus.Failed,
-                            f"Rejected by {decision.author.label}: {decision.reason}",
+                            f"Rejected by {decision.actor.label}: {decision.reason}",
                         )
             except Exception as e:
                 logging.exception(
@@ -404,7 +404,7 @@ class ProposalReview:
                     "item": item.name,
                     "task_name": task_name,
                     "outcome": decision.outcome.name,
-                    "author": str(decision.author),
+                    "actor": str(decision.actor),
                     "delta": {
                         k: getattr(v, "to_dict", lambda: v)()
                         for k, v in result.delta.items()
@@ -548,7 +548,7 @@ class ProposalReview:
                 proposal.decisions.append(
                     Decision(
                         outcome=DecisionOutcome.Unreviewed,
-                        author=auto_author(
+                        actor=Actor.task(
                             str(proposal.provenance.get("proposer") or task_name)
                         ),
                         values=dict(proposal.values),
@@ -607,7 +607,7 @@ class ProposalReview:
             proposal.decisions.append(
                 Decision(
                     outcome=DecisionOutcome.Unreviewed,
-                    author=auto_author(
+                    actor=Actor.task(
                         str(proposal.provenance.get("proposer") or task_name)
                     ),
                     values=dict(proposal.values),
@@ -683,7 +683,7 @@ class ProposalReview:
                         proposal.decisions.append(
                             Decision(
                                 outcome=DecisionOutcome.Withdrawn,
-                                author=auto_author("workflow"),
+                                actor=Actor.task("workflow"),
                                 reason=reason,
                                 via="workflow",
                                 task_id=proposal.task_id,
@@ -748,7 +748,7 @@ class ProposalReview:
             proposal.decisions.append(
                 Decision(
                     outcome=DecisionOutcome.Withdrawn,
-                    author=auto_author("workflow"),
+                    actor=Actor.task("workflow"),
                     reason=reason,
                     via="workflow",
                     task_id=proposal.task_id,

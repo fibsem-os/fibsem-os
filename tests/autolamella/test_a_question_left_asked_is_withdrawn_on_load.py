@@ -89,7 +89,7 @@ def test_a_decision_on_it_is_refused_as_stale(experiment):
         ROUGH,
         Decision(
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             values=dict(question.values),
             proposal_id=question.id,
         ),

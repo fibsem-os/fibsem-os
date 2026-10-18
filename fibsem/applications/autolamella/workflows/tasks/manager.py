@@ -8,10 +8,10 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Set
 
 import pandas as pd
 
+from fibsem.acting import WORKFLOW
 from fibsem.applications.autolamella.workflows.ui import update_status_ui
 from fibsem.cancellation import OperationCancelledError
 from fibsem.constants import DATETIME_DISPLAY_AMPM
-from fibsem.control import WORKFLOW
 from fibsem.hooks import HookEvent, HookManager, fire_event
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import InsertableDeviceState

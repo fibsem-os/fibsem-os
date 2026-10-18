@@ -34,6 +34,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import fibsem.config as fibsem_cfg
+from fibsem.acting import Actor
 from fibsem.applications.autolamella import task_outputs as _task_outputs
 from fibsem.applications.autolamella.structures import Attention
 from fibsem.server.files import jpeg_preview
@@ -1455,7 +1456,6 @@ class AutoLamellaAppContext:
         """Judge a grid, as its card's quality menu does: GOOD, REWORK, FAILED,
         or UNASSESSED to clear it, with an optional reason. Signed as the
         agent's; saved."""
-        from fibsem.workflows.proposals import agent_author
         from fibsem.workflows.quality import Verdict
 
         experiment, grid, refusal = self._grid_record(grid_name)
@@ -1471,7 +1471,7 @@ class AutoLamellaAppContext:
 
         def judge():
             grid.quality.set_defect(
-                description=reason or "", state=state, author=agent_author("remote")
+                description=reason or "", state=state, actor=Actor.agent("remote")
             )
             experiment.save()
             self._grids_changed()
@@ -1908,13 +1908,14 @@ class AutoLamellaAppContext:
         outcome: str,
         values: Optional[Dict[str, Any]] = None,
         reason: str = "",
-        author: str = "",
+        actor: str = "",
         task_id: str = "",
         proposal_id: str = "",
     ) -> Dict[str, Any]:
         """Decide a pending proposal, exactly as the Review tab would: the same
         Experiment.decide, on the main thread, blocking until applied. The
-        author is recorded as the agent, never as the operator.
+        actor is recorded as the agent (``actor`` names its model), never as
+        the operator.
 
         ``proposal_id`` is the proposal the agent was shown (from
         get_pending_reviews), and what the decision is checked against: a task
@@ -1930,7 +1931,6 @@ class AutoLamellaAppContext:
             Decision,
             DecisionOutcome,
             _decode_values,
-            agent_author,
         )
 
         try:
@@ -1943,7 +1943,7 @@ class AutoLamellaAppContext:
             }
         decision = Decision(
             outcome=decided,
-            author=agent_author(author or "remote"),
+            actor=Actor.agent(actor or "remote"),
             values=_decode_values(values or {}),
             reason=reason,
             via="server",
@@ -1967,7 +1967,7 @@ class AutoLamellaAppContext:
                         "item_id": item_id,
                         "task_name": task_name,
                         "outcome": decided.name,
-                        "author": str(decision.author),
+                        "actor": str(decision.actor),
                     },
                 )
         return doc

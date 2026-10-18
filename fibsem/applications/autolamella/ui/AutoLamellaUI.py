@@ -31,6 +31,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem.acting import WORKFLOW
 from fibsem.applications.autolamella.ui.lamella_name_list_widget import (
     LamellaNameListWidget,
 )
@@ -40,7 +41,7 @@ from fibsem.applications.autolamella.ui.selected_lamella_widget import (
 )
 from fibsem.cancellation import OperationCancelledError
 from fibsem.constants import METRE_TO_MICRON, MICRON_TO_METRE
-from fibsem.control import WORKFLOW, MicroscopeBusy
+from fibsem.control import MicroscopeBusy
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
     BeamType,
@@ -2996,7 +2997,7 @@ class AutoLamellaUI(QMainWindow):
             task_name,
             Decision(
                 outcome=DecisionOutcome.Confirmed,
-                author=experiment.author(),
+                actor=experiment.actor(),
                 via="workflow",
                 proposal_id=proposal_id,
             ),

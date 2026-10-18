@@ -145,7 +145,7 @@ def test_a_confirmed_position_is_checked_and_written_nowhere(microscope, tmp_pat
         REF,
         Decision(
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             proposal_id=question.id,
         ),
     )
