@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List
 
+from fibsem.acting import Actor
 from fibsem.workflows.experiment import BaseExperiment
 from fibsem.workflows.item import ExperimentItem
 from fibsem.workflows.proposals import (
@@ -11,7 +12,6 @@ from fibsem.workflows.proposals import (
     Decision,
     DecisionOutcome,
     Proposal,
-    human_author,
 )
 from fibsem.workflows.review import ProposalReview
 from fibsem.workflows.status import TaskState, TaskStatus
@@ -60,7 +60,7 @@ def _held(tmp_path) -> tuple:
 def _decision(proposal: Proposal, outcome: DecisionOutcome, reason: str = ""):
     return Decision(
         outcome=outcome,
-        author=human_author("Ada"),
+        actor=Actor.operator("Ada"),
         reason=reason,
         proposal_id=proposal.id,
     )
@@ -77,7 +77,7 @@ def test_confirming_finishes_the_held_run(tmp_path):
 
     assert result.applied, result.reason
     assert position.task_history[-1].status is TaskStatus.Completed
-    assert proposal.decisions[-1].author.name == "Ada"
+    assert proposal.decisions[-1].actor.name == "Ada"
     assert decided == [(position.id, TASK)]
     assert experiment.pending_proposals() == []
 

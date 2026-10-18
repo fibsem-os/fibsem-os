@@ -20,7 +20,6 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.task_outputs import grid_outputs
 from fibsem.applications.autolamella.ui.grid_workflow_widget import (
     GridRunPreflightDialog,
     GridWorkflowWidget,
@@ -42,6 +41,7 @@ from fibsem.structures import (
     SlotCalibration,
 )
 from fibsem.workflows.grids import GridRecord
+from fibsem.workflows.outputs import item_outputs
 from fibsem.workflows.status import TaskState, TaskStatus
 
 
@@ -692,7 +692,7 @@ def test_a_grid_run_from_the_window_on_a_fixed_holder(main_ui, tmp_path, monkeyp
     # a fixed holder: the grid was loaded already, so no load entry
     assert [t.name for t in grid.task_history] == ["overview_sem"]
     assert grid.task_history[-1].status is TaskStatus.Completed
-    assert len(grid_outputs(exp, grid, "overview_sem")) == 1
+    assert len(item_outputs(exp, grid, "overview_sem")) == 1
     assert main_ui.grids_tab.btn_inventory.isEnabled()
     assert ui._last_run_summary is not None  # the grid summary, for the App Server
     assert microscope.is_on(BeamType.ION) and main_ui._beams_off() == []

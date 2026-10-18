@@ -18,10 +18,6 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.task_outputs import (
-    grid_outputs,
-    latest_grid_output,
-)
 from fibsem.applications.autolamella.workflows.tasks.grid import (
     BeamOverviewGridTask,
     BeamOverviewGridTaskConfig,
@@ -40,6 +36,10 @@ from fibsem.structures import (
     SlotCalibration,
 )
 from fibsem.workflows.grids import GridRecord
+from fibsem.workflows.outputs import (
+    item_outputs,
+    latest_item_output,
+)
 from fibsem.workflows.status import TaskStatus
 
 
@@ -158,12 +158,12 @@ class TestRun:
             "overview_sem_tiles",
             "overview_sem_thumbnail",
         }
-        (overview,) = grid_outputs(experiment, grid, "overview_sem")
+        (overview,) = item_outputs(experiment, grid, "overview_sem")
         assert overview.startswith(
             str(tmp_path / "exp" / "grids" / "grid-aspen" / "overview_sem")
         )
         assert overview.endswith(".tif")
-        thumbnail = latest_grid_output(experiment, grid, "overview_sem_thumbnail")
+        thumbnail = latest_item_output(experiment, grid, "overview_sem_thumbnail")
         assert thumbnail.endswith("-thumbnail.png")
         from PIL import Image
 
@@ -174,8 +174,8 @@ class TestRun:
         grid = experiment.get_grid_by_name("grid-aspen")
         run_grid_task(microscope, "overview_sem", experiment, grid)
 
-        (overview,) = grid_outputs(experiment, grid, "overview_sem")
-        tiles = grid_outputs(experiment, grid, "overview_sem_tiles")
+        (overview,) = item_outputs(experiment, grid, "overview_sem")
+        tiles = item_outputs(experiment, grid, "overview_sem_tiles")
         assert sorted(Path(t).name for t in tiles) == [
             "tile_0_0_eb.tif",
             "tile_0_1_eb.tif",
@@ -191,9 +191,9 @@ class TestRun:
     ):
         grid = experiment.get_grid_by_name("grid-aspen")
         run_grid_task(microscope, "overview_fib", experiment, grid)
-        (overview,) = grid_outputs(experiment, grid, "overview_fib")
+        (overview,) = item_outputs(experiment, grid, "overview_fib")
         assert Path(overview).parent.name == "overview_fib"
-        assert grid_outputs(experiment, grid, "overview_sem") == []
+        assert item_outputs(experiment, grid, "overview_sem") == []
 
     def test_stage_is_where_it_started_afterwards(self, microscope, experiment):
         before = microscope.get_stage_position()
@@ -214,7 +214,7 @@ class TestRun:
 
         time.sleep(1.1)  # the name carries the time of day, to the second
         run_grid_task(microscope, "overview_sem", experiment, grid)
-        assert len(grid_outputs(experiment, grid, "overview_sem")) == 2
+        assert len(item_outputs(experiment, grid, "overview_sem")) == 2
 
     def test_a_stop_before_the_run_is_a_cancellation(self, microscope, experiment):
         class Manager:
@@ -272,7 +272,7 @@ def test_the_saved_overview_says_which_grid_it_is_of(microscope, experiment):
 
     grid = experiment.get_grid_by_name("grid-aspen")
     run_grid_task(microscope, "overview_sem", experiment, grid)
-    (overview,) = grid_outputs(experiment, grid, "overview_sem")
+    (overview,) = item_outputs(experiment, grid, "overview_sem")
     saved = FibsemImage.load(overview)
     assert saved.metadata.experiment.item_id == grid.id
     assert saved.metadata.experiment.item_name == "grid-aspen"

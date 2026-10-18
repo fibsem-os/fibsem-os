@@ -14,6 +14,7 @@ pytest.importorskip("PyQt5")
 import numpy as np  # noqa: E402
 from psygnal.containers import EventedDict  # noqa: E402
 
+from fibsem.acting import Actor  # noqa: E402
 from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     Attention,
@@ -44,7 +45,6 @@ from fibsem.workflows.proposals import (  # noqa: E402
     Decision,
     DecisionOutcome,
     Proposal,
-    auto_author,
 )
 from fibsem.workflows.status import TaskState, TaskStatus  # noqa: E402
 
@@ -118,7 +118,7 @@ def experiment(tmp_path) -> Experiment:
         Decision(
             task_id=RUN,
             outcome=DecisionOutcome.Confirmed,
-            author=auto_author("centre-of-image"),
+            actor=Actor.task("centre-of-image"),
             values={"poi": Point(0.0, 0.0)},
             via="workflow",
         )
@@ -280,7 +280,7 @@ def test_the_decided_chip_lists_decided_rows_and_the_filter_narrows_them(
     experiment.decide(
         lamella.id,
         ROUGH,
-        Decision(task_id=RUN, outcome=DecisionOutcome.Confirmed, author="human:op"),
+        Decision(task_id=RUN, outcome=DecisionOutcome.Confirmed, actor="operator:op"),
     )
     tab.refresh()
     assert "Decided" not in " ".join(tab.row_summaries()), "hidden by default"

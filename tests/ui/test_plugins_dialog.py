@@ -22,7 +22,7 @@ from fibsem.plugins.report import (  # noqa: E402
 from fibsem.ui.widgets.plugins_dialog import PluginsDialog  # noqa: E402
 
 PLUGIN = Extension(
-    group="fibsem.patterns",
+    group="fibsem.milling.patterns",
     name="WaffleTrench",
     source=ExtensionSource.PLUGIN,
     target="lab_patterns.trench.WaffleTrenchPattern",
@@ -30,13 +30,13 @@ PLUGIN = Extension(
     version="0.3.1",
 )
 BUILTIN = Extension(
-    group="fibsem.patterns",
+    group="fibsem.milling.patterns",
     name="Rectangle",
     source=ExtensionSource.BUILTIN,
     target="fibsem.milling.patterning.patterns.rectangle.RectanglePattern",
 )
 SHADOWED = Extension(
-    group="fibsem.strategies",
+    group="fibsem.milling.strategies",
     name="Overtilt",
     source=ExtensionSource.PLUGIN,
     target="lab_patterns.strategy.LabOvertilt",
@@ -62,8 +62,8 @@ FAILED = Extension(
 )
 
 GROUPS = (
-    ExtensionGroup("fibsem.patterns", "Milling patterns", (PLUGIN, BUILTIN)),
-    ExtensionGroup("fibsem.strategies", "Milling strategies", (SHADOWED,)),
+    ExtensionGroup("fibsem.milling.patterns", "Milling patterns", (PLUGIN, BUILTIN)),
+    ExtensionGroup("fibsem.milling.strategies", "Milling strategies", (SHADOWED,)),
     ExtensionGroup("fibsem.autolamella.tasks", "AutoLamella tasks", (SCRIPT, FAILED)),
 )
 
@@ -107,8 +107,8 @@ def test_every_extension_gets_a_row_in_group_order(dialog):
     # The built-in is counted but hidden, so four of the five.
     assert dialog.table.rowCount() == 4
     assert [e.group for e in dialog.rows] == [
-        "fibsem.patterns",
-        "fibsem.strategies",
+        "fibsem.milling.patterns",
+        "fibsem.milling.strategies",
         "fibsem.autolamella.tasks",
         "fibsem.autolamella.tasks",
     ]
@@ -123,8 +123,8 @@ def test_the_entry_point_group_column_shows_the_literal_string(dialog):
     """
     groups = {_cell_text(dialog, row, 2) for row in range(dialog.table.rowCount())}
     assert groups == {
-        "fibsem.patterns",
-        "fibsem.strategies",
+        "fibsem.milling.patterns",
+        "fibsem.milling.strategies",
         "fibsem.autolamella.tasks",
     }
 
@@ -238,7 +238,9 @@ def test_open_folder_is_absent_when_nothing_has_a_file(qapp):
 
     A button that can never be enabled reads as broken, not as inapplicable.
     """
-    packaged_only = (ExtensionGroup("fibsem.patterns", "Milling patterns", (PLUGIN,)),)
+    packaged_only = (
+        ExtensionGroup("fibsem.milling.patterns", "Milling patterns", (PLUGIN,)),
+    )
     widget = PluginsDialog(groups=packaged_only)
     try:
         assert not widget.open_folder_button.isVisible()
@@ -303,7 +305,7 @@ def test_meta_line_counts_everything_installed(dialog):
     # sitting in the table below.
     assert dialog.meta_label.text().startswith("2 plugins, 1 script, 1 failed to load")
     # Per-group counts are the tooltip, so the line stays one line.
-    assert "fibsem.strategies: 1 plugin" in dialog.meta_label.toolTip()
+    assert "fibsem.milling.strategies: 1 plugin" in dialog.meta_label.toolTip()
     # "which install is this?" is the first question about any pasted report,
     # and it used to live on a footer that no longer exists.
     assert environment_line() in dialog.meta_label.toolTip()
@@ -311,7 +313,7 @@ def test_meta_line_counts_everything_installed(dialog):
 
 def test_a_group_with_nothing_registered_leaves_an_empty_table(qapp):
     widget = PluginsDialog(
-        groups=(ExtensionGroup("fibsem.patterns", "Milling patterns", ()),)
+        groups=(ExtensionGroup("fibsem.milling.patterns", "Milling patterns", ()),)
     )
     try:
         assert widget.table.rowCount() == 0

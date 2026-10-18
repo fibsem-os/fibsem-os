@@ -53,6 +53,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem import conversions
+from fibsem.acting import Actor, ActorKind
 from fibsem.applications.autolamella.proposals import (
     OVERVIEW_POSITIONS,
     POINT_OF_INTEREST,
@@ -92,8 +93,6 @@ from fibsem.workflows.proposals import (
     DETECTION,
     STATE,
     TASK_RESULT,
-    Author,
-    AuthorKind,
     Decision,
     DecisionOutcome,
     Proposal,
@@ -159,14 +158,14 @@ _ROW_RIGHT_STYLE = (
 _ROW_RIGHT_STRONG = _ROW_RIGHT_STYLE  # the outcome line reads like the line above it
 
 
-def author_label(author: Author, experiment: Optional[Experiment]) -> str:
-    """How a decision's author reads on screen: "you" for the operator this
-    experiment names, otherwise the author's own label (the name for another
-    person, "agent · model", "auto · proposer")."""
-    author = Author.parse(author)
-    if experiment is not None and author == experiment.author():
+def actor_label(actor: Actor, experiment: Optional[Experiment]) -> str:
+    """How a decision's actor reads on screen: "you" for the operator this
+    experiment names, otherwise the actor's own label (the name for another
+    person, "agent · model", "task · proposer")."""
+    actor = Actor.parse(actor)
+    if experiment is not None and actor == experiment.actor():
         return "you"
-    return author.label
+    return actor.label
 
 
 def clock(timestamp) -> str:
@@ -306,10 +305,10 @@ def describe_decision(
     d = proposal.current
     if d is None:
         return ""
-    who = author_label(d.author, experiment)
+    who = actor_label(d.actor, experiment)
     when = clock(d.timestamp)
     if proposal.withdrawn:
-        # No author worth naming: nothing decided this, the question was taken
+        # No actor worth naming: nothing decided this, the question was taken
         # back when whatever asked it went away.
         return f"Withdrawn at {when} — {d.reason}"
     if proposal.unreviewed:
@@ -321,15 +320,15 @@ def describe_decision(
     # result); a person's later empty decision is the look that was owed.
     verb = "Applied" if proposal.values else "Recorded"
     auto = proposal.applied or next(
-        (x for x in proposal.decisions if x.author.kind is not AuthorKind.human),
+        (x for x in proposal.decisions if x.actor.kind is not ActorKind.operator),
         None,
     )
     if not d.values and auto is not None and auto is not d:
         return (
-            f"{verb} by {author_label(auto.author, experiment)} at "
+            f"{verb} by {actor_label(auto.actor, experiment)} at "
             f"{clock(auto.timestamp)} · checked by {who} at {when}"
         )
-    if d.author.kind is not AuthorKind.human:
+    if d.actor.kind is not ActorKind.operator:
         return f"{verb} by {who} at {when} · not checked yet"
     delta = proposal.delta(d).get("poi")
     moved = (
@@ -673,7 +672,7 @@ class TaskResultReviewRenderer(ReviewRenderer):
         failure = str(proposal.provenance.get("failure") or "")
 
         if decided is not None:
-            who = author_label(decided.author, experiment)
+            who = actor_label(decided.actor, experiment)
             when = clock(decided.timestamp)
             via = _via_text(decided.via)
             if proposal.withdrawn:
@@ -2315,7 +2314,7 @@ class ReviewTabWidget(QWidget):
             values = self._renderer_for(proposal.kind).current_values()
         decision = Decision(
             outcome=DecisionOutcome.Confirmed,
-            author=self._experiment.author(),
+            actor=self._experiment.actor(),
             via="review",
             values=values,
             task_id=proposal.task_id,
@@ -2331,7 +2330,7 @@ class ReviewTabWidget(QWidget):
         experiment = self._experiment
         if experiment is None:
             return
-        author = experiment.author()
+        actor = experiment.actor()
         done = 0
         listed = [e for e in self._entries if e[3] == "check"]
         for item, task_name, proposal, _state in listed:
@@ -2340,7 +2339,7 @@ class ReviewTabWidget(QWidget):
                 task_name,
                 Decision(
                     outcome=DecisionOutcome.Confirmed,
-                    author=author,
+                    actor=actor,
                     # an open value is checked as it stands, so it carries
                     # the values it was proposed with; a used one carries none
                     values=dict(proposal.values) if proposal.pending else {},
@@ -2378,7 +2377,7 @@ class ReviewTabWidget(QWidget):
             return
         decision = Decision(
             outcome=DecisionOutcome.Rejected,
-            author=self._experiment.author(),
+            actor=self._experiment.actor(),
             via="review",
             reason=reason,
             task_id=proposal.task_id,
