@@ -29,6 +29,7 @@ in tests.
 
 import logging
 import math
+import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -1793,6 +1794,61 @@ class AutoLamellaAppContext:
         result = outcome.result(timeout=timeout)
         result["available"] = True
         return result
+
+    def apply_item_correlation(
+        self, item_name: str, run_path: str, timeout: float = 10.0
+    ) -> Dict[str, Any]:
+        """Move an item's point of interest to a saved correlation run's target,
+        as the correlation dialog's Continue does, and record the correlation.
+
+        *run_path* is a run folder in the item's own Correlation folder (as the
+        correlation service saves it). The move is an item patch of ``poi``, so
+        it is version-checked, the patterns that follow the point move with it,
+        and it is saved and shown as the agent's edit.
+        """
+        from fibsem.correlation.history import (
+            correlation_dir,
+            correlation_record,
+            load_run,
+        )
+
+        experiment = self._experiment
+        if experiment is None:
+            return {"error_type": "not_found", "error": "No experiment is loaded."}
+        lamella, refusal = find_item(experiment, item_name)
+        if refusal:
+            return {"error_type": "not_found", **refusal}
+        root = os.path.realpath(correlation_dir(str(lamella.path)))
+        folder = os.path.realpath(run_path)
+        if os.path.commonpath([root, folder]) != root or folder == root:
+            return {
+                "error_type": "invalid",
+                "error": f"run_path must be a run folder in {item_name}'s "
+                f"Correlation folder ({root}), not {run_path}.",
+            }
+        try:
+            result = load_run(folder).result
+        except FileNotFoundError as exc:
+            return {"error_type": "not_found", "error": str(exc)}
+        if result is None or not result.poi:
+            return {
+                "error_type": "invalid",
+                "error": f"the run at {run_path} has no fitted point of interest.",
+            }
+        poi = result.poi[0].px_m
+        applied = self.apply_item_patch(
+            item_name,
+            {"poi.x": float(poi.x), "poi.y": float(poi.y)},
+            item_fields_version(lamella),
+            timeout=timeout,
+        )
+        if applied.get("applied"):
+            self.record_event(
+                "correlation",
+                correlation_record(result, lamella, folder, experiment.path),
+            )
+            applied["run_path"] = run_path
+        return applied
 
     # --- propose and review (FIB-950) -----------------------------------------
 
