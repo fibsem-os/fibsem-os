@@ -421,6 +421,7 @@ def test_reviews_give_the_proposals_own_id_to_pass_back(ui):
     assert waiting[0]["proposal_id"] == lamella.proposal(SETUP).id
     assert waiting[0]["task_id"] == RUN, "the run is still there, as a fact about it"
     assert waiting[0]["holding_the_run"] is False
+    assert waiting[0]["rejected_fails_task"] is True, "a point rejected fails Setup"
 
 
 def test_decide_by_the_proposals_id_needs_no_run(ui, qapp):

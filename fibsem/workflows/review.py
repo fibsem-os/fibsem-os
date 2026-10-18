@@ -27,6 +27,7 @@ from fibsem.workflows.proposals import (
     _encode_values,
     _quietly,
     prepare_values,
+    rejected_fails_task,
 )
 from fibsem.workflows.status import TaskStatus
 
@@ -131,8 +132,10 @@ class ProposalReview:
         that follow it). No value is written through to a grid; a confirm
         carrying values on one is refused. The proposed values are left as they were, so the
         delta survives. A task that ended AwaitingDecision is finished by the
-        decision: Completed on confirm, Failed on reject, so what requires it
-        runs or does not by the ordinary prerequisite rule. The same for a
+        decision: Completed on confirm, Failed on reject when the kind says a
+        reject fails the task (a ``state`` reject is "don't", and leaves it as
+        it was), so what requires it runs or does not by the ordinary
+        prerequisite rule. The same for a
         lamella and a grid. A decision on a
         task that already finished (a result someone checks) changes nothing
         but the record.
@@ -364,7 +367,7 @@ class ProposalReview:
                 if item.is_awaiting_decision(task_name):
                     if decision.outcome is DecisionOutcome.Confirmed:
                         item.set_task_status(task_name, TaskStatus.Completed)
-                    else:
+                    elif rejected_fails_task(proposal.kind):
                         item.set_task_status(
                             task_name,
                             TaskStatus.Failed,

@@ -87,12 +87,7 @@ def test_setups_settings_turn_its_questions_off():
     with_all = attendance(
         SelectMillingPositionTask, on, Attention.supervised, waiters=[ROUGH]
     )
-    assert with_all.present == (
-        "the position",
-        "detection",
-        "the alignment area",
-        "the point of interest",
-    )
+    assert with_all.present == ("the position", "detection", "the alignment area")
     fewer = attendance(
         SelectMillingPositionTask, off, Attention.supervised, waiters=[ROUGH]
     )
@@ -119,17 +114,6 @@ def test_automated_nobody_is_asked_and_the_value_is_open_until_used():
         Attention.automated,
     )
     assert alone.line == "Nobody is asked."
-
-
-def test_with_the_review_workflow_off_nothing_waits_afterwards():
-    att = attendance(
-        MillRoughTask,
-        MillRoughTaskConfig(task_name=ROUGH),
-        Attention.supervised,
-        waiters=["Polishing"],
-        review_on=False,
-    )
-    assert att.line == "Needs you at the microscope while it runs: milling."
 
 
 def _protocol() -> AutoLamellaTaskProtocol:
@@ -165,11 +149,7 @@ def test_the_protocol_names_the_type_the_attention_and_who_waits():
     setup = attendance_for(protocol, SETUP)
     assert setup.attention is Attention.supervised
     assert setup.waiters == (ROUGH,)
-    assert setup.present == (
-        "the position",
-        "the alignment area",
-        "the point of interest",
-    )
+    assert setup.present == ("the position", "the alignment area")
     rough = attendance_for(protocol, ROUGH)
     assert rough.attention is Attention.automated and rough.waiters == ()
     assert attendance_for(protocol, "Ghost") is None, "no config, nothing said"

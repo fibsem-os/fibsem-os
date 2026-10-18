@@ -25,6 +25,7 @@ from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.tasks import FibsemMillingTask, FibsemMillingTaskConfig
 from fibsem.structures import BeamType, Point
 from fibsem.workflows.event_recording import EventRecorder
+from tests.autolamella._on_the_record import manager_for
 
 LAMELLA = "01-test"
 MILLING_TASK = "Rough Milling"
@@ -63,6 +64,7 @@ def record_demo_experiment(
             microscope=microscope,
             config=SelectMillingPositionTaskConfig(use_autofocus=False),
             lamella=lamella,
+            task_manager=manager_for(microscope, lamella),
         ).run()
 
         milling = FibsemMillingTaskConfig.from_stages(

@@ -87,7 +87,6 @@ def _experiment(
 
 def _task(microscope, exp: Experiment, body=None) -> MillRoughTask:
     manager = TaskManager(microscope=microscope, experiment=exp, parent_ui=None)
-    manager.review_enabled = True
     lamella = exp.positions[0]
     task = MillRoughTask(
         microscope=microscope,
@@ -202,19 +201,6 @@ def test_not_gated_the_result_is_recorded_and_the_run_goes_on(microscope, tmp_pa
     assert proposal.unreviewed and proposal.to_check
     assert str(proposal.current.actor) == f"task:{ROUGH}"
     assert f"{POLISH} started" in proposal.current.reason
-
-
-def test_without_the_flag_the_result_is_recorded_but_never_gates(microscope, tmp_path):
-    """The flag hides the Review surface, not the record."""
-    exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
-    task = _task(microscope, exp)
-    task.task_manager.review_enabled = False
-    task.run()
-    lamella = exp.positions[0]
-    proposal = lamella.proposal(ROUGH)
-    assert proposal.kind == TASK_RESULT and proposal.pending, "open, not decided"
-    assert task.task_manager._defer_reason(lamella, POLISH) is None
-    assert not lamella.is_awaiting_decision(ROUGH)
 
 
 def test_what_a_task_type_proposes_is_declared_on_the_class(microscope, tmp_path):

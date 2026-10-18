@@ -1,12 +1,15 @@
 """A task asks for a value it needs now with ``ask``: one way, on the record.
 
-Headless here, so nobody is there to ask: the proposal goes on the record with
-an ``Unreviewed`` decision carrying the values the task went on to use, for
-someone to check afterwards. The supervised path, where the run holds until
-the decision lands, needs a window and is in tests/ui.
+Headless here. With nobody to answer, the proposal goes on the record with an
+``Unreviewed`` decision carrying the values the task went on to use, for
+someone to check afterwards. With someone to answer and no window -- the agent
+at Drive -- a supervised task asks and waits as it would at a window; the
+operator at a window is in tests/ui.
 """
 
 import os
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -35,7 +38,9 @@ from fibsem.workflows.proposals import (
     PROPOSAL_KINDS,
     Decision,
     DecisionOutcome,
+    Standing,
 )
+from fibsem.workflows.review import standing
 
 ROUGH = "Rough Milling"
 CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
@@ -80,9 +85,10 @@ def _experiment(tmp_path: Path, microscope, attention=Attention.automated):
     return exp
 
 
-def _task(microscope, exp, cls=_AsksForAPoint, body=None):
-    manager = TaskManager(microscope=microscope, experiment=exp, parent_ui=None)
-    manager.review_enabled = True
+def _task(microscope, exp, cls=_AsksForAPoint, body=None, answerers=None):
+    manager = TaskManager(
+        microscope=microscope, experiment=exp, parent_ui=None, answerers=answerers
+    )
     lamella = exp.positions[0]
     task = cls(
         microscope=microscope,
@@ -140,6 +146,49 @@ def test_with_nobody_to_ask_the_proposed_value_is_used_and_recorded_unreviewed(
         "listed to check, beside the run's result"
     )
     assert not lamella.is_awaiting_decision(ROUGH), "nothing waits on it"
+
+
+def test_with_the_agent_to_answer_a_supervised_task_asks_and_waits(
+    microscope, tmp_path
+):
+    """No window, but the agent can answer (at Drive): the question stands,
+    pending, and the task carries on with the agent's decision."""
+    exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
+    lamella = exp.positions[0]
+    task = _task(microscope, exp, answerers=lambda: (ActorKind.agent,))
+    seen = {}
+    asking = threading.Thread(
+        target=lambda: seen.update(
+            decision=task.ask(POINT_OF_INTEREST, {"poi": Point(1e-6, 2e-6)})
+        ),
+        daemon=True,
+    )
+    asking.start()
+    deadline = time.monotonic() + 10
+    while (question := lamella.proposal(ROUGH)) is None or not question.pending:
+        assert time.monotonic() < deadline, "the question was never asked"
+        assert asking.is_alive(), "the task did not wait for an answer"
+        time.sleep(0.01)
+    assert standing(lamella, ROUGH, question) is Standing.Asking, "the task waits on it"
+
+    result = exp.decide(
+        lamella.id,
+        ROUGH,
+        Decision(
+            outcome=DecisionOutcome.Confirmed,
+            actor="agent:x",
+            proposal_id=question.id,
+            values={"poi": Point(3e-6, 0)},
+        ),
+    )
+    assert result.applied, result.reason
+    asking.join(timeout=10)
+    assert not asking.is_alive(), "the task went on once it was answered"
+
+    decision = seen["decision"]
+    assert decision.outcome is DecisionOutcome.Confirmed
+    assert decision.values == {"poi": Point(3e-6, 0)}, "the agent's value"
+    assert decision.actor.kind is ActorKind.agent
 
 
 def test_a_question_a_setting_turns_off_is_recorded_not_asked(microscope, tmp_path):

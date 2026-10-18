@@ -33,17 +33,22 @@ leave the click to the operator, with a note saying why.
    the experiment*). Do not judge a stale image — wait or escalate.
 4. **First writer wins, and the operator outranks you.** If they answer first,
    your job for that question is over. Never race them.
-5. **A recorded question is decided, not answered.** With the review
-   preference on, a task asks a detection or a position confirmation on the
-   item's record and stops on it. No prompt is raised: the watcher prints a
+5. **A recorded question is decided, not answered.** A task asks a
+   position, an alignment area or a detection on the item's record and
+   stops on it; the operator sees a position on the prompt bar and
+   everything else in the Review tab. No prompt is raised for you: the watcher prints a
    `QUESTION item=… task=…` line, and `review_list` lists it with
-   `holding_the_run: true` (its `proposal_id`, `values` and image are
-   there). Decide it with `review_decide`: `item_id`, `task_name`,
+   `holding_the_run: true` (its `proposal_id`, `kind`, `values` and image
+   are there). Decide it with `review_decide`: `item_id`, `task_name`,
    `proposal_id`, the outcome, and — on Confirmed — every value the kind
-   carries, as proposed or adjusted. Rejected needs a reason and fails the
-   task that asked, so when unsure hold and escalate rather than reject.
-   Take a `holding_the_run` review before anything else in the inbox:
-   nothing runs until it is decided.
+   carries, as proposed or adjusted. Rejected needs a reason and does what
+   the review's `rejected_fails_task` says: true, it fails the task that
+   asked; false (a `state` question), it means *don't* and the task carries
+   on. When unsure, hold and escalate rather than reject. Take a
+   `holding_the_run` review before anything else in the inbox: nothing
+   runs until it is decided. A supervised task's result (Setup's point of
+   interest) is in `review_list` too once the task ends, not holding the
+   run: the tasks that require it wait on the decision.
 
 ## Write down why
 
@@ -84,36 +89,34 @@ mill has run for this question.
 - Between passes the question lends control, as any other does: image,
   move or re-align before the next `run`. Never during a mill.
 
-**`EditAlignmentArea`** — the payload's `current` is the live rectangle
-(fractions of the frame), and `image` is the frame it sits on (the post-mill
-FIB view). Sanity-check against the image: in bounds, non-degenerate size,
-covering the fiducial, consistent with previous items. Yes accepts it as
-shown. In a fiducial task this prompt arrives at the task's *end*, not its
-start. An answer may carry a **corrected rectangle**:
-`{"response": true, "question_id": N, "value": {"left", "top", "width", "height"}}`
-(fractions of the frame, origin top-left). The server validates it and
-places it on the operator's screen through the same widget they would drag,
-then accepts it — use this for a small correction you can justify from your
-criteria, never to invent an area from scratch (that is an escalation).
+**An `alignment_area` review** — a recorded question (rule 5):
+`values.alignment_area` is the rectangle (`left`, `top`, `width`,
+`height`, fractions of the frame, origin top-left) and the image is the
+frame it sits on (the post-mill FIB view in a fiducial task, where it
+arrives at the task's *end*, not its start). Sanity-check against the
+image: in bounds, non-degenerate size, covering the fiducial, consistent
+with previous items. Confirm with the rectangle as proposed to accept it,
+or with a **corrected rectangle** for a small correction you can justify
+from your criteria — never invent an area from scratch (that is an
+escalation). The task acquires its reference in the decided area.
 
-**`PickPOI`** — a placement. The payload carries the image and the live
-`current` marker (microscope image coordinates, +y up, origin centre). In
-collaborative mode this is **held for the operator**: report it, show where
-the marker is, and wait. Where placement has been delegated (exemplar mode,
-or an explicit "you place the rest"), the answer may carry the point:
-`"value": {"x", "y"}` in the payload's stated coordinates — validated
-against the image bounds, and landed on screen before acceptance.
+**A `point_of_interest` review** — a placement, and Setup's result: it is
+proposed at the end of the task on the final FIB image and does not hold
+the run; the milling tasks that follow the point wait on the decision.
+`values.poi` is `{"x", "y"}` in metres, milling frame (+y up, origin the
+image centre). In collaborative mode this is **held for the operator**:
+report it, show where the point is, and wait. Where placement has been
+delegated (exemplar mode, or an explicit "you place the rest"), confirm
+with the point you judge right; it is written through and the patterns
+that follow it move with it.
 
-**`ConfirmDetection`** — feature positions. Held for the operator in
-collaborative mode. With the review preference on this is a recorded
-question (rule 5): a `detection` review whose `values.features` are the
-model's points in image pixels, each with a name. Confirm with the features
-as they are to say the model was right; move one only for a correction you
-can state. Where it is a prompt rather than a review, the payload's
-`current` is the live features, and an answer may move some:
-`"value": {"features": [{"name", "px": {"x", "y"}}]}` (source-image pixels,
-origin top-left; features you leave out stay). The model's points are kept
-beside your correction, as they are when the operator drags one.
+**A `detection` review** — feature positions, a recorded question (rule
+5): `values.features` are the model's points in source-image pixels
+(origin top-left), each with a name. Held for the operator in
+collaborative mode. Confirm with the features as they are to say the model
+was right; move one only for a correction you can state
+(`{"features": [{"name", "px": {"x", "y"}}]}`). The model's points are
+kept beside your correction, as they are when the operator drags one.
 
 **`RunSpotBurn`** — points to burn on the FIB image, the same loop as the
 milling question: answer with an `action` in `value` (`run`, `edit`, `skip`
@@ -130,13 +133,16 @@ unless delegated. The question lends control between burns.
 **A `state` review** — the task's position, "press Continue when ready" on
 the record (rule 5). Confirming carries no values: the task reads the
 instrument after the answer, so a move the operator made first is the
-delta. Sanity-check its `message` against the run before confirming; the
-ladder applies as for any `Confirm`.
+delta. Rejecting is *don't*, not a failure (`rejected_fails_task: false`):
+at Setup's tilt question the task does not tilt and carries on at the angle
+it is at. Sanity-check its `message` against the run before confirming;
+the ladder applies as for any `Confirm`.
 
 **Before a position or a POI: check coincidence.** Setup's position
 question ("Double click the image to move to the milling position… Press
 Continue", a `Confirm` or a `state` review) fixes where the lamella is
-milled, and the `PickPOI` after it fixes the point the mills follow. Both
+milled, and the `point_of_interest` review after it fixes the point the
+mills follow. Both
 beams have to be looking at the same target. Before you answer, suggest or
 place either:
 
@@ -153,9 +159,9 @@ place either:
 
 Checking only the beam you moved in is not enough. A FIB stable move onto a
 cell once left the SEM centred on a different one, 30 µm away. Moving the
-stage while `PickPOI` stands invalidates its image, so do the check at the
-position question; at `PickPOI`, put the point on the target in the
-payload's image.
+stage after the position question invalidates the image the point is
+proposed on, so do the check at the position question; at the
+`point_of_interest` review, put the point on the target in its image.
 
 Unknown type → escalate. Do not guess an answer shape.
 
@@ -166,8 +172,9 @@ Unknown type → escalate. Do not guess an answer shape.
   intend, and let them confirm your policy (or answer it themselves).
 - **Repeats, handle**: once a class has been confirmed, answer its repeats
   the same way without asking.
-- **Interactive types never ladder** in collaborative mode: `PickPOI`,
-  `ConfirmDetection`, and any placement-flavoured `Confirm` stay with the
+- **Interactive types never ladder** in collaborative mode: the
+  `point_of_interest` and `detection` reviews, and any placement-flavoured
+  `Confirm` stay with the
   operator unless they explicitly delegate ("you place the rest").
 - **Anything novel or wrong-smelling breaks the ladder**: an unexpected
   value, a failed task, an image you cannot interpret, a question you did
@@ -211,10 +218,10 @@ The argument selects a variation on the same loop:
   state, not the live prompt: after an `ANSWERED by=operator` line, read
   `GET /app/experiment/items/{item_name}` — the accepted POI, alignment area, and
   milling angle are there — and pair it with the display image. Never race
-  the operator for the prompt's `current` value. A small drift against a
-  criterion you can state is a correction, not an escalation: answer with a
-  `value` carrying the fixed geometry (the alignment rectangle nudged off
-  the POI, the point moved onto the feature) — the operator sees it land.
+  the operator for a question they are answering. A small drift against a
+  criterion you can state is a correction, not an escalation: confirm with
+  values carrying the fixed geometry (the alignment rectangle nudged off
+  the POI, the point moved onto the feature).
   Escalate when you cannot state the correction, when you cannot evaluate a
   criterion, or when a question type the exemplar never showed appears.
 - **batch-review**: supervision is off or minimal; let the run complete, then

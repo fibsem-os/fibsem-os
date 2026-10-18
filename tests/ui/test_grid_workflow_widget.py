@@ -213,23 +213,9 @@ class TestSelection:
 
 
 class TestAttentionChip:
-    """Automated or Review per grid task, as on the lamella task list; shown
-    only while the review preference is on."""
+    """Automated or Review per grid task, as on the lamella task list."""
 
-    def test_hidden_while_review_is_off(self, view, monkeypatch):
-        import fibsem.applications.autolamella.ui.grid_workflow_widget as module
-
-        monkeypatch.setattr(module, "_review_available", lambda: False)
-        row = view._task_rows["overview_sem"]
-        row.refresh()
-        assert row.btn_attention.isHidden()
-
-    def test_a_click_toggles_review_and_saves_the_protocol(
-        self, view, experiment, monkeypatch
-    ):
-        import fibsem.applications.autolamella.ui.grid_workflow_widget as module
-
-        monkeypatch.setattr(module, "_review_available", lambda: True)
+    def test_a_click_toggles_review_and_saves_the_protocol(self, view, experiment):
         row = view._task_rows["overview_sem"]
         row.refresh()
         assert not row.btn_attention.isHidden()
@@ -252,14 +238,9 @@ class TestAttentionChip:
         assert config.attention is Attention.automated
 
 
-def test_review_on_a_task_nothing_requires_says_nothing_waits(
-    qapp, arctis, experiment, monkeypatch
-):
+def test_review_on_a_task_nothing_requires_says_nothing_waits(qapp, arctis, experiment):
     """As on the lamella list: a Review chip on a task no other task requires
     holds nothing, and the row says so until something requires it."""
-    import fibsem.applications.autolamella.ui.grid_workflow_widget as module
-
-    monkeypatch.setattr(module, "_review_available", lambda: True)
     experiment.grid_protocol.task_config[
         "overview_sem"
     ].attention = Attention.supervised
@@ -322,11 +303,8 @@ class TestRequiresOnTheTaskList:
         assert view._task_rows["overview_sem"].detail_label.text() == "Beam overview"
 
     def test_the_row_says_after_review_of_a_reviewed_requirement(
-        self, view, experiment, monkeypatch
+        self, view, experiment
     ):
-        import fibsem.applications.autolamella.ui.grid_workflow_widget as module
-
-        monkeypatch.setattr(module, "_review_available", lambda: True)
         view.set_requires("overview_sem", ["overview_fm"])
         row = view._task_rows["overview_sem"]
         assert row.detail_label.text() == "after overview_fm"

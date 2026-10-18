@@ -241,6 +241,41 @@ def test_reject_needs_a_reason_and_fails_the_task(tab, experiment, monkeypatch):
     assert tab.pending_count == 0
 
 
+def test_reject_says_what_it_does_for_the_kind(tab, experiment, monkeypatch):
+    """A point rejected fails Setup, and the verb says so; a state question
+    rejected is "don't", and the button and the reason prompt say that."""
+    from PyQt5.QtWidgets import QInputDialog
+
+    from fibsem.workflows.proposals import STATE
+
+    assert tab.stack.currentWidget().btn_reject.text() == "Reject · mark task failed"
+
+    lamella = experiment.positions[0]
+    set_proposals(
+        lamella,
+        SETUP,
+        [
+            Proposal(
+                kind=STATE,
+                values={"stage_position": FibsemStagePosition()},
+                provenance={"task_id": RUN, "message": "Tilt to the milling angle?"},
+            )
+        ],
+    )
+    tab.refresh()
+    shown = tab.stack.currentWidget()
+    assert isinstance(shown, R.StateReviewRenderer)
+    assert shown.btn_reject.text() == "Reject · don't"
+    asked = []
+    monkeypatch.setattr(
+        QInputDialog,
+        "getText",
+        staticmethod(lambda _parent, _title, text: asked.append(text) or ("", False)),
+    )
+    tab.reject_current()
+    assert "carries on" in asked[0] and "failed" not in asked[0]
+
+
 def test_a_decision_made_elsewhere_refreshes_the_inbox(tab, experiment):
     """The App Server decides through the same function; the tab follows."""
     lamella = experiment.positions[0]
@@ -611,10 +646,7 @@ def test_author_labels_and_row_details():
     assert R.describe_decision(p, exp).startswith("Confirmed by you at ")
 
 
-def test_the_row_chip_offers_review_only_with_the_flag(qapp, monkeypatch):
-    from fibsem.applications.autolamella.ui import workflow_config_widget as W
-
-    monkeypatch.setattr(W, "_review_available", lambda: True)
+def test_the_row_chip_toggles_the_attention(qapp):
     task = AutoLamellaTaskDescription(
         name=SETUP, attention=Attention.supervised, required=True
     )
@@ -627,13 +659,6 @@ def test_the_row_chip_offers_review_only_with_the_flag(qapp, monkeypatch):
     assert row.btn_attention.text() == "Automated"
     row.btn_attention.click()
     assert task.attention is Attention.supervised
-
-    # The preference changes what Supervised does, not what it reads as.
-    monkeypatch.setattr(W, "_review_available", lambda: False)
-    off = WorkflowTaskRowWidget(task)
-    assert off.btn_attention.text() == "Supervised"
-    off.btn_attention.click()
-    assert task.attention is Attention.automated
 
 
 def test_a_decision_on_a_run_replaced_while_shown_is_refused(

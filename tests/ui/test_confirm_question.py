@@ -2,12 +2,9 @@
 
 Instructions complete their future inside the handler; a question's handler shows
 the prompt and returns, and the yes/no click completes the future later — the
-deferred half of the seam. Every plain ``ask_user`` call (no detection, milling
-or spot-burn variant) now takes this path; ``USER_RESPONSE`` and the polled
-``WAITING_FOR_USER_INTERACTION`` handshake stay behind for the unconverted
-variants only.
+deferred half of the seam.
 
-Each test calls ``ask_user`` from a real worker thread, spins the GUI loop until
+Each test asks a ``Confirm`` from a real worker thread, spins the GUI loop until
 the prompt is up, clicks, and reads the answer off the worker — the production
 shape end to end.
 """
@@ -24,7 +21,8 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
-from fibsem.applications.autolamella.workflows.ui import ask_user
+from fibsem.applications.autolamella.workflows.ui import _abort_requested
+from fibsem.workflows.interaction import Confirm, ask
 from fibsem.workflows.status import Hold, HoldKind
 from tests.run_state import Stopped
 
@@ -41,12 +39,16 @@ def ui(qapp):
 
 
 def _ask_on_worker_thread(ui, qapp, msg="Continue?", pos="Continue", neg="Exit"):
-    """Start a plain ask_user on a worker thread; spin until the prompt is up."""
+    """Start a plain Confirm on a worker thread; spin until the prompt is up."""
     outcome = {}
 
     def target():
         try:
-            outcome["answer"] = ask_user(ui, msg=msg, pos=pos, neg=neg)
+            outcome["answer"] = ask(
+                ui.ui_responder,
+                Confirm(message=msg, positive=pos, negative=neg),
+                abort=lambda: _abort_requested(ui),
+            )
         except Exception as exc:  # noqa: BLE001 - the test inspects it
             outcome["error"] = exc
 
@@ -69,7 +71,7 @@ def _finish(thread, qapp, timeout_s=10.0):
         qapp.processEvents()
         time.sleep(0.01)
     thread.join(timeout=1.0)
-    assert not thread.is_alive(), "ask_user never returned"
+    assert not thread.is_alive(), "ask never returned"
 
 
 def test_the_yes_click_answers_true(ui, qapp):
@@ -98,7 +100,7 @@ def test_the_no_click_answers_false(ui, qapp):
 
 def test_the_answer_does_not_travel_through_the_legacy_channel(ui, qapp):
     # USER_RESPONSE was the shared mutable the typed path retired; it no longer
-    # exists, so a click writing it (or ask_user reading it) would have to
+    # exists, so a click writing it (or the asker reading it) would have to
     # re-create it — which is exactly what this catches.
     thread, outcome = _ask_on_worker_thread(ui, qapp)
 

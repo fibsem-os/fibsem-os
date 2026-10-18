@@ -63,11 +63,10 @@ class GridTaskConfig(Configurable, ABC):
     # Who decides the task's record: automated (the task confirms its own) or
     # supervised (the task ends AwaitingDecision and the Review tab decides;
     # a grid task asks nothing while it runs, so that is the whole of it).
-    # One per task name, shared by every grid like the rest of the config;
-    # read as automated while the review preference is off.
+    # One per task name, shared by every grid like the rest of the config.
     attention: Attention = param(
         Attention.automated,
-        doc="Who decides the task's result: the task itself (automated), or the operator in the Review tab (supervised). Read as automated while reviews are off.",
+        doc="Who decides the task's result: the task itself (automated), or the operator in the Review tab (supervised).",
         display=Display("Attention"),
     )
     # The tasks, by name, whose result this one uses, as on the lamella
@@ -219,13 +218,8 @@ class GridTask(BaseTask):
         self.item = grid
 
     @property
-    def review(self) -> bool:
-        """Whether this task ends waiting on a decision in the Review tab: its
-        config's attention, and the feature flag as the manager read it for
-        this run. Otherwise the task confirms its own record."""
-        manager = self.task_manager
-        if manager is None or not getattr(manager, "review_enabled", False):
-            return False
+    def supervised(self) -> bool:
+        """Whether this task's config attention is supervised."""
         return self.config.attention is Attention.supervised
 
     @property

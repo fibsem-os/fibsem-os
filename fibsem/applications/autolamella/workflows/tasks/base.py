@@ -49,14 +49,11 @@ from fibsem.applications.autolamella.workflows._default_milling_config import (
 from fibsem.applications.autolamella.workflows.core import (
     align_feature_coincident,
     set_images_ui,
-    update_detection_ui,
     update_status_ui,
 )
 from fibsem.applications.autolamella.workflows.ui import (
     INSTRUCTION_TIMEOUT_S,
     _abort_requested,
-    ask_user,
-    update_alignment_area_ui,
 )
 from fibsem.cancellation import SKIPPED
 from fibsem.control import lending
@@ -167,7 +164,7 @@ class AutoLamellaTask(BaseTask):
     @classmethod
     def questions_for(cls, config: AutoLamellaTaskConfig) -> Tuple[str, ...]:
         """The kinds this task asks under ``config``: a setting may turn one
-        off (Setup's ``select_poi``). By default, everything declared."""
+        off (Setup's ``confirm_alignment_area``). By default, everything declared."""
         return cls.questions
 
     @classmethod
@@ -234,23 +231,16 @@ class AutoLamellaTask(BaseTask):
         return get_task_supervision(self.task_name, manager.experiment)
 
     @property
-    def review(self) -> bool:
-        """Whether a person decides this task's record: the task is Supervised
-        and the review preference is on (read once per run by the manager,
-        through it rather than the UI so a headless run behaves the same).
-        Then a result the operator did not decide in the workflow -- a
+    def supervised(self) -> bool:
+        """Whether the protocol's attention for this task is Supervised, read
+        through the manager rather than the UI so a headless run behaves the
+        same. Then a result the operator did not decide in the workflow -- a
         milling session's Continue, Setup's point -- leaves the task
-        AwaitingDecision, and the decision in the Review tab finishes it.
-        Otherwise the producer decides its own record. The record is made
-        either way: the preference hides the Review surface, not the
-        record."""
+        AwaitingDecision, and the decision in the Review tab finishes it."""
         manager = self.task_manager
-        if manager is None or not getattr(manager, "review_enabled", False):
+        if manager is None:
             return False
-        protocol = getattr(manager.experiment, "task_protocol", None)
-        if protocol is None:
-            return False
-        return protocol.get_attention(self.task_name) is Attention.supervised
+        return get_task_supervision(self.task_name, manager.experiment)
 
     def pre_task(self) -> None:
         logging.info(
@@ -353,9 +343,10 @@ class AutoLamellaTask(BaseTask):
         task reads ``.outcome`` and ``.values``; a task applies the decided
         values itself, so a kind asked here must not write them through.
 
-        Supervised, with a window to answer in (``validate``): the run holds
-        here -- the manager raises the hold, the Review tab is fronted -- until
-        the decision lands, or Stop, which withdraws the question and raises
+        Supervised, with someone to answer (``answerers``: the operator at a
+        window, or the agent at Drive): the run holds here -- the manager
+        raises the hold, the Review tab is fronted -- until the decision
+        lands, or Stop, which withdraws the question and raises
         ``InterruptedError``. Otherwise nobody is asked: the proposal goes on
         the record with an ``Unreviewed`` decision carrying the proposed
         values, for someone to check afterwards, and returns at once. A
@@ -402,20 +393,14 @@ class AutoLamellaTask(BaseTask):
             },
         )
         asked_under_config = enabled and kind in type(self).questions_for(self.config)
-        # A window to answer in is the main window: its Review tab, its prompt
-        # bar. The microscope widget on its own has neither.
-        window = getattr(self.parent_ui, "parent_widget", None) is not None
-        if not asked_under_config or not self.validate or not window:
+        # Someone to answer: the operator at a window, or the agent at Drive.
+        if not asked_under_config or not self.supervised or not manager.answerers():
             reason = (
                 "turned off in the task's settings"
                 if not asked_under_config
                 else "nobody was asked: the task is not supervised"
-                if self.parent_ui is not None
-                and window
-                and not get_task_supervision(
-                    self.task_name, getattr(self.task_manager, "experiment", None)
-                )
-                else "nobody was asked: no window to ask in"
+                if not self.supervised
+                else "nobody was asked: nobody to answer"
             )
             experiment.record_unasked(item.id, self.task_name, proposal, reason)
             return proposal.current
@@ -479,28 +464,15 @@ class AutoLamellaTask(BaseTask):
     ) -> DetectedFeatures:
         """Take an image, run the model on it, and ask about what it found.
 
-        With the review preference on, the detection is a ``detection``
-        question through ``ask``: recorded on the lamella against the image
-        the model ran on, answered in the Review tab (a marker dragged, then
-        Confirm), and the decided points are put back on the detection with
-        ``feature_m`` recomputed, so the stage moves by the corrected value.
-        A rejection fails the task, as Reject in the Review tab says it does.
-        The training data the Detection tab writes on its click is written
-        here too. With the preference off it is ``update_detection_ui``, the
-        Detection tab prompt, exactly as it always was.
+        The detection is a ``detection`` question through ``ask``: recorded
+        on the lamella against the image the model ran on, answered in the
+        Review tab (a marker dragged, then Confirm), and the decided points
+        are put back on the detection with ``feature_m`` recomputed, so the
+        stage moves by the corrected value. A rejection fails the task, as
+        Reject in the Review tab says it does. The training data is written
+        here, against the decided points.
         """
         message = message or self.lamella.status_info
-        if not getattr(self.task_manager, "review_enabled", False):
-            return update_detection_ui(
-                microscope=self.microscope,
-                image_settings=image_settings,
-                checkpoint=checkpoint,
-                features=features,
-                parent_ui=self.parent_ui,
-                validate=self.validate,
-                msg=message,
-                position=position,
-            )
         names = ", ".join(f.name for f in features)
         if len(names) > 15:
             names = names[:15] + "..."
@@ -1049,12 +1021,6 @@ class AutoLamellaTask(BaseTask):
         choices = None if parameter is None else parameter.choices
         return nearest_resolution(ALIGNMENT_REFERENCE_RESOLUTION, choices)
 
-    @property
-    def _asks_on_the_record(self) -> bool:
-        """Whether the task's confirmations go through ``ask``: the review
-        preference is on. Off, the prompts run as they always have."""
-        return bool(getattr(self.task_manager, "review_enabled", False))
-
     def _last_fib_image_file(self) -> str:
         """The last FIB reference image, relative to the lamella's folder, for
         a question to sit on; empty when none has been saved yet."""
@@ -1091,41 +1057,30 @@ class AutoLamellaTask(BaseTask):
         """Check the alignment area with the operator before the alignment
         reference is taken in it.
 
-        On the record (the review preference on): an ``alignment_area``
-        question on ``image`` -- the last FIB reference image unless the
-        caller names the frame -- answered by dragging the rectangle in the
-        Review tab; the decided area is what the task acquires with. A
-        rejection fails the task, as Reject in the Review tab says. Otherwise
-        the prompt as it has always been, the rectangle dragged on the
-        Microscope tab's canvas. ``enabled`` is the task's own switch.
+        An ``alignment_area`` question on ``image`` -- the last FIB reference
+        image unless the caller names the frame -- answered by dragging the
+        rectangle in the Review tab; the decided area is what the task
+        acquires with. A rejection fails the task, as Reject in the Review
+        tab says. ``enabled`` is the task's own switch.
         """
         self.log_status_message(
             "VALIDATE_ALIGNMENT_AREA", "Validating Alignment Image..."
         )
-        if self._asks_on_the_record:
-            decision = self.ask(
-                ALIGNMENT_AREA,
-                {"alignment_area": deepcopy(self.lamella.alignment_area)},
-                image=image or self._last_fib_image_file(),
-                message="Check the alignment area: the reference for later "
-                "alignments is taken in it. Drag it to correct it.",
-                enabled=enabled,
-            )
-            if decision.outcome is DecisionOutcome.Rejected:
-                raise RuntimeError(
-                    f"{self.task_name} was rejected: "
-                    f"{decision.reason or 'no reason given'}"
-                )
-            area = decision.values.get("alignment_area")
-            if isinstance(area, FibsemRectangle):
-                self.lamella.alignment_area = area
-            return
-        self.lamella.alignment_area = update_alignment_area_ui(
-            alignment_area=self.lamella.alignment_area,
-            parent_ui=self.parent_ui,
-            msg="Drag to edit the Alignment Area. Press Continue when done.",
-            validate=self.validate and enabled,
+        decision = self.ask(
+            ALIGNMENT_AREA,
+            {"alignment_area": deepcopy(self.lamella.alignment_area)},
+            image=image or self._last_fib_image_file(),
+            message="Check the alignment area: the reference for later "
+            "alignments is taken in it. Drag it to correct it.",
+            enabled=enabled,
         )
+        if decision.outcome is DecisionOutcome.Rejected:
+            raise RuntimeError(
+                f"{self.task_name} was rejected: {decision.reason or 'no reason given'}"
+            )
+        area = decision.values.get("alignment_area")
+        if isinstance(area, FibsemRectangle):
+            self.lamella.alignment_area = area
 
     def set_fluorescence_channels_ui(
         self, channel_settings: List[ChannelSettings]

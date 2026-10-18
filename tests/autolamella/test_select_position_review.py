@@ -1,13 +1,12 @@
-"""SelectMillingPositionTask under review: it proposes the point of interest
-and completes, instead of asking for it at the beam.
+"""SelectMillingPositionTask proposes the point of interest at the end of
+the task, instead of asking for it at the beam; supervised, it then awaits a
+decision.
 
-Runs the real task against the Demo microscope, through a real TaskManager
-with the feature flag forced on, so the review property is read the way the
-application reads it. No Qt: parent_ui is None throughout, which is also
-what makes the non-review path a silent no-op today.
+Runs the real task against the Demo microscope, through a real TaskManager,
+so the attention is read the way the application reads it. No Qt: parent_ui
+is None throughout.
 """
 
-import contextvars
 import os
 from pathlib import Path
 
@@ -16,7 +15,6 @@ from psygnal.containers import EventedDict
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.acting import ActorKind
 from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
@@ -97,9 +95,8 @@ def _experiment(
     return exp
 
 
-def _task(microscope, exp: Experiment, flag: bool) -> SelectMillingPositionTask:
+def _task(microscope, exp: Experiment) -> SelectMillingPositionTask:
     manager = TaskManager(microscope=microscope, experiment=exp, parent_ui=None)
-    manager.review_enabled = flag
     lamella = exp.positions[0]
     return SelectMillingPositionTask(
         microscope=microscope,
@@ -111,8 +108,8 @@ def _task(microscope, exp: Experiment, flag: bool) -> SelectMillingPositionTask:
 
 
 def _points(lamella) -> list:
-    """Setup's point-of-interest proposals, leaving out the two position
-    confirmations it also records with the flag on."""
+    """Setup's point-of-interest proposals, leaving out the position
+    confirmations and alignment area it also records."""
     return [p for p in lamella.proposals_from(SETUP) if p.kind == POINT_OF_INTEREST]
 
 
@@ -120,8 +117,8 @@ def test_under_review_the_task_records_a_proposal_and_awaits_a_decision(
     microscope, tmp_path
 ):
     exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
-    task = _task(microscope, exp, flag=True)
-    assert task.review is True
+    task = _task(microscope, exp)
+    assert task.supervised is True
     lamella = exp.positions[0]
     rough_point = (
         lamella.task_config[ROUGH].milling["mill_rough"].stages[0].pattern.point
@@ -165,7 +162,7 @@ def test_under_review_the_task_records_a_proposal_and_awaits_a_decision(
 
 def test_the_proposal_gates_the_consumer_until_it_is_decided(microscope, tmp_path):
     exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
-    task = _task(microscope, exp, flag=True)
+    task = _task(microscope, exp)
     task.run()
     manager = task.task_manager
     lamella = exp.positions[0]
@@ -196,7 +193,7 @@ def test_the_proposal_carries_the_point_something_else_already_set(
     exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
     lamella = exp.positions[0]
     lamella.poi = Point(4e-6, -2e-6)
-    task = _task(microscope, exp, flag=True)
+    task = _task(microscope, exp)
 
     task.run()
 
@@ -211,7 +208,7 @@ def test_a_deliberate_rerun_supersedes_a_decided_proposal(microscope, tmp_path):
     on the new image, and the old one -- with its decision -- stays on the
     record. The confirmed point stays on the lamella until the new decision."""
     exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
-    task = _task(microscope, exp, flag=True)
+    task = _task(microscope, exp)
     task.run()
     lamella = exp.positions[0]
     exp.decide(
@@ -226,7 +223,7 @@ def test_a_deliberate_rerun_supersedes_a_decided_proposal(microscope, tmp_path):
     )
     decided = lamella.proposal(SETUP)
 
-    _task(microscope, exp, flag=True).run()
+    _task(microscope, exp).run()
 
     fresh = lamella.proposal(SETUP)
     assert fresh is not decided and fresh.pending
@@ -239,30 +236,14 @@ def test_a_deliberate_rerun_supersedes_a_decided_proposal(microscope, tmp_path):
     assert task.task_manager._defer_reason(lamella, ROUGH) == "awaiting_decision"
 
 
-def test_without_the_flag_the_proposal_is_recorded_but_never_gates(
-    microscope, tmp_path
-):
-    """The flag hides the Review surface, not the record. A protocol that says
-    supervised runs ungated with it off: the proposal is recorded, open, and
-    nothing defers."""
-    exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
-    task = _task(microscope, exp, flag=False)
-    assert task.review is False, "gate needs the flag"
-    task.run()
-    lamella = exp.positions[0]
-    proposal = lamella.proposal(SETUP)
-    assert proposal.kind == POINT_OF_INTEREST and proposal.pending
-    assert task.task_manager._defer_reason(lamella, ROUGH) is None
-
-
 def test_automated_the_value_is_open_until_its_consumer_starts(microscope, tmp_path):
     """Not gated, nobody asked inline: the proposal is recorded exactly as
     under a gate, its values are live from that moment, and it stays open to
     correct. Nobody confirms it; when the task that uses it starts it is
     closed as Unreviewed, which is never agreement. The run never waits."""
     exp = _experiment(tmp_path, microscope)
-    task = _task(microscope, exp, flag=True)
-    assert task.review is False
+    task = _task(microscope, exp)
+    assert task.supervised is False
     lamella = exp.positions[0]
     heard = []
     exp.decided.connect(
@@ -303,76 +284,53 @@ def test_automated_the_value_is_open_until_its_consumer_starts(microscope, tmp_p
     assert heard[-1] == POINT_OF_INTEREST
 
     # A re-run of the task leaves the decided one on the record before it.
-    _task(microscope, exp, flag=True).run()
+    _task(microscope, exp).run()
     fresh = lamella.proposal(SETUP)
     assert fresh is not proposal and fresh.pending
     assert _points(lamella) == [proposal, fresh]
 
     # A re-run over an open one closes it as used-unreviewed, not dropped.
-    _task(microscope, exp, flag=True).run()
+    _task(microscope, exp).run()
     assert [p.unreviewed for p in _points(lamella)] == [False, True, False]
     assert "re-ran" in _points(lamella)[1].current.reason
 
 
-def test_supervised_the_inline_answer_is_the_decision(
+def test_supervised_nobody_is_asked_for_the_point_while_it_runs(
     microscope, tmp_path, monkeypatch
 ):
-    """The operator picked the point in the workflow's own question. That
-    answer is the decision on the record, made in the workflow, and the delta
-    against the proposer's point is captured without anyone opening the tab.
-    Nothing is to check: a person already looked."""
-    from fibsem.applications.autolamella.workflows.tasks import select_position as S
-
-    monkeypatch.setattr(S, "select_poi_ui", lambda **kwargs: Point(2e-6, -1e-6))
-    exp = _experiment(tmp_path, microscope)
-    task = _task(microscope, exp, flag=True)
+    """The point is the task's result, proposed at the end: supervised, no
+    question is put for it in the workflow, nothing is decided there, and the
+    task waits on the decision in the Review tab."""
+    monkeypatch.setattr(
+        SelectMillingPositionTask, "validate", property(lambda self: True)
+    )
+    exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
+    task = _task(microscope, exp)
     lamella = exp.positions[0]
 
     task.run()
 
     proposal = lamella.proposal(SETUP)
-    assert proposal.values == {"poi": Point(0.0, 0.0)}, "what the proposer said"
-    d = proposal.current
-    assert d.outcome is DecisionOutcome.Confirmed and d.via == "workflow"
-    assert d.actor.kind is ActorKind.operator
-    assert d.values == {"poi": Point(2e-6, -1e-6)}
-    assert proposal.delta()["poi"] == Point(2e-6, -1e-6)
-    assert d.actor.kind is not ActorKind.task, "a person decided it"
-    assert lamella.poi == Point(2e-6, -1e-6), "applied inline, once"
+    assert proposal.kind == POINT_OF_INTEREST and proposal.pending
+    assert task.inline_decision is None, "nothing decided in the workflow"
+    assert lamella.is_awaiting_decision(SETUP)
+    assert lamella.poi == Point(0.0, 0.0), "unchanged until it is decided"
+    assert SelectMillingPositionTask.sessions == (), "no session for the point"
+
+
+def test_with_select_poi_off_the_point_is_not_proposed(microscope, tmp_path):
+    """Off, the point is used as it stands: nothing is proposed for it, so a
+    supervised Setup has nothing to wait on and Rough Milling is not held."""
+    exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
+    lamella = exp.positions[0]
+    lamella.task_config[SETUP].select_poi = False
+    task = _task(microscope, exp)
+
+    task.run()
+
+    assert _points(lamella) == []
+    assert lamella.has_completed_task(SETUP)
     assert task.task_manager._defer_reason(lamella, ROUGH) is None
-
-
-def test_supervised_an_agent_s_inline_answer_is_the_agent_s_decision(
-    microscope, tmp_path, monkeypatch
-):
-    """The agent answered the workflow's point question over the App Server:
-    the decision is the agent's, not the operator at the window (FIB-1328)."""
-    from fibsem.applications.autolamella.workflows.tasks import select_position as S
-    from fibsem.workflows.interaction import (
-        PickPOI,
-        ask,
-        mark_answered_by,
-    )
-
-    class AgentAnswers:
-        def submit(self, request, future):
-            mark_answered_by(future, "agent")
-            future.set_result(Point(2e-6, -1e-6))
-
-    monkeypatch.setattr(
-        S,
-        "select_poi_ui",
-        lambda **kwargs: ask(AgentAnswers(), PickPOI(image=None)),
-    )
-    exp = _experiment(tmp_path, microscope)
-    # In a context of its own, as a task runs on its own thread: who answered
-    # must not stay behind on the test's.
-    contextvars.copy_context().run(_task(microscope, exp, flag=True).run)
-
-    d = exp.positions[0].proposal(SETUP).current
-    assert d.outcome is DecisionOutcome.Confirmed and d.via == "workflow"
-    assert str(d.actor) == "agent:remote"
-    assert d.values == {"poi": Point(2e-6, -1e-6)}
 
 
 def test_a_value_exists_because_something_consumes_it(tmp_path, microscope):
@@ -381,7 +339,7 @@ def test_a_value_exists_because_something_consumes_it(tmp_path, microscope):
     assert consumed_values(lamella) == ["poi"]
     del lamella.task_config[ROUGH]
     assert consumed_values(lamella) == []
-    task = _task(microscope, exp, flag=True)
+    task = _task(microscope, exp)
     assert CurrentPoiProposer().propose(task) is None, "no consumer, no proposal"
 
 

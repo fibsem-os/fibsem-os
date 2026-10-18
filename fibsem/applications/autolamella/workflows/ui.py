@@ -11,16 +11,11 @@ from fibsem.microscope import FibsemMicroscope
 from fibsem.milling import FibsemMillingStage
 from fibsem.structures import (
     FibsemImage,
-    FibsemRectangle,
     FibsemStagePosition,
     ImageSettings,
-    Point,
 )
 from fibsem.workflows.interaction import (
-    Confirm,
     ConfirmDetection,
-    EditAlignmentArea,
-    PickPOI,
     SetImages,
     ask,
 )
@@ -141,82 +136,3 @@ def update_status_ui(
     if check_abort:
         _check_for_abort(parent_ui)
     post_status(parent_ui, msg, workflow_info=workflow_info, status_bar=status_bar)
-
-
-def ask_user(
-    parent_ui: Optional["AutoLamellaUI"],
-    msg: Optional[str],
-    pos: str,
-    neg: Optional[str] = None,
-) -> bool:
-    """A yes/no prompt. The last variant (spot burn) converted with RunSpotBurn,
-    so every ask is the typed path now: the answer arrives on this call's own
-    future when a button is clicked — USER_RESPONSE and the polled flag are not
-    involved. No timeout: a human answers, and silence means thinking; ``abort``
-    keeps Stop working while the prompt is up.
-    """
-    if parent_ui is None:
-        logging.warning(
-            f"User input requested in headless mode: {msg}, always returning True."
-        )
-        return True
-
-    return ask(
-        parent_ui.ui_responder,
-        Confirm(message=msg, positive=pos, negative=neg),
-        abort=lambda: _abort_requested(parent_ui),
-    )
-
-
-def update_alignment_area_ui(
-    alignment_area: FibsemRectangle,
-    parent_ui: Optional["AutoLamellaUI"],
-    msg: str = "Edit Alignment Area",
-    validate: bool = True,
-) -> FibsemRectangle:
-    """Show the editable alignment area and return the (possibly edited) area.
-
-    The answer IS the area: the Continue click reads it and hides the overlay on
-    the GUI thread, so the old second handshake — emit "clear", poll
-    WAITING_FOR_UI_UPDATE, then read across the seam — is gone with it.
-    No timeout: a human answers, and silence means thinking.
-    """
-
-    _check_for_abort(parent_ui)
-
-    # headless mode, return the alignment area
-    if parent_ui is None or not validate:
-        return alignment_area
-
-    return ask(
-        parent_ui.ui_responder,
-        EditAlignmentArea(initial=alignment_area, message=msg),
-        abort=lambda: _abort_requested(parent_ui),
-    )
-
-
-def select_poi_ui(
-    parent_ui: Optional["AutoLamellaUI"],
-    image: Optional[FibsemImage],
-    msg: str = "Select Point of Interest",
-    validate: bool = True,
-    initial_poi: Optional[Point] = None,
-) -> Optional[Point]:
-    """Show a draggable POI marker on ``image`` and return the picked point.
-
-    The image travels in the request (the marker's coordinates only mean
-    something against it), and the answer IS the point: the Continue click reads
-    the marker, converts, and takes the overlay down on the GUI thread — no
-    SELECTED_POI read-back, no second WAITING_FOR_UI_UPDATE handshake.
-    No timeout: a human answers, and silence means thinking.
-    """
-    _check_for_abort(parent_ui)
-
-    if parent_ui is None or not validate or image is None:
-        return None
-
-    return ask(
-        parent_ui.ui_responder,
-        PickPOI(image=image, initial=initial_poi, message=msg),
-        abort=lambda: _abort_requested(parent_ui),
-    )

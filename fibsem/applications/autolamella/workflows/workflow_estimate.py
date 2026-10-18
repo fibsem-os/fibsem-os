@@ -90,19 +90,6 @@ class WorkflowEstimate:
         return any(t.supervised for t in self.tasks)
 
 
-def _review_on() -> bool:
-    """Whether the Review workflow is on: with it off nothing waits on a
-    decision afterwards, and the attendance lines say so."""
-    import fibsem.config as fibsem_cfg
-
-    try:
-        return bool(
-            fibsem_cfg.load_user_preferences().features.proposer_reviewer_workflow_enabled
-        )
-    except Exception:
-        return False
-
-
 def _as_naive_local(when: Optional[datetime]) -> Optional[datetime]:
     """Normalise to naive-local, the way the workflow loop does.
 
@@ -144,7 +131,6 @@ def estimate_workflow(
     started_at = clock
 
     workflow_config = experiment.task_protocol.workflow_config
-    review_on = _review_on()
     lamellae = [lam for lam in experiment.positions if lam.name in set(lamella_names)]
 
     rows: List[TaskEstimate] = []
@@ -170,7 +156,7 @@ def estimate_workflow(
         clock += timedelta(seconds=seconds)
         work_seconds += seconds
 
-        att = attendance_for(experiment.task_protocol, task_name, review_on)
+        att = attendance_for(experiment.task_protocol, task_name)
         rows.append(
             TaskEstimate(
                 name=task_name,
@@ -190,9 +176,7 @@ def estimate_workflow(
         lamella_names=list(lamella_names),
         work_seconds=work_seconds,
         hold_seconds=hold_seconds,
-        attendance_summary=run_attendance(
-            experiment.task_protocol, list(task_names), review_on
-        ),
+        attendance_summary=run_attendance(experiment.task_protocol, list(task_names)),
         started_at=started_at,
         expected_finish=clock,
     )
@@ -230,7 +214,6 @@ def estimate_grid_run(
 
     started_at = now if now is not None else datetime.now()
     configs = experiment.grid_protocol.task_config
-    review_on = _review_on()
 
     rows: List[TaskEstimate] = []
     if exchanges > 0 and exchange_seconds > 0:
@@ -251,7 +234,7 @@ def estimate_grid_run(
                 name=task_name,
                 lamella_count=len(grid_names),
                 seconds=len(grid_names) * config.estimated_duration,
-                supervised=review_on and config.attention is Attention.supervised,
+                supervised=config.attention is Attention.supervised,
             )
         )
 

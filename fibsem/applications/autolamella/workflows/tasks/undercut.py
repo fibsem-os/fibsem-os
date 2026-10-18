@@ -48,8 +48,7 @@ class MillUndercutTask(AutoLamellaTask):
     """Task to mill the undercut for a lamella."""
 
     # Asked while it runs: the detections the stage moves follow, through
-    # ``detect`` (on the record with the review preference on, the Detection
-    # tab prompt without); then the milling session.
+    # ``detect``, on the record; then the milling session.
     questions = (DETECTION,)
     sessions = ("milling",)
 
@@ -79,7 +78,6 @@ class MillUndercutTask(AutoLamellaTask):
             lamella=self.lamella,
             checkpoint=checkpoint,
             parent_ui=self.parent_ui,
-            validate=self.validate,
             feature=feature,
             detect=self.detect,
         )

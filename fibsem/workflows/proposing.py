@@ -3,7 +3,7 @@
 A lamella task and a grid task end the same way: the run is recorded, then its
 result is proposed on the item and decided -- by the operator's inline answer,
 by the Review tab, or by the producer itself. What differs between them is
-supplied by the task (its proposer, whether it is under review, the decision it
+supplied by the task (its proposer, whether it is supervised, the decision it
 took inline, which output roles are its result images), so the two task bases
 share this code (``BaseTask._settle``) rather than each keeping a copy.
 
@@ -133,7 +133,7 @@ def settle(
     *,
     proposer: Optional[Proposer],
     result_images: Mapping[str, str],
-    review: bool,
+    supervised: bool,
     inline_decision: Optional[Decision],
     experiment: Any,
     failure: str = "",
@@ -146,18 +146,18 @@ def settle(
     same thread, same write-through, one place that appends. Which decision:
     the operator's inline answer when the task asked one (supervised; recorded
     without a second write-through of a value that is already applied), else
-    under review none -- a task that completed moves to AwaitingDecision and the
-    decision in the Review tab finishes it -- else the producer's own
-    confirmation, as proposed, so nothing downstream waits. A failed task stays
-    Failed; its record waits for someone to look, but no decision changes the
-    outcome.
+    for a supervised task none -- a task that completed moves to
+    AwaitingDecision and the decision in the Review tab finishes it -- else
+    none either: the values are used as proposed, so nothing downstream
+    waits. A failed task stays Failed; its record waits for someone to look,
+    but no decision changes the outcome.
     """
     proposal = propose(task, item, proposer, result_images, failure=failure)
     if proposal is None:
         return
     decision = inline_decision
     if decision is None:
-        if review:
+        if supervised:
             if item.task_state.status is TaskStatus.Completed:
                 item.set_task_status(task.task_name, TaskStatus.AwaitingDecision)
                 logging.info(

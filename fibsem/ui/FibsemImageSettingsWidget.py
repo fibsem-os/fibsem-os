@@ -817,9 +817,9 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
     def clear_alignment_area(self):
         """Hide the alignment area, keeping its value.
 
-        The workflow reads ``get_alignment_area()`` straight after sending its "clear"
-        (``update_alignment_area_ui``), so the rect has to survive being hidden — the
-        model keeps its value while the overlay comes off.
+        The responder reads ``get_alignment_area()`` as it hides the overlay
+        (``QtResponder``, answering ``EditAlignmentArea``), so the rect has to
+        survive being hidden — the model keeps its value while the overlay comes off.
         """
         controller = self._view_controller()
         if controller is not None:

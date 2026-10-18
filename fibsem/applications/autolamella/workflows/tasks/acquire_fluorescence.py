@@ -14,9 +14,6 @@ import fibsem.utils as utils
 from fibsem import timing
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
-from fibsem.applications.autolamella.workflows.ui import (
-    ask_user,
-)
 from fibsem.fm.acquisition import acquire_image
 from fibsem.fm.calibration import AutoFocusResult, run_coarse_fine_autofocus
 from fibsem.fm.structures import AutoFocusSettings, ChannelSettings, ZParameters
@@ -112,7 +109,7 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
     """Task to acquire fluorescence image with specified settings."""
 
     # "Run autofocus ... Press Continue when ready": a confirmation of the
-    # state before the autofocus, on the record with the review preference on.
+    # state before the autofocus, on the record.
     questions = (STATE,)
 
     config: AcquireFluorescenceImageConfig
@@ -216,21 +213,14 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
             f"Run autofocus for {self.lamella.name} using channel "
             f"'{autofocus_channel.name}'. Press continue when ready."
         )
-        if getattr(self.task_manager, "review_enabled", False):
-            # The position the autofocus will run at is the proposal; Continue
-            # confirms it, and the position as it stands then is the decision.
-            self.ask(
-                STATE,
-                {"stage_position": self.microscope.get_stage_position()},
-                message=msg,
-                decided=lambda: {
-                    "stage_position": self.microscope.get_stage_position()
-                },
-            )
-        elif self.validate:
-            # The prompt as it has always been, kept as it is while the review
-            # preference is off.
-            ask_user(self.parent_ui, msg=msg, pos="Continue")
+        # The position the autofocus will run at is the proposal; Continue
+        # confirms it, and the position as it stands then is the decision.
+        self.ask(
+            STATE,
+            {"stage_position": self.microscope.get_stage_position()},
+            message=msg,
+            decided=lambda: {"stage_position": self.microscope.get_stage_position()},
+        )
 
         af_display = (
             f"Autofocus: {autofocus_channel.name} "

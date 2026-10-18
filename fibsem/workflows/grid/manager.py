@@ -240,15 +240,14 @@ class GridTaskManager(BaseTaskManager):
         A task that is AwaitingDecision on a grid is left out for that grid, as
         on the lamella side: its run is over and its record waits in the Review
         tab, and running it again would supersede the proposal someone is about
-        to decide. With the Review surface off there is no way to decide, so
-        Run re-runs it."""
+        to decide."""
         if grid_names is None:
             grid_names = [g.name for g in self.experiment.grids]
         self.queue.build_from_pairs(
             [
                 (grid, step)
                 for grid, step in plan_grid_run(task_names, grid_names)
-                if not (self.review_enabled and self._awaiting_decision(grid, step))
+                if not self._awaiting_decision(grid, step)
             ],
             task_names=task_names,
             item_names=grid_names,

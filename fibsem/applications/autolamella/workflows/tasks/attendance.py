@@ -68,8 +68,6 @@ class Attendance:
     later: Optional[str]
     # the tasks that require this one: what waits for the decision on ``later``
     waiters: Tuple[str, ...]
-    # whether the Review workflow is on: with it off nothing waits afterwards
-    review_on: bool
 
     @property
     def needs_a_person_present(self) -> bool:
@@ -80,7 +78,7 @@ class Attendance:
         """One sentence or two, for under the chip and the pre-run summary."""
         if self.attention is Attention.automated:
             text = "Nobody is asked."
-            if self.later and self.waiters and self.review_on:
+            if self.later and self.waiters:
                 text += (
                     f" {_cap(self.later)} is open to correct until "
                     f"{_named(self.waiters)} starts."
@@ -91,7 +89,7 @@ class Attendance:
             if self.present
             else "Runs on its own."
         )
-        if self.later and self.review_on:
+        if self.later:
             if self.waiters:
                 text += (
                     f" {_named(self.waiters)} waits for your decision on {self.later}."
@@ -112,7 +110,6 @@ def attendance(
     *,
     task_name: str = "",
     waiters: Sequence[str] = (),
-    review_on: bool = True,
 ) -> Attendance:
     """What ``task_cls`` needs from a person under ``config`` and ``attention``."""
     questions = (
@@ -130,12 +127,11 @@ def attendance(
         present=present,
         later=later,
         waiters=tuple(waiters),
-        review_on=review_on,
     )
 
 
 def attendance_for(
-    protocol: "AutoLamellaTaskProtocol", task_name: str, review_on: bool = True
+    protocol: "AutoLamellaTaskProtocol", task_name: str
 ) -> Optional[Attendance]:
     """The attendance of the task ``task_name`` names in ``protocol``, or None
     when the protocol has no config for it or its type is not registered."""
@@ -155,17 +151,14 @@ def attendance_for(
         workflow.get_attention(task_name),
         task_name=task_name,
         waiters=waiters,
-        review_on=review_on,
     )
 
 
-def run_attendance(
-    protocol: "AutoLamellaTaskProtocol", task_names: List[str], review_on: bool = True
-) -> str:
+def run_attendance(protocol: "AutoLamellaTaskProtocol", task_names: List[str]) -> str:
     """The pre-run sentence: which of ``task_names`` need a person present."""
     present = []
     for name in task_names:
-        att = attendance_for(protocol, name, review_on)
+        att = attendance_for(protocol, name)
         if att is not None and att.needs_a_person_present:
             present.append(name)
     if not present:

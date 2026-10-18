@@ -1,12 +1,12 @@
 """Select Position asks its two confirmations through ``ask``.
 
-With the review preference on, the tilt to the milling angle and the move to
-the milling position are ``state`` questions on the record, each with a
-switch of its own in the task's settings (``confirm_tilt``,
+The tilt to the milling angle and the move to the milling position are
+``state`` questions on the record, whether the review preference is on or
+off, each with a switch of its own in the task's settings (``confirm_tilt``,
 ``confirm_position``). Off, that one question is recorded and not asked.
 Headless nobody is there, so both go on the record as proposed,
-``Unreviewed``. With the preference off nothing changes: the prompts as they
-have always been, and no record of them.
+``Unreviewed``. The alignment area is asked the same way, and the point of
+interest is proposed at the end for afterwards, preference or not.
 
 Runs the real task against the Demo microscope, which starts 38° from the
 milling angle, so the tilt is asked.
@@ -27,8 +27,6 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaWorkflowConfig,
     Experiment,
 )
-from fibsem.applications.autolamella.workflows.tasks import base as B
-from fibsem.applications.autolamella.workflows.tasks import select_position as S
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.applications.autolamella.workflows.tasks.rough import MillRoughTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.select_position import (
@@ -97,9 +95,8 @@ def _experiment(
     return exp
 
 
-def _task(microscope, exp, review_enabled=True) -> SelectMillingPositionTask:
+def _task(microscope, exp) -> SelectMillingPositionTask:
     manager = TaskManager(microscope=microscope, experiment=exp, parent_ui=None)
-    manager.review_enabled = review_enabled
     lamella = exp.positions[0]
     return SelectMillingPositionTask(
         microscope=microscope,
@@ -214,54 +211,46 @@ def test_a_switched_off_confirmation_is_recorded_and_not_asked(
     exp = _experiment(
         tmp_path, microscope, attention=Attention.supervised, confirm_tilt=False
     )
-    monkeypatch.setattr(S, "select_poi_ui", lambda **kwargs: None)
     lamella = exp.positions[0]
 
     _task(microscope, exp).run()
 
     tilt, position = [p for p in lamella.proposals_from(SETUP) if p.kind == STATE]
     assert tilt.unreviewed and "turned off" in tilt.current.reason
-    assert position.unreviewed and "no window" in position.current.reason, (
+    assert position.unreviewed and "nobody to answer" in position.current.reason, (
         "asked, but headless there is nobody to answer"
     )
 
 
 # ---------------------------------------------------------------------------
-# With the preference off: the prompts as they have always been
+# Supervised, with no window to ask in: the same questions, on the record
 # ---------------------------------------------------------------------------
 
 
-def test_with_the_preference_off_the_old_prompts_run_and_nothing_is_recorded(
+def test_without_a_window_both_confirmations_are_on_the_record(
     microscope, tmp_path, monkeypatch
 ):
     _supervised_in_a_window_less_run(monkeypatch)
     exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
-    asked = []
-
-    def _ask_user(parent_ui, msg, pos, neg=None):
-        asked.append((pos, neg))
-        return False  # Skip the tilt
-
-    monkeypatch.setattr(S, "ask_user", _ask_user)
-    monkeypatch.setattr(S, "select_poi_ui", lambda **kwargs: None)
     lamella = exp.positions[0]
 
-    _task(microscope, exp, review_enabled=False).run()
+    _task(microscope, exp).run()
 
-    assert asked == [("Tilt", "Skip"), ("Continue", None)]
-    assert microscope.get_current_milling_angle() == pytest.approx(38.0), (
-        "Skip still skips"
+    tilt, position = [p for p in lamella.proposals_from(SETUP) if p.kind == STATE]
+    assert "Tilt to the milling angle" in tilt.provenance["message"]
+    assert "Double click the image" in position.provenance["message"]
+    assert tilt.unreviewed and "nobody to answer" in tilt.current.reason
+    assert position.unreviewed and "nobody to answer" in position.current.reason
+    assert microscope.get_current_milling_angle() == pytest.approx(MILLING_ANGLE), (
+        "nobody answered, so the task tilted"
     )
-    assert [p.kind for p in lamella.proposals_from(SETUP)] == [POINT_OF_INTEREST], (
-        "no record of either prompt"
-    )
 
 
-def test_with_the_preference_off_the_flags_still_switch_the_prompts_off(
+def test_without_a_window_the_flags_still_switch_the_questions_off(
     microscope, tmp_path, monkeypatch
 ):
-    """A protocol author turns a prompt off for every build, not only for
-    those with the preference on: off, the task tilts and carries on."""
+    """Off, the task tilts and carries on, and the record says the question
+    was turned off rather than that nobody was there."""
     _supervised_in_a_window_less_run(monkeypatch)
     exp = _experiment(
         tmp_path,
@@ -270,13 +259,13 @@ def test_with_the_preference_off_the_flags_still_switch_the_prompts_off(
         confirm_tilt=False,
         confirm_position=False,
     )
-    asked = []
-    monkeypatch.setattr(S, "ask_user", lambda **kwargs: asked.append(kwargs))
-    monkeypatch.setattr(S, "select_poi_ui", lambda **kwargs: None)
+    lamella = exp.positions[0]
 
-    _task(microscope, exp, review_enabled=False).run()
+    _task(microscope, exp).run()
 
-    assert asked == []
+    tilt, position = [p for p in lamella.proposals_from(SETUP) if p.kind == STATE]
+    assert "turned off" in tilt.current.reason
+    assert "turned off" in position.current.reason
     assert microscope.get_current_milling_angle() == pytest.approx(MILLING_ANGLE)
 
 
@@ -319,7 +308,6 @@ def test_a_switched_off_alignment_area_is_recorded_and_not_asked(
         attention=Attention.supervised,
         confirm_alignment_area=False,
     )
-    monkeypatch.setattr(S, "select_poi_ui", lambda **kwargs: None)
     lamella = exp.positions[0]
 
     _task(microscope, exp).run()
@@ -331,24 +319,17 @@ def test_a_switched_off_alignment_area_is_recorded_and_not_asked(
     )
 
 
-def test_with_the_preference_off_the_alignment_area_prompt_runs_as_before(
+def test_without_a_window_the_alignment_area_and_point_are_on_the_record(
     microscope, tmp_path, monkeypatch
 ):
     _supervised_in_a_window_less_run(monkeypatch)
     exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
     lamella = exp.positions[0]
-    asked = []
 
-    def old_prompt(alignment_area, parent_ui, msg, validate):
-        asked.append((alignment_area, msg, validate))
-        return alignment_area
+    _task(microscope, exp).run()
 
-    monkeypatch.setattr(B, "update_alignment_area_ui", old_prompt)
-    monkeypatch.setattr(S, "ask_user", lambda *a, **k: "Continue")
-    monkeypatch.setattr(S, "select_poi_ui", lambda **kwargs: None)
-
-    _task(microscope, exp, review_enabled=False).run()
-
-    assert len(asked) == 1 and asked[0][2] is True
-    assert "Drag to edit the Alignment Area" in asked[0][1]
-    assert lamella.proposal(SETUP, ALIGNMENT_AREA) is None, "nothing recorded"
+    area = lamella.proposal(SETUP, ALIGNMENT_AREA)
+    assert area.unreviewed and "nobody to answer" in area.current.reason
+    point = lamella.proposal(SETUP, POINT_OF_INTEREST)
+    assert point.pending, "proposed at the end, for the Review tab"
+    assert lamella.is_awaiting_decision(SETUP), "supervised: it waits on the point"

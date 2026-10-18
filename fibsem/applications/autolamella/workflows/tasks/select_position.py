@@ -15,13 +15,11 @@ from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 from fibsem.applications.autolamella.workflows.tasks.fiducial import (
     sync_fiducial_to_alignment_area,
 )
-from fibsem.applications.autolamella.workflows.ui import ask_user, select_poi_ui
 from fibsem.structures import BeamType, Display, ImageSettings, Point, param
 from fibsem.workflows.proposals import (
     ALIGNMENT_AREA,
     DETECTION,
     STATE,
-    Decision,
     DecisionOutcome,
     Proposal,
 )
@@ -54,7 +52,9 @@ class SelectMillingPositionTaskConfig(AutoLamellaTaskConfig):
 
     select_poi: bool = param(
         True,
-        doc="Whether to ask the user to select a point of interest in the FIB image",
+        doc="Propose the point of interest on the final FIB image, for "
+        "you to check in the Review tab. Off, the point is used as it "
+        "stands and nothing waits on it.",
         display=Display("Select Point of Interest"),
     )
     confirm_position: bool = param(
@@ -119,8 +119,9 @@ class CurrentPoiProposer:
     proposer -- a segmentation model, say -- is a swap for this class.
 
     Declines when nothing after Setup consumes a point, so no empty proposal
-    is recorded. Proposes the point as it stood when the task started, before
-    the operator was asked, so a supervised answer leaves a delta.
+    is recorded, and when the task's ``select_poi`` is off. Proposes the
+    point as it stood when the task started, before the operator was asked,
+    so a supervised answer leaves a delta.
     """
 
     kind = POINT_OF_INTEREST
@@ -128,7 +129,7 @@ class CurrentPoiProposer:
     version = 2
 
     def propose(self, task: "SelectMillingPositionTask") -> Optional[Proposal]:
-        if not consumed_values(task.lamella):
+        if not consumed_values(task.lamella) or not task.config.select_poi:
             return None
         poi = task._prior_poi
         return Proposal(kind=self.kind, values={"poi": Point(poi.x, poi.y)})
@@ -141,10 +142,9 @@ class SelectMillingPositionTask(AutoLamellaTask):
     # confirmed before the point is picked, and the tilt to the milling angle
     # before it is made (both ``state``, each with a switch of its own); the
     # coincidence walk asks a detection when it is on; the alignment area is
-    # checked before the reference is taken in it. The point is dragged on
-    # the canvas today (a session), until it moves to ``ask``.
+    # checked before the reference is taken in it. The point of interest is
+    # not asked while it runs: it is the task's result, proposed at the end.
     questions = (STATE, DETECTION, ALIGNMENT_AREA)
-    sessions = ("the point of interest",)
 
     @classmethod
     def questions_for(cls, config) -> Tuple[str, ...]:
@@ -155,14 +155,6 @@ class SelectMillingPositionTask(AutoLamellaTask):
             ALIGNMENT_AREA: getattr(config, "confirm_alignment_area", True),
         }
         return tuple(k for k in cls.questions if asked.get(k, True))
-
-    @classmethod
-    def sessions_for(cls, config) -> Tuple[str, ...]:
-        return tuple(
-            s
-            for s in cls.sessions
-            if s != "the point of interest" or getattr(config, "select_poi", True)
-        )
 
     # the milling position: a value someone may change, so a kind of its own
     proposer = CurrentPoiProposer()
@@ -203,12 +195,13 @@ class SelectMillingPositionTask(AutoLamellaTask):
         if not is_close:
             if self.config.auto_milling_alignment:
                 pass  # tilted coincidently above
-            elif self._asks_on_the_record:
+            else:
                 # On the record: the position before the tilt is the proposal,
-                # Continue confirms it and the tilt follows. Stopping the run
-                # is the way not to tilt, as for any question asked this way.
+                # Continue confirms it and the tilt follows. Rejecting it (from
+                # the Review tab, with a reason) is the way not to tilt; the
+                # task carries on at the angle it is at.
                 current_milling_angle = self.microscope.get_current_milling_angle()
-                self.ask(
+                decision = self.ask(
                     STATE,
                     {"stage_position": self.microscope.get_stage_position()},
                     image=self._last_fib_image_file(),
@@ -219,22 +212,8 @@ class SelectMillingPositionTask(AutoLamellaTask):
                     decided=self._stage_position_now,
                     enabled=self.config.confirm_tilt,
                 )
-                self.microscope.move_to_milling_angle(milling_angle=milling_angle)
-            elif self.validate and self.config.confirm_tilt:
-                # The prompt as it has always been, kept as it is while the
-                # review preference is off.
-                current_milling_angle = self.microscope.get_current_milling_angle()
-                ret = ask_user(
-                    parent_ui=self.parent_ui,
-                    msg=f"Tilt to specified milling angle ({milling_angle:.1f}{constants.DEGREE_SYMBOL})? "
-                    f"Current milling angle is {current_milling_angle:.1f}{constants.DEGREE_SYMBOL}.",
-                    pos="Tilt",
-                    neg="Skip",
-                )
-                if ret:
+                if decision.outcome is not DecisionOutcome.Rejected:
                     self.microscope.move_to_milling_angle(milling_angle=milling_angle)
-            else:
-                self.microscope.move_to_milling_angle(milling_angle=milling_angle)
 
             if self.config.use_autofocus:
                 self._run_autofocus(beam_type=BeamType.ION)
@@ -251,52 +230,23 @@ class SelectMillingPositionTask(AutoLamellaTask):
             f"Double click the image to move to the milling position for "
             f"{self.lamella.name}. Press Continue when done."
         )
-        if self._asks_on_the_record:
-            # The position as arrived at is the proposal; the position as it
-            # stands when Continue is pressed is the decision, so the move the
-            # operator made is the delta.
-            self.ask(
-                STATE,
-                {"stage_position": self.microscope.get_stage_position()},
-                image=self._last_fib_image_file(),
-                message=msg,
-                decided=self._stage_position_now,
-                enabled=self.config.confirm_position,
-            )
-        elif self.validate and self.config.confirm_position:
-            ask_user(parent_ui=self.parent_ui, msg=msg, pos="Continue")
+        # The position as arrived at is the proposal; the position as it stands
+        # when Continue is pressed is the decision, so the move the operator
+        # made is the delta.
+        self.ask(
+            STATE,
+            {"stage_position": self.microscope.get_stage_position()},
+            image=self._last_fib_image_file(),
+            message=msg,
+            decided=self._stage_position_now,
+            enabled=self.config.confirm_position,
+        )
 
-        # select point of interest -- under review it is proposed at the end of
-        # the task instead, on the final reference image; otherwise the answer
-        # given here (supervised) is the decision on that proposal
-        # The point as it stands before anyone is asked: what the proposal
-        # says, so the delta against the answer is what the operator moved.
+        # The point of interest is proposed at the end of the task, on the
+        # final reference image, and decided on the record afterwards. The
+        # point as it stands now is what the proposal says, so the delta
+        # against the decision is what the operator moved.
         self._prior_poi = Point(self.lamella.poi.x, self.lamella.poi.y)
-        if self.config.select_poi and not self.review:
-            poi = select_poi_ui(
-                parent_ui=self.parent_ui,
-                # the FIB image the reference acquisition above displayed — the
-                # marker's coordinates only mean something against it
-                image=self._last_fib_image,
-                msg=f"Move the marker to the point of interest for {self.lamella.name}. Press Continue when done.",
-                validate=self.validate,
-                initial_poi=self.lamella.poi,
-            )
-            if poi is not None:
-                self.lamella.poi = poi
-                synced = self.lamella.sync_tasks_to_poi()
-                if synced:
-                    logging.info(f"Synced tasks to POI: {synced}")
-                # The answer is the decision on the proposal the base records
-                # after the run; already applied, so it is recorded without a
-                # second write-through, and the delta between it and the
-                # proposer's point is what supervised runs used to throw away.
-                self.inline_decision = Decision(
-                    outcome=DecisionOutcome.Confirmed,
-                    actor=self._answer_actor(),
-                    values={"poi": poi},
-                    via="workflow",
-                )
 
         # validate alignment area
         self._validate_alignment_area(enabled=self.config.confirm_alignment_area)
