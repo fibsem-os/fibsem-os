@@ -36,7 +36,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.applications.autolamella.structures import Experiment, GridRecord
+from fibsem.applications.autolamella.structures import Experiment
 from fibsem.applications.autolamella.tools.grid_report_pdf import (
     generate_grid_report,
 )
@@ -56,6 +56,7 @@ from fibsem.ui.qt.threading import thread_worker
 from fibsem.ui.tokens import ERROR_COLOR, NEUTRAL_200, PANEL_COLOR, TEXT_MUTED_COLOR
 from fibsem.ui.widgets.overview_widget import MODALITY_CHIP_STYLE, VIEW_CHIP_SPACING
 from fibsem.ui.widgets.sample_loader_widget import _ICON_BTN_STYLE, ICON_INVENTORY
+from fibsem.workflows.grids import GridRecord
 
 _STRIP_WIDTH = 340
 VIEW_RESULTS = "Results"

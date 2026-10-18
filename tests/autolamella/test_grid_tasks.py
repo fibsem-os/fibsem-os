@@ -18,17 +18,17 @@ from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
-    GridRecord,
     GridTaskProtocol,
 )
 from fibsem.applications.autolamella.workflows.tasks.grid import (
-    GRID_TASK_REGISTRY,
     GridTask,
     GridTaskConfig,
+    get_grid_tasks,
     load_grid_task_configs,
     register_grid_task,
     run_grid_task,
 )
+from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.status import TaskStatus
 
 # ---------------------------------------------------------------------------
@@ -228,7 +228,7 @@ class TestLifecycle:
         assert grid.has_completed_task("echo")
 
     def test_a_step_is_recorded_as_the_grid_s(self, microscope, experiment, tmp_path):
-        from fibsem.applications.autolamella.event_recording import (
+        from fibsem.workflows.event_recording import (
             EVENTS_FILENAME,
             EventRecorder,
             read_events,
@@ -321,7 +321,7 @@ class TestLifecycle:
         assert task.slot.name == "Slot-01"
 
     def test_registry_knows_the_task(self):
-        assert GRID_TASK_REGISTRY["ECHO_GRID"] is EchoTask
+        assert get_grid_tasks()["ECHO_GRID"] is EchoTask
 
 
 # ---------------------------------------------------------------------------

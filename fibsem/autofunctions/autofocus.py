@@ -50,7 +50,7 @@ class FocusSweepPass(Configurable):
         5e-3,
         unit="m",
         doc="The total span the pass sweeps, centred on its starting focus (plus and minus half of it).",
-        display=Display("Search Range", scale=1e6, step=0.1, decimals=2),
+        display=Display("Search Range", scale=1e6, step=1.0, decimals=1),
     )  # metres (total span; positions cover ±range/2)
     step_size: float = param(
         0.5e-3,

@@ -17,7 +17,6 @@ from psygnal.containers import EventedDict  # noqa: E402
 
 from fibsem import utils  # noqa: E402
 from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
-from fibsem.applications.autolamella.server.events import EventBuffer  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
     Experiment,
@@ -27,6 +26,7 @@ from fibsem.server import AuthConfig, build_server  # noqa: E402
 from fibsem.server.discovery import write_discovery_file  # noqa: E402
 from fibsem.server.levels import AgentLevel  # noqa: E402
 from fibsem.structures import MicroscopeState  # noqa: E402
+from fibsem.workflows.events import EventBuffer  # noqa: E402
 
 TOKEN = "test-token"
 POLL_S = 0.3
@@ -717,9 +717,9 @@ def test_every_mill_is_followed_by_its_stage_and_end_lines(app, microscope, tmp_
     """A mill run as a workflow task runs it, through the service and not the
     App Server: its recorded events print a line per stage and one at the end."""
     from fibsem import config as fcfg
-    from fibsem.applications.autolamella.server.events import attach_microscope_taps
     from fibsem.milling.base import FibsemMillingStage
     from fibsem.milling.tasks import FibsemMillingTaskConfig, run_milling_task
+    from fibsem.workflows.events import attach_microscope_taps
 
     stages = [FibsemMillingStage(name=name) for name in ("Rough", "Polish")]
     stages[1].enabled = False

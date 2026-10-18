@@ -693,7 +693,9 @@ def test_current_grid_is_none_before_the_first_position_read():
     _with_magazine(microscope)
     stage = microscope.sample_handling
     stage.ensure_loaded("Grid-01")
-    microscope._stage_position = None
+    from fibsem.devices.core import _UNSET
+
+    microscope.stage.position._cached = _UNSET  # nothing read since connecting
 
     assert stage.current_slot is None
     assert stage.current_grid is None

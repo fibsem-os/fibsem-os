@@ -15,22 +15,22 @@ from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
-    GridRecord,
 )
 from fibsem.applications.autolamella.task_outputs import (
     grid_outputs,
     latest_grid_output,
 )
 from fibsem.applications.autolamella.workflows.tasks.grid import (
-    GRID_TASK_REGISTRY,
     FluorescenceOverviewGridTask,
     FluorescenceOverviewGridTaskConfig,
+    get_grid_tasks,
     run_grid_task,
 )
 from fibsem.fm.acquisition import OverviewDestination, acquire_fm_tiled_overview
 from fibsem.fm.structures import ChannelSettings, OverviewParameters, ZParameters
 from fibsem.services.sample_handling import BUILTIN_SLOT_NAME
 from fibsem.structures import InsertableDeviceState, SampleGrid
+from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.status import TaskStatus
 
 
@@ -69,7 +69,7 @@ def experiment(tmp_path):
 
 class TestConfig:
     def test_registered(self):
-        assert GRID_TASK_REGISTRY["FM_OVERVIEW_GRID"] is FluorescenceOverviewGridTask
+        assert get_grid_tasks()["FM_OVERVIEW_GRID"] is FluorescenceOverviewGridTask
 
     def test_round_trips_through_protocol_yaml_with_a_channel_list(
         self, experiment, tmp_path

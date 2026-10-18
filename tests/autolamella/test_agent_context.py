@@ -116,11 +116,10 @@ def test_task_outputs_for_a_real_item_and_a_missing_one(experiment):
 
     # With history: the live-run 500 — the field is `name`, and an empty
     # history hid the read of a field that doesn't exist.
-    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
-    from fibsem.workflows.status import TaskStatus
+    from fibsem.workflows.status import TaskState, TaskStatus
 
     experiment.positions[0].task_history.append(
-        AutoLamellaTaskState(name="Rough Milling", status=TaskStatus.Completed)
+        TaskState(name="Rough Milling", status=TaskStatus.Completed)
     )
     completed = ctx.task_outputs(name)
     assert completed["completed_tasks"] == ["Rough Milling"]
@@ -135,7 +134,7 @@ def test_output_image_renders_recorded_outputs_only(experiment):
     import numpy as np
     import tifffile
 
-    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+    from fibsem.workflows.status import TaskState
 
     host = Host()
     host.experiment = experiment
@@ -155,7 +154,7 @@ def test_output_image_renders_recorded_outputs_only(experiment):
         photometric="minisblack",
     )
     lamella.task_history.append(
-        AutoLamellaTaskState(
+        TaskState(
             name="Rough Milling",
             outputs={"final_fib": [fname], "fluorescence": [zname]},
         )
@@ -473,9 +472,11 @@ def test_stage_position_reads_the_cache_only(microscope):
     assert cached["available"] is True
     _assert_json_safe(cached)
 
-    # The facade must not have issued a hardware read itself: poking the cache
-    # attribute directly proves which side it reads from.
-    microscope._stage_position = None
+    # The facade must not have issued a hardware read itself: forgetting the stage
+    # device's cached value directly proves which side it reads from.
+    from fibsem.devices.core import _UNSET
+
+    microscope.stage.position._cached = _UNSET
     assert ctx.stage_position() == {"available": False, "position": None}
 
 
@@ -485,8 +486,8 @@ def test_recent_experiments_is_json_safe():
 
 
 def test_edit_queue_removes_or_moves_a_waiting_pair(experiment, microscope):
-    from fibsem.applications.autolamella.server.events import EventBuffer
     from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
+    from fibsem.workflows.events import EventBuffer
 
     host = Host()
     host.experiment = experiment

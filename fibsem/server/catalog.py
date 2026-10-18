@@ -32,7 +32,8 @@ class ToolSpec:
     optional: Tuple[str, ...] = ()
     # Which router serves it: "microscope" unless the App Server's devices
     # service is off (FIB-1035); "app" only when the server was built with an
-    # app_context; "base" always. /capabilities reports which.
+    # app_context; "services" (the analysis services) and "base" always.
+    # /capabilities reports which.
     router: str = "microscope"
     # Commands or changes the microscope, so takes control of it (FIB-1270).
     hardware: bool = False
@@ -103,6 +104,7 @@ GROUP_TITLES: Dict[str, str] = {
     "milling": "Milling",
     "alignment": "Alignment",
     "inference": "Inference",
+    "correlation": "Correlation",
     "app": "App",
     "experiment": "Experiment",
     "protocol": "Protocol",
@@ -123,6 +125,7 @@ _WRITES_AT_WATCH = frozenset(
         "item_measure_thickness",  # saves its result beside the image
         "inference_segment",  # saves its mask and overlay beside the image
         "inference_detect",  # saves its mask and overlay beside the image
+        "correlation_correlate",  # saves a run in the lamella's Correlation folder
     }
 )
 
@@ -453,7 +456,8 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "Name one of these to inference_segment or inference_detect; you can't name a file. Loads nothing."
         ),
         method="POST",
-        path="/microscope/services/inference/queries/list_models",
+        path="/services/inference/queries/list_models",
+        router="services",
         level="watch",
     ),
     ToolSpec(
@@ -464,7 +468,8 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "and where the card was read. Loads nothing."
         ),
         method="POST",
-        path="/microscope/services/inference/queries/model_info",
+        path="/services/inference/queries/model_info",
+        router="services",
         level="watch",
         params={"model": "a model name from inference_list_models"},
     ),
@@ -482,7 +487,8 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "image. A stitched overview runs a tile at a time. Moves nothing."
         ),
         method="POST",
-        path="/microscope/services/inference/queries/segment",
+        path="/services/inference/queries/segment",
+        router="services",
         level="watch",
         params={
             "image_path": "a saved image inside the open experiment",
@@ -504,7 +510,8 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "folder beside the image. Moves nothing."
         ),
         method="POST",
-        path="/microscope/services/inference/queries/detect",
+        path="/services/inference/queries/detect",
+        router="services",
         level="watch",
         params={
             "image_path": "a saved image inside the open experiment",
@@ -513,6 +520,80 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "point": "[x, y] in pixels: the closest of several of one feature wins",
         },
         optional=("model", "point"),
+    ),
+    ToolSpec(
+        name="correlation_correlate",
+        description=(
+            "Correlate a saved FM stack to a saved FIB image, as the correlation "
+            "tab does: fit the transform to fiducial pairs and map the points of "
+            "interest into the FIB image. fib_points are (x, y) FIB pixels; "
+            "fm_points the same fiducials, in the same order, as (x, y, z) FM "
+            "pixels and slices (at least 4 pairs); poi_points the targets as "
+            "(x, y, z) in the FM stack. Answers the RMS error (px, nm), each point "
+            "of interest in FIB image pixels and metres from the image centre, the "
+            "verdict (good, check, bad, with reasons) and what the fit started "
+            "from. With lamella_path it starts from the experiment's previous runs "
+            "and saves a new run in the lamella's Correlation folder, with an "
+            "overlay to look at (overlay_path, experiment_read_file: o picked, "
+            "x fitted, + targets). Paths inside the open experiment. Does not move "
+            "the lamella's point of interest. Moves nothing."
+        ),
+        method="POST",
+        path="/services/correlation/queries/correlate",
+        router="services",
+        level="watch",
+        params={
+            "fib_image_path": "the saved FIB image the fib_points are in",
+            "fm_image_path": "the saved FM stack the fm_points and poi_points are in",
+            "fib_points": "fiducials as [[x, y], ...] FIB pixels",
+            "fm_points": "the same fiducials as [[x, y, z], ...] FM pixels and slices",
+            "poi_points": "targets as [[x, y, z], ...] FM pixels and slices",
+            "lamella_path": "the lamella's folder, to start from previous runs and save the run there",
+        },
+        optional=("lamella_path",),
+    ),
+    ToolSpec(
+        name="correlation_refine_point",
+        description=(
+            "Move a picked point onto the feature under it, as the correlation "
+            "tab's point fit does: a hole in a FIB image (beam fib, method Hole), "
+            "or a reflection hole (Hole) or fluorescent target (Gaussian, the "
+            "default) in a channel of an FM stack (beam fm). Answers the status "
+            "(ok, unchanged, error), the fitted (x, y, z), how far it moved in "
+            "pixels, and why it failed. A proposal: nothing is saved or moved."
+        ),
+        method="POST",
+        path="/services/correlation/queries/refine_point",
+        router="services",
+        level="watch",
+        params={
+            "image_path": "the saved FIB image or FM stack, inside the open experiment",
+            "x": "the picked x, pixels",
+            "y": "the picked y, pixels",
+            "z": "the picked slice, for an FM point (default 0)",
+            "beam": "fib or fm (default fib)",
+            "method": "Hole or Gaussian (default Hole for fib, Gaussian for fm)",
+            "channel": "the FM channel index (default 0)",
+        },
+        optional=("z", "beam", "method", "channel"),
+    ),
+    ToolSpec(
+        name="correlation_predict",
+        description=(
+            "Map FM points through a saved correlation run (run_path from "
+            "correlation_correlate, or a run folder in a lamella's Correlation "
+            "folder): (x, y, z) FM pixels and slices to FIB image pixels and "
+            "metres from the image centre. No refractive-index correction. Reads "
+            "the run and moves nothing."
+        ),
+        method="POST",
+        path="/services/correlation/queries/predict",
+        router="services",
+        level="watch",
+        params={
+            "run_path": "a correlation run folder inside the open experiment",
+            "fm_points": "[[x, y, z], ...] FM pixels and slices",
+        },
     ),
     ToolSpec(
         name="milling_stop",
@@ -1641,6 +1722,18 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         params={"item_name": "the item (lamella) name", "pose": "the pose name"},
     ),
     ToolSpec(
+        name="item_apply_correlation",
+        description="Move a lamella's point of interest to a saved correlation's target, as the correlation tab's Continue does: run_path is a run folder in the lamella's Correlation folder, as correlation_correlate saves it with lamella_path. The patterns that follow the point move with it; the correlation is recorded with its run. Saved; answers with the changes.",
+        method="POST",
+        path="/app/experiment/items/{item_name}/correlation",
+        level="drive",
+        router="app",
+        params={
+            "item_name": "the item (lamella) name",
+            "run_path": "the run folder correlation_correlate answered",
+        },
+    ),
+    ToolSpec(
         name="item_set_objective_position",
         description="Store the FM objective's position now on a lamella's fluorescence pose, as the tab's Use current does: where it is when inserted, else its focus position. Saved.",
         method="POST",
@@ -2011,7 +2104,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="prompt_get",
-        description='The supervision question awaiting an answer, if any — message, options, and context images. A question that is also on the item\'s record says answer_via: "decide" and gives the item_id, task_name and proposal_id: it is decided with review_decide, like any other review, and prompt_answer will refuse it. suggestion_dismissed: {reason} when the operator dismissed your suggested answer to it.',
+        description="The supervision question awaiting an answer, if any — message, options, and context images. suggestion_dismissed: {reason} when the operator dismissed your suggested answer to it.",
         method="GET",
         path="/app/workflow/prompt",
         level="watch",
@@ -2046,7 +2139,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="prompt_answer",
-        description='Answer the pending supervision question, exactly as clicking the matching button would. Not for a question whose prompt says answer_via: "decide" -- that one is refused here, with nothing clicked, and decided with review_decide. True = the positive option. Echo the question_id from prompt_get; if that question is no longer pending the answer is refused (409 stale_prompt) — re-read and answer the current one. A question whose prompt has a value field takes a value in the shape that field gives: the edit the operator could make in that widget, placed into it (the operator sees it land) and then answered through the same click path; value_required means the answer must carry one (the action, at the milling and spot burn questions). When your value moved the widget, moved_from in the answer is what it showed before, in the same shape as value; absent when it already showed your value. The value is what is stored. An out-of-bounds or wrong-shape value is refused (422 invalid_value) without clicking anything.',
+        description="Answer the pending supervision question, exactly as clicking the matching button would. True = the positive option. Echo the question_id from prompt_get; if that question is no longer pending the answer is refused (409 stale_prompt) — re-read and answer the current one. A question whose prompt has a value field takes a value in the shape that field gives: the edit the operator could make in that widget, placed into it (the operator sees it land) and then answered through the same click path; value_required means the answer must carry one (the action, at the milling and spot burn questions). When your value moved the widget, moved_from in the answer is what it showed before, in the same shape as value; absent when it already showed your value. The value is what is stored. An out-of-bounds or wrong-shape value is refused (422 invalid_value) without clicking anything.",
         method="POST",
         path="/app/workflow/prompt/answer",
         level="drive",
@@ -2060,7 +2153,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="prompt_suggest_answer",
-        description="Suggest an answer to the pending supervision question, for the operator to take or not. Nothing is answered: the prompt shows 'Agent suggests: <the button>' with your reason under it, and the operator's click on it answers as theirs, recorded with you as the one who suggested it (prompt_suggested, then prompt_answered with suggested_by). Answering any other way ignores it; the operator may dismiss it, saying why (prompt_suggestion_dismissed, with their reason); a new posting of the question drops it. Echo the question_id from prompt_get (409 stale_prompt if it has gone). value is as for prompt_answer, and is placed in the widget only when the operator takes the suggestion. Not for a question whose prompt says answer_via: \"decide\" (409 not_suggestible): at Assist, decide it through request_create.",
+        description="Suggest an answer to the pending supervision question, for the operator to take or not. Nothing is answered: the prompt shows 'Agent suggests: <the button>' with your reason under it, and the operator's click on it answers as theirs, recorded with you as the one who suggested it (prompt_suggested, then prompt_answered with suggested_by). Answering any other way ignores it; the operator may dismiss it, saying why (prompt_suggestion_dismissed, with their reason); a new posting of the question drops it. Echo the question_id from prompt_get (409 stale_prompt if it has gone). value is as for prompt_answer, and is placed in the widget only when the operator takes the suggestion.",
         method="POST",
         path="/app/workflow/prompt/suggest",
         level="assist",
@@ -2141,6 +2234,17 @@ NOT_TOOLS: Dict[str, str] = {
     "GET /microscope/services/{service}/{parameter}/metadata": "service_list carries limits, choices and settable.",
     "GET /microscope/devices/{device}/values": "Not decided yet; device_get_parameter reads one value at a time.",
     "GET /microscope/services/{service}/values": "Not decided yet; service_get_parameter reads one value at a time.",
+    # The analysis services (fibsem.services.analysis): each query the agent
+    # uses is a named tool (correlation_correlate, ...); the generic routes are
+    # for scripts and the browser monitor.
+    "GET /services": "The analysis services' listing; their queries are named tools.",
+    "GET /services/{service}": "An analysis service's description; its queries are named tools.",
+    "GET /services/{service}/values": "An analysis service's settings; none is an agent's to read yet.",
+    "GET /services/{service}/{parameter}": "An analysis service's setting; none is an agent's to read yet.",
+    "PUT /services/{service}/{parameter}": "An analysis service's setting; none is an agent's to change yet.",
+    "GET /services/{service}/{parameter}/metadata": "An analysis service's setting limits; none is an agent's yet.",
+    "POST /services/{service}/commands/{command}": "No analysis service has a command; each query is a named tool.",
+    "POST /services/{service}/queries/{query}": "Each analysis service query the agent uses is a named tool (correlation_correlate, ...).",
 }
 
 

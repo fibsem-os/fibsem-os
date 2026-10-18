@@ -23,13 +23,16 @@ clashing_pattern = "fibsem_test_plugin.patterns:ClashingPattern"
 [project.entry-points."fibsem.strategies"]
 fixture_strategy = "fibsem_test_plugin.strategies:FixtureMillingStrategy"
 
-[project.entry-points."fibsem.tasks"]
+[project.entry-points."fibsem.autolamella.tasks"]
 fixture_task = "fibsem_test_plugin.tasks:FixtureTask"
 # Two failure shapes, declared on purpose. Neither registers anything, and
 # neither used to leave a trace anywhere the user could reach -- the plugin
 # listing exists to report exactly these, so they have to be exercised.
 wrong_base_class = "fibsem_test_plugin.tasks:NotATask"
 missing_module = "fibsem_test_plugin.nonexistent:Whatever"
+
+[project.entry-points."fibsem.grid_tasks"]
+fixture_grid_task = "fibsem_test_plugin.grid_tasks:FixtureGridTask"
 
 # A driver entry point names a function returning a DriverEntry, not a class.
 [project.entry-points."fibsem.drivers"]

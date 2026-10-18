@@ -18,7 +18,6 @@ from PyQt5.QtWidgets import QApplication
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
-    GridRecord,
 )
 from fibsem.applications.autolamella.ui.lamella_list_widget import (
     FILTER_ALL,
@@ -26,6 +25,7 @@ from fibsem.applications.autolamella.ui.lamella_list_widget import (
     LamellaListWidget,
 )
 from fibsem.structures import MicroscopeState
+from fibsem.workflows.grids import GridRecord
 
 _app = QApplication.instance() or QApplication([])
 

@@ -11,7 +11,7 @@ import threading
 
 import pytest
 
-from fibsem.applications.autolamella.workflows.tasks.queue import (
+from fibsem.workflows.queue import (
     QueueOp,
     TaskQueue,
     WorkItem,

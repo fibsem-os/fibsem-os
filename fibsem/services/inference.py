@@ -6,7 +6,8 @@ model on a saved image *path*, since a route can't carry an image, and saves
 the mask, the overlay and the result beside it.
 
 Being a service is what lets an agent use the models over the App Server, under
-``/microscope/services/inference``. The agent names a registered model, never a
+``/services/inference`` (`fibsem.services.analysis`), with or without a
+microscope. The agent names a registered model, never a
 file: loading a checkpoint can run the code inside it.
 """
 

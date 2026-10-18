@@ -282,10 +282,7 @@ def test_a_slice_with_no_hole_fails_rather_than_returning_a_runaway_xy():
 
 
 def test_a_fit_that_left_its_window_reads_as_no_clear_burn():
-    pytest.importorskip("PyQt5")
-    from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
-        humanize_fit_error,
-    )
+    from fibsem.correlation.point_fit import humanize_fit_error
 
     msg = humanize_fit_error(FitOutsideWindow("z fit fell outside the planes searched"))
     assert "No clear burn" in msg and "stays where you placed it" in msg

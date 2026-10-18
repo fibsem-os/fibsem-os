@@ -12,10 +12,8 @@ import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskState,
     Experiment,
     GridQuality,
-    GridRecord,
 )
 from fibsem.applications.autolamella.ui.grid_card_widget import grid_headline
 from fibsem.applications.autolamella.ui.grids_tab_widget import GridsTabWidget
@@ -24,7 +22,8 @@ from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
 )
 from fibsem.services.sample_handling import bind_sample_handling
 from fibsem.structures import SampleGrid
-from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.grids import GridRecord
+from fibsem.workflows.status import TaskState, TaskStatus
 
 
 @pytest.fixture
@@ -52,7 +51,7 @@ def tab(qapp, arctis, experiment):
 
 
 def entry(status, name="overview_sem"):
-    state = AutoLamellaTaskState(name=name, status=status)
+    state = TaskState(name=name, status=status)
     state.end_timestamp = state.start_timestamp + timedelta(seconds=1)
     return state
 
@@ -295,8 +294,8 @@ class TestCards:
     def test_a_card_shows_the_latest_overview_thumbnail(self, tab, experiment):
         import numpy as np
 
-        from fibsem.applications.autolamella.structures import AutoLamellaTaskState
         from fibsem.imaging.thumbnail import write_thumbnail
+        from fibsem.workflows.status import TaskState
 
         tab.btn_inventory.click()
         grid = experiment.get_grid_by_name("Grid-01")
@@ -305,7 +304,7 @@ class TestCards:
             (np.random.rand(200, 300) * 255).astype(np.uint8),
             root / "overview_sem" / "overview-thumbnail.png",
         )
-        state = AutoLamellaTaskState(name="overview_sem", status=TaskStatus.Completed)
+        state = TaskState(name="overview_sem", status=TaskStatus.Completed)
         state.outputs = {
             "overview_sem_thumbnail": ["overview_sem/overview-thumbnail.png"]
         }

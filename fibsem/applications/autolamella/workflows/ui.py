@@ -6,15 +6,6 @@ from typing import TYPE_CHECKING, List, Optional, Sequence
 
 from fibsem import milling
 from fibsem.applications.autolamella.structures import Experiment
-from fibsem.applications.autolamella.workflows.interaction import (
-    Confirm,
-    ConfirmDetection,
-    EditAlignmentArea,
-    PickPOI,
-    ReviewDetection,
-    SetImages,
-    ask,
-)
 from fibsem.detection import detection
 from fibsem.detection import utils as det_utils
 from fibsem.detection.detection import DetectedFeatures, Feature
@@ -27,6 +18,15 @@ from fibsem.structures import (
     ImageSettings,
     Point,
 )
+from fibsem.workflows.interaction import (
+    Confirm,
+    ConfirmDetection,
+    EditAlignmentArea,
+    PickPOI,
+    SetImages,
+    ask,
+)
+from fibsem.workflows.status import post_status
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
@@ -102,52 +102,6 @@ def update_detection_ui(
     return det
 
 
-def review_detection_ui(
-    microscope: FibsemMicroscope,
-    image_settings: ImageSettings,
-    checkpoint: str,
-    features: Sequence[Feature],
-    item_id: str,
-    task_name: str,
-    parent_ui: Optional["AutoLamellaUI"] = None,
-    validate: bool = True,
-    msg: str = "Lamella",
-    position: Optional[FibsemStagePosition] = None,
-) -> DetectedFeatures:
-    """``update_detection_ui``, asked so that it can go on the item's record.
-
-    The second version, beside the first rather than in place of it: nothing in
-    the workflow calls this yet. It differs in one thing -- it says which item
-    and task are asking (``ReviewDetection``), so that with interactive review
-    on the question is recorded as a proposal, holds the run, and is corrected
-    and confirmed in the Review tab (FIB-1025). Wherever it cannot be recorded
-    it is the same Detection tab prompt ``update_detection_ui`` puts up, and
-    unsupervised it does exactly what that does.
-    """
-    feat_str = ", ".join([f.name for f in features])
-    if len(feat_str) > 15:
-        feat_str = feat_str[:15] + "..."
-    update_status_ui(parent_ui, f"{msg}: Detecting Features ({feat_str})...")
-
-    det = detection.take_image_and_detect_features(
-        microscope=microscope,
-        image_settings=image_settings,
-        features=features,
-        point=position,
-        checkpoint=checkpoint,
-    )
-
-    if validate and parent_ui is not None:
-        det = ask(
-            parent_ui.ui_responder,
-            ReviewDetection(detection=det, item_id=item_id, task_name=task_name),
-            abort=lambda: _abort_requested(parent_ui),
-        )
-    else:
-        det_utils.save_ml_feature_data(det)
-    return det
-
-
 def set_images_ui(
     parent_ui: Optional["AutoLamellaUI"],
     eb_image: Optional[FibsemImage] = None,
@@ -190,24 +144,9 @@ def update_status_ui(
     the manager's closing line after a Stop -- "Workflow cancelled by user." -- which is
     the one status that has to get out precisely because the run was aborted.
     """
-    if parent_ui is None:
-        logging.info(msg or status_bar or "")
-        return
-
     if check_abort:
         _check_for_abort(parent_ui)
-
-    # Local import: the tasks package pulls this module in through its manager,
-    # so a top-level import of tasks.status is a cycle.
-    from fibsem.applications.autolamella.workflows.tasks.status import (
-        WorkflowStatusEvent,
-    )
-
-    parent_ui.workflow_status_signal.emit(
-        WorkflowStatusEvent(
-            message=msg, workflow_info=workflow_info, status_bar=status_bar
-        )
-    )
+    post_status(parent_ui, msg, workflow_info=workflow_info, status_bar=status_bar)
 
 
 def ask_user(

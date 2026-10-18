@@ -127,7 +127,7 @@ def test_closing_during_a_workflow_can_be_cancelled(running):
     assert ui.is_workflow_running
     assert not ui._workflow_stop_event.is_set()
     assert ui.microscope._connection.connected
-    assert ui._event_recorder is not None
+    assert ui.session.recorder is not None
 
 
 def test_confirming_the_close_stops_the_workflow_and_disconnects(running):

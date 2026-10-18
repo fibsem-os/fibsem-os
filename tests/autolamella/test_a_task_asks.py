@@ -15,13 +15,7 @@ from psygnal.containers import EventedDict
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.applications.autolamella.proposals import (
-    POINT_OF_INTEREST,
-    PROPOSAL_KINDS,
-    AuthorKind,
-    Decision,
-    DecisionOutcome,
-)
+from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
 from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskDescription,
@@ -36,6 +30,12 @@ from fibsem.applications.autolamella.workflows.tasks.rough import (
     MillRoughTaskConfig,
 )
 from fibsem.structures import Point
+from fibsem.workflows.proposals import (
+    PROPOSAL_KINDS,
+    AuthorKind,
+    Decision,
+    DecisionOutcome,
+)
 
 ROUGH = "Rough Milling"
 CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")

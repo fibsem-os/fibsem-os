@@ -18,7 +18,6 @@ from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
-    GridRecord,
 )
 from fibsem.applications.autolamella.task_outputs import grid_outputs
 from fibsem.applications.autolamella.workflows.tasks.grid import (
@@ -39,11 +38,12 @@ from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     plan_grid_run,
     run_grid_tasks,
 )
-from fibsem.applications.autolamella.workflows.tasks.status import WorkflowStatusEvent
 from fibsem.cancellation import OperationCancelledError
 from fibsem.services.sample_handling import BUILTIN_SLOT_NAME
 from fibsem.structures import BeamType, ImageSettings, OverviewAcquisitionSettings
+from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.status import TaskStatus as Status
+from fibsem.workflows.status import WorkflowStatusEvent
 
 GRIDS = ["Grid-01", "Grid-02", "Grid-03"]  # what the sim magazine holds
 
@@ -656,11 +656,11 @@ class TestEndOfRun:
         )
 
     def test_an_unload_entry_does_not_fix_a_grids_name(self, experiment):
-        from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+        from fibsem.workflows.status import TaskState
 
         grid = experiment.get_grid_by_name("Grid-01")
         for name in (LOAD_ENTRY_NAME, UNLOAD_ENTRY_NAME):
-            grid.task_history.append(AutoLamellaTaskState(name=name))
+            grid.task_history.append(TaskState(name=name))
         assert not grid_has_run(grid)
 
     def test_the_report_is_written_after_the_unload(

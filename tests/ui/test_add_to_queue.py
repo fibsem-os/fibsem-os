@@ -27,10 +27,10 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
     WorkflowProgressWidget,
 )
-from fibsem.applications.autolamella.workflows.tasks.queue import TaskQueue
 from fibsem.applications.autolamella.workflows.tasks.reference_image import (
     AcquireReferenceImageConfig,
 )
+from fibsem.workflows.queue import TaskQueue
 from fibsem.workflows.status import TaskStatus as Status
 
 TASKS = ["Trench", "Undercut", "Polishing"]

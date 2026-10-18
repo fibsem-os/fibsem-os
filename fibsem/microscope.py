@@ -72,7 +72,6 @@ if TYPE_CHECKING:
     from fibsem.imaging.spot import SpotBurnSettings
     from fibsem.services.alignment import Alignment
     from fibsem.services.imaging import Imaging
-    from fibsem.services.inference import Inference
     from fibsem.services.milling import Milling
     from fibsem.services.sample_handling import SampleHandling
     from fibsem.services.spot_burn import SpotBurn
@@ -185,9 +184,6 @@ class FibsemMicroscope(ABC):
     #: to a saved reference image, and the shift between two. None without
     #: imaging.
     alignment: Optional[Alignment] = None
-    #: The inference service (`fibsem.services.inference.Inference`): the
-    #: registered models, run on saved images. Built with the imaging.
-    inference: Optional[Inference] = None
     #: Whether this driver's sample loader reads its magazine when the sample
     #: handling service is built: only where that read is free (the simulator).
     _read_magazine_at_connect: bool = False
@@ -239,8 +235,8 @@ class FibsemMicroscope(ABC):
     # fluorescence: none until a backend builds one on connect
     fm: Optional[FluorescenceMicroscope] = None
 
-    stage_position_changed = Signal(FibsemStagePosition)
-    _stage_position: FibsemStagePosition = None
+    # A stage move is on the stage device: ``stage.position.changed``, with its last
+    # value in ``stage.position.last_known``.
     # A holder change is on the sample handling service: ``sample_handling.holder_changed``.
 
     @abstractmethod
@@ -376,15 +372,10 @@ class FibsemMicroscope(ABC):
         Without a beam there is none."""
         from fibsem.services.alignment import Alignment, bind_alignment
         from fibsem.services.imaging import Imaging, bind_imaging
-        from fibsem.services.inference import Inference
 
         self.imaging = bind_imaging(Imaging, self)
         # Alignment acquires through the imaging, so it comes and goes with it.
         self.alignment = bind_alignment(Alignment, self)
-        # Inference reads saved images and uses no device; built here, as every
-        # backend builds its imaging, so every microscope serves it.
-        self.inference = Inference(parent=self)
-        self.inference.connect()
 
     def reset_beam_shifts(self) -> None:
         """Set the beam shift to zero for the electron and ion beams."""
@@ -421,14 +412,6 @@ class FibsemMicroscope(ABC):
             raise TypeError(f"Expected FibsemStagePosition, got {type(stage_position)}")
 
         logging.debug({"msg": "get_stage_position", "pos": stage_position.to_dict()})
-
-        if self._stage_position is None:
-            self._stage_position = deepcopy(stage_position)
-
-        if not self._stage_position.is_close2(stage_position, tol=1e-6):
-            self._stage_position = deepcopy(stage_position)
-            self.stage_position_changed.emit(self._stage_position)
-
         return deepcopy(stage_position)
 
     def _read_stage_capabilities(self) -> None:
@@ -1185,7 +1168,6 @@ class FibsemMicroscope(ABC):
         "sample_handling",
         "imaging",
         "alignment",
-        "inference",
     )
 
     @property

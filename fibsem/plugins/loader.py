@@ -1,7 +1,7 @@
 """Load fibsem's entry point groups, and remember what happened.
 
 fibsem's class plugin groups -- ``fibsem.patterns``,
-``fibsem.strategies`` and ``fibsem.tasks`` -- were each loaded by what used to be
+``fibsem.strategies`` and the task groups -- were each loaded by what used to be
 three near-identical private functions. They returned ``{name: class}`` and
 wrote every failure to a log line, which meant the two questions a user
 actually asks could not be answered:
