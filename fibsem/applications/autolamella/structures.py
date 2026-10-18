@@ -81,6 +81,7 @@ from fibsem.workflows.proposals import (
     proposals_from_dict,
     proposals_to_dict,
 )
+from fibsem.workflows.saved_format import check_app
 from fibsem.workflows.status import TaskState, TaskStatus
 
 if TYPE_CHECKING:
@@ -1782,7 +1783,7 @@ def find_overviews(root: Union[str, Path]) -> List[Path]:
 @evented
 @dataclass
 class Experiment(BaseExperiment):
-    application_software: ClassVar[str] = "autolamella"
+    app: ClassVar[str] = "autolamella"
 
     name: str
     id: str
@@ -2673,6 +2674,7 @@ class Experiment(BaseExperiment):
             raise FileNotFoundError(f"No file with name {path} found.")
         with open(path) as f:
             ddict = yaml.safe_load(f)
+        check_app(ddict, Experiment.app, path)
 
         # create experiment from dict
         experiment = Experiment.from_dict(ddict)

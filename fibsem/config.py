@@ -11,6 +11,7 @@ import yaml
 import fibsem
 import fibsem.util.numpy_yaml  # noqa: F401  numpy scalars dump as numbers
 from fibsem.util.timestamps import to_datetime
+from fibsem.workflows.saved_format import saved_app
 
 # Documentation for a human reading a file, not a parsing switch -- from_dict does not
 # branch on it, and additive changes are detected from field presence instead (FIB-445
@@ -540,6 +541,7 @@ class ExperimentSummary:
 
     path: str  # path to the experiment.yaml file
     name: str
+    app: Optional[str] = None  # the application that wrote it; None if unread
     created_at: Optional[datetime] = None  # None when the file does not say
     num_lamella: int = 0
     exists: bool = True
@@ -582,6 +584,7 @@ def peek_experiment(experiment_yaml_path: str) -> ExperimentSummary:
         return ExperimentSummary(
             path=experiment_yaml_path,
             name=ddict.get("name") or fallback_name,
+            app=saved_app(ddict),
             created_at=to_datetime(ddict.get("created_at")),
             num_lamella=len(ddict.get("positions") or []),
             exists=True,

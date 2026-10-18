@@ -9,13 +9,14 @@ experiment adds its items, its protocol and its saved keys.
 
 from __future__ import annotations
 
+import importlib
 import logging
 import os
 import threading
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Optional, Type
 
 import yaml
 from psygnal import Signal
@@ -24,6 +25,7 @@ from fibsem.structures import FibsemUser, SessionInfo
 from fibsem.util.timestamps import now, to_datetime, to_iso
 from fibsem.utils import configure_logging as _configure_logging
 from fibsem.workflows.proposals import Author, human_author
+from fibsem.workflows.saved_format import FORMAT_VERSION, saved_app
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
@@ -40,9 +42,9 @@ EXPERIMENT_WRITE_LOCK = threading.RLock()
 class BaseExperiment:
     """An experiment's identity, metadata, session and items."""
 
-    # Written onto every image this experiment's runs acquire, as the
-    # application that produced it.
-    application_software: ClassVar[str] = ""
+    # The application this experiment belongs to: written at the top of its
+    # experiment.yaml, and onto every image its runs acquire.
+    app: ClassVar[str] = ""
     CONFIGURATION_FILENAME: ClassVar[str] = "configuration.yaml"
 
     # Fired after a decision is applied, with (item_id, task_name), on the thread
@@ -94,6 +96,8 @@ class BaseExperiment:
     def to_dict(self) -> dict:
         """The keys every experiment writes; an application adds its own."""
         return {
+            "app": self.app,
+            "format_version": FORMAT_VERSION,
             "name": self.name,
             "_id": self.id,
             "path": self.path,
@@ -105,6 +109,13 @@ class BaseExperiment:
     def _read_identity(self, ddict: dict) -> None:
         """Take the keys :meth:`to_dict` writes, other than name and path, from
         a saved experiment."""
+        version = ddict.get("format_version") or 0
+        if version > FORMAT_VERSION:
+            logging.warning(
+                f"{self.name} was written in experiment format {version}, newer "
+                f"than this version reads ({FORMAT_VERSION}); what it does not "
+                "know is dropped, and saving would lose it."
+            )
         self.created_at = to_datetime(ddict.get("created_at"))
         self.id = ddict.get("_id", "NULL")
         self.metadata = ddict.get("metadata", {})
@@ -266,7 +277,7 @@ class BaseExperiment:
 
         _register_metadata(
             microscope=microscope,
-            application_software=self.application_software,
+            application_software=self.app,
             experiment_id=self.id,
             experiment_name=self.name,
         )
@@ -323,3 +334,37 @@ class BaseExperiment:
             logging.warning(
                 f"Could not copy the microscope configuration into {path}: {e}"
             )
+
+
+# app -> the experiment class that reads it, for :func:`load_experiment`. The
+# built-ins are named by import path so this module imports no application.
+_BUILTIN_TYPES: Dict[str, str] = {
+    "autolamella": "fibsem.applications.autolamella.structures:Experiment",
+}
+EXPERIMENT_TYPES: Dict[str, Type[BaseExperiment]] = {}
+
+
+def register_experiment_type(cls: Type[BaseExperiment]) -> Type[BaseExperiment]:
+    """Make :func:`load_experiment` open ``cls.app``'s experiments as ``cls``."""
+    EXPERIMENT_TYPES[cls.app] = cls
+    return cls
+
+
+def experiment_type(app: str) -> Type[BaseExperiment]:
+    """The experiment class for ``app``; KeyError when nothing reads it."""
+    if app not in EXPERIMENT_TYPES and app in _BUILTIN_TYPES:
+        module, name = _BUILTIN_TYPES[app].split(":")
+        EXPERIMENT_TYPES[app] = getattr(importlib.import_module(module), name)
+    if app not in EXPERIMENT_TYPES:
+        raise KeyError(f"No application here reads {app} experiments.")
+    return EXPERIMENT_TYPES[app]
+
+
+def load_experiment(path: Path) -> BaseExperiment:
+    """Open the experiment.yaml at ``path`` as the application that wrote it."""
+    path = Path(path)
+    if path.is_dir():
+        path = path / EXPERIMENT_FILENAME
+    with open(path) as f:
+        ddict = yaml.safe_load(f) or {}
+    return experiment_type(saved_app(ddict)).load(path)
