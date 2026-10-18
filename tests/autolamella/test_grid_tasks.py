@@ -330,31 +330,31 @@ class TestLifecycle:
 
 
 class TestReadingOutputs:
-    def test_grid_outputs_resolve_existing_files_only(self, microscope, experiment):
-        from fibsem.applications.autolamella.task_outputs import (
-            grid_outputs,
-            latest_grid_output,
+    def test_item_outputs_resolve_existing_files_only(self, microscope, experiment):
+        from fibsem.workflows.outputs import (
+            item_outputs,
+            latest_item_output,
         )
 
         grid = _grid(experiment)
         experiment.grid_protocol.task_config["echo"].repeats = 2
         run_grid_task(microscope, "echo", experiment, grid)
         run_grid_task(microscope, "echo", experiment, grid)  # same files again
-        paths = grid_outputs(experiment, grid, "echo")
+        paths = item_outputs(experiment, grid, "echo")
         assert [os.path.basename(p) for p in paths] == ["hello-0.txt", "hello-1.txt"]
-        assert grid_outputs(experiment, grid, "nothing") == []
-        assert latest_grid_output(experiment, grid, "echo").endswith("hello-1.txt")
+        assert item_outputs(experiment, grid, "nothing") == []
+        assert latest_item_output(experiment, grid, "echo").endswith("hello-1.txt")
 
         (experiment.grid_path(grid) / "echo" / "hello-1.txt").unlink()
-        assert latest_grid_output(experiment, grid, "echo").endswith("hello-0.txt")
+        assert latest_item_output(experiment, grid, "echo").endswith("hello-0.txt")
 
-    def test_grid_outputs_can_be_narrowed_to_one_task(self, microscope, experiment):
-        from fibsem.applications.autolamella.task_outputs import grid_outputs
+    def test_item_outputs_can_be_narrowed_to_one_task(self, microscope, experiment):
+        from fibsem.workflows.outputs import item_outputs
 
         experiment.grid_protocol.add(EchoConfig(task_name="echo2", label="other"))
         grid = _grid(experiment)
         run_grid_task(microscope, "echo", experiment, grid)
         run_grid_task(microscope, "echo2", experiment, grid)
-        assert len(grid_outputs(experiment, grid, "echo")) == 2
-        only = grid_outputs(experiment, grid, "echo", task_name="echo2")
+        assert len(item_outputs(experiment, grid, "echo")) == 2
+        only = item_outputs(experiment, grid, "echo", task_name="echo2")
         assert [os.path.basename(p) for p in only] == ["other-0.txt"]

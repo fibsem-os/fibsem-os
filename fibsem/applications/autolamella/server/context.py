@@ -38,6 +38,7 @@ from fibsem.applications.autolamella import task_outputs as _task_outputs
 from fibsem.applications.autolamella.structures import Attention
 from fibsem.server.files import jpeg_preview
 from fibsem.util.timestamps import to_iso, wall_time_of
+from fibsem.workflows.outputs import item_outputs, latest_item_output
 from fibsem.workflows.status import TaskStatus
 
 __all__ = [
@@ -999,7 +1000,7 @@ class AutoLamellaAppContext:
         completed = [t.name for t in history if t.status is TaskStatus.Completed]
         overviews = {}
         for role in GRID_OVERVIEW_ROLES:
-            path = _task_outputs.latest_grid_output(experiment, grid, role)
+            path = latest_item_output(experiment, grid, role)
             if path is not None:
                 overviews[role] = os.path.basename(path)
         return {
@@ -1028,7 +1029,7 @@ class AutoLamellaAppContext:
     @staticmethod
     def _recorded_grid_paths(experiment, grid) -> List[str]:
         roles = {role for state in grid.task_history for role in state.outputs}
-        return _task_outputs.grid_outputs(experiment, grid, *sorted(roles))
+        return item_outputs(experiment, grid, *sorted(roles))
 
     @classmethod
     def _recorded_grid_basenames(cls, experiment, grid) -> List[str]:

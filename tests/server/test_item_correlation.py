@@ -17,7 +17,6 @@ from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa
 from fibsem.applications.autolamella.server.context import (  # noqa: E402
     item_fields_version,
 )
-from fibsem.applications.autolamella.server.events import EventBuffer  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
     Experiment,
@@ -30,6 +29,7 @@ from fibsem.correlation.structures import (  # noqa: E402
 )
 from fibsem.server import AuthConfig, build_server  # noqa: E402
 from fibsem.structures import MicroscopeState, Point  # noqa: E402
+from fibsem.workflows.events import EventBuffer  # noqa: E402
 
 TOKEN = "test-token"
 TARGET = Point(3e-6, -2e-6)
