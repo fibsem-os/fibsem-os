@@ -19,14 +19,14 @@ from fibsem.applications.autolamella.ui.grid_results_widget import (
     thumbnail_for,
 )
 from fibsem.applications.autolamella.ui.grids_tab_widget import GridsTabWidget
-from fibsem.applications.autolamella.workflows.tasks.grid import (
+from fibsem.imaging.thumbnail import write_thumbnail
+from fibsem.workflows.grid import (
     BeamOverviewGridTaskConfig,
     FluorescenceOverviewGridTaskConfig,
 )
-from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+from fibsem.workflows.grid.manager import (
     LOAD_ENTRY_NAME,
 )
-from fibsem.imaging.thumbnail import write_thumbnail
 from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.status import TaskState, TaskStatus
 

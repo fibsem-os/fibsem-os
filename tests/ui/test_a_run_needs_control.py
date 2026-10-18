@@ -13,10 +13,10 @@ pytest.importorskip("PyQt5")
 from fibsem.applications.autolamella.structures import Experiment
 from fibsem.applications.autolamella.ui import AutoLamellaUI as module
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
-from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
+from fibsem.workflows.grid.manager import (
     GridTaskManager,
 )
-from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 
 
 @pytest.fixture

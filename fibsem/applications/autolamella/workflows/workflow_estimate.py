@@ -20,11 +20,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Sequence
 
-from fibsem.applications.autolamella.structures import Attention
 from fibsem.applications.autolamella.workflows.tasks.attendance import (
     attendance_for,
     run_attendance,
 )
+from fibsem.workflows.attention import Attention
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment
@@ -224,7 +224,7 @@ def estimate_grid_run(
         exchange_seconds: the loader's figure for one exchange
         now: the clock to start from; defaults to the current time
     """
-    from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+    from fibsem.workflows.grid.manager import (
         LOAD_ENTRY_NAME,
     )
 
@@ -278,7 +278,7 @@ def grid_item_seconds(
     config's estimate. None for anything else: a step this protocol does not have
     has nothing to offer, as on the lamella side.
     """
-    from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+    from fibsem.workflows.grid.manager import (
         LOAD_ENTRY_NAME,
         UNLOAD_ENTRY_NAME,
     )

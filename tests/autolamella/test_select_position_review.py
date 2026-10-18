@@ -19,7 +19,6 @@ from fibsem import utils
 from fibsem.acting import ActorKind
 from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
 from fibsem.applications.autolamella.structures import (
-    Attention,
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
     AutoLamellaWorkflowConfig,
@@ -34,6 +33,7 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
     consumed_values,
 )
 from fibsem.structures import Point
+from fibsem.workflows.attention import Attention
 from fibsem.workflows.proposals import (
     ALIGNMENT_AREA,
     STATE,

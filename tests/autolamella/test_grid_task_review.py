@@ -26,20 +26,20 @@ from fibsem import utils
 from fibsem.acting import ActorKind
 from fibsem.applications.autolamella.proposals import OVERVIEW_POSITIONS
 from fibsem.applications.autolamella.structures import (
-    Attention,
     AutoLamellaTaskProtocol,
     Experiment,
-    GridTaskProtocol,
     Lamella,
 )
-from fibsem.applications.autolamella.workflows.tasks.grid import (
+from fibsem.structures import BeamType, ImageSettings, OverviewAcquisitionSettings
+from fibsem.workflows.attention import Attention
+from fibsem.workflows.grid import (
     BeamOverviewGridTaskConfig,
 )
-from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+from fibsem.workflows.grid.manager import (
     LOAD_ENTRY_NAME,
     GridTaskManager,
 )
-from fibsem.structures import BeamType, ImageSettings, OverviewAcquisitionSettings
+from fibsem.workflows.grid.protocol import GridTaskProtocol
 from fibsem.workflows.outputs import latest_item_output
 from fibsem.workflows.proposals import Decision, DecisionOutcome, Standing
 from fibsem.workflows.review import standing

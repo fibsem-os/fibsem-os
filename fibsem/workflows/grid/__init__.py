@@ -8,19 +8,19 @@ stop token. That split is what lets a lamella workflow call the same operation
 later without going through the grid manager.
 """
 
-from fibsem.applications.autolamella.workflows.tasks.grid.base import (
+from fibsem.workflows.grid.base import (
     GridTask,
     GridTaskConfig,
 )
-from fibsem.applications.autolamella.workflows.tasks.grid.fluorescence import (  # noqa: E402
+from fibsem.workflows.grid.fluorescence import (  # noqa: E402
     FluorescenceOverviewGridTask,
     FluorescenceOverviewGridTaskConfig,
 )
-from fibsem.applications.autolamella.workflows.tasks.grid.imaging import (  # noqa: E402
+from fibsem.workflows.grid.imaging import (  # noqa: E402
     BeamOverviewGridTask,
     BeamOverviewGridTaskConfig,
 )
-from fibsem.applications.autolamella.workflows.tasks.grid.registry import (
+from fibsem.workflows.grid.registry import (
     BUILTIN_GRID_TASKS,
     GRID_TASK_ENTRY_POINT_GROUP,
     GRID_TASK_PLUGINS,

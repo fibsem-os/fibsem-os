@@ -19,17 +19,6 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.workflows.tasks.grid.fluorescence import (
-    FluorescenceOverviewGridTaskConfig,
-)
-from fibsem.applications.autolamella.workflows.tasks.grid.imaging import (
-    BeamOverviewGridTaskConfig,
-)
-from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
-    LOAD_ENTRY_NAME,
-    UNLOAD_ENTRY_NAME,
-    plan_grid_run,
-)
 from fibsem.applications.autolamella.workflows.workflow_estimate import (
     estimate_grid_run,
     grid_item_seconds,
@@ -43,6 +32,17 @@ from fibsem.structures import (
     BeamType,
     ImageSettings,
     OverviewAcquisitionSettings,
+)
+from fibsem.workflows.grid.fluorescence import (
+    FluorescenceOverviewGridTaskConfig,
+)
+from fibsem.workflows.grid.imaging import (
+    BeamOverviewGridTaskConfig,
+)
+from fibsem.workflows.grid.manager import (
+    LOAD_ENTRY_NAME,
+    UNLOAD_ENTRY_NAME,
+    plan_grid_run,
 )
 from tests.fixtures.demo_stage import demo_grid_loader
 

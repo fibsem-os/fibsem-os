@@ -15,17 +15,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Tuple
 
-from fibsem.applications.autolamella.workflows.tasks.grid.base import GridTaskConfig
-from fibsem.applications.autolamella.workflows.tasks.grid.fluorescence import (
-    FluorescenceOverviewGridTaskConfig,
-)
-from fibsem.applications.autolamella.workflows.tasks.grid.imaging import (
-    BeamOverviewGridTaskConfig,
-)
 from fibsem.geometry.projection import BeamStageProjection, FMStageProjection
 from fibsem.imaging.tiling.reach import (
     reachable_fluorescence_overview,
     reachable_overview,
+)
+from fibsem.workflows.grid.base import GridTaskConfig
+from fibsem.workflows.grid.fluorescence import (
+    FluorescenceOverviewGridTaskConfig,
+)
+from fibsem.workflows.grid.imaging import (
+    BeamOverviewGridTaskConfig,
 )
 
 if TYPE_CHECKING:

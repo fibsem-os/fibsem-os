@@ -2057,10 +2057,10 @@ def render_grid_workflow(h: Harness) -> None:
     from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
         StepStatus,
     )
-    from fibsem.applications.autolamella.workflows.tasks.grid.imaging import (
+    from fibsem.ui.widgets.workflow_summary_dialog import WorkflowSummaryDialog
+    from fibsem.workflows.grid.imaging import (
         BeamOverviewGridTaskConfig,
     )
-    from fibsem.ui.widgets.workflow_summary_dialog import WorkflowSummaryDialog
     from fibsem.workflows.quality import Verdict
 
     h.first_run(False)
@@ -2417,10 +2417,7 @@ def render_correlation(h: Harness) -> None:
     import numpy as np
     from scipy import ndimage as ndi
 
-    from fibsem.applications.autolamella.structures import (
-        Attention,
-        AutoLamellaTaskDescription,
-    )
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskDescription
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as main_module
     from fibsem.applications.autolamella.workflows.tasks.acquire_fluorescence import (
         AcquireFluorescenceImageConfig,
@@ -2437,6 +2434,7 @@ def render_correlation(h: Harness) -> None:
     )
     from fibsem.structures import BeamType, ImageSettings, Point
     from fibsem.ui.correlation.widgets import correlation_tab_widget as ctw
+    from fibsem.workflows.attention import Attention
 
     h.first_run(False)
     h.show_tab(0)

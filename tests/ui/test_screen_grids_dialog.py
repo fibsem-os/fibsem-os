@@ -286,10 +286,10 @@ def test_screen_all_grids_from_the_window_runs_on_the_named_grids(
 
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
     from fibsem.applications.autolamella.ui import AutoLamellaUI as ui_module
-    from fibsem.applications.autolamella.workflows.tasks.grid import (
+    from fibsem.workflows.grid import (
         BeamOverviewGridTaskConfig,
     )
-    from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+    from fibsem.workflows.grid.manager import (
         LOAD_ENTRY_NAME,
         GridTaskManager,
     )
@@ -385,11 +385,11 @@ def test_the_quote_is_for_the_grids_the_scan_found(qapp, unscanned, experiment):
     and the exchanges they need, not the grids known before it."""
     from datetime import datetime
 
-    from fibsem.applications.autolamella.workflows.tasks.grid import (
-        BeamOverviewGridTaskConfig,
-    )
     from fibsem.applications.autolamella.workflows.workflow_estimate import (
         estimate_grid_run,
+    )
+    from fibsem.workflows.grid import (
+        BeamOverviewGridTaskConfig,
     )
 
     experiment.grid_protocol.add(BeamOverviewGridTaskConfig(task_name="overview_sem"))

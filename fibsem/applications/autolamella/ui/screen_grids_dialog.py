@@ -40,17 +40,6 @@ from fibsem.applications.autolamella.ui.grid_workflow_widget import (
     is_default_grid_name,
     task_block,
 )
-from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
-    LOAD_ENTRY_NAME,
-    grid_has_run,
-    plan_grid_run,
-)
-from fibsem.applications.autolamella.workflows.tasks.grid.screening import (
-    GridNamingError,
-    name_and_record_grids,
-    naming_problems,
-    screen_names,
-)
 from fibsem.applications.autolamella.workflows.workflow_estimate import (
     WorkflowEstimate,
 )
@@ -74,6 +63,17 @@ from fibsem.ui.widgets.preflight import (
     warning_label,
 )
 from fibsem.ui.widgets.sample_holder_widget import _NAME_FIELD_STYLE
+from fibsem.workflows.grid.manager import (
+    LOAD_ENTRY_NAME,
+    grid_has_run,
+    plan_grid_run,
+)
+from fibsem.workflows.grid.screening import (
+    GridNamingError,
+    name_and_record_grids,
+    naming_problems,
+    screen_names,
+)
 
 # The stages the dialog moves through. Reading is the instant read on opening.
 READING = "reading"

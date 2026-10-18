@@ -23,7 +23,6 @@ from PyQt5.QtCore import QCoreApplication, QEvent
 
 from fibsem.acting import ActorKind
 from fibsem.applications.autolamella.structures import (
-    Attention,
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
     AutoLamellaWorkflowConfig,
@@ -35,6 +34,7 @@ from fibsem.applications.autolamella.workflows.tasks.reference_image import (
     AcquireReferenceImageTask,
 )
 from fibsem.structures import FibsemStagePosition
+from fibsem.workflows.attention import Attention
 from fibsem.workflows.proposals import STATE, DecisionOutcome
 from fibsem.workflows.status import HoldKind, TaskStatus
 

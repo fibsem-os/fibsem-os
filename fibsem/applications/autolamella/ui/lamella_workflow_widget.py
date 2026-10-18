@@ -16,7 +16,6 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.applications.autolamella.structures import (
-    Attention,
     AutoLamellaTaskDescription,
     AutoLamellaWorkflowConfig,
     AutoLamellaWorkflowOptions,
@@ -46,6 +45,7 @@ from fibsem.ui.widgets.custom_widgets import (
     IconToolButton,
     ValueComboBox,
 )
+from fibsem.workflows.attention import Attention
 
 # What the panel's ? says: how to work the task list. It was a line of text under
 # the list on every view; it is for the first time, not every time.

@@ -27,7 +27,6 @@ from psygnal.containers import EventedDict
 
 from fibsem.acting import TASK, current_actor
 from fibsem.applications.autolamella.structures import (
-    Attention,
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
     AutoLamellaWorkflowConfig,
@@ -40,6 +39,7 @@ from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
     SpotBurnFiducialTaskConfig,
 )
 from fibsem.structures import Point
+from fibsem.workflows.attention import Attention
 from fibsem.workflows.interaction import (
     ACTION_EDIT,
     ACTION_RUN,

@@ -24,14 +24,14 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
     Experiment,
 )
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI  # noqa: E402
-from fibsem.applications.autolamella.workflows.tasks.grid.imaging import (  # noqa: E402
-    BeamOverviewGridTaskConfig,
-)
-from fibsem.applications.autolamella.workflows.tasks.grid.manager import (  # noqa: E402
-    LOAD_ENTRY_NAME,
-)
 from fibsem.server import AuthConfig, build_server  # noqa: E402
 from fibsem.structures import MicroscopeState  # noqa: E402
+from fibsem.workflows.grid.imaging import (  # noqa: E402
+    BeamOverviewGridTaskConfig,
+)
+from fibsem.workflows.grid.manager import (  # noqa: E402
+    LOAD_ENTRY_NAME,
+)
 from fibsem.workflows.grids import GridRecord  # noqa: E402
 
 TOKEN = "test-token"

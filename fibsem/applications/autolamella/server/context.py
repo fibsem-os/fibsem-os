@@ -36,10 +36,10 @@ from typing import Any, Dict, List, Optional
 import fibsem.config as fibsem_cfg
 from fibsem.acting import Actor
 from fibsem.applications.autolamella import task_outputs as _task_outputs
-from fibsem.applications.autolamella.structures import Attention
 from fibsem.server.files import jpeg_preview
 from fibsem.structures import BeamType
 from fibsem.util.timestamps import to_iso, wall_time_of
+from fibsem.workflows.attention import Attention
 from fibsem.workflows.outputs import item_outputs, latest_item_output
 from fibsem.workflows.queue import QUEUE_ACTIONS, QueueOp
 from fibsem.workflows.status import TaskStatus
@@ -1392,7 +1392,7 @@ class AutoLamellaAppContext:
         """Rename a grid as the Grids tab's Rename does: the slot that holds it
         first, then its record. Refused for a grid that has run, a name another
         grid has, and while a workflow runs (its queue holds grids by name)."""
-        from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+        from fibsem.workflows.grid.manager import (
             grid_rename_refusal,
             rename_grid,
         )
@@ -2349,7 +2349,7 @@ class AutoLamellaAppContext:
         Exchanges are deliberately not counted: whether a grid is loaded
         is a live stage fact this facade does not read.
         """
-        from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+        from fibsem.workflows.grid.manager import (
             plan_grid_run,
         )
 
@@ -3083,7 +3083,7 @@ class AutoLamellaAppContext:
         """Add grid tasks for grids to the running grid run, at the end of the
         queue, as the Grids view's Add to queue does: each grid's load, then
         its tasks, less what is already waiting."""
-        from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+        from fibsem.workflows.grid.manager import (
             GridTaskManager,
         )
 

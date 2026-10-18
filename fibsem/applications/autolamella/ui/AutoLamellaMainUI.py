@@ -45,7 +45,6 @@ import fibsem
 import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella.poses import remove_lamella
 from fibsem.applications.autolamella.structures import (
-    Attention,
     Experiment,
     Lamella,
 )
@@ -97,12 +96,6 @@ from fibsem.applications.autolamella.ui.workflow_preflight_dialog import (
 from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
     WorkflowProgressWidget,
 )
-from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
-    grid_has_run,
-    grid_rename_refusal,
-    plan_grid_run,
-    rename_grid,
-)
 from fibsem.applications.autolamella.workflows.tasks.tasks import get_task_supervision
 from fibsem.applications.autolamella.workflows.workflow_estimate import (
     AdditionEstimate,
@@ -145,6 +138,13 @@ from fibsem.ui.widgets.status_bar import FibsemStatusBar
 from fibsem.util.durations import format_duration_rounded
 from fibsem.util.timestamps import format_time, now
 from fibsem.versioning import get_version_string
+from fibsem.workflows.attention import Attention
+from fibsem.workflows.grid.manager import (
+    grid_has_run,
+    grid_rename_refusal,
+    plan_grid_run,
+    rename_grid,
+)
 from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.proposals import STATE
 from fibsem.workflows.queue import (
@@ -1976,7 +1976,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         a lamella run is going, and the other way round; the button says so
         rather than offering an add that the handler would refuse.
         """
-        from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+        from fibsem.workflows.grid.manager import (
             GridTaskManager,
         )
 
@@ -3364,7 +3364,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         put an exchange in front of the grid that is loaded, then exchange
         back. The block goes after everything queued, where it costs one exchange.
         """
-        from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
+        from fibsem.workflows.grid.manager import (
             GridTaskManager,
         )
 

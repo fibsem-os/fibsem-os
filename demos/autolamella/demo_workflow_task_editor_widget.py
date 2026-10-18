@@ -20,13 +20,11 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.applications.autolamella.structures import (
-    Attention,
-    AutoLamellaTaskDescription,
-)
+from fibsem.applications.autolamella.structures import AutoLamellaTaskDescription
 from fibsem.applications.autolamella.ui.workflow_task_editor_widget import (
     WorkflowTaskEditorWidget,
 )
+from fibsem.workflows.attention import Attention
 
 # The other tasks in the workflow — offered as selectable requirements.
 AVAILABLE_TASKS = ["Setup", "MillRough", "MillPolishing", "Sharpen"]

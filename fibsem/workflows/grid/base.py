@@ -29,23 +29,17 @@ from typing import (
     get_type_hints,
 )
 
-from fibsem.applications.autolamella.structures import (
-    Attention,
-    Configurable,
-    Parameter,
-    attention_from,
-    field_specs,
-)
-from fibsem.structures import Display, param
+from fibsem.structures import Configurable, Display, Parameter, field_specs, param
+from fibsem.workflows.attention import Attention, attention_from
 from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.status import TaskStatus
 from fibsem.workflows.task import BaseTask, iteration_folder
 
 if TYPE_CHECKING:
-    from fibsem.applications.autolamella.structures import Experiment
     from fibsem.microscope import FibsemMicroscope
     from fibsem.services.sample_handling import SampleHandling
     from fibsem.structures import GridSlot
+    from fibsem.workflows.grid.protocol import GridExperiment
 
 
 @dataclass
@@ -199,7 +193,7 @@ class GridTask(BaseTask):
         microscope: "FibsemMicroscope",
         config: GridTaskConfig,
         grid: GridRecord,
-        experiment: "Experiment",
+        experiment: "GridExperiment",
         parent_ui=None,
         task_manager=None,
     ) -> None:
