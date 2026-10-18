@@ -148,14 +148,6 @@ TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
 
 
-class Host:
-    experiment = None
-    microscope = None
-
-    def __init__(self):
-        self.session = stub_session()
-
-
 @pytest.fixture(scope="module")
 def microscope():
     # The route tests need the [server] extra; the reader tests above do not.
@@ -170,7 +162,7 @@ def microscope():
 
 @pytest.fixture
 def host(tmp_path):
-    host = Host()
+    host = stub_session()
     # the log route reads only the experiment's folder
     host.experiment = SimpleNamespace(path=tmp_path)
     _a_long_log(tmp_path / "logfile.log", count=3000)

@@ -101,7 +101,11 @@ def test_an_approved_request_starts_the_run_from_the_gui_thread(ui, qapp, monkey
 
     auth = AuthConfig(token=TOKEN)
     auth.set_level(AgentLevel.ASSIST)
-    app = build_server(ui.microscope, app_context=AutoLamellaAppContext(ui), auth=auth)
+    app = build_server(
+        ui.microscope,
+        app_context=AutoLamellaAppContext(ui.session, window=ui),
+        auth=auth,
+    )
     with TestClient(app, raise_server_exceptions=False) as client:
         # Asked to act directly, Assist says to ask.
         refused = _post(qapp, client, "/app/workflow/start", START["arguments"])

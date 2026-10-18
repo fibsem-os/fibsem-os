@@ -86,7 +86,12 @@ def _mill(*args, **kwargs):
 
 def _task(ui, review_enabled: bool) -> MillRoughTask:
     experiment = ui.experiment
-    manager = TaskManager(microscope=ui.microscope, experiment=experiment, parent_ui=ui)
+    manager = TaskManager(
+        microscope=ui.microscope,
+        experiment=experiment,
+        parent_ui=ui,
+        responder=ui.ui_responder,
+    )
     manager.review_enabled = review_enabled
     lamella = experiment.positions[0]
     task = MillRoughTask(

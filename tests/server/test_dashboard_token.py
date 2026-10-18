@@ -29,14 +29,6 @@ def _bearer(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
-class Host:
-    experiment = None
-    microscope = None
-
-    def __init__(self):
-        self.session = stub_session()
-
-
 @pytest.fixture(scope="module")
 def microscope():
     os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
@@ -51,7 +43,7 @@ def auth():
 
 @pytest.fixture
 def client(tmp_path, microscope, auth):
-    host = Host()
+    host = stub_session()
     exp = Experiment(path=tmp_path / "exp", name="dashboard-exp")
     exp.task_protocol = AutoLamellaTaskProtocol()
     (tmp_path / "exp").mkdir(parents=True, exist_ok=True)

@@ -136,7 +136,12 @@ def _pump(qapp, predicate, timeout_s=60.0) -> bool:
 def _start(window):
     ui = window.autolamella_ui
     experiment = ui.experiment
-    manager = TaskManager(microscope=ui.microscope, experiment=experiment, parent_ui=ui)
+    manager = TaskManager(
+        microscope=ui.microscope,
+        experiment=experiment,
+        parent_ui=ui,
+        responder=ui.ui_responder,
+    )
     manager.review_enabled = True
     lamella = experiment.positions[0]
     task = MillUndercutTask(

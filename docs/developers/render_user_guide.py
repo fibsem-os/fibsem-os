@@ -315,7 +315,7 @@ class Harness:
             al_cfg.TASK_PROTOCOL_PATH
         )
         experiment.task_protocol.save(os.path.join(experiment.path, "protocol.yaml"))
-        self.ui._adopt_experiment(experiment)
+        self.ui.adopt_experiment(experiment)
         self.pump(1500)
         return experiment
 

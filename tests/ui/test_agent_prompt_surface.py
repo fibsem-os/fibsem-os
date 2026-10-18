@@ -57,7 +57,7 @@ def ui(qapp, monkeypatch):
 def _client(ui, arm_control):
     app = build_server(
         ui.microscope,
-        app_context=AutoLamellaAppContext(ui),
+        app_context=AutoLamellaAppContext(ui.session, window=ui),
         auth=AuthConfig.generate(
             level="drive" if arm_control else "watch", token=TOKEN
         ),
@@ -337,7 +337,7 @@ def test_prompt_lifecycle_reaches_the_event_stream_with_attribution(ui, qapp):
     buffer = EventBuffer()
     app = build_server(
         ui.microscope,
-        app_context=AutoLamellaAppContext(ui, event_buffer=buffer),
+        app_context=AutoLamellaAppContext(ui.session, window=ui, event_buffer=buffer),
         auth=AuthConfig.generate(level="drive", token=TOKEN),
     )
     dispose = ui.ui_responder.add_question_observer(buffer.append)

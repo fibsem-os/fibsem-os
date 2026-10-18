@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import logging
-from copy import deepcopy
 from typing import TYPE_CHECKING, List, Optional, Sequence
 
 from fibsem import milling
-from fibsem.applications.autolamella.structures import Experiment
 from fibsem.detection import detection
 from fibsem.detection import utils as det_utils
 from fibsem.detection.detection import DetectedFeatures, Feature
@@ -222,14 +220,3 @@ def select_poi_ui(
         PickPOI(image=image, initial=initial_poi, message=msg),
         abort=lambda: _abort_requested(parent_ui),
     )
-
-
-def update_experiment_ui(
-    parent_ui: Optional["AutoLamellaUI"], experiment: Experiment
-) -> None:
-
-    # headless mode
-    if parent_ui is None:
-        return
-
-    parent_ui.update_experiment_signal.emit(deepcopy(experiment))

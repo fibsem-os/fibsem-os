@@ -17,16 +17,8 @@ from fibsem.workflows.session import AppSession  # noqa: E402
 from tests.run_state import stub_session
 
 
-class Window:
-    experiment = None
-    microscope = None
-
-    def __init__(self):
-        self.session = stub_session()
-
-
 def _context(buffer):
-    return AutoLamellaAppContext(Window(), event_buffer=buffer)
+    return AutoLamellaAppContext(stub_session(), event_buffer=buffer)
 
 
 def _session(microscope):

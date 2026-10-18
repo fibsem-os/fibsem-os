@@ -36,17 +36,12 @@ TOKEN = "test-token"
 TARGET = Point(3e-6, -2e-6)
 
 
-class Host:
+class Window:
     """The GUI's item patch, recorded: the move itself is the item patch's,
     tested with the GUI."""
 
-    microscope = None
-
-    def __init__(self):
-        self.session = stub_session()
-
-    def __init__(self, experiment):
-        self.experiment = experiment
+    def __init__(self, session):
+        self.session = session
         self.patches = []
 
     def request_apply_item_patch(self, item_name, patch, version):
@@ -69,14 +64,15 @@ def host(tmp_path, microscope):
     experiment = Experiment(path=tmp_path / "exp", name="correlation-exp")
     experiment.task_protocol = AutoLamellaTaskProtocol()
     experiment.add_new_lamella(MicroscopeState(), EventedDict())
-    host = Host(experiment)
-    host.microscope = microscope
-    return host
+    session = stub_session()
+    session.experiment = experiment
+    session.microscope = microscope
+    return Window(session)
 
 
 @pytest.fixture
 def lamella(host):
-    return host.experiment.positions[0]
+    return host.session.experiment.positions[0]
 
 
 @pytest.fixture
@@ -97,7 +93,9 @@ def events():
 def _client(microscope, host, events, level):
     app = build_server(
         microscope,
-        app_context=AutoLamellaAppContext(host, event_buffer=events),
+        app_context=AutoLamellaAppContext(
+            host.session, window=host, event_buffer=events
+        ),
         auth=AuthConfig.generate(level=level, token=TOKEN),
     )
     client = TestClient(app, raise_server_exceptions=False)

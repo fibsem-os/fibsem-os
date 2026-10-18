@@ -23,14 +23,6 @@ TOKEN = "test-token"
 SHIPPED_PROTOCOL = str(cfg.TASK_PROTOCOL_PATH)
 
 
-class Host:
-    experiment = None
-    microscope = None
-
-    def __init__(self):
-        self.session = stub_session()
-
-
 @pytest.fixture
 def places(tmp_path, monkeypatch):
     """Isolated preferences, experiments folder and protocol folder."""
@@ -55,7 +47,7 @@ def places(tmp_path, monkeypatch):
 def host():
     os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
     microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    host = Host()
+    host = stub_session()
     host.microscope = microscope
     return host
 
@@ -127,7 +119,7 @@ def test_a_protocol_is_loaded_into_the_open_experiment(driver, host):
 
 def test_nothing_changes_experiment_while_a_run_is_on(driver, host):
     driver.post("/app/experiment/create", json={"name": "running"})
-    host.session.runner.is_running = True
+    host.runner.is_running = True
     assert driver.post("/app/experiment/create", json={"name": "x"}).status_code == 409
     assert (
         driver.post(

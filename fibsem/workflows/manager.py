@@ -20,6 +20,7 @@ from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType
 from fibsem.util.durations import format_duration_precise
 from fibsem.workflows.event_recording import run_recorder
+from fibsem.workflows.interaction import Responder
 from fibsem.workflows.queue import TaskQueue, WorkItem
 from fibsem.workflows.status import (
     Hold,
@@ -98,11 +99,15 @@ class BaseTaskManager:
         experiment: WorkflowExperiment,
         parent_ui: Optional[WorkflowWindow] = None,
         hook_manager: Optional[HookManager] = None,
+        responder: Optional[Responder] = None,
     ):
         self.microscope = microscope
         self.experiment = experiment
         self.parent_ui = parent_ui
         self.hook_manager = hook_manager
+        # Who answers the run's questions: the session's responder. None
+        # asks nobody: a supervised step runs as if unsupervised.
+        self.responder = responder
         self._stop_event = threading.Event()
         # Stopping one task is a different intent from stopping the run, so it is a
         # different event. A flag on a single event would need care not to be

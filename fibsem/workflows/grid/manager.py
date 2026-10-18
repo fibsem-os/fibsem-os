@@ -76,6 +76,7 @@ from fibsem.workflows.grid.registry import (
     run_grid_task,
 )
 from fibsem.workflows.grids import GridRecord
+from fibsem.workflows.interaction import Responder
 from fibsem.workflows.manager import BaseTaskManager, WorkflowWindow
 from fibsem.workflows.queue import WorkItem
 from fibsem.workflows.status import TaskState, TaskStatus, post_status
@@ -198,6 +199,7 @@ class GridTaskManager(BaseTaskManager):
         experiment: "GridExperiment",
         parent_ui: Optional[WorkflowWindow] = None,
         hook_manager: Optional[HookManager] = None,
+        responder: Optional[Responder] = None,
         unload_at_end: bool = False,
         report_at_end: bool = False,
         inventory_first: bool = False,
@@ -207,7 +209,7 @@ class GridTaskManager(BaseTaskManager):
         the way the run it joined does. ``inventory_first`` is "Screen all
         grids": the run reads the inventory, records every present grid, and
         runs over them all."""
-        super().__init__(microscope, experiment, parent_ui, hook_manager)
+        super().__init__(microscope, experiment, parent_ui, hook_manager, responder)
         self.inventory_first = inventory_first
         self.unload_at_end = unload_at_end
         self.report_at_end = report_at_end
@@ -938,6 +940,7 @@ def run_grid_tasks(
     hook_manager: Optional[HookManager] = None,
     unload_at_end: bool = False,
     report_at_end: bool = False,
+    responder: Optional[Responder] = None,
 ) -> GridTaskManager:
     """Run grid tasks headless: the protocol's tasks in its order, on every grid,
     unless told otherwise. Returns the manager, for its queue and run summary.
@@ -955,6 +958,7 @@ def run_grid_tasks(
         experiment,
         parent_ui,
         hook_manager,
+        responder,
         unload_at_end=unload_at_end,
         report_at_end=report_at_end,
     )

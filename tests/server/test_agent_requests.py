@@ -43,19 +43,11 @@ _PROTOCOL = os.path.join(
 )
 
 
-class Host:
-    experiment = None
-    microscope = None
-
-    def __init__(self):
-        self.session = stub_session()
-
-
 class RecordingContext(AutoLamellaAppContext):
     """Records each event with who was marked as acting when it was emitted."""
 
-    def __init__(self, host):
-        super().__init__(host)
+    def __init__(self, session):
+        super().__init__(session)
         self.recorded = []
 
     def record_event(self, kind, payload):
@@ -77,7 +69,7 @@ def auth():
 
 
 def _context(tmp_path, microscope):
-    host = Host()
+    host = stub_session()
     exp = Experiment(path=tmp_path / "exp", name="requests-exp")
     exp.task_protocol = AutoLamellaTaskProtocol()
     (tmp_path / "exp").mkdir(parents=True, exist_ok=True)
@@ -238,7 +230,7 @@ def test_approve_runs_each_action_through_its_route(
 ):
     before = microscope.get_stage_position()
     # A task the protocol has: one it lacks is answered applied: false, a failure.
-    context._host.experiment.task_protocol = AutoLamellaTaskProtocol.load(_PROTOCOL)
+    context._session.experiment.task_protocol = AutoLamellaTaskProtocol.load(_PROTOCOL)
     supervise = {
         "tool": "protocol_set_supervision",
         "arguments": {"task_name": "Rough Milling", "supervise": True},
@@ -390,14 +382,11 @@ def test_an_action_answered_200_but_turned_away_fails_with_its_reason(
 ):
     """workflow_start answers 200 with ``started: false`` and a reason when it is
     turned away: that step failed, and says why, rather than reading applied."""
-    from concurrent.futures import Future
+    from fibsem.workflows.runner import refused
 
-    def request_start_workflow(task_names, item_names):
-        outcome = Future()
-        outcome.set_result({"started": False, "reason": "Grid-01 is not on the stage"})
-        return outcome
-
-    context._host.request_start_workflow = request_start_workflow
+    context._session.runner.start = lambda experiment, request: refused(
+        "Grid-01 is not on the stage"
+    )
     start = {"tool": "workflow_start", "arguments": {"task_names": ["MILL_ROUGH"]}}
     filed = _file(client, start, NUDGE).json()
     store = app.state.requests
@@ -532,7 +521,7 @@ def test_every_acting_tool_resolves_to_its_route():
 
 
 def test_each_action_is_described_by_the_server_with_old_and_new(client, context):
-    item = context._host.experiment.positions[0]
+    item = context._session.experiment.positions[0]
     item.description = "first pass"
     edit = {
         "tool": "item_update",
@@ -557,7 +546,7 @@ def test_each_action_is_described_by_the_server_with_old_and_new(client, context
 def test_a_config_edit_reads_as_its_form_names_it_in_display_units(client, context):
     """FIB-1403: the setting under its milling stage, old -> new in the form's
     units, and the same as a table; never the dotted path."""
-    item = context._host.experiment.positions[0]
+    item = context._session.experiment.positions[0]
     protocol = AutoLamellaTaskProtocol.load(_PROTOCOL)
     rough = next(
         c for c in protocol.task_config.values() if c.task_type == "MILL_ROUGH"
@@ -1076,7 +1065,7 @@ def test_the_sidecar_shows_an_approved_image_as_an_image(client, app):
 def test_a_waiting_request_is_described_again_with_the_values_now(client, app, context):
     """FIB-1412: the old value is read when the operator looks, not only when
     the request was filed."""
-    item = context._host.experiment.positions[0]
+    item = context._session.experiment.positions[0]
     item.description = "first pass"
     edit = {
         "tool": "item_update",
