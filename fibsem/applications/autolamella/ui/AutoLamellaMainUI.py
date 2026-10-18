@@ -43,6 +43,7 @@ from PyQt5.QtWidgets import (
 
 import fibsem
 import fibsem.config as fibsem_cfg
+from fibsem.applications.autolamella.poses import remove_lamella
 from fibsem.applications.autolamella.structures import (
     Attention,
     Experiment,
@@ -4389,12 +4390,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Remove the given lamella from the experiment after the list widget has already removed its row."""
         if self.autolamella_ui is None or self.autolamella_ui.experiment is None:
             return
-        try:
-            idx = self.autolamella_ui.experiment.positions.index(lamella)
-        except ValueError:
+        if not remove_lamella(self.autolamella_ui.experiment, lamella):
             return
-        self.autolamella_ui.experiment.positions.pop(idx)
-        self.autolamella_ui.experiment.save()
         self.autolamella_ui.update_lamella_combobox(latest=True)
         self.autolamella_ui.update_ui()
 
