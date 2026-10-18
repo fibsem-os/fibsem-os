@@ -20,9 +20,8 @@ def default_hooks() -> List[Hook]:
     """The hooks AutoLamella registers when the user has not configured any.
 
     Returns **fresh instances on every call**, deliberately. `HookManager.set_notifier`
-    injects a callable into each `NotificationHook` and `HookConfigWidget` edits hooks
-    in place, so a shared module-level list would leak one run's notifier -- and one
-    session's edits -- into the next. `setup_hooks()` runs once per workflow run.
+    injects a callable into each `NotificationHook`, so a shared module-level list
+    would leak one run's notifier into the next. `setup_hooks()` runs once per workflow run.
 
     Every hook here must be a type in `HOOK_TYPES`. `HookManager.to_dict` silently
     drops anything that is not, so a `FunctionHook` default would vanish the first time

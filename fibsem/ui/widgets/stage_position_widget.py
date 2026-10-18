@@ -11,8 +11,8 @@ reporting. Nothing in this file needs a parent contract, a view controller or an
 widget; all of that belongs to the half that moves.
 
 **Units.** The stage speaks metres and radians, limits included. The form shows
-millimetres and degrees, so every axis is converted on the way through, by the unit
-the stage device gives it. Without a stage device every axis is hidden.
+millimetres and degrees, so every axis is converted on the way through, by the scale
+``FibsemStagePosition`` declares for it. Without a stage device every axis is hidden.
 
 **Device reads.** Exactly one, at construction, for the axes and their ranges, from
 the stage device's metadata. Both are configuration rather than state: they change
@@ -22,9 +22,8 @@ event path touches the device.
 
 from __future__ import annotations
 
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
-import numpy as np
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QDoubleSpinBox, QGridLayout, QLabel, QWidget
 from superqt import ensure_main_thread
@@ -34,14 +33,12 @@ from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import FibsemStagePosition
 from fibsem.ui.utils import install_wheel_blocker
 from fibsem.ui.widgets.custom_widgets import IconToolButton
+from fibsem.ui.widgets.form_builder import configure_spinbox
 
-# Five decimals of a millimetre -- ten nanometres. A stage move smaller than that
-# rounds to nothing in the box, and stable_move routinely asks for less.
-_TRANSLATION_DECIMALS = 5
-
-# The arrow step, in millimetres: one micrometre. A compustage is driven in
-# micrometres, so this is its step too.
-_TRANSLATION_STEP_MM = 0.001
+# Each axis's box is shown as FibsemStagePosition declares it: millimetres to five
+# decimals (ten nanometres, since stable_move routinely asks for less) with a
+# micrometre arrow step, and degrees.
+_SPECS = FibsemStagePosition.params
 
 
 class StagePositionWidget(QWidget):
@@ -72,39 +69,15 @@ class StagePositionWidget(QWidget):
         layout = QGridLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        self.label_x = QLabel("X Coordinate")
-        self.spinbox_x = QDoubleSpinBox()
-        self.label_y = QLabel("Y Coordinate")
-        self.spinbox_y = QDoubleSpinBox()
-        self.label_z = QLabel("Z Coordinate")
-        self.spinbox_z = QDoubleSpinBox()
-        self.label_rotation = QLabel("Rotation")
-        self.spinbox_rotation = QDoubleSpinBox()
-        self.label_tilt = QLabel("Tilt")
-        self.spinbox_tilt = QDoubleSpinBox()
+        self.label_x, self.spinbox_x = self._axis_row("x")
+        self.label_y, self.spinbox_y = self._axis_row("y")
+        self.label_z, self.spinbox_z = self._axis_row("z")
+        self.label_rotation, self.spinbox_rotation = self._axis_row("r")
+        self.label_tilt, self.spinbox_tilt = self._axis_row("t")
 
-        for row, (label, spinbox) in enumerate(
-            (
-                (self.label_x, self.spinbox_x),
-                (self.label_y, self.spinbox_y),
-                (self.label_z, self.spinbox_z),
-                (self.label_rotation, self.spinbox_rotation),
-                (self.label_tilt, self.spinbox_tilt),
-            )
-        ):
-            layout.addWidget(label, row, 0)
-            layout.addWidget(spinbox, row, 1)
-
-        for spinbox in (self.spinbox_x, self.spinbox_y, self.spinbox_z):
-            spinbox.setDecimals(_TRANSLATION_DECIMALS)
-            spinbox.setSingleStep(_TRANSLATION_STEP_MM)
-            spinbox.setSuffix(" mm")
-
-        for spinbox in (self.spinbox_rotation, self.spinbox_tilt):
-            spinbox.setSuffix(constants.DEGREE_SYMBOL)
-
-        self.spinbox_rotation.setMinimum(-360.0)
-        self.spinbox_rotation.setMaximum(360.0)
+        for row, name in enumerate(FibsemStagePosition.AXES):
+            layout.addWidget(self._labels()[name], row, 0)
+            layout.addWidget(self._spinboxes()[name], row, 1)
 
         # Guard every box against accidental scroll-to-change: the panel scrolls, and a
         # spinbox under the pointer would otherwise retype itself on the way past.
@@ -118,6 +91,16 @@ class StagePositionWidget(QWidget):
             icon="mdi:refresh", tooltip="Refresh stage position"
         )
         self.btn_refresh.clicked.connect(self.refresh_requested)
+
+    @staticmethod
+    def _axis_row(name: str) -> Tuple[QLabel, QDoubleSpinBox]:
+        spec = _SPECS[name]
+        spinbox = QDoubleSpinBox()
+        configure_spinbox(spinbox, spec)
+        if spec.suffix == constants.DEGREE_SYMBOL:
+            # the stage panel writes an angle as "12.50°", the sign against its number
+            spinbox.setSuffix(spec.suffix)
+        return QLabel(spec.label), spinbox
 
     def _apply_stage_configuration(self) -> None:
         """The one device read: which axes the stage has, and their ranges.
@@ -135,13 +118,11 @@ class StagePositionWidget(QWidget):
             if not has_axis:
                 continue
             axis = axes[name]
-            low, high = axis.limits.min, axis.limits.max
-            if axis.unit == "rad":
-                # Rounded: the stage keeps degrees-from-config in radians, and the
-                # round trip would otherwise put 194.99999999 on the box.
-                low, high = round(np.degrees(low), 9), round(np.degrees(high), 9)
-            else:
-                low, high = low * constants.SI_TO_MILLI, high * constants.SI_TO_MILLI
+            scale = _SPECS[name].scale
+            # Rounded: the stage keeps degrees-from-config in radians, and the round
+            # trip would otherwise put 194.99999999 on the box.
+            low = round(axis.limits.min * scale, 9)
+            high = round(axis.limits.max * scale, 9)
             spinbox.setMinimum(low)
             spinbox.setMaximum(high)
 
@@ -173,11 +154,8 @@ class StagePositionWidget(QWidget):
         widgets may only be written from the GUI thread. Already on it, this is a
         direct call.
         """
-        self.spinbox_x.setValue(stage_position.x * constants.SI_TO_MILLI)
-        self.spinbox_y.setValue(stage_position.y * constants.SI_TO_MILLI)
-        self.spinbox_z.setValue(stage_position.z * constants.SI_TO_MILLI)
-        self.spinbox_rotation.setValue(np.degrees(stage_position.r))
-        self.spinbox_tilt.setValue(np.degrees(stage_position.t))
+        for name, spinbox in self._spinboxes().items():
+            spinbox.setValue(getattr(stage_position, name) * _SPECS[name].scale)
 
     def get_position(self) -> FibsemStagePosition:
         """What is currently typed in, in the units the stage takes.
@@ -186,9 +164,8 @@ class StagePositionWidget(QWidget):
         stage device knows which frame those are.
         """
         return FibsemStagePosition(
-            x=self.spinbox_x.value() * constants.MILLI_TO_SI,
-            y=self.spinbox_y.value() * constants.MILLI_TO_SI,
-            z=self.spinbox_z.value() * constants.MILLI_TO_SI,
-            r=np.radians(self.spinbox_rotation.value()),
-            t=np.radians(self.spinbox_tilt.value()),
+            **{
+                name: spinbox.value() / _SPECS[name].scale
+                for name, spinbox in self._spinboxes().items()
+            }
         )

@@ -1060,7 +1060,7 @@ class MicroscopeViewController(QObject):
             if microscope.stage is None:
                 return  # no stage, so no stage position to show
             if stage_position is None:
-                stage_position = microscope._stage_position
+                stage_position = microscope.stage.position.last_known
             orientation = microscope.get_stage_orientation(
                 stage_position=stage_position
             )

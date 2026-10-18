@@ -401,7 +401,7 @@ class TestTheInfoBarDoesNotPollHardware:
     """A stage poll must not read the objective (FIB-517).
 
     The canvas info bar shows the objective position, and it used to read it inside
-    `_refresh_stage_info` — which runs on every `stage_position_changed`. On a real
+    `_refresh_stage_info` — which runs on every `stage.position.changed`. On a real
     system the FM and the beams share one connection, so each of those reads pointed it
     at the FM, and a beam acquisition mid-workflow found the FM there instead. The
     driver hands the connection back now, but a round-trip per poll for a number that
