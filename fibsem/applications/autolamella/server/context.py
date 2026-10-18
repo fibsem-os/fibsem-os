@@ -38,6 +38,7 @@ from fibsem.acting import Actor
 from fibsem.applications.autolamella import task_outputs as _task_outputs
 from fibsem.applications.autolamella.structures import Attention
 from fibsem.server.files import jpeg_preview
+from fibsem.structures import BeamType
 from fibsem.util.timestamps import to_iso, wall_time_of
 from fibsem.workflows.outputs import item_outputs, latest_item_output
 from fibsem.workflows.queue import QUEUE_ACTIONS, QueueOp
@@ -2229,13 +2230,23 @@ class AutoLamellaAppContext:
         whole on acquisition, never mutated in place) and encodes previews on
         the server thread; the GUI thread is neither entered nor blocked.
         """
-        if getattr(self._host, "image_widget", None) is None:
+        images = self._latest_images
+        if images is None:
             return {"available": False, "sem": None, "fib": None}
         return {
             "available": True,
-            "sem": self._display_frame("eb_image"),
-            "fib": self._display_frame("ib_image"),
+            "sem": self._display_frame(images.get(BeamType.ELECTRON)),
+            "fib": self._display_frame(images.get(BeamType.ION)),
         }
+
+    @property
+    def _latest_images(self):
+        """The session's latest image of each beam, once the window shows
+        them (its image widget), else None."""
+        if getattr(self._host, "image_widget", None) is None:
+            return None
+        session = getattr(self._host, "session", None)
+        return getattr(session, "images", None)
 
     @staticmethod
     def _acquired_at(image) -> Optional[str]:
@@ -3259,8 +3270,8 @@ class AutoLamellaAppContext:
     def _view_picture(self, request, live) -> Optional[Dict[str, Any]]:
         """The FIB view's frame as a preview, with the question drawn over it
         when it draws (the milling question's patterns), or None."""
-        widget = getattr(self._host, "image_widget", None)
-        image = getattr(widget, "ib_image", None)
+        images = self._latest_images
+        image = images.get(BeamType.ION) if images is not None else None
         if image is None:
             return None
         from fibsem.applications.autolamella.server.prompts import _preview_payload
@@ -3283,10 +3294,8 @@ class AutoLamellaAppContext:
         entry["acquired_at"] = self._acquired_at(image)
         return entry
 
-    def _display_frame(self, attr: str) -> Optional[Dict[str, Any]]:
-        """One display-cache image as the standard preview payload, or None."""
-        widget = getattr(self._host, "image_widget", None)
-        image = getattr(widget, attr, None)
+    def _display_frame(self, image) -> Optional[Dict[str, Any]]:
+        """One of the latest images as the standard preview payload, or None."""
         if image is None:
             return None
         from fibsem.applications.autolamella.server.prompts import _preview_payload
