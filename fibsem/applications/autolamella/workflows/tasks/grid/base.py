@@ -39,7 +39,7 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.structures import Display, param
 from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.status import TaskStatus
-from fibsem.workflows.task import BaseTask
+from fibsem.workflows.task import BaseTask, iteration_folder
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment
@@ -260,8 +260,12 @@ class GridTask(BaseTask):
 
     @property
     def output_dir(self) -> Path:
-        """This task's directory under the grid's, created on first use."""
+        """This task's directory under the grid's, created on first use:
+        ``<grid>/<task name>/``, or ``<grid>/<task name>/<iteration:04d>/`` for a
+        grid that runs in iterations, one folder per iteration."""
         directory = self.path / self.task_name
+        if self.iteration is not None:
+            directory = directory / iteration_folder(self.iteration)
         directory.mkdir(parents=True, exist_ok=True)
         return directory
 

@@ -13,6 +13,7 @@ from typing import Optional, Tuple, Union
 
 from psygnal import evented
 
+from fibsem.acting import Actor
 from fibsem.util.timestamps import now, to_datetime, to_iso
 
 
@@ -36,6 +37,11 @@ class Verdict(Enum):
     POOR = FAILED
 
 
+def _actor_text(text: str) -> str:
+    """A stored actor in today's ``kind:name`` form; blank stays blank."""
+    return str(Actor.parse(text)) if text else ""
+
+
 @evented
 @dataclass
 class QualityRecord:
@@ -50,7 +56,7 @@ class QualityRecord:
     """
 
     verdict: Verdict = field(default=Verdict.UNASSESSED)
-    author: str = ""  # "human:<name>" | "agent:<model>"; "" when unrecorded
+    actor: str = ""  # "operator:<name>" | "agent:<model>"; "" when unrecorded
     reason: str = ""
     at_task: str = ""  # the task the item was judged at
     # When the verdict was set: aware, written as ISO 8601 with its offset
@@ -90,7 +96,7 @@ class QualityRecord:
     def to_dict(self) -> dict:
         return {
             "verdict": self.verdict.name,
-            "author": self.author,
+            "actor": self.actor,
             "reason": self.reason,
             "at_task": self.at_task,
             "updated_at": to_iso(self.updated_at),
@@ -122,7 +128,7 @@ class QualityRecord:
         decision_id = data.get("decision_id")
         return cls(
             verdict=_verdict_by_name(data.get("verdict", data.get("state", ""))),
-            author=data.get("author", ""),
+            actor=_actor_text(data.get("actor", data.get("author", ""))),
             reason=data.get("reason", data.get("description", "")),
             at_task=data.get("at_task", data.get("last_completed_task", "")),
             updated_at=to_datetime(data.get("updated_at")),
@@ -131,7 +137,7 @@ class QualityRecord:
 
     def clear(self):
         self.verdict = Verdict.UNASSESSED
-        self.author = ""
+        self.actor = ""
         self.reason = ""
         self.at_task = ""
         self.updated_at = None
@@ -141,11 +147,11 @@ class QualityRecord:
         self,
         description: str = "",
         state: Verdict = Verdict.FAILED,
-        author: str = "",
+        actor: str = "",
     ):
         self.verdict = state
         self.reason = description
-        self.author = str(author)  # an Author or its kind:name form
+        self.actor = str(actor)  # an Actor or its kind:name form
         self.updated_at = now()
 
 

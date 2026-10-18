@@ -346,17 +346,17 @@ def test_only_installed_distributions_are_recorded(monkeypatch) -> None:
     )
 
     group = ExtensionGroup(
-        group="fibsem.patterns",
+        group="fibsem.milling.patterns",
         label="Milling patterns",
         extensions=(
             Extension(
-                group="fibsem.patterns",
+                group="fibsem.milling.patterns",
                 name="Trench",
                 source=ExtensionSource.BUILTIN,
                 target="fibsem.Trench",
             ),
             Extension(
-                group="fibsem.patterns",
+                group="fibsem.milling.patterns",
                 name="Waffle",
                 source=ExtensionSource.PLUGIN,
                 target="lab.Waffle",
@@ -364,7 +364,7 @@ def test_only_installed_distributions_are_recorded(monkeypatch) -> None:
                 version="0.3.1",
             ),
             Extension(
-                group="fibsem.patterns",
+                group="fibsem.milling.patterns",
                 name=None,
                 source=ExtensionSource.FAILED,
                 target="broken:Thing",
@@ -397,11 +397,11 @@ def test_a_distribution_without_a_version_is_still_recorded(monkeypatch) -> None
     )
 
     group = ExtensionGroup(
-        group="fibsem.patterns",
+        group="fibsem.milling.patterns",
         label="Milling patterns",
         extensions=(
             Extension(
-                group="fibsem.patterns",
+                group="fibsem.milling.patterns",
                 name="Waffle",
                 source=ExtensionSource.PLUGIN,
                 target="lab.Waffle",

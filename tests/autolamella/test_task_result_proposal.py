@@ -134,7 +134,7 @@ def test_a_gated_task_records_its_result_and_the_consumer_waits(microscope, tmp_
         ROUGH,
         Decision(
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             task_id=lamella.proposal(ROUGH).task_id,
         ),
     )
@@ -200,7 +200,7 @@ def test_not_gated_the_result_is_recorded_and_the_run_goes_on(microscope, tmp_pa
     # Its consumer starting closes it as used-unreviewed, by the producer's name.
     assert exp.expire_open(lamella.id, ROUGH, f"{POLISH} started") == 1
     assert proposal.unreviewed and proposal.to_check
-    assert str(proposal.current.author) == f"auto:{ROUGH}"
+    assert str(proposal.current.actor) == f"task:{ROUGH}"
     assert f"{POLISH} started" in proposal.current.reason
 
 
@@ -326,7 +326,7 @@ def test_a_question_answered_during_the_run_is_not_logged_as_a_rerun(
             ROUGH,
             Decision(
                 outcome=DecisionOutcome.Confirmed,
-                author="human:op",
+                actor="operator:op",
                 values=dict(question.values),
                 proposal_id=question.id,
             ),
@@ -353,7 +353,7 @@ def test_a_rerun_supersedes_a_decided_result(microscope, tmp_path):
         ROUGH,
         Decision(
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             task_id=lamella.proposal(ROUGH).task_id,
         ),
     )

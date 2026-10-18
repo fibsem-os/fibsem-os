@@ -108,19 +108,6 @@ def fit_gauss_2d_mod(
     return popt, pcov
 
 
-## Gaussian 2D fit from http://scipy.github.io/old-wiki/pages/Cookbook/FittingData
-def gaussian(height, center_x, center_y, width_x, width_y):
-    """Returns a Gaussian function with the given parameters"""
-    width_x = float(width_x)
-    width_y = float(width_y)
-    return lambda x, y: (
-        height
-        * np.exp(
-            -(((center_x - x) / width_x) ** 2 + ((center_y - y) / width_y) ** 2) / 2
-        )
-    )
-
-
 #### INTERPOLATION ####
 
 INTERPOLATION_METHODS = ["linear", "cubic"]

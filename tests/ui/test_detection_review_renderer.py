@@ -184,7 +184,7 @@ def test_once_decided_the_correction_is_drawn_beside_the_proposal(tab, experimen
     renderer = _renderer(tab)
     decision = Decision(
         outcome=DecisionOutcome.Confirmed,
-        author="human:op",
+        actor="operator:op",
         values={"features": [{"name": "LamellaCentre", "px": Point(300.0, 280.0)}]},
         task_id=RUN,
     )
@@ -334,7 +334,7 @@ def test_an_answer_made_by_dragging_can_be_saved(tab, experiment):
         TASK,
         Decision(
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             values=renderer.current_values(),
             task_id=RUN,
         ),
@@ -430,7 +430,7 @@ def test_once_decided_the_distance_is_the_decision_s(tab):
     renderer = _renderer(tab)
     decision = Decision(
         outcome=DecisionOutcome.Confirmed,
-        author="human:op",
+        actor="operator:op",
         values={
             "features": [
                 {"name": "LamellaCentre", "px": Point(256.0, 256.0)},
