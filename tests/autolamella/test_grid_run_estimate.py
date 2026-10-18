@@ -50,6 +50,7 @@ NOW = datetime(2026, 10, 5, 14, 0, 0)
 
 
 def _overview(nrows=3, ncols=3, **kwargs) -> OverviewAcquisitionSettings:
+    kwargs.setdefault("autocontrast_mode", AutoContrastMode.NONE)
     return OverviewAcquisitionSettings(
         image_settings=ImageSettings(
             resolution=(1536, 1024), dwell_time=1e-6, hfw=500e-6
