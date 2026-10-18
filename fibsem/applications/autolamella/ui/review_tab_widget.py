@@ -280,9 +280,9 @@ def decided_proposals(experiment: Experiment) -> List[tuple]:
     check is not here; it has its own group."""
     decided = []
     for item in list(experiment.positions) + list(experiment.grids):
-        for task_name, proposals in item.proposals.items():
+        for task_name in item.asking_tasks():
             current = item.current_proposals(task_name)
-            for p in proposals:
+            for p in item.proposals_from(task_name):
                 if p.pending:
                     continue
                 if p in current:

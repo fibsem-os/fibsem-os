@@ -35,6 +35,7 @@ from fibsem.workflows.proposals import (
 )
 from fibsem.workflows.review import standing
 from fibsem.workflows.status import TaskStatus
+from tests.proposal_records import set_proposals
 
 TASK = "Setup Lamella Position"
 OTHER = "Mill Rough"
@@ -64,7 +65,7 @@ def _proposal(lamella, task_name=TASK, task_id="run-1", kind=POINT_OF_INTEREST):
         values={"poi": Point(0.0, 0.0)} if kind is POINT_OF_INTEREST else {},
         provenance={"task_id": task_id, "proposer": "detection"},
     )
-    lamella.proposals[task_name] = [proposal]
+    set_proposals(lamella, task_name, [proposal])
     return proposal
 
 
@@ -72,7 +73,7 @@ def _ask(experiment, lamella, task_name=TASK, task_id="run-1", kind=POINT_OF_INT
     """The same proposal, recorded the way an in-run question is: through
     ``ask_proposal``, which is the one place the mark is set."""
     proposal = _proposal(lamella, task_name, task_id, kind)
-    del lamella.proposals[task_name]
+    set_proposals(lamella, task_name, [])
     assert experiment.ask_proposal(lamella.id, task_name, proposal)
     return proposal
 

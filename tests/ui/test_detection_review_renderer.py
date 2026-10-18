@@ -36,6 +36,7 @@ from fibsem.structures import (
 )
 from fibsem.workflows.proposals import DETECTION, Decision, DecisionOutcome, Proposal
 from fibsem.workflows.status import TaskState, TaskStatus
+from tests.proposal_records import set_proposals
 
 TASK = "Mill Rough"
 RUN = "run-1"
@@ -69,23 +70,27 @@ def experiment(tmp_path) -> Experiment:
     lamella.task_state.name = TASK
     lamella.task_state.task_id = RUN
     lamella.task_state.status = TaskStatus.InProgress
-    lamella.proposals[TASK] = [
-        Proposal(
-            kind=DETECTION,
-            values={
-                "features": [
-                    {"name": "LamellaCentre", "px": Point(256.0, 256.0)},
-                    {"name": "ImageCentre", "px": Point(100.0, 120.0)},
-                ]
-            },
-            provenance={
-                "task_id": RUN,
-                "proposer": "ConfirmDetection",
-                "reference_image": ref + ".tif",
-                "asked": True,
-            },
-        )
-    ]
+    set_proposals(
+        lamella,
+        TASK,
+        [
+            Proposal(
+                kind=DETECTION,
+                values={
+                    "features": [
+                        {"name": "LamellaCentre", "px": Point(256.0, 256.0)},
+                        {"name": "ImageCentre", "px": Point(100.0, 120.0)},
+                    ]
+                },
+                provenance={
+                    "task_id": RUN,
+                    "proposer": "ConfirmDetection",
+                    "reference_image": ref + ".tif",
+                    "asked": True,
+                },
+            )
+        ],
+    )
     return exp
 
 

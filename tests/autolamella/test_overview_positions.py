@@ -31,6 +31,7 @@ from fibsem.workflows.proposals import (
     ValueRefused,
     prepare_values,
 )
+from tests.proposal_records import set_proposals
 
 # The Arctis simulator, because this needs a holder with grids in it.
 CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
@@ -74,7 +75,7 @@ def _proposal(values=None) -> Proposal:
 
 
 def _decide(experiment, grid, proposal, values, task_name=OVERVIEW):
-    grid.proposals[task_name] = [proposal]
+    set_proposals(grid, task_name, [proposal])
     return experiment.decide(
         grid.id,
         task_name,

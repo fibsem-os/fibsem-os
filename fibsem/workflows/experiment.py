@@ -2,9 +2,13 @@
 
 An experiment has an identity (``name``, ``id``, ``path``, ``created_at``),
 free-text ``metadata`` from the create dialog, the ``session`` that last worked
-on it, and ``items()``: what its tasks run on. :class:`BaseExperiment` holds
-those, saves and stamps them, and finds an item by id. An application's
+on it, ``items()``: what its tasks run on, and ``proposals``: what was asked
+about the experiment rather than one of its items. :class:`BaseExperiment`
+holds those, saves and stamps them, and finds an item by id. An application's
 experiment adds its items, its protocol and its saved keys.
+
+:class:`FibsemExperiment` is the plain one, with no items: a folder to record
+what is done when no application's experiment is open.
 """
 
 from __future__ import annotations
@@ -25,7 +29,13 @@ from fibsem.acting import Actor
 from fibsem.structures import FibsemUser, SessionInfo
 from fibsem.util.timestamps import now, to_datetime, to_iso
 from fibsem.utils import configure_logging as _configure_logging
-from fibsem.workflows.saved_format import FORMAT_VERSION, saved_app
+from fibsem.workflows.proposals import (
+    Proposal,
+    proposals_from_dict,
+    proposals_to_dict,
+    record,
+)
+from fibsem.workflows.saved_format import FORMAT_VERSION, check_app, saved_app
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
@@ -76,6 +86,9 @@ class BaseExperiment:
         # Why the last save failed, or None when the file holds what memory
         # does. Not written: it describes the file, not the experiment.
         self.save_error: Optional[str] = None
+        # What was asked about the experiment rather than one of its items,
+        # oldest first, each saying who asked it.
+        self.proposals: List[Proposal] = []
 
     # -- items -----------------------------------------------------------------
 
@@ -91,6 +104,12 @@ class BaseExperiment:
         """The directory an item's recorded outputs are relative to."""
         return Path(item.path)
 
+    def record_proposal(self, proposal: Proposal) -> Proposal:
+        """Put ``proposal``, about the experiment itself, on the record. It
+        says who asked it (``asked_by``)."""
+        with EXPERIMENT_WRITE_LOCK:
+            return record(self.proposals, proposal)
+
     # -- saved form --------------------------------------------------------------
 
     def to_dict(self) -> dict:
@@ -104,6 +123,7 @@ class BaseExperiment:
             "created_at": to_iso(self.created_at),
             "metadata": self.metadata,
             "session": self.session.to_dict() if self.session is not None else None,
+            "proposals": proposals_to_dict(self.proposals),
         }
 
     def _read_identity(self, ddict: dict) -> None:
@@ -124,6 +144,7 @@ class BaseExperiment:
         # what produced this -- and None says that without guessing.
         session = ddict.get("session")
         self.session = SessionInfo.from_dict(session) if session else None
+        self.proposals = proposals_from_dict(ddict.get("proposals"))
 
     @property
     def unsaved(self) -> bool:
@@ -336,12 +357,48 @@ class BaseExperiment:
             )
 
 
+class FibsemExperiment(BaseExperiment):
+    """An experiment of no application: no items, no protocol. Where what is
+    done is recorded -- its events, and what is asked about it -- when no
+    application's experiment is open."""
+
+    app: ClassVar[str] = "fibsem"
+
+    def items(self) -> List[Any]:
+        return []
+
+    @classmethod
+    def create(
+        cls, path: Path, name: str, metadata: Optional[Dict[str, Any]] = None
+    ) -> "FibsemExperiment":
+        """A new one in the folder ``name`` under ``path``, saved."""
+        experiment = cls(path=path, name=name, metadata=metadata)
+        os.makedirs(experiment.path, exist_ok=True)
+        experiment.save()
+        return experiment
+
+    @classmethod
+    def load(cls, path: Path) -> "FibsemExperiment":
+        """The one whose experiment.yaml, or folder, is at ``path``."""
+        path = Path(path)
+        if path.is_dir():
+            path = path / EXPERIMENT_FILENAME
+        with open(path) as f:
+            ddict = yaml.safe_load(f) or {}
+        check_app(ddict, cls.app, path)
+        experiment = cls(path=path.parent.parent, name=path.parent.name)
+        experiment._read_identity(ddict)
+        return experiment
+
+
 # app -> the experiment class that reads it, for :func:`load_experiment`. The
 # built-ins are named by import path so this module imports no application.
 _BUILTIN_TYPES: Dict[str, str] = {
     "autolamella": "fibsem.applications.autolamella.structures:Experiment",
 }
-EXPERIMENT_TYPES: Dict[str, Type[BaseExperiment]] = {}
+EXPERIMENT_TYPES: Dict[str, Type[BaseExperiment]] = {
+    FibsemExperiment.app: FibsemExperiment
+}
 
 
 def register_experiment_type(cls: Type[BaseExperiment]) -> Type[BaseExperiment]:

@@ -132,7 +132,7 @@ class GridRecord(ExperimentItem):
     # Aware, written as ISO 8601 with its offset (FIB-1197); older files hold a
     # POSIX float, which reads as this machine's zone.
     created_at: Optional[datetime] = field(default_factory=now)
-    proposals: Dict[str, List[Proposal]] = field(default_factory=dict)  # as on Lamella
+    proposals: List[Proposal] = field(default_factory=list)  # as on Lamella
     # What has been placed by hand over this grid's overviews; see `OverlayRecord`.
     overlays: List[OverlayRecord] = field(default_factory=list)
 

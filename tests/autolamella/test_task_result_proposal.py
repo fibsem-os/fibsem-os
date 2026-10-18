@@ -242,7 +242,7 @@ def test_what_a_task_type_proposes_is_declared_on_the_class(microscope, tmp_path
         task.run()
     finally:
         type(task).proposer = TaskResultProposer()
-    assert exp.positions[0].proposals == {}
+    assert exp.positions[0].proposals == []
 
 
 class _SitePicker:
@@ -339,7 +339,9 @@ def test_a_question_answered_during_the_run_is_not_logged_as_a_rerun(
 
     result = lamella.proposal(ROUGH)
     assert result.kind == TASK_RESULT and result.pending
-    assert lamella.proposals[ROUGH] == [asked["question"], result], "the answer is kept"
+    assert lamella.proposals_from(ROUGH) == [asked["question"], result], (
+        "the answer is kept"
+    )
     assert "asked a question during this run" in caplog.text
     assert "re-run" not in caplog.text
 
@@ -363,7 +365,7 @@ def test_a_rerun_supersedes_a_decided_result(microscope, tmp_path):
 
     fresh = lamella.proposal(ROUGH)
     assert fresh is not decided and fresh.pending
-    assert lamella.proposals[ROUGH] == [decided, fresh]
+    assert lamella.proposals_from(ROUGH) == [decided, fresh]
 
 
 # ---------------------------------------------------------------------------

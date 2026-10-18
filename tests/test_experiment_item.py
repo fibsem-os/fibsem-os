@@ -23,7 +23,7 @@ class PlainItem(ExperimentItem):
     description: str = ""
     task_state: Any = None
     task_history: List[Any] = field(default_factory=list)
-    proposals: Dict[str, list] = field(default_factory=dict)
+    proposals: list = field(default_factory=list)
 
 
 def test_only_completed_runs_count_as_done():

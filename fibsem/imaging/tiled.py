@@ -540,10 +540,7 @@ class TiledAcquisitionRunner:
         """
         metadata = deepcopy(self._mosaic_metadata)
         stride = self._preview.stride
-        metadata.pixel_size = Point(
-            x=self._mosaic_metadata.pixel_size.x * stride,
-            y=self._mosaic_metadata.pixel_size.y * stride,
-        )
+        metadata.pixel_size = self._mosaic_metadata.pixel_size * stride
         metadata.image_settings = deepcopy(self._mosaic_metadata.image_settings)
         metadata.image_settings.resolution = (
             self._preview.canvas.shape[1],

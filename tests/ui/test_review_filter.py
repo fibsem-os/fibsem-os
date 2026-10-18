@@ -47,6 +47,7 @@ from fibsem.workflows.proposals import (  # noqa: E402
     Proposal,
 )
 from fibsem.workflows.status import TaskState, TaskStatus  # noqa: E402
+from tests.proposal_records import set_proposals  # noqa: E402
 
 SETUP = "Setup Lamella Position"
 ROUGH = "Rough Milling"
@@ -107,9 +108,9 @@ def experiment(tmp_path) -> Experiment:
         lamella.task_history.append(
             TaskState(name=ROUGH, status=TaskStatus.AwaitingDecision)
         )
-        lamella.proposals[ROUGH] = [
-            Proposal(kind=TASK_RESULT, provenance={"task_id": RUN})
-        ]
+        set_proposals(
+            lamella, ROUGH, [Proposal(kind=TASK_RESULT, provenance={"task_id": RUN})]
+        )
     # the third is a look, not a decision: it lands in "To check"
     third = exp.positions[2]
     third.task_history.append(TaskState(name=SETUP, status=TaskStatus.Completed))
@@ -123,7 +124,7 @@ def experiment(tmp_path) -> Experiment:
             via="workflow",
         )
     )
-    third.proposals[SETUP] = [proposal]
+    set_proposals(third, SETUP, [proposal])
 
     protocol = exp.grid_protocol
     protocol.add(
@@ -145,12 +146,19 @@ def experiment(tmp_path) -> Experiment:
         grid.task_history.append(
             TaskState(name=task, status=TaskStatus.AwaitingDecision)
         )
-        grid.proposals[task] = [
-            Proposal(
-                kind=TASK_RESULT,
-                provenance={"task_id": RUN, "reference_image": f"{task}/overview.tif"},
-            )
-        ]
+        set_proposals(
+            grid,
+            task,
+            [
+                Proposal(
+                    kind=TASK_RESULT,
+                    provenance={
+                        "task_id": RUN,
+                        "reference_image": f"{task}/overview.tif",
+                    },
+                )
+            ],
+        )
     return exp
 
 

@@ -91,7 +91,7 @@ def test_headless_the_position_goes_on_the_record_unreviewed(microscope, tmp_pat
 
     _task(microscope, exp).run()
 
-    question, result = lamella.proposals[REF]
+    question, result = lamella.proposals_from(REF)
     assert question.kind == STATE and result.kind == TASK_RESULT
     assert question.unreviewed
     pose = question.values["stage_position"]
@@ -104,7 +104,7 @@ def test_headless_the_position_goes_on_the_record_unreviewed(microscope, tmp_pat
 def test_with_the_preference_off_nothing_is_recorded(microscope, tmp_path):
     exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
     _task(microscope, exp, review_enabled=False).run()
-    assert [p.kind for p in exp.positions[0].proposals[REF]] == [TASK_RESULT]
+    assert [p.kind for p in exp.positions[0].proposals_from(REF)] == [TASK_RESULT]
 
 
 def test_the_position_survives_the_file(microscope, tmp_path):

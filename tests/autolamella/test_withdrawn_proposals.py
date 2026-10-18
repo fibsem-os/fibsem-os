@@ -27,6 +27,7 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.structures import MicroscopeState, Point
 from fibsem.workflows.proposals import Decision, DecisionOutcome, Proposal
 from fibsem.workflows.status import TaskStatus
+from tests.proposal_records import set_proposals
 
 TASK = "Setup Lamella Position"
 
@@ -52,7 +53,7 @@ def _asked(experiment, values=None) -> Proposal:
         values=values if values is not None else {"poi": Point(0.0, 0.0)},
         provenance={"task_id": "run-1", "proposer": "detection"},
     )
-    lamella.proposals[TASK] = [proposal]
+    set_proposals(lamella, TASK, [proposal])
     proposal.asking = True  # the run is parked on it
     return proposal
 

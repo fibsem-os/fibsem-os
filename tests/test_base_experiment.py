@@ -71,3 +71,29 @@ def test_the_named_operator_decides(experiment):
     experiment.user = "Ada"
 
     assert experiment.actor().name == "Ada"
+
+
+def test_a_plain_experiment_keeps_what_was_asked_about_it(tmp_path):
+    from fibsem.acting import Actor
+    from fibsem.structures import FibsemStagePosition
+    from fibsem.workflows.experiment import FibsemExperiment, load_experiment
+    from fibsem.workflows.proposals import STATE, Proposal
+
+    experiment = FibsemExperiment.create(tmp_path, "session-1")
+    assert experiment.items() == []
+    asked = experiment.record_proposal(
+        Proposal(
+            kind=STATE,
+            values={"stage_position": FibsemStagePosition(x=1e-6)},
+            asked_by=Actor.parse("agent:claude"),
+        )
+    )
+    experiment.save()
+
+    raw = yaml.safe_load(Path(experiment.path, EXPERIMENT_FILENAME).read_text())
+    assert raw["app"] == "fibsem"
+    again = load_experiment(experiment.path)
+    assert isinstance(again, FibsemExperiment)
+    (proposal,) = again.proposals
+    assert proposal.id == asked.id and str(proposal.asked_by) == "agent:claude"
+    assert proposal.values["stage_position"].x == pytest.approx(1e-6)

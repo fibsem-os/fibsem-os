@@ -181,6 +181,57 @@ def test_edits_run_where_the_client_says():
     assert len(ran) == 1
 
 
+def test_letting_the_agent_act_with_nothing_open_makes_a_plain_experiment(
+    session, microscope
+):
+    from fibsem.server import AuthConfig
+    from fibsem.server.levels import AgentLevel
+    from fibsem.workflows.experiment import FibsemExperiment
+
+    session.agent_auth = AuthConfig.generate()
+    session.agent_auth.set_level(AgentLevel.WATCH)
+    session.microscope = microscope
+    session.start_recording()
+
+    assert session.set_agent_level(AgentLevel.WATCH) is None
+    assert session.plain_experiment is None, "watching records nothing of its own"
+    assert session.set_agent_level(AgentLevel.DRIVE) is None
+    assert session.agent_auth.level is AgentLevel.DRIVE
+    plain = session.plain_experiment
+    assert isinstance(plain, FibsemExperiment)
+    assert session.recording_experiment() is plain, "made once"
+    assert _recorded(session, plain), "the stream records to it"
+
+
+def test_the_level_is_refused_when_there_is_nowhere_to_record(
+    session, monkeypatch, tmp_path
+):
+    import fibsem.workflows.session as module
+    from fibsem.server import AuthConfig
+    from fibsem.server.levels import AgentLevel
+
+    blocked = tmp_path / "a-file"
+    blocked.write_text("")
+    monkeypatch.setattr(module, "SESSIONS_PATH", str(blocked))
+    session.agent_auth = AuthConfig.generate()
+    session.agent_auth.set_level(AgentLevel.WATCH)
+
+    refused = session.set_agent_level(AgentLevel.ASSIST)
+    assert refused and "Open or create an experiment" in refused
+    assert session.agent_auth.level is AgentLevel.WATCH
+
+
+def test_an_open_experiment_is_what_the_agent_records_to(session, experiment):
+    from fibsem.server import AuthConfig
+    from fibsem.server.levels import AgentLevel
+
+    session.experiment = experiment
+    session.agent_auth = AuthConfig.generate()
+    assert session.set_agent_level(AgentLevel.ASSIST) is None
+    assert session.plain_experiment is None
+    assert session.recording_experiment() is experiment
+
+
 def test_who_can_answer_is_what_is_attached_and_the_agent_at_drive(fake_hosting):
     """A window attaches the operator; the agent can answer while the App
     Server serves it at Drive. Nobody, with neither: a question goes on the
