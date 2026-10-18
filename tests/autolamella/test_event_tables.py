@@ -367,7 +367,7 @@ def _decided(second, kind, proposed, decided, proposal_id="p1", index=0, **field
         "proposed": proposed,
         "decided": decided,
         "outcome": "Confirmed",
-        "author": "human:op",
+        "actor": "operator:op",
         "via": "review",
         **fields,
     }

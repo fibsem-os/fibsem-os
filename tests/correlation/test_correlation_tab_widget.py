@@ -27,14 +27,6 @@ from fibsem.structures import Point
 from fibsem.ui.tokens import ERROR_COLOR, TEXT_MUTED_COLOR, WARN_COLOR
 
 
-@pytest.fixture(autouse=True)
-def _no_lut_download(monkeypatch):
-    """Never hit the network for the zeta LUT during widget construction."""
-    import fibsem.ui.correlation.widgets.refractive_index_widget as riw
-
-    monkeypatch.setattr(riw, "_ensure_lut", lambda: None)
-
-
 def _coord(x=0.0, y=0.0, z=0.0, pt=PointType.FIB) -> Coordinate:
     return Coordinate(point=PointXYZ(x=x, y=y, z=z), point_type=pt)
 
@@ -687,11 +679,6 @@ def test_unapplied_factor_edit_is_reported(qapp):
 def test_an_optical_parameter_edit_counts_as_an_unapplied_factor(qapp):
     """FIB-591: the parameters feed the factor through zeta, so editing one is
     just as un-applied as typing the number."""
-    from fibsem.correlation.refractive_index import _LUT_PATH
-
-    if not _LUT_PATH.exists():
-        pytest.skip("LUT CSV not present — the parameter spinboxes are disabled")
-
     w = _widget(qapp)
     _setup_pre_mode(w)
     tab = w._ri_tab

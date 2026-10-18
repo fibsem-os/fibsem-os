@@ -194,7 +194,7 @@ def test_a_rejected_detection_fails_the_task(
 
     def rejected(self, *args, **kwargs):
         return Decision(
-            outcome=DecisionOutcome.Rejected, author="human:op", reason="off target"
+            outcome=DecisionOutcome.Rejected, actor="operator:op", reason="off target"
         )
 
     monkeypatch.setattr(AutoLamellaTask, "ask", rejected)

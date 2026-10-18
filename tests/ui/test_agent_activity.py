@@ -12,12 +12,12 @@ import pytest  # noqa: E402
 
 pytest.importorskip("PyQt5")
 
-from fibsem.acting import AGENT, OPERATOR  # noqa: E402
+from fibsem.acting import AGENT, OPERATOR, WORKFLOW  # noqa: E402
 from fibsem.applications.autolamella.ui import agent_activity  # noqa: E402
 from fibsem.applications.autolamella.ui.agent_activity import (  # noqa: E402
     AgentActivity,
 )
-from fibsem.control import WORKFLOW, Control  # noqa: E402
+from fibsem.control import Control  # noqa: E402
 from fibsem.ui.widgets.status_bar import FibsemStatusBar  # noqa: E402
 
 

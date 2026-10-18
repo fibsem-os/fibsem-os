@@ -409,7 +409,7 @@ def test_an_old_success_does_not_satisfy_a_requirement_whose_rerun_was_rejected(
         "Trench",
         Decision(
             outcome=DecisionOutcome.Rejected,
-            author="human:op",
+            actor="operator:op",
             reason="no",
             task_id="run-2",
         ),
@@ -473,7 +473,9 @@ def test_a_task_awaiting_a_decision_defers_its_consumer(tmp_path):
     experiment.decide(
         l1.id,
         "Trench",
-        Decision(outcome=DecisionOutcome.Confirmed, author="human:op", task_id="run-1"),
+        Decision(
+            outcome=DecisionOutcome.Confirmed, actor="operator:op", task_id="run-1"
+        ),
     )
     assert l1.has_completed_task("Trench"), "the decision finished it"
     assert m._defer_reason(l1, "Undercut") is None
@@ -536,7 +538,7 @@ def test_a_rejected_task_is_failed_so_its_consumer_is_skipped(tmp_path):
         "Trench",
         Decision(
             outcome=DecisionOutcome.Rejected,
-            author="human:op",
+            actor="operator:op",
             reason="no site",
             task_id="run-1",
         ),
@@ -614,7 +616,7 @@ def test_a_decision_during_the_wait_wakes_the_run(tmp_path, caplog):
             l1.id,
             "Trench",
             Decision(
-                outcome=DecisionOutcome.Confirmed, author="human:op", task_id="run-1"
+                outcome=DecisionOutcome.Confirmed, actor="operator:op", task_id="run-1"
             ),
         )
 

@@ -34,10 +34,12 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import fibsem.config as fibsem_cfg
+from fibsem.acting import Actor
 from fibsem.applications.autolamella import task_outputs as _task_outputs
 from fibsem.applications.autolamella.structures import Attention
 from fibsem.server.files import jpeg_preview
 from fibsem.util.timestamps import to_iso, wall_time_of
+from fibsem.workflows.outputs import item_outputs, latest_item_output
 from fibsem.workflows.queue import QUEUE_ACTIONS, QueueOp
 from fibsem.workflows.status import TaskStatus
 
@@ -1000,7 +1002,7 @@ class AutoLamellaAppContext:
         completed = [t.name for t in history if t.status is TaskStatus.Completed]
         overviews = {}
         for role in GRID_OVERVIEW_ROLES:
-            path = _task_outputs.latest_grid_output(experiment, grid, role)
+            path = latest_item_output(experiment, grid, role)
             if path is not None:
                 overviews[role] = os.path.basename(path)
         return {
@@ -1029,7 +1031,7 @@ class AutoLamellaAppContext:
     @staticmethod
     def _recorded_grid_paths(experiment, grid) -> List[str]:
         roles = {role for state in grid.task_history for role in state.outputs}
-        return _task_outputs.grid_outputs(experiment, grid, *sorted(roles))
+        return item_outputs(experiment, grid, *sorted(roles))
 
     @classmethod
     def _recorded_grid_basenames(cls, experiment, grid) -> List[str]:
@@ -1208,12 +1210,20 @@ class AutoLamellaAppContext:
     # --- lamella positions: the Lamella tab's buttons, for an agent at Drive ------
 
     def _agent_call(self, call, select_latest: bool = False, timeout: float = 30.0):
-        """``call()`` on the GUI thread through the host, or inline where the host
-        has no GUI thread to offer (a test host, a headless session)."""
-        request = getattr(self._host, "request_agent_call", None)
-        if request is None:
+        """``call()`` where the session edits the experiment, then the window's
+        redraw; inline where the host has no session (a test host)."""
+        session = getattr(self._host, "session", None)
+        if session is None:
             return call()
-        return request(call, select_latest=select_latest).result(timeout=timeout)
+        redraw = getattr(self._host, "after_agent_edit", None)
+
+        def edit():
+            result = call()
+            if redraw is not None:
+                redraw(select_latest)
+            return result
+
+        return session.run_edit(edit).result(timeout=timeout)
 
     def _editable(self):
         """The experiment and microscope an edit needs, or a refusal."""
@@ -1456,7 +1466,6 @@ class AutoLamellaAppContext:
         """Judge a grid, as its card's quality menu does: GOOD, REWORK, FAILED,
         or UNASSESSED to clear it, with an optional reason. Signed as the
         agent's; saved."""
-        from fibsem.workflows.proposals import agent_author
         from fibsem.workflows.quality import Verdict
 
         experiment, grid, refusal = self._grid_record(grid_name)
@@ -1472,7 +1481,7 @@ class AutoLamellaAppContext:
 
         def judge():
             grid.quality.set_defect(
-                description=reason or "", state=state, author=agent_author("remote")
+                description=reason or "", state=state, actor=Actor.agent("remote")
             )
             experiment.save()
             self._grids_changed()
@@ -1909,13 +1918,14 @@ class AutoLamellaAppContext:
         outcome: str,
         values: Optional[Dict[str, Any]] = None,
         reason: str = "",
-        author: str = "",
+        actor: str = "",
         task_id: str = "",
         proposal_id: str = "",
     ) -> Dict[str, Any]:
         """Decide a pending proposal, exactly as the Review tab would: the same
         Experiment.decide, on the main thread, blocking until applied. The
-        author is recorded as the agent, never as the operator.
+        actor is recorded as the agent (``actor`` names its model), never as
+        the operator.
 
         ``proposal_id`` is the proposal the agent was shown (from
         get_pending_reviews), and what the decision is checked against: a task
@@ -1931,7 +1941,6 @@ class AutoLamellaAppContext:
             Decision,
             DecisionOutcome,
             _decode_values,
-            agent_author,
         )
 
         try:
@@ -1944,7 +1953,7 @@ class AutoLamellaAppContext:
             }
         decision = Decision(
             outcome=decided,
-            author=agent_author(author or "remote"),
+            actor=Actor.agent(actor or "remote"),
             values=_decode_values(values or {}),
             reason=reason,
             via="server",
@@ -1968,7 +1977,7 @@ class AutoLamellaAppContext:
                         "item_id": item_id,
                         "task_name": task_name,
                         "outcome": decided.name,
-                        "author": str(decision.author),
+                        "actor": str(decision.actor),
                     },
                 )
         return doc

@@ -174,7 +174,7 @@ def touch_agent_patch(
     patch: Any,
 ) -> None:
     """Touch what an agent's config patch at *level* can change
-    (``AutoLamellaUI._apply_agent_config_patch``)."""
+    (``AutoLamellaUI._agent_config_patch``)."""
     try:
         if level == "protocol":
             configs = experiment.task_protocol.task_config

@@ -21,10 +21,10 @@ from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Optional, Type
 import yaml
 from psygnal import Signal
 
+from fibsem.acting import Actor
 from fibsem.structures import FibsemUser, SessionInfo
 from fibsem.util.timestamps import now, to_datetime, to_iso
 from fibsem.utils import configure_logging as _configure_logging
-from fibsem.workflows.proposals import Author, human_author
 from fibsem.workflows.saved_format import FORMAT_VERSION, saved_app
 
 if TYPE_CHECKING:
@@ -199,11 +199,11 @@ class BaseExperiment:
         """Set the organisation name in metadata."""
         self.metadata["organisation"] = value
 
-    def author(self) -> Author:
+    def actor(self) -> Actor:
         """Who is deciding, as a proposal decision records it, from the operator
         named on the experiment (or the OS account when nobody was)."""
         user = self._declared_user() or FibsemUser.from_environment()
-        return human_author(user.name)
+        return Actor.operator(user.name)
 
     def _declared_user(self) -> Optional[FibsemUser]:
         """The operator named when the experiment was created, if anyone was.

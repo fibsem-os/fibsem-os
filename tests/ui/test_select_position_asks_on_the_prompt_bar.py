@@ -23,6 +23,7 @@ pytest.importorskip("PyQt5")
 from psygnal.containers import EventedDict
 from PyQt5.QtCore import QCoreApplication, QEvent
 
+from fibsem.acting import ActorKind
 from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
 from fibsem.applications.autolamella.structures import (
     Attention,
@@ -41,7 +42,6 @@ from fibsem.structures import FibsemRectangle, FibsemStagePosition
 from fibsem.workflows.proposals import (
     ALIGNMENT_AREA,
     STATE,
-    AuthorKind,
     DecisionOutcome,
 )
 from fibsem.workflows.status import HoldKind, TaskStatus
@@ -193,7 +193,7 @@ def test_the_tilt_and_the_position_are_confirmed_on_the_prompt_bar(window, qapp)
     )
     assert microscope.get_current_milling_angle() == pytest.approx(MILLING_ANGLE)
     assert tilt.current.outcome is DecisionOutcome.Confirmed
-    assert tilt.current.author.kind is AuthorKind.human and tilt.current.via == (
+    assert tilt.current.actor.kind is ActorKind.operator and tilt.current.via == (
         "workflow"
     )
     position = lamella.proposal(SETUP, STATE)

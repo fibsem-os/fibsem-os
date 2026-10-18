@@ -25,15 +25,18 @@ from fibsem.correlation.config import RISettings
 from fibsem.correlation.refractive_index import (
     _LUT_PATH,
     ZetaParams,
-    _ensure_lut,
     lookup_zeta,
 )
 from fibsem.ui.tokens import (
-    CAPTION_STYLE,
     CONTROL_STYLE,
     state_style,
 )
-from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, ValueSpinBox
+from fibsem.ui.widgets.custom_widgets import (
+    IconToolButton,
+    TitledPanel,
+    ValueSpinBox,
+    form_label,
+)
 from fibsem.ui.widgets.form_builder import configure_spinbox
 
 _LUT_MISSING_MSG = (
@@ -84,18 +87,9 @@ def _default_factor() -> float:
         return _FALLBACK_FACTOR
 
 
-# The correlation panels run at 11-12px. Controls and QFormLayout's auto-built
-# string labels default to the app font, which renders larger than the values
-# beside them — the field name ends up shouting over its own data.
+# The correlation panels run at 11-12px. Controls default to the app font, which
+# renders larger than the values beside them (form-row labels: see form_label).
 _CONTROL_STYLE = CONTROL_STYLE
-_FORM_LABEL_STYLE = CAPTION_STYLE
-
-
-def _form_label(text: str) -> QLabel:
-    """A small, muted form-row label — pass instead of a bare string."""
-    lbl = QLabel(text)
-    lbl.setStyleSheet(_FORM_LABEL_STYLE)
-    return lbl
 
 
 # Each optical parameter's box is shown as RISettings declares it.
@@ -149,10 +143,6 @@ class RefractiveIndexWidget(QWidget):
         self._factor_computed = False
         # Params the user has typed by hand; metadata seeding leaves these alone.
         self._user_edited: set = set()
-        try:
-            _ensure_lut()
-        except Exception as e:
-            logging.warning(f"Failed to download refractive index LUT: {e}")
         self._setup_ui()
         self._connect_signals()
         self._recompute()
@@ -185,7 +175,7 @@ class RefractiveIndexWidget(QWidget):
             ("n2", self._spin_n2),
             ("wavelength_um", self._spin_wl),
         ):
-            form.addRow(_form_label(_RI[name].label), spin)
+            form.addRow(form_label(_RI[name].label), spin)
 
         self._spin_factor = ValueSpinBox(
             minimum=0.1,
@@ -199,7 +189,7 @@ class RefractiveIndexWidget(QWidget):
         # the button that restores it cannot disagree.
         self._default_factor = _default_factor()
         self._spin_factor.setValue(self._default_factor)
-        form.addRow(_form_label("Correction Factor (ζ)"), self._spin_factor)
+        form.addRow(form_label("Correction Factor (ζ)"), self._spin_factor)
 
         self._btn_reset_factor = IconToolButton(
             "mdi:refresh",
@@ -278,10 +268,6 @@ class RefractiveIndexWidget(QWidget):
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
-
-    def get_zeta(self) -> Optional[float]:
-        """Return the last computed zeta value, or ``None`` if not yet computed."""
-        return self._zeta
 
     def get_factor(self) -> float:
         """Return the current correction factor spinbox value."""

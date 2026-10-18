@@ -1136,7 +1136,7 @@ def test_an_edit_leaves_out_rounding_and_names_a_config_added_or_removed(tmp_pat
     ]
 
 
-def _proposal(t, event, actor, proposal, **payload):
+def _proposal(t, event, envelope_actor, proposal, **payload):
     """A question or a decision, as the recorder writes it: on lamella 01's
     Setup, which need not be where the run is."""
     record = _record(
@@ -1151,7 +1151,7 @@ def _proposal(t, event, actor, proposal, **payload):
         item="02",
         task="Rough Milling",
     )
-    record["actor"] = actor
+    record["actor"] = envelope_actor
     return record
 
 
@@ -1163,7 +1163,7 @@ def test_a_decision_says_what_was_decided_by_whom_and_what_they_changed(tmp_path
     moved = dict(here, x=1.002e-3, t=0.2 + math.radians(1.0))
     poi = {"x": 0.0, "y": 0.0}
     state = {"kind": "state", "proposed": {"stage_position": here}}
-    confirmed = {"outcome": "Confirmed", "author": "human:op", "via": "workflow"}
+    confirmed = {"outcome": "Confirmed", "actor": "operator:op", "via": "workflow"}
     _write_events(
         tmp_path,
         _proposal(0, "proposal_asked", "task", "P1", **state, message="Tilt"),
@@ -1196,7 +1196,7 @@ def test_a_decision_says_what_was_decided_by_whom_and_what_they_changed(tmp_path
             kind="point_of_interest",
             proposed={"poi": poi},
             outcome="Confirmed",
-            author="human:op",
+            actor="operator:op",
             via="review",
             decision=0,
             decided={"poi": {"x": 2e-6, "y": -1e-6}},
@@ -1209,7 +1209,7 @@ def test_a_decision_says_what_was_decided_by_whom_and_what_they_changed(tmp_path
             kind="point_of_interest",
             proposed={"poi": poi},
             outcome="Confirmed",
-            author="agent:m",
+            actor="agent:m",
             via="server",
             decision=0,
             decided={"poi": poi},
@@ -1222,7 +1222,7 @@ def test_a_decision_says_what_was_decided_by_whom_and_what_they_changed(tmp_path
             kind="point_of_interest",
             proposed={"poi": poi},
             outcome="Unreviewed",
-            author="auto:poi",
+            actor="task:poi",
             via="workflow",
             reason="Rough Milling started",
             decision=0,
@@ -1236,7 +1236,7 @@ def test_a_decision_says_what_was_decided_by_whom_and_what_they_changed(tmp_path
             kind="state",
             proposed={},
             outcome="Withdrawn",
-            author="auto:workflow",
+            actor="task:workflow",
             via="workflow",
             reason="the run stopped",
             decision=0,
@@ -1250,7 +1250,7 @@ def test_a_decision_says_what_was_decided_by_whom_and_what_they_changed(tmp_path
             kind="task_result",
             proposed={},
             outcome="Confirmed",
-            author="human:op",
+            actor="operator:op",
             via="review",
             decision=1,
             decided={},
@@ -1298,7 +1298,7 @@ def test_a_decision_is_shown_on_the_image_its_values_sit_on(tmp_path):
         return _record(_at(t), "image_acquired", {"path": path, "beam_type": "ION"})
 
     poi = {"kind": "point_of_interest", "proposed": {"poi": {"x": 0.0, "y": 0.0}}}
-    decided = {"outcome": "Confirmed", "author": "human:op", "via": "review"}
+    decided = {"outcome": "Confirmed", "actor": "operator:op", "via": "review"}
     _write_events(
         tmp_path,
         image(0, "01", "ref_final_ib.tif"),

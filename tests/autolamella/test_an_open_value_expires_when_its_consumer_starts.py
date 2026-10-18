@@ -104,7 +104,7 @@ def test_a_correction_after_expiry_is_refused_as_a_late_edit(experiment):
         "Trench",
         Decision(
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             values={"poi": Point(1e-6, 0)},
             proposal_id=proposal.id,
         ),
@@ -115,7 +115,7 @@ def test_a_correction_after_expiry_is_refused_as_a_late_edit(experiment):
         "Trench",
         Decision(
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             proposal_id=proposal.id,
         ),
     )
@@ -218,7 +218,7 @@ def test_when_the_run_ends_a_result_and_a_value_both_stay_open(tmp_path):
         "Trench",
         Decision(
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             values={"poi": Point(1e-6, 0)},
             proposal_id=point.id,
         ),

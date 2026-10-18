@@ -30,6 +30,7 @@ from PyQt5.QtCore import QCoreApplication, QEvent
 
 import fibsem.config as fibsem_config
 from fibsem import conversions
+from fibsem.acting import ActorKind
 from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskDescription,
@@ -43,7 +44,7 @@ from fibsem.applications.autolamella.workflows.tasks.undercut import (
     MillUndercutTaskConfig,
 )
 from fibsem.structures import FibsemImage, Point
-from fibsem.workflows.proposals import DETECTION, AuthorKind, Decision, DecisionOutcome
+from fibsem.workflows.proposals import DETECTION, Decision, DecisionOutcome
 from fibsem.workflows.status import HoldKind, TaskStatus
 
 UNDERCUT = "Mill Undercut"
@@ -207,7 +208,7 @@ def test_each_detection_is_answered_in_the_review_tab_and_the_stage_follows(
         UNDERCUT,
         Decision(
             outcome=DecisionOutcome.Confirmed,
-            author="human:op",
+            actor="operator:op",
             values={"features": [{"name": "LamellaCentre", "px": moved}]},
             proposal_id=first.id,
             via="review",
@@ -256,7 +257,7 @@ def test_each_detection_is_answered_in_the_review_tab_and_the_stage_follows(
     for proposal in detections:
         decision = proposal.current
         assert decision.outcome is DecisionOutcome.Confirmed
-        assert decision.author.kind is AuthorKind.human
+        assert decision.actor.kind is ActorKind.operator
         assert decision.proposal_id == proposal.id, "each names its own"
     assert ui.hold is None
     assert lamella.task_state.status is TaskStatus.Completed, (

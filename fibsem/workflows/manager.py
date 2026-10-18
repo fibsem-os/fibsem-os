@@ -126,7 +126,7 @@ class BaseTaskManager:
         # run by whoever launched it.
         self.stalled = False
         self.stall_reason = ""
-        # (item, last round) pairs the app said have no next round: asked once,
+        # (item, last iteration) pairs the app said have no next iteration: asked once,
         # not again on every pass of the loop.
         self._rounds_ended: Set[Tuple[str, Optional[int]]] = set()
 
@@ -366,14 +366,14 @@ class BaseTaskManager:
                 item_id, req, f"{task_name} started before anyone looked"
             )
 
-    # --- Rounds: items that repeat their tasks ---
+    # --- Iterations: items that repeat their tasks ---
 
-    def _next_round(
+    def _next_iteration(
         self, item_name: str, finished: Optional[int]
     ) -> Optional[Tuple[int, List[str]]]:
-        """The next round of ``item_name``'s tasks, as (round, task names), now
-        that the round ``finished`` has drained (None: its queued work had no
-        round), or None when it has no more.
+        """The next iteration of ``item_name``'s tasks, as (iteration, task names), now
+        that the iteration ``finished`` has drained (None: its queued work had no
+        iteration), or None when it has no more.
 
         An app whose items repeat their tasks -- a volume position, once per
         slice -- says here what comes next. By default an item runs its tasks
@@ -381,30 +381,30 @@ class BaseTaskManager:
         return None
 
     def _refill(self) -> bool:
-        """Queue the next round for every item with nothing left waiting or
-        running. Only one round per item is queued at a time, so a hold on one
-        item's round parks that item while the others go on, and the queue
-        never holds every round up front. True when anything was queued."""
+        """Queue the next iteration for every item with nothing left waiting or
+        running. Only one iteration per item is queued at a time, so a hold on one
+        item's iteration parks that item while the others go on, and the queue
+        never holds every iteration up front. True when anything was queued."""
         busy = set()
-        rounds: Dict[str, List[int]] = {}
+        iterations: Dict[str, List[int]] = {}
         for work in self.queue.items:
             if work.is_pending or work.status is TaskStatus.InProgress:
                 busy.add(work.item_name)
-            rounds.setdefault(work.item_name, [])
-            if work.round is not None:
-                rounds[work.item_name].append(work.round)
+            iterations.setdefault(work.item_name, [])
+            if work.iteration is not None:
+                iterations[work.item_name].append(work.iteration)
         added = False
-        for item_name, queued in rounds.items():
+        for item_name, queued in iterations.items():
             last = max(queued) if queued else None
             if item_name in busy or (item_name, last) in self._rounds_ended:
                 continue
-            following = self._next_round(item_name, last)
+            following = self._next_iteration(item_name, last)
             if following is None:
                 self._rounds_ended.add((item_name, last))
                 continue
-            round_, task_names = following
+            iteration_, task_names = following
             for task_name in task_names:
-                self.queue.add(item_name, task_name, round=round_)
+                self.queue.add(item_name, task_name, iteration=iteration_)
             added = added or bool(task_names)
         if added:
             self.notify_queue_changed()
@@ -412,7 +412,7 @@ class BaseTaskManager:
 
     def _next_item(self) -> Optional[WorkItem]:
         """The next runnable work item, or None: the queue, refilled first with
-        any item's next round."""
+        any item's next iteration."""
         self._refill()
         return self.queue.next(skip=self._is_deferred)
 
@@ -544,15 +544,15 @@ class BaseTaskManager:
             "experiment_name": self.experiment.name,
             "tasks_remaining": pending,
             "tasks_total": total,
-            "round": self.active_round,
+            "iteration": self.active_iteration,
         }
 
     @property
-    def active_round(self) -> Optional[int]:
-        """The round of the queue entry running now; None outside one, or for
-        an item that does not run in rounds."""
+    def active_iteration(self) -> Optional[int]:
+        """The iteration of the queue entry running now; None outside one, or for
+        an item that does not run in iterations."""
         active = self.queue.active
-        return active.round if active is not None else None
+        return active.iteration if active is not None else None
 
     def _fire_workflow_hook(self, event: HookEvent, **fields) -> None:
         # Workflow events used to carry nothing at all, so workflow_completed reached a
@@ -720,7 +720,7 @@ class BaseTaskManager:
             task_names=self.queue.task_names,
             lamella_names=self.queue.item_names,
             work_item_id=item.id,
-            round=item.round,
+            iteration=item.iteration,
         )
 
         self.parent_ui.workflow_status_signal.emit(
