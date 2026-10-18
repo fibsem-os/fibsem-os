@@ -13,8 +13,8 @@ pytest.importorskip("fastapi")
 httpx = pytest.importorskip("httpx")
 
 from fibsem import config as fibsem_cfg
-from fibsem.applications.autolamella.server import hosting
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
+from fibsem.server import hosting
 from fibsem.workflows.event_recording import recorder_for
 
 
@@ -30,8 +30,7 @@ def ui(qapp):
     try:
         yield window
     finally:
-        if window._app_server_host is not None:
-            window._app_server_host.stop()
+        window.session.stop_app_server()
         window.session.stop_recording()
         window.close()
         window.deleteLater()
@@ -48,9 +47,10 @@ def app_server_enabled(monkeypatch, tmp_path):
     real_host = hosting.AppServerHost
     port = _free_port()
 
-    def confined(ui_object, **kwargs):
+    def confined(session, app_context, **kwargs):
         return real_host(
-            ui_object,
+            session,
+            app_context,
             port=port,
             discovery_path=tmp_path / "agent-server.json",
             serve_microscope=kwargs.get("serve_microscope", False),
@@ -64,7 +64,7 @@ def test_connect_starts_a_live_read_only_server(ui, app_server_enabled):
     ui.system_widget.connect_to_microscope()
     ui.connect_to_microscope()
 
-    host = ui._app_server_host
+    host = ui.session.app_server
     assert host is not None and host.running
     body = httpx.get(
         f"{host.url}/capabilities",
@@ -98,8 +98,9 @@ def _confine_and_control_preferences(monkeypatch, tmp_path):
     monkeypatch.setattr(
         hosting,
         "AppServerHost",
-        lambda ui_object, **kwargs: real_host(
-            ui_object,
+        lambda session, app_context, **kwargs: real_host(
+            session,
+            app_context,
             port=port,
             discovery_path=tmp_path / "agent-server.json",
             serve_microscope=kwargs.get("serve_microscope", False),
@@ -114,17 +115,17 @@ def test_saving_the_preference_mid_session_starts_and_stops_the_server(
     preferences = _confine_and_control_preferences(monkeypatch, tmp_path)
     ui.system_widget.connect_to_microscope()
     ui.connect_to_microscope()
-    assert ui._app_server_host is None  # flag off at connect, as before
+    assert ui.session.app_server is None  # flag off at connect, as before
 
     # The user ticks the box and saves: the server starts now, not next connect.
     preferences.app_server.enabled = True
     ui.sync_app_server_with_preference()
-    host = ui._app_server_host
+    host = ui.session.app_server
     assert host is not None and host.running
 
     # Already matching: syncing again must not restart or double-bind.
     ui.sync_app_server_with_preference()
-    assert ui._app_server_host is host and host.running
+    assert ui.session.app_server is host and host.running
 
     # Unticking stops it just as immediately.
     preferences.app_server.enabled = False
@@ -147,27 +148,27 @@ def test_the_microscope_is_off_by_default_and_restarts_when_changed(
     preferences.app_server.enabled = True
     ui.system_widget.connect_to_microscope()
     ui.connect_to_microscope()
-    first = ui._app_server_host
+    first = ui.session.app_server
     assert first is not None and first.running
     assert _routers(first) == {"microscope": False, "services": True, "app": True}
 
     # Turning the microscope on in Tools → App Server rebuilds the server with the
     # instrument routes, keeping the agent's token (FIB-1359).
     ui.set_app_server_microscope(True)
-    second = ui._app_server_host
+    second = ui.session.app_server
     assert second is not first and not first.running and second.running
     assert second.auth is first.auth
     assert _routers(second) == {"microscope": True, "services": True, "app": True}
 
     # Unchanged: no restart.
     ui.set_app_server_microscope(True)
-    assert ui._app_server_host is second and second.running
+    assert ui.session.app_server is second and second.running
 
     # Syncing only starts or stops the server; the microscope is applied by
     # set_app_server_microscope, which Tools → App Server calls after saving it.
     preferences.app_server.microscope = False
     ui.sync_app_server_with_preference()
-    assert ui._app_server_host is second and second.serve_microscope
+    assert ui.session.app_server is second and second.serve_microscope
 
     ui.disconnect_from_microscope()
     assert not second.running
@@ -178,7 +179,7 @@ def test_syncing_without_a_microscope_waits_for_connect(ui, monkeypatch, tmp_pat
     preferences.app_server.enabled = True
     ui.sync_app_server_with_preference()
     # Nothing to serve yet: the connect path picks the preference up, as before.
-    assert ui._app_server_host is None
+    assert ui.session.app_server is None
 
 
 def test_default_preference_hosts_nothing(ui, monkeypatch):
@@ -189,7 +190,7 @@ def test_default_preference_hosts_nothing(ui, monkeypatch):
     )
     ui.system_widget.connect_to_microscope()
     ui.connect_to_microscope()
-    assert ui._app_server_host is None
+    assert ui.session.app_server is None
     manager = ui.setup_hooks()
     assert manager is not None  # and built without any agent involvement
 
@@ -202,7 +203,7 @@ def test_the_event_stream_runs_without_the_app_server(ui, monkeypatch):
     ui.system_widget.connect_to_microscope()
     ui.connect_to_microscope()
     recorder = ui.session.recorder
-    assert recorder is not None and ui._app_server_host is None
+    assert recorder is not None and ui.session.app_server is None
     # A run finds this recorder and registers its lifecycle hook (FIB-1044).
     assert recorder_for(ui.microscope) is recorder
     assert recorder.buffer.append in ui.ui_responder._question_observers
@@ -222,7 +223,7 @@ def test_the_app_server_reads_the_session_stream(ui, app_server_enabled):
     # connected. The second must not leave the server on a stream it replaced.
     ui.system_widget.connect_to_microscope()
     ui.connect_to_microscope()
-    host, recorder = ui._app_server_host, ui.session.recorder
+    host, recorder = ui.session.app_server, ui.session.recorder
     assert host.running
     assert host.event_buffer is recorder.buffer
     assert host.lifecycle_hook is recorder.lifecycle_hook

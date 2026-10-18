@@ -3797,7 +3797,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         )
 
         dialog = ConnectAgentDialog(
-            lambda: getattr(self.autolamella_ui, "_app_server_host", None), self
+            lambda: self.autolamella_ui.session.app_server, self
         )
         dialog.exec_()
 
@@ -3821,9 +3821,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         preference = fibsem_cfg.load_user_preferences().app_server
         dialog = AppServerDialog(
-            host_provider=lambda: getattr(
-                self.autolamella_ui, "_app_server_host", None
-            ),
+            host_provider=lambda: self.autolamella_ui.session.app_server,
             parent=self,
             set_enabled=self._set_app_server_enabled,
             set_microscope=self._set_app_server_microscope,
@@ -3849,7 +3847,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def _running_app_server(self):
         """The App Server's host while it runs, else None."""
-        host = getattr(self.autolamella_ui, "_app_server_host", None)
+        host = self.autolamella_ui.session.app_server
         if host is None or not getattr(host, "running", False):
             return None
         if getattr(host, "auth", None) is None:
@@ -4065,7 +4063,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def _agent_seconds_since_seen(self) -> Optional[float]:
         """Seconds since the agent's token last made a request, or None."""
-        host = getattr(self.autolamella_ui, "_app_server_host", None)
+        host = self.autolamella_ui.session.app_server
         if host is None:
             return None
         try:
@@ -4075,7 +4073,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def _agent_client(self) -> Optional[str]:
         """The MCP client the agent's sidecar named, or None."""
-        host = getattr(self.autolamella_ui, "_app_server_host", None)
+        host = self.autolamella_ui.session.app_server
         if host is None:
             return None
         try:
