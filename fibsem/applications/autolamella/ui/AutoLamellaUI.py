@@ -83,7 +83,6 @@ from fibsem.applications.autolamella.hook_defaults import build_hook_manager
 from fibsem.applications.autolamella.poses import (
     add_lamella,
     current_objective_position,
-    grid_id_at,
     remove_lamella,
     set_lamella_pose,
     stored_objective_position,
@@ -93,7 +92,6 @@ from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskProtocol,
     AutoLamellaWorkflowConfig,
-    AutoLamellaWorkflowOptions,
     Experiment,
     Lamella,
 )
@@ -2286,13 +2284,6 @@ class AutoLamellaUI(QMainWindow):
 
         self.update_ui()
 
-    def _on_workflow_options_changed(self, options: AutoLamellaWorkflowOptions):
-        if self.experiment is None or self.experiment.task_protocol is None:
-            return
-        self.experiment.task_protocol.options = options
-        self.experiment.save()
-        self.experiment.save_protocol()
-
     def update_lamella_combobox(self, latest: bool = False):
         if self.experiment is None:
             return
@@ -2371,13 +2362,6 @@ class AutoLamellaUI(QMainWindow):
         logging.info(f"Moving to position of {lamella.name}.")
         self.movement_widget.move_to_position(stage_position)
 
-    def _grid_id_for_new_lamella(
-        self, position: Optional[FibsemStagePosition]
-    ) -> Optional[str]:
-        """The record id of the grid a lamella at *position* is on, or None
-        (`fibsem.applications.autolamella.poses.grid_id_at`)."""
-        return grid_id_at(self.experiment, self.microscope, position)
-
     def add_new_lamella(
         self,
         stage_position: Optional[FibsemStagePosition] = None,
@@ -2446,38 +2430,6 @@ class AutoLamellaUI(QMainWindow):
             return
         if not remove_lamella(self.experiment, lamella):
             return
-        logging.debug("Lamella removed from experiment")
-        self.update_lamella_combobox(latest=True)
-        self.update_ui()
-
-    def delete_lamella_ui(self):
-        """Handle the removal of a lamella from the experiment (legacy path)."""
-
-        idx = self.lamella_list.selected_index
-        if idx == -1:
-            logging.warning("No lamella is selected, cannot remove.")
-            return
-
-        if self.experiment is None or self.experiment.positions == []:
-            logging.warning("No lamella in the experiment, cannot remove.")
-            return
-
-        pos = self.experiment.positions[idx]
-        ret = fui.message_box_ui(
-            title="Remove Lamella",
-            text=f"Are you sure you want to remove Lamella {pos.name}?",
-            parent=self,
-        )
-        if ret is False:
-            logging.debug("User cancelled lamella removal.")
-            return
-
-        # TODO: also remove data from disk
-
-        # remove the lamella
-        self.experiment.positions.pop(idx)
-        self.experiment.save()
-
         logging.debug("Lamella removed from experiment")
         self.update_lamella_combobox(latest=True)
         self.update_ui()
