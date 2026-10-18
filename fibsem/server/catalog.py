@@ -32,7 +32,8 @@ class ToolSpec:
     optional: Tuple[str, ...] = ()
     # Which router serves it: "microscope" unless the App Server's devices
     # service is off (FIB-1035); "app" only when the server was built with an
-    # app_context; "base" always. /capabilities reports which.
+    # app_context; "services" (the analysis services) and "base" always.
+    # /capabilities reports which.
     router: str = "microscope"
     # Commands or changes the microscope, so takes control of it (FIB-1270).
     hardware: bool = False
@@ -461,7 +462,8 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "the lamella's point of interest. Moves nothing."
         ),
         method="POST",
-        path="/microscope/services/correlation/queries/correlate",
+        path="/services/correlation/queries/correlate",
+        router="services",
         level="watch",
         params={
             "fib_image_path": "the saved FIB image the fib_points are in",
@@ -484,7 +486,8 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "pixels, and why it failed. A proposal: nothing is saved or moved."
         ),
         method="POST",
-        path="/microscope/services/correlation/queries/refine_point",
+        path="/services/correlation/queries/refine_point",
+        router="services",
         level="watch",
         params={
             "image_path": "the saved FIB image or FM stack, inside the open experiment",
@@ -507,7 +510,8 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "the run and moves nothing."
         ),
         method="POST",
-        path="/microscope/services/correlation/queries/predict",
+        path="/services/correlation/queries/predict",
+        router="services",
         level="watch",
         params={
             "run_path": "a correlation run folder inside the open experiment",
@@ -2153,6 +2157,17 @@ NOT_TOOLS: Dict[str, str] = {
     "GET /microscope/services/{service}/{parameter}/metadata": "service_list carries limits, choices and settable.",
     "GET /microscope/devices/{device}/values": "Not decided yet; device_get_parameter reads one value at a time.",
     "GET /microscope/services/{service}/values": "Not decided yet; service_get_parameter reads one value at a time.",
+    # The analysis services (fibsem.services.analysis): each query the agent
+    # uses is a named tool (correlation_correlate, ...); the generic routes are
+    # for scripts and the browser monitor.
+    "GET /services": "The analysis services' listing; their queries are named tools.",
+    "GET /services/{service}": "An analysis service's description; its queries are named tools.",
+    "GET /services/{service}/values": "An analysis service's settings; none is an agent's to read yet.",
+    "GET /services/{service}/{parameter}": "An analysis service's setting; none is an agent's to read yet.",
+    "PUT /services/{service}/{parameter}": "An analysis service's setting; none is an agent's to change yet.",
+    "GET /services/{service}/{parameter}/metadata": "An analysis service's setting limits; none is an agent's yet.",
+    "POST /services/{service}/commands/{command}": "No analysis service has a command; each query is a named tool.",
+    "POST /services/{service}/queries/{query}": "Each analysis service query the agent uses is a named tool (correlation_correlate, ...).",
 }
 
 

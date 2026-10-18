@@ -27,7 +27,7 @@ from fibsem.server import AuthConfig, build_server  # noqa: E402
 from fibsem.structures import BeamType, ImageSettings  # noqa: E402
 
 TOKEN = "test-token"
-CORRELATION = "/microscope/services/correlation"
+CORRELATION = "/services/correlation"
 
 # A known FM->FIB transform: FIB = S * R @ (x, y, z * Z_SCALE) + T. The fit
 # recovers it exactly from noise-free pairs that span the stack's depth.
@@ -205,3 +205,20 @@ def test_refine_point_answers_a_proposal(client, images):
     assert result["method"] == "Gaussian"
     assert result["status"] in ("ok", "unchanged", "error")
     assert result["initial"] == [50.0, 50.0, 5.0]
+
+
+def test_served_with_no_microscope(images, experiment):
+    """An analysis service: the App Server serves it with the microscope's
+    routes off and no microscope at all."""
+    app = build_server(
+        None,
+        app_context=SimpleNamespace(experiment_path=str(experiment)),
+        auth=AuthConfig.generate(level="watch", token=TOKEN),
+        serve_microscope=False,
+    )
+    with TestClient(app, raise_server_exceptions=False) as client:
+        client.headers.update({"Authorization": f"Bearer {TOKEN}"})
+        assert client.get("/capabilities").json()["routers"]["services"] is True
+        resp = _correlate(client, images)
+        assert resp.status_code == 200, resp.text
+        assert client.get("/microscope/services/correlation").status_code == 404
