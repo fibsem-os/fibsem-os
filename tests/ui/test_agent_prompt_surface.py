@@ -330,7 +330,7 @@ def test_an_answer_without_a_question_id_is_rejected(ui, qapp):
 def test_prompt_lifecycle_reaches_the_event_stream_with_attribution(ui, qapp):
     # Wired the way hosting wires it: responder feeds the same buffer the
     # events endpoint serves — the long-poll replaces polling /app/workflow/prompt.
-    from fibsem.applications.autolamella.server.events import EventBuffer
+    from fibsem.workflows.events import EventBuffer
 
     buffer = EventBuffer()
     app = build_server(

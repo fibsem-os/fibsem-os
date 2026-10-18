@@ -25,11 +25,11 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, BinaryIO, Dict, List, Optional, Tuple
 
-from fibsem.applications.autolamella.event_recording import (
+from fibsem.util.timestamps import wall_time_of
+from fibsem.workflows.event_recording import (
     EVENTS_FILENAME,
     read_events,
 )
-from fibsem.util.timestamps import wall_time_of
 
 __all__ = [
     "LOG_FILENAME",

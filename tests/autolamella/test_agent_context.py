@@ -487,8 +487,8 @@ def test_recent_experiments_is_json_safe():
 
 
 def test_edit_queue_removes_or_moves_a_waiting_pair(experiment, microscope):
-    from fibsem.applications.autolamella.server.events import EventBuffer
     from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
+    from fibsem.workflows.events import EventBuffer
 
     host = Host()
     host.experiment = experiment

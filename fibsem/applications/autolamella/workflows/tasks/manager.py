@@ -72,11 +72,6 @@ class TaskManager(BaseTaskManager):
         self._completed_lamella: Set[str] = set()
         self._experiment_was_complete = False
 
-    def _run_recorder(self):
-        from fibsem.applications.autolamella.event_recording import run_recorder
-
-        return run_recorder(self.microscope, self.experiment)
-
     def run(
         self,
         task_names: List[str],

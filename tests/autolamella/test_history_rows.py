@@ -15,7 +15,6 @@ from psygnal.containers import EventedDict
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.applications.autolamella.event_recording import EVENTS_FILENAME, read_events
 from fibsem.applications.autolamella.history_rows import (
     OUTSIDE_A_TASK,
     HistoryFilter,
@@ -39,6 +38,7 @@ from fibsem.applications.autolamella.workflows.tasks.rough import MillRoughTaskC
 from fibsem.applications.autolamella.workflows.tasks.select_position import (
     SelectMillingPositionTaskConfig,
 )
+from fibsem.workflows.event_recording import EVENTS_FILENAME, read_events
 from fibsem.workflows.status import TaskStatus
 
 SETUP, ROUGH = "Setup Lamella Position", "Rough Milling"

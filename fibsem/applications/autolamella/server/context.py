@@ -82,7 +82,7 @@ def item_fields_version(lamella) -> str:
     is in the milling frame, so one chosen before the pose moved names a
     different place after. History growing does not rotate it.
     """
-    from fibsem.applications.autolamella.server.events import to_plain
+    from fibsem.workflows.events import to_plain
 
     fields = {
         name: to_plain(getattr(lamella, name, None)) for name in ITEM_PATCH_FIELDS
@@ -102,7 +102,7 @@ def config_version(config) -> str:
     import hashlib
     import json
 
-    from fibsem.applications.autolamella.server.events import to_plain
+    from fibsem.workflows.events import to_plain
 
     return _content_hash(to_plain(config.to_dict()))
 
@@ -1663,7 +1663,7 @@ class AutoLamellaAppContext:
         lamella, refusal = find_item(experiment, item_name)
         if refusal:
             return {"available": False, "item_name": item_name, **refusal}
-        from fibsem.applications.autolamella.server.events import to_plain
+        from fibsem.workflows.events import to_plain
 
         return {
             "available": True,
@@ -1795,7 +1795,6 @@ class AutoLamellaAppContext:
         experiment = self._experiment
         if experiment is None:
             return {"available": False, "reviews": []}
-        from fibsem.applications.autolamella.server.events import to_plain
         from fibsem.applications.autolamella.server.prompts import _preview_payload
         from fibsem.applications.autolamella.ui.review_tab_widget import (
             _load_reference_image,
@@ -1803,6 +1802,7 @@ class AutoLamellaAppContext:
             review_preview,
             waiting_on,
         )
+        from fibsem.workflows.events import to_plain
 
         protocol = getattr(experiment, "task_protocol", None)
 
@@ -2083,7 +2083,7 @@ class AutoLamellaAppContext:
         ``version`` hashes the serialized content, so a write names exactly
         the state it read: the config's version, refused as stale on mismatch.
         """
-        from fibsem.applications.autolamella.server.events import to_plain
+        from fibsem.workflows.events import to_plain
 
         return {
             "available": True,
@@ -2835,8 +2835,8 @@ class AutoLamellaAppContext:
         tab's grid task form does; ``attention`` (automated, supervised) is the
         Grids view's Automated/Supervised chip. Version-guarded like the lamella
         task configs."""
-        from fibsem.applications.autolamella.server.events import to_plain
         from fibsem.server.config_patch import PatchError, apply_patch
+        from fibsem.workflows.events import to_plain
 
         experiment, grid_protocol, refusal = self._grid_protocol_edit("edit grid tasks")
         if refusal:
@@ -3169,8 +3169,8 @@ class AutoLamellaAppContext:
         request, question_id = responder.pending_question_and_id()
         if request is None:
             return {"available": True, "pending": None}
-        from fibsem.applications.autolamella.server.events import to_plain
         from fibsem.applications.autolamella.server.prompts import serialize_request
+        from fibsem.workflows.events import to_plain
 
         payload = serialize_request(request)
         payload["question_id"] = question_id
@@ -3350,7 +3350,7 @@ class AutoLamellaAppContext:
         if moved_from is not None:
             # The value moved the widget: say from where, in the value's own
             # shape. Absent when the widget already showed it (FIB-1420).
-            from fibsem.applications.autolamella.server.events import to_plain
+            from fibsem.workflows.events import to_plain
 
             result["moved_from"] = to_plain(request.value_to_wire(moved_from))
         return result
@@ -3460,7 +3460,7 @@ class AutoLamellaAppContext:
         Unavailable (rather than empty) when the hosting wired no buffer, so a
         client can tell "no events yet" from "this server has no event stream".
         """
-        from fibsem.applications.autolamella.server.events import (
+        from fibsem.workflows.events import (
             buffer_or_unavailable,
         )
 
@@ -3478,7 +3478,7 @@ class AutoLamellaAppContext:
         """
         from pathlib import Path
 
-        from fibsem.applications.autolamella.event_recording import (
+        from fibsem.workflows.event_recording import (
             EVENTS_FILENAME,
             LIVE_KINDS,
             read_events_before,
