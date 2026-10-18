@@ -8,7 +8,7 @@ METEOR case (500 nm z step, 130 nm XY -> isotropic).
 import numpy as np
 import pytest
 
-from fibsem.correlation.util import (
+from fibsem.fm.interpolation import (
     interpolate_fm_volume,
     interpolate_z_stack,
     multi_channel_interpolation,
@@ -444,7 +444,7 @@ def test_adopt_interpolated_volume_only_resamples_the_view(qapp):
     """The resampled volume is shown on the canvas; the points, the stack the
     fits and the file use, and its z step are untouched (FIB-1248)."""
     from fibsem.correlation.structures import PointType
-    from fibsem.correlation.util import interpolate_fm_volume
+    from fibsem.fm.interpolation import interpolate_fm_volume
 
     w = _widget(qapp)
     fm = _meteor_like_fm()

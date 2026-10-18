@@ -30,7 +30,7 @@ from fibsem.correlation.structures import (
     PointType,
     PointXYZ,
 )
-from fibsem.correlation.util import interpolate_fm_volume
+from fibsem.fm.interpolation import interpolate_fm_volume
 from fibsem.fm.structures import (
     FluorescenceChannelMetadata,
     FluorescenceImage,
