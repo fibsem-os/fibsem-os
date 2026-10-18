@@ -4,7 +4,7 @@ Each fitter refines a click to the centre of the feature under it -- a burnt hol
 in a FIB image, a hole in a reflection z-stack, a fluorescent target in an FM
 z-stack -- and returns the refined position with a :class:`PointFitDiagnostic`, the data
 needed to draw the fit's diagnostic figure. Nothing here draws; rendering is
-:func:`fibsem.correlation.fit_diagnostics.plot_fit_diagnostic`.
+:func:`fibsem.correlation.point_fit.plot_fit_diagnostic`.
 
 Migrated from tdct.beadPos and refactored.
 """

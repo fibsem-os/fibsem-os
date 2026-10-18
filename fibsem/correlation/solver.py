@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import itertools
 from dataclasses import dataclass
-from typing import Iterable, List, Sequence, Tuple
+from typing import Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 from scipy.optimize import least_squares
@@ -256,3 +256,106 @@ def global_starts(fm_xyz, fib_xy) -> List[Start]:
 def fit_unseeded(fm_xyz, fib_xy) -> RigidFit:
     """The best fit over :func:`global_starts`: for when there is no seed."""
     return fit_rigid(fm_xyz, fib_xy, global_starts(fm_xyz, fib_xy))
+
+
+# ── the fit and its reprojections, as a run records them ─────────────────
+
+
+def correlate(
+    markers_3d: np.ndarray,
+    markers_2d: np.ndarray,
+    poi_3d: np.ndarray,
+    rotation_center: List[float],
+    imageProps: list = None,
+    seed: Optional[Start] = None,
+) -> dict:
+    """
+    Fit the rigid transform from the 3D markers to the 2D markers and reproject the
+    points of interest (POI) into the 2D image.
+
+    Args:
+        markers_3d: array of correlation marker positions for 3D image
+        markers_2d: array of correlation marker positions for 2D image
+        poi_3d:     array of points of interest for 3D image
+        rotation_center: center of rotation for the 3D image (x,y,z)
+        imageProps: properties of the images
+            ([2d_image_shape, 2d_image_pixel_size_um, 3d_image_shape])
+        seed: ``(rotation, scale)`` to restart the fit from, exactly (one local solve).
+            None searches every rotation (:func:`fit_unseeded`).
+    Returns:
+        Dictionary with input and output data:
+            input: {
+                "markers_3d": np.ndarray[float],    # 3D marker positions
+                "markers_2d": np.ndarray[float],    # 2D marker positions
+                "poi_3d": np.ndarray[float],        # 3D point of interest positions
+                "rotation_center": list[float],     # center of rotation for the 3D image
+                "imageProps": list                  # properties of the images
+            },
+            output: {
+                "transform": RigidFit,                              # the fit
+                "reprojected_3d_coordinates": np.ndarray[float],    # reprojected 3D marker positions in 2D image
+                "reprojected_2d_poi": np.ndarray[float],            # reprojected 3D poi in 2D image
+                "reprojection_error": np.ndarray[float],            # reprojection error between reprojected 3D markers and 2D markers
+                "center_of_mass_3d_markers": list[float],           # center of mass of 3D markers
+                "modified_translation": list[float]                 # modified translation (rotation center not at 0,0,0)
+
+    """
+    assert markers_3d.shape[1] == 3, "Markers 3D do not have 3 dimensions"
+
+    # coordinate arrays
+    mark_3d = markers_3d.T  # fm markers (3D)
+    mark_2d = markers_2d[:, :2].T  # fib markers (2D)
+    poi_3d = poi_3d.T  # points of interest (3D)
+
+    if seed is None:
+        transf = fit_unseeded(mark_3d.T, mark_2d.T)
+    else:
+        rotation, scale = seed
+        transf = fit_rigid(mark_3d.T, mark_2d.T, [(np.asarray(rotation), scale)])
+
+    if imageProps:
+        # the translation for a cubic volume (offset added to coordinates): the same
+        # rotation and scale, so one solve restarted at this fit reproduces them
+        shape_2d, pixel_size, shape_3d = imageProps
+        offset = (max(shape_3d) - np.array(shape_3d)) * 0.5
+        mark_3d_cube = np.copy(mark_3d) + offset[::-1, np.newaxis]
+        transf_cube = fit_rigid(
+            mark_3d_cube.T, mark_2d.T, [(transf.rotation, transf.scale)]
+        )
+    else:
+        transf_cube = transf
+
+    # reproject_points of interest
+    reprojected_poi_2d = None
+    if len(poi_3d) > 0:
+        reprojected_poi_2d = transf.project(poi_3d.T).T
+
+    # transform markers
+    reprojected_coordinates_3d = transf.project(mark_3d.T).T
+
+    # calculate translation if rotation center is not at (0,0,0)
+    modified_translation = transf_cube.translation_about(rotation_center)
+
+    # center of mass of 3D markers
+    cm_3D_markers = mark_3d.mean(axis=-1).tolist()
+
+    # delta calc,real
+    reprojection_error = reprojected_coordinates_3d[:2, :] - mark_2d
+
+    return {
+        "input": {
+            "markers_3d": mark_3d,
+            "markers_2d": mark_2d,
+            "poi_3d": poi_3d,
+            "rotation_center": rotation_center,
+            "imageProps": imageProps,
+        },
+        "output": {
+            "transform": transf,
+            "reprojected_3d_coordinates": reprojected_coordinates_3d,
+            "reprojected_2d_poi": reprojected_poi_2d,
+            "reprojection_error": reprojection_error,
+            "center_of_mass_3d_markers": cm_3D_markers,
+            "modified_translation": modified_translation,
+        },
+    }

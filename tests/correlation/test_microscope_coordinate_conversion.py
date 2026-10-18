@@ -1,7 +1,7 @@
 """The correlation module converts image px → microscope px exactly once.
 
 FIB-362: the conversion was written out four times in the correlation
-module alone — twice in `correlation_v2` (once in a helper nothing called), once
+module alone — twice in the correlation run (once in a helper nothing called), once
 inside `_reproject_poi_via_transform`, and once in
 `apply_refractive_index_correction`, where it produces `px_m`, the number
 Continue commits to the experiment. `fibsem.conversions` already owned the
@@ -24,7 +24,7 @@ import numpy as np
 import pytest
 
 from fibsem.conversions import image_to_microscope_image_coordinates_px
-from fibsem.correlation.correlation_v2 import (
+from fibsem.correlation.fit import (
     _reproject_poi_via_transform,
     convert_poi_to_microscope_coordinates,
 )

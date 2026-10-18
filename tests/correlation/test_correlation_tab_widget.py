@@ -1657,7 +1657,7 @@ def test_fit_dialog_sizes_wide_figure_to_aspect(qapp):
     import numpy as np
     from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 
-    from fibsem.correlation.fit_diagnostics import PointFitDiagnostic
+    from fibsem.imaging.localise import PointFitDiagnostic
     from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
         FitConfirmationDialog,
         FitStatus,
@@ -1785,7 +1785,7 @@ def test_error_dialog_splits_title_and_wrapped_reason(qapp):
 def test_diagnostic_toggle_reveals_and_hides_figure(qapp):
     import numpy as np
 
-    from fibsem.correlation.fit_diagnostics import PointFitDiagnostic
+    from fibsem.imaging.localise import PointFitDiagnostic
     from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
         FitConfirmationDialog,
         FitStatus,
@@ -1831,7 +1831,7 @@ def test_accept_is_default_button_not_the_toggle(qapp):
     import numpy as np
     from PyQt5.QtWidgets import QPushButton
 
-    from fibsem.correlation.fit_diagnostics import PointFitDiagnostic
+    from fibsem.imaging.localise import PointFitDiagnostic
     from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
         FitConfirmationDialog,
         FitStatus,

@@ -1,7 +1,7 @@
 """The verdict on a correlation: leave-one-out, jackknife, rejection (FIB-956).
 
-Not to be confused with :mod:`fibsem.correlation.fit_diagnostics`, which is
-the per-point local fitter's diagnostic (the panel behind the confirm dialog).
+Not to be confused with :func:`fibsem.correlation.point_fit.plot_fit_diagnostic`, which
+draws the per-point local fitter's diagnostic (the panel behind the confirm dialog).
 
 After a run the user needs one answer -- good, check, or poor -- with a reason
 they can act on. Everything here is computed from the placed pairs and the
