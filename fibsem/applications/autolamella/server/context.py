@@ -38,6 +38,7 @@ from fibsem.applications.autolamella import task_outputs as _task_outputs
 from fibsem.applications.autolamella.structures import Attention
 from fibsem.server.files import jpeg_preview
 from fibsem.util.timestamps import to_iso, wall_time_of
+from fibsem.workflows.queue import QUEUE_ACTIONS, QueueOp
 from fibsem.workflows.status import TaskStatus
 
 __all__ = [
@@ -3044,7 +3045,8 @@ class AutoLamellaAppContext:
             refused = refusal([lamella])
             if refused:
                 return {"available": True, "queued": False, "reason": refused}
-        if manager.queue.has_pending_pair(item_name, task_name):
+        result = manager.queue.requeue(item_name, task_name, front=bool(front))
+        if result.op is QueueOp.ALREADY_QUEUED:
             # A re-ask after a partial failure would queue it twice (FIB-1405).
             return {
                 "available": True,
@@ -3053,9 +3055,14 @@ class AutoLamellaAppContext:
                 "reason": f"{item_name} / {task_name} is already waiting in the "
                 "queue; it runs once.",
             }
-        item = manager.queue.add(item_name, task_name, front=bool(front))
-        if item is None:
-            return {"available": True, "queued": False, "reason": "add refused"}
+        if result.op is QueueOp.FIXED:
+            return {
+                "available": True,
+                "queued": False,
+                "error_type": "fixed",
+                "reason": f"{task_name} stays with {item_name}'s tasks.",
+            }
+        item = result.item
         manager.notify_queue_changed()
         self._record_queue_change("requeue_front" if front else "requeue", item)
         return {
@@ -3130,11 +3137,6 @@ class AutoLamellaAppContext:
         is refused (``not_pending``) -- stopping it is ``stop_workflow`` -- and
         so is one that already ran.
         """
-        from fibsem.workflows.queue import (
-            QUEUE_ACTIONS,
-            QueueOp,
-        )
-
         if action not in QUEUE_ACTIONS:
             return {
                 "available": True,
@@ -3159,6 +3161,14 @@ class AutoLamellaAppContext:
                 "error": f"{item_name} / {task_name} is not in the queue.",
             }
         result = manager.queue.apply(item.id, action)
+        if result.op is QueueOp.FIXED:
+            # The grid load step: the plan shows where the exchanges fall.
+            return {
+                "available": True,
+                "applied": False,
+                "error_type": "fixed",
+                "error": f"{task_name} stays with {item_name}'s tasks.",
+            }
         if result.op is QueueOp.NOT_PENDING:
             if item.status is TaskStatus.InProgress:
                 state = "is running now; stop it instead"

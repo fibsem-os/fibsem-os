@@ -108,7 +108,7 @@ class BaseTaskManager:
         self._task_stop_event = threading.Event()
         # Built once: the token's identity is captured by every task at construction.
         self._abort_token = AnyStopEvent(self._stop_event, self._task_stop_event)
-        self.queue = TaskQueue()
+        self.queue = TaskQueue(fixed_tasks=self.FIXED_TASKS)
         # Propose-and-review is a feature flag. Read once per run, here, so a
         # preference change takes effect on the next Run and never mid-run.
         # Off: nothing is ever deferred and every task behaves as before.
@@ -420,6 +420,8 @@ class BaseTaskManager:
 
     # How many of the items a hold names read, past three: "4 lamellae".
     ITEM_NOUN = "lamellae"
+    # Steps the queue keeps where the plan put them (TaskQueue.fixed_tasks).
+    FIXED_TASKS: Tuple[str, ...] = ()
 
     def _item_defer_reason(self, item: WorkItem) -> Optional[str]:
         """Why this pending item cannot run *yet*, or None. Each manager says

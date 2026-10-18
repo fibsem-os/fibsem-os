@@ -188,6 +188,10 @@ class GridTaskManager(BaseTaskManager):
     """Runs grid tasks over the experiment's grids, one grid at a time."""
 
     ITEM_NOUN = "grids"
+    # The load step is in the queue so the plan shows where the exchanges fall.
+    # A task loads its grid on its own anyway, so moving or removing the step
+    # would only make the plan lie about when the exchange happens.
+    FIXED_TASKS = (LOAD_ENTRY_NAME,)
 
     def __init__(
         self,

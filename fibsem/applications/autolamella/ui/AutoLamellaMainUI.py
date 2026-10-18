@@ -97,9 +97,6 @@ from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
     WorkflowProgressWidget,
 )
 from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
-    LOAD_ENTRY_NAME as GRID_LOAD_STEP,
-)
-from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     grid_has_run,
     grid_rename_refusal,
     plan_grid_run,
@@ -3558,16 +3555,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return
         label = f"{item.task_name} for {item.item_name}"
 
-        # The load step goes with its grid's tasks. It is in the queue so the
-        # plan shows where the exchanges fall, not to be taken out or moved; a
-        # task loads its grid on its own anyway, so removing the step would only
-        # make the plan lie about when the exchange happens.
-        if item.task_name == GRID_LOAD_STEP and action != "stop_task":
-            self._show_queue_message(
-                f"The load step stays with {item.item_name}'s tasks."
-            )
-            return
-
         if action == "stop_task":
             # Confirmed, unlike Remove: that edits a list, this interrupts an
             # operation already under way on the sample.
@@ -3595,39 +3582,51 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         if action == "run_again":
             # A fresh item rather than a rewind: the original attempt still
-            # happened and stays in the run record.
-            added = queue.add(item.item_name, item.task_name, front=True)
-            message = (
-                f"Queued {label} to run next."
-                if added is not None
-                else f"Could not queue {label}."
+            # happened and stays in the run record. The same checks as the App
+            # Server's requeue: a lamella on a grid not on the stage is refused.
+            experiment = self.autolamella_ui.experiment
+            lamella = (
+                experiment.get_lamella_by_name(item.item_name)
+                if experiment is not None
+                else None
             )
-        else:
-            if action not in QUEUE_ACTIONS:
-                logging.warning(f"Unknown queue action from the timeline: {action}")
+            refused = self._lamella_run_refusal([lamella]) if lamella else ""
+            if refused:
+                self._show_queue_message(refused)
                 return
-            message = self._queue_action_message(
-                action, label, queue.apply(item_id, action)
-            )
+            result = queue.requeue(item.item_name, item.task_name, front=True)
+        elif action in QUEUE_ACTIONS:
+            result = queue.apply(item_id, action)
+        else:
+            logging.warning(f"Unknown queue action from the timeline: {action}")
+            return
 
         manager.notify_queue_changed()
-        self._show_queue_message(message)
+        self._show_queue_message(self._queue_action_message(action, item, result))
 
     @staticmethod
-    def _queue_action_message(action: str, label: str, result: QueueResult) -> str:
-        """Describe the outcome of a queue action, or "" to say nothing.
+    def _queue_action_message(action: str, item, result: QueueResult) -> str:
+        """Describe the outcome of a queue action on ``item``, or "" to say nothing.
 
         The row may have started running between the menu opening and the click,
         which is the whole reason the queue returns a structured result rather
         than a bool — say so instead of appearing to do nothing.
         """
+        label = f"{item.task_name} for {item.item_name}"
+        if result.op is QueueOp.FIXED:
+            return f"{item.task_name} stays with {item.item_name}'s tasks."
+        if result.op is QueueOp.ALREADY_QUEUED:
+            return f"{label} is already waiting in the queue."
         if result.op is QueueOp.NO_OP:
             return ""  # already first or last; the user can see that
         if result.op is QueueOp.NOT_PENDING:
             return f"{label} is already running."
         if not result.ok:
+            if action == "run_again":
+                return f"Could not queue {label}."
             return f"{label} is no longer in the queue."
         return {
+            "run_again": f"Queued {label} to run next.",
             "move_up": f"Moved {label} up.",
             "move_down": f"Moved {label} down.",
             "run_next": f"{label} will run next.",
