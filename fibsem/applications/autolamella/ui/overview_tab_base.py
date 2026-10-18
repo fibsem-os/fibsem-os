@@ -48,6 +48,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QVBoxLayout, QWidget
 
+from fibsem.applications.autolamella.poses import remove_lamella
 from fibsem.applications.autolamella.ui.lamella_name_list_widget import (
     LamellaNameListWidget,
 )
@@ -459,12 +460,9 @@ class AutoLamellaOverviewTabBase(QWidget):
         experiment = self.experiment
         if experiment is None or lamella is None:
             return
-        try:
-            experiment.positions.remove(lamella)
-        except ValueError:
+        if not remove_lamella(experiment, lamella):
             logger.debug(f"Cannot remove {lamella.name!r}: not in the experiment.")
             return
-        experiment.save()
         self.refresh_positions()
         notification_service.show_toast(f"Removed {lamella.name}.", "info")
 
