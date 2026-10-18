@@ -20,7 +20,6 @@ pytest.importorskip("PyQt5")
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
 from fibsem.workflows.interaction import (
     Confirm,
-    answered_by,
     ask,
 )
 
@@ -213,40 +212,6 @@ def test_question_lifecycle_events_carry_who_answered(ui, qapp):
     assert events[0][1]["question_id"] == events[1][1]["question_id"]
     assert events[2][1]["question_id"] == events[3][1]["question_id"]
     assert events[2][1]["message"] == "Second?"
-
-
-def _ask_and_hear_who_answered(ui, qapp, answer):
-    """Ask on a worker, answer with ``answer()``, and return who the asker,
-    on its own thread, heard answered."""
-    heard = {}
-
-    def target():
-        ask(ui.ui_responder, Confirm("Go on?"))
-        heard["by"] = answered_by()
-
-    thread = threading.Thread(target=target, daemon=True)
-    thread.start()
-    _spin_until(qapp, lambda: ui.ui_responder.pending_question() is not None)
-    answer()
-    _spin_until(qapp, lambda: "by" in heard)
-    thread.join(timeout=5)
-    return heard["by"]
-
-
-def test_the_asker_hears_who_answered(ui, qapp):
-    # The task records the decision the answer makes, on its own thread, and
-    # names who made it from this (FIB-1328).
-    def agent():
-        _, question_id = ui.ui_responder.pending_question_and_id()
-        ui.ui_responder.submit_answer(True, question_id=question_id)
-
-    assert _ask_and_hear_who_answered(ui, qapp, agent) == "agent"
-    assert (
-        _ask_and_hear_who_answered(
-            ui, qapp, lambda: ui.ui_responder.answer_confirm(True)
-        )
-        == "operator"
-    )
 
 
 def test_a_broken_observer_cannot_break_the_click(ui, qapp):

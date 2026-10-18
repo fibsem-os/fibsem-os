@@ -153,8 +153,8 @@ the question, check image freshness, and separate reading from acting. Then
 **suggest** the answer:
 
 ```json
-{"question_id": 7, "response": false, "value": {"action": "accept"},
- "reason": "Face is clean in the 02:14 image, taken after the last pass; curtaining stops below the trench. Accept."}
+{"question_id": 7, "response": true,
+ "reason": "The lamella is centred in both the 02:14 SEM and FIB images. Continue."}
 ```
 
 The prompt shows "Agent suggests: <the button>" with your reason under it.
@@ -163,10 +163,9 @@ shows `suggested_by=agent`. If they answer some other way, your suggestion
 is dropped. That's their call, not an error. They may also dismiss it,
 with or without a why: the watcher's `SUGGESTION DISMISSED` line carries
 their reason. Read it before you suggest again. A suggestion carries a
-`value` when the prompt has a `value` field, as `prompt_answer` would (for
-the milling question, the action and any edits). It is placed on screen
-only if the operator takes the suggestion. When you judged on an image (the
-fresh SEM and FIB pair for a position, the start image for a mill), pass its
+`value` when the prompt has a `value` field, as `prompt_answer` would. It
+is placed on screen only if the operator takes the suggestion. When you
+judged on an image (the fresh SEM and FIB pair for a position), pass its
 path as `image`, as for a request: the card shows it with your value drawn
 on it.
 
@@ -178,8 +177,9 @@ propose auto*: propose switching the milling tasks to auto only after one
 lamella's mills all passed first time; the switch is a request too, and so
 is turning supervision back on.
 
-A **recorded question** (`QUESTION item=… task=…`) is decided, not
-answered, so a suggestion is refused (`409 not_suggestible`). At Assist, file the `review_decide` call
+A **recorded question** (`QUESTION item=… task=…`: a position, an
+alignment area, a detection, a mill's or a spot burn's pass) is decided,
+not answered, so a suggestion is refused (`409 not_suggestible`). At Assist, file the `review_decide` call
 as a request, with your reason.
 
 A suggestion leaves the click to the operator, so the supervise skill's

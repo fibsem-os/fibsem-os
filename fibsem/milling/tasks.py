@@ -140,6 +140,73 @@ def task_overridden_path(path: str) -> Optional[str]:
     return None
 
 
+class InvalidMillingEdit(ValueError):
+    """An edit to a milling config that cannot be made: the message says why."""
+
+
+def resolve_stage_names(
+    config: "FibsemMillingTaskConfig", patch: Dict[str, Any]
+) -> Dict[str, Any]:
+    """``patch`` with each ``stages.<name>.`` segment as the stage's index, which
+    is what :func:`fibsem.server.config_patch.apply_patch` resolves.
+
+    A stage is named by its name or its index. A name no stage has, or more
+    than one has, is refused with the names there are."""
+    names = [stage.name for stage in config.stages]
+    resolved: Dict[str, Any] = {}
+    for path, value in patch.items():
+        head, sep, rest = str(path).partition(".")
+        if head != "stages" or not sep:
+            resolved[path] = value
+            continue
+        segment, sep, tail = rest.partition(".")
+        if segment.isdigit():
+            resolved[path] = value
+            continue
+        # A stage name may hold dots: match the longest name the path starts with.
+        matches = [
+            name for name in names if rest == name or rest.startswith(name + ".")
+        ]
+        if not matches:
+            raise InvalidMillingEdit(
+                f"{path!r}: no stage named {segment!r}; the stages are {names}."
+            )
+        name = max(matches, key=len)
+        if names.count(name) > 1:
+            raise InvalidMillingEdit(
+                f"{path!r}: more than one stage is named {name!r}; name it by "
+                "its index instead."
+            )
+        tail = rest[len(name) :]
+        resolved[f"stages.{names.index(name)}{tail}"] = value
+    return resolved
+
+
+def patch_milling_config(
+    config: "FibsemMillingTaskConfig", fields: Dict[str, Any]
+) -> "FibsemMillingTaskConfig":
+    """``config`` with ``fields`` set by dotted path, as
+    ``item_update_task_config``'s patch sets them, a stage named by its name or
+    its index (``stages.Polish 1.pattern.depth``). A new config; ``config``
+    itself is not touched. Raises :class:`InvalidMillingEdit` naming what is
+    wrong, with nothing changed."""
+    from copy import deepcopy
+
+    from fibsem.server.config_patch import PatchError, apply_patch
+
+    edited = deepcopy(config)
+    patch = resolve_stage_names(edited, fields)
+    for path in patch:
+        note = task_overridden_path(path)
+        if note is not None:
+            raise InvalidMillingEdit(f"{path!r}: {note}")
+    try:
+        apply_patch(edited, patch)
+    except PatchError as exc:
+        raise InvalidMillingEdit(f"{exc.path!r}: {exc}") from None
+    return edited
+
+
 def describe_config_fields(config: "FibsemMillingTaskConfig") -> Dict[str, Any]:
     """What each field of ``config`` means, for an agent editing it: the task's
     fields and the stage's by dotted path, and each pattern's and strategy's

@@ -1957,11 +1957,18 @@ class AutoLamellaAppContext:
         actor: str = "",
         task_id: str = "",
         proposal_id: str = "",
+        action: str = "",
+        patch: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Decide a pending proposal, exactly as the Review tab would: the same
         Experiment.decide, on the main thread, blocking until applied. The
         actor is recorded as the agent (``actor`` names its model), never as
         the operator.
+
+        ``action`` is what a loop's pass is decided as (run, edit, skip,
+        accept). ``patch`` sets fields of its value by dotted path, on the
+        value given or else the one proposed: a milling config's
+        ``stages.Polish 1.pattern.depth``.
 
         ``proposal_id`` is the proposal the agent was shown (from
         get_pending_reviews), and what the decision is checked against: a task
@@ -1976,7 +1983,9 @@ class AutoLamellaAppContext:
         from fibsem.workflows.proposals import (
             Decision,
             DecisionOutcome,
+            ValueRefused,
             _decode_values,
+            patch_values,
         )
 
         try:
@@ -1987,14 +1996,43 @@ class AutoLamellaAppContext:
                 "applied": False,
                 "invalid_value": f"outcome must be Confirmed or Rejected, not {outcome!r}",
             }
+        try:
+            decoded = _decode_values(values or {})
+        except Exception as exc:  # noqa: BLE001 - any bad document is refused
+            return {
+                "available": True,
+                "applied": False,
+                "invalid_value": f"values could not be read: {exc}",
+            }
+        if patch:
+            item = experiment.get_item_by_id(item_id)
+            shown = next(
+                (
+                    p
+                    for p in (item.current_proposals(task_name) if item else [])
+                    if p.id == proposal_id or (not proposal_id and p.pending)
+                ),
+                None,
+            )
+            if shown is None:
+                return {
+                    "available": True,
+                    "applied": False,
+                    "invalid_value": "patch needs the proposal_id of a current proposal.",
+                }
+            try:
+                decoded = patch_values(shown.kind, decoded or dict(shown.values), patch)
+            except ValueRefused as exc:
+                return {"available": True, "applied": False, "invalid_value": str(exc)}
         decision = Decision(
             outcome=decided,
             actor=Actor.agent(actor or "remote"),
-            values=_decode_values(values or {}),
+            values=decoded,
             reason=reason,
             via="server",
             task_id=str(task_id or ""),
             proposal_id=str(proposal_id or ""),
+            action=str(action or ""),
         )
         result = experiment.decide(item_id, task_name, decision)
         doc = result.to_dict()
@@ -3266,10 +3304,7 @@ class AutoLamellaAppContext:
         ``EditAlignmentArea``; a point (``{"x", "y"}``, metres in microscope
         image coordinates, origin centre, +y up) for ``PickPOI``; moved
         features (``{"features": [{"name", "px": {"x", "y"}}]}``, source-image
-        pixels, only the named ones move) for ``ConfirmDetection``; the action
-        and any edits (``{"action", "points": [{"x", "y"}], "milling_current",
-        "exposure_time"}``, points as fractions of the frame, origin top-left)
-        for ``RunSpotBurn``. The value is
+        pixels, only the named ones move) for ``ConfirmDetection``. The value is
         validated here — in bounds, non-degenerate, the right shape for the
         pending question — and refused as ``invalid_value`` without clicking
         anything when it is not. A valid value is placed into the widget as if

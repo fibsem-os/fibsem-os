@@ -58,6 +58,7 @@ from fibsem import conversions
 from fibsem.acting import Actor, ActorKind
 from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
 from fibsem.applications.autolamella.structures import Experiment
+from fibsem.applications.autolamella.ui.loop_question import loop_prompt
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.structures import (
     BeamType,
@@ -88,7 +89,9 @@ from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.proposals import (
     ALIGNMENT_AREA,
     DETECTION,
+    MILLING,
     OVERVIEW_POSITIONS,
+    SPOT_BURN,
     STATE,
     TASK_RESULT,
     Decision,
@@ -258,6 +261,11 @@ class ReviewRenderer(QWidget):
 
     def current_values(self) -> Dict[str, Any]:
         raise NotImplementedError
+
+    def current_action(self) -> str:
+        """What Confirm decides, for a kind with actions (a loop's pass);
+        empty for a yes/no kind."""
+        return ""
 
     def set_running(self, running: bool) -> None:
         """Whether the beam is busy elsewhere -- shown, never acted on."""
@@ -924,6 +932,36 @@ class StateReviewRenderer(TaskResultReviewRenderer):
             self.no_image.setText(
                 "Asked before an image was taken: the position is the proposal."
             )
+
+
+class LoopPassReviewRenderer(TaskResultReviewRenderer):
+    """One pass of a mill or a spot burn, for when it is not decided over its
+    widget (no spot-burn widget here, or the window was elsewhere): the image
+    the pass sits on and what it would do. Confirm decides the prompt bar's
+    first button (Run Milling, Mill Again, Continue) with the value as
+    proposed; Reject fails the task. Edits are made in the widget."""
+
+    PENDING_HINT = "Enter — run it as proposed"
+
+    def _show_proposal(self) -> None:
+        super()._show_proposal()
+        if self._proposal is not None and self._proposal.pending:
+            self.btn_confirm.setText(loop_prompt(self._proposal).positive)
+
+    def current_action(self) -> str:
+        return loop_prompt(self._proposal).yes if self._proposal is not None else ""
+
+    def _fact(self) -> str:
+        proposal = self._proposal
+        if proposal is None:
+            return ""
+        return f"{self._task_name} asked at {clock(proposal.created_at)}: " + (
+            loop_prompt(proposal).message
+        )
+
+
+register_review_renderer(MILLING)(LoopPassReviewRenderer)
+register_review_renderer(SPOT_BURN)(LoopPassReviewRenderer)
 
 
 @register_review_renderer(ALIGNMENT_AREA)
@@ -2330,6 +2368,7 @@ class ReviewTabWidget(QWidget):
             values=values,
             task_id=proposal.task_id,
             proposal_id=proposal.id,  # what was shown, refused if it is not this
+            action=self._renderer_for(proposal.kind).current_action(),
         )
         self._apply(item, task_name, decision)
 

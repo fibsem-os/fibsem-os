@@ -14,6 +14,7 @@ from fibsem.applications.autolamella.workflows.tasks.base import (
 )
 from fibsem.autofunctions.charge_neutralisation import auto_charge_neutralisation
 from fibsem.structures import BeamType, param
+from fibsem.workflows.proposals import MILLING
 
 
 @dataclass
@@ -44,7 +45,7 @@ class MillTrenchTask(AutoLamellaTask):
 
     # Work at the microscope with the tools, then Continue: the milling
     # session. What needs a person present when the task is supervised.
-    sessions = ("milling",)
+    questions = (MILLING,)
 
     config_cls: ClassVar[Type[MillTrenchTaskConfig]] = MillTrenchTaskConfig
     config: MillTrenchTaskConfig

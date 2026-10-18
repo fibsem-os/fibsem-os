@@ -44,8 +44,6 @@ __all__ = ["QuestionTimelineWidget"]
 # so a new question type degrades to jargon rather than to silence.
 _QUESTION_LABELS = {
     "Confirm": "confirmation",
-    "RunMillingTask": "Run Milling",
-    "RunSpotBurn": "Run Spot Burn",
     "PickPOI": "point of interest",
     "EditAlignmentArea": "alignment area",
     "ConfirmDetection": "detection",

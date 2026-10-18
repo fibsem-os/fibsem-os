@@ -17,7 +17,7 @@ from fibsem.applications.autolamella.workflows.core import align_feature_coincid
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 from fibsem.detection.detection import LamellaBottomEdge, LamellaCentre, LamellaTopEdge
 from fibsem.structures import BeamType, param
-from fibsem.workflows.proposals import DETECTION
+from fibsem.workflows.proposals import DETECTION, MILLING
 
 
 @dataclass
@@ -49,8 +49,7 @@ class MillUndercutTask(AutoLamellaTask):
 
     # Asked while it runs: the detections the stage moves follow, through
     # ``detect``, on the record; then the milling session.
-    questions = (DETECTION,)
-    sessions = ("milling",)
+    questions = (DETECTION, MILLING)
 
     config: MillUndercutTaskConfig
     config_cls: ClassVar[Type[MillUndercutTaskConfig]] = MillUndercutTaskConfig

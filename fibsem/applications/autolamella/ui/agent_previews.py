@@ -954,9 +954,9 @@ class AgentPreviews:
     ) -> None:
         """Draw the agent's suggested answer to the pending *request* (a
         question) on the card, on the image the question shows: an alignment
-        area, detected features, spot-burn points; for a mill, the task's
-        patterns; for a position question, both beams' views (FIB-1424). The
-        agent's own *image*, when it gave one, takes the place of the view. A
+        area, detected features; for a position question, both beams' views
+        (FIB-1424). The agent's own *image*, when it gave one, takes the place
+        of the view. A
         *request* of None takes it down. A suggested point of interest is
         :meth:`show_suggested_point`'s."""
         from fibsem.workflows.interaction import (
@@ -964,8 +964,6 @@ class AgentPreviews:
             ConfirmDetection,
             EditAlignmentArea,
             PickPOI,
-            RunMillingTask,
-            RunSpotBurn,
         )
 
         controller = self._view_controller()
@@ -976,11 +974,6 @@ class AgentPreviews:
                 self._picture(None, None, [], suggestion=True)
             return
         evidence = _agent_image(self._load_image, image)
-        if isinstance(request, RunMillingTask):
-            self._show_mill(
-                controller, request, evidence, getattr(value, "action", None)
-            )
-            return
         if isinstance(request, Confirm) and evidence is None:
             self._show_position(controller)
             return
@@ -1013,20 +1006,6 @@ class AgentPreviews:
                 [(None, lambda frame, c=c: _fraction_pixel(frame, c)) for c in corners],
                 area=True,
             )
-        elif isinstance(request, RunSpotBurn):
-            # The edit's points, or the question's when it moves none.
-            points = getattr(value, "points", None)
-            if points is None:
-                points = request.settings.coordinates
-            mark = _Mark(
-                BeamType.ION,
-                "spot burn points",
-                [
-                    (None, lambda frame, p=p: _fraction_pixel(frame, (p.x, p.y)))
-                    for p in points
-                ],
-                shape=DOT,
-            )
         elif isinstance(request, ConfirmDetection):
             image = getattr(request.detection, "fibsem_image", None)
             if _has_pixel_size(image):
@@ -1049,48 +1028,6 @@ class AgentPreviews:
             (frame.metadata.image_settings.beam_type or mark.beam) if own else mark.beam
         )
         self._picture(frame, beam, [layer], suggestion=True, agent_image=own)
-
-    def _show_mill(self, controller, request, evidence=None, action=None) -> None:
-        """A mill question's task: its stages' patterns on the FIB view, the
-        image the task shows as it asks, or on the agent's own FIB image. What
-        the operator approves by answering Run (FIB-1424). A suggestion to go
-        on without milling (more) outlines them: nothing is to be milled."""
-        config = getattr(request, "config", None)
-        stages = [s for s in getattr(config, "stages", []) or [] if s.enabled]
-        own = (
-            evidence is not None
-            and evidence.metadata.image_settings.beam_type is BeamType.ION
-        )
-        frame = evidence if own else _frame(controller, BeamType.ION)
-        if frame is None or not stages:
-            self._picture(None, None, [], suggestion=True)
-            return
-        aspect = frame.data.shape[0] / frame.data.shape[1]
-        from fibsem.workflows.interaction import (
-            ACTION_ACCEPT,
-            ACTION_SKIP,
-        )
-
-        mills = action not in (ACTION_ACCEPT, ACTION_SKIP)
-        purple, red = _Layer(PURPLE_COLOR, fill=mills), _Layer(RED_COLOR)
-        purple.patterns = _stage_patterns(stages)
-        red.patterns = request_outside_field({}, aspect, stages) if mills else []
-        if mills:
-            purple.key(FILL, "patterns", purple.patterns)
-        else:
-            milled = action == ACTION_ACCEPT and getattr(request, "passes", 0)
-            purple.key(
-                OUTLINE, "as milled" if milled else "not milled", purple.patterns
-            )
-        _key_past_field(frame, red)
-        self._picture(
-            frame,
-            BeamType.ION,
-            [purple, red],
-            suggestion=True,
-            agent_image=own,
-            title="" if own else str(getattr(config, "name", "") or ""),
-        )
 
     def _show_position(self, controller) -> None:
         """A position question ("is the lamella centred?"): the SEM and FIB

@@ -130,11 +130,19 @@ def test_a_run_s_tasks_steps_and_milling_are_read(microscope, experiment):
     assert list(milling["depth"]) == [stage.pattern.depth for stage in planned]
     assert set(milling["task_id"]) == set(runs[runs["task"] == ROUGH]["task_id"])
 
-    # Setup's two state questions and its alignment area, on the record
-    # unasked: nobody decided
+    # Setup's two state questions and its alignment area, then Rough
+    # Milling's two passes (run, then accept), on the record unasked: nobody
+    # decided
     decisions = tables.decisions
-    assert list(decisions["kind"]) == ["state", "state", "alignment_area"]
-    assert set(decisions["task"]) == {SETUP}
+    assert list(decisions["kind"]) == [
+        "state",
+        "state",
+        "alignment_area",
+        "milling",
+        "milling",
+    ]
+    assert list(decisions["task"]) == [SETUP] * 3 + [ROUGH] * 2
+    assert list(decisions["action"])[3:] == ["run", "accept"]
     assert set(decisions["outcome"]) == {"Unreviewed"}
 
     # every record counted once, and a run's steps are the task's

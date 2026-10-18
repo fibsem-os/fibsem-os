@@ -11,6 +11,7 @@ from fibsem.applications.autolamella.workflows._default_milling_config import (
 )
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 from fibsem.structures import BEAM_ORIENTATIONS, param
+from fibsem.workflows.proposals import MILLING
 
 
 @dataclass
@@ -37,7 +38,7 @@ class MillPerforationTask(AutoLamellaTask):
 
     # Work at the microscope with the tools, then Continue: the milling
     # session. What needs a person present when the task is supervised.
-    sessions = ("milling",)
+    questions = (MILLING,)
 
     config: MillPerforationTaskConfig
     config_cls: ClassVar[Type[MillPerforationTaskConfig]] = MillPerforationTaskConfig

@@ -525,15 +525,11 @@ def test_a_task_config_edit_draws_the_milling_as_it_would_be_and_as_it_is():
     assert config.milling["milling"].stages[0].pattern.width == pytest.approx(width)
 
 
-def test_a_suggested_area_and_spot_burn_points_are_drawn_on_the_card():
+def test_a_suggested_area_is_drawn_on_the_card():
     # FIB-1411: a suggested area (left 0.03, top 0.30, 0.22 × 0.40) was not
     # drawn: only the current green area showed.
     from fibsem.structures import FibsemRectangle
-    from fibsem.workflows.interaction import (
-        EditAlignmentArea,
-        RunSpotBurn,
-        SpotBurnEdit,
-    )
+    from fibsem.workflows.interaction import EditAlignmentArea
 
     controller = _Controller()  # 200 × 100 px, 0.5 µm/px
     card = _Card()
@@ -545,15 +541,6 @@ def test_a_suggested_area_and_spot_burn_points_are_drawn_on_the_card():
     assert card.shown[True] is not None
     assert layer.keys == [("area", "alignment area")]
 
-    points = [Point(0.5, 0.5), Point(0.75, 0.25)]
-    previews.show_suggestion(
-        RunSpotBurn(settings=None), SpotBurnEdit(action="run", points=points)
-    )
-    _, layer = _layer(previews.suggestion_picture)
-    assert layer.areas == []
-    # Spot burn points are dots.
-    assert layer.dots == [pytest.approx((100.0, 50.0)), pytest.approx((150.0, 25.0))]
-    assert layer.keys == [("dot", "spot burn points")]
     assert controller.overlays == {}
     previews.show_suggestion(None, None)
     assert previews.suggestion_picture is None and card.shown[True] is None
@@ -575,56 +562,6 @@ def test_suggested_features_are_drawn_on_the_image_they_were_found_in():
         request, {"LamellaCentre": Point(30.0, 40.0)}
     )
     assert card.shown[True][1].startswith("SEM")
-
-
-def test_a_suggested_answer_to_the_mill_question_draws_the_task_s_patterns():
-    # FIB-1424: "Run" suggested for RunMillingTask showed nothing, though the
-    # patterns are exactly what the operator approves.
-    from fibsem.milling.base import FibsemMillingStage
-    from fibsem.milling.tasks import FibsemMillingTaskConfig
-    from fibsem.workflows.interaction import (
-        RunMillingTask,
-    )
-
-    config = FibsemMillingTaskConfig.from_stages(
-        [
-            FibsemMillingStage(name="Trench"),
-            FibsemMillingStage(name="Off", enabled=False),
-        ],
-        name="Rough Milling",
-    )
-    controller = _Controller()
-    card = _Card()
-    previews = AgentPreviews(lambda: controller, show_picture=card)
-    previews.show_suggestion(RunMillingTask(config=config), None)
-    frame, layer = _layer(previews.suggestion_picture)
-    assert frame is controller.image(BeamType.ION)
-    trench = config.stages[0].define_patterns()
-    assert len(layer.patterns) == len(trench) and layer.fill
-    assert card.shown[True][1].startswith("Rough Milling · FIB")
-    previews.show_suggestion(None, None)
-    assert card.shown[True] is None
-
-
-def test_a_suggestion_not_to_mill_again_outlines_what_was_milled():
-    """Sim session 2026-10-16: "don't mill again" drew the patterns filled, as
-    if about to be milled."""
-    from fibsem.milling.base import FibsemMillingStage
-    from fibsem.milling.tasks import FibsemMillingTaskConfig
-    from fibsem.workflows.interaction import (
-        MillingEdit,
-        RunMillingTask,
-    )
-
-    config = FibsemMillingTaskConfig.from_stages(
-        [FibsemMillingStage(name="Trench")], name="Fiducial"
-    )
-    previews = AgentPreviews(lambda: _Controller(), show_picture=_Card())
-    question = RunMillingTask(config=config, passes=6)
-    previews.show_suggestion(question, MillingEdit(action="accept"))
-    _, layer = _layer(previews.suggestion_picture)
-    assert layer.patterns and not layer.fill
-    assert layer.keys == [("outline", "as milled")]
 
 
 def test_a_suggested_answer_to_a_position_question_shows_both_beams():
@@ -649,13 +586,8 @@ def test_a_suggested_answer_to_a_position_question_shows_both_beams():
 
 def test_a_suggestion_shows_the_agent_s_own_image():
     # FIB-1424: the agent judged a position on its own image; the card shows
-    # that image, not the live views, and a mill on its own FIB image.
-    from fibsem.milling.base import FibsemMillingStage
-    from fibsem.milling.tasks import FibsemMillingTaskConfig
-    from fibsem.workflows.interaction import (
-        Confirm,
-        RunMillingTask,
-    )
+    # that image, not the live views.
+    from fibsem.workflows.interaction import Confirm
 
     evidence = FibsemImage.generate_blank_image(resolution=(400, 200), hfw=100e-6)
     evidence.metadata.image_settings.beam_type = BeamType.ION
@@ -668,12 +600,6 @@ def test_a_suggestion_shows_the_agent_s_own_image():
     frame, layer = _layer(previews.suggestion_picture)
     assert frame is evidence and layer.targets == [(200.0, 100.0)]
     assert card.shown[True][1].startswith("The agent's image · FIB")
-    config = FibsemMillingTaskConfig.from_stages(
-        [FibsemMillingStage(name="Trench")], name="Rough Milling"
-    )
-    previews.show_suggestion(RunMillingTask(config=config), None, image="/exp/a.tif")
-    frame, layer = _layer(previews.suggestion_picture)
-    assert frame is evidence and layer.patterns
 
 
 def test_a_suggested_point_is_on_the_card_until_the_suggestion_goes():

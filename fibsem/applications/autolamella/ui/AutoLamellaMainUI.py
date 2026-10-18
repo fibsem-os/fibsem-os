@@ -74,6 +74,7 @@ from fibsem.applications.autolamella.ui.lamella_task_image_widget import (
 from fibsem.applications.autolamella.ui.lamella_workflow_widget import (
     LamellaWorkflowWidget,
 )
+from fibsem.applications.autolamella.ui.loop_question import LOOP_KINDS
 from fibsem.applications.autolamella.ui.overview_container_tab import (
     AutoLamellaOverviewContainerTab,
 )
@@ -1709,8 +1710,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     def _on_question_asked(self, item_id: str, task_name: str) -> None:
         """Put a question a task just asked in front of the operator, where
         its kind is answered: a state on the prompt bar of the Microscope tab
-        (the operator is at the instrument, and confirming needs no image);
-        anything else in the Review tab, which is fronted."""
+        (the operator is at the instrument, and confirming needs no image); a
+        mill's or a spot burn's pass on the prompt bar over its widget, where
+        the operator edits what runs; anything else in the Review tab, which
+        is fronted."""
         review_tab = getattr(self, "review_tab", None)
         experiment = getattr(self, "_asked_experiment", None)
         if review_tab is None or experiment is None:
@@ -1722,13 +1725,19 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if proposal.kind == STATE:
             self.autolamella_ui.show_state_question(item_id, task_name, proposal)
             return
+        if proposal.kind in LOOP_KINDS and self.autolamella_ui.show_loop_question(
+            item_id, task_name, proposal
+        ):
+            return
         self.tab_widget.setCurrentWidget(review_tab)
         review_tab.select(item_id, task_name)
 
     def _on_question_decided(self, item_id: str, task_name: str) -> None:
-        """However a state question was answered -- the prompt bar, the Review
-        tab, an agent, or withdrawn by Stop -- the prompt comes down."""
+        """However a state question or a pass was answered -- the prompt bar,
+        the Review tab, an agent, or withdrawn by Stop -- the prompt comes
+        down."""
         self.autolamella_ui.clear_state_question(item_id, task_name)
+        self.autolamella_ui.clear_loop_question(item_id, task_name)
 
     def _on_user_attention_clicked(self):
         """Handle user attention button click - switch to Microscope tab, or to
@@ -1756,7 +1765,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # The agent's suggested answer is on its card, not on the prompt.
         if self.agent_chip.suggestion is not None:
             self.agent_chip.show_card()
-        host = self.autolamella_ui.ui_responder.question_host()
+        host = (
+            self.autolamella_ui.loop_question_host()
+            or self.autolamella_ui.ui_responder.question_host()
+        )
         if host is not None and self.tab_widget.indexOf(host) != -1:
             # A question answered on one of this window's own tabs.
             self.tab_widget.setCurrentWidget(host)

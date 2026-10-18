@@ -235,6 +235,8 @@ class AppContext(Protocol):
         actor: str = "",
         task_id: str = "",
         proposal_id: str = "",
+        action: str = "",
+        patch: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]: ...
 
     def answer_prompt(
@@ -760,6 +762,24 @@ def build_app_control_router(context: AppContext) -> APIRouter:
                     "value name, e.g. {'poi': {'x': ..., 'y': ...}} in metres.",
                 },
             )
+        patch = body.get("patch")
+        if patch is not None and not isinstance(patch, dict):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_type": "invalid_value",
+                    "message": 'patch, when given, is {"<dotted path>": value}.',
+                },
+            )
+        action = body.get("action") or ""
+        if not isinstance(action, str):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_type": "invalid_value",
+                    "message": "action, when given, is one of the proposal's actions.",
+                },
+            )
         if outcome == "Rejected" and not str(body.get("reason", "")).strip():
             raise _missing_field("A reject needs a reason; it is recorded on the item.")
         result = context.decide(
@@ -771,6 +791,8 @@ def build_app_control_router(context: AppContext) -> APIRouter:
             actor=str(body.get("actor", "")),
             task_id=task_id,
             proposal_id=proposal_id,
+            action=action,
+            patch=patch,
         )
         if result.get("invalid_value"):
             raise HTTPException(

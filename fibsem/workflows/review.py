@@ -26,6 +26,7 @@ from fibsem.workflows.proposals import (
     ValueRefused,
     _encode_values,
     _quietly,
+    kind_label,
     prepare_values,
     rejected_fails_task,
 )
@@ -246,6 +247,32 @@ class ProposalReview:
                     reason=f"{decision.outcome.name} is not a decision: confirm "
                     "or reject. It is what the record says when nobody did.",
                 )
+            # A kind with actions (a loop's pass) is decided as one of the
+            # actions this proposal allows; a yes/no kind takes none.
+            registered = PROPOSAL_KINDS.get(proposal.kind)
+            allowed = (
+                registered.allowed_actions(proposal)
+                if registered is not None and registered.actions
+                else ()
+            )
+            if decision.outcome is DecisionOutcome.Confirmed and allowed:
+                if decision.action not in allowed:
+                    return DecisionResult(
+                        applied=False,
+                        error_type="invalid_value",
+                        reason=f"{kind_label(proposal.kind)} on {item.name} is "
+                        f"decided as one of {list(allowed)}"
+                        + (f", not {decision.action!r}." if decision.action else "."),
+                    )
+            elif decision.action and not (
+                allowed and decision.outcome is DecisionOutcome.Rejected
+            ):
+                return DecisionResult(
+                    applied=False,
+                    error_type="invalid_value",
+                    reason=f"A {kind_label(proposal.kind)} decision takes no action; "
+                    "confirm or reject it.",
+                )
             # The decision is on the result the decider saw. Named by the
             # proposal when the decider can: a task may ask several questions
             # in one run, they share its task_id, and only the proposal's own
@@ -364,7 +391,10 @@ class ProposalReview:
             try:
                 if apply_values is not None:
                     result.synced_tasks.extend(apply_values.apply())
-                if item.is_awaiting_decision(task_name):
+                # Only the proposal the run ended waiting on finishes it: a
+                # look at a question it asked and had answered on the way
+                # (still current, as every question of the run is) does not.
+                if item.is_awaiting_decision(task_name) and proposal.pending:
                     if decision.outcome is DecisionOutcome.Confirmed:
                         item.set_task_status(task_name, TaskStatus.Completed)
                     elif rejected_fails_task(proposal.kind):
@@ -617,6 +647,13 @@ class ProposalReview:
                     via="workflow",
                     task_id=proposal.task_id,
                     proposal_id=proposal.id,
+                    # What silence means for the kind: a loop's pass runs once,
+                    # then goes on.
+                    action=(
+                        PROPOSAL_KINDS[proposal.kind].silent_action(proposal)
+                        if proposal.kind in PROPOSAL_KINDS
+                        else ""
+                    ),
                 )
             )
         logging.debug(
@@ -785,8 +822,14 @@ class ProposalReview:
         """Every proposal nobody was asked about and nobody has looked at: an
         automated task's value or result, open to correct until its consumer
         starts and unchecked after; a decision an agent made. The inbox's
-        second group. Derived like the first."""
-        return self._with_standing(Standing.Open, Standing.Unchecked)
+        second group. Derived like the first. Not a loop's passes: the task's
+        result is what someone checks (``ProposalKind.listed_to_check``)."""
+        return [
+            entry
+            for entry in self._with_standing(Standing.Open, Standing.Unchecked)
+            if PROPOSAL_KINDS.get(entry[2].kind) is None
+            or PROPOSAL_KINDS[entry[2].kind].listed_to_check
+        ]
 
     def _with_standing(self, *standings: Standing) -> List[Tuple[Any, str, Proposal]]:
         listed = []

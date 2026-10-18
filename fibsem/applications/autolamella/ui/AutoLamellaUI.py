@@ -16,7 +16,7 @@ import os
 import threading
 from copy import deepcopy
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
@@ -307,6 +307,10 @@ class AutoLamellaUI(QMainWindow):
         # ``state`` kind), shown on the prompt bar: (item_id, task_name,
         # proposal_id). Continue decides it; the decision takes it down.
         self._state_question: Optional[Tuple[str, str, str]] = None
+        # A pass of a loop a task asked (``milling``, ``spot_burn``), shown on
+        # the prompt bar over its widget: (item_id, task_name, proposal). A
+        # button decides it with the widget's value; the decision takes it down.
+        self._loop_question: Optional[Tuple[str, str, Any]] = None
         # A run is active but nothing is executing -- today only during a
         # scheduled-start wait. Set from the worker thread, read by the border.
         self.WORKFLOW_PENDING: bool = False
@@ -2321,6 +2325,9 @@ class AutoLamellaUI(QMainWindow):
         # nothing.
         if self.ui_responder.answer_confirm(clicked_yes):
             return
+        if self._loop_question is not None:
+            self._decide_loop_question(clicked_yes)
+            return
         if clicked_yes:
             self._decide_state_question()
 
@@ -2381,6 +2388,114 @@ class AutoLamellaUI(QMainWindow):
                 f"{task_name}: could not confirm the state: {result.reason}"
             )
             self.pushButton_yes.setEnabled(True)
+
+    # -- a loop's pass, on the prompt bar over its widget ----------------------
+
+    def _loop_widget(self, kind: str):
+        """The widget a pass of ``kind`` is decided in, or None without one."""
+        from fibsem.workflows.proposals import MILLING, SPOT_BURN
+
+        if kind == MILLING:
+            return self.milling_task_config_widget
+        if kind == SPOT_BURN:
+            return self.spot_burn_widget
+        return None
+
+    def show_loop_question(self, item_id: str, task_name: str, proposal) -> bool:
+        """The prompt bar over the milling editor (or the spot-burn widget) is
+        the renderer for a loop's pass: the task's message and the pass's two
+        buttons. The task has already put what the pass would run in the
+        widget; the operator edits it there, and a button records the decision
+        through ``Experiment.decide`` with the widget's value. False without
+        the widget (no spot-burn hardware): the Review tab decides it then."""
+        from fibsem.applications.autolamella.ui.loop_question import loop_prompt
+        from fibsem.workflows.proposals import SPOT_BURN
+        from fibsem.workflows.status import WorkflowStatusEvent
+
+        widget = self._loop_widget(proposal.kind)
+        if widget is None:
+            return False
+        if proposal.kind == SPOT_BURN:
+            widget.set_settings(proposal.values["spot_burn"])
+            self.set_spot_burn_widget_active(True)
+            widget.set_workflow_mode(True)
+        else:
+            widget.setEnabled(True)
+            self.front_tab(widget)
+            # The task owns the mill while it asks: the editor's own Run stands down.
+            widget.milling_widget.pushButton_run_milling.setVisible(False)
+        self._loop_question = (item_id, task_name, proposal)
+        prompt = loop_prompt(proposal)
+        self.set_instructions_msg(prompt.message, prompt.positive, prompt.negative)
+        self.workflow_status_signal.emit(WorkflowStatusEvent())
+        return True
+
+    def loop_question_host(self):
+        """The widget the pass now up is decided in, for the attention button
+        to go back to; None when no pass is up."""
+        if self._loop_question is None:
+            return None
+        return self._loop_widget(self._loop_question[2].kind)
+
+    def clear_loop_question(self, item_id: str, task_name: str) -> None:
+        """A decision landed on the item and task; if it is the pass up, the
+        prompt comes down (decided here, in the Review tab, by an agent, or
+        withdrawn). The widget keeps its value: the task asks again, or clears
+        it when the loop ends."""
+        shown = self._loop_question
+        if shown is None or shown[:2] != (item_id, task_name):
+            return
+        from fibsem.workflows.status import WorkflowStatusEvent
+
+        self._loop_question = None
+        self.set_instructions_msg("")
+        self.workflow_status_signal.emit(WorkflowStatusEvent(message=""))
+
+    def _decide_loop_question(self, clicked_yes: bool) -> None:
+        shown = self._loop_question
+        experiment = self.experiment
+        if shown is None or experiment is None:
+            return
+        item_id, task_name, proposal = shown
+        from fibsem.applications.autolamella.ui.loop_question import loop_prompt
+        from fibsem.workflows.proposals import (
+            ACTION_EDIT,
+            ACTION_RUN,
+            SPOT_BURN,
+            Decision,
+            DecisionOutcome,
+        )
+
+        prompt = loop_prompt(proposal)
+        action = prompt.yes if clicked_yes else prompt.no
+        if action is None:
+            return
+        values = {}
+        widget = self._loop_widget(proposal.kind)
+        if action in (ACTION_RUN, ACTION_EDIT) and widget is not None:
+            # What runs is what the widget holds: the operator's edits. Skip
+            # and accept carry nothing: the task goes on with what it had.
+            if proposal.kind == SPOT_BURN:
+                values = {"spot_burn": deepcopy(widget.get_settings())}
+            else:
+                values = {"milling_config": deepcopy(widget.get_config())}
+        result = experiment.decide(
+            item_id,
+            task_name,
+            Decision(
+                outcome=DecisionOutcome.Confirmed,
+                actor=experiment.actor(),
+                values=values,
+                via="workflow",
+                proposal_id=proposal.id,
+                action=action,
+            ),
+        )
+        if not result.applied:
+            # Left up: the question is still open, and the reason is logged.
+            logging.warning(f"{task_name}: could not decide the pass: {result.reason}")
+            self.pushButton_yes.setEnabled(True)
+            self.pushButton_no.setEnabled(prompt.negative is not None)
 
     def handle_acquisition_update(self, ddict: dict) -> None:
         if ddict.get("finished", False):

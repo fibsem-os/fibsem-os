@@ -100,6 +100,8 @@ DECISION_COLUMNS = [
     "proposal_id",
     "decision",
     "outcome",
+    # a loop's pass: run, edit, skip or accept
+    "action",
     "actor",
     "actor_name",
     "via",
@@ -406,6 +408,7 @@ def _decision(
         "proposal_id": payload.get("proposal_id"),
         "decision": payload.get("decision"),
         "outcome": payload.get("outcome"),
+        "action": payload.get("action"),
         "actor": record.get("actor"),
         # the decision's actor is kind:name; older logs put it under author
         "actor_name": Actor.parse(
