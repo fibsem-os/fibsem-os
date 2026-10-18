@@ -31,7 +31,8 @@ from fibsem.fm.structures import (
     OverviewParameters,
     ZParameters,
 )
-from fibsem.structures import TileOrderStrategy
+from fibsem.imaging.tiled import stamped_overview_name
+from fibsem.structures import DEFAULT_OVERVIEW_FILENAME, TileOrderStrategy
 from fibsem.ui.fm.widgets.autofocus_widget import AutofocusWidget
 from fibsem.ui.fm.widgets.z_parameters_widget import ZParametersWidget
 from fibsem.ui.tokens import (
@@ -41,10 +42,6 @@ from fibsem.ui.widgets.custom_widgets import (
     QDirectoryLineEdit,
     TitledPanel,
     ValueComboBox,
-)
-from fibsem.ui.widgets.overview_acquisition_settings_widget import (
-    DEFAULT_OVERVIEW_FILENAME,
-    stamped_overview_name,
 )
 from fibsem.ui.widgets.overview_grid_settings_widget import (
     OverviewGridSettingsWidget,

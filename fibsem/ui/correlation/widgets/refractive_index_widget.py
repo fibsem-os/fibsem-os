@@ -34,6 +34,7 @@ from fibsem.ui.tokens import (
     state_style,
 )
 from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, ValueSpinBox
+from fibsem.ui.widgets.form_builder import configure_spinbox
 
 _LUT_MISSING_MSG = (
     f"Correction factor calculator unavailable: LUT file not found at\n{_LUT_PATH}\n"
@@ -97,7 +98,18 @@ def _form_label(text: str) -> QLabel:
     return lbl
 
 
-_TILT_TOOLTIP = "The angle between the FIB column and the sample surface"
+# Each optical parameter's box is shown as RISettings declares it.
+_RI = RISettings.params
+_TILT_TOOLTIP = _RI["tilt_deg"].doc
+_WAVELENGTH_SCALE = _RI["wavelength_um"].scale  # shown in nm, stored in µm
+
+
+def _ri_spinbox(name: str) -> ValueSpinBox:
+    spinbox = ValueSpinBox(no_buttons=True)
+    configure_spinbox(spinbox, _RI[name])
+    return spinbox
+
+
 _TILT_LOCKED_TOOLTIP = (
     "Locked to 0°: the FM-surface correction acts along the optical axis, "
     "which is normal to the sample surface."
@@ -160,56 +172,20 @@ class RefractiveIndexWidget(QWidget):
         form.setContentsMargins(8, 8, 8, 8)
         form.setSpacing(6)
 
-        self._spin_tilt = ValueSpinBox(
-            suffix="°",
-            minimum=0.0,
-            maximum=30.0,
-            step=1.0,
-            decimals=0,
-            no_buttons=True,
-            tooltip=_TILT_TOOLTIP,
-        )
-        self._spin_depth = ValueSpinBox(
-            suffix="µm",
-            minimum=0.5,
-            maximum=14.5,
-            step=0.5,
-            decimals=1,
-            no_buttons=True,
-            tooltip="Estimated depth of the feature below the coverslip (has little effect below ~20 µm)",
-        )
-        self._spin_na = ValueSpinBox(
-            minimum=0.2,
-            maximum=0.9,
-            step=0.1,
-            decimals=2,
-            no_buttons=True,
-            tooltip="Numerical aperture of the objective lens",
-        )
-        self._spin_n2 = ValueSpinBox(
-            minimum=1.22,
-            maximum=1.46,
-            step=0.04,
-            decimals=2,
-            no_buttons=True,
-            tooltip="Refractive index of the sample medium (n=1.0 is vacuum/air)",
-        )
-        # Wavelength spinbox works in nm; converted to µm for LUT lookup
-        self._spin_wl = ValueSpinBox(
-            suffix="nm",
-            minimum=420.0,
-            maximum=720.0,
-            step=10.0,
-            decimals=0,
-            no_buttons=True,
-            tooltip="Excitation wavelength of the fluorescence channel",
-        )
+        self._spin_tilt = _ri_spinbox("tilt_deg")
+        self._spin_depth = _ri_spinbox("depth_um")
+        self._spin_na = _ri_spinbox("na")
+        self._spin_n2 = _ri_spinbox("n2")
+        self._spin_wl = _ri_spinbox("wavelength_um")
 
-        form.addRow(_form_label("Milling Angle"), self._spin_tilt)
-        form.addRow(_form_label("Depth"), self._spin_depth)
-        form.addRow(_form_label("Numerical Aperture"), self._spin_na)
-        form.addRow(_form_label("Refractive Index"), self._spin_n2)
-        form.addRow(_form_label("Wavelength (λ)"), self._spin_wl)
+        for name, spin in (
+            ("tilt_deg", self._spin_tilt),
+            ("depth_um", self._spin_depth),
+            ("na", self._spin_na),
+            ("n2", self._spin_n2),
+            ("wavelength_um", self._spin_wl),
+        ):
+            form.addRow(_form_label(_RI[name].label), spin)
 
         self._spin_factor = ValueSpinBox(
             minimum=0.1,
@@ -368,7 +344,7 @@ class RefractiveIndexWidget(QWidget):
         self._spin_depth.setValue(params.depth_um)
         self._spin_na.setValue(params.NA)
         self._spin_n2.setValue(params.n2)
-        self._spin_wl.setValue(params.wavelength_um * 1000.0)  # µm → nm
+        self._spin_wl.setValue(params.wavelength_um * _WAVELENGTH_SCALE)
 
         for spin in (
             self._spin_tilt,
@@ -387,7 +363,7 @@ class RefractiveIndexWidget(QWidget):
             depth_um=self._spin_depth.value(),
             NA=self._spin_na.value(),
             n2=self._spin_n2.value(),
-            wavelength_um=self._spin_wl.value() / 1000.0,  # nm → µm
+            wavelength_um=self._spin_wl.value() / _WAVELENGTH_SCALE,
         )
 
     def seed_from_metadata(
@@ -398,7 +374,7 @@ class RefractiveIndexWidget(QWidget):
         """Populate λ and/or NA from FM metadata (FIB-277), leaving user-typed
         values and absent (``None``) inputs untouched."""
         if wavelength_um is not None and "wavelength" not in self._user_edited:
-            self._spin_wl.setValue(wavelength_um * 1000.0)  # µm → nm
+            self._spin_wl.setValue(wavelength_um * _WAVELENGTH_SCALE)
         if na is not None and "na" not in self._user_edited:
             self._spin_na.setValue(na)
 
