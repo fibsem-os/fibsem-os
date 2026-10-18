@@ -305,8 +305,8 @@ def test_go_to_grid_selects_it_on_the_grids_tab(main_ui, tmp_path):
     from fibsem.applications.autolamella.structures import (
         AutoLamellaTaskProtocol,
         Experiment,
-        GridRecord,
     )
+    from fibsem.workflows.grids import GridRecord
 
     ui = main_ui.autolamella_ui
     exp = Experiment(path=tmp_path, name="goto-grid-exp")

@@ -18,9 +18,7 @@ from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
-    GridRecord,
     Lamella,
-    Verdict,
 )
 from fibsem.applications.autolamella.tools.grid_report import (
     LAMELLA_BOX_WIDTH,
@@ -45,6 +43,8 @@ from fibsem.structures import (
     OverviewAcquisitionSettings,
     SampleGrid,
 )
+from fibsem.workflows.grids import GridRecord
+from fibsem.workflows.quality import Verdict
 from fibsem.workflows.status import TaskState, TaskStatus
 
 

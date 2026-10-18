@@ -14,7 +14,6 @@ from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
-    GridRecord,
 )
 from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
     AutoLamellaSingleWindowUI,
@@ -34,6 +33,7 @@ from fibsem.structures import (
     SlotCalibration,
 )
 from fibsem.ui.widgets.canvas.overlays.stage_context import holder_slots
+from fibsem.workflows.grids import GridRecord
 
 SLOT_X = {"Grid-A": -2.5e-3, "Grid-B": 2.5e-3}
 

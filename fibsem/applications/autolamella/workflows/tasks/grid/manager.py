@@ -66,7 +66,6 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 import pandas as pd
 
-from fibsem.applications.autolamella.structures import GridRecord
 from fibsem.applications.autolamella.workflows.tasks.grid.registry import (
     run_grid_task,
 )
@@ -77,6 +76,7 @@ from fibsem.devices.sample_loader import GridExchangeError
 from fibsem.hooks import HookEvent, HookManager
 from fibsem.structures import SampleGrid
 from fibsem.util import timestamps
+from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.manager import BaseTaskManager
 from fibsem.workflows.queue import WorkItem
 from fibsem.workflows.status import TaskState, TaskStatus

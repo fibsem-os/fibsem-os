@@ -60,7 +60,6 @@ from fibsem.applications.autolamella.proposals import (
 from fibsem.applications.autolamella.structures import (
     Attention,
     Experiment,
-    GridRecord,
 )
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.structures import (
@@ -87,6 +86,7 @@ from fibsem.ui.tokens import (
 from fibsem.ui.widgets.overview_widget import MODALITY_CHIP_STYLE
 from fibsem.util.durations import format_duration_in_words, format_time_ago
 from fibsem.util.timestamps import format_time, from_posix, now, to_aware, to_datetime
+from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.proposals import (
     ALIGNMENT_AREA,
     DETECTION,

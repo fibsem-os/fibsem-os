@@ -324,10 +324,11 @@ class TestTheHostPointsImportsAtTheGrid:
         under the stage, no folder, and the widget's own default applies."""
         from types import SimpleNamespace
 
-        from fibsem.applications.autolamella.structures import Experiment, GridRecord
+        from fibsem.applications.autolamella.structures import Experiment
         from fibsem.applications.autolamella.ui.autolamella_overview_tab import (
             AutoLamellaOverviewTab,
         )
+        from fibsem.workflows.grids import GridRecord
 
         experiment = Experiment(path=tmp_path, name="import-folder-test")
         grid = GridRecord(name="grid-oak")

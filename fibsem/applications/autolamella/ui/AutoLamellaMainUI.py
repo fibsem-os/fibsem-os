@@ -46,7 +46,6 @@ import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella.structures import (
     Attention,
     Experiment,
-    GridRecord,
     Lamella,
 )
 from fibsem.applications.autolamella.ui.agent_activity import AgentActivity
@@ -147,6 +146,7 @@ from fibsem.ui.widgets.status_bar import FibsemStatusBar
 from fibsem.util.durations import format_duration_rounded
 from fibsem.util.timestamps import format_time, now
 from fibsem.versioning import get_version_string
+from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.proposals import STATE
 from fibsem.workflows.queue import (
     QUEUE_ACTIONS,

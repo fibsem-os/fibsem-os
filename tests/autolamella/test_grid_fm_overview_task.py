@@ -15,7 +15,6 @@ from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
-    GridRecord,
 )
 from fibsem.applications.autolamella.task_outputs import (
     grid_outputs,
@@ -31,6 +30,7 @@ from fibsem.fm.acquisition import OverviewDestination, acquire_fm_tiled_overview
 from fibsem.fm.structures import ChannelSettings, OverviewParameters, ZParameters
 from fibsem.services.sample_handling import BUILTIN_SLOT_NAME
 from fibsem.structures import InsertableDeviceState, SampleGrid
+from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.status import TaskStatus
 
 

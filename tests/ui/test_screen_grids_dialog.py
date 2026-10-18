@@ -18,7 +18,6 @@ from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
-    GridRecord,
 )
 from fibsem.applications.autolamella.ui.screen_grids_dialog import (
     NOT_SCANNED,
@@ -33,6 +32,7 @@ from fibsem.services.sample_handling import (
     bind_sample_handling,
 )
 from fibsem.structures import FibsemStagePosition
+from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.status import TaskState
 from tests.fixtures.demo_stage import demo_grid_loader
 
