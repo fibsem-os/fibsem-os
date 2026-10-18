@@ -98,8 +98,9 @@ def _confine_and_control_preferences(monkeypatch, tmp_path):
     monkeypatch.setattr(
         hosting,
         "AppServerHost",
-        lambda ui_object, **kwargs: real_host(
-            ui_object,
+        lambda session, app_context, **kwargs: real_host(
+            session,
+            app_context,
             port=port,
             discovery_path=tmp_path / "agent-server.json",
             serve_microscope=kwargs.get("serve_microscope", False),
