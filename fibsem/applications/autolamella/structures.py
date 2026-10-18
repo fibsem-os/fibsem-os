@@ -30,6 +30,7 @@ from psygnal.containers import EventedDict, EventedList
 # Registers AutoLamella's proposal kinds and how their values are stored and
 # written: an experiment read from disk decodes its proposals with them.
 import fibsem.applications.autolamella.proposals  # noqa: F401
+import fibsem.workflows.positions  # noqa: F401
 from fibsem import timing
 from fibsem.applications.autolamella import config as cfg
 from fibsem.applications.autolamella.protocol.constants import (
@@ -69,7 +70,9 @@ from fibsem.workflows.grid.protocol import GridTaskProtocol
 from fibsem.workflows.grids import ExperimentGrids, GridRecord
 from fibsem.workflows.item import ExperimentItem
 from fibsem.workflows.proposals import (
+    PreparedWrite,
     Proposal,
+    ValueRefused,
     proposals_from_dict,
     proposals_to_dict,
 )
@@ -82,6 +85,7 @@ if TYPE_CHECKING:
     import numpy as np
 
     from fibsem.microscope import FibsemMicroscope
+    from fibsem.workflows.positions import ItemPoses
 
 
 # AutoLamellaUser lived here: a richer user identity (role, preferences, is_default)
@@ -1389,6 +1393,63 @@ class Experiment(ExperimentGrids, ProposalReview, BaseExperiment):
         )
 
         return Path(generate_grid_report(self, inventory=inventory))
+
+    def prepare_items_at(
+        self, grid: GridRecord, positions: List["ItemPoses"]
+    ) -> PreparedWrite:
+        """Plan one lamella per confirmed position on ``grid``, the write an
+        overview's positions proposal makes, without touching anything yet.
+
+        Undone together: a half-created set is worse than none, and the
+        decision is only appended once the whole set is on the experiment.
+        """
+        grid_id = getattr(grid, "id", None)
+        if grid_id is None:
+            raise ValueRefused(
+                f"{getattr(grid, 'name', 'this item')} has no id to stamp on a lamella."
+            )
+        protocol = self.task_protocol
+        if positions and getattr(protocol, "lamella_defaults", None) is None:
+            # Checked here, not discovered half way through creating them: a
+            # lamella is built from the protocol's defaults, and an experiment
+            # with no protocol loaded cannot make one.
+            raise ValueRefused(
+                "No protocol is loaded, so a lamella cannot be created. Load one "
+                "for this experiment and decide again."
+            )
+        made: List[Lamella] = []
+
+        def apply() -> List[str]:
+            for entry in positions:
+                # add_new_lamella returns nothing and appends, so the lamella it
+                # made is the one on the end. Taken here rather than assumed
+                # later: undo has to remove exactly what this write added.
+                self.add_new_lamella(
+                    microscope_state=entry.milling,
+                    task_config=deepcopy(getattr(protocol, "task_config", None)) or {},
+                    fluorescence_pose=entry.fluorescence,
+                    grid_id=grid_id,
+                )
+                made.append(self.positions[-1])
+            if made:
+                logging.info(
+                    f"Created {len(made)} lamella(e) on {getattr(grid, 'name', '?')}: "
+                    + ", ".join(m.name or "?" for m in made)
+                )
+            return []
+
+        def undo() -> None:
+            # Removing what this write made, newest first. Nothing else can have
+            # taken them: the decision has not been appended and the experiment
+            # lock is still held.
+            for lamella in reversed(made):
+                try:
+                    self.positions.remove(lamella)
+                except ValueError:
+                    logging.warning(f"Could not undo the creation of {lamella.name}")
+            made.clear()
+
+        return PreparedWrite(apply=apply, undo=undo)
 
     def _release_grid(self, grid: GridRecord) -> None:
         """A grid no longer tracked: its lamellae are orphaned, not deleted."""

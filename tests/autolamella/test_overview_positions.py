@@ -16,13 +16,13 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.applications.autolamella.poses import LamellaPoses, build_lamella_poses
-from fibsem.applications.autolamella.proposals import OVERVIEW_POSITIONS
+from fibsem.applications.autolamella.poses import build_lamella_poses
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
 from fibsem.structures import FibsemStagePosition
+from fibsem.workflows.positions import OVERVIEW_POSITIONS, ItemPoses
 from fibsem.workflows.proposals import (
     PROPOSAL_KINDS,
     Decision,
@@ -54,7 +54,7 @@ def experiment(tmp_path, microscope):
     return exp
 
 
-def _placed(microscope, x: float, y: float) -> LamellaPoses:
+def _placed(microscope, x: float, y: float) -> ItemPoses:
     """A position as the renderer would hand it over: marked on the overview,
     turned into both poses by the instrument's geometry there and then."""
     return build_lamella_poses(
@@ -106,7 +106,7 @@ def test_a_position_round_trips_through_the_record(microscope):
 
     assert len(back.values["positions"]) == 1
     read = back.values["positions"][0]
-    assert isinstance(read, LamellaPoses)
+    assert isinstance(read, ItemPoses)
     assert read.milling.stage_position.x == pytest.approx(
         placed.milling.stage_position.x
     )

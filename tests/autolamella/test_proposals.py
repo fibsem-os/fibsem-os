@@ -168,13 +168,13 @@ def test_a_tasks_proposals_are_a_list_oldest_first_and_the_last_is_current():
 
 
 def test_a_kind_has_a_name_for_a_person():
-    from fibsem.applications.autolamella.proposals import OVERVIEW_POSITIONS
+    from fibsem.workflows.positions import OVERVIEW_POSITIONS
     from fibsem.workflows.proposals import DETECTION, STATE, TASK_RESULT, kind_label
 
     assert kind_label(POINT_OF_INTEREST) == "Point of interest"
     assert kind_label(STATE) == "Position"
     assert kind_label(DETECTION) == "Detection"
-    assert kind_label(OVERVIEW_POSITIONS) == "Lamella positions"
+    assert kind_label(OVERVIEW_POSITIONS) == "Positions"
     assert kind_label(TASK_RESULT) == "Result"
     assert kind_label("alignment_area") == "Alignment area", (
         "a kind this build has not registered still reads"

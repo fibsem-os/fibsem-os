@@ -24,7 +24,6 @@ from typing import (
 )
 
 from fibsem import timing
-from fibsem.applications.autolamella.proposals import OVERVIEW_POSITIONS
 from fibsem.imaging.thumbnail import write_thumbnail
 from fibsem.imaging.tiled import acquire_tiled_overview, stamped_overview_name
 from fibsem.imaging.tiling.reach import reachable_overview
@@ -42,6 +41,7 @@ from fibsem.workflows.grid.base import (
     GridTask,
     GridTaskConfig,
 )
+from fibsem.workflows.positions import OVERVIEW_POSITIONS
 from fibsem.workflows.proposals import Proposal, Proposer
 
 if TYPE_CHECKING:
