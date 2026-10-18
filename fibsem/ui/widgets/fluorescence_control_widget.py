@@ -1,7 +1,7 @@
 import logging
 import os
 import threading
-from typing import TYPE_CHECKING, List, Optional, Union
+from typing import TYPE_CHECKING, List, Optional, Tuple, Union
 
 from PyQt5.QtCore import QEvent, pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import (
@@ -21,7 +21,6 @@ from superqt import ensure_main_thread
 
 from fibsem import config as fcfg
 from fibsem import conversions, utils
-from fibsem.fm.acquisition import acquire_image
 from fibsem.fm.calibration import run_autofocus
 from fibsem.fm.config import record_recent_channels
 from fibsem.fm.structures import (
@@ -95,7 +94,6 @@ class FMControlWidget(QWidget):
 
         # Consolidated acquisition threading
         self._acquisition_thread: Optional[FunctionWorker] = None
-        self._acquisition_stop_event = threading.Event()
         self._current_acquisition_type: Optional[str] = None
 
         # FM canvas click context (quad-view): retained from the latest image so a
@@ -266,7 +264,7 @@ class FMControlWidget(QWidget):
 
         All that is left of the old `is_acquiring` property, which was
         `fm.is_acquiring or <my own worker>`. The microscope answers that now -- both
-        halves of it, since this widget marks its own work through `set_acquiring` --
+        halves of it, since the imaging service marks this widget's work as it runs it --
         and the only caller that wanted the local half is `cancel_acquisition`, which
         joins the thread and would hit `None.join()` on somebody else's run (FIB-513).
         """
@@ -654,8 +652,8 @@ class FMControlWidget(QWidget):
         Both reasons in one place, asked by all three ways in. The running check used to
         be a union of three assembled here -- the widget's own worker, the live stream,
         and everybody else -- and `fm.is_acquiring` covers all of them now, this widget's
-        own work included, since it marks that through `set_acquiring` like anyone else
-        (FIB-513).
+        own work included, which the imaging service marks as it runs it (FIB-513,
+        FIB-1447).
 
         The pose check used to live in `start_acquisition` alone, so an image, a z-stack
         or an autofocus sweep could be started from a pose the FM cannot see anything
@@ -717,7 +715,7 @@ class FMControlWidget(QWidget):
         # Cancel consolidated acquisition (single image or future consolidated types)
         if self._has_worker:
             logging.info(f"Cancelling {self._current_acquisition_type} acquisition")
-            self._acquisition_stop_event.set()
+            self.microscope.imaging.stop()
             self._acquisition_thread.join(timeout=5)  # type: ignore[union-attr]
 
         logging.info("All acquisitions cancelled")
@@ -784,14 +782,13 @@ class FMControlWidget(QWidget):
 
         self.checkBox_associate_with_lamella.setToolTip(tooltip)
 
-    def _generate_acquisition_filename(self, name: str) -> str:
-        """Generate filename for acquisition, using lamella path and name if available.
+    def _acquisition_destination(self, name: str) -> Tuple[str, str]:
+        """The folder an acquisition saves to and its name: the experiment's
+        folder, or the selected lamella's with its name in front when the box is
+        ticked. The imaging service adds the time to the name.
 
         Args:
             name: Base name for the file (e.g., "image", "z-stack")
-
-        Returns:
-            Full path to the output file
         """
         path = os.getcwd()
         lamella_prefix = ""
@@ -815,12 +812,7 @@ class FMControlWidget(QWidget):
                     path = lamella.path
                     lamella_prefix = f"{lamella.name}-"
 
-        # Generate filename with timestamp
-        timestamp = utils.current_timestamp_v3(timeonly=True)
-        filename = os.path.join(path, f"{lamella_prefix}{name}-{timestamp}.ome.tiff")
-
-        logging.info(f"Generated acquisition filename: {filename}")
-        return filename
+        return str(path), f"{lamella_prefix}{name}"
 
     def _validate_lamella_selection(self, lamella: "Lamella") -> None:
         # Check if current position is close to lamella fluorescence pose
@@ -878,7 +870,6 @@ class FMControlWidget(QWidget):
         logging.info("Starting image acquisition")
         self._current_acquisition_type = "image"
         self._update_acquisition_button_states()
-        self._acquisition_stop_event.clear()
 
         settings = self._get_current_settings()
 
@@ -894,7 +885,7 @@ class FMControlWidget(QWidget):
         # Generate filename for saving
         name = "z-stack" if z_parameters is not None else "image"
         try:
-            filename = self._generate_acquisition_filename(name)
+            path, name = self._acquisition_destination(name)
         except RuntimeError as e:
             # User cancelled acquisition due to position mismatch
             logging.info(f"Acquisition cancelled: {e}")
@@ -906,52 +897,41 @@ class FMControlWidget(QWidget):
             channel_settings, session_state_for(self.microscope, writable=True)
         )
 
-        # Marked busy as late as possible: everything above can still abort -- the
-        # filename step opens a modal -- and an abort leaving the flag set would lock
-        # out the overview tab with nothing running.
-        self.fm.set_acquiring(True, "z-stack" if z_parameters else "image acquisition")
-
         # Start acquisition thread
         self._acquisition_thread = FunctionWorker(
-            self._image_acquistion_worker, channel_settings, z_parameters, filename
+            self._image_acquistion_worker, channel_settings, z_parameters, path, name
         )
         self._acquisition_thread.start()
 
     def _image_acquistion_worker(
         self,
         channel_settings: List[ChannelSettings],
-        z_parameters: ZParameters,
-        filename: str,
+        z_parameters: Optional[ZParameters],
+        path: str,
+        name: str,
     ):
-        """Worker thread for single image acquisition.
+        """Worker thread for an image or z-stack, through the imaging service: the
+        same acquisition, refusals and stop the agent gets (FIB-1447).
 
         Args:
             channel_settings: Channel settings for acquisition
             z_parameters: Z-stack parameters (None for single image)
-            filename: Full path to save the acquired image
+            path: The folder to save the image in
+            name: The image's name, before the service adds the time
         """
         try:
-            image = acquire_image(
-                microscope=self.fm,
-                channel_settings=channel_settings,
-                zparams=z_parameters,
-                stop_event=self._acquisition_stop_event,
-                filename=filename,
+            result = self.microscope.imaging.fm_acquire_image(
+                channel_settings, path=path, name=name, zparams=z_parameters
             )
-
-            if self._acquisition_stop_event.is_set() or image is None:
+            if result["status"] == "cancelled":
                 logging.info("image acquisition was cancelled")
                 return
-
-            # Emit the image
-            # self.update_persistent_image_signal.emit(image)
-            logging.info("Image acquisition completed successfully")
+            logging.info(f"Image saved to {result['image']['path']}")
 
         except Exception as e:
             logging.error(f"Error during image acquisition: {e}")
 
         finally:
-            self.fm.set_acquiring(False)
             self.acquisition_finished_signal.emit()
 
     def _update_acquisition_button_states(self):
@@ -1037,14 +1017,11 @@ class FMControlWidget(QWidget):
         logging.info("Starting auto-focus")
         self._current_acquisition_type = "autofocus"
         self._update_acquisition_button_states()
-        self._acquisition_stop_event.clear()
 
         # Get current settings
         settings = self._get_current_settings()
         channel_settings = settings["selected_channel_settings"]
         autofocus_settings = settings["autofocus_settings"]
-
-        self.fm.set_acquiring(True, "auto-focus")
 
         # Start auto-focus thread
         self._acquisition_thread = FunctionWorker(
@@ -1067,27 +1044,20 @@ class FMControlWidget(QWidget):
                 f"method={autofocus_settings.method.value}"
             )
 
-            from fibsem.fm.calibration import run_coarse_fine_autofocus
-
-            result = run_coarse_fine_autofocus(
-                self.fm,
-                autofocus_settings=autofocus_settings,
-                channel_settings=channel_settings,
-                stop_event=self._acquisition_stop_event,
+            result = self.microscope.imaging.fm_auto_focus(
+                autofocus_settings, channel=channel_settings
             )
-
-            if result is None or self._acquisition_stop_event.is_set():
+            if result["status"] == "cancelled":
                 logging.info("Auto-focus was cancelled")
                 return
 
             logging.info(
-                f"Auto-focus completed successfully. Best focus: {result.working_distance * 1e6:.1f} μm"
+                f"Auto-focus completed successfully. Best focus: {result['working_distance'] * 1e6:.1f} μm"
             )
 
         except Exception as e:
             logging.error(f"Auto-focus failed: {e}")
         finally:
-            self.fm.set_acquiring(False)
             self.acquisition_finished_signal.emit()
 
     def closeEvent(self, event: QEvent):
