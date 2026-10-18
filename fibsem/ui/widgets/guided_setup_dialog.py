@@ -48,6 +48,7 @@ from fibsem.guided_setup import (
     manufacturers,
     microscope_models,
 )
+from fibsem.structures import SampleHolder, StageSystemSettings
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.qt.threading import FunctionWorker
@@ -63,6 +64,7 @@ from fibsem.ui.tokens import (
 )
 from fibsem.ui.utils import install_wheel_blocker_recursive
 from fibsem.ui.widgets.custom_widgets import QDirectoryLineEdit, QFileLineEdit
+from fibsem.ui.widgets.form_builder import configure_spinbox
 
 logger = logging.getLogger(__name__)
 
@@ -1413,9 +1415,9 @@ class GuidedSetupDialog(QtWidgets.QDialog):
         self.button_read_stage.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
         self.button_read_stage.clicked.connect(self._on_read_stage)
         self._rotation_spin = QtWidgets.QDoubleSpinBox()
-        self._rotation_spin.setRange(-360.0, 360.0)
-        self._rotation_spin.setDecimals(2)
-        self._rotation_spin.setSuffix("°")
+        configure_spinbox(
+            self._rotation_spin, StageSystemSettings.params["rotation_reference"]
+        )
         self._rotation_spin.setFixedWidth(110)
         row.addWidget(self.button_read_stage)
         row.addWidget(self._rotation_spin)
@@ -1441,9 +1443,7 @@ class GuidedSetupDialog(QtWidgets.QDialog):
         self._pre_tilt_blurb = _label("", 10, TEXT_MUTED_COLOR, wrap=True)
         tilt_layout.addWidget(self._pre_tilt_blurb)
         self._pre_tilt_spin = QtWidgets.QDoubleSpinBox()
-        self._pre_tilt_spin.setRange(-90.0, 90.0)
-        self._pre_tilt_spin.setDecimals(1)
-        self._pre_tilt_spin.setSuffix("°")
+        configure_spinbox(self._pre_tilt_spin, SampleHolder.params["pre_tilt"])
         self._pre_tilt_spin.setFixedWidth(110)
         self._pre_tilt_spin.valueChanged.connect(self._on_pre_tilt_changed)
         tilt_row = QtWidgets.QHBoxLayout()

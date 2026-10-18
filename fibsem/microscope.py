@@ -235,8 +235,8 @@ class FibsemMicroscope(ABC):
     # fluorescence: none until a backend builds one on connect
     fm: Optional[FluorescenceMicroscope] = None
 
-    stage_position_changed = Signal(FibsemStagePosition)
-    _stage_position: FibsemStagePosition = None
+    # A stage move is on the stage device: ``stage.position.changed``, with its last
+    # value in ``stage.position.last_known``.
     # A holder change is on the sample handling service: ``sample_handling.holder_changed``.
 
     @abstractmethod
@@ -412,14 +412,6 @@ class FibsemMicroscope(ABC):
             raise TypeError(f"Expected FibsemStagePosition, got {type(stage_position)}")
 
         logging.debug({"msg": "get_stage_position", "pos": stage_position.to_dict()})
-
-        if self._stage_position is None:
-            self._stage_position = deepcopy(stage_position)
-
-        if not self._stage_position.is_close2(stage_position, tol=1e-6):
-            self._stage_position = deepcopy(stage_position)
-            self.stage_position_changed.emit(self._stage_position)
-
         return deepcopy(stage_position)
 
     def _read_stage_capabilities(self) -> None:
