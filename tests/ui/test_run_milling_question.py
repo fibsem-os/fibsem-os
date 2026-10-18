@@ -34,11 +34,6 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
 )
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
-from fibsem.applications.autolamella.workflows.interaction import (
-    ACTION_EDIT,
-    ACTION_RUN,
-    MillingEdit,
-)
 from fibsem.applications.autolamella.workflows.tasks import base
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.applications.autolamella.workflows.tasks.rough import (
@@ -47,6 +42,11 @@ from fibsem.applications.autolamella.workflows.tasks.rough import (
 )
 from fibsem.milling import FibsemMillingStage
 from fibsem.milling.tasks import FibsemMillingTaskConfig
+from fibsem.workflows.interaction import (
+    ACTION_EDIT,
+    ACTION_RUN,
+    MillingEdit,
+)
 from fibsem.workflows.status import HoldKind
 
 ROUGH = "Rough Milling"

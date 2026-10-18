@@ -54,9 +54,9 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
 )
 from fibsem.applications.autolamella.ui import AutoLamellaMainUI as main_ui_module
-from fibsem.applications.autolamella.workflows.interaction import ReviewDetection, ask
 from fibsem.detection.detection import DetectedFeatures, ImageCentre, LamellaCentre
 from fibsem.structures import BeamType, ImageSettings, MicroscopeState, Point
+from fibsem.workflows.interaction import ReviewDetection, ask
 from fibsem.workflows.status import TaskStatus
 
 TASK = "Mill Rough"

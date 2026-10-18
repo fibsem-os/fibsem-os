@@ -21,8 +21,8 @@ from fastapi.testclient import TestClient
 
 from fibsem.applications.autolamella.server import AutoLamellaAppContext
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
-from fibsem.applications.autolamella.workflows.interaction import Confirm, ask
 from fibsem.server import AuthConfig, build_server
+from fibsem.workflows.interaction import Confirm, ask
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -209,10 +209,10 @@ def test_alignment_prompt_carries_the_fib_display_frame(ui, qapp):
     grabbed by the workflow) — so a remote responder can judge the area
     without pairing a second request, and sees exactly what the operator
     sees."""
-    from fibsem.applications.autolamella.workflows.interaction import (
+    from fibsem.structures import BeamType, FibsemImage, FibsemRectangle
+    from fibsem.workflows.interaction import (
         EditAlignmentArea,
     )
-    from fibsem.structures import BeamType, FibsemImage, FibsemRectangle
 
     fib_frame = FibsemImage.generate_blank_image(
         resolution=(1536, 1024), hfw=80e-6, random=True

@@ -3304,7 +3304,7 @@ class AutoLamellaAppContext:
         responder = self._responder
         if responder is None:
             return {"available": False, "applied": False, "stale": False}
-        from fibsem.applications.autolamella.workflows.interaction import (
+        from fibsem.workflows.interaction import (
             InvalidAnswerValue,
             StalePromptError,
         )
@@ -3376,7 +3376,7 @@ class AutoLamellaAppContext:
         responder = self._responder
         if responder is None or not hasattr(responder, "submit_suggestion"):
             return {"available": False, "suggested": False, "stale": False}
-        from fibsem.applications.autolamella.workflows.interaction import (
+        from fibsem.workflows.interaction import (
             StalePromptError,
         )
 
@@ -3419,7 +3419,7 @@ class AutoLamellaAppContext:
         answer must carry a value (the milling question's action) is refused
         without one.
         """
-        from fibsem.applications.autolamella.workflows.interaction import (
+        from fibsem.workflows.interaction import (
             InvalidAnswerValue,
         )
 

@@ -33,11 +33,6 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaWorkflowConfig,
     Experiment,
 )
-from fibsem.applications.autolamella.workflows.interaction import (
-    ACTION_EDIT,
-    ACTION_RUN,
-    SpotBurnEdit,
-)
 from fibsem.applications.autolamella.workflows.tasks import base, spot_burn
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
@@ -45,6 +40,11 @@ from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
     SpotBurnFiducialTaskConfig,
 )
 from fibsem.structures import Point
+from fibsem.workflows.interaction import (
+    ACTION_EDIT,
+    ACTION_RUN,
+    SpotBurnEdit,
+)
 from fibsem.workflows.status import HoldKind
 
 SPOT = "Spot Burn Fiducial"

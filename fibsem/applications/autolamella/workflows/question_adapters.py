@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Type
 
 from fibsem import conversions
 from fibsem.applications.autolamella.proposals import DETECTION, Proposal
-from fibsem.applications.autolamella.workflows.interaction import (
+from fibsem.workflows.interaction import (
     Request,
     ReviewDetection,
 )

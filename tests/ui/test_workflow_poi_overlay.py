@@ -24,7 +24,6 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from fibsem.applications.autolamella.ui.qt_responder import QtResponder
-from fibsem.applications.autolamella.workflows.interaction import PickPOI
 from fibsem.structures import (
     BeamType,
     FibsemImage,
@@ -33,6 +32,7 @@ from fibsem.structures import (
     MicroscopeState,
     Point,
 )
+from fibsem.workflows.interaction import PickPOI
 
 # What the protocol editor asks for (autolamella_lamella_protocol_editor.py), and what
 # the config preview's PointOverlay uses for its edge. Restated rather than imported:

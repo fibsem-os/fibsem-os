@@ -29,11 +29,11 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtWidgets import QWidget
 
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
-from fibsem.applications.autolamella.workflows.interaction import (
+from fibsem.detection.detection import DetectedFeatures, LamellaCentre
+from fibsem.workflows.interaction import (
     ConfirmDetection,
     ask,
 )
-from fibsem.detection.detection import DetectedFeatures, LamellaCentre
 from fibsem.workflows.status import Hold, HoldKind
 
 PROMPT = "Confirm Feature Detection. Press Continue to proceed."
@@ -266,7 +266,7 @@ def test_the_second_version_says_who_is_asking(ui, qapp, monkeypatch):
     Review tab to answer it in, so it is the Detection tab prompt -- which is
     the other half of what it promises."""
     from fibsem.applications.autolamella.workflows import ui as workflow_ui
-    from fibsem.applications.autolamella.workflows.interaction import ReviewDetection
+    from fibsem.workflows.interaction import ReviewDetection
 
     monkeypatch.setattr(
         workflow_ui.detection,
