@@ -16,6 +16,7 @@ from concurrent.futures import Future
 from typing import Any, Callable, Dict, Optional
 
 from fibsem.acting import OPERATOR
+from fibsem.imaging.latest import LatestImages
 from fibsem.workflows.event_recording import EventRecorder
 
 EditExecutor = Callable[[Callable[[], Any]], "Future[Any]"]
@@ -59,6 +60,9 @@ class AppSession:
         # Where an edit to the experiment runs: the window's GUI thread, whose
         # widgets listen to the experiment, or here under a lock.
         self.executor: EditExecutor = executor or LockedExecutor()
+        # The latest image of each beam, as the window shows it: what the App
+        # Server serves and a question's marker is placed on (FIB-1451).
+        self.images = LatestImages()
         # The App Server over this session (FIB-845), while one is hosted.
         self.app_server: Optional[Any] = None
         # What outlives a restart of it: the agent's token and level
