@@ -33,7 +33,6 @@ from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple, Type
 from PyQt5.QtCore import QObject, pyqtSignal
 
 from fibsem.acting import AGENT, OPERATOR, TASK, acting
-from fibsem.applications.autolamella.proposals import AuthorKind, DecisionOutcome
 from fibsem.applications.autolamella.workflows.question_adapters import (
     answer_from,
     answered,
@@ -64,6 +63,7 @@ from fibsem.workflows.interaction import (
     apply_spot_burn_edit,
     mark_answered_by,
 )
+from fibsem.workflows.proposals import AuthorKind, DecisionOutcome
 from fibsem.workflows.status import (
     Hold,
     HoldKind,

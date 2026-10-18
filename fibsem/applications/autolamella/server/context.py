@@ -1454,8 +1454,8 @@ class AutoLamellaAppContext:
         """Judge a grid, as its card's quality menu does: GOOD, REWORK, FAILED,
         or UNASSESSED to clear it, with an optional reason. Signed as the
         agent's; saved."""
-        from fibsem.applications.autolamella.proposals import agent_author
         from fibsem.applications.autolamella.structures import Verdict
+        from fibsem.workflows.proposals import agent_author
 
         experiment, grid, refusal = self._grid_record(grid_name)
         if refusal:
@@ -1870,10 +1870,10 @@ class AutoLamellaAppContext:
         experiment = self._experiment
         if experiment is None:
             return {"available": False, "applied": False, "reason": "No experiment."}
-        from fibsem.applications.autolamella.proposals import (
+        from fibsem.workflows.proposals import (
             Decision,
             DecisionOutcome,
-            _decode_values,  # the wire shape is the stored shape
+            _decode_values,
             agent_author,
         )
 

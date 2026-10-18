@@ -14,9 +14,6 @@ from fibsem.applications.autolamella.proposals import (
     DETECTION,
     POINT_OF_INTEREST,
     STATE,
-    Decision,
-    DecisionOutcome,
-    Proposal,
 )
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
@@ -25,6 +22,7 @@ from fibsem.applications.autolamella.workflows.tasks.fiducial import (
 )
 from fibsem.applications.autolamella.workflows.ui import ask_user, select_poi_ui
 from fibsem.structures import BeamType, Display, ImageSettings, Point, param
+from fibsem.workflows.proposals import Decision, DecisionOutcome, Proposal
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Lamella

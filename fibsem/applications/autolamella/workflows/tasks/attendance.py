@@ -20,10 +20,10 @@ from fibsem.applications.autolamella.proposals import (
     OVERVIEW_POSITIONS,
     POINT_OF_INTEREST,
     STATE,
-    TASK_RESULT,
 )
-from fibsem.applications.autolamella.proposals import kind_label as proposal_kind_label
 from fibsem.applications.autolamella.structures import Attention
+from fibsem.workflows.proposals import TASK_RESULT
+from fibsem.workflows.proposals import kind_label as proposal_kind_label
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import (

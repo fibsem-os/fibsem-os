@@ -15,20 +15,14 @@ from pathlib import Path
 import pytest
 from psygnal.containers import EventedDict
 
-from fibsem.applications.autolamella.proposals import (
-    DETECTION,
-    POINT_OF_INTEREST,
-    Decision,
-    DecisionOutcome,
-    Proposal,
-    Standing,
-)
+from fibsem.applications.autolamella.proposals import DETECTION, POINT_OF_INTEREST
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
     standing,
 )
 from fibsem.structures import MicroscopeState, Point
+from fibsem.workflows.proposals import Decision, DecisionOutcome, Proposal, Standing
 from fibsem.workflows.status import TaskStatus
 
 SETUP = "Setup Lamella Position"

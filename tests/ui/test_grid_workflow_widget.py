@@ -344,11 +344,11 @@ def test_the_review_tab_loads_a_grid_proposals_image_from_the_grid_directory(
 ):
     """A grid's recorded outputs are relative to its grid_path, which the record
     does not store; the loader resolves it through the experiment."""
-    from fibsem.applications.autolamella.proposals import TASK_RESULT, Proposal
     from fibsem.applications.autolamella.ui.review_tab_widget import (
         _load_reference_image,
     )
     from fibsem.structures import FibsemImage
+    from fibsem.workflows.proposals import TASK_RESULT, Proposal
 
     grid = experiment.add_grid(GridRecord(name="grid-oak"))
     directory = experiment.grid_path(grid) / "overview_sem"

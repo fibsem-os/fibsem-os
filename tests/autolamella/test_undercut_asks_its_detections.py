@@ -23,12 +23,7 @@ pytest.importorskip("segmentation_models_pytorch")
 
 import fibsem.config as fibsem_config
 from fibsem import utils
-from fibsem.applications.autolamella.proposals import (
-    DETECTION,
-    TASK_RESULT,
-    Decision,
-    DecisionOutcome,
-)
+from fibsem.applications.autolamella.proposals import DETECTION
 from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskDescription,
@@ -45,6 +40,7 @@ from fibsem.applications.autolamella.workflows.tasks.undercut import (
     MillUndercutTaskConfig,
 )
 from fibsem.structures import Point
+from fibsem.workflows.proposals import TASK_RESULT, Decision, DecisionOutcome
 from fibsem.workflows.status import TaskStatus
 
 UNDERCUT = "Mill Undercut"

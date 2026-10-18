@@ -59,14 +59,6 @@ from fibsem.applications.autolamella.proposals import (
     OVERVIEW_POSITIONS,
     POINT_OF_INTEREST,
     STATE,
-    TASK_RESULT,
-    Author,
-    AuthorKind,
-    Decision,
-    DecisionOutcome,
-    Proposal,
-    Standing,
-    kind_label,
 )
 from fibsem.applications.autolamella.structures import (
     Attention,
@@ -99,6 +91,16 @@ from fibsem.ui.tokens import (
 from fibsem.ui.widgets.overview_widget import MODALITY_CHIP_STYLE
 from fibsem.util.durations import format_duration_in_words, format_time_ago
 from fibsem.util.timestamps import format_time, from_posix, now, to_aware, to_datetime
+from fibsem.workflows.proposals import (
+    TASK_RESULT,
+    Author,
+    AuthorKind,
+    Decision,
+    DecisionOutcome,
+    Proposal,
+    Standing,
+    kind_label,
+)
 
 __all__ = [
     "REVIEW_RENDERERS",

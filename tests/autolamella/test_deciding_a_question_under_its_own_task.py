@@ -20,20 +20,20 @@ import os
 import pytest
 from psygnal.containers import EventedDict
 
-from fibsem.applications.autolamella.proposals import (
-    POINT_OF_INTEREST,
-    TASK_RESULT,
-    Decision,
-    DecisionOutcome,
-    Proposal,
-    Standing,
-)
+from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
     standing,
 )
 from fibsem.structures import MicroscopeState, Point
+from fibsem.workflows.proposals import (
+    TASK_RESULT,
+    Decision,
+    DecisionOutcome,
+    Proposal,
+    Standing,
+)
 from fibsem.workflows.status import TaskStatus
 
 TASK = "Setup Lamella Position"

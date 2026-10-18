@@ -17,8 +17,13 @@ import pytest
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.poses import LamellaPoses, build_lamella_poses
-from fibsem.applications.autolamella.proposals import (
-    OVERVIEW_POSITIONS,
+from fibsem.applications.autolamella.proposals import OVERVIEW_POSITIONS
+from fibsem.applications.autolamella.structures import (
+    AutoLamellaTaskProtocol,
+    Experiment,
+)
+from fibsem.structures import FibsemStagePosition
+from fibsem.workflows.proposals import (
     PROPOSAL_KINDS,
     Decision,
     DecisionOutcome,
@@ -26,11 +31,6 @@ from fibsem.applications.autolamella.proposals import (
     ValueRefused,
     prepare_values,
 )
-from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskProtocol,
-    Experiment,
-)
-from fibsem.structures import FibsemStagePosition
 
 # The Arctis simulator, because this needs a holder with grids in it.
 CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
