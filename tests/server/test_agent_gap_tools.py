@@ -260,6 +260,9 @@ class _Queue:
 
 
 class _Manager:
+    RUN_KIND = "items"
+    RUN_DESCRIPTION = "a lamella run"
+
     def __init__(self, active):
         self.queue = _Queue(active)
 
@@ -352,6 +355,8 @@ def test_grid_tasks_are_queued_after_what_waits(driving):
     manager = GridTaskManager.__new__(GridTaskManager)
     manager.queue = TaskQueue()
     manager.notify_queue_changed = lambda: None
+    manager.experiment = driving.host.experiment
+    manager.microscope = driving.host.microscope
     manager.queue.add("G1", "Load Grid")
     driving.host.runner.manager = manager
 
