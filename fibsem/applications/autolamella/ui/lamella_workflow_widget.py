@@ -374,7 +374,10 @@ class LamellaWorkflowWidget(QWidget):
         return sorted(self.experiment.task_protocol.task_config.keys())
 
     def _on_task_edit_requested(self, task: AutoLamellaTaskDescription) -> None:
-        available = [t.name for t in self.workflow.get_tasks()]
+        # Only the tasks before it: a task cannot require one that runs later
+        # (`AutoLamellaWorkflowConfig.set_requirements`, the App Server's rule).
+        names = [t.name for t in self.workflow.get_tasks()]
+        available = names[: names.index(task.name)] if task.name in names else names
         self._editor_dialog.open_for(
             task,
             available_tasks=available,
