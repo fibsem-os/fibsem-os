@@ -29,6 +29,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import sys
 from contextlib import nullcontext
+from types import SimpleNamespace
 
 import pytest
 
@@ -282,8 +283,10 @@ class _StubMicroscope:
 
     def __init__(self):
         self.fm = _StubFM()
-        self.stage = object()  # a stage is fitted, so the info bar shows it
-        self._stage_position = _StubStagePosition()
+        # a stage is fitted, so the info bar shows it, at its last known position
+        self.stage = SimpleNamespace(
+            position=SimpleNamespace(last_known=_StubStagePosition())
+        )
         self.current_grid = "grid-1"
 
     def get_stage_orientation(self, stage_position=None):

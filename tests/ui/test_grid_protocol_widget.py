@@ -57,9 +57,6 @@ def saved_protocol(experiment) -> dict:
 def test_a_beam_overview_can_be_taken_at_the_milling_pose(widget, experiment):
     """SEM, FIB, or MILLING: a FIB overview at the milling pose shows the grid as
     the lamellae will be milled, which is the one a tester went looking for."""
-    from fibsem.applications.autolamella.ui.grid_protocol_widget import _ORIENTATIONS
-
-    assert _ORIENTATIONS == ["SEM", "FIB", "MILLING"]
     widget.add_task(BEAM, "overview_milling")
     editor = widget.editor_panel.editor_for(BEAM)
     items = [editor.orientation.itemText(i) for i in range(editor.orientation.count())]
