@@ -1,4 +1,5 @@
 {
+  "acquisition_datetime": null,
   "experiment": {
     "date": "2026-07-16T08:00:26.620654+00:00",
     "id": "test-experiment",
@@ -11,20 +12,20 @@
   },
   "hardware_geometry": {
     "camera_tilt": 0.0,
-    "column_tilt": 0,
-    "fib_column_tilt": 52,
+    "column_tilt": 0.0,
+    "fib_column_tilt": 52.0,
     "fm_is_pose": false,
     "mirrors_back_view": false,
     "poses": {},
-    "rotation_180": 290,
+    "rotation_180": 290.0,
     "rotation_centre": [
       -0.00048774038889328543,
       0.0008062916666666666
     ],
-    "rotation_reference": 110,
+    "rotation_reference": 110.0,
     "shuttle_pre_tilt": 35.0,
     "stage_frame": null,
-    "transform": null
+    "transform": "NONE"
   },
   "image": {
     "autocontrast": false,
@@ -97,13 +98,14 @@
   "roles": {},
   "system_info": {
     "application": null,
-    "fibsem_revision": "pinned-revision",
+    "fibsem_revision": null,
     "fibsem_version": "0.5.1.dev0",
     "hardware_version": "32.1.1.21605",
     "ip_address": "127.0.0.1",
     "manufacturer": "ThermoFisher",
     "model": "Aquilos",
     "name": "test-configuration",
+    "port": null,
     "serial_number": "0000000",
     "software_version": "4.9.0.902"
   },

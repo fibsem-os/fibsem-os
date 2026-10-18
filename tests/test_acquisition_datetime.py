@@ -99,7 +99,7 @@ def test_a_saved_image_keeps_it(microscope, tmp_path):
 def test_an_image_built_rather_than_acquired_records_none():
     image = FibsemImage.generate_blank_image(resolution=(8, 8), hfw=1e-6)
     assert image.metadata.acquisition_datetime is None
-    assert "acquisition_datetime" not in image.metadata.to_dict()
+    assert image.metadata.to_dict()["acquisition_datetime"] is None
     assert image.metadata.acquisition_date is None
 
 

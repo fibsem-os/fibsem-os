@@ -41,7 +41,14 @@ import yaml
 from numpy.typing import NDArray
 
 import fibsem
-from fibsem.codec import NamedEnum, decode, encode, saved
+from fibsem.codec import (
+    AwareTimestamp,
+    NamedEnum,
+    Timestamp,
+    decode,
+    encode,
+    saved,
+)
 from fibsem.config import (
     DEFAULT_STANDARD_RESOLUTION_LIST,
     METADATA_VERSION,
@@ -1812,6 +1819,12 @@ class OverviewAcquisitionSettings(Configurable):
         }
 
 
+# `current` and `eucentric_height` are how a configuration's beam defaults spell
+# them. A missing scan rotation is 0, as it has always read.
+@saved(
+    reads={"beam_current": "current", "working_distance": "eucentric_height"},
+    absent={"beam_type": BeamType.ELECTRON, "scan_rotation": 0.0},
+)
 @dataclass
 class BeamSettings:
     """
@@ -1887,65 +1900,19 @@ class BeamSettings:
         )
 
     def to_dict(self) -> dict:
-        state_dict = {
-            "beam_type": self.beam_type.name,
-            "working_distance": self.working_distance,
-            "beam_current": self.beam_current,
-            "voltage": self.voltage,
-            "hfw": self.hfw,
-            "resolution": list(self.resolution)
-            if self.resolution is not None
-            else None,
-            "dwell_time": self.dwell_time,
-            "stigmation": self.stigmation.to_dict()
-            if self.stigmation is not None
-            else None,
-            "shift": self.shift.to_dict() if self.shift is not None else None,
-            "scan_rotation": self.scan_rotation,
-            "preset": self.preset,
-        }
-
-        return state_dict
+        return encode(self)
 
     @staticmethod
     def from_dict(state_dict: dict) -> "BeamSettings":
-        if "stigmation" in state_dict and state_dict["stigmation"] is not None:
-            stigmation = Point.from_dict(state_dict["stigmation"])
-        else:
-            stigmation = Point()
-        if "shift" in state_dict and state_dict["shift"] is not None:
-            shift = Point.from_dict(state_dict["shift"])
-        else:
-            shift = Point()
-
-        wd = state_dict.get(
-            "working_distance", state_dict.get("eucentric_height", None)
-        )
-        current = state_dict.get("beam_current", state_dict.get("current", None))
-
-        beam_settings = BeamSettings(
-            beam_type=BeamType[state_dict.get("beam_type", "ELECTRON").upper()],
-            working_distance=wd,
-            beam_current=current,
-            voltage=state_dict.get("voltage"),
-            hfw=state_dict.get("hfw"),
-            resolution=state_dict.get("resolution"),
-            dwell_time=state_dict.get("dwell_time"),
-            stigmation=stigmation,
-            shift=shift,
-            scan_rotation=state_dict.get("scan_rotation", 0.0),
-            preset=state_dict.get("preset", None),
-        )
-
-        return beam_settings
+        return decode(BeamSettings, state_dict)
 
 
 @dataclass
 class FibsemDetectorSettings:
-    type: str = "Unknown"
-    mode: str = "Unknown"
-    brightness: float = 0.5
-    contrast: float = 0.5
+    type: Optional[str] = "Unknown"
+    mode: Optional[str] = "Unknown"
+    brightness: Optional[float] = 0.5
+    contrast: Optional[float] = 0.5
 
     def __post_init__(self):
         assert isinstance(self.type, str) or self.type is None, (
@@ -1962,23 +1929,11 @@ class FibsemDetectorSettings:
         )
 
     def to_dict(self) -> dict:
-        """Converts to a dictionary."""
-        return {
-            "type": self.type,
-            "mode": self.mode,
-            "brightness": self.brightness,
-            "contrast": self.contrast,
-        }
+        return encode(self)
 
     @staticmethod
     def from_dict(settings: dict) -> "FibsemDetectorSettings":
-        """Converts from a dictionary."""
-        return FibsemDetectorSettings(
-            type=settings.get("type", "Unknown"),
-            mode=settings.get("mode", "Unknown"),
-            brightness=settings.get("brightness", 0.0),
-            contrast=settings.get("contrast", 0.0),
-        )
+        return decode(FibsemDetectorSettings, settings)
 
 
 @dataclass
@@ -2001,7 +1956,11 @@ class MicroscopeState:
     # When the state was read, as POSIX: not when a frame was taken, which is the
     # image's acquisition_datetime. default_factory, not a plain default, which is
     # evaluated once when this module is imported (FIB-487).
-    timestamp: float = field(default_factory=lambda: datetime.now().timestamp())
+    # A string only in a ThermoFisher image from before v11, which wrote the PC's
+    # clock time as month/day/year; `acquisition_datetime_of` reads either.
+    timestamp: Union[float, str] = field(
+        default_factory=lambda: datetime.now().timestamp()
+    )
     stage_position: Optional[FibsemStagePosition] = field(
         default_factory=FibsemStagePosition
     )
@@ -2048,55 +2007,11 @@ class MicroscopeState:
         )
 
     def to_dict(self) -> dict:
-        state_dict = {
-            "timestamp": self.timestamp,
-            "stage_position": self.stage_position.to_dict()
-            if self.stage_position is not None
-            else None,
-            "electron_beam": self.electron_beam.to_dict()
-            if self.electron_beam is not None
-            else None,
-            "ion_beam": self.ion_beam.to_dict() if self.ion_beam is not None else None,
-            "electron_detector": self.electron_detector.to_dict()
-            if self.electron_detector is not None
-            else None,
-            "ion_detector": self.ion_detector.to_dict()
-            if self.ion_detector is not None
-            else None,
-            "objective_position": self.objective_position,
-        }
-
-        return state_dict
+        return encode(self)
 
     @staticmethod
     def from_dict(state_dict: dict) -> "MicroscopeState":
-
-        # beam, and detector settings are now optional
-        electron_beam, electron_detector = None, None
-        ion_beam, ion_detector = None, None
-
-        if state_dict.get("electron_beam", None) is not None:
-            electron_beam = BeamSettings.from_dict(state_dict["electron_beam"])
-        if state_dict.get("ion_beam", None) is not None:
-            ion_beam = BeamSettings.from_dict(state_dict["ion_beam"])
-        if state_dict.get("electron_detector", None) is not None:
-            electron_detector = FibsemDetectorSettings.from_dict(
-                state_dict["electron_detector"]
-            )
-        if state_dict.get("ion_detector", None) is not None:
-            ion_detector = FibsemDetectorSettings.from_dict(state_dict["ion_detector"])
-
-        microscope_state = MicroscopeState(
-            timestamp=state_dict["timestamp"],
-            stage_position=FibsemStagePosition.from_dict(state_dict["stage_position"]),
-            electron_beam=electron_beam,
-            ion_beam=ion_beam,
-            electron_detector=electron_detector,
-            ion_detector=ion_detector,
-            objective_position=state_dict.get("objective_position", None),
-        )
-
-        return microscope_state
+        return decode(MicroscopeState, state_dict)
 
 
 ########### Base Pattern Settings
@@ -3325,65 +3240,38 @@ class SystemInfo:
     registration API first -- the field can come back alongside one.
     """
 
-    name: str
-    ip_address: str
-    manufacturer: str
-    model: str
-    serial_number: str
-    hardware_version: str
-    software_version: str
+    name: str = "Unknown"
+    ip_address: str = "Unknown"
+    manufacturer: str = "Unknown"
+    model: str = "Unknown"
+    serial_number: str = "Unknown"
+    hardware_version: str = "Unknown"
+    software_version: str = "Unknown"
     fibsem_version: str = fibsem.__version__
     application: Optional[str] = None
     # The commit actually running, when installed from a source checkout. None
     # for a wheel install. default_factory, not a plain default, so the lookup
-    # happens on first use rather than at import of this module.
-    fibsem_revision: Optional[str] = field(default_factory=get_revision)
+    # happens on first use rather than at import of this module. A lambda, so the
+    # lookup goes through this module's name (tests pin it).
+    fibsem_revision: Optional[str] = field(default_factory=lambda: get_revision())
     # The port the driver connects on. None uses the port its driver registers
     # (``fibsem.drivers.registry``): 7520 for ThermoFisher, 8300 for Tescan.
     port: Optional[int] = None
 
-    def to_dict(self):
-        ddict = {
-            "name": self.name,
-            "ip_address": self.ip_address,
-            "manufacturer": self.manufacturer,
-            "model": self.model,
-            "serial_number": self.serial_number,
-            "hardware_version": self.hardware_version,
-            "software_version": self.software_version,
-            "fibsem_version": self.fibsem_version,
-            "application": self.application,
-            "fibsem_revision": self.fibsem_revision,
-        }
-        # Written only when set: unset is the driver's registered port, and a file
-        # that says `port: null` reads as though it chose one.
-        if self.port is not None:
-            ddict["port"] = self.port
-        return ddict
-
-    @staticmethod
-    def from_dict(settings: dict):
+    def __post_init__(self) -> None:
         # Here, not at the top: keeps `structures` light for what imports only it.
         from fibsem.drivers.registry import normalize_name
 
-        return SystemInfo(
-            name=settings.get("name", "Unknown"),
-            ip_address=settings.get("ip_address", "Unknown"),
-            port=settings.get("port"),
-            # normalise on read: configs and old experiments carry "Thermo"/"TESCAN"
-            # etc.; everything downstream compares against the canonical spellings
-            manufacturer=normalize_name(settings.get("manufacturer", "Unknown")),
-            model=settings.get("model", "Unknown"),
-            serial_number=settings.get("serial_number", "Unknown"),
-            hardware_version=settings.get("hardware_version", "Unknown"),
-            software_version=settings.get("software_version", "Unknown"),
-            fibsem_version=settings.get("fibsem_version", fibsem.__version__),
-            application=settings.get("application", None),
-            # `application_version` is not read: files up to v4 carry it, always null.
-            # `or`, not a .get() default: settings.get(k, get_revision()) would
-            # evaluate the lookup eagerly on every call.
-            fibsem_revision=settings.get("fibsem_revision") or get_revision(),
-        )
+        # Configurations and old experiments carry "Thermo", "TESCAN" and so on;
+        # everything downstream compares against the canonical spellings.
+        self.manufacturer = normalize_name(self.manufacturer)
+
+    def to_dict(self) -> dict:
+        return encode(self)
+
+    @staticmethod
+    def from_dict(settings: dict) -> "SystemInfo":
+        return decode(SystemInfo, settings)
 
 
 # The one FM driver a configuration names today; see `FluorescenceSystemSettings.driver`.
@@ -3952,7 +3840,7 @@ class SystemSettings:
         )
 
 
-class CameraImageTransform(Enum):
+class CameraImageTransform(NamedEnum, Enum):
     """Image transformations for aligning fluorescence images with SEM/FIB coordinate systems.
 
     Flips only. Any fixed rotation between the sensor and the stage belongs to the
@@ -3986,6 +3874,15 @@ class CameraImageTransform(Enum):
         flip_x = self in (CameraImageTransform.FLIP_X, CameraImageTransform.FLIP_XY)
         flip_y = self in (CameraImageTransform.FLIP_Y, CameraImageTransform.FLIP_XY)
         return (-dx if flip_x else dx, -dy if flip_y else dy)
+
+    @classmethod
+    def _codec_member(cls, value: Any) -> "CameraImageTransform":
+        """By name or value, as any enum; a stored value that is no longer a member
+        through `_parse_image_transform`, which migrates it or falls back to none."""
+        try:
+            return super()._codec_member(value)
+        except ValueError:
+            return _parse_image_transform(value)
 
 
 # Transforms that stored configurations may still hold. A half turn is the same
@@ -4053,7 +3950,8 @@ class FibsemHardwareGeometry:
     mirrors an image a beam takes of the back of the grid, so it reads as if seen from
     the front. An image written before these had ``is_compustage`` for both, and older
     still nothing at all, so the model name was matched against a product; both are
-    read by `from_dict` and `FibsemImageMetadata._geometry_from_legacy_system`.
+    read by `fibsem.codec.upgrades.hardware_geometry` and
+    `fibsem.codec.upgrades.image_metadata`.
 
     Note this is deliberately *not* grouped this way in ``SystemSettings`` itself: that
     maps onto ``microscope-configuration.yaml``, a user-facing file, and regrouping it
@@ -4148,55 +4046,13 @@ class FibsemHardwareGeometry:
         )
 
     def to_dict(self) -> dict:
-        return {
-            "column_tilt": self.column_tilt,
-            "fib_column_tilt": self.fib_column_tilt,
-            "shuttle_pre_tilt": self.shuttle_pre_tilt,
-            "rotation_reference": self.rotation_reference,
-            "rotation_180": self.rotation_180,
-            "fm_is_pose": self.fm_is_pose,
-            "mirrors_back_view": self.mirrors_back_view,
-            "rotation_centre": (
-                list(self.rotation_centre) if self.rotation_centre is not None else None
-            ),
-            "poses": {name: list(pose) for name, pose in self.poses.items()},
-            "stage_frame": self.stage_frame,
-            "camera_tilt": self.camera_tilt,
-            "transform": self.transform.value,
-        }
+        return encode(self)
 
     @classmethod
     def from_dict(cls, ddict: dict) -> "FibsemHardwareGeometry":
-        # `.get` throughout, with the field defaults repeated rather than referenced:
-        # a file written before this record existed has none of these keys, and the
-        # point of the record is that such a file still loads. A file written before
-        # the two facts were split has `is_compustage`, which meant both.
-        legacy = bool(ddict.get("is_compustage", False))
-        return cls(
-            column_tilt=ddict.get("column_tilt", 0.0),
-            fib_column_tilt=ddict.get("fib_column_tilt", DEFAULT_FIB_COLUMN_TILT),
-            shuttle_pre_tilt=ddict.get("shuttle_pre_tilt", 0.0),
-            rotation_reference=ddict.get("rotation_reference", 0.0),
-            rotation_180=ddict.get("rotation_180", 180.0),
-            fm_is_pose=ddict.get("fm_is_pose", legacy),
-            mirrors_back_view=ddict.get("mirrors_back_view", legacy),
-            # Absent only on an image saved before the field existed, all of which
-            # were drawn about the legacy centre; a recorded None stays None.
-            rotation_centre=(
-                _parse_rotation_centre(ddict["rotation_centre"])
-                if "rotation_centre" in ddict
-                else LEGACY_ROTATION_CENTRE
-            ),
-            poses={
-                name: (float(pose[0]), float(pose[1]))
-                for name, pose in (ddict.get("poses") or {}).items()
-            },
-            stage_frame=ddict.get("stage_frame"),
-            camera_tilt=ddict.get("camera_tilt", 0.0),
-            # Not a bare CameraImageTransform(...): stored configurations may hold a
-            # rotation that is no longer a member, which the parser migrates.
-            transform=_parse_image_transform(ddict.get("transform")),
-        )
+        from fibsem.codec.upgrades.hardware_geometry import upgrade
+
+        return decode(cls, upgrade(ddict))
 
 
 @dataclass
@@ -4266,6 +4122,8 @@ class MicroscopeSettings:
         )
 
 
+# A file with no date doesn't say when the experiment was: unknown, not now.
+@saved(absent={"date": None})
 @dataclass
 class FibsemExperimentRef:
     """A reference to the experiment an image was acquired for. Provenance.
@@ -4311,7 +4169,7 @@ class FibsemExperimentRef:
     # POSIX float, which reads as this machine's zone. default_factory, not a plain
     # default: a plain default is evaluated once at class definition, so every
     # experiment recorded the interpreter's import time rather than its own.
-    date: Optional[datetime] = field(default_factory=now)
+    date: Optional[Timestamp] = field(default_factory=now)
 
     # Where in the run. None outside a workflow -- the minimap, a manual acquisition,
     # a script -- which is a real answer rather than missing information.
@@ -4361,44 +4219,11 @@ class FibsemExperimentRef:
         self.set_workflow_metadata()
 
     def to_dict(self) -> dict:
-        """Converts to a dictionary."""
-        return {
-            "id": self.id,
-            "name": self.name,
-            "date": to_iso(self.date),
-            "item_id": self.item_id,
-            "item_name": self.item_name,
-            "task_id": self.task_id,
-            "task_name": self.task_name,
-            "iteration": self.iteration,
-        }
+        return encode(self)
 
     @staticmethod
     def from_dict(settings: dict) -> "FibsemExperimentRef":
-        """Converts from a dictionary.
-
-        Files written before v5 also carry `application`, `application_version`,
-        `fibsem_version`, `fibsem_revision` and `method` here. None are read.
-        `application`, `fibsem_version` and `fibsem_revision` live on ``SystemInfo``,
-        which is where a reader should look; `application_version` was never
-        populated anywhere; `method` never held anything but the string "null". The
-        values are still in those files if anyone needs to dig them out by hand.
-        """
-        return FibsemExperimentRef(
-            id=settings.get("id", "Unknown"),
-            # Absent in files written before v0.5.3, where `id` holds the name. Left
-            # as None rather than backfilled from `id`, so a reader can tell the two
-            # eras apart instead of being handed a name that claims to be an ID.
-            name=settings.get("name"),
-            # None when absent or unreadable; files before FIB-1197 hold a float
-            date=to_datetime(settings.get("date")),
-            # Absent before v8, and in any image acquired outside a workflow.
-            item_id=settings.get("item_id"),
-            item_name=settings.get("item_name"),
-            task_id=settings.get("task_id"),
-            task_name=settings.get("task_name"),
-            iteration=settings.get("iteration"),
-        )
+        return decode(FibsemExperimentRef, settings)
 
 
 @dataclass
@@ -4427,23 +4252,11 @@ class FibsemUser:
     # TODO: add host_ip_address
 
     def to_dict(self) -> dict:
-        """Converts to a dictionary."""
-        return {
-            "name": self.name,
-            "email": self.email,
-            "organization": self.organization,
-            "hostname": self.hostname,
-        }
+        return encode(self)
 
     @staticmethod
     def from_dict(settings: dict) -> "FibsemUser":
-        """Converts from a dictionary."""
-        return FibsemUser(
-            name=settings.get("name", "Unknown"),
-            email=settings.get("email", "Unknown"),
-            organization=settings.get("organization", "Unknown"),
-            hostname=settings.get("hostname", "Unknown"),
-        )
+        return decode(FibsemUser, settings)
 
     @staticmethod
     def from_environment() -> "FibsemUser":
@@ -4598,6 +4411,7 @@ class SessionInfo:
         )
 
 
+@saved(keys={"image_settings": "image"})
 @dataclass
 class FibsemImageMetadata:
     """Metadata for a FibsemImage.
@@ -4653,7 +4467,7 @@ class FibsemImageMetadata:
     # before the driver runs; a driver with a vendor time sets its own. None on
     # files from before v11 and on images built rather than acquired -- read the
     # time through `acquisition_datetime_of`, which falls back for those.
-    acquisition_datetime: Optional[datetime] = None
+    acquisition_datetime: Optional[AwareTimestamp] = None
     # Provenance: the device in each role the acquiring beam had filled (v12), by
     # role name, such as the external scanner that made the frame: its ``name``,
     # ``class``, ``driver``, its parameters' last known ``values`` and its
@@ -4680,128 +4494,14 @@ class FibsemImageMetadata:
         return acquisition_datetime_of(self)
 
     def to_dict(self) -> dict:
-        """Converts metadata to a dictionary.
-
-        Returns:
-            dictionary: self as a dictionary
-        """
-        settings_dict = {}
-        if self.image_settings is not None:
-            settings_dict["image"] = self.image_settings.to_dict()
-        if self.version is not None:
-            settings_dict["version"] = self.version
-        if self.acquisition_datetime is not None:
-            settings_dict["acquisition_datetime"] = (
-                self.acquisition_datetime.isoformat()
-            )
-        if self.pixel_size is not None:
-            settings_dict["pixel_size"] = self.pixel_size.to_dict()
-        if self.microscope_state is not None:
-            settings_dict["microscope_state"] = self.microscope_state.to_dict()
-        # Not nested under the microscope_state guard: who acquired an image is
-        # unrelated to whether the instrument's state was captured, and nesting it
-        # dropped the user silently -- from_dict defaults it back, so a reload
-        # produced a plausible empty FibsemUser rather than an error. See FIB-486.
-        settings_dict["user"] = self.user.to_dict()
-        settings_dict["experiment"] = self.experiment.to_dict()
-        settings_dict["system_info"] = (
-            self.system_info.to_dict() if self.system_info is not None else {}
-        )
-        settings_dict["hardware_geometry"] = (
-            self.hardware_geometry.to_dict()
-            if self.hardware_geometry is not None
-            else {}
-        )
-        settings_dict["roles"] = deepcopy(self.roles)
-
-        return settings_dict
-
-    @staticmethod
-    def _geometry_from_legacy_system(system: dict) -> Optional[FibsemHardwareGeometry]:
-        """Recover the geometry from a pre-v6 `system` blob.
-
-        Read with `.get()` chains rather than by building a `SystemSettings` first.
-        That constructor used to be bracket-indexed and raise on a blob missing any
-        block, which would have broken exactly the old files this exists to load; it
-        now defaults instead, so the two routes agree and the choice is no longer
-        load-bearing. The agreement is not free, though -- it holds because both
-        declare the FIB column tilt from one constant -- and
-        `tests/test_metadata_fixtures.py` pins it.
-
-        Whether the FM is a pose and the instrument mirrors its back views is
-        recovered the way the reprojection used to detect it, by model name, falling
-        back to the simulator flag. That match is wrong -- a capability inferred from
-        a name -- which is why v6 records it instead. It survives here only because a
-        pre-v6 file has nothing better in it: this is the legacy reader.
-        """
-        if not system:
-            return None
-
-        stage = system.get("stage") or {}
-        electron = system.get("electron") or {}
-        ion = system.get("ion") or {}
-        info = system.get("info") or {}
-        sim = system.get("sim") or {}
-
-        model = info.get("model") or ""
-        is_compustage = "Arctis" in model or bool(sim.get("is_compustage", False))
-
-        # Field defaults where a key is absent, so a partial blob degrades to the
-        # same values a freshly-constructed record would have.
-        default = FibsemHardwareGeometry()
-        return FibsemHardwareGeometry(
-            column_tilt=electron.get("column_tilt", default.column_tilt),
-            fib_column_tilt=ion.get("column_tilt", default.fib_column_tilt),
-            shuttle_pre_tilt=stage.get("shuttle_pre_tilt", default.shuttle_pre_tilt),
-            rotation_reference=stage.get(
-                "rotation_reference", default.rotation_reference
-            ),
-            rotation_180=stage.get("rotation_180", default.rotation_180),
-            fm_is_pose=is_compustage,
-            mirrors_back_view=is_compustage,
-            rotation_centre=LEGACY_ROTATION_CENTRE,
-        )
+        return encode(self)
 
     @staticmethod
     def from_dict(settings: dict) -> "FibsemImageMetadata":
-        """Converts a dictionary to metadata."""
+        """Read metadata written by any version (`fibsem.codec.upgrades.image_metadata`)."""
+        from fibsem.codec.upgrades.image_metadata import upgrade
 
-        image_settings = ImageSettings.from_dict(settings["image"])
-        version = settings.get("version", UNVERSIONED_METADATA)
-        if settings["pixel_size"] is not None:
-            pixel_size = Point.from_dict(settings["pixel_size"])
-        if settings["microscope_state"] is not None:
-            microscope_state = MicroscopeState.from_dict(settings["microscope_state"])
-
-        # Presence-detection, not a version switch (FIB-445 D3): v6 writes
-        # `system_info` and `hardware_geometry`, everything before it wrote a whole
-        # `system`. Both are optional -- an image may be built without a microscope.
-        legacy_system = settings.get("system") or {}
-
-        info_dict = settings.get("system_info") or legacy_system.get("info") or {}
-        system_info = SystemInfo.from_dict(info_dict) if info_dict else None
-
-        geometry_dict = settings.get("hardware_geometry") or {}
-        if geometry_dict:
-            hardware_geometry = FibsemHardwareGeometry.from_dict(geometry_dict)
-        else:
-            hardware_geometry = FibsemImageMetadata._geometry_from_legacy_system(
-                legacy_system
-            )
-
-        metadata = FibsemImageMetadata(
-            image_settings=image_settings,
-            version=version,
-            pixel_size=pixel_size,
-            microscope_state=microscope_state,
-            user=FibsemUser.from_dict(settings.get("user", {})),
-            experiment=FibsemExperimentRef.from_dict(settings.get("experiment", {})),
-            system_info=system_info,
-            hardware_geometry=hardware_geometry,
-            acquisition_datetime=to_aware(settings.get("acquisition_datetime")),
-            roles=deepcopy(settings.get("roles") or {}),
-        )
-        return metadata
+        return decode(FibsemImageMetadata, upgrade(settings))
 
 
 @dataclass

@@ -1,4 +1,5 @@
 {
+  "acquisition_datetime": null,
   "experiment": {
     "date": "2026-08-04T04:18:54.553929+00:00",
     "id": "test-experiment",
@@ -11,20 +12,20 @@
   },
   "hardware_geometry": {
     "camera_tilt": 0.0,
-    "column_tilt": 0,
-    "fib_column_tilt": 52,
+    "column_tilt": 0.0,
+    "fib_column_tilt": 52.0,
     "fm_is_pose": true,
     "mirrors_back_view": true,
     "poses": {},
-    "rotation_180": 0,
+    "rotation_180": 0.0,
     "rotation_centre": [
       -0.00048774038889328543,
       0.0008062916666666666
     ],
-    "rotation_reference": 0,
-    "shuttle_pre_tilt": 0,
+    "rotation_reference": 0.0,
+    "shuttle_pre_tilt": 0.0,
     "stage_frame": null,
-    "transform": null
+    "transform": "NONE"
   },
   "image": {
     "autocontrast": false,
@@ -73,7 +74,7 @@
         "x": 0.0,
         "y": 0.0
       },
-      "voltage": 30000,
+      "voltage": 30000.0,
       "working_distance": 0.0165
     },
     "ion_detector": {
@@ -109,6 +110,7 @@
     "manufacturer": "Demo",
     "model": "DemoMicroscope",
     "name": "test-configuration",
+    "port": null,
     "serial_number": "0000000",
     "software_version": "0.1"
   },
