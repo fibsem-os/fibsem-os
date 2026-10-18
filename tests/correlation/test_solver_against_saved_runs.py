@@ -1,10 +1,10 @@
-"""The solver against the pyto fits it replaced, on correlation runs saved on disk.
+"""The solver against correlation runs saved on disk.
 
 Skipped unless ``FIBSEM_CORRELATION_RUNS`` names a folder. Every run file under it
 (``correlation.json`` or either legacy name) with a fitted result is refitted with the
-fiducials that result was computed from, unseeded and seeded from the saved rotation,
-by both the solver and pyto. The solver must fit at least as well each time. The
-same check runs in CI on synthetic runs written to a temporary folder::
+fiducials that result was computed from, unseeded and seeded from the saved rotation.
+The solver must fit at least as well as the saved result each time. The same check
+runs in CI on synthetic runs written to a temporary folder::
 
     FIBSEM_CORRELATION_RUNS=/path/to/runs pytest tests/correlation/test_solver_against_saved_runs.py -s
 """
@@ -34,7 +34,6 @@ from fibsem.correlation.structures import (
     load_correlation_file,
 )
 
-from . import pyto_oracle
 from .test_nominal_transform import ENTRIES, _images
 
 _ROOT = os.environ.get("FIBSEM_CORRELATION_RUNS")
@@ -75,18 +74,15 @@ def _check(path: Path) -> None:
     fm, fib, result = _fiducials(path)
 
     new = solver.fit_unseeded(fm, fib)
-    _, _, old_rms = pyto_oracle.unseeded(fm, fib)
     saved_r = np.asarray(result.rotation_quaternion, dtype=float)
     seeded = solver.fit_from_seed(fm, fib, saved_r, result.scale)
-    _, _, old_seeded_rms = pyto_oracle.from_seed(fm, fib, saved_r, result.scale)
     print(
         f"\n{path}: n={len(fm)} saved {result.rms_error:.3f} | unseeded "
-        f"{new.rms:.3f} (pyto {old_rms:.3f}) | from saved {seeded.rms:.3f} "
-        f"(pyto {old_seeded_rms:.3f}, {rotation_angle_deg(seeded.rotation, saved_r):.2f} deg "
-        "from saved)"
+        f"{new.rms:.3f} | from saved {seeded.rms:.3f} "
+        f"({rotation_angle_deg(seeded.rotation, saved_r):.2f} deg from saved)"
     )
-    assert new.rms <= old_rms + 1e-3
-    assert seeded.rms <= old_seeded_rms + 1e-3
+    assert new.rms <= result.rms_error + 1e-3
+    assert seeded.rms <= result.rms_error + 1e-3
 
 
 @pytest.mark.skipif(
@@ -95,7 +91,7 @@ def _check(path: Path) -> None:
 @pytest.mark.parametrize(
     "path", _FILES or [None], ids=[str(p) for p in _FILES] or ["no-runs"]
 )
-def test_solver_fits_saved_runs_at_least_as_well_as_pyto(path):
+def test_solver_fits_saved_runs_at_least_as_well_as_they_were(path):
     if path is None:
         pytest.skip(f"no run files under {_ROOT}")
     _check(path)

@@ -2,8 +2,8 @@
 
 The synthetic cases are built from a known rotation, scale and translation, so the
 solver must recover them exactly without noise and fit no worse than the truth with
-it. The saved fits are the nine in ``fixtures/nominal_transform.json``; there the
-solver must do at least as well as the pyto fit it replaced (``pyto_oracle``).
+it. The saved fits are the nine in ``fixtures/nominal_transform.json``; there an
+unseeded fit must find the geometry's branch and the seeded fit's minimum.
 """
 
 from __future__ import annotations
@@ -15,7 +15,6 @@ from scipy.spatial.transform import Rotation
 from fibsem.correlation import solver
 from fibsem.correlation.geometry import branch_of, rotation_angle_deg
 
-from . import pyto_oracle
 from .test_nominal_transform import ENTRIES, IDS, _isotropic_coords, _nominal
 
 
@@ -108,16 +107,23 @@ def test_too_few_pairs_or_a_bad_seed_is_refused():
 
 def test_eulers_are_the_saved_convention():
     """``R = Rz(psi) Rx(theta) Rz(phi)``, theta in [0, 180]: what runs have saved."""
-    from fibsem.correlation.pyto.rigid_3d import Rigid3D
+
+    def rz(a):
+        c, s = np.cos(a), np.sin(a)
+        return np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
+
+    def rx(a):
+        c, s = np.cos(a), np.sin(a)
+        return np.array([[1, 0, 0], [0, c, -s], [0, s, c]])
 
     for seed in range(20):
         rotation = Rotation.random(random_state=seed).as_matrix()
-        angles = solver.eulers_deg(rotation)
-        assert 0.0 <= angles[1] <= 180.0
+        phi, theta, psi = np.radians(solver.eulers_deg(rotation))
+        assert 0.0 <= theta <= np.pi
+        assert np.allclose(rz(psi) @ rx(theta) @ rz(phi), rotation)
         assert np.allclose(
-            angles, np.degrees(Rigid3D.extract_euler(rotation, mode="x", ret="one"))
+            solver.rotation_from_eulers_deg(solver.eulers_deg(rotation)), rotation
         )
-        assert np.allclose(solver.rotation_from_eulers_deg(angles), rotation)
 
 
 def test_the_cover_is_the_sixty_rotations_of_the_icosahedron():
@@ -128,26 +134,19 @@ def test_the_cover_is_the_sixty_rotations_of_the_icosahedron():
     assert all(tuple(np.round(a @ b, 6).ravel()) in keys for a in cover for b in cover)
 
 
-# ── against the pyto fits it replaced, on the saved fiducials ─────────────
+# ── on the saved fiducials ────────────────────────────────────────────────
 
 
 @pytest.mark.parametrize("entry", ENTRIES, ids=IDS)
-def test_unseeded_matches_pyto_on_the_saved_fits(entry):
+def test_unseeded_finds_the_geometrys_branch_on_the_saved_fits(entry):
+    """With no seed, the search still lands where the geometry says, at its minimum.
+
+    The random-restart fit this replaced landed on the mirror for two of these.
+    """
     nominal = _nominal(entry)
     fib, fm = _isotropic_coords(entry, nominal)
     fit = solver.fit_unseeded(fm, fib)
-    r_old, _, rms_old = pyto_oracle.unseeded(fm, fib)
-    assert fit.rms <= rms_old + 1e-3
-    assert branch_of(fit.rotation, nominal)[0] == branch_of(r_old, nominal)[0]
-
-
-@pytest.mark.parametrize("entry", ENTRIES, ids=IDS)
-@pytest.mark.parametrize("mirrored", [False, True], ids=["nominal", "mirror"])
-def test_seeded_matches_pyto_on_the_saved_fits(entry, mirrored):
-    nominal = _nominal(entry)
-    seed = nominal.mirrored() if mirrored else nominal
-    fib, fm = _isotropic_coords(entry, nominal)
-    fit = solver.fit_from_seed(fm, fib, seed.rotation, seed.scale)
-    r_old, _, rms_old = pyto_oracle.from_seed(fm, fib, seed.rotation, seed.scale)
-    assert fit.rms <= rms_old + 1e-3
-    assert rotation_angle_deg(fit.rotation, r_old) < 0.5
+    seeded = solver.fit_from_seed(fm, fib, nominal.rotation, nominal.scale)
+    assert branch_of(fit.rotation, nominal)[0] == "nominal"
+    assert fit.rms <= seeded.rms + 1e-6
+    assert rotation_angle_deg(fit.rotation, seeded.rotation) < 0.5
