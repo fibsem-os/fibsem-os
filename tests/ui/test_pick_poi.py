@@ -246,7 +246,9 @@ def test_the_prompt_serves_the_frame_the_view_shows(window, ui, qapp):
         thread, _ = _pick_on_worker_thread(ui, qapp, old)
         fetched = {}
         getter = threading.Thread(
-            target=lambda: fetched.update(AutoLamellaAppContext(ui).pending_prompt()),
+            target=lambda: fetched.update(
+                AutoLamellaAppContext(ui.session, window=ui).pending_prompt()
+            ),
             daemon=True,
         )
         getter.start()
@@ -300,7 +302,7 @@ def _pending_prompt_on_worker(ui, qapp):
     """
     from fibsem.applications.autolamella.server import AutoLamellaAppContext
 
-    ctx = AutoLamellaAppContext(ui)
+    ctx = AutoLamellaAppContext(ui.session, window=ui)
     outcome = {}
 
     def target():
@@ -349,7 +351,7 @@ def _answer_with_value_on_worker(ui, qapp, response, question_id, value):
     """Call AutoLamellaAppContext.answer_prompt from a worker thread, as the server does."""
     from fibsem.applications.autolamella.server import AutoLamellaAppContext
 
-    ctx = AutoLamellaAppContext(ui)
+    ctx = AutoLamellaAppContext(ui.session, window=ui)
     outcome = {}
 
     def target():

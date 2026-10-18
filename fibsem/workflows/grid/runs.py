@@ -70,12 +70,14 @@ def make_grid_manager(
     request: RunRequest,
     parent_ui: Any = None,
     hook_manager: Any = None,
+    responder: Any = None,
 ) -> GridTaskManager:
     return GridTaskManager(
         microscope=microscope,
         experiment=experiment,
         parent_ui=parent_ui,
         hook_manager=hook_manager,
+        responder=responder,
         unload_at_end=request.option("unload_at_end"),
         report_at_end=request.option("report_at_end"),
         inventory_first=request.option("inventory_first"),

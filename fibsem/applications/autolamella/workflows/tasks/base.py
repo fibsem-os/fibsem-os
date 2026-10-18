@@ -104,6 +104,7 @@ from fibsem.workflows.interaction import (
     ACTION_EDIT,
     ACTION_RUN,
     ClearMillingConfig,
+    Responder,
     RunMillingTask,
     SetFluorescenceChannels,
     SetMillingConfig,
@@ -215,6 +216,12 @@ class AutoLamellaTask(BaseTask):
         <YYYYMMDD-HHMMSS>/`` (FIB-1275), so a re-run overwrites nothing. The
         lamella's shared state is written to the lamella's folder instead."""
         return self._output_dir
+
+    @property
+    def responder(self) -> Optional[Responder]:
+        """Who answers this task's questions: the run's (the session's
+        responder), or None outside a run."""
+        return getattr(self.task_manager, "responder", None)
 
     @property
     def validate(self) -> bool:
@@ -559,7 +566,7 @@ class AutoLamellaTask(BaseTask):
             record_milling_skipped(
                 self.microscope, milling_config, "milling is turned off for this task"
             )
-        responder = getattr(self.parent_ui, "ui_responder", None)
+        responder = self.responder
         # The task's own config until an answer replaces it: an unasked mill
         # runs it, so what the run records on it (a strategy's end reason)
         # stays with the task even when the run is stopped. The question only
@@ -662,7 +669,7 @@ class AutoLamellaTask(BaseTask):
 
     def _set_milling_config_ui(self, milling_config: FibsemMillingTaskConfig):
         """Set the milling config in the milling widget."""
-        if self.parent_ui is None:
+        if self.parent_ui is None or self.responder is None:
             return
 
         self._check_for_abort()
@@ -670,7 +677,7 @@ class AutoLamellaTask(BaseTask):
         # deepcopy kept from the signal days: the editor's copy must be the
         # operator's to edit without the task's own config moving under it.
         ask(
-            self.parent_ui.ui_responder,
+            self.responder,
             SetMillingConfig(config=deepcopy(milling_config)),
             abort=lambda: _abort_requested(self.parent_ui),
             timeout=INSTRUCTION_TIMEOUT_S,
@@ -678,11 +685,11 @@ class AutoLamellaTask(BaseTask):
 
     def clear_milling_config_ui(self):
         """Clear the milling config from the milling widget."""
-        if self.parent_ui is None:
+        if self.parent_ui is None or self.responder is None:
             return
 
         ask(
-            self.parent_ui.ui_responder,
+            self.responder,
             ClearMillingConfig(),
             abort=lambda: _abort_requested(self.parent_ui),
             timeout=INSTRUCTION_TIMEOUT_S,
@@ -1117,11 +1124,11 @@ class AutoLamellaTask(BaseTask):
         self, channel_settings: List[ChannelSettings]
     ) -> None:
         """Set the fluorescence channel settings in the fluorescence widget."""
-        if self.parent_ui is None:
+        if self.parent_ui is None or self.responder is None:
             return
 
         ask(
-            self.parent_ui.ui_responder,
+            self.responder,
             SetFluorescenceChannels(channels=deepcopy(channel_settings)),
             abort=lambda: _abort_requested(self.parent_ui),
             timeout=INSTRUCTION_TIMEOUT_S,

@@ -20,7 +20,8 @@ from fibsem.server.auth import AgentLevel  # noqa: E402
 from fibsem.server.catalog import CATALOG, route_call  # noqa: E402
 from fibsem.server.request_text import describe_action  # noqa: E402
 from tests.fixtures.demo_stage import demo_grid_loader, demo_session  # noqa: E402
-from tests.server.test_agent_requests import Host, RecordingContext  # noqa: E402
+from tests.run_state import stub_session  # noqa: E402
+from tests.server.test_agent_requests import RecordingContext  # noqa: E402
 
 TOKEN = "agent"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -237,7 +238,7 @@ def test_a_load_after_an_unload_step_doesn_t_say_the_unload_again():
 
 
 def test_assist_asks_for_an_exchange_and_the_operator_reads_it(arctis, tmp_path):
-    host = Host()
+    host = stub_session()
     host.microscope = arctis
     auth = AuthConfig(token=TOKEN, dashboard_token="dashboard")
     auth.set_level(AgentLevel.ASSIST)
@@ -278,7 +279,7 @@ def recording(arctis, tmp_path):
         Experiment,
     )
 
-    host = Host()
+    host = stub_session()
     host.microscope = arctis
     (tmp_path / "grids-exp").mkdir()
     host.experiment = Experiment(path=tmp_path, name="grids-exp")
@@ -348,11 +349,11 @@ def test_a_rename_the_grids_tab_would_refuse_is_refused(recording, arctis):
     assert missing.status_code == 404
     assert missing.json()["detail"]["grid_names"] == ["G1", "G2", "Grid-03"]
 
-    recording.host.session.runner.is_running = True
+    recording.host.runner.is_running = True
     try:
         running = _call(recording, "grid_rename", grid_name="G2", name="Lyso-2")
     finally:
-        recording.host.session.runner.is_running = False
+        recording.host.runner.is_running = False
     assert running.status_code == 409
 
 

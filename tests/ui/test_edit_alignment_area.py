@@ -145,7 +145,7 @@ def _answer_with_value_on_worker(ui, qapp, response, question_id, value):
     """
     from fibsem.applications.autolamella.server import AutoLamellaAppContext
 
-    ctx = AutoLamellaAppContext(ui)
+    ctx = AutoLamellaAppContext(ui.session, window=ui)
     outcome = {}
 
     def target():

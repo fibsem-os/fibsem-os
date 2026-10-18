@@ -58,7 +58,7 @@ def test_closing_the_window_writes_the_last_edit_and_stops_the_writer(window, tm
     experiment.task_protocol.task_config[TASK] = MillRoughTaskConfig(task_name=TASK)
     experiment.add_new_lamella(MicroscopeState(), EventedDict())
     experiment.positions[0].task_config[TASK] = MillRoughTaskConfig(task_name=TASK)
-    ui._adopt_experiment(experiment)
+    ui.adopt_experiment(experiment)
     editor = window.lamella_widget
     editor.set_experiment()
     editor.select_lamella(experiment.positions[0].name)

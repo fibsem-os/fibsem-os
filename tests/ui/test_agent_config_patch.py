@@ -82,7 +82,7 @@ def recorded(ui, tmp_path):
 def _client(ui, buffer=None, arm_configure=True):
     app = build_server(
         ui.microscope,
-        app_context=AutoLamellaAppContext(ui, event_buffer=buffer),
+        app_context=AutoLamellaAppContext(ui.session, window=ui, event_buffer=buffer),
         auth=AuthConfig.generate(
             level="drive" if arm_configure else "watch", token=TOKEN
         ),

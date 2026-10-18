@@ -95,9 +95,9 @@ def test_the_experiment_opened_is_the_one_watched(window, tmp_path):
     first = _experiment(tmp_path, "first")
     second = _experiment(tmp_path, "second")
 
-    ui._adopt_experiment(first)
+    ui.adopt_experiment(first)
     on_first = _decide(first)
-    ui._adopt_experiment(second)
+    ui.adopt_experiment(second)
     on_second = _decide(second)
     _decide(first)  # no longer open: not the app's to record
 
@@ -107,7 +107,7 @@ def test_the_experiment_opened_is_the_one_watched(window, tmp_path):
 def test_an_experiment_open_before_the_microscope_connects_is_watched(window, tmp_path):
     ui = window.autolamella_ui
     experiment = _experiment(tmp_path, "open-first")
-    ui._adopt_experiment(experiment)
+    ui.adopt_experiment(experiment)
     # The connect button toggles: disconnect, then connect again.
     ui.system_widget.connect_to_microscope()
     assert ui.microscope is None and ui.session.recorder is None

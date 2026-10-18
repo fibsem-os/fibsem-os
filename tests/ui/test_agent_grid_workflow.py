@@ -77,7 +77,7 @@ def ui(qapp, monkeypatch, tmp_path):
 def _client(ui, arm_control):
     app = build_server(
         ui.microscope,
-        app_context=AutoLamellaAppContext(ui),
+        app_context=AutoLamellaAppContext(ui.session, window=ui),
         auth=AuthConfig.generate(
             level="drive" if arm_control else "watch", token=TOKEN
         ),

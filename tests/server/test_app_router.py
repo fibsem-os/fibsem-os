@@ -28,14 +28,6 @@ TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
 
 
-class Host:
-    experiment = None
-    microscope = None
-
-    def __init__(self):
-        self.session = stub_session()
-
-
 @pytest.fixture(scope="module")
 def microscope():
     os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
@@ -45,7 +37,7 @@ def microscope():
 
 @pytest.fixture
 def host(tmp_path, microscope):
-    host = Host()
+    host = stub_session()
     exp = Experiment(path=tmp_path / "exp", name="router-exp")
     exp.task_protocol = AutoLamellaTaskProtocol()
     (tmp_path / "exp").mkdir(parents=True, exist_ok=True)
@@ -1108,24 +1100,24 @@ def test_a_pose_is_not_set_from_the_stage_while_a_run_is_on(driver, host):
     """The run moves the stage, so the pose would be wherever it left it."""
     name = host.experiment.positions[0].name
     before = host.experiment.get_lamella_by_name(name).milling_pose
-    host.session.runner.is_running = True
+    host.runner.is_running = True
     try:
         refused = driver.post(f"/app/experiment/items/{name}/poses/MILLING")
         assert refused.status_code == 409
         assert refused.json()["detail"]["error_type"] == "task_running"
     finally:
-        host.session.runner.is_running = False
+        host.runner.is_running = False
     assert host.experiment.get_lamella_by_name(name).milling_pose is before
 
 
 def test_an_item_is_removed_but_not_while_a_run_is_on(driver, host):
     host.experiment.add_new_lamella(MicroscopeState(), EventedDict(), name="spare")
-    host.session.runner.is_running = True
+    host.runner.is_running = True
     try:
         refused = driver.delete("/app/experiment/items/spare")
         assert refused.status_code == 409
     finally:
-        host.session.runner.is_running = False
+        host.runner.is_running = False
     removed = driver.delete("/app/experiment/items/spare")
     assert removed.status_code == 200
     assert host.experiment.get_lamella_by_name("spare") is None
@@ -1134,7 +1126,7 @@ def test_an_item_is_removed_but_not_while_a_run_is_on(driver, host):
 def test_an_item_is_not_added_where_the_stage_is_while_a_run_is_on(driver, host):
     """The run has moved the stage, so "here" is wherever it left it; a given
     stage_position is still taken."""
-    host.session.runner.is_running = True
+    host.runner.is_running = True
     try:
         refused = driver.post("/app/experiment/items", json={"name": "here"})
         assert refused.status_code == 409
@@ -1148,7 +1140,7 @@ def test_an_item_is_not_added_where_the_stage_is_while_a_run_is_on(driver, host)
         )
         assert given.status_code == 200, given.text
     finally:
-        host.session.runner.is_running = False
+        host.runner.is_running = False
     assert host.experiment.get_lamella_by_name("here") is None
 
 

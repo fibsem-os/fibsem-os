@@ -64,7 +64,11 @@ def auth():
 
 @pytest.fixture
 def client(ui, auth):
-    app = build_server(ui.microscope, app_context=AutoLamellaAppContext(ui), auth=auth)
+    app = build_server(
+        ui.microscope,
+        app_context=AutoLamellaAppContext(ui.session, window=ui),
+        auth=auth,
+    )
     with TestClient(app, raise_server_exceptions=False) as client:
         yield client
 
@@ -280,7 +284,11 @@ def test_a_suggestion_carries_the_image_its_evidence_is_in(
     inside.write_bytes(b"tif")
     outside = tmp_path.parent / "elsewhere.tif"
     outside.write_bytes(b"tif")
-    app = build_server(ui.microscope, app_context=AutoLamellaAppContext(ui), auth=auth)
+    app = build_server(
+        ui.microscope,
+        app_context=AutoLamellaAppContext(ui.session, window=ui),
+        auth=auth,
+    )
     events = _record(ui)
     with TestClient(app, raise_server_exceptions=False) as client:
         thread, outcome = _ask_on_worker(ui, qapp)

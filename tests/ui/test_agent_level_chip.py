@@ -1315,7 +1315,7 @@ def test_the_agent_s_workflow_stop_turns_the_border_red(main_ui, qapp):
     main_ui._set_border_state("automated")
     answers = []
     try:
-        context = AutoLamellaAppContext(ui)
+        context = AutoLamellaAppContext(ui.session, window=ui)
         server = threading.Thread(
             target=lambda: answers.append(context.stop_workflow())
         )

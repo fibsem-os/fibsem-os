@@ -16,6 +16,7 @@ from fibsem.hooks import HookEvent, HookManager, fire_event
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import InsertableDeviceState
 from fibsem.util.durations import format_duration_rounded
+from fibsem.workflows.interaction import Responder
 from fibsem.workflows.manager import BaseTaskManager
 from fibsem.workflows.queue import WorkItem
 from fibsem.workflows.status import TaskStatus
@@ -67,8 +68,9 @@ class TaskManager(BaseTaskManager):
         experiment: "Experiment",
         parent_ui: Optional["AutoLamellaUI"] = None,
         hook_manager: Optional[HookManager] = None,
+        responder: Optional[Responder] = None,
     ):
-        super().__init__(microscope, experiment, parent_ui, hook_manager)
+        super().__init__(microscope, experiment, parent_ui, hook_manager, responder)
         # Lamellae already finished when the run started, so re-running a task on
         # finished work does not re-announce it. Seeded in _run_queue.
         self._completed_lamella: Set[str] = set()
@@ -590,12 +592,19 @@ def run_tasks(
     required_lamella: Optional[List[str]] = None,
     parent_ui: Optional["AutoLamellaUI"] = None,
     hook_manager: Optional[HookManager] = None,
+    responder: Optional[Responder] = None,
 ) -> None:
     """Run the specified tasks for all lamellas in the experiment.
     Thin wrapper around TaskManager for backward compatibility and headless usage.
     In control of the microscope for the run (FIB-1270): refused with
     ``MicroscopeBusy`` if someone else is.
     """
-    manager = TaskManager(microscope, experiment, parent_ui, hook_manager=hook_manager)
+    manager = TaskManager(
+        microscope,
+        experiment,
+        parent_ui,
+        hook_manager=hook_manager,
+        responder=responder,
+    )
     with microscope.control.take(WORKFLOW, "a lamella run"):
         manager.run(task_names, required_lamella)

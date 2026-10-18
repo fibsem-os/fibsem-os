@@ -33,14 +33,6 @@ TOKEN = "test-token"
 POLL_S = 0.3
 
 
-class Host:
-    experiment = None
-    microscope = None
-
-    def __init__(self):
-        self.session = stub_session()
-
-
 @pytest.fixture(scope="module")
 def microscope():
     os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
@@ -74,11 +66,11 @@ class App:
         return self.context._event_buffer
 
     def set_running(self, running):
-        self.context._host.session.runner.is_running = running
+        self.context._session.runner.is_running = running
 
 
 def _serve(microscope, tmp_path, event_buffer):
-    host = Host()
+    host = stub_session()
     exp = Experiment(path=tmp_path / "exp", name="watch-exp")
     exp.task_protocol = AutoLamellaTaskProtocol()
     (tmp_path / "exp").mkdir(parents=True, exist_ok=True)

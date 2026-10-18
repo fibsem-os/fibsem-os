@@ -89,7 +89,10 @@ def _task(ui, parent_ui, milling_enabled=True):
         lamella=lamella,
         parent_ui=parent_ui,
         task_manager=TaskManager(
-            microscope=ui.microscope, experiment=experiment, parent_ui=parent_ui
+            microscope=ui.microscope,
+            experiment=experiment,
+            parent_ui=parent_ui,
+            responder=parent_ui.ui_responder if parent_ui is not None else None,
         ),
     )
 

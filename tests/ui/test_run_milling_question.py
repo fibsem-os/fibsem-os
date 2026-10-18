@@ -121,7 +121,12 @@ def ui(qapp, monkeypatch, tmp_path):
 def _task(ui):
     experiment = ui.experiment
     lamella = experiment.positions[0]
-    manager = TaskManager(microscope=ui.microscope, experiment=experiment, parent_ui=ui)
+    manager = TaskManager(
+        microscope=ui.microscope,
+        experiment=experiment,
+        parent_ui=ui,
+        responder=ui.ui_responder,
+    )
     task = MillRoughTask(
         microscope=ui.microscope,
         config=lamella.task_config[ROUGH],

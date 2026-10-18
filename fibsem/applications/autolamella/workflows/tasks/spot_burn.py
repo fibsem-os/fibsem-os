@@ -173,7 +173,7 @@ class SpotBurnFiducialTask(AutoLamellaTask):
         burns the stored points once, and a failure fails the task; with no
         points it skips. Supervision is read at each decision.
         """
-        responder = getattr(self.parent_ui, "ui_responder", None)
+        responder = self.responder
         settings = self.config.to_settings()
         msg = f"Place points for the spot burn of {self.lamella.name}."
         burned, passes, error, refused = settings, 0, None, None

@@ -141,7 +141,10 @@ def _task(ui, points=((0.5, 0.5),)):
     config.milling_current = 100e-12
     config.exposure_time = 7.0
     manager = TaskManager(
-        microscope=ui.microscope, experiment=ui.experiment, parent_ui=ui
+        microscope=ui.microscope,
+        experiment=ui.experiment,
+        parent_ui=ui,
+        responder=ui.ui_responder,
     )
     task = SpotBurnFiducialTask(
         microscope=ui.microscope,

@@ -27,14 +27,11 @@ def app():
     # Mounted with a real (empty-host) AutoLamellaAppContext so the contract test can
     # prove the app-router catalog entries dispatch too.
     from fibsem.applications.autolamella.server import AutoLamellaAppContext
-
-    class _Host:
-        experiment = None
-        microscope = None
+    from fibsem.workflows.session import AppSession
 
     return build_server(
         microscope,
-        app_context=AutoLamellaAppContext(_Host()),
+        app_context=AutoLamellaAppContext(AppSession()),
         auth=AuthConfig(token="t"),
     )
 

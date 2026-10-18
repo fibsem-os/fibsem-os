@@ -423,7 +423,7 @@ def test_a_hidden_page_finds_new_overviews_when_shown(world):
 def window(qapp, tmp_path):
     window = AutoLamellaSingleWindowUI()
     window.autolamella_ui.system_widget.connect_to_microscope()
-    window.autolamella_ui._adopt_experiment(
+    window.autolamella_ui.adopt_experiment(
         Experiment.create(path=tmp_path, name="refresh")
     )
     yield window

@@ -106,7 +106,6 @@ from fibsem.ui.widgets.workflow_summary_dialog import (
     WorkflowSummaryDialog,
     run_counts_text,
 )
-from fibsem.workflows.runner import GRIDS, ITEMS, RunRequest
 from fibsem.workflows.session import AppSession
 
 if TYPE_CHECKING:
@@ -571,7 +570,7 @@ class AutoLamellaUI(QMainWindow):
             notification_service.show_toast("Experiment creation cancelled.", "info")
             return
 
-        self._adopt_experiment(experiment)
+        self.adopt_experiment(experiment)
 
     def load_experiment(self) -> None:
         """Load an existing experiment using the experiment loading dialog."""
@@ -588,7 +587,7 @@ class AutoLamellaUI(QMainWindow):
             notification_service.show_toast("Experiment loading cancelled.", "info")
             return
 
-        self._adopt_experiment(experiment)
+        self.adopt_experiment(experiment)
 
     def quickstart(self, load_experiment: bool = False) -> None:
         """Connect to the microscope without waiting to be clicked (``--quickstart``).
@@ -642,12 +641,12 @@ class AutoLamellaUI(QMainWindow):
             notification_service.show_toast(msg, "warning")
             return
 
-        self._adopt_experiment(experiment)
+        self.adopt_experiment(experiment)
         logging.info(
             f"Quickload: loaded experiment {experiment.name} from {experiment_path}"
         )
 
-    def _adopt_experiment(self, experiment: Experiment) -> None:
+    def adopt_experiment(self, experiment: Experiment) -> None:
         """Make ``experiment`` the current one, and point logging at its logfile.
 
         The single place the app takes ownership of an experiment, whether it was
@@ -726,7 +725,9 @@ class AutoLamellaUI(QMainWindow):
                 # like the agent level; it starts at the preference's default
                 self.session.serve_microscope = preference.microscope
             self.session.start_app_server(
-                lambda buffer: AutoLamellaAppContext(self, event_buffer=buffer)
+                lambda buffer: AutoLamellaAppContext(
+                    self.session, window=self, event_buffer=buffer
+                )
             )
 
     def sync_app_server_with_preference(self) -> None:
@@ -1156,61 +1157,18 @@ class AutoLamellaUI(QMainWindow):
         except Exception:
             logging.exception("redraw after an agent's experiment edit failed")
 
-    def request_start_workflow(
-        self, task_names: List[str], item_names: Optional[List[str]] = None
-    ) -> "Future":
-        """Start a workflow as the Run button would; any thread.
-
-        The agent-facing start: marshalled to where the experiment is edited,
-        resolving to a plain dict -- ``{"started": True}`` or a structured
-        refusal with the valid names. The agent at Drive is the consent that
-        replaces the Run click's confirm dialog.
-        """
-        request = RunRequest(
-            kind=ITEMS,
-            task_names=tuple(task_names),
-            names=tuple(item_names) if item_names is not None else None,
-        )
-        return self.session.run_edit(functools.partial(self._start_run, request))
-
-    def _start_run(self, request: RunRequest) -> dict:
-        return self.session.runner.start(self.experiment, request).as_dict()
-
     def lamella_run_refusal(self, lamellae) -> str:
         """Why these lamellae cannot run now, or "": a lamella linked to a grid
         that is not on the stage. Reads the inventory first; see `grid_gate`.
 
-        The one gate for the Run click, Add to queue and the agent's start and
-        requeue, so none of them can run a lamella on the wrong grid.
+        The window's clicks' gate (Run, Add to queue); the runner and the
+        agent's requeue apply the same ``run_refusal``, so none of them can run
+        a lamella on the wrong grid.
         """
         stage = getattr(self.microscope, "sample_handling", None)
         if self.experiment is None or stage is None:
             return ""
         return run_refusal(self.experiment, stage, lamellae)
-
-    def request_start_grid_workflow(
-        self,
-        task_names: List[str],
-        grid_names: Optional[List[str]] = None,
-        inventory_first: bool = False,
-        unload_at_end: bool = False,
-        report_at_end: bool = False,
-    ) -> "Future":
-        """Start a grid run as the Grids view's Run (or Screen all grids) would;
-        any thread. Same marshal as :meth:`request_start_workflow`.
-        ``unload_at_end`` and ``report_at_end`` are the confirmation's
-        end-of-run options."""
-        request = RunRequest(
-            kind=GRIDS,
-            task_names=tuple(task_names),
-            names=tuple(grid_names) if grid_names is not None else None,
-            options={
-                "inventory_first": bool(inventory_first),
-                "unload_at_end": bool(unload_at_end),
-                "report_at_end": bool(report_at_end),
-            },
-        )
-        return self.session.run_edit(functools.partial(self._start_run, request))
 
     def request_apply_task_config_patch(
         self, item_name: str, task_name: str, patch: dict, version: str
@@ -2251,13 +2209,13 @@ class AutoLamellaUI(QMainWindow):
             notification_service.show_toast("Protocol loading cancelled.", "info")
             return
 
-        self._adopt_protocol(protocol)
+        self.adopt_protocol(protocol)
         notification_service.show_toast(
             f"Protocol '{protocol.name}' loaded successfully with {len(protocol.task_config)} tasks.",
             "info",
         )
 
-    def _adopt_protocol(self, protocol) -> None:
+    def adopt_protocol(self, protocol) -> None:
         """Make *protocol* the open experiment's, save it beside the experiment
         and redraw: the Load Protocol dialog's OK, and an agent's load. GUI
         thread."""
