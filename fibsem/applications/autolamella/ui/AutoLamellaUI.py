@@ -874,6 +874,7 @@ class AutoLamellaUI(QMainWindow):
                 microscope=self.microscope,
                 image_settings=self.settings.image,  # type: ignore
                 parent=self,
+                images=self.session.images,
             )
             self.movement_widget = FibsemMovementWidget(
                 microscope=self.microscope,

@@ -51,19 +51,17 @@ def test_a_fresh_window_satisfies_the_host_contract(ui):
     assert ctx.display_images() == {"available": False, "sem": None, "fib": None}
 
 
-def test_display_images_mirror_the_widgets_current_images(ui):
+def test_display_images_are_the_sessions_latest_images(ui):
+    """FIB-1451: the session holds the latest image of each beam; the server
+    reads them there, once the window shows images at all."""
     import numpy as np
 
-    from fibsem.structures import FibsemImage
+    from fibsem.structures import BeamType, FibsemImage
 
-    class _Widget:
-        eb_image = FibsemImage.generate_blank_image(resolution=[128, 128], hfw=1e-6)
-        ib_image = None
-
-    _Widget.eb_image.data[:] = np.random.randint(
-        0, 255, _Widget.eb_image.data.shape, dtype=np.uint8
-    )
-    ui.image_widget = _Widget()
+    sem = FibsemImage.generate_blank_image(resolution=[128, 128], hfw=1e-6)
+    sem.data[:] = np.random.randint(0, 255, sem.data.shape, dtype=np.uint8)
+    ui.session.images.set(sem, BeamType.ELECTRON)
+    ui.image_widget = object()
     ctx = AutoLamellaAppContext(ui)
 
     payload = ctx.display_images()
