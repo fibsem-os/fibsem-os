@@ -336,7 +336,6 @@ def test_a_prompt_answer_says_who_answered(tmp_path):
     assert event.data == {
         "prompt": "PickPOI",
         "response": True,
-        "answered_by": "agent",
         "adjusted": True,
     }
     assert event.actor == "agent"  # the log's one record of who acted

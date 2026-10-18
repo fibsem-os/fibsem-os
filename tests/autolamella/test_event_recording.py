@@ -60,15 +60,25 @@ def test_every_record_says_when_with_its_utc_offset():
 
 
 def test_a_stamp_adds_fields_but_cannot_replace_the_record_s_own():
-    buffer = EventBuffer(stamp=lambda kind, payload: {"where": kind, "seq": -1})
+    buffer = EventBuffer(stamp=lambda kind, payload, actor: {"where": kind, "seq": -1})
     buffer.append("thing", {"a": 1})
     (record,) = buffer.events_since(0)["events"]
     assert record["where"] == "thing"
     assert record["seq"] == 1 and record["payload"] == {"a": 1}
 
 
+def test_the_writer_s_actor_is_on_the_envelope_with_or_without_a_stamp():
+    # Who acted is the envelope's, never the payload's: an answer delivered on
+    # the GUI thread still names whoever answered.
+    for buffer in (EventBuffer(), EventBuffer(stamp=lambda kind, payload, actor: {})):
+        buffer.append("prompt_answered", {"question_id": 1}, actor="agent")
+        (record,) = buffer.events_since(0)["events"]
+        assert record["actor"] == "agent"
+        assert record["payload"] == {"question_id": 1}
+
+
 def test_a_failing_stamp_costs_the_stamp_not_the_event():
-    def stamp(kind, payload):
+    def stamp(kind, payload, actor):
         raise RuntimeError("no context")
 
     buffer = EventBuffer(stamp=stamp)
@@ -270,7 +280,7 @@ def test_each_event_says_where_in_the_run_it_happened(
             item_id="L1", item_name="01-lamella", task_id="T1", task_name="Mill"
         )
         recorder.buffer.append("inside", {})
-        recorder.buffer.append("prompt_answered", {"answered_by": "agent"})
+        recorder.buffer.append("prompt_answered", {}, actor="agent")
     finally:
         ref.clear_workflow_metadata()
         recorder.close()

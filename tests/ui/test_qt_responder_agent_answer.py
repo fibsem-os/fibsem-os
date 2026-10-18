@@ -179,7 +179,7 @@ def test_each_posting_gets_a_fresh_question_id(ui, qapp):
 def test_question_lifecycle_events_carry_who_answered(ui, qapp):
     events = []
     dispose = ui.ui_responder.add_question_observer(
-        lambda kind, payload: events.append((kind, payload))
+        lambda kind, payload, actor: events.append((kind, payload, actor))
     )
     try:
         # Operator answers via the button path.
@@ -196,18 +196,19 @@ def test_question_lifecycle_events_carry_who_answered(ui, qapp):
     finally:
         dispose()
 
-    kinds = [k for k, _ in events]
+    kinds = [k for k, _, _ in events]
     assert kinds == [
         "prompt_raised",
         "prompt_answered",
         "prompt_raised",
         "prompt_answered",
     ]
-    first_answer, second_answer = events[1][1], events[3][1]
-    assert first_answer["answered_by"] == "operator"
+    (_, first_answer, first_by), (_, second_answer, second_by) = events[1], events[3]
+    assert first_by == "operator"
     assert first_answer["response"] is True
-    assert second_answer["answered_by"] == "agent"
+    assert second_by == "agent"
     assert second_answer["response"] is False
+    assert "answered_by" not in first_answer  # who is the envelope's
     # The raise and its answer name the same posting.
     assert events[0][1]["question_id"] == events[1][1]["question_id"]
     assert events[2][1]["question_id"] == events[3][1]["question_id"]
@@ -249,7 +250,7 @@ def test_the_asker_hears_who_answered(ui, qapp):
 
 
 def test_a_broken_observer_cannot_break_the_click(ui, qapp):
-    def broken(kind, payload):
+    def broken(kind, payload, actor):
         raise RuntimeError("observer fell over")
 
     dispose = ui.ui_responder.add_question_observer(broken)
@@ -265,7 +266,7 @@ def test_a_broken_observer_cannot_break_the_click(ui, qapp):
 def test_an_abandoned_question_reports_cancelled(ui, qapp):
     events = []
     dispose = ui.ui_responder.add_question_observer(
-        lambda kind, payload: events.append(kind)
+        lambda kind, payload, actor: events.append(kind)
     )
     try:
         thread, _ = _ask_on_worker(ui, qapp, Confirm("Continue?"))

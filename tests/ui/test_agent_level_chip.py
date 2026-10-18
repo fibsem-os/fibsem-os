@@ -708,15 +708,13 @@ def test_the_window_shows_a_suggestion_on_the_card_and_says_when_it_is_dropped(
 
     # Taken down by an answer that took it: no toast.
     prompt.suggestion_changed.emit(None)
-    main_ui._on_question_event(
-        "prompt_answered", {"answered_by": "operator", "suggested_by": "agent"}
-    )
+    main_ui._on_question_event("prompt_answered", {"suggested_by": "agent"}, "operator")
     assert shown == []
 
     # Dropped by the operator answering otherwise: a toast says so.
     prompt.suggestion_changed.emit(_SUGGESTION)
     prompt.suggestion_changed.emit(None)
-    main_ui._on_question_event("prompt_answered", {"answered_by": "operator"})
+    main_ui._on_question_event("prompt_answered", {}, "operator")
     assert shown == [
         ("Agent's suggestion dropped: you answered the question yourself", "info")
     ]
@@ -1090,7 +1088,7 @@ def test_at_drive_what_the_agent_does_shows_in_the_card_now_then_recent(qapp):
     activity.now_changed.connect(chip.set_now)
     activity.recent_changed.connect(chip.set_recent)
     chip.set_level(AgentLevel.DRIVE)
-    buffer = EventBuffer(stamp=lambda kind, payload: {"actor": AGENT})
+    buffer = EventBuffer(stamp=lambda kind, payload, actor: {"actor": AGENT})
     activity.follow_events(buffer)
     with acting(AGENT), control.take(AGENT, "move stage relative"):
         assert "move stage relative" in _labels(chip.card)
@@ -1099,7 +1097,7 @@ def test_at_drive_what_the_agent_does_shows_in_the_card_now_then_recent(qapp):
         "milling", {"milling_task_name": "agent test mill", "status": "completed"}
     )
     buffer.append(
-        "prompt_answered", {"question_id": "q", "response": True, "answered_by": AGENT}
+        "prompt_answered", {"question_id": "q", "response": True}, actor=AGENT
     )
     qapp.processEvents()
     texts = [b.text() for b in chip.card.recent_buttons]
@@ -1135,7 +1133,7 @@ def test_at_drive_each_direct_call_shows_in_now_then_recent_with_its_level(qapp)
     activity.now_changed.connect(chip.set_now)
     activity.recent_changed.connect(chip.set_recent)
     chip.set_level(AgentLevel.DRIVE)
-    buffer = EventBuffer(stamp=lambda kind, payload: {"actor": AGENT})
+    buffer = EventBuffer(stamp=lambda kind, payload, actor: {"actor": AGENT})
     activity.follow_events(buffer)
 
     def now():

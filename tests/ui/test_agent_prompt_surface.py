@@ -363,7 +363,7 @@ def test_prompt_lifecycle_reaches_the_event_stream_with_attribution(ui, qapp):
 
             events = client.get("/app/events?since=0", headers=AUTH).json()["events"]
             answered = [e for e in events if e["kind"] == "prompt_answered"][-1]
-            assert answered["payload"]["answered_by"] == "agent"
+            assert answered["actor"] == "agent"
             assert answered["payload"]["response"] is True
             assert answered["payload"]["question_id"] == question_id
     finally:
