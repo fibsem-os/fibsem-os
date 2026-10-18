@@ -17,6 +17,7 @@ from fibsem.constants import DEGREE_SYMBOL
 from fibsem.devices.beam import Beam
 from fibsem.structures import BeamType, ImageSettings, RangeLimit
 from fibsem.ui.widgets.beam_settings_widget import FibsemBeamSettingsWidget
+from fibsem.ui.widgets.custom_widgets import ValueSpinBox, unit_suffix
 from fibsem.ui.widgets.detector_settings_widget import FibsemDetectorSettingsWidget
 from fibsem.ui.widgets.form_builder import (
     configure_spinbox,
@@ -80,10 +81,18 @@ def test_a_spinbox_takes_the_shown_unit_step_and_range():
     spinbox = QDoubleSpinBox()
     configure_spinbox(spinbox, parameter_spec(Beam.scan_rotation))
 
-    assert spinbox.suffix() == f" {DEGREE_SYMBOL}"
+    # a degree sign sits against its number ("90°"); other units follow a space
+    assert spinbox.suffix() == DEGREE_SYMBOL
     assert spinbox.singleStep() == 180
     assert spinbox.decimals() == 0
     assert (spinbox.minimum(), spinbox.maximum()) == pytest.approx((0, 360))
+
+
+def test_a_unit_suffix_follows_a_space_except_a_degree_sign():
+    assert unit_suffix("µm") == " µm"
+    assert unit_suffix(DEGREE_SYMBOL) == DEGREE_SYMBOL
+    assert unit_suffix(None) == ""
+    assert ValueSpinBox(suffix=DEGREE_SYMBOL).suffix() == DEGREE_SYMBOL
 
 
 def test_the_beam_panel_is_labelled_and_scaled_by_the_beam(microscope):

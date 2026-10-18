@@ -1918,7 +1918,7 @@ def test_the_frame_cannot_be_re_anchored_under_placed_images(qapp, interactive_w
 
 
 def test_closing_the_widget_lets_go_of_the_stage_signal(qapp):
-    """`stage_position_changed` belongs to the microscope and outlives the widget. A
+    """`stage.position.changed` belongs to the stage and outlives the widget. A
     connection left behind emits into a Qt object already torn down on the C++ side,
     which is a segfault rather than an exception: closing the tab and then moving the
     stage from anywhere else in the application took the whole application down.
