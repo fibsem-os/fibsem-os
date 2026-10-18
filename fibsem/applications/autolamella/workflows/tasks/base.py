@@ -7,8 +7,6 @@ import os
 import random
 import threading
 import time
-import uuid
-from abc import ABC, abstractmethod
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime
@@ -32,7 +30,7 @@ import numpy as np
 
 from fibsem import acquire, alignment, constants, utils
 from fibsem import config as fcfg
-from fibsem.acting import AGENT, TASK, acting
+from fibsem.acting import AGENT
 from fibsem.applications.autolamella.protocol.constants import (
     FIDUCIAL_KEY,
     MILL_POLISHING_KEY,
@@ -58,17 +56,13 @@ from fibsem.applications.autolamella.workflows.core import (
     update_detection_ui,
     update_status_ui,
 )
-from fibsem.applications.autolamella.workflows.tasks.proposing import (
-    LAMELLA_RESULT_IMAGES,
-    settle,
-)
 from fibsem.applications.autolamella.workflows.ui import (
     INSTRUCTION_TIMEOUT_S,
     _abort_requested,
     ask_user,
     update_alignment_area_ui,
 )
-from fibsem.cancellation import SKIPPED, OperationCancelledError
+from fibsem.cancellation import SKIPPED
 from fibsem.control import lending
 from fibsem.detection import detection as detection_module
 from fibsem.detection.detection import (
@@ -127,12 +121,11 @@ from fibsem.workflows.proposals import (
     Decision,
     DecisionOutcome,
     Proposal,
-    Proposer,
-    TaskResultProposer,
     agent_author,
     human_author,
 )
-from fibsem.workflows.status import TaskStatus, take_back_finish
+from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.task import BaseTask
 
 if TYPE_CHECKING:
     from fibsem.alignment import AlignmentResult
@@ -150,23 +143,12 @@ ALIGNMENT_REFERENCE_IMAGE_FILENAME = "ref_alignment_ib.tif"
 # the alignment reference is taken at the listed resolution nearest this
 ALIGNMENT_REFERENCE_RESOLUTION = (1536, 1024)
 
-_LIFECYCLE_STEPS = {"STARTED", "FINISHED"}
 
-
-class AutoLamellaTask(ABC):
-    """Base class for AutoLamella tasks."""
+class AutoLamellaTask(BaseTask):
+    """Base class for AutoLamella tasks: a task on a lamella."""
 
     config_cls: ClassVar[AutoLamellaTaskConfig]
     config: AutoLamellaTaskConfig
-    # What this task type proposes, for the Review tab: a property of the type,
-    # declared here, never a protocol choice, and independent of the mode it
-    # runs in. The default proposes the task's result ("here is what I did,
-    # look"), which every shipped task has; a task whose output is a value
-    # someone might change swaps in a proposer for that kind (Setup proposes
-    # the milling position); None only for a type with nothing to look at, so
-    # that a Review chip on its row is never a silent no-op. A run records
-    # outputs (files, by role); a task proposes a kind, through its proposer.
-    proposer: ClassVar[Optional[Proposer]] = TaskResultProposer()
     # What this task type asks *while it runs*, as proposal kinds: the values
     # it needs answered before its next line (a detection, then the stage
     # move that follows it). The proposer is what it leaves for afterwards;
@@ -178,9 +160,13 @@ class AutoLamellaTask(ABC):
     # spot burn. Declared so the same line can say the task needs someone
     # there; not asked through ``ask`` and not yet recorded.
     sessions: ClassVar[Tuple[str, ...]] = ()
-    # Which recorded output roles are the result images a proposal points at,
-    # by provenance key; the last file under each role is the one shown.
-    result_images: ClassVar[Dict[str, str]] = LAMELLA_RESULT_IMAGES
+    # The last final ion and electron images. The last is the tightest field
+    # of view, the one the Review tab shows.
+    result_images: ClassVar[Dict[str, str]] = {
+        "reference_image": "final_fib",
+        "reference_image_eb": "final_sem",
+    }
+    item_type: ClassVar[str] = "lamella"
 
     @classmethod
     def questions_for(cls, config: AutoLamellaTaskConfig) -> Tuple[str, ...]:
@@ -201,9 +187,9 @@ class AutoLamellaTask(ABC):
         parent_ui: Optional["AutoLamellaUI"] = None,
         task_manager: Optional["TaskManager"] = None,
     ):
-        self.microscope = microscope
-        self.config = config
-        self.lamella = lamella
+        super().__init__(
+            microscope, config, lamella, parent_ui=parent_ui, task_manager=task_manager
+        )
         # This task object is one run: its folder is fixed as it starts (FIB-1275).
         self._output_dir = run_folder(lamella, config.task_name, now())
         # Every task's reference images are acquired with its config's imaging
@@ -212,32 +198,16 @@ class AutoLamellaTask(ABC):
         # task's _run (FIB-1253). In __init__ rather than pre_task, so a task
         # whose _run is called directly still writes there.
         self.config.imaging.path = self.output_dir
-        self.parent_ui = parent_ui
-        self.task_manager = task_manager
-        self.task_id = str(uuid.uuid4())
-        # The manager's token, not its raw event: what counts as "cancelled" is
-        # the manager's to decide, and a task should not have to know.
-        self._stop_event = task_manager.abort_token if task_manager else None
         self._last_fib_image: Optional[FibsemImage] = None
-        # A decision the task took in its own run -- the operator's inline
-        # answer to a supervised question -- recorded on the proposal once it
-        # is made, after the run, through Experiment.decide like every other.
-        self.inline_decision: Optional[Decision] = None
 
     @property
-    def task_type(self) -> str:
-        """Return the type of the task."""
-        return self.config.task_type
+    def lamella(self) -> Lamella:
+        """The lamella this task runs on: its item."""
+        return self.item
 
-    @property
-    def task_name(self) -> str:
-        """Return the name of the task."""
-        return self.config.task_name
-
-    @property
-    def display_name(self) -> str:
-        """Return the display name of the task type."""
-        return self.config.display_name
+    @lamella.setter
+    def lamella(self, lamella: Lamella) -> None:
+        self.item = lamella
 
     @property
     def output_dir(self) -> str:
@@ -273,166 +243,13 @@ class AutoLamellaTask(ABC):
             return False
         return protocol.get_attention(self.task_name) is Attention.supervised
 
-    def _settle(self, failure: str = "") -> None:
-        """Propose this run's result on the lamella and decide it; see
-        ``proposing.settle``."""
-        settle(
-            self,
-            self.lamella,
-            proposer=type(self).proposer,
-            result_images=self.result_images,
-            review=self.review,
-            inline_decision=self.inline_decision,
-            experiment=getattr(self.task_manager, "experiment", None),
-            failure=failure,
-        )
-
-    # Everything the task does, on its own thread, is the task's (FIB-1062).
-    @acting(TASK)
-    def run(self) -> None:
-        self.pre_task()
-        self._fire_hook("task_started")
-        try:
-            self._run()
-        except Exception as e:
-            # A user Stop is a cancellation, not a failure — fire the distinct hook so it
-            # notifies as "cancelled" (warning) rather than "FAILED" (error).
-            cancelled = self._is_cancellation(e)
-            # Record before announcing. The hook payload carries task_state, which
-            # still reads InProgress from pre_task until this runs.
-            #
-            # Guarded: anything raising in here would replace the task's own
-            # exception with this one, losing what actually went wrong.
-            try:
-                self.lamella.task_state.status = (
-                    TaskStatus.Cancelled if cancelled else TaskStatus.Failed
-                )
-                self.lamella.task_state.status_message = (
-                    "Cancelled by user." if cancelled else str(e)
-                )
-                self._record_outcome()
-                # A failure is exactly when someone wants to look; a Stop is
-                # not, whoever pressed it already knows.
-                if not cancelled:
-                    self._settle(failure=str(e))
-            except Exception:
-                logging.exception(f"Could not record the outcome of {self.task_name}")
-            self._fire_hook(
-                "task_cancelled" if cancelled else "task_failed", error=str(e)
-            )
-            raise
-        finally:
-            # In a finally, not in post_task, which never runs when _run() raises. Left
-            # set, the next thing acquired -- an operator looking at what went wrong,
-            # a supervision step -- would be stamped with the task that just failed.
-            # That is silently wrong, and wrong exactly when the record matters most.
-            self.microscope.experiment.clear_workflow_metadata()
-        try:
-            self.post_task()
-            self._settle()
-        except Exception as e:
-            # The work finished, but what follows it failed: settling its result
-            # can save the experiment, and a save that fails leaves nothing on
-            # disk to say so. It did not complete (FIB-1374).
-            cancelled = self._is_cancellation(e)
-            try:
-                take_back_finish(
-                    self.lamella,
-                    self.task_id,
-                    TaskStatus.Cancelled if cancelled else TaskStatus.Failed,
-                    "Cancelled by user."
-                    if cancelled
-                    else f"Finished, but its result could not be recorded: {e}",
-                )
-            except Exception:
-                logging.exception(f"Could not record the outcome of {self.task_name}")
-            self._fire_hook(
-                "task_cancelled" if cancelled else "task_failed", error=str(e)
-            )
-            raise
-        self._fire_hook("task_completed")
-
-    def _record_outcome(self) -> None:
-        """Freeze the finished task_state into task_history.
-
-        Runs on every terminal path, not just success. task_state is a single object
-        that the next task's pre_task overwrites, so an outcome that isn't frozen here
-        is gone from the experiment as soon as that lamella starts its next task --
-        leaving the logfile as the only record that the task ever failed. See FIB-490.
-        """
-        if self.lamella.task_state is None:
-            raise ValueError("Task state is not set. Did you run pre_task()?")
-        self.lamella.task_state.end_timestamp = now()
-        self.lamella.task_history.append(deepcopy(self.lamella.task_state))
-
-    def _is_cancellation(self, exc: Exception) -> bool:
-        """Whether ``exc`` is a user Stop rather than a genuine failure: it surfaces as
-        OperationCancelledError (milling / autofocus) or InterruptedError (_check_for_abort),
-        or the task manager says this task should be unwinding.
-
-        should_abort, not is_stopped: abandoning one task is as much a cancellation
-        as ending the run, and an exception thrown on the way out of one should not
-        be recorded as a failure."""
-        if isinstance(exc, (OperationCancelledError, InterruptedError)):
-            return True
-        return bool(getattr(getattr(self, "task_manager", None), "should_abort", False))
-
-    def _fire_hook(self, event: str, error: Optional[str] = None) -> None:
-        from fibsem.hooks import fire_event
-
-        # Which experiment, and how much of the queue is left. Only the manager knows
-        # either, and a task can run without one -- a script driving a task directly, or
-        # a stand-in -- so those fields are simply absent then. Fetched the same
-        # defensive way as hook_manager below, rather than requiring a real TaskManager.
-        get_run_context = getattr(self.task_manager, "hook_run_context", None)
-        run_context = get_run_context() if callable(get_run_context) else {}
-        fire_event(
-            getattr(self.task_manager, "hook_manager", None),
-            event,
-            task_name=self.task_name,
-            task_type=self.task_type,
-            item_name=self.lamella.name,
-            item_id=self.lamella.id,
-            task_id=self.task_id,
-            task_state=self.lamella.task_state,
-            error=error,
-            **run_context,
-        )
-
-    @abstractmethod
-    def _run(self) -> None:
-        pass
-
     def pre_task(self) -> None:
         logging.info(
             f"Running {self.task_name}, {self.task_type} ({self.task_id}) for {self.lamella.name} ({self.lamella.id})"
         )
 
-        # pre-task
-        # task_state is a single object reused across every run, so each per-run field
-        # has to be cleared here or the next run inherits the previous one's value.
-        # NOTE: do not "fix" this by assigning a fresh AutoLamellaTaskState. The lamella
-        # list and card widgets connect psygnal handlers to this instance and use them as
-        # their only refresh trigger; replacing the object orphans those connections and
-        # they silently stop updating mid-workflow. See FIB-325 for the real fix.
-        self.lamella.task_state.name = self.task_name
-        self.lamella.task_state.start_timestamp = now()
-        self.lamella.task_state.end_timestamp = None
-        self.lamella.task_state.task_id = self.task_id
-        self.lamella.task_state.task_type = self.task_type
-        self.lamella.task_state.status = TaskStatus.InProgress
-        self.lamella.task_state.status_message = ""
-        self.lamella.task_state.outputs = {}
-
-        # Stamp onto everything acquired from here until run() clears it, so an image
-        # says which lamella and task produced it rather than relying on which folder
-        # it happens to sit in (FIB-466).
-        self.microscope.experiment.set_workflow_metadata(
-            item_id=self.lamella.id,
-            item_name=self.lamella.name,
-            task_id=self.task_id,
-            task_name=self.task_name,
-        )
+        self._start_task_state()
+        self._set_workflow_metadata()
         self.log_status_message(
             message="STARTED",
             display_message="Started",
@@ -490,39 +307,7 @@ class AutoLamellaTask(ABC):
         display_message: Optional[str] = None,
         workflow_display_message: Optional[str] = None,
     ) -> None:
-        logging.debug(
-            {
-                "msg": "status",
-                "timestamp": now_iso(),
-                "lamella": self.lamella.name,
-                "lamella_id": self.lamella.id,
-                "task_id": self.task_id,
-                "task_type": self.task_type,
-                "task_name": self.task_name,
-                "task_step": message,
-            }
-        )
-        if self.lamella.task_state is not None:
-            self.lamella.task_state.step = message
-            self.lamella.task_state.status_message = (
-                display_message if display_message is not None else ""
-            )
-
-        if message not in _LIFECYCLE_STEPS:
-            # STARTED / FINISHED are recorded as task_started / task_completed.
-            self.microscope.record_event(
-                "task_step",
-                {
-                    "step": message,
-                    "display_message": display_message,
-                    "item_type": "lamella",
-                    "task_type": self.task_type,
-                },
-            )
-
-        if message not in _LIFECYCLE_STEPS and self.parent_ui is not None:
-            self.parent_ui.step_update_signal.emit(display_message or message)
-
+        super().log_status_message(message, display_message)
         if display_message is not None:
             self.update_status_ui(
                 message=display_message, workflow_info=workflow_display_message
@@ -731,16 +516,6 @@ class AutoLamellaTask(ABC):
         answer = decided_features(detection, decision.values)
         record_training_data(detection, answer)
         return answer
-
-    def _check_for_abort(self) -> None:
-        """Raise InterruptedError if this task should stop.
-
-        Polls the manager's token, which already answers for every kind of stop —
-        so this needs no second way to ask, and neither do the inline token checks
-        in the fluorescence, coincidence-milling and grid tasks.
-        """
-        if self._stop_event is not None and self._stop_event.is_set():
-            raise InterruptedError("Workflow aborted by user.")
 
     def _update_fluorescence_pose(self) -> None:
         """Refresh the lamella's recorded fluorescence pose from the current microscope state.

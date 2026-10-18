@@ -5,7 +5,7 @@ result is proposed on the item and decided -- by the operator's inline answer,
 by the Review tab, or by the producer itself. What differs between them is
 supplied by the task (its proposer, whether it is under review, the decision it
 took inline, which output roles are its result images), so the two task bases
-share this code rather than each keeping a copy.
+share this code (``BaseTask._settle``) rather than each keeping a copy.
 
 The item is anything with a ``name``, an ``id``, a ``task_state``, a
 ``proposals`` dict and ``set_task_status``: a ``Lamella`` or a ``GridRecord``.
@@ -24,14 +24,6 @@ from fibsem.workflows.proposals import (
     TaskResultProposer,
 )
 from fibsem.workflows.status import TaskStatus
-
-# Provenance key -> output role, for a lamella task: the last final ion and
-# electron images. The last is the tightest field of view, the one the Review
-# tab shows.
-LAMELLA_RESULT_IMAGES: Dict[str, str] = {
-    "reference_image": "final_fib",
-    "reference_image_eb": "final_sem",
-}
 
 
 def _iso(value) -> Optional[str]:
