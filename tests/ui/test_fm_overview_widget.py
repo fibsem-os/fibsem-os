@@ -3048,7 +3048,7 @@ def _lamella_with_poses(name: str, microscope, tmp_path, x: float, y: float):
     marked = FibsemStagePosition(x=x, y=y, z=0.0, r=beam.r, t=beam.t)
     poses = build_lamella_poses(microscope, marked)
     lamella = Lamella(petname=name, path=str(tmp_path / name), number=1)
-    lamella.milling_pose = poses.milling
+    lamella.milling_pose = poses.beam
     lamella.fluorescence_pose = poses.fluorescence
     return lamella
 
@@ -3419,7 +3419,7 @@ def _real_lamella(name, microscope, tmp_path, x=100e-6, y=50e-6):
         FibsemStagePosition(x=x, y=y, z=0.0, r=beam.r, t=beam.t),
     )
     lamella = Lamella(petname=name, path=str(tmp_path / name), number=1)
-    lamella.milling_pose = poses.milling
+    lamella.milling_pose = poses.beam
     lamella.fluorescence_pose = poses.fluorescence
     return lamella
 
@@ -4173,7 +4173,7 @@ def test_a_lamella_is_complete_before_anyone_is_told_about_it(qapp, tmp_path):
         FibsemStagePosition(x=100e-6, y=50e-6, z=0.0, r=beam.r, t=beam.t),
     )
     experiment.add_new_lamella(
-        microscope_state=poses.milling,
+        microscope_state=poses.beam,
         task_config=EventedDict(),
         fluorescence_pose=poses.fluorescence,
     )
@@ -4206,7 +4206,7 @@ def test_a_lamella_added_from_elsewhere_lands_on_the_canvas_immediately(qapp, tm
         FibsemStagePosition(x=100e-6, y=50e-6, z=0.0, r=beam.r, t=beam.t),
     )
     experiment.add_new_lamella(
-        microscope_state=poses.milling,
+        microscope_state=poses.beam,
         task_config=EventedDict(),
         name="Lamella-01",
         fluorescence_pose=poses.fluorescence,

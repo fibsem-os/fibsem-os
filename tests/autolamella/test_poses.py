@@ -58,14 +58,14 @@ def test_a_fluorescence_pose_fed_back_describes_the_same_lamella():
     first = build_lamella_poses(microscope, marked)
     again = build_lamella_poses(microscope, first.fluorescence.stage_position)
 
-    assert again.milling.stage_position.x == pytest.approx(
-        first.milling.stage_position.x, abs=1e-12
+    assert again.beam.stage_position.x == pytest.approx(
+        first.beam.stage_position.x, abs=1e-12
     )
-    assert again.milling.stage_position.y == pytest.approx(
-        first.milling.stage_position.y, abs=1e-12
+    assert again.beam.stage_position.y == pytest.approx(
+        first.beam.stage_position.y, abs=1e-12
     )
-    assert again.milling.stage_position.t == pytest.approx(
-        first.milling.stage_position.t, abs=1e-9
+    assert again.beam.stage_position.t == pytest.approx(
+        first.beam.stage_position.t, abs=1e-9
     )
     assert again.fluorescence.stage_position.t == pytest.approx(
         first.fluorescence.stage_position.t, abs=1e-9
@@ -81,10 +81,10 @@ def test_a_fluorescence_position_is_not_taken_as_somewhere_to_mill():
     poses = build_lamella_poses(microscope, fm_position)
 
     assert (
-        microscope.get_stage_orientation(poses.milling.stage_position)
+        microscope.get_stage_orientation(poses.beam.stage_position)
         == MILLING_ORIENTATION
     )
-    assert np.rad2deg(poses.milling.stage_position.t) != pytest.approx(-180.0)
+    assert np.rad2deg(poses.beam.stage_position.t) != pytest.approx(-180.0)
 
 
 def test_a_fluorescence_position_is_kept_as_the_fluorescence_pose():
@@ -110,7 +110,7 @@ def test_marking_moves_neither_pose_laterally():
 
     poses = build_lamella_poses(microscope, fm_position)
 
-    for pose in (poses.milling, poses.fluorescence):
+    for pose in (poses.beam, poses.fluorescence):
         assert pose.stage_position.x == pytest.approx(321e-6, abs=1e-12)
         assert pose.stage_position.y == pytest.approx(-123e-6, abs=1e-12)
 
@@ -129,8 +129,8 @@ def test_a_beam_position_is_still_the_milling_pose_verbatim(orientation):
 
     poses = build_lamella_poses(microscope, marked)
 
-    assert poses.milling.stage_position.t == pytest.approx(marked.t)
-    assert poses.milling.stage_position.r == pytest.approx(marked.r)
+    assert poses.beam.stage_position.t == pytest.approx(marked.t)
+    assert poses.beam.stage_position.r == pytest.approx(marked.r)
 
 
 def test_a_beam_position_still_derives_a_fluorescence_pose():
@@ -184,7 +184,7 @@ def test_a_microscope_without_fluorescence_gets_no_fluorescence_pose():
     poses = build_lamella_poses(microscope, _at(microscope, MILLING_ORIENTATION))
 
     assert poses.fluorescence is None
-    assert poses.milling is not None
+    assert poses.beam is not None
 
 
 def test_an_offset_mount_cannot_tell_a_fluorescence_position_apart():
@@ -235,7 +235,7 @@ def test_a_declared_orientation_wins_over_the_derived_one():
     # Treated as the fluorescence pose: kept as given, and a milling pose derived.
     assert poses.fluorescence.stage_position.t == pytest.approx(beam_position.t)
     assert (
-        microscope.get_stage_orientation(poses.milling.stage_position)
+        microscope.get_stage_orientation(poses.beam.stage_position)
         == MILLING_ORIENTATION
     )
 
@@ -249,7 +249,7 @@ def test_marking_from_the_beam_side_still_works_on_an_offset_mount():
 
     poses = build_lamella_poses(microscope, marked)
 
-    assert poses.milling.stage_position.x == pytest.approx(marked.x)
+    assert poses.beam.stage_position.x == pytest.approx(marked.x)
     assert poses.fluorescence is None
 
 
@@ -264,7 +264,7 @@ def _lamella(microscope, x=100e-6, y=50e-6, with_fluorescence=True):
         name = "Lamella-01"
 
     lamella = _Lamella()
-    lamella.milling_pose = poses.milling
+    lamella.milling_pose = poses.beam
     lamella.fluorescence_pose = poses.fluorescence if with_fluorescence else None
     return lamella
 

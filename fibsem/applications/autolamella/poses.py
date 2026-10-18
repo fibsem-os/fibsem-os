@@ -26,7 +26,7 @@ from fibsem.structures import (
     InsertableDeviceState,
     MicroscopeState,
 )
-from fibsem.workflows.positions import ItemPoses
+from fibsem.workflows.proposals import ItemPoses
 
 if TYPE_CHECKING:  # pragma: no cover - annotation only
     from fibsem.microscope import FibsemMicroscope
@@ -101,7 +101,7 @@ def build_lamella_poses(
     milling.stage_position = milling_position
 
     if microscope.fm is None or fluorescence_position is None:
-        return ItemPoses(milling=milling, fluorescence=None)
+        return ItemPoses(beam=milling, fluorescence=None)
 
     fluorescence = deepcopy(state)
     fluorescence.stage_position = fluorescence_position
@@ -109,7 +109,7 @@ def build_lamella_poses(
         objective_position = microscope.fm.objective.focus_position
     fluorescence.objective_position = objective_position
 
-    return ItemPoses(milling=milling, fluorescence=fluorescence)
+    return ItemPoses(beam=milling, fluorescence=fluorescence)
 
 
 def sync_fluorescence_pose(microscope: "FibsemMicroscope", lamella) -> bool:
@@ -277,14 +277,14 @@ def add_lamella(
     # fluorescence pose after the append left every listener that redraws on
     # `inserted` deciding the new lamella had none.
     experiment.add_new_lamella(
-        microscope_state=poses.milling,
+        microscope_state=poses.beam,
         task_config=experiment.task_protocol.task_config,
         name=name,
         fluorescence_pose=poses.fluorescence,
         grid_id=(
             grid_id
             if grid_id is not None
-            else grid_id_at(experiment, microscope, poses.milling.stage_position)
+            else grid_id_at(experiment, microscope, poses.beam.stage_position)
         ),
     )
     lamella = experiment.positions[-1]

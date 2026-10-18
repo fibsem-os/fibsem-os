@@ -177,8 +177,13 @@ def test_a_tasks_proposals_are_a_list_oldest_first_and_the_last_is_current():
 
 
 def test_a_kind_has_a_name_for_a_person():
-    from fibsem.workflows.positions import OVERVIEW_POSITIONS
-    from fibsem.workflows.proposals import DETECTION, STATE, TASK_RESULT, kind_label
+    from fibsem.workflows.proposals import (
+        DETECTION,
+        OVERVIEW_POSITIONS,
+        STATE,
+        TASK_RESULT,
+        kind_label,
+    )
 
     assert kind_label(POINT_OF_INTEREST) == "Point of interest"
     assert kind_label(STATE) == "Position"

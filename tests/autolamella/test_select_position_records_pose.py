@@ -84,7 +84,7 @@ def test_the_fluorescence_pose_follows_the_milling_pose(tmp_path, sync):
         poses = build_lamella_poses(microscope=microscope, position=marked)
         lamella = Lamella(path=tmp_path / "lam", number=0, petname="test")
         lamella.path.mkdir(parents=True, exist_ok=True)
-        lamella.milling_pose = poses.milling
+        lamella.milling_pose = poses.beam
         lamella.fluorescence_pose = poses.fluorescence
         assert lamella.fluorescence_pose is not None
         stale = lamella.fluorescence_pose.stage_position

@@ -464,10 +464,10 @@ class GridPositionsWidget(QWidget):
                 f"Move {name}?",
                 f"Move {name} to {poses.fluorescence.stage_position.pretty_string}?"
                 "\n\nThis moves the milling pose with it, to "
-                f"{poses.milling.stage_position.pretty_string}.",
+                f"{poses.beam.stage_position.pretty_string}.",
             ):
                 return
-            lamella.stage_position = poses.milling.stage_position
+            lamella.stage_position = poses.beam.stage_position
             lamella.update_milling_angle(microscope)
             if lamella.fluorescence_pose is None:
                 lamella.fluorescence_pose = poses.fluorescence

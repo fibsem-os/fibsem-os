@@ -75,7 +75,7 @@ def widget(microscope, tmp_path):
     lamella = Lamella(
         petname="01-test", path=os.path.join(str(experiment.path), "01-test"), number=1
     )
-    lamella.milling_pose = build_lamella_poses(microscope, state.stage_position).milling
+    lamella.milling_pose = build_lamella_poses(microscope, state.stage_position).beam
     experiment.positions.append(lamella)
 
     dialog = overview_dialog.create_overview_image_widget(experiment)

@@ -106,7 +106,7 @@ class _StubWindow:
             path=os.path.join(str(self.experiment.path), name),
             number=number,
         )
-        lamella.milling_pose = poses.milling
+        lamella.milling_pose = poses.beam
         lamella.fluorescence_pose = poses.fluorescence
         self.added.append(lamella)
         self.experiment.positions.append(lamella)

@@ -22,11 +22,12 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
 )
 from fibsem.structures import FibsemStagePosition
-from fibsem.workflows.positions import OVERVIEW_POSITIONS, ItemPoses
 from fibsem.workflows.proposals import (
+    OVERVIEW_POSITIONS,
     PROPOSAL_KINDS,
     Decision,
     DecisionOutcome,
+    ItemPoses,
     Proposal,
     ValueRefused,
     prepare_values,
@@ -108,10 +109,25 @@ def test_a_position_round_trips_through_the_record(microscope):
     assert len(back.values["positions"]) == 1
     read = back.values["positions"][0]
     assert isinstance(read, ItemPoses)
-    assert read.milling.stage_position.x == pytest.approx(
-        placed.milling.stage_position.x
-    )
+    assert read.beam.stage_position.x == pytest.approx(placed.beam.stage_position.x)
     assert (read.fluorescence is None) == (placed.fluorescence is None)
+
+
+def test_a_position_saved_with_a_milling_pose_reads_as_its_beam_pose(microscope):
+    """An experiment saved before the pose was named ``beam`` still loads: the
+    old ``milling`` key is read as the beam pose, and written back as
+    ``beam``."""
+    placed = _placed(microscope, 1e-4, 2e-4)
+    saved = _proposal({"positions": [placed]}).to_dict()
+    entry = saved["values"]["positions"][0]
+    entry["milling"] = entry.pop("beam")
+
+    read = Proposal.from_dict(saved).values["positions"][0]
+
+    assert isinstance(read, ItemPoses)
+    assert read.beam.stage_position.x == pytest.approx(placed.beam.stage_position.x)
+    rewritten = _proposal({"positions": [read]}).to_dict()
+    assert "beam" in rewritten["values"]["positions"][0]
 
 
 # ---------------------------------------------------------------------------
@@ -159,10 +175,10 @@ def test_the_lamellae_are_created_at_the_poses_in_the_value(microscope, experime
 
     made = experiment.positions[-1]
     assert made.milling_pose.stage_position.x == pytest.approx(
-        placed.milling.stage_position.x
+        placed.beam.stage_position.x
     )
     assert made.milling_pose.stage_position.y == pytest.approx(
-        placed.milling.stage_position.y
+        placed.beam.stage_position.y
     )
 
 
