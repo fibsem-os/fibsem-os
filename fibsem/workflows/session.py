@@ -2,25 +2,50 @@
 
 An :class:`AppSession` holds what a session of an application is: the
 microscope it is connected to, the experiment it has open, the event stream of
-that connection, whoever answers the run's questions, and the App Server over
-them when one is hosted. A window attaches to
-it as one client and reads and writes these through it; a headless server can
-be another, so nothing here may need a widget.
+that connection, whoever answers the run's questions, where an edit to the
+experiment runs, and the App Server over them when one is hosted. A window
+attaches to it as one client and reads and writes these through it; a headless
+server can be another, so nothing here may need a widget.
 """
 
 from __future__ import annotations
 
 import logging
+import threading
+from concurrent.futures import Future
 from typing import Any, Callable, Optional
 
 from fibsem.acting import OPERATOR
 from fibsem.workflows.event_recording import EventRecorder
 
+EditExecutor = Callable[[Callable[[], Any]], "Future[Any]"]
+
+
+class LockedExecutor:
+    """Runs each edit in the calling thread, one at a time: where an edit runs
+    when no window owns the experiment."""
+
+    def __init__(self) -> None:
+        self._lock = threading.RLock()
+
+    def __call__(self, call: Callable[[], Any]) -> "Future[Any]":
+        outcome: "Future[Any]" = Future()
+        with self._lock:
+            try:
+                outcome.set_result(call())
+            except Exception as exc:  # noqa: BLE001 - the requester owns the failure
+                outcome.set_exception(exc)
+        return outcome
+
 
 class AppSession:
     """The microscope, the open experiment and the connection's event stream."""
 
-    def __init__(self, responder: Optional[Any] = None) -> None:
+    def __init__(
+        self,
+        responder: Optional[Any] = None,
+        executor: Optional[EditExecutor] = None,
+    ) -> None:
         self.microscope: Optional[Any] = None
         self.experiment: Optional[Any] = None
         # Whoever answers the run's questions: the window's QtResponder, or a
@@ -31,6 +56,9 @@ class AppSession:
         # connects, whatever else runs, and recorded to events.jsonl in the
         # experiment's directory. None only while disconnected.
         self.recorder: Optional[EventRecorder] = None
+        # Where an edit to the experiment runs: the window's GUI thread, whose
+        # widgets listen to the experiment, or here under a lock.
+        self.executor: EditExecutor = executor or LockedExecutor()
         # The App Server over this session (FIB-845), while one is hosted.
         self.app_server: Optional[Any] = None
         # What outlives a restart of it: the agent's token and level
@@ -38,6 +66,11 @@ class AppSession:
         # the microscope (FIB-1359), None until the client first says.
         self.agent_auth: Optional[Any] = None
         self.serve_microscope: Optional[bool] = None
+
+    def run_edit(self, call: Callable[[], Any]) -> "Future[Any]":
+        """Run ``call()`` where the experiment is edited; any thread. Resolves
+        to its result, or its exception."""
+        return self.executor(call)
 
     def adopt(self, experiment: Any) -> None:
         """Open ``experiment``: the session's, and the one its events are

@@ -7,7 +7,6 @@ the handler its widget calls, and read back from the recorder's buffer.
 
 import os
 import time
-from concurrent.futures import Future
 from copy import deepcopy
 from types import SimpleNamespace
 
@@ -710,16 +709,13 @@ def test_the_replay_shows_a_correlation_before_the_point_it_moved(
 def _agent_patch(window, lamella, patch):
     from fibsem.applications.autolamella.server.context import config_version
 
-    outcome = Future()
-    window.autolamella_ui._apply_agent_config_patch(
+    return window.autolamella_ui._agent_config_patch(
         "item",
         lamella.name,
         TASK,
         patch,
         config_version(lamella.task_config[TASK]),
-        outcome,
     )
-    return outcome.result(timeout=5)
 
 
 def test_an_agent_patch_is_the_agent_s_edit(window, experiment, edits):
@@ -743,16 +739,13 @@ def test_an_agent_moving_the_point_of_interest_records_the_patterns_it_moved(
 
     lamella = experiment.positions[0]
     lamella.poi = Point(x=1e-6, y=2e-6)  # floats: the patch keeps each field's type
-    outcome = Future()
-    window.autolamella_ui._apply_agent_config_patch(
+    result = window.autolamella_ui._agent_config_patch(
         "item_fields",
         lamella.name,
         None,
         {"poi.x": 4e-6},
         item_fields_version(lamella),
-        outcome,
     )
-    result = outcome.result(timeout=5)
     assert result["applied"] is True, result
 
     by_target = {e["payload"]["target"]: e for e in edits()}

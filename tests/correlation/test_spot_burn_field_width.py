@@ -27,12 +27,10 @@ _BURNS = [Point(0.25, 0.5), Point(0.75, 0.25)]
 
 @pytest.fixture
 def widget(qapp, monkeypatch):
-    import fibsem.ui.correlation.widgets.refractive_index_widget as riw
     from fibsem.ui.correlation.widgets.correlation_tab_widget import (
         CorrelationTabWidget,
     )
 
-    monkeypatch.setattr(riw, "_ensure_lut", lambda: None)
     w = CorrelationTabWidget()
     yield w
     w.close()
