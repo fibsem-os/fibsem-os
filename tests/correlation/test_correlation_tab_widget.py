@@ -1706,9 +1706,7 @@ def test_fit_dialog_sizes_wide_figure_to_aspect(qapp):
 
 
 def test_humanize_fit_error_maps_known_modes():
-    from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
-        humanize_fit_error,
-    )
+    from fibsem.correlation.point_fit import humanize_fit_error
 
     conv = humanize_fit_error(
         RuntimeError(

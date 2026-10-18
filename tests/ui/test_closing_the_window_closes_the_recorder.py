@@ -16,11 +16,6 @@ pytest.importorskip("PyQt5")
 
 from psygnal.containers import EventedDict  # noqa: E402
 
-from fibsem.applications.autolamella.event_recording import (  # noqa: E402
-    EVENTS_FILENAME,
-    read_events,
-    recorder_for,
-)
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
     Experiment,
@@ -29,6 +24,11 @@ from fibsem.applications.autolamella.workflows.tasks.rough import (  # noqa: E40
     MillRoughTaskConfig,
 )
 from fibsem.structures import MicroscopeState  # noqa: E402
+from fibsem.workflows.event_recording import (  # noqa: E402
+    EVENTS_FILENAME,
+    read_events,
+    recorder_for,
+)
 
 TASK = "Rough Milling"
 
@@ -46,7 +46,7 @@ def window(qapp):
         yield win
     finally:
         qapp.quit = original_quit
-        win.autolamella_ui._stop_event_recorder()  # if the test did not get to close
+        win.autolamella_ui.session.stop_recording()  # if the test did not get to close
         microscope.disconnect()
 
 
@@ -63,14 +63,14 @@ def test_closing_the_window_writes_the_last_edit_and_stops_the_writer(window, tm
     editor.set_experiment()
     editor.select_lamella(experiment.positions[0].name)
     editor.listWidget_selected_task.set_tasks([TASK], preferred=TASK)
-    recorder = ui._event_recorder
+    recorder = ui.session.recorder
     microscope = ui.microscope
     # an edit still settling when the window closes
     editor._on_task_parameters_config_changed("reacquire_alignment_reference", True)
 
     window.close()
 
-    assert ui._event_recorder is None
+    assert ui.session.recorder is None
     assert not recorder.writer.alive
     assert recorder_for(microscope) is None
     records = list(read_events(Path(experiment.path) / EVENTS_FILENAME))
@@ -85,17 +85,17 @@ def test_closing_the_window_on_its_own_stops_the_writer(qapp):
     ui = AutoLamellaUI(parent_ui=None)
     ui.system_widget.connect_to_microscope()
     microscope = ui.microscope
-    recorder = ui._event_recorder
+    recorder = ui.session.recorder
     try:
         assert recorder is not None and recorder.writer.alive
 
         ui.close()
 
-        assert ui._event_recorder is None
+        assert ui.session.recorder is None
         assert not recorder.writer.alive
         assert recorder_for(microscope) is None
     finally:
-        ui._stop_event_recorder()
+        ui.session.stop_recording()
         microscope.disconnect()
         ui.deleteLater()
         qapp.processEvents()

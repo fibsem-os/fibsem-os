@@ -18,11 +18,8 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
 )
 from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
-from fibsem.applications.autolamella.workflows.tasks.manager import (
-    WorkflowStatusUpdate,
-)
 from fibsem.structures import FibsemStagePosition
-from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.status import TaskStatus, WorkflowStatusUpdate
 
 
 @pytest.fixture

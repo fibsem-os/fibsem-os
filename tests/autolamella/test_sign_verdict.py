@@ -7,8 +7,10 @@ saves the change does, and calls `Experiment.sign_verdict` first.
 
 from fibsem.applications.autolamella.structures import (
     Experiment,
-    GridRecord,
     Lamella,
+)
+from fibsem.workflows.grids import GridRecord
+from fibsem.workflows.quality import (
     QualityRecord,
     Verdict,
 )

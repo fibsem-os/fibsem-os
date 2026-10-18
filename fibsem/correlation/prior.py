@@ -27,7 +27,11 @@ from typing import List, Optional, Sequence, Tuple
 import numpy as np
 
 from fibsem.correlation.geometry import NominalTransform
-from fibsem.correlation.history import CorrelationRun, LamellaCorrelation
+from fibsem.correlation.history import (
+    CorrelationRun,
+    LamellaCorrelation,
+    correlation_dir,
+)
 from fibsem.correlation.structures import CorrelationResult
 from fibsem.util.timestamps import to_datetime
 
@@ -191,15 +195,11 @@ def experiment_runs(
     ordered: List[Tuple[str, CorrelationRun]] = []
     own = os.path.abspath(lamella_dir) if lamella_dir else None
     if own:
-        for run in reversed(
-            LamellaCorrelation.discover(os.path.join(own, "Correlation")).runs
-        ):
+        for run in reversed(LamellaCorrelation.discover(correlation_dir(own)).runs):
             ordered.append((f"this lamella, run {run.name}", run))
     for folder in sorted(glob.glob(os.path.join(experiment_dir, "*"))):
         if not os.path.isdir(folder) or (own and os.path.abspath(folder) == own):
             continue
-        for run in reversed(
-            LamellaCorrelation.discover(os.path.join(folder, "Correlation")).runs
-        ):
+        for run in reversed(LamellaCorrelation.discover(correlation_dir(folder)).runs):
             ordered.append((f"{os.path.basename(folder)}, run {run.name}", run))
     return ordered

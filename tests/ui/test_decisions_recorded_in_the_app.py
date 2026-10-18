@@ -15,17 +15,13 @@ pytest.importorskip("PyQt5")
 
 from psygnal.containers import EventedDict  # noqa: E402
 
-from fibsem.applications.autolamella.proposals import (  # noqa: E402
-    POINT_OF_INTEREST,
-    Decision,
-    DecisionOutcome,
-    Proposal,
-)
+from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
     Experiment,
 )
 from fibsem.structures import MicroscopeState, Point  # noqa: E402
+from fibsem.workflows.proposals import Decision, DecisionOutcome, Proposal  # noqa: E402
 from fibsem.workflows.status import TaskStatus  # noqa: E402
 
 TASK = "Setup Lamella Position"
@@ -89,7 +85,7 @@ def _decide(experiment):
 def _decided(ui):
     return [
         e["payload"]["proposal_id"]
-        for e in ui._event_recorder.buffer.events_since(0)["events"]
+        for e in ui.session.recorder.buffer.events_since(0)["events"]
         if e["kind"] == "proposal_decided"
     ]
 
@@ -114,7 +110,7 @@ def test_an_experiment_open_before_the_microscope_connects_is_watched(window, tm
     ui._adopt_experiment(experiment)
     # The connect button toggles: disconnect, then connect again.
     ui.system_widget.connect_to_microscope()
-    assert ui.microscope is None and ui._event_recorder is None
+    assert ui.microscope is None and ui.session.recorder is None
     ui.system_widget.connect_to_microscope()  # a new stream for a new connection
     assert ui.microscope is not None
 

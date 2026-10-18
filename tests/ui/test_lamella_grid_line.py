@@ -25,7 +25,6 @@ from fibsem.applications.autolamella.structures import (
     DefectState,
     DefectType,
     Experiment,
-    GridRecord,
 )
 from fibsem.applications.autolamella.ui.lamella_card_widget import (
     LamellaCardContainer,
@@ -42,6 +41,7 @@ from fibsem.applications.autolamella.ui.lamella_name_list_widget import (
 )
 from fibsem.structures import FibsemStagePosition, MicroscopeState
 from fibsem.ui.tokens import ACCENT_COLOR, NEUTRAL_550
+from fibsem.workflows.grids import GridRecord
 
 _app = QApplication.instance() or QApplication([])
 

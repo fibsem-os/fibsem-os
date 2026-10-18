@@ -17,8 +17,10 @@ from fibsem.constants import DEGREE_SYMBOL
 from fibsem.devices.beam import Beam
 from fibsem.structures import BeamType, ImageSettings, RangeLimit
 from fibsem.ui.widgets.beam_settings_widget import FibsemBeamSettingsWidget
+from fibsem.ui.widgets.custom_widgets import ValueSpinBox, unit_suffix
 from fibsem.ui.widgets.detector_settings_widget import FibsemDetectorSettingsWidget
 from fibsem.ui.widgets.form_builder import (
+    bound_spec,
     configure_spinbox,
     parameter_spec,
 )
@@ -80,10 +82,18 @@ def test_a_spinbox_takes_the_shown_unit_step_and_range():
     spinbox = QDoubleSpinBox()
     configure_spinbox(spinbox, parameter_spec(Beam.scan_rotation))
 
-    assert spinbox.suffix() == f" {DEGREE_SYMBOL}"
+    # a degree sign sits against its number ("90°"); other units follow a space
+    assert spinbox.suffix() == DEGREE_SYMBOL
     assert spinbox.singleStep() == 180
     assert spinbox.decimals() == 0
     assert (spinbox.minimum(), spinbox.maximum()) == pytest.approx((0, 360))
+
+
+def test_a_unit_suffix_follows_a_space_except_a_degree_sign():
+    assert unit_suffix("µm") == " µm"
+    assert unit_suffix(DEGREE_SYMBOL) == DEGREE_SYMBOL
+    assert unit_suffix(None) == ""
+    assert ValueSpinBox(suffix=DEGREE_SYMBOL).suffix() == DEGREE_SYMBOL
 
 
 def test_the_beam_panel_is_labelled_and_scaled_by_the_beam(microscope):
@@ -127,3 +137,32 @@ def test_the_image_settings_are_labelled_and_scaled_by_their_fields(microscope):
         widget.frame_integration_spinbox.maximum(),
     ) == (1, 512)
     assert widget.get_settings().hfw == ImageSettings().hfw
+
+
+# -- a bound field takes its device's limits -------------------------------------
+
+
+def test_a_bound_field_takes_what_its_device_reports(microscope):
+    hfw = ImageSettings.params["hfw"]
+    reported = microscope.beams[E].parameters["hfw"].limits
+    assert bound_spec(hfw, {"beam": microscope.beams[E]}).limits == reported
+
+
+def test_without_its_device_a_bound_field_takes_what_the_device_declares():
+    hfw = ImageSettings.params["hfw"]
+    assert bound_spec(hfw).limits == Beam.hfw.limits
+
+
+def test_a_device_that_cannot_answer_gives_what_it_declares():
+    class Unreachable:
+        @property
+        def parameters(self):
+            raise ConnectionError("the device's computer is gone")
+
+    hfw = ImageSettings.params["hfw"]
+    assert bound_spec(hfw, {"beam": Unreachable()}).limits == Beam.hfw.limits
+
+
+def test_a_field_bound_to_nothing_comes_back_as_it_is():
+    autocontrast = ImageSettings.params["autocontrast"]
+    assert bound_spec(autocontrast, {"beam": None}) is autocontrast

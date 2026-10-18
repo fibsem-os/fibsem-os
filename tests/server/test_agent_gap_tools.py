@@ -344,7 +344,7 @@ def test_grid_tasks_are_queued_after_what_waits(driving):
     from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
         GridTaskManager,
     )
-    from fibsem.applications.autolamella.workflows.tasks.queue import TaskQueue
+    from fibsem.workflows.queue import TaskQueue
 
     _ok(_call(driving, "grid_add"))
     manager = GridTaskManager.__new__(GridTaskManager)

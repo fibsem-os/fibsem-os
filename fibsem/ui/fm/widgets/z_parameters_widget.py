@@ -20,7 +20,7 @@ from fibsem.ui.widgets.custom_widgets import (
 )
 from fibsem.ui.widgets.form_builder import configure_spinbox
 
-# How each value is shown, and its bounds: ZParameters' field metadata.
+# How each value is shown, and its bounds: ZParameters' Parameters.
 _SPECS = ZParameters.params
 
 
@@ -62,17 +62,15 @@ class ZParametersWidget(QWidget):
         self.label_num_planes_value.setStyleSheet(f"QLabel {{ color: {NEUTRAL_650}; }}")
 
         # Acquisition order
-        self.label_order = QLabel("Order", self)
-        self.combo_order = ValueComboBox(parent=self)
-        self.combo_order.addItem("Channel-wise", ZStackOrder.CHANNEL)
-        self.combo_order.addItem("Z-level-wise", ZStackOrder.Z_LEVEL)
-        self.combo_order.setCurrentIndex(
-            0 if self._z_parameters.order == ZStackOrder.CHANNEL else 1
+        order = _SPECS["order"]
+        self.label_order = QLabel(order.label, self)
+        self.combo_order = ValueComboBox(
+            list(ZStackOrder),
+            self._z_parameters.order,
+            format_fn=order.format_fn,
+            parent=self,
         )
-        self.combo_order.setToolTip(
-            "Channel-wise: acquire all z-planes per channel\n"
-            "Z-level-wise: acquire all channels per z-plane"
-        )
+        self.combo_order.setToolTip(order.doc)
 
         # Create the layout
         layout = QGridLayout()
@@ -119,9 +117,7 @@ class ZParametersWidget(QWidget):
         self.doubleSpinBox_zmin.setValue(self._shown("zmin"))
         self.doubleSpinBox_zmax.setValue(self._shown("zmax"))
         self.doubleSpinBox_zstep.setValue(self._shown("zstep"))
-        self.combo_order.setCurrentIndex(
-            0 if self.z_parameters.order == ZStackOrder.CHANNEL else 1
-        )
+        self.combo_order.set_value(self.z_parameters.order)
         self.doubleSpinBox_zmin.blockSignals(False)
         self.doubleSpinBox_zmax.blockSignals(False)
         self.doubleSpinBox_zstep.blockSignals(False)

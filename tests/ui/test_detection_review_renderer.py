@@ -21,15 +21,8 @@ from psygnal.containers import EventedDict
 pytest.importorskip("PyQt5")
 
 import fibsem.applications.autolamella.ui.review_tab_widget as R
-from fibsem.applications.autolamella.proposals import (
-    DETECTION,
-    Decision,
-    DecisionOutcome,
-    Proposal,
-)
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskState,
     Experiment,
 )
 from fibsem.structures import (
@@ -41,7 +34,8 @@ from fibsem.structures import (
     MicroscopeState,
     Point,
 )
-from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.proposals import DETECTION, Decision, DecisionOutcome, Proposal
+from fibsem.workflows.status import TaskState, TaskStatus
 
 TASK = "Mill Rough"
 RUN = "run-1"
@@ -70,7 +64,7 @@ def experiment(tmp_path) -> Experiment:
     # The task's record: waiting on the decision, as a question's is once the
     # task is no longer parked on it; the live task_state below is InProgress.
     lamella.task_history.append(
-        AutoLamellaTaskState(name=TASK, status=TaskStatus.AwaitingDecision)
+        TaskState(name=TASK, status=TaskStatus.AwaitingDecision)
     )
     lamella.task_state.name = TASK
     lamella.task_state.task_id = RUN
@@ -317,8 +311,8 @@ def test_dragged_points_come_back_as_plain_floats(tab, experiment):
 def test_an_answer_made_by_dragging_can_be_saved(tab, experiment):
     """End to end over the thing that broke: decide with dragged points, then
     write the experiment."""
-    from fibsem.applications.autolamella.proposals import Decision, DecisionOutcome
     from fibsem.ui.widgets.canvas.canvas_state import PointsSpec
+    from fibsem.workflows.proposals import Decision, DecisionOutcome
 
     renderer = _renderer(tab)
     renderer._controller.set_overlay(

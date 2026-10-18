@@ -138,6 +138,10 @@ class AppContext(Protocol):
         self, item_name: str, patch: Dict[str, Any], version: str
     ) -> Dict[str, Any]: ...
 
+    def apply_item_correlation(
+        self, item_name: str, run_path: str
+    ) -> Dict[str, Any]: ...
+
     def set_task_schedule(
         self, task_name: str, scheduled_at: Optional[str]
     ) -> Dict[str, Any]: ...
@@ -1321,6 +1325,20 @@ def build_app_config_router(context: AppContext) -> APIRouter:
         # version this patch must echo.
         patch, version = _validated(body)
         return _refused_or(context.apply_item_patch(item_name, patch, version))
+
+    @router.post("/experiment/items/{item_name}/correlation")
+    def apply_item_correlation(item_name: str, body: Dict[str, Any]):
+        # The correlation dialog's Continue: the item's POI to a saved run's
+        # target, recorded as a correlation.
+        run_path = body.get("run_path")
+        if not isinstance(run_path, str) or not run_path:
+            raise _missing_field(
+                "Pass run_path, a run folder from correlation_correlate."
+            )
+        result = context.apply_item_correlation(item_name, run_path)
+        if "error_type" in result:
+            return _answer_or_refusal(result)
+        return _refused_or(result)
 
     def _refused_or(result: Dict[str, Any]):
         if result.get("stale"):

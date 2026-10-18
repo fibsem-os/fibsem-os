@@ -15,25 +15,25 @@ from psygnal.containers import EventedDict
 
 from fibsem import utils
 from fibsem.acting import OPERATOR
-from fibsem.applications.autolamella.event_recording import EventRecorder
-from fibsem.applications.autolamella.proposals import (
+from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
+from fibsem.applications.autolamella.structures import (
+    AutoLamellaTaskProtocol,
+    Experiment,
+)
+from fibsem.detection.detection import DetectedFeatures, LamellaCentre
+from fibsem.detection.review import (
+    detection_provenance,
+    detection_values,
+)
+from fibsem.structures import FibsemStagePosition, MicroscopeState, Point
+from fibsem.workflows.event_recording import EventRecorder
+from fibsem.workflows.proposals import (
     DETECTION,
-    POINT_OF_INTEREST,
     STATE,
     Decision,
     DecisionOutcome,
     Proposal,
 )
-from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskProtocol,
-    Experiment,
-)
-from fibsem.applications.autolamella.workflows.question_adapters import (
-    detection_provenance,
-    detection_values,
-)
-from fibsem.detection.detection import DetectedFeatures, LamellaCentre
-from fibsem.structures import FibsemStagePosition, MicroscopeState, Point
 from fibsem.workflows.status import TaskStatus
 
 TASK = "Setup Lamella Position"
@@ -287,7 +287,7 @@ def test_the_experiment_watched_is_the_one_set(microscope, experiment, tmp_path)
 def test_a_decision_that_cannot_be_recorded_is_still_made(
     experiment, recorder, monkeypatch
 ):
-    from fibsem.applications.autolamella import event_recording
+    from fibsem.workflows import event_recording
 
     def fail(values):
         raise RuntimeError("cannot encode")

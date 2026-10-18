@@ -17,18 +17,18 @@ import os
 import pytest
 from psygnal.containers import EventedDict
 
-from fibsem.applications.autolamella.proposals import (
+from fibsem.applications.autolamella.structures import (
+    AutoLamellaTaskProtocol,
+    Experiment,
+)
+from fibsem.structures import MicroscopeState, Point
+from fibsem.workflows.proposals import (
     DETECTION,
     TASK_RESULT,
     Decision,
     DecisionOutcome,
     Proposal,
 )
-from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskProtocol,
-    Experiment,
-)
-from fibsem.structures import MicroscopeState, Point
 from fibsem.workflows.status import TaskStatus
 
 TASK = "Mill Undercut"

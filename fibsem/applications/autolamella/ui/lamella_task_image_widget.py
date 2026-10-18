@@ -27,10 +27,6 @@ from PyQt5.QtWidgets import (
 )
 from skimage.transform import resize
 
-from fibsem.applications.autolamella.event_recording import (
-    EVENTS_FILENAME,
-    read_new_events,
-)
 from fibsem.applications.autolamella.history_rows import (
     OPERATION_KINDS,
     HistoryFilter,
@@ -73,6 +69,10 @@ from fibsem.ui.widgets.custom_widgets import ElidedLabel
 from fibsem.ui.widgets.image_viewer_dialog import ViewerItem, open_image_viewer
 from fibsem.ui.widgets.task_summary_formatting import STATUS_BADGE_COLORS
 from fibsem.util.timestamps import format_time
+from fibsem.workflows.event_recording import (
+    EVENTS_FILENAME,
+    read_new_events,
+)
 from fibsem.workflows.status import TaskStatus
 
 # Thumbnails, two to a line in the panel's width, up to the size the tab has

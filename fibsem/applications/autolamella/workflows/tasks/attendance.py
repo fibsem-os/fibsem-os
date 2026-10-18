@@ -15,15 +15,12 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, List, Optional, Sequence, Tuple, Type
 
 from fibsem.applications.autolamella.proposals import (
-    ALIGNMENT_AREA,
-    DETECTION,
     OVERVIEW_POSITIONS,
     POINT_OF_INTEREST,
-    STATE,
-    TASK_RESULT,
 )
-from fibsem.applications.autolamella.proposals import kind_label as proposal_kind_label
 from fibsem.applications.autolamella.structures import Attention
+from fibsem.workflows.proposals import ALIGNMENT_AREA, DETECTION, STATE, TASK_RESULT
+from fibsem.workflows.proposals import kind_label as proposal_kind_label
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import (

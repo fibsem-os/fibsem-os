@@ -48,13 +48,21 @@ from typing import (
 from PyQt5.QtWidgets import QCheckBox, QDoubleSpinBox, QHBoxLayout, QWidget
 
 from fibsem.devices.core import BoundParameter
-from fibsem.structures import Display, Parameter, ParameterMetadata, Point
+from fibsem.structures import (
+    Display,
+    Parameter,
+    ParameterMetadata,
+    Point,
+    declared_device_parameter,
+    split_device_parameter,
+)
 from fibsem.ui.widgets.custom_widgets import (
     IntegerValueSpinBox,
     QFilePathLineEdit,
     QLineEdit,
     ValueComboBox,
     ValueSpinBox,
+    unit_suffix,
 )
 
 # Fallback spinbox bounds, used when a field declares no limits.
@@ -177,11 +185,37 @@ def reported_metadata(parameter: Union[Parameter, BoundParameter]) -> ParameterM
     )
 
 
+def bound_spec(
+    spec: Parameter, devices: Optional[Mapping[str, Any]] = None
+) -> Parameter:
+    """A field bound to a device parameter (``device_parameter="camera.exposure_time"``)
+    with what that parameter allows in place of its own limits and choices.
+
+    The live parameter comes from ``devices`` by the binding's device name
+    (``devices["camera"]``) and carries what its instrument reports. Without that
+    device, or when it can't answer, it is what the device class declares, so a form
+    with no instrument still gets a range. A field bound to nothing comes back as it is.
+    """
+    declared = declared_device_parameter(spec.device_parameter)
+    if declared is None:
+        return spec
+    device_name, name = split_device_parameter(spec.device_parameter)
+    device = (devices or {}).get(device_name)
+    parameter = None
+    if device is not None:
+        try:
+            parameter = device.parameters.get(name)
+        except Exception as e:  # a form must open even when the device can't answer
+            logging.warning(
+                f"Could not read {spec.device_parameter}, using its declared limits: {e}"
+            )
+    return spec.with_reported(reported_metadata(parameter or declared))
+
+
 def configure_spinbox(spinbox: QDoubleSpinBox, spec: Parameter) -> None:
     """Set a spin box's suffix, step, decimals, range and tooltip from a field, for
     a panel that keeps its own boxes. What the field leaves out keeps the box's own."""
-    suffix = spec.suffix
-    spinbox.setSuffix(f" {suffix}" if suffix else "")
+    spinbox.setSuffix(unit_suffix(spec.suffix))
     if spec.display.decimals is not None:
         spinbox.setDecimals(spec.display.decimals)
     if spec.display.step is not None:
