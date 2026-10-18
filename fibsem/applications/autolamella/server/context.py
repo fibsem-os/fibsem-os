@@ -1625,11 +1625,9 @@ class AutoLamellaAppContext:
                 "error": "The objective position is unavailable.",
             }
 
-        def store():
-            lamella.fluorescence_pose.objective_position = value
-            experiment.save()
+        from fibsem.applications.autolamella.poses import set_objective_position
 
-        self._agent_call(store)
+        self._agent_call(lambda: set_objective_position(experiment, lamella, value))
         return {"applied": True, "item_name": item_name, "objective_position": value}
 
     def move_objective_to_item(self, item_name: str) -> Dict[str, Any]:
