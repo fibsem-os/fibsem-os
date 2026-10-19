@@ -4241,8 +4241,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """The run's line has gone (`hide_workflow_running`). A run with failures,
         or one that stalled, leaves a line that stays until it is dismissed or the
         next run starts; a clean one says so once, as a toast, and the line goes
-        back to the instruction."""
-        note = self.autolamella_ui.session.runner.last_note
+        back to the instruction. A run with a summary was already announced by
+        the "Run ended" toast (`_show_workflow_summary`), so this says nothing."""
+        runner = self.autolamella_ui.session.runner
+        note = runner.last_note
         failures = self._run_failures
         if failures:
             what, reason = failures[-1]
@@ -4253,7 +4255,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             )
         elif note:
             self.status_bar.show_failure("Run stalled", note)
-        else:
+        elif runner.last_summary is None or runner.last_summary.empty:
             notification_service.show_toast("Workflow finished.")
 
     def add_overview_tab(self):
