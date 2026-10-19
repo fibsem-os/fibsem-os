@@ -65,11 +65,11 @@ def test_it_sits_with_the_lamella_report(window):
 def test_it_refuses_with_nothing_to_report(window, experiment, monkeypatch):
     toasts = []
     monkeypatch.setattr(window, "show_toast", lambda msg, *a, **k: toasts.append(msg))
-    window.action_generate_grid_report.trigger()
+    window.menu_bar.action_generate_grid_report.trigger()
     assert toasts == ["Open an experiment to report on."]
     window.autolamella_ui.experiment = experiment
     window._on_experiment_update()
-    window.action_generate_grid_report.trigger()
+    window.menu_bar.action_generate_grid_report.trigger()
     assert "No grids in this experiment" in toasts[-1]
 
 
@@ -82,7 +82,7 @@ def test_it_shows_the_grids_tab_and_writes_there(window, experiment, monkeypatch
     tab._synchronous = True
     opened = []
     monkeypatch.setattr(tab, "open_report", opened.append)
-    window.action_generate_grid_report.trigger()
+    window.menu_bar.action_generate_grid_report.trigger()
     assert window.tab_widget.currentWidget() is tab
     (path,) = opened
     assert path == os.path.join(str(experiment.path), "grid-screening-report.pdf")
