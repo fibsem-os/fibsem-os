@@ -37,7 +37,7 @@ def test_a_saved_experiment_reads_back_as_volume(experiment):
     )
     position.poses[SEM_POSE] = _state(2e-3)
     _ran(position, TASKS[0], 0, TaskStatus.Completed)
-    experiment.protocol.task_config[TASKS[0]].slice_thickness = 50e-9
+    experiment.task_protocol.task_config[TASKS[0]].slice_thickness = 50e-9
     experiment.save(save_protocol=True)
 
     loaded = load_experiment(experiment.path)
@@ -47,8 +47,8 @@ def test_a_saved_experiment_reads_back_as_volume(experiment):
     (back,) = loaded.positions
     assert back.to_dict() == position.to_dict()
     assert back.pose(SEM_POSE).stage_position.x == pytest.approx(2e-3)
-    assert loaded.protocol.ordered_task_names == TASKS
-    assert loaded.protocol.task_config[TASKS[0]].slice_thickness == 50e-9
+    assert loaded.task_protocol.ordered_task_names == TASKS
+    assert loaded.task_protocol.task_config[TASKS[0]].slice_thickness == 50e-9
 
 
 def test_it_saves_as_app_volume_with_the_protocol_beside_it(experiment, tmp_path):
@@ -77,7 +77,7 @@ def test_a_missing_protocol_reads_as_the_default(experiment, tmp_path):
 
     loaded = VolumeExperiment.load(tmp_path / "vol")
 
-    assert loaded.protocol.ordered_task_names == TASKS
+    assert loaded.task_protocol.ordered_task_names == TASKS
 
 
 def test_position_names_are_unique(experiment):

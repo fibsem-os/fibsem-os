@@ -30,12 +30,12 @@ class VolumeExperiment(ProposalReview, BaseExperiment):
         path: Path,
         name: str,
         metadata: Optional[Dict[str, Any]] = None,
-        protocol: Optional[VolumeProtocol] = None,
+        task_protocol: Optional[VolumeProtocol] = None,
     ) -> None:
         super().__init__(path=path, name=name, metadata=metadata)
         self.positions: List[VolumePosition] = []
-        self.protocol: VolumeProtocol = (
-            protocol if protocol is not None else VolumeProtocol.default()
+        self.task_protocol: VolumeProtocol = (
+            task_protocol if task_protocol is not None else VolumeProtocol.default()
         )
 
     # -- items -----------------------------------------------------------------
@@ -85,7 +85,7 @@ class VolumeExperiment(ProposalReview, BaseExperiment):
 
     def save_protocol(self) -> None:
         with open(os.path.join(self.path, PROTOCOL_FILENAME), "w") as f:
-            f.write(yaml.safe_dump(self.protocol.to_dict(), indent=4))
+            f.write(yaml.safe_dump(self.task_protocol.to_dict(), indent=4))
 
     @classmethod
     def create(
@@ -93,11 +93,13 @@ class VolumeExperiment(ProposalReview, BaseExperiment):
         path: Path,
         name: str,
         metadata: Optional[Dict[str, Any]] = None,
-        protocol: Optional[VolumeProtocol] = None,
+        task_protocol: Optional[VolumeProtocol] = None,
     ) -> "VolumeExperiment":
         """A new one in the folder ``name`` under ``path``, saved with its
         protocol."""
-        experiment = cls(path=path, name=name, metadata=metadata, protocol=protocol)
+        experiment = cls(
+            path=path, name=name, metadata=metadata, task_protocol=task_protocol
+        )
         os.makedirs(experiment.path, exist_ok=True)
         experiment.save(save_protocol=True)
         return experiment
@@ -122,7 +124,7 @@ class VolumeExperiment(ProposalReview, BaseExperiment):
             )
             protocol = VolumeProtocol.default()
         experiment = cls(
-            path=path.parent.parent, name=path.parent.name, protocol=protocol
+            path=path.parent.parent, name=path.parent.name, task_protocol=protocol
         )
         experiment._read_identity(ddict)
         experiment.positions = [

@@ -82,7 +82,7 @@ def run_volume_task(
     The saved config is deep-copied per run, so a task that mutates its config
     does not write back into the protocol.
     """
-    saved = experiment.protocol.task_config.get(task_name)
+    saved = experiment.task_protocol.task_config.get(task_name)
     if saved is None:
         raise KeyError(f"Task '{task_name}' is not in the volume protocol.")
     task_cls = VOLUME_TASK_PLUGINS.get(saved.task_type)

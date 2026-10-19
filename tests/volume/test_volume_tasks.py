@@ -76,14 +76,14 @@ def milled(monkeypatch):
 def test_a_slice_is_milled_at_its_point_of_interest(
     microscope, experiment, position, milled
 ):
-    experiment.protocol.task_config[MILL].slice_thickness = 100e-9
+    experiment.task_protocol.task_config[MILL].slice_thickness = 100e-9
 
     run_volume_task(microscope, MILL, experiment, position, iteration=2)
 
     (config,) = milled
     point = config.stages[0].pattern.point
     assert (point.x, point.y) == pytest.approx((0, 1e-6 - 200e-9))
-    saved = experiment.protocol.task_config[MILL].milling.stages[0].pattern.point
+    saved = experiment.task_protocol.task_config[MILL].milling.stages[0].pattern.point
     assert (saved.x, saved.y) == (0, 0)
     state = position.task_history[-1]
     assert (state.name, state.iteration, state.status) == (
@@ -107,7 +107,7 @@ def test_each_slice_writes_into_its_own_folder(microscope, experiment, position)
 def test_autofocus_runs_on_the_slices_it_is_due(
     microscope, experiment, position, monkeypatch
 ):
-    experiment.protocol.task_config[IMAGE].autofocus_every = 2
+    experiment.task_protocol.task_config[IMAGE].autofocus_every = 2
     focused = []
     monkeypatch.setattr(
         microscope, "auto_focus", lambda beam, reduced_area=None: focused.append(beam)
@@ -141,7 +141,7 @@ def test_a_stop_is_recorded_as_cancelled(microscope, experiment, position, mille
     manager.abort_token.set()
     task = VolumeFIBMillingTask(
         microscope,
-        experiment.protocol.task_config[MILL],
+        experiment.task_protocol.task_config[MILL],
         position,
         experiment,
         task_manager=manager,
