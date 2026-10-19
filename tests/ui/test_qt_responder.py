@@ -304,6 +304,7 @@ def test_fluorescence_channels_reach_the_fm_widget(ui, qapp):
     class _Task:
         responder = ui.ui_responder
         _check_for_abort = staticmethod(lambda *a, **k: False)
+        task_manager = None
 
     from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 
