@@ -107,6 +107,12 @@ def _detail(response):
     return response.json()["detail"]
 
 
+def _proposal(context, request_id):
+    """The request as the experiment records it: an ``actions`` proposal."""
+    experiment = context._session.experiment
+    return next(p for p in experiment.proposals if p.id == request_id)
+
+
 def test_only_assist_files_requests(client, auth):
     for level in (AgentLevel.WATCH, AgentLevel.DRIVE):
         auth.set_level(level)
@@ -258,22 +264,30 @@ def test_every_step_is_on_the_record_with_who_acted(client, app, context):
     store.approve(filed["request_id"])
     store.wait(filed["request_id"], timeout=10)
 
-    steps = [(kind, actor) for kind, _, actor in context.recorded if "request" in kind]
-    assert steps == [
-        ("request_raised", "agent"),
-        ("request_decided", None),
-        ("request_applied", "agent"),
-        ("request_finished", "agent"),
+    steps = [
+        (kind, actor)
+        for kind, payload, actor in context.recorded
+        if kind == "request_finished" or payload.get("request_id")
     ]
-    raised = context.recorded[0][1]
-    assert raised["reason"] == "checking the trenches"
+    assert steps == [("action", "agent"), ("request_finished", "agent")]
+    step = context.recorded[0][1]
+    assert step["what"].startswith("Stage · Move 1 µm in x")
+    assert (step["request_id"], step["index"], step["ok"]) == (
+        filed["request_id"],
+        0,
+        True,
+    )
+    # Asked and decided on the experiment's record, as its proposal.
+    proposal = _proposal(context, filed["request_id"])
+    assert proposal.kind == "actions"
+    assert str(proposal.asked_by) == "agent:agent"
+    assert proposal.provenance["reason"] == "checking the trenches"
     # With the card's words, for the app's Recent list (sim session 2026-10-16 F7).
-    (action,) = raised["actions"]
+    (action,) = [dict(a) for a in proposal.values["actions"]]
     assert action.pop("change").startswith("Move 1 µm in x, from x ")
     assert action == {**NUDGE, "what": "Stage"}
-    decided = context.recorded[1][1]
-    assert decided["outcome"] == "approved"
-    assert decided["decided_by"] == "operator"
+    assert proposal.current.outcome.name == "Confirmed"
+    assert proposal.current.actor.kind == "operator"
 
 
 def test_a_refused_action_stops_the_batch_with_the_routes_error(client, app):
@@ -416,12 +430,13 @@ def test_a_level_change_or_stop_agent_cancels_the_waiting_request(
     store = app.state.requests
     assert store.get(filed["request_id"]).status == "cancelled"
     assert store.pending() is None
-    why = [p["why"] for kind, p, _ in context.recorded if kind == "request_cancelled"]
-    assert why == [
+    decision = _proposal(context, filed["request_id"]).current
+    assert decision.outcome.name == "Withdrawn"
+    assert decision.reason == (
         "the operator stopped the agent"
         if stop_agent
         else "the agent level changed to Drive"
-    ]
+    )
 
 
 def test_setting_the_same_level_again_cancels_nothing(client, app, auth):
@@ -476,7 +491,7 @@ def test_an_expiring_request_lapses_as_it_says(app):
     request = store.create([NUDGE], "countdown", expires_at=100.0, on_expiry="reject")
     assert store.expire_due(now=99.0) is None
     assert store.expire_due(now=100.0).status == "rejected"
-    assert request.decided_by == "expiry"
+    assert request.decided_by == "task:expiry"
 
 
 # The arguments a named tool cannot be called without.
@@ -998,8 +1013,8 @@ def test_what_the_agent_may_never_touch_is_refused_at_filing(
     assert _detail(refused)["error_type"] == "not_allowed"
     assert _detail(refused)["message"].startswith("Action 2: ")
     assert app.state.requests.pending() is None
-    refusals = [payload for kind, payload in recorded if kind == "agent_refused"]
-    assert [p["action"] for p in refusals] == [call]
+    refusals = [payload for kind, payload in recorded if kind == "action"]
+    assert [p["what"] for p in refusals] == [call]
     assert refusals[0]["route"] == "POST /app/agent/requests"
 
 
@@ -1015,10 +1030,9 @@ def test_the_agent_withdraws_its_waiting_request_with_a_reason(client, app, cont
     why = "withdrawn by the agent: the operator moved it"
     assert withdrawn.json()["status"] == "cancelled"
     assert withdrawn.json()["cancel_reason"] == why
-    cancelled = [p for kind, p, _ in context.recorded if kind == "request_cancelled"]
-    assert cancelled == [
-        {"request_id": filed["request_id"], "why": why, "withdrawn": True}
-    ]
+    decision = _proposal(context, filed["request_id"]).current
+    assert (decision.outcome.name, decision.reason) == ("Withdrawn", why)
+    assert decision.actor.kind == "agent"
     # A new one can be filed; a decided one can't be withdrawn.
     again = _file(client, NUDGE).json()
     app.state.requests.reject(again["request_id"])

@@ -149,9 +149,17 @@ it as an error to work around, and never retry it through another tool.
 When the watcher prints `PROPOSAL item=… task=…` (a position, an alignment
 area, a detection, a mill's or a spot burn's pass), read it with
 `proposal_list` and judge it as the supervise skill's playbook says: check
-image freshness, and separate reading from acting. At Assist you decide it
-only through a request: file the `proposal_decide` call with your reason, and
-the operator approves it or decides it themselves in the window.
+image freshness, and separate reading from acting. At Assist you don't
+decide it: suggest the decision with `proposal_suggest` (the same outcome,
+values or patch and action `proposal_decide` takes, with your reason and,
+optionally, the image your evidence is in). The operator sees it on your card
+and approves it, which decides the proposal as you suggested, or declines it,
+or decides it another way. The watcher prints `SUGGESTION APPROVED` or
+`SUGGESTION DECLINED` with the operator's reason; read a decline's reason
+before suggesting on the next proposal. One suggestion stands per proposal: a
+new one replaces yours. When the decision needs actions first (a stage move
+to check coincidence), file them and the `proposal_decide` call together as
+one request instead.
 
 Two playbook rules hold at Assist too. Before you put forward a Setup
 position or a POI, check coincidence as *Before a position or a POI* says:
@@ -161,7 +169,7 @@ both beams agree. And *When to propose auto*: propose switching the milling
 tasks to auto only after one lamella's mills all passed first time; the
 switch is a request too, and so is turning supervision back on.
 
-When you can't judge a proposal, don't file a decision. Tell the operator
+When you can't judge a proposal, don't suggest or file a decision. Tell the operator
 what you see and that it's theirs, and put that on the record with
 `experiment_add_note` (nobody else will). Typical cases:
 

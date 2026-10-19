@@ -128,6 +128,7 @@ _WRITES_AT_WATCH = frozenset(
 # Writes that only add: notes, the agent's own requests, a new
 # item or experiment. Every other write changes or removes something.
 _ADDITIVE = _WRITES_AT_WATCH | {
+    "proposal_suggest",
     "item_add",
     "experiment_create",
     "protocol_add_task",
@@ -1554,7 +1555,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="request_create",
-        description="At Assist, ask the operator to approve one or more actions: each is {tool, arguments}, the tool you would call and the arguments you would give it, run in order once approved. Give the reason the operator reads before deciding. One request waits at a time (409 request_pending names it): to change it, withdraw it (request_withdraw) and file again. Answers the request, status pending; follow it with request_get or the request_* events (request_decided, request_applied per action, request_finished). Approved actions run through their own routes, so each is checked and can be refused as a direct call would be; the first refusal stops the batch. A rejection carries the operator's reason. An action the agent may never use (agent: false in device_list) is refused at filing (403 not_allowed). Changing the level or Stop agent cancels a waiting request. Reads need no request, nor does stopping your own mill (milling_stop): call those directly. Stopping anything else (workflow_stop, someone else's mill) goes in a request.",
+        description="At Assist, ask the operator to approve one or more actions: each is {tool, arguments}, the tool you would call and the arguments you would give it, run in order once approved. Give the reason the operator reads before deciding. One request waits at a time (409 request_pending names it): to change it, withdraw it (request_withdraw) and file again. Answers the request, status pending; follow it with request_get or the events (proposal_decided of kind actions, an action record per action, request_finished). Each request is saved on the experiment's record as an actions proposal; with nothing to record it on it is refused (409 no_experiment). Approved actions run through their own routes, so each is checked and can be refused as a direct call would be; the first refusal stops the batch. A rejection carries the operator's reason. An action the agent may never use (agent: false in device_list) is refused at filing (403 not_allowed). Changing the level or Stop agent cancels a waiting request. Reads need no request, nor does stopping your own mill (milling_stop): call those directly. Stopping anything else (workflow_stop, someone else's mill) goes in a request.",
         method="POST",
         path="/app/agent/requests",
         level="watch",
@@ -2068,6 +2069,28 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "action",
             "patch",
         ),
+    ),
+    ToolSpec(
+        name="proposal_suggest",
+        description="Suggest a decision on a pending proposal, for the operator to approve or decline in the window. Nothing is decided: the operator sees 'Agent suggests' with your reason and the suggested value drawn on the proposal's image, and Approve decides it as you suggested, as the operator's decision, recorded with your suggestion_id (proposal_suggested, then proposal_decided with suggested_by). Decline drops it, with the operator's optional reason (suggestion_declined); deciding any other way leaves it unapproved. One suggestion per proposal: a new one replaces yours. Checked as proposal_decide checks the decision it would make (outcome, values or patch, action, all as there), so one that could not be approved is refused now (422 invalid_value); a proposal no longer pending is 409 stale_proposal. proposal_list shows the suggestion on each proposal, declined and why when it was.",
+        method="POST",
+        path="/app/workflow/proposals/suggest",
+        level="assist",
+        router="app",
+        params={
+            "item_id": "the item id from proposal_list (by id, never name)",
+            "task_name": "the task name from proposal_list",
+            "proposal_id": "the proposal_id from proposal_list",
+            "reason": "why: the operator reads it when deciding",
+            "outcome": "Confirmed (default) or Rejected, as for proposal_decide",
+            "values": "optional: the values you suggest, as for proposal_decide",
+            "patch": "optional, on a milling pass: {dotted path: value} set on the proposed config",
+            "action": "on a milling or spot_burn pass: one of its provenance.actions",
+            "image": "optional: the path of the image your evidence is in, inside the experiment (as the image tools answered it); the card shows it",
+            "actor": "optional agent/model name, recorded as agent:<name>",
+        },
+        optional=("outcome", "values", "patch", "action", "image", "actor"),
+        note="Works at Assist and Drive; refused (403) at Watch. At Drive you may proposal_decide directly instead.",
     ),
     ToolSpec(
         name="experiment_list_recent",

@@ -53,13 +53,13 @@ def experiment(window, tmp_path):
     exp.positions[0].task_config[TASK] = MillRoughTaskConfig(task_name=TASK)
     exp.task_protocol.task_config[TASK] = MillRoughTaskConfig(task_name=TASK)
     window.autolamella_ui.experiment = exp
-    window.lamella_widget.set_experiment()
-    window.lamella_widget.select_lamella(exp.positions[0].name)
+    window.lamella_tab.editor.set_experiment()
+    window.lamella_tab.editor.select_lamella(exp.positions[0].name)
     return exp
 
 
 def test_the_item_editor_rebuilds_only_for_the_shown_item(window, experiment):
-    editor = window.lamella_widget
+    editor = window.lamella_tab.editor
     lamella = experiment.positions[0]
     assert editor._selected_lamella is not None
     assert editor._selected_lamella.name == lamella.name

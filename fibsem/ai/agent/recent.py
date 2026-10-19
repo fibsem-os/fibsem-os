@@ -1,8 +1,9 @@
 """What the agent did lately, one line each with how it ended (FIB-1414).
 
 The agent card's Recent list: the agent's requests (asked, then approved,
-applying, then applied or failed, or rejected with the operator's why), and
-what it does itself at Drive or was refused. The operator's messages to it are rows too, "You: ...",
+applying, then applied or failed, or rejected with the operator's why), its
+suggestions on proposals (approved, declined with the why, or decided otherwise),
+and what it does itself at Drive or was refused. The operator's messages to it are rows too, "You: ...",
 and its answers "Reply: ..." (FIB-1423). Read from the session's record, the event stream the event
 log shows, so the list and the log never disagree; only the agent's own entries
 make a row. Each row says the level it was done at (FIB-1426).
@@ -22,7 +23,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, replace
 from typing import Any, Dict, List
 
-from fibsem.acting import AGENT
+from fibsem.acting import AGENT, OPERATOR
 from fibsem.ai.agent.request_text import describe_action
 
 # Rows kept: the card shows them all.
@@ -204,6 +205,29 @@ class RecentActions:
         self._level = str(p.get("level") or "")
         return False
 
+    def _on_proposal_asked(self, record, p, agent):
+        """The agent's request, on the record as an ``actions`` proposal."""
+        if p.get("kind") != "actions":
+            return False
+        actions = (p.get("proposed") or {}).get("actions")
+        return self._on_request_raised(
+            record, {"request_id": p.get("proposal_id"), "actions": actions}, agent
+        )
+
+    def _request_decided(self, record, p, agent):
+        request = {"request_id": p.get("proposal_id"), "reason": p.get("reason")}
+        outcome = p.get("outcome")
+        if outcome == "Confirmed":
+            return self._on_request_decided(record, request, agent)
+        if outcome == "Rejected":
+            return self._on_request_decided(
+                record, {**request, "outcome": "rejected"}, agent
+            )
+        withdrawn = str(p.get("actor") or "").startswith("agent:")
+        return self._on_request_cancelled(
+            record, {**request, "why": p.get("reason"), "withdrawn": withdrawn}, agent
+        )
+
     def _on_request_raised(self, record, p, agent):
         key = ("request", p.get("request_id"))
         self._sizes[p.get("request_id")] = len(p.get("actions") or [])
@@ -253,6 +277,41 @@ class RecentActions:
         if not p.get("withdrawn") and p.get("why"):
             outcome = f"cancelled: {_cut(p['why'], 120)}"
         return self._end(("request", p.get("request_id")), outcome, MUTED)
+
+    # --- its suggestions on proposals ---------------------------------------------
+
+    def _on_proposal_suggested(self, record, p, agent):
+        if not agent:
+            return False
+        item = (p.get("item") or {}).get("name") or ""
+        text = f"Suggested on {item} · {p.get('task')}: {p.get('reason') or ''}"
+        return self._put(
+            ("suggestion", p.get("proposal_id")),
+            record,
+            text.rstrip(": "),
+            "waiting",
+            WAITING,
+            ASSIST,
+        )
+
+    def _on_suggestion_declined(self, record, p, agent):
+        reason = str(p.get("reason") or "").strip()
+        return self._end(
+            ("suggestion", p.get("proposal_id")),
+            f"declined: {reason}" if reason else "declined",
+            MUTED,
+        )
+
+    def _on_proposal_decided(self, record, p, agent):
+        if p.get("kind") == "actions":
+            return self._request_decided(record, p, agent)
+        key = ("suggestion", p.get("proposal_id"))
+        if p.get("suggestion_id"):
+            return self._end(key, "approved", OK)
+        row = self._rows.get(key)
+        if row is not None and row.tone == WAITING:
+            return self._end(key, "decided otherwise", MUTED)
+        return False
 
     # --- what it does itself -----------------------------------------------------
 
@@ -318,6 +377,26 @@ class RecentActions:
         text = f"Milled '{p.get('milling_task_name') or 'milling'}'"
         return self._put(("mill", p.get("milling_run_id")), record, text, outcome, tone)
 
+    def _on_action(self, record, p, agent):
+        """An act on the record (``fibsem.workflows.actions``), as the record
+        it replaced reads: a request's step, a stop, a refusal or a call."""
+        if p.get("request_id"):
+            return self._on_request_applied(record, p, agent)
+        if not agent:
+            return False
+        if p.get("stops"):
+            return self._on_agent_stop(record, p, agent)
+        if p.get("refused"):
+            return self._on_agent_refused(record, {**p, "action": p["what"]}, agent)
+        return self._on_agent_called(record, {**p, "action": p.get("what")}, agent)
+
+    def _on_note(self, record, p, agent):
+        if agent:
+            return self._on_agent_note(record, p, agent)
+        if record.get("actor") == OPERATOR:
+            return self._on_operator_message(record, p, agent)
+        return False
+
     def _on_agent_note(self, record, p, agent):
         # Its answer to the operator's message (FIB-1423), or an observation.
         head = "Reply" if p.get("reply_to") else "Note"
@@ -341,7 +420,9 @@ class RecentActions:
         )
 
     def _on_agent_stop(self, record, p, agent):
-        text = f"Stopped {p.get('what') or _words(p.get('action'))}"
+        # An agent_stop said what it stopped as ``what``; an action, ``target``.
+        stopped = p.get("target") if "stops" in p else p.get("what")
+        text = f"Stopped {stopped or _words(p.get('stops') or p.get('action'))}"
         if p.get("reason"):
             text += f": {p['reason']}"
         return self._put(

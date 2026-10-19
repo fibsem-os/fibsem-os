@@ -22,12 +22,10 @@ pytest.importorskip("PyQt5")
 
 from fibsem import utils  # noqa: E402
 from fibsem.applications.autolamella.structures import Experiment  # noqa: E402
-from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (  # noqa: E402
-    AutoLamellaSingleWindowUI,
-)
 from fibsem.applications.autolamella.ui.experiment_header import (  # noqa: E402
     CONNECTION_CHIP_MAX_WIDTH,
 )
+from fibsem.applications.autolamella.ui.main_menu_bar import MainMenuBar  # noqa: E402
 from tests.fixtures.experiment_header import HeaderHost  # noqa: E402
 
 
@@ -160,9 +158,7 @@ def test_the_menu_entry_is_gated_too(qapp):
     import inspect
     import textwrap
 
-    tree = ast.parse(
-        textwrap.dedent(inspect.getsource(AutoLamellaSingleWindowUI._create_menu_bar))
-    )
+    tree = ast.parse(textwrap.dedent(inspect.getsource(MainMenuBar._create_menu_bar)))
 
     def _adds_connect(node) -> bool:
         return any(
@@ -184,7 +180,7 @@ def test_the_menu_entry_is_gated_too(qapp):
     ]
     assert guarded, "the Connect menu entry is added unconditionally"
     assert any(
-        isinstance(n, ast.Attribute) and n.attr == "_connection_chip_enabled"
+        isinstance(n, ast.Attribute) and n.attr == "connection_chip_enabled"
         for node in guarded
         for n in ast.walk(node.test)
     ), "the Connect menu entry is guarded, but not on the connection chip flag"

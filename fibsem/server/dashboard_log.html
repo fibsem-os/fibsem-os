@@ -144,9 +144,9 @@ function gate(message) {
 const GROUPS = [
   ["questions", "proposals", k => k.startsWith("prompt_") || k.startsWith("question_") || k === "proposal_held" || k === "proposal_waiting" || k === "proposal_released"
     || k.startsWith("proposal_") || k === "review_decided"],
-  ["notes", "messages, agent's calls, notes & stops", k => k === "agent_note"
-    || k === "agent_stop" || k === "agent_refused" || k === "agent_called"
-    || k === "operator_message"],
+  ["notes", "actions, notes & messages", k => k === "action" || k === "note"
+    || k === "agent_note" || k === "agent_stop" || k === "agent_refused"
+    || k === "agent_called" || k === "operator_message" || k === "workflow_stop"],
   ["requests", "requests", k => k.startsWith("request_")],
   ["workflow", "workflow", k => k.startsWith("task_") || k.startsWith("workflow_")
     || k === "item_completed" || k === "experiment_completed"],
@@ -270,6 +270,12 @@ function describe(e) {
     case "proposal_asked": return ["proposed", esc(p.field || p.kind || p.type || "")];
     case "proposal_decided": return ["decided", esc([p.field || p.kind, p.outcome].filter(Boolean).join(" · "))];
     case "review_decided": return ["reviewed", esc([p.field, p.outcome || p.decision].filter(Boolean).join(" · "))];
+    case "action":
+      if (p.stops) return ["stopped", `${esc(p.target || p.what)}${p.own ? " (its own)" : ""} <span class="muted">${esc(p.reason || p.via || "")}</span>`];
+      if (p.refused) return ["refused", `${esc(p.what)} <span class="muted">${esc(p.error_type)} at ${esc(p.level)}</span>`];
+      return [p.ok ? "did" : "failed",
+        `${esc(p.what)}${p.request_id ? ` <span class="muted">request ${esc(p.request_id)}</span>` : ""}${p.ok ? "" : ` <span class="err">${esc(p.error_type || p.status || "")}</span>`}`];
+    case "note": return [e.actor === "operator" ? "message" : (p.reply_to ? "reply" : "note"), esc(p.text)];
     case "agent_note": return [p.reply_to ? "reply" : "note", esc(p.text)];
     case "operator_message": return ["message", esc(p.text)];
     case "agent_stop":

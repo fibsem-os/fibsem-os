@@ -79,7 +79,14 @@ from fibsem.cancellation import (
     raise_if_cancelled,
 )
 from fibsem.devices.beam import Beam
-from fibsem.devices.core import DeviceParameter, ParameterMetadata, Role, command, query
+from fibsem.devices.core import (
+    DeviceParameter,
+    ParameterMetadata,
+    Role,
+    RoleUnfilled,
+    command,
+    query,
+)
 from fibsem.devices.runs import current_run_id
 from fibsem.milling.base import FibsemMillingStage, estimate_milling_time
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
@@ -413,11 +420,28 @@ class Milling(Service):
         patterns = list(patterns)
         hooks = [self._hook_for(pattern) for pattern in patterns]
         try:
-            for pattern, hook in zip(patterns, hooks):
-                self._draw(pattern, hook)
-                self._drawn.append(pattern)
+            with self._milling_channel():
+                for pattern, hook in zip(patterns, hooks):
+                    self._draw(pattern, hook)
+                    self._drawn.append(pattern)
         finally:
             self._set_drawn(self._drawn)
+
+    @contextmanager
+    def _milling_channel(self) -> Iterator[None]:
+        """Hold the imaging channel with the milling beam selected on it, for a
+        patterning call that acts on whatever view is active (AutoScript's): an FM
+        acquisition beside a coincidence mill can't move it in between."""
+        channel = getattr(self.parent, "milling_channel", BeamType.ION)
+        try:
+            beam = self.beam(channel)
+        except RoleUnfilled:
+            beam = None
+        if beam is None:
+            yield
+            return
+        with beam.claim_channel():
+            yield
 
     def _hook_for(self, pattern: FibsemPatternSettings) -> str:
         """The draw hook for *pattern*, or a raise when this instrument can't draw it."""
@@ -910,7 +934,8 @@ class Milling(Service):
     @command
     def clear(self) -> None:
         """Remove every drawn pattern."""
-        self._clear()
+        with self._milling_channel():
+            self._clear()
         self._set_drawn([])
 
     @command

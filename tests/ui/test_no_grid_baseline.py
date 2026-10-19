@@ -69,7 +69,7 @@ def test_nothing_grid_aware_gets_in_the_way(main_ui, tmp_path, monkeypatch):
     assert [p.grid_id for p in exp.positions] == [None, None]
 
     # The rows: no grid named, nothing withheld, no filter on offer.
-    for card in main_ui.lamella_card_container._cards.values():
+    for card in main_ui.lamella_tab.cards._cards.values():
         assert not card._grid_label.isVisibleTo(card)
         assert card._action_move.isEnabled() and card._action_update.isEnabled()
         assert card._action_move.text() == "Move to Position"

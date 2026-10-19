@@ -47,6 +47,7 @@ from fibsem.applications.autolamella.config_edits import (
 from fibsem.server.files import jpeg_preview
 from fibsem.structures import BeamType
 from fibsem.util.timestamps import to_iso, wall_time_of
+from fibsem.workflows.actions import NOTE, note_record
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.outputs import item_outputs, latest_item_output
 from fibsem.workflows.runner import GRIDS, ITEMS, RunRequest
@@ -275,6 +276,11 @@ class AutoLamellaAppContext:
         """The open experiment's folder, or None: where an agent may save."""
         experiment = self._experiment
         return str(experiment.path) if experiment is not None else None
+
+    def recording_experiment(self):
+        """The experiment what the agent asks is recorded on: the open one, or
+        the session's plain one. Raises OSError when it cannot be made."""
+        return self._session.recording_experiment()
 
     def image_metadata(self, path: str) -> Dict[str, Any]:
         """A saved beam image's full metadata, as its file records it, for a
@@ -1744,22 +1750,29 @@ class AutoLamellaAppContext:
         other action, or a config this experiment doesn't have."""
         from fibsem.ai.agent.request_text import describe_patch
 
-        experiment = self._experiment
-        if experiment is None:
-            return None
-        task_name = arguments.get("task_name")
-        if tool == "item_update_task_config":
-            lamella = experiment.get_lamella_by_name(arguments.get("item_name"))
-            configs = getattr(lamella, "task_config", None) if lamella else None
-        elif tool == "protocol_update_task_config":
-            protocol = getattr(experiment, "task_protocol", None)
-            configs = getattr(protocol, "task_config", None) if protocol else None
-        else:
-            return None
-        config = dict(configs).get(task_name) if configs is not None else None
+        config = self._edited_task_config(tool, arguments)
         if config is None:
             return None
         return describe_patch(config, arguments.get("patch"))
+
+    def _edited_task_config(self, tool: str, arguments: Dict[str, Any]) -> Any:
+        """The task config a task-config edit targets; None for any other tool,
+        or a target this experiment doesn't have."""
+        experiment = self._experiment
+        if experiment is None:
+            return None
+        if tool == "item_update_task_config":
+            owner = experiment.get_lamella_by_name(arguments.get("item_name"))
+        elif tool == "protocol_update_task_config":
+            owner = getattr(experiment, "task_protocol", None)
+        elif tool == "protocol_update_grid_task_config":
+            owner = getattr(experiment, "grid_protocol", None)
+        else:
+            return None
+        configs = getattr(owner, "task_config", None) if owner else None
+        if configs is None:
+            return None
+        return dict(configs).get(arguments.get("task_name"))
 
     def check_action(self, tool: str, arguments: Dict[str, Any]) -> Optional[str]:
         """Why a config edit in an agent's request would be refused when it
@@ -1772,22 +1785,10 @@ class AutoLamellaAppContext:
         patch = arguments.get("patch")
         if experiment is None or not isinstance(patch, dict):
             return None
-        task_name = arguments.get("task_name")
         if tool == "item_update":
             lamella = experiment.get_lamella_by_name(arguments.get("item_name"))
             return item_patch_refusal(lamella, patch) if lamella else None
-        if tool == "item_update_task_config":
-            lamella = experiment.get_lamella_by_name(arguments.get("item_name"))
-            configs = getattr(lamella, "task_config", None) if lamella else None
-        elif tool == "protocol_update_task_config":
-            protocol = getattr(experiment, "task_protocol", None)
-            configs = getattr(protocol, "task_config", None) if protocol else None
-        elif tool == "protocol_update_grid_task_config":
-            protocol = getattr(experiment, "grid_protocol", None)
-            configs = getattr(protocol, "task_config", None) if protocol else None
-        else:
-            return None
-        config = dict(configs).get(task_name) if configs is not None else None
+        config = self._edited_task_config(tool, arguments)
         if config is None:
             return None
         try:
@@ -2005,6 +2006,66 @@ class AutoLamellaAppContext:
         doc["available"] = True
         return doc
 
+    def suggest(
+        self,
+        item_id: str,
+        task_name: str,
+        proposal_id: str,
+        reason: str,
+        outcome: str = "Confirmed",
+        values: Optional[Dict[str, Any]] = None,
+        patch: Optional[Dict[str, Any]] = None,
+        action: str = "",
+        image: Optional[str] = None,
+        actor: str = "",
+    ) -> Dict[str, Any]:
+        """Suggest a decision on a pending proposal, for the operator to
+        approve or decline in the window. Nothing is decided. Checked as the
+        decision would be, so one that could not be approved is refused now."""
+        experiment = self._experiment
+        if experiment is None:
+            return {"available": False, "applied": False, "reason": "No experiment."}
+        from fibsem.workflows.proposals import (
+            DecisionOutcome,
+            Suggestion,
+            _decode_values,
+        )
+
+        if outcome not in ("Confirmed", "Rejected"):
+            return {
+                "available": True,
+                "applied": False,
+                "error_type": "invalid_value",
+                "reason": f"outcome is Confirmed or Rejected, not {outcome!r}",
+            }
+        try:
+            decoded = _decode_values(values or {})
+        except Exception as exc:  # noqa: BLE001 - any bad document is refused
+            return {
+                "available": True,
+                "applied": False,
+                "error_type": "invalid_value",
+                "reason": f"values could not be read: {exc}",
+            }
+        if image:
+            root = self.experiment_path
+            image = os.path.relpath(image, root) if root else image
+        suggestion = Suggestion(
+            actor=Actor.agent(actor or "remote"),
+            reason=reason,
+            outcome=DecisionOutcome[outcome],
+            values=decoded,
+            patch=dict(patch or {}),
+            action=action,
+            image=image or "",
+        )
+        result = experiment.suggest(item_id, task_name, proposal_id, suggestion)
+        doc = result.to_dict()
+        doc["available"] = True
+        if result.applied:
+            doc["suggestion_id"] = suggestion.id
+        return doc
+
     def add_note(
         self,
         text: str,
@@ -2035,10 +2096,10 @@ class AutoLamellaAppContext:
         )
         # With the item's id, so the record files the note under the item
         # it is about, not whichever one is running (FIB-1328).
-        payload = {"text": text, "item_name": item_name, "item_id": item_id}
-        if reply_to:
-            payload["reply_to"] = reply_to
-        self.record_event("agent_note", payload)
+        self.record_event(
+            NOTE,
+            note_record(text, item_id=item_id, item_name=item_name, reply_to=reply_to),
+        )
         return {"available": True, "recorded": True}
 
     def record_event(

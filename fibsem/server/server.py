@@ -35,6 +35,7 @@ from fibsem.server.app_routes import (
     build_app_control_router,
     build_app_router,
     build_app_stop_router,
+    build_app_suggest_router,
 )
 from fibsem.server.auth import (
     AgentLevel,
@@ -51,6 +52,7 @@ from fibsem.server.discovery import fibsem_folder
 from fibsem.server.models import MicroscopeStateRequest
 from fibsem.server.requests import RequestStore, build_request_router
 from fibsem.structures import BeamType, MicroscopeState
+from fibsem.workflows.actions import ACTION, action_record
 
 API_VERSION = "0.3.0"
 
@@ -212,15 +214,17 @@ async def _stop_reason(request: Request):
     if call is not None:
         call.recorded = True
     owner = request.path_params.get("service") or request.path_params.get("device")
+    target = _STOPPED.get(owner or "workflow", f"the {_words(owner)}")
     request.app.state.microscope.record_event(
-        "agent_stop",
-        {
-            "action": action,
-            "what": _STOPPED.get(owner or "workflow", f"the {_words(owner)}"),
-            "reason": reason.strip(),
-            "own": own,
-            "level": request.app.state.auth.level.value,
-        },
+        ACTION,
+        action_record(
+            f"Stop {target}",
+            reason=reason.strip(),
+            stops=action,
+            target=target,
+            own=own,
+            level=request.app.state.auth.level.value,
+        ),
     )
 
 
@@ -241,6 +245,7 @@ def _words(name) -> str:
 # little ("Tried to requests").
 _REFUSED_ACTIONS = {
     "/app/agent/requests": "file a request",
+    "/app/workflow/proposals/suggest": "suggest on a proposal",
 }
 
 
@@ -267,30 +272,36 @@ def _record_refusal(request: Request, exc: StarletteHTTPException) -> None:
             return
         auth: AuthConfig = request.app.state.auth
         call = current_call()
-        payload = {
+        payload = action_record(
             # a request refused at filing names the call it carried
-            "action": detail.get("call")
+            detail.get("call")
             or _REFUSED_ACTIONS.get(request.url.path.rstrip("/"))
             or action_name(request),
-            "route": f"{request.method} {request.url.path}",
-            "error_type": error_type,
-            "level": auth.level.value,
-        }
+            ok=False,
+            refused=True,
+            route=f"{request.method} {request.url.path}",
+            error_type=error_type,
+            level=auth.level.value,
+        )
         if call is not None and call.action and not detail.get("call"):
             # The call as the card says it (FIB-1426), when the sidecar named it.
             payload["line"] = call.action
         logging.info(
-            f"agent refused: {payload['action']} ({payload['route']}): "
+            f"agent refused: {payload['what']} ({payload['route']}): "
             f"403 {error_type} at {payload['level']}"
         )
-        request.app.state.microscope.record_event("agent_refused", payload)
+        request.app.state.microscope.record_event(ACTION, payload)
     except Exception:  # noqa: BLE001 - recording must not change the answer
         logging.debug("could not record an agent refusal", exc_info=True)
 
 
 # Routes that put the agent's call on the record themselves: its requests, its
-# notes. A stop says so as it stops (`_stop_reason`).
-_RECORDS_ITSELF = ("/app/agent/", "/app/experiment/notes")
+# notes, its suggestions. A stop says so as it stops (`_stop_reason`).
+_RECORDS_ITSELF = (
+    "/app/agent/",
+    "/app/experiment/notes",
+    "/app/workflow/proposals/suggest",
+)
 # POST routes that only read: a query, and the grid run's plan. Not the agent
 # acting, and the request store reads them to describe each request.
 _POSTED_READS = ("/queries/", "/app/workflow/grids/plan")
@@ -383,13 +394,13 @@ class _AgentActs:
             ):
                 return
             request = Request(scope)
-            payload = {
-                "action": call.action or action_name(request),
-                "route": f"{scope.get('method')} {path}",
-                "status": status,
-                "ok": status < 400,
-                "level": call.level,
-            }
+            payload = action_record(
+                call.action or action_name(request),
+                ok=status < 400,
+                route=f"{scope.get('method')} {path}",
+                status=status,
+                level=call.level,
+            )
             if call.tool:
                 payload["tool"] = call.tool
             if call.arguments:
@@ -405,7 +416,7 @@ class _AgentActs:
                 message = detail.get("message") if isinstance(detail, dict) else detail
                 if isinstance(message, str) and message.strip():
                     payload["message"] = message.strip()
-            scope["app"].state.microscope.record_event("agent_called", payload)
+            scope["app"].state.microscope.record_event(ACTION, payload)
         except Exception:  # noqa: BLE001 - recording must not change the answer
             logging.debug("could not record an agent call", exc_info=True)
 
@@ -618,6 +629,11 @@ def build_server(
             build_app_stop_router(app_context),
             dependencies=[Depends(_drive), Depends(_stop_reason)],
         )
+        # Suggesting on a pending proposal: Assist and Drive, with no request,
+        # since the operator's approval is what decides.
+        app.include_router(
+            build_app_suggest_router(app_context), dependencies=[Depends(_assist)]
+        )
         # The agent's requests (FIB-1283): actions the operator approves in the
         # app, run through the routes above. The app decides them through
         # app.state.requests.
@@ -633,6 +649,7 @@ def build_server(
             check=getattr(app_context, "check_action", None),
             not_allowed=_not_allowed(microscope) if serve_microscope else None,
             experiment_path=lambda: getattr(app_context, "experiment_path", None),
+            experiment=getattr(app_context, "recording_experiment", None),
         )
         app.include_router(build_request_router(app.state.requests))
     return app

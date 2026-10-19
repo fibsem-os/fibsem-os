@@ -16,13 +16,14 @@ import logging
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from fibsem.acting import Actor
-from fibsem.workflows.experiment import EXPERIMENT_WRITE_LOCK
 from fibsem.workflows.proposals import (
+    EXPERIMENT_WRITE_LOCK,
     PROPOSAL_KINDS,
     Decision,
     DecisionOutcome,
     DecisionResult,
     Proposal,
+    Suggestion,
     ValueRefused,
     _quietly,
     kind_label,
@@ -94,8 +95,11 @@ class ProposalDecisions:
         return self._run_edit(self._decide, item_id, task_name, decision)
 
     def _decide(
-        self, item_id: str, task_name: str, decision: Decision
+        self, item_id: str, task_name: str, decision: Decision, check_only=False
     ) -> DecisionResult:
+        """``check_only``: whether it would land, writing nothing."""
+        if item_id is None:
+            return self._decide_on_experiment(decision, check_only)
         with EXPERIMENT_WRITE_LOCK:
             item = self.get_item_by_id(item_id)
             if item is None:
@@ -300,6 +304,8 @@ class ProposalDecisions:
                         f"needs its values {missing}, as proposed or adjusted.",
                     )
 
+            if check_only:
+                return DecisionResult(applied=True)
             # Apply, then commit. The writes and the status move are assignments
             # on evented records, whose subscribers can raise; if anything does,
             # every one is undone and the decision is not appended, so a failed
@@ -372,8 +378,200 @@ class ProposalDecisions:
             logging.exception(f"a subscriber to decided raised for {task_name}")
         return result
 
-    def ask_proposal(self, item_id: str, task_name: str, proposal: Proposal) -> bool:
-        """Record a question the task is about to park on, and say so.
+    def _decide_on_experiment(
+        self, decision: Decision, check_only: bool = False
+    ) -> DecisionResult:
+        """A decision on a proposal about the experiment itself (``item_id``
+        None), named by its id. Nothing is written through: such a proposal is
+        approved or rejected, and whoever asked acts on the decision."""
+        with EXPERIMENT_WRITE_LOCK:
+            proposal = next(
+                (p for p in self.proposals if p.id == decision.proposal_id), None
+            )
+            if proposal is None:
+                return DecisionResult(
+                    applied=False,
+                    error_type="stale_proposal",
+                    reason=f"No proposal {decision.proposal_id!r} on the experiment.",
+                )
+            what = kind_label(proposal.kind) or proposal.kind
+            if not proposal.pending:
+                return DecisionResult(
+                    applied=False,
+                    error_type="stale_proposal",
+                    reason=f"The {what} is no longer waiting.",
+                )
+            if decision.outcome not in (
+                DecisionOutcome.Confirmed,
+                DecisionOutcome.Rejected,
+            ):
+                return DecisionResult(
+                    applied=False,
+                    error_type="invalid_value",
+                    reason=f"{decision.outcome.name} is not a decision: confirm "
+                    "or reject.",
+                )
+            if decision.values or decision.action:
+                return DecisionResult(
+                    applied=False,
+                    error_type="invalid_value",
+                    reason=f"A {what} is confirmed or rejected as it stands.",
+                )
+            if check_only:
+                return DecisionResult(applied=True)
+            proposal.decisions.append(decision)
+            proposal.asking = False
+            result = self._save_quietly(f"the decision on the {what}")
+        try:
+            self.decided.emit("", "")
+        except Exception:
+            logging.exception(f"a subscriber to decided raised for the {what}")
+        return result
+
+    def suggest(
+        self,
+        item_id: str,
+        task_name: str,
+        proposal_id: str,
+        suggestion: Suggestion,
+    ) -> DecisionResult:
+        """Put ``suggestion`` on the pending proposal ``proposal_id``, replacing
+        the one there. Checked as the decision it would make is (``decide``),
+        so one that could not be approved is refused now; nothing is decided."""
+        return self._run_edit(
+            self._suggest, item_id, task_name, proposal_id, suggestion
+        )
+
+    def _suggest(
+        self, item_id: str, task_name: str, proposal_id: str, suggestion: Suggestion
+    ) -> DecisionResult:
+        if not suggestion.reason:
+            return DecisionResult(
+                applied=False,
+                error_type="missing_field",
+                reason="A suggestion says why: pass a reason.",
+            )
+        with EXPERIMENT_WRITE_LOCK:
+            item = self.get_item_by_id(item_id)
+            proposal = self._current(item, task_name, proposal_id)
+            if proposal is None or not proposal.pending:
+                return DecisionResult(
+                    applied=False,
+                    error_type="stale_proposal",
+                    reason=f"{task_name} has no pending proposal {proposal_id!r}; "
+                    "suggest on one proposal_list shows.",
+                )
+            try:
+                values = suggestion.values_for(proposal)
+            except ValueRefused as e:
+                return DecisionResult(
+                    applied=False, error_type="invalid_value", reason=str(e)
+                )
+            checked = self._decide(
+                item_id,
+                task_name,
+                self._approving(proposal, suggestion, values),
+                check_only=True,
+            )
+            if not checked.applied:
+                return checked
+            proposal.suggestion = suggestion
+            result = self._save_quietly(f"{item.name}: the {task_name} suggestion")
+        self._notify(self.suggested, item_id, task_name)
+        return result
+
+    def decline_suggestion(
+        self, item_id: str, task_name: str, proposal_id: str, reason: str = ""
+    ) -> DecisionResult:
+        """Mark the suggestion on ``proposal_id`` declined, with the decider's
+        reason for the suggester. The proposal stays pending."""
+        return self._run_edit(
+            self._decline_suggestion, item_id, task_name, proposal_id, reason
+        )
+
+    def _decline_suggestion(
+        self, item_id: str, task_name: str, proposal_id: str, reason: str
+    ) -> DecisionResult:
+        with EXPERIMENT_WRITE_LOCK:
+            item = self.get_item_by_id(item_id)
+            proposal = self._current(item, task_name, proposal_id)
+            suggestion = proposal.suggestion if proposal is not None else None
+            if suggestion is None or suggestion.declined:
+                return DecisionResult(
+                    applied=False,
+                    error_type="stale_proposal",
+                    reason="There is no suggestion to decline.",
+                )
+            suggestion.declined = True
+            suggestion.declined_reason = reason
+            result = self._save_quietly(f"{item.name}: the {task_name} suggestion")
+        self._notify(self.suggested, item_id, task_name)
+        return result
+
+    def approve_suggestion(
+        self, item_id: str, task_name: str, proposal_id: str, actor: Actor, via: str
+    ) -> DecisionResult:
+        """Decide ``proposal_id`` as its suggestion says, as ``actor``: the
+        decision names the suggestion it approved."""
+        item = self.get_item_by_id(item_id)
+        proposal = self._current(item, task_name, proposal_id)
+        suggestion = proposal.suggestion if proposal is not None else None
+        if suggestion is None or suggestion.declined:
+            return DecisionResult(
+                applied=False,
+                error_type="stale_proposal",
+                reason="There is no suggestion to approve.",
+            )
+        try:
+            values = suggestion.values_for(proposal)
+        except ValueRefused as e:
+            return DecisionResult(
+                applied=False, error_type="invalid_value", reason=str(e)
+            )
+        decision = self._approving(proposal, suggestion, values)
+        decision.actor = Actor.parse(actor)
+        decision.via = via
+        return self.decide(item_id, task_name, decision)
+
+    @staticmethod
+    def _current(item, task_name: str, proposal_id: str) -> Optional[Proposal]:
+        if item is None:
+            return None
+        return next(
+            (p for p in item.current_proposals(task_name) if p.id == proposal_id),
+            None,
+        )
+
+    @staticmethod
+    def _approving(
+        proposal: Proposal, suggestion: Suggestion, values: Dict[str, Any]
+    ) -> Decision:
+        return Decision(
+            outcome=suggestion.outcome,
+            actor=suggestion.actor,
+            values=values,
+            reason=suggestion.reason
+            if suggestion.outcome is DecisionOutcome.Rejected
+            else "",
+            proposal_id=proposal.id,
+            action=suggestion.action,
+            suggestion_id=suggestion.id,
+        )
+
+    def _save_quietly(self, what: str) -> DecisionResult:
+        result = DecisionResult(applied=True)
+        try:
+            self.save()
+        except Exception as e:
+            logging.exception(f"could not save {what}")
+            result.save_error = str(e) or type(e).__name__
+        return result
+
+    def ask_proposal(
+        self, item_id: Optional[str], task_name: str, proposal: Proposal
+    ) -> bool:
+        """Record a question the task is about to park on, and say so. With
+        ``item_id`` None, a proposal about the experiment itself.
 
         Marks the proposal as the one being waited on, so a decision may land
         on it while its task runs (FIB-1025), and fires ``asked`` so the inbox
@@ -392,17 +590,20 @@ class ProposalDecisions:
         write, and only the notification is handed to the GUI thread.
         """
         with EXPERIMENT_WRITE_LOCK:
-            item = self.get_item_by_id(item_id)
+            item = self.get_item_by_id(item_id) if item_id is not None else self
             if item is None:
                 return False
             # Same rule as a task's own proposal: a decided one stays on the
             # record before the new question, a pending one is replaced -- it
             # was never answered, so there is nothing to keep.
             proposal.provenance["asked"] = True
-            item.record_proposal(task_name, proposal)
+            if item_id is None:
+                self.record_proposal(proposal)
+            else:
+                item.record_proposal(task_name, proposal)
             proposal.asking = True
         try:
-            self._notify(self.asked, item_id, task_name)
+            self._notify(self.asked, item_id or "", task_name)
         except Exception:
             logging.exception(f"a subscriber to asked raised for {task_name}")
         return True
@@ -502,7 +703,7 @@ class ProposalDecisions:
         Returns how many."""
         withdrawn = 0
         with EXPERIMENT_WRITE_LOCK:
-            for item in self.items():
+            for item in [*self.items(), self]:
                 for proposal in item.proposals:
                     if not proposal.pending or not proposal.provenance.get("asked"):
                         continue
@@ -595,6 +796,37 @@ class ProposalDecisions:
         except Exception:
             logging.exception(f"a subscriber to decided raised for {task_name}")
         return DecisionResult(applied=True)
+
+    def withdraw_experiment_proposal(
+        self, proposal_id: str, reason: str, actor: Optional[Actor] = None
+    ) -> DecisionResult:
+        """Close a proposal about the experiment nobody decided: whoever asked
+        took it back, or can no longer act on it. Like ``withdraw_proposal``,
+        not a decision and not run where the experiment is edited."""
+        with EXPERIMENT_WRITE_LOCK:
+            proposal = next((p for p in self.proposals if p.id == proposal_id), None)
+            if proposal is None or not proposal.pending:
+                return DecisionResult(
+                    applied=False,
+                    error_type="stale_proposal",
+                    reason=f"No pending proposal {proposal_id!r} on the experiment.",
+                )
+            proposal.asking = False
+            proposal.decisions.append(
+                Decision(
+                    outcome=DecisionOutcome.Withdrawn,
+                    actor=actor or Actor.task("workflow"),
+                    reason=reason,
+                    via="workflow",
+                    proposal_id=proposal.id,
+                )
+            )
+            result = self._save_quietly("a withdrawn proposal")
+        try:
+            self._notify(self.decided, "", "")
+        except Exception:
+            logging.exception("a subscriber to decided raised for a withdrawal")
+        return result
 
     def pending_proposals(
         self,

@@ -368,16 +368,14 @@ def test_get_detector_settings_holds_the_lock_across_the_group(thermo):
     """Four locked pairs still let the channel move between them, so the four values
     could describe two states. The lock is re-entrant, so the pairs inside cost
     nothing more."""
-    override = next(
+    method = next(
         (
             node
-            for node in _thermo_class().body
+            for node in _class("microscope.py", "FibsemMicroscope").body
             if isinstance(node, ast.FunctionDef)
             and node.name == "get_detector_settings"
         ),
         None,
     )
-    assert override is not None, (
-        "ThermoMicroscope no longer overrides get_detector_settings"
-    )
-    assert _locked_blocks(override)
+    assert method is not None, "FibsemMicroscope has no get_detector_settings"
+    assert _locked_blocks(method)

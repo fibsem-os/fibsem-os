@@ -130,4 +130,5 @@ class VolumeExperiment(ProposalDecisions, BaseExperiment):
         experiment.positions = [
             VolumePosition.from_dict(p) for p in ddict.get("positions", [])
         ]
+        experiment.withdraw_what_was_asked("the app closed before it was answered")
         return experiment

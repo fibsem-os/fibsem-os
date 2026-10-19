@@ -3735,6 +3735,18 @@ class _ListStub:
         self.grid_context = context
 
 
+def _lamella_tab(cards):
+    """The Lamella tab's card handling, with *cards* and no protocol editor."""
+    from types import MethodType, SimpleNamespace
+
+    from fibsem.applications.autolamella.ui.lamella_tab import LamellaTab
+
+    tab = SimpleNamespace(cards=cards, selected=None)
+    tab.show_lamella = lambda lamella: setattr(tab, "selected", lamella)
+    tab.set_lamellae = MethodType(LamellaTab.set_lamellae, tab)
+    return tab
+
+
 def _list_host(qapp, tmp_path, experiment=None):
     """A `_StubHost` that can run the real `_rebuild_lamella_list`."""
     from types import SimpleNamespace
@@ -3748,7 +3760,7 @@ def _list_host(qapp, tmp_path, experiment=None):
         lamella_workflow_widget=SimpleNamespace(lamella_list=_ListStub()),
         selection_changed=lambda: None,
     )
-    host.lamella_card_container = _ListStub()
+    host.lamella_tab = _lamella_tab(_ListStub())
     host._lamella_list_experiment = None
     host._on_lamella_card_selected = lambda lamella: None
     host._update_lamella_tab_enabled = lambda: None
@@ -3854,7 +3866,7 @@ def test_a_rebuild_keeps_the_ticks_and_the_selected_card(qapp, tmp_path):
     experiment = _real_experiment(tmp_path)
     host = _list_host(qapp, tmp_path, experiment)
     host.workflow_tab.lamella_workflow_widget.lamella_list = LamellaListWidget()
-    host.lamella_card_container = LamellaCardContainer(columns=1)
+    host.lamella_tab = _lamella_tab(LamellaCardContainer(columns=1))
     reselected = []
     host._on_lamella_card_selected = reselected.append
     microscope = host.autolamella_ui.microscope
@@ -3865,8 +3877,8 @@ def test_a_rebuild_keeps_the_ticks_and_the_selected_card(qapp, tmp_path):
     host.workflow_tab.lamella_workflow_widget.lamella_list._row(1).checkbox.setChecked(
         True
     )
-    host.lamella_card_container.select_lamella(second.name)
-    host._selected_card_lamella = second
+    host.lamella_tab.cards.select_lamella(second.name)
+    host.lamella_tab.selected = second
 
     experiment.positions.append(_real_lamella("Lamella-03", microscope, tmp_path))
     host._rebuild_lamella_list()
@@ -3874,18 +3886,18 @@ def test_a_rebuild_keeps_the_ticks_and_the_selected_card(qapp, tmp_path):
     assert host.workflow_tab.lamella_workflow_widget.lamella_list.get_selected() == [
         second
     ]
-    assert host.lamella_card_container._selected_id == second.id
+    assert host.lamella_tab.cards._selected_id == second.id
     assert reselected[-1] is second
 
     experiment.positions.remove(second)
     host._rebuild_lamella_list()
 
     assert host.workflow_tab.lamella_workflow_widget.lamella_list.get_selected() == []
-    assert host.lamella_card_container._selected_id is None
+    assert host.lamella_tab.cards._selected_id is None
     assert reselected[-1] is None
 
     host.workflow_tab.lamella_workflow_widget.lamella_list.close()
-    host.lamella_card_container.close()
+    host.lamella_tab.cards.close()
     host._teardown_fm_overview_widget()
 
 

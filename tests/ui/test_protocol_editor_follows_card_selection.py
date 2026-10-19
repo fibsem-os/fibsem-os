@@ -36,7 +36,7 @@ def main_ui(qapp):
     ui = window.autolamella_ui
     ui.system_widget.connect_to_microscope()
     yield window
-    window.lamella_widget._save_timer.stop()
+    window.lamella_tab.editor._save_timer.stop()
     ui.microscope.disconnect()
     original_quit = qapp.quit
     qapp.quit = lambda: None
@@ -63,18 +63,18 @@ def experiment(main_ui, tmp_path):
 
 
 def _click(main_ui, lamella):
-    QTest.mouseClick(main_ui.lamella_card_container._cards[lamella.id], Qt.LeftButton)
+    QTest.mouseClick(main_ui.lamella_tab.cards._cards[lamella.id], Qt.LeftButton)
 
 
 def _shown(main_ui):
     """The lamella the protocol page offers for editing, or None for the empty page."""
-    if main_ui._protocol_page.currentIndex() == 0:
+    if main_ui.lamella_tab._protocol_page.currentIndex() == 0:
         return None
-    return main_ui.lamella_widget._selected_lamella
+    return main_ui.lamella_tab.editor._selected_lamella
 
 
 def _edit_description(main_ui, text):
-    editor = main_ui.lamella_widget
+    editor = main_ui.lamella_tab.editor
     editor.line_edit_description.setText(text)
     editor.line_edit_description.editingFinished.emit()
 
@@ -84,7 +84,7 @@ def test_selecting_a_card_shows_it(main_ui, experiment):
     _click(main_ui, two)
 
     assert _shown(main_ui) is two
-    assert main_ui.lamella_widget.label_lamella_name.text() == "two"
+    assert main_ui.lamella_tab.editor.label_lamella_name.text() == "two"
 
 
 def test_deselecting_the_card_empties_the_editor(main_ui, experiment):
@@ -92,9 +92,9 @@ def test_deselecting_the_card_empties_the_editor(main_ui, experiment):
     _click(main_ui, two)
     _click(main_ui, two)
 
-    assert main_ui.lamella_card_container._selected_id is None
+    assert main_ui.lamella_tab.cards._selected_id is None
     assert _shown(main_ui) is None
-    assert main_ui.lamella_widget._selected_lamella is None
+    assert main_ui.lamella_tab.editor._selected_lamella is None
 
 
 def test_an_edit_after_deselecting_reaches_no_lamella(main_ui, experiment):
@@ -114,15 +114,15 @@ def test_a_refresh_with_nothing_selected_selects_nothing(main_ui, experiment):
     _click(main_ui, two)
     _click(main_ui, two)
 
-    main_ui.lamella_widget.set_experiment()
-    main_ui.lamella_widget._refresh_experiment_positions()
+    main_ui.lamella_tab.editor.set_experiment()
+    main_ui.lamella_tab.editor._refresh_experiment_positions()
 
-    assert main_ui.lamella_widget._selected_lamella is None
+    assert main_ui.lamella_tab.editor._selected_lamella is None
 
 
 def test_an_experiment_opens_with_nothing_selected(main_ui, experiment):
     main_ui._rebuild_lamella_list()
-    main_ui.lamella_widget.set_experiment()
+    main_ui.lamella_tab.editor.set_experiment()
 
-    assert main_ui.lamella_card_container._selected_id is None
+    assert main_ui.lamella_tab.cards._selected_id is None
     assert _shown(main_ui) is None

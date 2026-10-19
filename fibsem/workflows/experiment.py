@@ -16,7 +16,6 @@ from __future__ import annotations
 import importlib
 import logging
 import os
-import threading
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -30,6 +29,7 @@ from fibsem.structures import FibsemUser, SessionInfo
 from fibsem.util.timestamps import now, to_datetime, to_iso
 from fibsem.utils import configure_logging as _configure_logging
 from fibsem.workflows.proposals import (
+    EXPERIMENT_WRITE_LOCK,
     Proposal,
     proposals_from_dict,
     proposals_to_dict,
@@ -41,12 +41,6 @@ if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
 
 EXPERIMENT_FILENAME = "experiment.yaml"
-
-# One process, one open experiment: a single lock serialises the writers that
-# can run on different threads at once -- the workflow thread saving after a
-# task, and a decision from the GUI thread or the App Server. Held
-# briefly by both, so neither serialises a half-applied write of the other.
-EXPERIMENT_WRITE_LOCK = threading.RLock()
 
 
 class BaseExperiment:
@@ -64,6 +58,9 @@ class BaseExperiment:
     # on the main thread. The window listens, to put the question up on the
     # widget it is answered on.
     asked = Signal(str, str)
+    # Fired after a suggestion on a pending proposal is made or declined, with
+    # (item_id, task_name), where the experiment is edited.
+    suggested = Signal(str, str)
 
     def __init__(
         self,
@@ -357,7 +354,10 @@ class BaseExperiment:
             )
 
 
-class FibsemExperiment(BaseExperiment):
+from fibsem.workflows.deciding import ProposalDecisions  # noqa: E402
+
+
+class FibsemExperiment(ProposalDecisions, BaseExperiment):
     """An experiment of no application: no items, no protocol. Where what is
     done is recorded -- its events, and what is asked about it -- when no
     application's experiment is open."""
@@ -388,6 +388,7 @@ class FibsemExperiment(BaseExperiment):
         check_app(ddict, cls.app, path)
         experiment = cls(path=path.parent.parent, name=path.parent.name)
         experiment._read_identity(ddict)
+        experiment.withdraw_what_was_asked("the app closed before it was answered")
         return experiment
 
 

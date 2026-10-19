@@ -424,10 +424,10 @@ def test_an_acting_tool_names_itself_to_the_server():
         asyncio.run(sidecar.call_tool("stage_move_relative", {"dx": 2e-6}))
     finally:
         microscope.session.record_signal.disconnect(record)
-    calls = [p for kind, p in recorded if kind == "agent_called"]
+    calls = [p for kind, p in recorded if kind == "action"]
     assert len(calls) == 1
     assert calls[0]["tool"] == "stage_move_relative"
-    assert calls[0]["action"] == "Stage · Move 2 µm in x"
+    assert calls[0]["what"] == "Stage · Move 2 µm in x"
     assert calls[0]["level"] == "drive" and calls[0]["ok"]
 
 

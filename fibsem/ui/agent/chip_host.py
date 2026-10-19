@@ -60,6 +60,8 @@ class AgentChipHost(QObject):
         self.chip.approve_clicked.connect(self._on_approve)
         self.chip.reject_clicked.connect(self._on_reject)
         self.chip.message_sent.connect(self._on_operator_message)
+        self.chip.suggestion_approved.connect(self._on_approve_suggestion)
+        self.chip.suggestion_declined.connect(self._on_decline_suggestion)
         status_bar.add_action(self.chip)
         self.request_changed.connect(self.refresh)
 
@@ -82,6 +84,9 @@ class AgentChipHost(QObject):
         )
         # A waiting request's lines, read again while the operator looks at it.
         self._request_described: Tuple[Optional[str], float] = (None, 0.0)
+        self._experiment = None
+        # The pending proposal the card's suggestion is on: (item id, task, id).
+        self._suggested: Optional[Tuple[str, str, str]] = None
 
         self._timer = QTimer(self)
         self._timer.setInterval(1000)
@@ -111,6 +116,74 @@ class AgentChipHost(QObject):
         self._on_driving(level is AgentLevel.DRIVE)
         self._show_request()
         self.chip.show()
+
+    def listen(self, experiment) -> None:
+        """Show the agent's suggestions on *experiment*'s pending proposals;
+        the previous experiment's are dropped."""
+        previous = self._experiment
+        if previous is experiment:
+            return
+        if previous is not None:
+            try:
+                previous.suggested.disconnect(self._on_suggestion_changed)
+                previous.decided.disconnect(self._on_suggestion_changed)
+            except Exception:
+                pass
+        self._experiment = experiment
+        if experiment is not None:
+            experiment.suggested.connect(self._on_suggestion_changed)
+            experiment.decided.connect(self._on_suggestion_changed)
+        self._show_suggestion()
+
+    def _on_suggestion_changed(self, item_id: str, task_name: str) -> None:
+        self._show_suggestion()
+
+    def _show_suggestion(self) -> None:
+        """The card shows the agent's suggestion on a pending proposal, until
+        it is approved, declined or the proposal is decided otherwise."""
+        from fibsem.ui.agent.suggestions import (
+            front_suggestion,
+            suggestion_card,
+            suggestion_request,
+        )
+
+        experiment = self._experiment
+        front = front_suggestion(experiment) if experiment is not None else None
+        if front is None:
+            self._suggested = None
+            self.chip.set_suggestion(None)
+            self.previews.show_suggestion(None)
+            return
+        item, task_name, proposal = front
+        self._suggested = (item.id, task_name, proposal.id)
+        self.chip.set_suggestion(suggestion_card(item, task_name, proposal))
+        self.previews.show_suggestion(
+            suggestion_request(item, task_name, proposal, str(experiment.path))
+        )
+
+    def _on_approve_suggestion(self) -> None:
+        """Approve on the card: the proposal is decided as suggested, as the
+        operator's decision, naming the suggestion."""
+        experiment = self._experiment
+        if self._suggested is None or experiment is None:
+            return
+        result = experiment.approve_suggestion(
+            *self._suggested, actor=experiment.actor(), via="workflow"
+        )
+        if not result.applied:
+            notification_service.show(
+                f"Could not approve the agent's suggestion: {result.reason}", "info"
+            )
+        self._show_suggestion()
+
+    def _on_decline_suggestion(self, reason: str) -> None:
+        """Decline on the card: the suggestion is dropped, with the reason
+        for the agent; the proposal stays pending."""
+        experiment = self._experiment
+        if self._suggested is None or experiment is None:
+            return
+        experiment.decline_suggestion(*self._suggested, reason=reason.strip())
+        self._show_suggestion()
 
     def _follow_requests(self) -> None:
         """Move the chip as a request is filed and applied rather than on the

@@ -46,7 +46,7 @@ One knob, on the Agent chip in the status bar, set in two clicks:
 |---|---|
 | **Off** | nothing: every request is refused |
 | **Watch** | see everything below and add notes; never act |
-| **Assist** | also stop what it started itself, and ask you to approve anything else it wants done, deciding a proposal included |
+| **Assist** | also stop what it started itself, suggest decisions on proposals, and ask you to approve anything else it wants done |
 | **Drive** | also decide proposals, start and stop (a run, or a mill it didn't start), change supervision, re-queue, and edit configuration; with the microscope served, use it too |
 
 Every launch starts at **Watch**. The level lasts the session: nothing in any
@@ -81,6 +81,11 @@ Under them is the agent's reason.
 
 One request waits at a time. Changing the level or pressing Stop agent
 cancels a waiting request, and stops an approved one before its next action.
+
+Each request is saved in the experiment's record (`experiment.yaml`) as an
+`actions` proposal, with who approved or rejected it and why. A request still
+waiting when the app closes reads as withdrawn the next time the experiment
+is opened.
 
 ## What the agent can see (Watch and above)
 
@@ -180,7 +185,13 @@ A supervised task's proposal goes to you and to any connected agent alike.
 The first decision wins, and you can always decide first. The window shows the
 ordinary orange border, attention button and sound whether or not an agent is
 connected, and the record keeps who decided. At Watch the agent sees the
-proposal and can tell you what it would decide; at Drive it may decide it.
+proposal and can tell you what it would decide. At Assist it can suggest a
+decision: the Agent chip says "Agent suggests", and its card shows the
+agent's reason and the suggested value drawn on the proposal's image. Approve
+decides the proposal as suggested, as your decision, and the record names the
+agent as the one who suggested it; Decline drops the suggestion, with an
+optional reason that goes back to the agent, and the proposal stays up for
+you. At Drive it may decide it.
 
 ## The dashboard
 
