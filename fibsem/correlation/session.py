@@ -75,17 +75,33 @@ class CorrelationSession:
     """The images, the points, the result and the config of one correlation."""
 
     def __init__(self) -> None:
-        self.fib_image: Optional[FibsemImage] = None
-        self.fm_image: Optional[FluorescenceImage] = None
         # The points and the selection, held once: the tab's lists and canvases
-        # draw from them through a Qt point store (FIB-973).
+        # draw from them through a Qt point store (FIB-973). Removing the FM
+        # surface disarms the pre-correction; any change arms the auto-save.
         self.points = CorrelationPoints()
+        self.points.subscribe(self._disarm_without_fm_surface)
+        self.points.subscribe(self._arm_on_change)
         # Pre-correlation RI factor (FM surface mode) and the optical
-        # parameters it was armed with (see arm_pre_correction). Removing
-        # the FM surface disarms it (see _disarm_without_fm_surface).
+        # parameters it was armed with (see arm_pre_correction).
         self.ri_pre_correction_factor: Optional[float] = None
         self.ri_pre_correction_params: Optional[dict] = None
-        self.points.subscribe(self._disarm_without_fm_surface)
+        # The seed of the last run started, for what the status line says of it.
+        self.last_seed: Optional[Seed] = None
+        self._result: Optional[CorrelationResult] = None
+        # Bumped whenever the result is cleared or replaced; a run started
+        # before the bump delivers into a state it no longer describes, so its
+        # result is dropped (FIB-1242).
+        self._generation = 0
+        self._pending: Optional[PendingRun] = None
+        # Reads in progress: an open is not an edit, and writing during one
+        # rewrote the file being read (FIB-1237).
+        self._reads = 0
+        self._start_fresh()
+
+    def _start_fresh(self) -> None:
+        """What a new correlation starts with; `reset` returns here."""
+        self.fib_image: Optional[FibsemImage] = None
+        self.fm_image: Optional[FluorescenceImage] = None
         # What a run starts from (see seed): previous runs, ``(label, run)``
         # pairs most specific first, and the camera transform the host assumes
         # for an FM stack that recorded none (FIB-881).
@@ -93,31 +109,19 @@ class CorrelationSession:
         self.assumed_fm_transform: Optional[CameraImageTransform] = None
         # Ignore the previous run's placement offset for this lamella (FIB-979).
         self.ignore_placement_offset = False
-        # The seed of the last run started, for what the status line says of it.
-        self.last_seed: Optional[Seed] = None
         # Positions as last seeded by the setup section, to detect manual edits
         # before replacing them (None = nothing seeded yet). FIB-302.
         self.seeded_positions: Optional[list] = None
         # Experiment-global config; passed in on open, read back on close
         # (FIB-298). The fit and RI choices on screen are the tab's widgets.
         self.config = CorrelationConfig()
-        self._result: Optional[CorrelationResult] = None
-        # Bumped whenever the result is cleared or replaced; a run started
-        # before the bump delivers into a state it no longer describes, so its
-        # result is dropped (FIB-1242).
-        self._generation = 0
-        self._pending: Optional[PendingRun] = None
         # The run folder the auto-save writes; a destination, not a promise:
         # it is created on the first write worth making (FIB-320).
         self.project_dir: Optional[str] = None
         # Auto-save is armed by a load or an edit, never by an image load: an
         # open must not write until there is something of the user's to keep
-        # (FIB-977, see auto_save). Any change to the points arms it.
+        # (FIB-977, see auto_save).
         self._save_armed = False
-        self.points.subscribe(self._arm_on_change)
-        # Reads in progress: an open is not an edit, and writing during one
-        # rewrote the file being read (FIB-1237).
-        self._reads = 0
         # Last auto-save failure, held so the status line keeps reporting it
         # instead of claiming "Ready." while nothing is saved (FIB-316).
         self.save_error: Optional[str] = None
@@ -132,16 +136,7 @@ class CorrelationSession:
         """
         self.discard_result()
         self.points.replace_all([])  # disarms the pre-correction
-        self.fib_image = None
-        self.fm_image = None
-        self.prior_runs = []
-        self.assumed_fm_transform = None
-        self.ignore_placement_offset = False
-        self.seeded_positions = None
-        self.config = CorrelationConfig()
-        self.project_dir = None
-        self._save_armed = False  # emptying the points is not an edit
-        self.save_error = None
+        self._start_fresh()  # emptying the points is not an edit: unarmed again
 
     # ------------------------------------------------------------------
     # The images

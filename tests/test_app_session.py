@@ -13,7 +13,7 @@ from fibsem import utils
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.applications.autolamella.structures import Experiment
 from fibsem.workflows.event_recording import EVENTS_FILENAME, read_events, recorder_for
-from fibsem.workflows.session import AppSession
+from fibsem.workflows.session import EXPERIMENT, MICROSCOPE, AppSession
 
 
 @pytest.fixture(scope="module")
@@ -47,6 +47,31 @@ def session():
     session = AppSession()
     yield session
     session.stop_recording()
+
+
+def test_the_session_says_when_its_microscope_changes(session):
+    heard = []
+    session.changed.connect(heard.append)
+    microscope = SimpleNamespace()
+    session.microscope = microscope
+    session.microscope = microscope
+    session.microscope = None
+    assert heard == [MICROSCOPE, MICROSCOPE]
+
+
+def test_the_session_says_an_experiment_was_opened_once_it_is_set_up(
+    session, experiment
+):
+    """A listener reads the new experiment and a fresh correlation."""
+    old_correlation = session.correlation
+    heard = []
+    session.changed.connect(
+        lambda what: heard.append(
+            (what, session.experiment, session.correlation is old_correlation)
+        )
+    )
+    session.adopt(experiment)
+    assert heard == [(EXPERIMENT, experiment, False)]
 
 
 def test_no_microscope_records_nothing(session):

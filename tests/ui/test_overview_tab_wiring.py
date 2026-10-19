@@ -106,7 +106,7 @@ def test_the_container_is_rebuilt_on_every_connection(self_calls):
     """The builder hands each tab the current microscope; a tab not told about a
     reconnection goes on reading geometry from an instrument nobody is driving."""
     callers = self_calls.get("_refresh_overview_microscope", set())
-    assert "_on_microscope_connected" in callers, (
+    assert "_on_microscope_changed" in callers, (
         "the overview tabs are not rebuilt on a connection; each would go on driving "
         "the previous microscope"
     )
