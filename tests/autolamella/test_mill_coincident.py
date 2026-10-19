@@ -31,7 +31,10 @@ from fibsem.applications.autolamella.workflows.tasks.setup_coincidence_milling i
     SetupCoincidenceMillingTaskConfig,
 )
 from fibsem.fm.structures import ChannelSettings, EmissionFilter
-from fibsem.milling.strategy.coincidence import CoincidenceMillingStrategy
+from fibsem.milling.strategy.coincidence import (
+    CoincidenceMillingStrategy,
+    CoincidenceMillingStrategyConfig,
+)
 from fibsem.structures import FibsemRectangle, InsertableDeviceState, Point
 
 SIM_ARCTIS_CONFIG_PATH = os.path.join(
@@ -103,7 +106,7 @@ def _mill_task(
     lamella.task_config[config.task_name] = config
     milling = config.milling[MILL_COINCIDENT_KEY]
     for stage in milling.stages:
-        strategy = stage.strategy
+        strategy = stage.get_strategy()
         assert isinstance(strategy, CoincidenceMillingStrategy)
         strategy.config.timeout = timeout
         strategy.config.warmup_duration = 1.0
@@ -149,7 +152,7 @@ def test_development_protocol_loads_both_tasks():
     assert config.monitoring_channel.exposure_time == 0.1
     assert isinstance(
         config.milling[MILL_COINCIDENT_KEY].stages[0].strategy,
-        CoincidenceMillingStrategy,
+        CoincidenceMillingStrategyConfig,
     )
 
 
@@ -238,7 +241,7 @@ def test_headless_mill_runs_from_the_setup_record_to_timeout(
     for stage in milling.enabled_stages:
         assert stage.pattern.point.x == pytest.approx(1.0e-6)
         assert stage.pattern.point.y == pytest.approx(-0.5e-6)
-        strategy = stage.strategy
+        strategy = stage.get_strategy()
         assert isinstance(strategy, CoincidenceMillingStrategy)
         assert strategy.config.bbox == FibsemRectangle(0.4, 0.4, 0.2, 0.2)
         assert strategy.config.intensity_drop_fraction == pytest.approx(0.3)
@@ -283,7 +286,7 @@ def test_abort_token_stops_the_mill(microscope, tmp_path):
         microscope.milling.progress.changed.disconnect(_stop_on_first_tick)
 
     milling = lamella.task_config["Coincidence Milling"].milling[MILL_COINCIDENT_KEY]
-    strategy = milling.enabled_stages[0].strategy
+    strategy = milling.enabled_stages[0].get_strategy()
     assert isinstance(strategy, CoincidenceMillingStrategy)
     assert strategy.end_reason == "stopped"
     assert microscope.fm.objective.state is not InsertableDeviceState.INSERTED

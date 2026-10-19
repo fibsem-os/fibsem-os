@@ -166,7 +166,7 @@ def test_the_run_holds_on_the_question_until_it_is_decided(window, qapp):
     )
     assert _pump(
         qapp,
-        lambda: "waiting for your decision" in ui.label_workflow_information.text(),
+        lambda: "waiting for you to answer" in ui.label_workflow_information.text(),
     ), ui.label_workflow_information.text()
     proposal = lamella.proposal(ROUGH)
     assert proposal.kind == DETECTION and proposal.pending and proposal.asking

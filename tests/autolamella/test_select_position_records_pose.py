@@ -23,6 +23,7 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
     SelectMillingPositionTask,
     SelectMillingPositionTaskConfig,
 )
+from tests.answering import answering
 from tests.autolamella._on_the_record import manager_for
 
 # Tens of seconds each on the simulator, so pull requests run these on one CI leg
@@ -59,7 +60,8 @@ def test_the_task_records_pose_and_reference_either_way(
         task_manager=manager_for(microscope, lamella),
     )
 
-    task._run()
+    with answering(task.task_manager.experiment):
+        task._run()
 
     assert lamella.milling_angle is not None, "milling pose and angle were stored"
     assert os.path.exists(

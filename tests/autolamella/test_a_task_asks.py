@@ -1,10 +1,10 @@
 """A task asks for a value it needs now with ``ask``: one way, on the record.
 
-Headless here. With nobody to answer, the proposal goes on the record with an
-``Unreviewed`` decision carrying the values the task went on to use, for
-someone to check afterwards. With someone to answer and no window -- the agent
-at Drive -- a supervised task asks and waits as it would at a window; the
-operator at a window is in tests/ui.
+Headless here. Automated, nobody is asked: the proposal goes on the record with
+an ``Unreviewed`` decision carrying the values the task went on to use, for
+someone to check afterwards. Supervised, the task asks and waits as it would at
+a window, whoever can answer, nobody included: an answer is never taken
+unreviewed (Patrick 2026-10-19). The operator at a window is in tests/ui.
 """
 
 import os
@@ -119,8 +119,8 @@ def test_a_value_the_kind_does_not_carry_is_refused(microscope, tmp_path):
 def test_with_nobody_to_ask_the_proposed_value_is_used_and_recorded_unreviewed(
     microscope, tmp_path
 ):
-    """Automated, or supervised with no window: the answer is what was
-    proposed, and the record says nobody looked."""
+    """Automated: the answer is what was proposed, and the record says
+    nobody looked."""
     exp = _experiment(tmp_path, microscope)
     lamella = exp.positions[0]
     seen = {}
@@ -189,6 +189,96 @@ def test_with_the_agent_to_answer_a_supervised_task_asks_and_waits(
     assert decision.outcome is DecisionOutcome.Confirmed
     assert decision.values == {"poi": Point(3e-6, 0)}, "the agent's value"
     assert decision.actor.kind is ActorKind.agent
+
+
+def _asking(task, values):
+    """``task`` asks on a thread of its own; returns (thread, seen)."""
+    seen = {}
+    asking = threading.Thread(
+        target=lambda: seen.update(decision=task.ask(POINT_OF_INTEREST, values)),
+        daemon=True,
+    )
+    asking.start()
+    return asking, seen
+
+
+def _asked(lamella, asking):
+    deadline = time.monotonic() + 10
+    while (question := lamella.proposal(ROUGH)) is None or not question.pending:
+        assert time.monotonic() < deadline, "the question was never asked"
+        assert asking.is_alive(), "the task did not wait for an answer"
+        time.sleep(0.01)
+    return question
+
+
+def test_with_nobody_to_answer_a_supervised_task_still_waits(microscope, tmp_path):
+    """No window and no agent listening: the question waits for someone to
+    come back, and the hold says who can answer as that changes."""
+    exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
+    lamella = exp.positions[0]
+    who = []
+    task = _task(microscope, exp, answerers=lambda: tuple(who))
+    holds = []
+    task.task_manager._set_hold = lambda hold, note=None, message="": holds.append(
+        (hold, note)
+    )
+    asking, seen = _asking(task, {"poi": Point(1e-6, 2e-6)})
+    question = _asked(lamella, asking)
+
+    time.sleep(0.3)
+    assert asking.is_alive(), "nobody answered, so it is still waiting"
+    assert standing(lamella, ROUGH, question) is Standing.Asking
+    hold, note = holds[0]
+    assert "nobody can answer" in hold.releases
+    assert "connect the agent at Drive" in note
+
+    who.append(ActorKind.agent)
+    deadline = time.monotonic() + 10
+    while len(holds) < 2:
+        assert time.monotonic() < deadline, "the hold never said the agent is back"
+        time.sleep(0.01)
+    assert (
+        holds[1][1] == f"{ROUGH} is waiting for the agent to answer on {lamella.name}."
+    )
+
+    result = exp.decide(
+        lamella.id,
+        ROUGH,
+        Decision(
+            outcome=DecisionOutcome.Confirmed,
+            actor="agent:x",
+            proposal_id=question.id,
+            values={"poi": Point(3e-6, 0)},
+        ),
+    )
+    assert result.applied, result.reason
+    asking.join(timeout=10)
+    assert not asking.is_alive(), "the task went on once it was answered"
+    assert seen["decision"].outcome is DecisionOutcome.Confirmed
+    assert holds[-1] == (None, None), "and the hold came down"
+
+
+def test_stop_withdraws_a_question_nobody_can_answer(microscope, tmp_path):
+    exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
+    lamella = exp.positions[0]
+    task = _task(microscope, exp, answerers=lambda: ())
+    task._stop_event = threading.Event()
+    errors = []
+
+    def ask():
+        try:
+            task.ask(POINT_OF_INTEREST, {"poi": Point(0, 0)})
+        except InterruptedError as error:
+            errors.append(error)
+
+    asking = threading.Thread(target=ask, daemon=True)
+    asking.start()
+    question = _asked(lamella, asking)
+    task._stop_event.set()
+    asking.join(timeout=10)
+
+    assert errors, "Stop ends the wait"
+    assert question.current.outcome is DecisionOutcome.Withdrawn
 
 
 def test_a_question_a_setting_turns_off_is_recorded_not_asked(microscope, tmp_path):

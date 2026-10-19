@@ -429,3 +429,31 @@ def test_an_acting_tool_names_itself_to_the_server():
     assert calls[0]["tool"] == "stage_move_relative"
     assert calls[0]["action"] == "Stage · Move 2 µm in x"
     assert calls[0]["level"] == "drive" and calls[0]["ok"]
+
+
+def test_a_name_with_a_slash_reaches_its_route_whole():
+    """An item named `Lamella 01/2` is one path parameter: the sidecar
+    percent-encodes it once, in `_route`, so the server sees the whole name
+    and not a longer path. Every app tool with a path parameter goes that way."""
+    import httpx
+
+    seen = []
+
+    def answer(request):
+        seen.append(request.url.raw_path.decode())  # as sent, before decoding
+        return httpx.Response(200, json={"name": "Lamella 01/2"})
+
+    client = httpx.Client(transport=httpx.MockTransport(answer), base_url="http://x")
+    shape = {"routers": {"microscope": True, "app": True}, "level": "drive"}
+    sidecar = build_sidecar(client, shape)
+    asyncio.run(sidecar.call_tool("item_get", {"item_name": "Lamella 01/2"}))
+    asyncio.run(
+        sidecar.call_tool(
+            "item_update",
+            {"item_name": "Lamella 01/2", "patch": {}, "version": "v"},
+        )
+    )
+    assert seen == [
+        "/app/experiment/items/Lamella%2001%2F2",
+        "/app/experiment/items/Lamella%2001%2F2",
+    ]

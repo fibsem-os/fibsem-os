@@ -10,6 +10,7 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
+from fibsem.ai.agent.recent import RecentRow  # noqa: E402
 from fibsem.structures import BeamType  # noqa: E402
 from fibsem.ui.agent.card import AgentCard  # noqa: E402
 from fibsem.ui.agent.level_chip import (  # noqa: E402
@@ -17,7 +18,6 @@ from fibsem.ui.agent.level_chip import (  # noqa: E402
     last_heard_text,
     request_outcome,
 )
-from fibsem.ui.agent.recent import RecentRow  # noqa: E402
 from tests.run_state import StubRunner
 
 
@@ -984,7 +984,7 @@ def test_the_floating_card_can_be_kept_on_top_of_every_window(qapp):
 
 
 def _row(text, outcome="done", tone="ok", level=""):
-    from fibsem.ui.agent.recent import RecentRow
+    from fibsem.ai.agent.recent import RecentRow
 
     return RecentRow("16:08", text, outcome, tone, level)
 
@@ -1189,7 +1189,7 @@ def test_at_drive_each_direct_call_shows_in_now_then_recent_with_its_level(qapp)
 def test_a_row_s_outcome_changes_on_the_card(qapp):
     # Round 8 screenshots: an overview read "running" after it ended, since
     # the row was changed in place and the card saw the same rows.
-    from fibsem.ui.agent.recent import RecentActions
+    from fibsem.ai.agent.recent import RecentActions
 
     recent = RecentActions()
     run = {"service": "imaging", "run_id": "o", "action": "Overview", "level": "drive"}

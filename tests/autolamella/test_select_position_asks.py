@@ -4,8 +4,8 @@ The tilt to the milling angle and the move to the milling position are
 ``state`` questions on the record, whether the review preference is on or
 off, each with a switch of its own in the task's settings (``confirm_tilt``,
 ``confirm_position``). Off, that one question is recorded and not asked.
-Headless nobody is there, so both go on the record as proposed,
-``Unreviewed``. The alignment area is asked the same way, and the point of
+Automated, nobody is asked, so both go on the record as proposed,
+``Unreviewed``; supervised, each waits for an answer, window or not. The alignment area is asked the same way, and the point of
 interest is proposed at the end for afterwards, preference or not.
 
 Runs the real task against the Demo microscope, which starts 38° from the
@@ -36,6 +36,7 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
 from fibsem.structures import FibsemRectangle, FibsemStagePosition
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.proposals import ALIGNMENT_AREA, DETECTION, STATE
+from tests.answering import answering
 
 SETUP = "Setup Lamella Position"
 ROUGH = "Rough Milling"
@@ -213,36 +214,38 @@ def test_a_switched_off_confirmation_is_recorded_and_not_asked(
     )
     lamella = exp.positions[0]
 
-    _task(microscope, exp).run()
+    with answering(exp) as answered:
+        _task(microscope, exp).run()
 
     tilt, position = [p for p in lamella.proposals_from(SETUP) if p.kind == STATE]
     assert tilt.unreviewed and "turned off" in tilt.current.reason
-    assert position.unreviewed and "nobody to answer" in position.current.reason, (
-        "asked, but headless there is nobody to answer"
+    assert position in answered and not position.unreviewed, (
+        "asked, and it waited for the answer"
     )
 
 
 # ---------------------------------------------------------------------------
-# Supervised, with no window to ask in: the same questions, on the record
+# Supervised, with no window to ask in: the same questions, and they wait
 # ---------------------------------------------------------------------------
 
 
-def test_without_a_window_both_confirmations_are_on_the_record(
+def test_without_a_window_both_confirmations_wait_for_an_answer(
     microscope, tmp_path, monkeypatch
 ):
     _supervised_in_a_window_less_run(monkeypatch)
     exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
     lamella = exp.positions[0]
 
-    _task(microscope, exp).run()
+    with answering(exp) as answered:
+        _task(microscope, exp).run()
 
     tilt, position = [p for p in lamella.proposals_from(SETUP) if p.kind == STATE]
     assert "Tilt to the milling angle" in tilt.provenance["message"]
     assert "Double click the image" in position.provenance["message"]
-    assert tilt.unreviewed and "nobody to answer" in tilt.current.reason
-    assert position.unreviewed and "nobody to answer" in position.current.reason
+    assert answered[:2] == [tilt, position], "each waited for its answer"
+    assert not tilt.unreviewed and not position.unreviewed
     assert microscope.get_current_milling_angle() == pytest.approx(MILLING_ANGLE), (
-        "nobody answered, so the task tilted"
+        "the tilt was confirmed, so the task tilted"
     )
 
 
@@ -261,7 +264,8 @@ def test_without_a_window_the_flags_still_switch_the_questions_off(
     )
     lamella = exp.positions[0]
 
-    _task(microscope, exp).run()
+    with answering(exp):
+        _task(microscope, exp).run()
 
     tilt, position = [p for p in lamella.proposals_from(SETUP) if p.kind == STATE]
     assert "turned off" in tilt.current.reason
@@ -310,7 +314,8 @@ def test_a_switched_off_alignment_area_is_recorded_and_not_asked(
     )
     lamella = exp.positions[0]
 
-    _task(microscope, exp).run()
+    with answering(exp):
+        _task(microscope, exp).run()
 
     area = lamella.proposal(SETUP, ALIGNMENT_AREA)
     assert area.unreviewed and "turned off" in area.current.reason
@@ -319,17 +324,18 @@ def test_a_switched_off_alignment_area_is_recorded_and_not_asked(
     )
 
 
-def test_without_a_window_the_alignment_area_and_point_are_on_the_record(
+def test_without_a_window_the_alignment_area_waits_and_the_point_is_proposed(
     microscope, tmp_path, monkeypatch
 ):
     _supervised_in_a_window_less_run(monkeypatch)
     exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
     lamella = exp.positions[0]
 
-    _task(microscope, exp).run()
+    with answering(exp) as answered:
+        _task(microscope, exp).run()
 
     area = lamella.proposal(SETUP, ALIGNMENT_AREA)
-    assert area.unreviewed and "nobody to answer" in area.current.reason
+    assert area in answered and not area.unreviewed
     point = lamella.proposal(SETUP, POINT_OF_INTEREST)
     assert point.pending, "proposed at the end, for the Review tab"
     assert lamella.is_awaiting_decision(SETUP), "supervised: it waits on the point"

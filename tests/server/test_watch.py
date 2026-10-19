@@ -768,3 +768,26 @@ def test_a_mill_line_names_the_item_and_a_failure():
         "MILL ENDED 'Mill Rough' item=01-alive-dory status=failed run=r1 "
         "stages: Rough=failed (RuntimeError: the beam would not blank)"
     ]
+
+
+def test_a_question_held_before_the_watch_started_is_its_first_line(app):
+    """An agent that reconnects to a held run is told what the run is held
+    on: the question was asked before this watch began, so its event is
+    behind the cursor (Patrick 2026-10-19: fix the reconnect, never take an
+    answer unreviewed)."""
+    from fibsem.workflows.proposals import STATE, Proposal
+
+    exp = app.context._session.experiment
+    lamella = exp.positions[0]
+    asked = exp.ask_proposal(
+        lamella.id,
+        "Setup Lamella Position",
+        Proposal(kind=STATE, values={"stage_position": None}),
+    )
+    assert asked
+    app.set_running(True)
+
+    code, lines = _watch({}, until=lambda lines: len(lines) >= 1)
+
+    assert code is None
+    assert lines == [watch_mod._question_line(lamella.name, "Setup Lamella Position")]

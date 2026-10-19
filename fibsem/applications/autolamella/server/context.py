@@ -10,12 +10,13 @@ never live objects, never Qt, never a pointer into a widget.
 Thread contract: every method is safe to call from a server thread. Reads are
 point-in-time snapshots, not transactions — the workflow worker may be mutating
 the experiment concurrently, and a snapshot that is a task older than the
-instant it was taken is the accepted cost of never blocking anything. The one
-hardware-adjacent method, :meth:`stage_position`, reads the microscope's cached
-position only; nothing here ever issues a hardware call (the app must not be
-made to poll the instrument on behalf of an observer). The one exception is an
-action's own gate: requeueing reads the grid inventory, as the Add to queue
-click does.
+instant it was taken is the accepted cost of never blocking anything.
+:meth:`stage_position` reads the microscope's cached position only, so an
+observer never makes the app poll the instrument. The few reads that do reach
+the instrument are an action's own: :meth:`set_item_pose` reads the microscope
+state it stores, and :meth:`add_grids`, :meth:`rename_grid` and requeueing read
+the grid inventory, as the window's own buttons do. None of them writes to the
+instrument.
 
 Vocabulary: the surface speaks ``item_name`` throughout. ``lamella_name`` is
 the deprecated alias scheduled to drop with the HookContext shims after v0.6
@@ -473,6 +474,7 @@ class AutoLamellaAppContext:
                 "current_item": None,
                 "queue_total": None,
                 "queue_version": None,
+                "asking": [],
             },
         }
         if experiment is not None:
@@ -481,6 +483,18 @@ class AutoLamellaAppContext:
                 "path": str(experiment.path),
                 "num_items": len(experiment.positions),
             }
+            # The questions a task is stopped on, for an agent that has just
+            # connected: their events are behind its cursor.
+            payload["workflow"]["asking"] = [
+                {
+                    "item_id": item.id,
+                    "item_name": item.name,
+                    "task_name": task_name,
+                    "proposal_id": proposal.id,
+                }
+                for item, task_name, proposal in experiment.pending_proposals()
+                if proposal.asking
+            ]
         manager = self._manager
         if manager is not None:
             items = manager.queue.items  # thread-safe copy under the queue's lock

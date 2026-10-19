@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.milling.base import MillingStrategy, get_strategy
+from fibsem.milling.base import MillingStrategyConfig, get_strategy_config
 from fibsem.milling.strategy import get_strategy_names
 from fibsem.structures import BeamType, Parameter
 from fibsem.ui.tokens import (
@@ -37,17 +37,17 @@ class _Row:
 
 
 class FibsemStrategySettingsWidget(QWidget):
-    """Metadata-driven form widget for any MillingStrategy subclass.
+    """Metadata-driven form widget for any milling strategy's config.
 
     Selecting a different strategy type from the combobox rebuilds the config form.
     Strategies with no config fields (e.g. Standard) show an empty-state label.
     """
 
-    strategy_changed = pyqtSignal(object)  # MillingStrategy[Any]
+    strategy_changed = pyqtSignal(object)  # MillingStrategyConfig
 
     def __init__(
         self,
-        strategy: MillingStrategy[Any],
+        strategy: MillingStrategyConfig,
         parent: Optional[QWidget] = None,
         microscope: Optional[FibsemMicroscope] = None,
     ) -> None:
@@ -75,7 +75,7 @@ class FibsemStrategySettingsWidget(QWidget):
         type_form = FormGrid()
         type_form.setContentsMargins(0, 0, 0, 0)
         self._type_combo = ValueComboBox(
-            get_strategy_names(), value=self._strategy.name
+            get_strategy_names(), value=self._strategy.strategy_name
         )
         type_form.addRow("Strategy", self._type_combo)
         align_form(type_form)
@@ -95,7 +95,7 @@ class FibsemStrategySettingsWidget(QWidget):
     def _connect_signals(self) -> None:
         self._type_combo.currentIndexChanged.connect(self._on_type_changed)
 
-    def _apply_strategy_type_selector(self, strategy: MillingStrategy[Any]) -> None:
+    def _apply_strategy_type_selector(self, strategy: MillingStrategyConfig) -> None:
         """Populate the strategy-type selector for *strategy*.
 
         Strategies absent from the selectable registry (e.g. Coincidence, which is
@@ -103,12 +103,12 @@ class FibsemStrategySettingsWidget(QWidget):
         switching. Normal builtins show the full list and stay switchable.
         """
         names = get_strategy_names()
-        locked = strategy.name not in names
+        locked = strategy.strategy_name not in names
         self._type_combo.blockSignals(True)
         self._type_combo.clear()
-        for name in [strategy.name] if locked else names:
+        for name in [strategy.strategy_name] if locked else names:
             self._type_combo.addItem(name, name)
-        self._type_combo.set_value(strategy.name)
+        self._type_combo.set_value(strategy.strategy_name)
         self._type_combo.blockSignals(False)
         self._type_combo.setEnabled(not locked)
 
@@ -122,7 +122,7 @@ class FibsemStrategySettingsWidget(QWidget):
         bound = Parameter(name=parameter, device_parameter=f"beam.{parameter}")
         return list(beam_spec(bound, self.microscope, BeamType.ION).choices or [])
 
-    def _build_controls(self, strategy: MillingStrategy[Any]) -> None:
+    def _build_controls(self, strategy: MillingStrategyConfig) -> None:
         """Clear and rebuild the config form for the given strategy."""
         # Clear rows BEFORE removing form widgets (same reason as pattern_settings_widget:
         # prevents re-entrant access to zombie C++ wrappers during focus-change events).
@@ -130,13 +130,13 @@ class FibsemStrategySettingsWidget(QWidget):
         while self._config_form.rowCount():
             self._config_form.removeRow(0)
 
-        for field_name, spec in strategy.config.params.items():
+        for field_name, spec in strategy.params.items():
             if spec.hidden:
                 continue
 
             control = build_control(
                 spec,
-                getattr(strategy.config, field_name),
+                getattr(strategy, field_name),
                 resolve_choices=self._instrument_choices,
                 read_only_fallback=False,
             )
@@ -171,9 +171,9 @@ class FibsemStrategySettingsWidget(QWidget):
 
     def _on_type_changed(self) -> None:
         name = self._type_combo.value()
-        if name is None or name == self._strategy.name:
+        if name is None or name == self._strategy.strategy_name:
             return
-        new_strategy = get_strategy(name)
+        new_strategy = get_strategy_config(name)
         self._strategy = new_strategy
         self._build_controls(new_strategy)
         self.strategy_changed.emit(new_strategy)
@@ -199,24 +199,24 @@ class FibsemStrategySettingsWidget(QWidget):
     # Public API
     # ------------------------------------------------------------------
 
-    def get_strategy(self) -> MillingStrategy[Any]:
+    def get_strategy(self) -> MillingStrategyConfig:
         strategy = deepcopy(self._strategy)
         for row in self._rows:
             value = row.control.read()
             # A combobox with nothing selected reads None; writing that would
             # replace a real setting with nothing.
             if value is not None:
-                setattr(strategy.config, row.field, value)
+                setattr(strategy, row.field, value)
         return strategy
 
-    def set_strategy(self, strategy: MillingStrategy[Any]) -> None:
-        type_changed = strategy.name != self._strategy.name
+    def set_strategy(self, strategy: MillingStrategyConfig) -> None:
+        type_changed = strategy.strategy_name != self._strategy.strategy_name
         self._strategy = strategy
         self._apply_strategy_type_selector(strategy)
 
         if type_changed:
             self._build_controls(strategy)
-            return  # _build_controls reads values from strategy.config directly
+            return  # _build_controls reads values from the config directly
 
         # Every control is blocked before any is written, so a mid-write signal
         # cannot read a form that is half updated.
@@ -224,7 +224,7 @@ class FibsemStrategySettingsWidget(QWidget):
             row.control.set_blocked(True)
         try:
             for row in self._rows:
-                row.control.write(getattr(strategy.config, row.field))
+                row.control.write(getattr(strategy, row.field))
         finally:
             for row in self._rows:
                 row.control.set_blocked(False)

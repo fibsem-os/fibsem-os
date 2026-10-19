@@ -103,6 +103,11 @@ class _FakeHost:
         self.serve_microscope = serve_microscope
         self.running = False
         self.starts = 0
+        # Seconds since the agent was last heard; None: never.
+        self.seen = None
+
+    def agent_seconds_since_seen(self):
+        return self.seen
 
     def start(self):
         self.starts += 1
@@ -238,10 +243,10 @@ def test_an_open_experiment_is_what_the_agent_records_to(session, experiment):
 
 def test_who_can_answer_is_what_is_attached_and_the_agent_at_drive(fake_hosting):
     """A window attaches the operator; the agent can answer while the App
-    Server serves it at Drive. Nobody, with neither: a question goes on the
-    record instead of holding the run."""
+    Server serves it at Drive and it is listening. Nobody, with neither: a
+    supervised question still waits, for someone to come back."""
     from fibsem.acting import AGENT, OPERATOR
-    from fibsem.ai.agent.levels import AgentLevel
+    from fibsem.ai.agent.levels import AGENT_LISTENING_S, AgentLevel
 
     session = AppSession()
     assert session.answerers() == ()
@@ -255,7 +260,12 @@ def test_who_can_answer_is_what_is_attached_and_the_agent_at_drive(fake_hosting)
     session.agent_auth = SimpleNamespace(level=AgentLevel.ASSIST)
     assert session.answerers() == (), "at Assist the agent suggests, it does not answer"
     session.agent_auth.level = AgentLevel.DRIVE
+    assert session.answerers() == (), "at Drive, but never heard: nobody listening"
+    session.app_server.seen = 3.0
     assert session.answerers() == (AGENT,)
+    session.app_server.seen = AGENT_LISTENING_S + 1
+    assert session.answerers() == (), "gone quiet: it waits for the agent to return"
+    session.app_server.seen = 3.0
     session.stop_app_server()
     assert session.answerers() == (), "no server, nobody to hear it"
 

@@ -21,7 +21,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.milling.base import FibsemMillingStage, get_strategy
+from fibsem.milling.base import FibsemMillingStage, get_strategy_config
 from fibsem.milling.patterning import get_pattern, get_pattern_names
 from fibsem.milling.patterning.shapes import COLOURS
 from fibsem.milling.strategy import get_strategy_names
@@ -300,7 +300,7 @@ class MillingStageRowWidget(QWidget):
             self.depth_spin.setValue(depth * spec.scale)
         self.current_combo.set_value(self.stage.milling.milling_current)
         self.preset_combo.set_value(self.stage.milling.preset)
-        self.strategy_combo.set_value(self.stage.strategy.name)
+        self.strategy_combo.set_value(self.stage.strategy.strategy_name)
         # tooltips reflect the current selection so elided (narrow) values stay readable
         self.pattern_combo.setToolTip(f"Pattern: {self.pattern_combo.currentText()}")
         self.current_combo.setToolTip(f"Current: {self.current_combo.currentText()}")
@@ -371,9 +371,9 @@ class MillingStageRowWidget(QWidget):
 
     def _on_strategy_changed(self) -> None:
         new_name = self.strategy_combo.value()
-        if new_name is None or new_name == self.stage.strategy.name:
+        if new_name is None or new_name == self.stage.strategy.strategy_name:
             return
-        self.stage.strategy = get_strategy(new_name)
+        self.stage.strategy = get_strategy_config(new_name)
         self.stage_changed.emit(self.stage)
 
 

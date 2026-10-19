@@ -101,7 +101,7 @@ class CoincidenceMillingConfirmationDialog(QDialog):
         the rest of the UI already treats them.
         """
         for stage in self.task_config.enabled_stages:
-            config = getattr(getattr(stage, "strategy", None), "config", None)
+            config = getattr(stage, "strategy", None)
             if config is not None and hasattr(config, "intensity_drop_fraction"):
                 return config
         return None

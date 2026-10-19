@@ -465,7 +465,9 @@ def build_sidecar(client, capabilities):
     def _route(tool_name, /, **arguments):
         """Call a tool's route as the catalog maps its arguments: (data, err)."""
         try:
-            method, path, body = route_call(by_name[tool_name], arguments)
+            method, path, body = route_call(
+                by_name[tool_name], arguments, encode=lambda s: quote(s, safe="")
+            )
         except ValueError as exc:
             # Refused before it reached the server: an error, as a 422 would be.
             return None, _Failure(f"refused: {exc}")
@@ -912,6 +914,10 @@ def build_sidecar(client, capabilities):
         """A query string of the *params* that are given (not None)."""
         return urlencode({k: v for k, v in params.items() if v is not None})
 
+    def _given(**params):
+        """The *params* that are given (not None): a body that leaves out the rest."""
+        return {k: v for k, v in params.items() if v is not None}
+
     def _app_get(path):
         data, err = _call(client, "GET", path)
         return err if err else data
@@ -953,7 +959,7 @@ def build_sidecar(client, capabilities):
         )
 
     def item_list_outputs(item_name: str):
-        return _app_get(f"/app/experiment/items/{item_name}/outputs")
+        return _routed("item_list_outputs", item_name=item_name)
 
     def _image_header(resp):
         # The image's scale and state ride on the JPEG answer as a header
@@ -982,15 +988,12 @@ def build_sidecar(client, capabilities):
         width_um: Optional[float] = None,
         height_um: Optional[float] = None,
     ):
-        body = {"width_um": width_um, "height_um": height_um}
-        data, err = _call(
-            client,
-            "POST",
-            f"/app/experiment/items/{quote(item_name, safe='')}/outputs/"
-            f"{quote(filename, safe='')}/thickness",
-            {k: v for k, v in body.items() if v is not None},
+        return _routed(
+            "item_measure_thickness",
+            item_name=item_name,
+            filename=filename,
+            **_given(width_um=width_um, height_um=height_um),
         )
-        return err if err else _with_images(data)
 
     def experiment_get_image_metadata(path: str):
         return _app_get("/app/experiment/images/metadata?" + urlencode({"path": path}))
@@ -1081,13 +1084,13 @@ def build_sidecar(client, capabilities):
             return data
 
     def item_get(item_name: str):
-        return _app_get(f"/app/experiment/items/{item_name}")
+        return _routed("item_get", item_name=item_name)
 
     def grid_list():
         return _app_get("/app/experiment/grids")
 
     def grid_get(grid_name: str):
-        return _app_get(f"/app/experiment/grids/{grid_name}")
+        return _routed("grid_get", grid_name=grid_name)
 
     def grid_get_output_image(grid_name: str, filename: str):
         # A JPEG, like an item's output image.
@@ -1114,13 +1117,13 @@ def build_sidecar(client, capabilities):
         )
 
     def grid_get_markers(grid_name: str, filename: str):
-        return _app_get(f"/app/experiment/grids/{grid_name}/outputs/{filename}/markers")
+        return _routed("grid_get_markers", grid_name=grid_name, filename=filename)
 
     def protocol_get_task_config(task_name: str):
-        return _app_get(f"/app/experiment/protocol/task_config/{task_name}")
+        return _routed("protocol_get_task_config", task_name=task_name)
 
     def item_get_task_config(item_name: str, task_name: str):
-        return _app_get(f"/app/experiment/items/{item_name}/task_config/{task_name}")
+        return _routed("item_get_task_config", item_name=item_name, task_name=task_name)
 
     def experiment_add_note(
         text: str, item_name: Optional[str] = None, reply_to: Optional[str] = None
@@ -1137,18 +1140,11 @@ def build_sidecar(client, capabilities):
         return _app_post("/app/agent/requests", body)
 
     def request_withdraw(request_id: str, reason: str):
-        data, err = _call(
-            client,
-            "POST",
-            f"/app/agent/requests/{request_id}/withdraw",
-            {"reason": str(reason)},
-        )
-        return err if err else data
+        return _routed("request_withdraw", request_id=request_id, reason=str(reason))
 
     def request_get(request_id: str):
         # An applied image action carries its preview: an image, not base64 text.
-        data, err = _call(client, "GET", f"/app/agent/requests/{request_id}")
-        return err if err else _with_images(data)
+        return _routed("request_get", request_id=request_id)
 
     def request_list():
         data, err = _call(client, "GET", "/app/agent/requests")
@@ -1165,58 +1161,51 @@ def build_sidecar(client, capabilities):
         )
 
     def item_remove(item_name: str):
-        data, err = _call(
-            client, "DELETE", f"/app/experiment/items/{quote(item_name, safe='')}"
-        )
-        return err if err else data
+        return _routed("item_remove", item_name=item_name)
 
     def item_move_to_objective_position(item_name: str):
-        return _app_post(
-            f"/app/experiment/items/{quote(item_name, safe='')}/objective/move_to"
-        )
+        return _routed("item_move_to_objective_position", item_name=item_name)
 
     def item_move_to_pose(item_name: str, pose: str):
-        return _app_post(
-            f"/app/experiment/items/{quote(item_name, safe='')}/move_to", {"pose": pose}
-        )
+        return _routed("item_move_to_pose", item_name=item_name, pose=pose)
 
     def item_set_pose(item_name: str, pose: str):
-        return _app_post(
-            f"/app/experiment/items/{quote(item_name, safe='')}"
-            f"/poses/{quote(pose, safe='')}"
-        )
+        return _routed("item_set_pose", item_name=item_name, pose=pose)
 
     def item_apply_correlation(item_name: str, run_path: str):
-        return _app_post(
-            f"/app/experiment/items/{quote(item_name, safe='')}/correlation",
-            {"run_path": run_path},
-        )
+        return _routed("item_apply_correlation", item_name=item_name, run_path=run_path)
 
     def item_set_objective_position(item_name: str):
-        return _app_post(
-            f"/app/experiment/items/{quote(item_name, safe='')}/objective_position"
-        )
+        return _routed("item_set_objective_position", item_name=item_name)
 
     def item_apply_protocol(item_name: str, task_names: Optional[List[str]] = None):
-        return _app_post(
-            f"/app/experiment/items/{item_name}/apply_protocol",
-            {"task_names": list(task_names) if task_names else None},
+        return _routed(
+            "item_apply_protocol",
+            item_name=item_name,
+            task_names=list(task_names) if task_names else None,
         )
 
     def item_reorder_milling_stages(
         item_name: str, task_name: str, milling_key: str, order: list, version: str
     ):
-        return _app_post(
-            f"/app/experiment/items/{item_name}/task_config/{task_name}/stages/reorder",
-            {"milling_key": milling_key, "order": list(order), "version": version},
+        return _routed(
+            "item_reorder_milling_stages",
+            item_name=item_name,
+            task_name=task_name,
+            milling_key=milling_key,
+            order=list(order),
+            version=version,
         )
 
     def protocol_reorder_milling_stages(
         task_name: str, milling_key: str, order: list, version: str
     ):
-        return _app_post(
-            f"/app/experiment/protocol/task_config/{task_name}/stages/reorder",
-            {"milling_key": milling_key, "order": list(order), "version": version},
+        return _routed(
+            "protocol_reorder_milling_stages",
+            task_name=task_name,
+            milling_key=milling_key,
+            order=list(order),
+            version=version,
         )
 
     def protocol_set_schedule(task_name: str, scheduled_at: Optional[str] = None):
@@ -1226,23 +1215,27 @@ def build_sidecar(client, capabilities):
         )
 
     def item_update(item_name: str, patch: dict, version: str):
-        return _app_post(
-            f"/app/experiment/items/{item_name}",
-            {"patch": dict(patch), "version": str(version)},
+        return _routed(
+            "item_update", item_name=item_name, patch=dict(patch), version=str(version)
         )
 
     def protocol_update_task_config(task_name: str, patch: dict, version: str):
-        return _app_post(
-            f"/app/experiment/protocol/task_config/{task_name}",
-            {"patch": dict(patch), "version": str(version)},
+        return _routed(
+            "protocol_update_task_config",
+            task_name=task_name,
+            patch=dict(patch),
+            version=str(version),
         )
 
     def item_update_task_config(
         item_name: str, task_name: str, patch: dict, version: str
     ):
-        return _app_post(
-            f"/app/experiment/items/{item_name}/task_config/{task_name}",
-            {"patch": dict(patch), "version": str(version)},
+        return _routed(
+            "item_update_task_config",
+            item_name=item_name,
+            task_name=task_name,
+            patch=dict(patch),
+            version=str(version),
         )
 
     def experiment_list_recent():
@@ -1263,26 +1256,18 @@ def build_sidecar(client, capabilities):
         return _app_post("/app/experiment/grids")
 
     def grid_rename(grid_name: str, name: str):
-        return _app_post(
-            f"/app/experiment/grids/{quote(grid_name, safe='')}/rename", {"name": name}
-        )
+        return _routed("grid_rename", grid_name=grid_name, name=name)
 
     def grid_set_quality(grid_name: str, verdict: str, reason: str = ""):
-        return _app_post(
-            f"/app/experiment/grids/{quote(grid_name, safe='')}/quality",
-            {"verdict": verdict, "reason": reason},
+        return _routed(
+            "grid_set_quality", grid_name=grid_name, verdict=verdict, reason=reason
         )
 
     def grid_set_note(grid_name: str, note: str):
-        return _app_post(
-            f"/app/experiment/grids/{quote(grid_name, safe='')}/note", {"note": note}
-        )
+        return _routed("grid_set_note", grid_name=grid_name, note=note)
 
     def grid_remove(grid_name: str):
-        data, err = _call(
-            client, "DELETE", f"/app/experiment/grids/{quote(grid_name, safe='')}"
-        )
-        return err if err else data
+        return _routed("grid_remove", grid_name=grid_name)
 
     def protocol_add_task(task_type: str, task_name: str):
         return _app_post(
@@ -1291,12 +1276,7 @@ def build_sidecar(client, capabilities):
         )
 
     def protocol_remove_task(task_name: str):
-        data, err = _call(
-            client,
-            "DELETE",
-            f"/app/experiment/protocol/tasks/{quote(task_name, safe='')}",
-        )
-        return err if err else data
+        return _routed("protocol_remove_task", task_name=task_name)
 
     def protocol_reorder_tasks(order: list):
         return _app_post(
@@ -1306,14 +1286,13 @@ def build_sidecar(client, capabilities):
     def protocol_set_task_requirements(
         task_name: str, requires: Optional[list] = None, required: Optional[bool] = None
     ):
-        body: dict = {}
-        if requires is not None:
-            body["requires"] = list(requires)
-        if required is not None:
-            body["required"] = bool(required)
-        return _app_post(
-            f"/app/experiment/protocol/tasks/{quote(task_name, safe='')}/requirements",
-            body,
+        return _routed(
+            "protocol_set_task_requirements",
+            task_name=task_name,
+            **_given(
+                requires=None if requires is None else list(requires),
+                required=None if required is None else bool(required),
+            ),
         )
 
     def protocol_set_lamella_defaults(
@@ -1340,14 +1319,14 @@ def build_sidecar(client, capabilities):
         )
 
     def protocol_get_grid_task_config(task_name: str):
-        return _app_get(
-            f"/app/experiment/grid_protocol/task_config/{quote(task_name, safe='')}"
-        )
+        return _routed("protocol_get_grid_task_config", task_name=task_name)
 
     def protocol_update_grid_task_config(task_name: str, patch: dict, version: str):
-        return _app_post(
-            f"/app/experiment/grid_protocol/task_config/{quote(task_name, safe='')}",
-            {"patch": patch, "version": version},
+        return _routed(
+            "protocol_update_grid_task_config",
+            task_name=task_name,
+            patch=patch,
+            version=version,
         )
 
     def protocol_reorder_grid_tasks(order: list):
@@ -1356,10 +1335,10 @@ def build_sidecar(client, capabilities):
         )
 
     def protocol_set_grid_task_requirements(task_name: str, requires: list):
-        return _app_post(
-            f"/app/experiment/grid_protocol/tasks/{quote(task_name, safe='')}"
-            "/requirements",
-            {"requires": list(requires)},
+        return _routed(
+            "protocol_set_grid_task_requirements",
+            task_name=task_name,
+            requires=list(requires),
         )
 
     def experiment_load(path: str):

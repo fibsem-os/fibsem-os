@@ -3,9 +3,9 @@
 Select Fluorescence Position confirms the stage and objective are at the
 fluorescence pose; Acquire Fluorescence Image confirms the position before
 its autofocus runs. Each is a ``state`` question through ``ask`` in place
-of its "Press Continue" prompt, whether the review preference is on or off;
-headless nobody is there, so the position goes on the record as proposed,
-``Unreviewed``.
+of its "Press Continue" prompt, whether the review preference is on or off.
+Automated, nobody is asked, so the position goes on the record as proposed,
+``Unreviewed``; supervised, it waits for an answer, window or not.
 
 Runs the real tasks on the simulated Arctis, which has a fluorescence
 microscope; the autofocus and the acquisition are stubbed as the pose tests
@@ -41,6 +41,7 @@ from fibsem.fm.structures import ChannelSettings
 from fibsem.structures import FibsemStagePosition
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.proposals import STATE, TASK_RESULT
+from tests.answering import ANSWERER, answering
 
 SELECT = "Select Fluorescence Position"
 ACQUIRE = "Acquire Fluorescence Image"
@@ -157,11 +158,12 @@ def test_acquire_headless_the_position_before_autofocus_goes_on_the_record(
     assert isinstance(question.values["stage_position"], FibsemStagePosition)
 
 
-def test_without_a_window_the_questions_are_on_the_record(
+def test_without_a_window_the_questions_wait_for_an_answer(
     microscope, tmp_path, stubbed_acquisition, monkeypatch
 ):
-    """Supervised, with no window to ask in: both are asked, on the record,
-    and the select task still takes down the live view it may have left."""
+    """Supervised, with no window to ask in: both are asked and wait for an
+    answer, never taken unreviewed, and the select task still takes down the
+    live view it may have left."""
     for cls in (SelectFluorescencePositionTask, AcquireFluorescenceImageTask):
         monkeypatch.setattr(cls, "validate", property(lambda self: True))
     stopped = []
@@ -169,13 +171,15 @@ def test_without_a_window_the_questions_are_on_the_record(
     exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
     lamella = exp.positions[0]
 
-    _task(SelectFluorescencePositionTask, SELECT, microscope, exp).run()
-    _task(AcquireFluorescenceImageTask, ACQUIRE, microscope, exp).run()
+    with answering(exp) as answered:
+        _task(SelectFluorescencePositionTask, SELECT, microscope, exp).run()
+        _task(AcquireFluorescenceImageTask, ACQUIRE, microscope, exp).run()
 
     select = lamella.proposal(SELECT, STATE)
     acquire = lamella.proposal(ACQUIRE, STATE)
-    assert select.unreviewed and "nobody to answer" in select.current.reason
-    assert acquire.unreviewed and "nobody to answer" in acquire.current.reason
+    assert answered == [select, acquire]
+    assert not select.unreviewed and str(select.current.actor) == ANSWERER
+    assert not acquire.unreviewed and str(acquire.current.actor) == ANSWERER
     assert "Move to fluorescence position" in select.provenance["message"]
     assert "Run autofocus" in acquire.provenance["message"]
     assert stopped, "the live view is taken down after the confirmation"

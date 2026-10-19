@@ -32,6 +32,18 @@ Prefer "I checked X by reading the code, not by running it" over silence. A clai
 turns out to rest on inspection when the reader assumed execution costs more than the
 hedge does.
 
+## Comments say what the code does now
+
+A comment says what the code does now, or why a non-obvious choice was made. It never says
+what the code used to do, who changed it, or which ticket or pull request asked for it;
+that is what `git log` is for. Module docstrings are at most a short paragraph. A function
+docstring longer than its body is a sign the function does too much.
+
+When a change alters behaviour, delete the comments that described the old behaviour in
+the files the change touches, and nowhere else. Do not rewrite or reflow comments in
+files a change does not otherwise need, and do not reword neighbouring comments in files
+it does.
+
 ## Attribution
 
 Do not add AI or assistant attribution to commit messages or pull request bodies.
