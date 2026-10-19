@@ -98,6 +98,13 @@ def _words(name: Any) -> str:
     return str(name or "").replace("_", " ")
 
 
+def _why_failed(error: Any) -> str:
+    """A failed step's error, as its message alone."""
+    if isinstance(error, dict):
+        error = error.get("message") or error.get("error_type") or ""
+    return _cut(error or "", 120)
+
+
 def _cut(text: str, limit: int = 300) -> str:
     text = " ".join(str(text).split())
     return text if len(text) <= limit else text[: limit - 1] + "…"
@@ -139,6 +146,8 @@ class RecentActions:
         self._applying: set = set()
         # A request's number of actions, for "applying 2 of 3".
         self._sizes: Dict[Any, int] = {}
+        # Why a request's step failed, for its "failed: ..." row.
+        self._failures: Dict[Any, str] = {}
         # The level the agent was last seen at, for a row whose record omits it.
         self._level = ""
 
@@ -151,6 +160,7 @@ class RecentActions:
         self._questions.clear()
         self._applying.clear()
         self._sizes.clear()
+        self._failures.clear()
         self._level = ""
 
     def add(self, record: Dict[str, Any]) -> bool:
@@ -218,6 +228,8 @@ class RecentActions:
         request_id = p.get("request_id")
         of = self._sizes.get(request_id) or 0
         done = int(p.get("index") or 0) + 1
+        if not p.get("ok"):
+            self._failures[request_id] = _why_failed(p.get("error"))
         if not p.get("ok") or done >= of:
             return False  # request_finished says how it ended
         return self._end(
@@ -228,17 +240,21 @@ class RecentActions:
         request_id = p.get("request_id")
         self._applying.discard(request_id)
         self._sizes.pop(request_id, None)
+        why = self._failures.pop(request_id, "")
         status = p.get("status")
         if status == "applied":
             return self._end(("request", request_id), "applied", OK)
         if status == "failed":
-            return self._end(("request", request_id), "failed", ERROR)
+            outcome = f"failed: {why}" if why else "failed"
+            return self._end(("request", request_id), outcome, ERROR)
         return self._end(("request", request_id), _words(status), MUTED)
 
     def _on_request_cancelled(self, record, p, agent):
         self._applying.discard(p.get("request_id"))
         # The agent taking it back says who ended it (sim session 2026-10-16).
         outcome = "withdrawn" if p.get("withdrawn") else "cancelled"
+        if not p.get("withdrawn") and p.get("why"):
+            outcome = f"cancelled: {_cut(p['why'], 120)}"
         return self._end(("request", p.get("request_id")), outcome, MUTED)
 
     # --- the run's questions -----------------------------------------------------

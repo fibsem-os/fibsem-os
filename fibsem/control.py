@@ -169,6 +169,11 @@ class Control:
             if entry is (self._borrower or self._owner):
                 self._open = entry
 
+    def beside_of(self, entry: InControl) -> Optional[InControl]:
+        """What *entry* acts beside (`let_act_beside`), or None when it does not."""
+        with self._cond:
+            return self._open if entry is self._beside else None
+
     @contextmanager
     def lend(self) -> Iterator[None]:
         """Let others act, one at a time, for the block: the one in control is

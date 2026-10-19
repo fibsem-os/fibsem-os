@@ -293,11 +293,30 @@ def test_a_request_the_agent_took_back_reads_withdrawn():
         recent.add(
             _record("request_raised", {"request_id": request_id, "actions": actions})
         )
-        payload = {"request_id": request_id, "why": "..."}
+        payload = {"request_id": request_id, "why": "the operator stopped the agent"}
         if withdrawn:
             payload["withdrawn"] = True
         recent.add(_record("request_cancelled", payload))
-    assert [row[1] for row in _rows(recent)] == ["cancelled", "withdrawn"]
+    # A cancel says who ended it (sim session 2026-10-19).
+    assert [row[1] for row in _rows(recent)] == [
+        "cancelled: the operator stopped the agent",
+        "withdrawn",
+    ]
+
+
+def test_a_failed_request_says_why():
+    recent = RecentActions()
+    actions = [{"tool": "stage_move_relative", "arguments": {"dx": 5e-6}}]
+    recent.add(_record("request_raised", {"request_id": "r1", "actions": actions}))
+    error = {"error_type": "out_of_range", "message": "target outside the stage limits"}
+    recent.add(
+        _record(
+            "request_applied",
+            {"request_id": "r1", "index": 0, "ok": False, "error": error},
+        )
+    )
+    recent.add(_record("request_finished", {"request_id": "r1", "status": "failed"}))
+    assert _rows(recent)[0][1:] == ("failed: target outside the stage limits", ERROR)
 
 
 def test_the_operator_s_message_and_the_agent_s_reply_are_rows():

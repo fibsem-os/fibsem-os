@@ -253,6 +253,31 @@ def test_the_image_shows_beside_the_steps_and_follows_the_card_s_width(qapp):
     card.deleteLater()
 
 
+def test_a_long_step_header_leaves_approve_on_the_card(qapp):
+    # Sim session 2026-10-19 F5: a long header widened the steps past
+    # STEPS_MIN, and the picture beside them pushed Approve 28 px off the card.
+    from PyQt5.QtGui import QImage
+
+    card = AgentCard()
+    card.resize(1000, 500)
+    card.show()
+    request = _request()
+    request["actions"] = [
+        {
+            "tool": "item_update",
+            "what": "01-meet-ghoul · Setup Lamella Position · Point of interest",
+            "change": "Point of interest: (0, 0) → (−3, +2) µm",
+        }
+    ]
+    card.set_request(request)
+    card.set_image(QImage(1024, 683, QImage.Format_RGB32), "FIB · 05:12")
+    qapp.processEvents()
+    button = card.approve_button
+    right = button.mapTo(card, button.rect().topRight()).x()
+    assert right <= card.width() - card.layout().contentsMargins().right()
+    card.deleteLater()
+
+
 def test_resizing_after_a_suggestion_with_a_picture_goes_does_not_abort(qapp):
     # Found in the 2026-10-16 card session: with nothing left waiting, the card
     # kept its deleted picture, and the next resize aborted the app.

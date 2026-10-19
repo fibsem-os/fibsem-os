@@ -369,7 +369,7 @@ def _call(client, method, path, payload=None):
     try:
         resp = client.request(method, path, **kwargs)
     except ServerUnreachable as exc:
-        return None, str(exc)
+        return None, _Failure(str(exc))
     if resp.status_code >= 400:
         return None, _refusal(resp)
     try:

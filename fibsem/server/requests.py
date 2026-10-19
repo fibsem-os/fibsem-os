@@ -47,6 +47,8 @@ CANCELLED = "cancelled"
 _DONE = (APPLIED, FAILED, REJECTED, CANCELLED)
 
 MAX_ACTIONS = 20
+# How long one read of a running step's run waits for it to end, in seconds.
+RUN_POLL_S = 30
 MAX_REASON = 2000
 # Finished requests kept for GET: enough for an agent to read back its last few.
 KEEP = 50
@@ -132,7 +134,7 @@ class AgentRequest:
         }
 
 
-async def _asgi_call(app, method: str, path: str, body, token: str):
+async def _asgi_call(app, method: str, path: str, body, token: str, query: str = ""):
     """One call into the ASGI app in this process, as an HTTP client would make
     it: (status, decoded JSON or None)."""
     payload = json.dumps(body).encode() if body is not None else b""
@@ -145,7 +147,7 @@ async def _asgi_call(app, method: str, path: str, body, token: str):
         "path": path,
         "raw_path": quote(path).encode(),
         "root_path": "",
-        "query_string": b"",
+        "query_string": query.encode(),
         "headers": [
             (b"authorization", f"Bearer {token}".encode()),
             (b"content-type", b"application/json"),
@@ -212,6 +214,16 @@ def _argument_problem(spec: ToolSpec, unknown: List[str], missing: List[str]) ->
     return f"{'; '.join(parts)}. It takes: {takes or 'no arguments'}."
 
 
+def _started_run(answer: Any) -> Optional[Dict[str, Any]]:
+    """The run when *answer* is a long command's start, which goes on after
+    the answer (`fibsem.devices.runs`); None for any other answer."""
+    result = answer.get("result") if isinstance(answer, dict) else None
+    if isinstance(result, dict) and isinstance(result.get("run_id"), str):
+        if "state" in result and "command" in result:
+            return result
+    return None
+
+
 def _cut_short(answer: Any) -> bool:
     """Whether an action ran but was stopped part way: a mill answers
     ``cancelled`` rather than failing (FIB-1377). Applied, but the operator and
@@ -267,6 +279,7 @@ class RequestStore:
         mounted: frozenset,
         emit: Optional[Callable[[str, Dict[str, Any]], Any]] = None,
         describe: Optional[Describer] = None,
+        check: Optional[Callable[[str, Dict[str, Any]], Optional[str]]] = None,
         not_allowed: Optional[Callable[[str, str], Optional[str]]] = None,
         experiment_path: Optional[Callable[[], Optional[str]]] = None,
     ) -> None:
@@ -275,6 +288,9 @@ class RequestStore:
         # The open experiment's folder: an image the agent shows is inside it.
         self._experiment_path = experiment_path or (lambda: None)
         self._describe = describe
+        # Why the app would refuse an action when it runs (a config edit that
+        # does not apply), or None: refused at filing, as the allowlist is.
+        self._check = check
         self._auth = auth
         self._mounted = mounted
         self._emit_fn = emit
@@ -474,6 +490,14 @@ class RequestStore:
                     f"at any level: {why}.",
                     call=_call_named(spec, tool, arguments),
                 )
+            why = self._check(tool, arguments) if self._check else None
+            if why is not None:
+                raise RequestRefused(
+                    422,
+                    "invalid_patch",
+                    f"Action {index + 1}: {why}",
+                    tool=tool,
+                )
             resolved.append(Action(tool, dict(arguments), method, path, body))
         return resolved
 
@@ -595,26 +619,12 @@ class RequestStore:
                     level=AgentLevel.ASSIST.value,
                 )
                 with lending_drive(), calling(call):
-                    try:
-                        code, answer = asyncio.run(
-                            _asgi_call(
-                                self._app,
-                                action.method,
-                                action.path,
-                                action.body,
-                                self._auth.token,
-                            )
-                        )
-                    except Exception as exc:  # noqa: BLE001 - reported, not raised
-                        code, answer = (
-                            500,
-                            {
-                                "detail": {
-                                    "error_type": type(exc).__name__,
-                                    "message": str(exc),
-                                }
-                            },
-                        )
+                    code, answer = self._call(action.method, action.path, action.body)
+                    run = _started_run(answer) if code < 400 else None
+                    if run is not None:
+                        # The next step waits for this one's run to end, and a
+                        # run that fails fails the step.
+                        code, answer = self._wait_for_run(request, action, run)
                 refused = _refusal(answer) if code < 400 else None
                 ok = code < 400 and refused is None
                 result = {
@@ -648,6 +658,49 @@ class RequestStore:
                 },
             )
         self._changed(request)
+
+    def _call(self, method: str, path: str, body: Any, query: str = ""):
+        """One route call in this process: (status, answer). What it raises is
+        answered as a 500, its type and message the error."""
+        try:
+            return asyncio.run(
+                _asgi_call(self._app, method, path, body, self._auth.token, query)
+            )
+        except Exception as exc:  # noqa: BLE001 - reported, not raised
+            return 500, {
+                "detail": {"error_type": type(exc).__name__, "message": str(exc)}
+            }
+
+    def _wait_for_run(self, request: AgentRequest, action: Action, run: Dict):
+        """Wait for the *run* *action* started to end: (status, answer), the
+        answer the ended run as the command's own would be. A run that raised
+        or failed is a 500 with its error; a stopped one is cut short. Stops
+        waiting, the run still going, when the request is cancelled."""
+        run_id = run["run_id"]
+        run_path = action.path.rsplit("/commands/", 1)[0] + "/run"
+        query = f"run_id={quote(run_id)}&wait={RUN_POLL_S}"
+        while run.get("state") == "running":
+            if request._abort is not None or not self._assisting():
+                return 200, {"result": run}
+            code, answer = self._call("GET", run_path, None, query)
+            if code >= 400:
+                return code, answer
+            run = (answer or {}).get("run") or {}
+            if run.get("run_id") != run_id:
+                return 500, {
+                    "detail": {
+                        "error_type": "run_replaced",
+                        "message": f"Its run {run_id} was replaced by another.",
+                    }
+                }
+        if run.get("state") == CANCELLED:
+            return 200, {"result": run}  # stopped: applied, cut short
+        error = run.get("error")
+        if error is None and run.get("state") == FAILED:
+            error = {"error_type": "failed", "message": f"{run.get('command')} failed."}
+        if error is not None:
+            return 500, {"detail": error}
+        return 200, {"result": run}
 
     def refresh(self, request_id: str) -> bool:
         """Describe a waiting request's actions again: the values now, read when

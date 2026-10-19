@@ -250,6 +250,8 @@ def test_start_up_does_not_wait_for_the_server(monkeypatch):
     assert names == {t.name for t in sidecar.CATALOG}
     data, err = sidecar._call(client, "GET", "/app/workflow/status")
     assert data is None and err == "fibsem-mcp: no server found."
+    # An error the agent can't take for a result (sim session 2026-10-19).
+    assert isinstance(err, sidecar._Failure)
     assert connects == [True]
 
 

@@ -240,3 +240,39 @@ def test_served_with_no_microscope(images, experiment):
         resp = _correlate(client, images)
         assert resp.status_code == 200, resp.text
         assert client.get("/microscope/services/correlation").status_code == 404
+
+
+def test_the_agent_s_correlation_tools_reach_their_queries(client, images):
+    """Each tool's arguments go to its query as the route takes them, wrapped in
+    kwargs, as the sidecar sends them (sim session 2026-10-19 F4: they went flat
+    and every call was refused)."""
+    from fibsem.ai.agent.catalog import CATALOG, route_call
+
+    tools = {spec.name: spec for spec in CATALOG}
+
+    def call(tool, **arguments):
+        method, path, body = route_call(tools[tool], arguments)
+        resp = client.request(method, path, json=body)
+        assert resp.status_code == 200, resp.text
+        return resp.json()["result"]
+
+    correlated = call(
+        "correlation_correlate",
+        fib_image_path=images.fib,
+        fm_image_path=images.fm,
+        fib_points=[_to_fib(p)[:2].tolist() for p in FM_FIDUCIALS],
+        fm_points=[list(map(float, p)) for p in FM_FIDUCIALS],
+        poi_points=[list(map(float, POI))],
+        lamella_path=images.lamella,
+    )
+    assert correlated["pairs"] == 6
+    predicted = call(
+        "correlation_predict",
+        run_path=correlated["run_path"],
+        fm_points=[list(map(float, POI))],
+    )
+    assert np.allclose(predicted["points"][0]["image_px"], _to_fib(POI)[:2], atol=0.05)
+    refined = call(
+        "correlation_refine_point", image_path=images.fm, x=50.0, y=50.0, beam="fm"
+    )
+    assert refined["initial"][:2] == [50.0, 50.0]

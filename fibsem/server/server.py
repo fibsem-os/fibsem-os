@@ -639,6 +639,7 @@ def build_server(
             frozenset(mounted),
             emit=getattr(app_context, "record_event", None),
             describe=getattr(app_context, "describe_action", None),
+            check=getattr(app_context, "check_action", None),
             not_allowed=_not_allowed(microscope) if serve_microscope else None,
             experiment_path=lambda: getattr(app_context, "experiment_path", None),
         )

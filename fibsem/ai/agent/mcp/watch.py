@@ -62,8 +62,10 @@ ENDED = "WORKFLOW ENDED"
 NO_END_EVENT_LINE = f"{ENDED} (stopped without an end event)"
 
 POLL_S = 25.0  # the server caps a park at 30 s
-FAILURES_BEFORE_GIVING_UP = 4
 RETRY_DELAY_S = 5.0
+# Two minutes of refusals: an app's restart (close, open, connect) takes more
+# than 20 s.
+FAILURES_BEFORE_GIVING_UP = 24
 
 GAP_LINE = (
     "GAP: events were lost before they could be read -- re-read /app/workflow/prompt "
