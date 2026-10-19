@@ -974,16 +974,21 @@ def acquisition_record(image: FibsemImage, path: Optional[str]) -> Dict[str, Any
     return record
 
 
-def bind_imaging(service: Type[_I], microscope: Any) -> Optional[_I]:
-    """Build a microscope's imaging service of class *service* over its beams, or
-    None when it has no beam (every column disabled), and ``auto_focus`` then
-    raises."""
+def bind_imaging(
+    service: Type[_I], microscope: Any, fm: Optional[FM] = None
+) -> Optional[_I]:
+    """Build a microscope's imaging service of class *service* over its beams and
+    *fm*, or None when it has neither (every column disabled and no FM), and
+    ``auto_focus`` then raises."""
     beams = microscope.beams
-    if not beams:
+    if not beams and fm is None:
         return None
     imaging = service(parent=microscope)
-    imaging.fill_roles(
-        **{_BEAM_ROLES[beam_type]: beam for beam_type, beam in beams.items()}
-    )
+    roles: Dict[str, Any] = {
+        _BEAM_ROLES[beam_type]: beam for beam_type, beam in beams.items()
+    }
+    if fm is not None:
+        roles["fm"] = fm
+    imaging.fill_roles(**roles)
     imaging.connect()
     return imaging
