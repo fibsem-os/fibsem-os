@@ -59,7 +59,7 @@ def test_another_apps_file_is_refused_and_left_alone(saved):
 
 
 def test_an_app_nothing_here_reads_is_named(saved):
-    _rewrite(saved, app="volume")
+    _rewrite(saved, app="tomography")
 
-    with pytest.raises(KeyError, match="volume"):
+    with pytest.raises(KeyError, match="tomography"):
         load_experiment(saved)
