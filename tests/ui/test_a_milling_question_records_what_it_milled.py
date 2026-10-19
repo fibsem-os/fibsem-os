@@ -102,7 +102,7 @@ def _run_on_worker_thread(task, ui, qapp):
     thread.start()
     _wait(
         qapp,
-        lambda: ui.label_instructions.text() == FIRST and ui.pushButton_no.isEnabled(),
+        lambda: ui.prompt_bar.message.text() == FIRST and ui.prompt_bar.no.isEnabled(),
     )
     return thread, outcome
 
@@ -125,9 +125,9 @@ def test_a_run_then_accept_records_the_run_and_no_skip(ui, qapp):
     task = _task(ui, window=ui)
     thread, outcome = _run_on_worker_thread(task, ui, qapp)
 
-    ui.pushButton_yes.click()  # Run Milling
-    _wait(qapp, lambda: events and ui.pushButton_no.isEnabled())
-    ui.pushButton_no.click()  # Accept
+    ui.prompt_bar.yes.click()  # Run Milling
+    _wait(qapp, lambda: events and ui.prompt_bar.no.isEnabled())
+    ui.prompt_bar.no.click()  # Accept
     _finish(thread, qapp)
 
     assert "error" not in outcome
@@ -140,7 +140,7 @@ def test_skip_records_a_skip(ui, qapp):
     task = _task(ui, window=ui)
     thread, outcome = _run_on_worker_thread(task, ui, qapp)
 
-    ui.pushButton_no.click()  # Skip
+    ui.prompt_bar.no.click()  # Skip
     _finish(thread, qapp)
 
     assert "error" not in outcome
