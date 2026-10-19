@@ -1,7 +1,8 @@
 """The AutoScript Arctis sputter coater against a fake of the AutoScript API.
 
 The fake follows the AutoScript reference: ``specimen.sputter_coater`` has
-``is_installed``, ``current`` (``value``, ``limits``) and ``run(time)``, which on an
+``is_installed``, ``current`` (``value``, preset ``available_values``; ``limits``
+raises on an Arctis and a Hydra Bio, as ``is_inserted`` does) and ``run(time)``, which on an
 Arctis moves the compustage itself; the reference's Arctis example turns the ion beam
 on and homes the compustage first. Nothing here has run on hardware -- that is the
 Arctis bench check.
@@ -16,7 +17,7 @@ from fibsem import utils
 from fibsem.drivers.autoscript import devices as autoscript_devices
 from fibsem.drivers.autoscript.connection import AutoScriptConnection
 from fibsem.drivers.registry import device_builder
-from fibsem.structures import DeviceEntry, RangeLimit
+from fibsem.structures import DeviceEntry
 
 
 class FakeBeam:
@@ -31,16 +32,35 @@ class FakeBeam:
         self.is_on = True
 
 
+PRESETS = [1.0e-9, 5.0e-8, 1.2e-7, 2.0e-7]
+
+
+class FakeCurrent:
+    def __init__(self) -> None:
+        self.value = 1.0e-9
+        self.available_values = list(PRESETS)
+
+    @property
+    def limits(self):
+        raise RuntimeError("not supported on Arctis and Hydra Bio systems")
+
+
 class FakeCoater:
     def __init__(self, calls: List[tuple], beams, installed: bool = True) -> None:
         self.calls = calls
         self.beams = beams
         self.is_installed = installed
-        self.is_inserted = False
-        self.current = SimpleNamespace(
-            value=1.0e-9, limits=SimpleNamespace(min=1.0e-9, max=1.0e-6)
-        )
+        self.is_homed = True
+        self.current = FakeCurrent()
         self.fail = False
+
+    @property
+    def is_inserted(self):
+        raise RuntimeError("non-insertable sputter coater")
+
+    def home(self) -> None:
+        self.calls.append(("coater_home",))
+        self.is_homed = True
 
     def run(self, time: int, *grids) -> None:
         self.calls.append(("run", time, *grids))
@@ -107,12 +127,12 @@ class TestWhereItIsBuilt:
 
 
 class TestCoater:
-    def test_current_and_its_limits(self):
+    def test_current_and_its_presets(self):
         sdk = FakeSdk()
         coater = _build(_microscope(sdk))
         assert coater.name == "sputter_coater"
         assert coater.facts() == {"coats_grids": False, "is_installed": True}
-        assert coater.current.limits == RangeLimit(min=1.0e-9, max=1.0e-6)
+        assert coater.current.choices == PRESETS
         coater.current.set_value(1.2e-7)
         assert sdk.specimen.sputter_coater.current.value == 1.2e-7
 
@@ -195,8 +215,19 @@ class TestHydraBio:
         self._coater(sdk).run(60, grids=[1])
         assert sdk.beams.ion_beam.high_voltage.value == 30000.0
 
-    def test_inserted_is_the_coaters(self):
+    def test_inserted_is_its_own_run(self):
+        """is_inserted raises on a Hydra Bio: the coater isn't insertable."""
+        assert self._coater(FakeSdk()).inserted.get_value() is False
+
+    def test_an_unhomed_coater_is_homed_before_the_run(self):
         sdk = FakeSdk()
-        coater = self._coater(sdk)
-        sdk.specimen.sputter_coater.is_inserted = True
-        assert coater.inserted.get_value() is True
+        sdk.specimen.sputter_coater.is_homed = False
+        self._coater(sdk).run(60, grids=[1])
+        runs = [c[0] for c in sdk.calls if c[0] in ("coater_home", "run")]
+        assert runs == ["coater_home", "run"]
+
+    def test_a_current_that_is_no_preset_is_refused(self):
+        sdk = FakeSdk()
+        with pytest.raises(ValueError, match="not one of the coater's currents"):
+            self._coater(sdk, current=3.0e-7).run(60, grids=[1])
+        assert not [c for c in sdk.calls if c[0] == "run"]

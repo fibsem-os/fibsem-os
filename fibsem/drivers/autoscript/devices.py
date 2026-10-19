@@ -1619,8 +1619,16 @@ class _AutoscriptSputterCoater(SputterCoater):
         logging.debug(f"Sputter coater current set to {value} A.")
 
     def metadata_current(self) -> ParameterMetadata:
-        limits = self._coater.current.limits
-        return ParameterMetadata(limits=RangeLimit(min=limits.min, max=limits.max))
+        # Arctis and Hydra Bio select the current from presets; current.limits
+        # raises on both (AutoScript reference)
+        return ParameterMetadata(
+            choices=[float(v) for v in self._coater.current.available_values]
+        )
+
+    def read_inserted(self) -> bool:
+        # Neither coater is insertable: is_inserted raises on both (AutoScript
+        # reference), so this is True only while this device's own run is on.
+        return self._running
 
     def _run(self, seconds: float, grids: Optional[Tuple[int, ...]]) -> None:
         whole = int(round(seconds))  # the vendor takes whole seconds
@@ -1659,17 +1667,13 @@ class AutoscriptArctisSputterCoater(_AutoscriptSputterCoater):
 
     On an Arctis, ``run(time)`` homes the FLM, moves the compustage to the sputter
     position and back, and sputters whatever is on the stage, so ``coats_grids`` is
-    False. ``prepare()`` and ``recover()`` aren't supported there, and nor is
-    ``is_inserted``: ``inserted`` reads True only while this device's own run is on.
+    False. ``prepare()`` and ``recover()`` aren't supported there.
 
-    Following the AutoScript reference's Arctis example, ``compustage.home()`` before
-    the run. Whether the home is needed is a bench question; AutoScript known issue
-    AST-2132 reads "Arctis - MicroSputter - Sputtering from AS fails under certain
-    conditions".
+    Following the AutoScript 4.8 reference's Arctis example, ``compustage.home()``
+    before the run; the current reference no longer shows an Arctis example. Whether
+    the home is needed is a bench question; AutoScript known issue AST-2132 reads
+    "Arctis - MicroSputter - Sputtering from AS fails under certain conditions".
     """
-
-    def read_inserted(self) -> bool:
-        return self._running
 
     def _before_run(self) -> None:
         self.connection.sdk.specimen.compustage.home()
@@ -1683,11 +1687,13 @@ class AutoscriptHydraBioSputterCoater(_AutoscriptSputterCoater):
 
     ``run(seconds, grids)`` moves the stage to each numbered grid itself, so
     ``coats_grids`` is True and a run names its grids: the coater numbers the two
-    grids on the shuttle 1 and 2. ``inserted`` is the coater's ``is_inserted``.
+    grids on the shuttle 1 and 2.
 
-    The coater runs at 1 nA unless its current is set, so each run sets the
-    device's current first: ``HYDRA_BIO_SPUTTER_CURRENT`` (0.12 uA, the bench value)
-    until a caller sets another. Whether ``seconds`` is per grid or for the whole run
+    Before each run, as the AutoScript reference's Hydra Bio example does, the coater
+    is homed unless ``is_homed``. The coater runs at 1 nA unless its current is set,
+    so each run then sets the device's current: ``HYDRA_BIO_SPUTTER_CURRENT`` (0.12
+    uA, the bench value) until a caller sets another. The current is one of the
+    coater's presets (``current.available_values``); a run refuses one that isn't. Whether ``seconds`` is per grid or for the whole run
     is not known yet; the bench runs coated both grids with one 120 s run.
     """
 
@@ -1707,12 +1713,21 @@ class AutoscriptHydraBioSputterCoater(_AutoscriptSputterCoater):
         super().write_current(value)
         self._run_current = float(value)
 
-    def read_inserted(self) -> bool:
-        return bool(self._coater.is_inserted)
-
     def _before_run(self) -> None:
+        coater = self._coater
+        presets = [float(v) for v in coater.current.available_values]
+        if presets and not any(
+            math.isclose(p, self._run_current, rel_tol=1e-3) for p in presets
+        ):
+            raise ValueError(
+                f"{self.name}: {self._run_current:.2e} A is not one of the coater's "
+                f"currents {presets}."
+            )
+        if not coater.is_homed:
+            logging.info(f"Homing {self.name}...")
+            coater.home()
         logging.info(f"Setting the sputter current to {self._run_current:.2e} A.")
-        self._coater.current.value = self._run_current
+        coater.current.value = self._run_current
 
     def _vendor_run(self, seconds: int, grids: Optional[Tuple[int, ...]]) -> None:
         if not grids:
