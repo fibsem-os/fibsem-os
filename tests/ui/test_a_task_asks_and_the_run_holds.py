@@ -160,7 +160,7 @@ def test_the_run_holds_on_the_question_until_it_is_decided(window, qapp):
     # The hold is set from the worker thread; the notification that puts the
     # question up is queued to this one, so it may land a moment later.
     assert _pump(qapp, lambda: ui._widget_proposal is not None), "put up"
-    assert ui.pushButton_yes.text() == "Continue"
+    assert ui.prompt_bar.yes.text() == "Continue"
     if ui.det_widget is not None:
         assert ui.proposal_host() is ui.det_widget, "on the Detection tab"
     assert _pump(
@@ -214,7 +214,7 @@ def test_a_window_that_starts_listening_mid_hold_puts_the_question_up(window, qa
     window.attention.listen(experiment)
 
     assert ui._widget_proposal is not None, "the standing question is up again"
-    assert ui.pushButton_yes.text() == "Continue"
+    assert ui.prompt_bar.yes.text() == "Continue"
 
 
 def test_continue_on_a_question_the_widget_never_got_confirms_it_as_proposed(
@@ -228,7 +228,7 @@ def test_continue_on_a_question_the_widget_never_got_confirms_it_as_proposed(
     task, thread, seen = _start(window)
     assert _pump(qapp, lambda: ui._widget_proposal is not None)
 
-    ui.pushButton_yes.click()
+    ui.prompt_bar.yes.click()
 
     assert _pump(qapp, lambda: not thread.is_alive()), "released"
     assert "error" not in seen
@@ -248,7 +248,7 @@ def test_a_point_asked_with_no_frame_to_show_it_on_is_confirmed_as_proposed(
     assert _pump(qapp, lambda: ui._widget_proposal is not None), "put up"
     assert not ui.poi_marker.shown
 
-    ui.pushButton_yes.click()
+    ui.prompt_bar.yes.click()
 
     assert _pump(qapp, lambda: not thread.is_alive()), "released"
     assert "error" not in seen
@@ -287,7 +287,7 @@ def test_the_poi_marker_follows_the_view_to_another_frame(window, qapp):
     )
     assert (col, row) == pytest.approx((px.x, px.y), abs=1)
 
-    ui.pushButton_yes.click()
+    ui.prompt_bar.yes.click()
 
     assert _pump(qapp, lambda: not thread.is_alive()), "released"
     assert "error" not in seen
