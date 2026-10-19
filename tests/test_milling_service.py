@@ -69,7 +69,7 @@ def test_the_demo_has_a_milling_service_that_is_not_a_device(microscope):
     assert milling.ion is microscope.beams[BeamType.ION]
     assert milling.electron is microscope.beams[BeamType.ELECTRON]
     assert milling.resources is microscope.resources
-    assert sorted(milling.parameters) == ["progress", "state"]
+    assert sorted(milling.parameters) == ["progress", "readings", "state"]
     assert {
         "setup",
         "draw",
