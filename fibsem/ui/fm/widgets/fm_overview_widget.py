@@ -331,7 +331,7 @@ class FMOverviewWidget(QWidget):
         # Sorting a stream that arrived already sorted is work with a failure mode and
         # no benefit: a payload reaching the wrong bar is a mislabelled run, and the
         # only thing keeping them apart was a vocabulary neither producer declares.
-        # On the imaging service, which a microscope with no beam doesn't have.
+        # On the imaging service, which every microscope with an FM has.
         if self.microscope.imaging is not None:
             self.microscope.imaging.tiled_progress.connect(self._on_tile_progress)
             self.microscope.imaging.overview_acquired.connect(self._on_acquired)
@@ -2481,13 +2481,6 @@ class FMOverviewWidget(QWidget):
             notification_service.show_toast(
                 f"The fluorescence microscope is in use ({reason}). "
                 f"Wait for it to finish before acquiring an overview.",
-                "warning",
-            )
-            return
-        if self.microscope.imaging is None:
-            notification_service.show_toast(
-                "No beam is enabled on this microscope, so there is no imaging "
-                "service to acquire an overview with.",
                 "warning",
             )
             return
