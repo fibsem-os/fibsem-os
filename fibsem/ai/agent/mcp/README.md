@@ -1,6 +1,6 @@
 # fibsem-mcp — connect an agent to the microscope
 
-> New to the agent? Start with the guide: [docs/app-server.md](../../docs/app-server.md) — what the agent can see and do at each level, and the security model.
+> New to the agent? Start with the guide: [docs/app-server.md](../../../../docs/app-server.md) — what the agent can see and do at each level, and the security model.
 
 The MCP sidecar lets Claude (Code or Desktop) work through AutoLamella's App
 Server: acquire and *look at* images, read state, move the stage, and stop a
@@ -21,7 +21,7 @@ pip install -e ".[server,mcp]"
 ## 1. Start the App Server
 
 In AutoLamella, turn the App Server on in Tools → App Server (the guide,
-[docs/app-server.md](../../docs/app-server.md), walks through it). *Serve the
+[docs/app-server.md](../../../../docs/app-server.md), walks through it). *Serve the
 microscope* there serves the routes the microscope tools reach; the Agent chip
 sets what the agent may do with them.
 
@@ -96,7 +96,7 @@ one that stops without recording an end is reported as
 the watch: the agent may start the next one. While the operator has the agent
 level at Off it prints `AGENT OFF` and waits, then `AGENT BACK`. It exits 1 when the app cannot be
 watched, and otherwise runs until it is stopped. It needs only fibsem, not the `[mcp]` extra; where
-`fibsem-mcp` is not on the PATH, `python -m fibsem.mcp.sidecar watch` is the
+`fibsem-mcp` is not on the PATH, `python -m fibsem.ai.agent.mcp.sidecar watch` is the
 same thing.
 
 ## Order and troubleshooting

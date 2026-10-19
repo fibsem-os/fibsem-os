@@ -4,7 +4,7 @@ What the AutoLamella App Server is, what an AI agent can see and do through
 it, and how to connect one — locally or from another machine.
 
 (Setup commands for the `fibsem-mcp` sidecar live in
-[fibsem/mcp/README.md](../fibsem/mcp/README.md); this guide is the *what* and
+[fibsem/ai/agent/mcp/README.md](../fibsem/ai/agent/mcp/README.md); this guide is the *what* and
 the *why*.)
 
 ## What it is

@@ -5,9 +5,10 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
+import numpy as np
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import QEvent, QObject, Qt
-from PyQt5.QtGui import QWheelEvent
+from PyQt5.QtGui import QImage, QWheelEvent
 from PyQt5.QtWidgets import (
     QAbstractScrollArea,
     QAbstractSpinBox,
@@ -245,3 +246,23 @@ def open_information_dialog(
     from fibsem.ui.widgets.about_dialog import open_about_dialog
 
     open_about_dialog(microscope=microscope, application=application, parent=parent)
+
+
+def arr_to_qimage(arr: np.ndarray) -> QImage:
+    """An RGB888 QImage of `arr`, independent of it.
+
+    Qt's `QImage(buffer, ...)` documents the buffer as having to outlive the image,
+    which would make the cached result of this a dangling read once the ndarray is
+    collected. PyQt5 does not work that way: sip copies the Python buffer, so the
+    image owns its pixels and the source can go. Verified rather than assumed -- the
+    bits pointer differs from the ndarray's, and mutating the ndarray in place leaves
+    the image unchanged, including via `sip.voidptr`. An explicit `.copy()` here would
+    be a second full-size memcpy for nothing.
+
+    Worth knowing if this ever moves to PySide, where the same constructor can alias.
+    """
+    if arr.ndim == 2:
+        arr = np.stack([arr, arr, arr], axis=2)
+    arr = np.ascontiguousarray(arr, dtype=np.uint8)
+    ih, iw, c = arr.shape
+    return QImage(arr.data, iw, ih, iw * c, QImage.Format_RGB888)

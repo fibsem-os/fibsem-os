@@ -199,7 +199,7 @@ def test_sidecar_returns_a_saved_output_as_image_content(client, host):
     import numpy as np
     import tifffile
 
-    from fibsem.mcp.sidecar import build_sidecar
+    from fibsem.ai.agent.mcp.sidecar import build_sidecar
     from fibsem.workflows.status import TaskState
 
     lamella = host.experiment.positions[0]
@@ -284,8 +284,8 @@ def test_summaries_and_protocol_over_http(client):
 
 def test_sidecar_grows_the_app_tools_from_capabilities(client):
     pytest.importorskip("mcp")
-    from fibsem.mcp.sidecar import build_sidecar
-    from fibsem.server.catalog import CATALOG
+    from fibsem.ai.agent.catalog import CATALOG
+    from fibsem.ai.agent.mcp.sidecar import build_sidecar
 
     client.headers["Authorization"] = f"Bearer {TOKEN}"
     capabilities = client.get("/capabilities").json()
@@ -629,7 +629,7 @@ def test_grid_overview_serves_jpeg_and_refuses_unlisted_names(
 
 def test_sidecar_returns_a_grid_overview_as_image_content(client, grid_with_overview):
     pytest.importorskip("mcp")
-    from fibsem.mcp.sidecar import build_sidecar
+    from fibsem.ai.agent.mcp.sidecar import build_sidecar
 
     client.headers["Authorization"] = f"Bearer {TOKEN}"
     sidecar = build_sidecar(client, client.get("/capabilities").json())
@@ -1272,7 +1272,7 @@ def test_sidecar_reads_experiment_files_as_tools_and_resources(
     client, host, grid_with_overview
 ):
     pytest.importorskip("mcp")
-    from fibsem.mcp.sidecar import build_sidecar
+    from fibsem.ai.agent.mcp.sidecar import build_sidecar
 
     (Path(host.experiment.path) / "notes.md").write_text("# notes\n")
     client.headers["Authorization"] = f"Bearer {TOKEN}"
@@ -1315,7 +1315,7 @@ def test_thickness_reads_a_saved_fib_image_over_http_and_mcp(client, host):
     """FIB-1434: the band measured off an item's saved FIB image, around its
     POI, by the route and by the Watch tool, with the result's plot."""
     pytest.importorskip("mcp")
-    from fibsem.mcp.sidecar import build_sidecar
+    from fibsem.ai.agent.mcp.sidecar import build_sidecar
     from fibsem.structures import BeamType
     from fibsem.workflows.status import TaskState
     from tests.test_lamella_thickness import band_image

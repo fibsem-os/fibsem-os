@@ -3,7 +3,7 @@
 
 The agent is a second operator at the app, and its level is the one knob: Off,
 Watch, Assist or Drive. The chip shows the level; clicking it opens the agent
-card (`agent_card.AgentCard`) on its own, above the chip: what is waiting for the
+card (`card.AgentCard`) on its own, above the chip: what is waiting for the
 operator, and the controls (the level, Stop agent, who the agent is, the event
 log). No menu and no dialog.
 
@@ -36,18 +36,18 @@ from typing import Any, Callable, Dict, Optional
 from PyQt5.QtCore import QPoint, QRect, Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import QFrame, QPushButton, QVBoxLayout, QWidget
 
-from fibsem.applications.autolamella.ui.agent_card import (
+from fibsem.ai.agent.levels import AgentLevel
+from fibsem.ui.agent.card import (
     AgentCard,
     last_heard_text,
 )
-from fibsem.applications.autolamella.ui.agent_style import (
+from fibsem.ui.agent.style import (
     LEVEL_STYLES,
     LEVEL_TIPS,
     LEVEL_WORDS,
     REQUEST_CHIP,
     pulse_chip,
 )
-from fibsem.server.levels import AgentLevel
 from fibsem.ui.tokens import (
     BORDER_COLOR,
     PURPLE_COLOR,

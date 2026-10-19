@@ -24,7 +24,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Dict, List
 
 from fibsem.acting import AGENT
-from fibsem.server.request_text import describe_action
+from fibsem.ai.agent.request_text import describe_action
 
 # Rows kept: the card shows them all.
 SIZE = 10

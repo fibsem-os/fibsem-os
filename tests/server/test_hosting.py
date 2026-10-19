@@ -173,7 +173,7 @@ def test_a_restart_keeps_the_token_and_the_level(microscope, tmp_path):
     agent's token, the level the operator set and the analysis services (a
     loaded model) survive it, for the app session only (FIB-1035 app test #5
     and the reconnect question)."""
-    from fibsem.server.auth import AgentLevel
+    from fibsem.ai.agent.levels import AgentLevel
 
     session = _session(microscope)
     first = AppServerHost(

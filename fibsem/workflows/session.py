@@ -120,7 +120,7 @@ class AppSession:
         """Who can answer a question now: each attached surface, and the agent
         while the App Server serves it at Drive. Empty means nobody: a question
         goes on the record for later instead of holding the run."""
-        from fibsem.server.levels import AgentLevel
+        from fibsem.ai.agent.levels import AgentLevel
 
         who = list(dict.fromkeys(self._answerers))
         host = self.app_server

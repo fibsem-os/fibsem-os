@@ -12,16 +12,17 @@ import pytest
 pytest.importorskip("PyQt5")
 pytest.importorskip("fastapi")
 
-from fibsem.applications.autolamella.ui.app_server_dialog import (  # noqa: E402
+from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
+from fibsem.server.auth import AuthConfig  # noqa: E402
+from fibsem.server.discovery import dev_checkout  # noqa: E402
+from fibsem.ui.agent.app_server_dialog import (  # noqa: E402
     AppServerDialog,
 )
-from fibsem.applications.autolamella.ui.connect_agent_dialog import (  # noqa: E402
+from fibsem.ui.agent.connect_agent_dialog import (  # noqa: E402
     ConnectAgentDialog,
     agent_setup_text,
     sidecar_path,
 )
-from fibsem.server.auth import AgentLevel, AuthConfig  # noqa: E402
-from fibsem.server.discovery import dev_checkout  # noqa: E402
 
 
 class _Host:
@@ -300,7 +301,7 @@ def test_the_sidecar_is_found_beside_the_interpreter(tmp_path):
 
 
 def test_a_missing_sidecar_says_how_to_install_it(qapp, host, monkeypatch):
-    from fibsem.applications.autolamella.ui import connect_agent_dialog
+    from fibsem.ui.agent import connect_agent_dialog
 
     monkeypatch.setattr(connect_agent_dialog, "sidecar_path", lambda: None)
     dialog = ConnectAgentDialog(lambda: host)

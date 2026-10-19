@@ -177,8 +177,8 @@ class AppServerHost:
     def _start(self) -> bool:
         import uvicorn
 
+        from fibsem.ai.agent.levels import AgentLevel
         from fibsem.server import AuthConfig, build_server
-        from fibsem.server.auth import AgentLevel
         from fibsem.server.discovery import (
             read_discovery_file,
             remove_discovery_file,

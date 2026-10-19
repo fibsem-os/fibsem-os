@@ -18,10 +18,10 @@ pytest.importorskip("httpx")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
+from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
 from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.server.auth import AgentLevel  # noqa: E402
 from fibsem.workflows.interaction import (  # noqa: E402
     Confirm,
     ask,
@@ -196,7 +196,7 @@ def test_answering_otherwise_drops_the_suggestion(ui, qapp, client):
 def test_the_operator_dismisses_the_suggestion_with_why(ui, qapp, client):
     # FIB-1424: the card had Accept only; declining by answering another way
     # dropped the suggestion silently, so the agent never learned why.
-    from fibsem.applications.autolamella.ui.agent_recent import RecentActions
+    from fibsem.ui.agent.recent import RecentActions
 
     events = _record(ui)
     thread, outcome = _ask_on_worker(ui, qapp)

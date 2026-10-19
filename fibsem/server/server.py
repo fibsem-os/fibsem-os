@@ -27,8 +27,9 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from fibsem import __version__
 from fibsem.acting import AGENT, acting
+from fibsem.ai.agent import allowlist
+from fibsem.ai.agent.calls import calling, current_call, from_headers
 from fibsem.microscope import FibsemMicroscope
-from fibsem.server import allowlist
 from fibsem.server.app_routes import (
     build_app_config_router,
     build_app_control_router,
@@ -46,7 +47,6 @@ from fibsem.server.auth import (
     require_monitoring,
     take_control,
 )
-from fibsem.server.calls import calling, current_call, from_headers
 from fibsem.server.devices import ERROR_STATUS, build_device_router, refusal
 from fibsem.server.discovery import fibsem_folder
 from fibsem.server.models import MicroscopeStateRequest
@@ -102,7 +102,7 @@ _drive = require_level(AgentLevel.DRIVE)
 
 
 def _refuse(app_context) -> Callable[[Any, str, str, Mapping[str, Any]], Optional[str]]:
-    """The App Server's allowlist (`fibsem.server.allowlist`): what the agent may
+    """The App Server's allowlist (`fibsem.ai.agent.allowlist`): what the agent may
     never touch, and a path it may only give inside the open experiment, to a
     command or a query."""
 
@@ -307,7 +307,7 @@ class _AgentActs:
     a sync function, which FastAPI runs in a worker thread -- runs with a copy
     of the request's context, so the mark reaches whatever the handler calls.
 
-    An acting call is also the agent's call (`fibsem.server.calls`), named by
+    An acting call is also the agent's call (`fibsem.ai.agent.calls`), named by
     the sidecar's headers, and once answered is recorded as ``agent_called``
     (FIB-1426): what it did in the operator's words, how it ended, and at which
     level. Not a read, an approved request's call (the request's own events say

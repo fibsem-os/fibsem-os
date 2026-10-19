@@ -10,12 +10,12 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem.applications.autolamella.ui.agent_previews import (  # noqa: E402
+from fibsem.structures import BeamType, FibsemImage, Point  # noqa: E402
+from fibsem.ui.agent.previews import (  # noqa: E402
     AgentPreviews,
     request_patterns,
     request_targets,
 )
-from fibsem.structures import BeamType, FibsemImage, Point  # noqa: E402
 from fibsem.ui.tokens import PURPLE_COLOR  # noqa: E402
 
 _RECTANGLE = {
@@ -177,7 +177,7 @@ def _layer(picture, colour=PURPLE_COLOR):
 def test_a_move_target_on_another_frame_is_re_projected_onto_it():
     # FIB-1411: measured on one frame, drawn on another, the target stays on
     # the sample.
-    from fibsem.applications.autolamella.ui.agent_previews import (
+    from fibsem.ui.agent.previews import (
         _Mark,
         _offset_pixel,
     )
@@ -194,9 +194,9 @@ def test_a_move_target_on_another_frame_is_re_projected_onto_it():
 def test_a_run_stage_or_run_task_request_draws_the_stages_it_would_mill():
     # FIB-1411: run_stage and run_task were drawn nothing, though their stages
     # carry every pattern.
-    from fibsem.applications.autolamella.ui.agent_previews import request_stages
     from fibsem.milling.base import FibsemMillingStage
     from fibsem.milling.tasks import FibsemMillingTaskConfig
+    from fibsem.ui.agent.previews import request_stages
 
     trench = FibsemMillingStage(name="Trench")
     off = FibsemMillingStage(name="Off", enabled=False)
@@ -243,10 +243,10 @@ def test_a_run_stage_or_run_task_request_draws_the_stages_it_would_mill():
 def test_patterns_past_the_edge_of_the_field_are_drawn_again_in_red():
     # FIB-1411: patterns at (-30, +30) µm in a 100 µm field (y spans ±33 µm)
     # reached y ≈ 36-39 µm. The Demo milled them; a real instrument refuses.
-    from fibsem.applications.autolamella.ui.agent_previews import (
+    from fibsem.structures import FibsemMillingSettings
+    from fibsem.ui.agent.previews import (
         request_outside_field,
     )
-    from fibsem.structures import FibsemMillingSettings
     from fibsem.ui.tokens import RED_COLOR
 
     inside = dict(_RECTANGLE)
@@ -580,7 +580,7 @@ def test_an_item_edit_without_an_image_of_the_item_says_so():
 def test_the_card_s_picture_is_the_image_with_its_marks_drawn():
     from PyQt5.QtGui import QColor
 
-    from fibsem.applications.autolamella.ui.agent_previews import (
+    from fibsem.ui.agent.previews import (
         _Layer,
         draw_picture,
     )
@@ -739,7 +739,7 @@ def test_the_legend_is_drawn_on_the_picture_at_its_own_size(qapp):
     # wide the image shows.
     from PyQt5.QtGui import QColor, QImage, QPainter
 
-    from fibsem.applications.autolamella.ui.agent_previews import draw_legend
+    from fibsem.ui.agent.previews import draw_legend
 
     sizes = []
     for width in (300, 900):
@@ -759,11 +759,11 @@ def test_the_legend_is_drawn_on_the_picture_at_its_own_size(qapp):
 def test_patterns_to_mill_are_filled_and_an_area_is_only_outlined(qapp):
     # FIB-1424 (decided): patterns as see-through solid areas, one colour;
     # dashed outlines only for what is not milled.
-    from fibsem.applications.autolamella.ui.agent_previews import (
+    from fibsem.ai.agent.request_text import parse_patterns
+    from fibsem.ui.agent.previews import (
         _Layer,
         draw_picture,
     )
-    from fibsem.server.request_text import parse_patterns
 
     frame = FibsemImage.generate_blank_image(resolution=(200, 100), hfw=100e-6)
     milled = _Layer(PURPLE_COLOR, fill=True)
@@ -932,11 +932,11 @@ def test_a_pose_off_the_view_with_no_overview_draws_no_picture(monkeypatch):
 
 
 def test_past_the_field_off_the_picture_says_so():
-    from fibsem.applications.autolamella.ui.agent_previews import (
+    from fibsem.structures import FibsemRectangleSettings
+    from fibsem.ui.agent.previews import (
         _key_past_field,
         _Layer,
     )
-    from fibsem.structures import FibsemRectangleSettings
 
     frame = FibsemImage.generate_blank_image(resolution=(200, 100), hfw=100e-6)
     layer = _Layer("#ff0000")
@@ -987,7 +987,7 @@ def test_a_pair_of_views_labels_each_half(qapp):
     no label on either."""
     from PyQt5.QtGui import QColor, QImage
 
-    from fibsem.applications.autolamella.ui.agent_previews import side_by_side
+    from fibsem.ui.agent.previews import side_by_side
 
     def black():
         image = QImage(200, 120, QImage.Format_RGB32)

@@ -513,7 +513,7 @@ def test_capabilities_reflect_the_level(ui, qapp):
     with _client(ui, arm_control=True) as client:
         level = client.get("/capabilities", headers=AUTH).json()["level"]
         assert level == "drive"
-        from fibsem.server.catalog import tools_for_capabilities
+        from fibsem.ai.agent.catalog import tools_for_capabilities
 
         names = {
             t.name
@@ -523,7 +523,7 @@ def test_capabilities_reflect_the_level(ui, qapp):
         }
         assert "prompt_answer" in names
     with _client(ui, arm_control=False) as client:
-        from fibsem.server.catalog import tools_for_capabilities
+        from fibsem.ai.agent.catalog import tools_for_capabilities
 
         names = {
             t.name

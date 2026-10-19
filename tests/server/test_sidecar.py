@@ -17,10 +17,10 @@ pytest.importorskip("mcp")
 from fastapi.testclient import TestClient  # noqa: E402
 
 from fibsem import utils  # noqa: E402
-from fibsem.mcp.sidecar import build_sidecar  # noqa: E402
+from fibsem.ai.agent.catalog import CATALOG  # noqa: E402
+from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
+from fibsem.ai.agent.mcp.sidecar import build_sidecar  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.server.auth import AgentLevel  # noqa: E402
-from fibsem.server.catalog import CATALOG  # noqa: E402
 
 TOKEN = "test-token"
 
@@ -336,7 +336,7 @@ def test_a_command_that_images_answers_the_agent_an_image(armed_sidecar, device)
 
 def test_the_milling_state_is_answered_by_name(armed_sidecar):
     """The tool says IDLE, RUNNING, ...; the wire carries the enum's number."""
-    from fibsem.mcp.sidecar import _MILLING_STATES
+    from fibsem.ai.agent.mcp.sidecar import _MILLING_STATES
     from fibsem.structures import MillingState
 
     assert _MILLING_STATES == tuple(state.name for state in MillingState)

@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from fibsem.server.request_text import parse_patterns
+from fibsem.ai.agent.request_text import parse_patterns
 from fibsem.structures import BeamType, Point
 from fibsem.ui.tokens import PURPLE_COLOR, RED_COLOR, WHITE_ICON_COLOR
 
@@ -502,14 +502,12 @@ def draw_picture(frame, layers: List[_Layer]):
     from PyQt5.QtCore import QLineF, QPointF, Qt
     from PyQt5.QtGui import QColor, QPainter, QPen, QPolygonF
 
-    from fibsem.applications.autolamella.ui.lamella_card_widget import (
-        _arr_to_qimage,
-    )
     from fibsem.imaging.export import _to_uint8
     from fibsem.milling.patterning.utils import pattern_outline
+    from fibsem.ui.utils import arr_to_qimage
 
     height, width = frame.data.shape[:2]
-    image = _arr_to_qimage(_to_uint8(frame.data))
+    image = arr_to_qimage(_to_uint8(frame.data))
     scale = min(1.0, PICTURE_WIDTH / width)
     if scale < 1.0:
         image = image.scaledToWidth(

@@ -1,9 +1,8 @@
 """The fibsem server package.
 
 Exports resolve lazily (PEP 562): the factory and auth pull in FastAPI, but
-sibling modules like ``fibsem.server.images`` (PIL-only) and
-``fibsem.server.catalog`` (stdlib-only) are deliberately importable in
-environments without the [server] extra — the app's prompt/image serializers
+sibling modules like ``fibsem.server.images`` (PIL-only) are deliberately
+importable in environments without the [server] extra — the app's prompt/image serializers
 run in the GUI process whether or not a server can be built there. An eager
 import here would make ``from fibsem.server.images import ...`` require
 fastapi transitively, which is exactly what bit the ui-tests CI leg (no
@@ -12,10 +11,9 @@ fastapi installed, preview silently degraded to None).
 
 from typing import TYPE_CHECKING
 
-__all__ = ["AgentLevel", "AuthConfig", "FibsemClient", "build_server"]
+__all__ = ["AuthConfig", "FibsemClient", "build_server"]
 
 _EXPORTS = {
-    "AgentLevel": "fibsem.server.levels",
     "AuthConfig": "fibsem.server.auth",
     "FibsemClient": "fibsem.server.client",
     "build_server": "fibsem.server.server",
@@ -24,7 +22,6 @@ _EXPORTS = {
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from fibsem.server.auth import AuthConfig  # noqa: F401
     from fibsem.server.client import FibsemClient  # noqa: F401
-    from fibsem.server.levels import AgentLevel  # noqa: F401
     from fibsem.server.server import build_server  # noqa: F401
 
 

@@ -28,11 +28,11 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
 )
 
-from fibsem.applications.autolamella.ui.agent_level_chip import LEVEL_WORDS
-from fibsem.applications.autolamella.ui.app_server_dialog import note, section
+from fibsem.ai.agent.levels import AgentLevel
 from fibsem.server.discovery import dev_checkout
-from fibsem.server.levels import AgentLevel
 from fibsem.ui import stylesheets
+from fibsem.ui.agent.app_server_dialog import note, section
+from fibsem.ui.agent.level_chip import LEVEL_WORDS
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (
     BORDER_COLOR,

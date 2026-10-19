@@ -36,11 +36,9 @@ from typing import Callable, Iterator, List, Optional
 from fastapi import HTTPException, Request
 
 from fibsem.acting import AGENT, current_actor
+from fibsem.ai.agent.calls import current_call
+from fibsem.ai.agent.levels import AgentLevel
 from fibsem.control import MicroscopeBusy
-from fibsem.server.calls import current_call
-
-# Re-exported: AgentLevel lives where the GUI can import it without FastAPI.
-from fibsem.server.levels import AgentLevel
 
 # What each level reaches, in order: a route needing a level is open at it and
 # every level above.

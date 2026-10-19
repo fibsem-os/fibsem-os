@@ -8,7 +8,7 @@ it would block the agent from acting on what it prints.
 
     fibsem-mcp watch
     fibsem-mcp watch --since 42          # resume after event 42
-    python -m fibsem.mcp.sidecar watch   # where fibsem-mcp is not on PATH
+    python -m fibsem.ai.agent.mcp.sidecar watch   # where fibsem-mcp is not on PATH
 
 The lines: ``PROMPT``, ``ANSWERED``, ``PROMPT WITHDRAWN``, ``QUESTION``,
 ``QUESTION RELEASED``, ``REQUEST`` (the agent's request decided, finished or
@@ -462,7 +462,7 @@ def _print_line(line):
 def connect(url=None, token=None, client_factory=_UrllibClient):
     """The sidecar's reconnecting client over ``client_factory``, or None when
     no server is known."""
-    from fibsem.mcp.sidecar import _ReconnectingClient, _try_resolve
+    from fibsem.ai.agent.mcp.sidecar import _ReconnectingClient, _try_resolve
 
     resolved = _try_resolve(url, token)
     if resolved is None:
@@ -474,7 +474,7 @@ def connect(url=None, token=None, client_factory=_UrllibClient):
 
 def main(argv=None):
     """``fibsem-mcp watch``; returns the exit code."""
-    from fibsem.mcp.sidecar import _NO_SERVER_MSG
+    from fibsem.ai.agent.mcp.sidecar import _NO_SERVER_MSG
 
     parser = argparse.ArgumentParser(
         prog="fibsem-mcp watch",

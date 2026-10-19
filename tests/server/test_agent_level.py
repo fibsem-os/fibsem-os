@@ -19,13 +19,13 @@ from fibsem.acting import (
     WORKFLOW,
     current_actor,  # noqa: E402
 )
+from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
 from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
     Experiment,
 )
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.server.auth import AgentLevel  # noqa: E402
 from fibsem.structures import MicroscopeState  # noqa: E402
 from tests.run_state import stub_session
 

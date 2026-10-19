@@ -19,7 +19,7 @@ which mill, how far and how long is left ("Milling 'trench' · stage 2 of 6 ·
 about 15s left", FIB-1413); `now_changed` says when it changes.
 
 The card's Recent list is `recent`: what the agent did lately, from the session's
-record (`follow_events`), as `agent_recent.RecentActions` reads it (FIB-1414);
+record (`follow_events`), as `recent.RecentActions` reads it (FIB-1414);
 `recent_changed` says when it changes.
 
 A run's or the operator's control is not the agent's and is left to their own
@@ -36,10 +36,10 @@ from PyQt5.QtCore import QObject, Qt, QTimer, pyqtSignal
 from superqt import ensure_main_thread
 
 from fibsem.acting import AGENT
-from fibsem.applications.autolamella.ui.agent_recent import RecentActions, RecentRow
 from fibsem.milling.progress import AgentMillOwner, MillingProgress
 from fibsem.structures import BeamType
 from fibsem.ui import notification_service
+from fibsem.ui.agent.recent import RecentActions, RecentRow
 from fibsem.ui.tokens import PURPLE_COLOR
 from fibsem.util.durations import format_duration_rounded
 

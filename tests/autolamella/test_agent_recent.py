@@ -2,7 +2,7 @@
 each with how it ended, read from the session's record."""
 
 from fibsem.acting import AGENT, OPERATOR, TASK
-from fibsem.applications.autolamella.ui.agent_recent import (
+from fibsem.ui.agent.recent import (
     ERROR,
     MUTED,
     OK,

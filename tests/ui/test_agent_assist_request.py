@@ -19,6 +19,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient  # noqa: E402
 from psygnal.containers import EventedDict  # noqa: E402
 
+from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
 from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
@@ -27,7 +28,6 @@ from fibsem.applications.autolamella.structures import (
 )
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.server.auth import AgentLevel  # noqa: E402
 from fibsem.structures import MicroscopeState  # noqa: E402
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.runner import ITEMS

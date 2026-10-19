@@ -20,7 +20,7 @@ Register with Claude Code:
 Requires the [mcp] extra (Python 3.10+): pip install fibsem[mcp]
 
 ``fibsem-mcp watch`` prints a line per app event worth waking an agent for,
-and needs nothing beyond fibsem itself (see :mod:`fibsem.mcp.watch`).
+and needs nothing beyond fibsem itself (see :mod:`fibsem.ai.agent.mcp.watch`).
 """
 
 import argparse
@@ -34,8 +34,8 @@ from contextvars import ContextVar
 from typing import Annotated, Any, List, Optional, Tuple
 from urllib.parse import quote, urlencode
 
-from fibsem.server.calls import headers_for
-from fibsem.server.catalog import CATALOG, route_call, tools_for_capabilities
+from fibsem.ai.agent.calls import headers_for
+from fibsem.ai.agent.catalog import CATALOG, route_call, tools_for_capabilities
 
 _TIMEOUT_S = 120.0  # acquisitions and moves on real hardware are slow
 # How long start-up looks for the server before answering the MCP client anyway:
@@ -1775,7 +1775,7 @@ def main(argv=None):
     watch_argv = _watch_argv(argv)
     if watch_argv is not None:
         # Before the mcp import: watching needs only HTTP (FIB-1269).
-        from fibsem.mcp.watch import main as watch_main
+        from fibsem.ai.agent.mcp.watch import main as watch_main
 
         sys.exit(watch_main(watch_argv))
     try:

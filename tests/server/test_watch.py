@@ -16,15 +16,15 @@ uvicorn = pytest.importorskip("uvicorn")
 from psygnal.containers import EventedDict  # noqa: E402
 
 from fibsem import utils  # noqa: E402
+from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
+from fibsem.ai.agent.mcp import watch as watch_mod  # noqa: E402
 from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.mcp import watch as watch_mod  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
 from fibsem.server.discovery import write_discovery_file  # noqa: E402
-from fibsem.server.levels import AgentLevel  # noqa: E402
 from fibsem.structures import MicroscopeState  # noqa: E402
 from fibsem.workflows.events import EventBuffer  # noqa: E402
 from tests.run_state import stub_session
@@ -345,7 +345,7 @@ def test_a_skip_line_says_why_and_which_requirement(app):
 
 
 def test_watch_is_found_after_the_shared_options():
-    from fibsem.mcp.sidecar import _watch_argv
+    from fibsem.ai.agent.mcp.sidecar import _watch_argv
 
     assert _watch_argv(["watch", "--help"]) == ["--help"]
     assert _watch_argv(["--url", "http://x", "watch", "--help"]) == [
@@ -687,7 +687,7 @@ def test_the_subcommand_runs_without_the_mcp_extra(tmp_path):
         "import sys\n"
         "for name in ('mcp', 'httpx', 'fastapi', 'uvicorn', 'starlette'):\n"
         "    sys.modules[name] = None\n"
-        "from fibsem.mcp.sidecar import main\n"
+        "from fibsem.ai.agent.mcp.sidecar import main\n"
         "main(['watch', '--url', 'http://127.0.0.1:9', '--token', 't'])\n"
     )
     result = subprocess.run(

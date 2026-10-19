@@ -17,7 +17,8 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 
-from fibsem.server import allowlist, files
+from fibsem.ai.agent import allowlist
+from fibsem.server import files
 from fibsem.server.auth import take_control
 
 try:  # Protocol is typing-only; keep import robust on the 3.8 floor

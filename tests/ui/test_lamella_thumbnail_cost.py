@@ -212,8 +212,8 @@ class TestTheCacheIsSafe:
     # because PyQt5 makes it unreachable: sip copies the Python buffer, so the image
     # always owns its pixels -- checked by pointer, by mutating the source in place,
     # and via `sip.voidptr`, which copies too. Any test would pass no matter what this
-    # module did, which is worse than none. See `_arr_to_qimage`, and revisit if this
-    # ever moves to PySide.
+    # module did, which is worse than none. See `fibsem.ui.utils.arr_to_qimage`, and
+    # revisit if this ever moves to PySide.
 
     def test_the_cache_is_bounded(self, lamella, monkeypatch):
         """Every rewrite lands under a new key, so a run would grow this forever."""
