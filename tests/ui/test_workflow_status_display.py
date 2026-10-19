@@ -71,11 +71,10 @@ def test_a_status_event_writes_the_workflow_information_label(ui):
     assert ui.label_workflow_information.text() == "Task 2/5: Rough Milling"
 
 
-def test_a_status_event_leaves_a_pending_question_alone(ui):
-    # The reason the channel exists: an answer belongs to one request, and merely
-    # saying something must not complete it. The polled flag is gone entirely;
-    # the display state a parked question sets must survive a status emit.
-    ui.hold = Hold(HoldKind.proposal, "answer the question on the Microscope tab")
+def test_a_status_event_leaves_a_held_proposal_alone(ui):
+    # Merely saying something must not release a hold. The polled flag is gone
+    # entirely; the display state a held proposal sets must survive a status emit.
+    ui.hold = Hold(HoldKind.proposal, "decide the proposal on the Microscope tab")
 
     ui.workflow_status_signal.emit(_status_event("Moving stage..."))
 
@@ -85,9 +84,9 @@ def test_a_status_event_leaves_a_pending_question_alone(ui):
 
 
 def test_a_message_of_none_leaves_the_prompt_standing(ui):
-    # None says nothing about the prompt. The responder pings this signal for
-    # chrome refreshes while its question is up — if the default took the
-    # prompt down, every question would erase itself as it appeared.
+    # None says nothing about the prompt bar. The window pings this signal for
+    # chrome refreshes while a proposal is up — if the default took the bar
+    # down, every proposal would erase itself as it appeared.
     ui.set_instructions_msg("Continue?", pos="Continue", neg="Exit")
 
     ui.workflow_status_signal.emit(_status_event(msg=None))

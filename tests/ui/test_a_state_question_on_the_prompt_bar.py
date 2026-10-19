@@ -147,7 +147,7 @@ def _prompt_is_down(ui) -> bool:
     # the task carries on; what matters is that the question is gone from it.
     return (
         "Press Continue" not in ui.label_instructions.text()
-        and ui._state_question is None
+        and ui._state_proposal is None
     )
 
 

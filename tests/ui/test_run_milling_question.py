@@ -170,8 +170,8 @@ def _finish(thread, qapp, timeout_s=10.0):
 
 def _pass(ui):
     """The pass up on the prompt bar: the milling question being asked."""
-    assert ui._loop_question is not None, "no pass is up"
-    proposal = ui._loop_question[2]
+    assert ui._loop_proposal is not None, "no pass is up"
+    proposal = ui._loop_proposal[2]
     assert proposal.kind == MILLING and proposal.asking
     return proposal
 
@@ -366,7 +366,7 @@ def test_an_agents_edit_lands_in_the_editor_and_asks_again(ui, qapp):
         ),
     )
     assert result.applied, result.reason
-    _wait(qapp, lambda: ui._loop_question and ui._loop_question[2].id != asked.id)
+    _wait(qapp, lambda: ui._loop_proposal and ui._loop_proposal[2].id != asked.id)
     assert ui._mills == []
     shown = ui.milling_task_config_widget.get_config()
     assert shown.stages[1].pattern.depth == pytest.approx(2.5e-6)
@@ -535,7 +535,6 @@ def test_the_question_is_the_task_s_and_the_answer_the_operator_s(ui, qapp, tmp_
 
     recorder = EventRecorder(
         ui.microscope,
-        responder=ui.ui_responder,
         experiment_path=tmp_path,
         experiment=ui.experiment,
         default_actor=OPERATOR,

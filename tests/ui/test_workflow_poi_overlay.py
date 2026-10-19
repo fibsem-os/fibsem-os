@@ -7,8 +7,8 @@ visibly fatter cross than the thin one the other two draw, and with no `legend_l
 was the only one missing from the canvas legend.
 
 Driven through `PoiMarker` against a stub window, so the spec it builds is pinned
-without a window or a running question: the one marker the PickPOI prompt and
-Setup's point-of-interest question both draw.
+without a window or a running proposal: the one marker Setup's
+point-of-interest proposal draws.
 """
 
 import os

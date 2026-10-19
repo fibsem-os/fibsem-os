@@ -142,7 +142,7 @@ function gate(message) {
 /* ── what each kind is ─────────────────────────────────────────────── */
 
 const GROUPS = [
-  ["questions", "questions", k => k.startsWith("prompt_") || k.startsWith("question_") || k === "proposal_held" || k === "proposal_waiting" || k === "proposal_released"
+  ["questions", "proposals", k => k.startsWith("prompt_") || k.startsWith("question_") || k === "proposal_held" || k === "proposal_waiting" || k === "proposal_released"
     || k.startsWith("proposal_") || k === "review_decided"],
   ["notes", "messages, agent's calls, notes & stops", k => k === "agent_note"
     || k === "agent_stop" || k === "agent_refused" || k === "agent_called"

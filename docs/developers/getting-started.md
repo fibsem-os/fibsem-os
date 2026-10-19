@@ -48,7 +48,7 @@ fibsem/applications/autolamella/
   structures.py             Experiment, Lamella, AutoLamellaTaskProtocol
   workflows/tasks/          the task system: base.py (AutoLamellaTask),
                             registration, one module per task
-  workflows/interaction.py  how tasks ask questions (ask(), Request types)
+  workflows/interaction.py  instructions to the window (ask(), Request types)
   ui/                       the application windows
   server/                   AutoLamellaAppContext, the view remote agents get
   scripting.py              ScriptContext, the view user scripts get
@@ -103,8 +103,8 @@ table compares them, and [SCRIPTING.md](../../SCRIPTING.md) covers scripts in
 full.
 
 **Adding or extending a workflow task.** Subclass `AutoLamellaTask` with a
-matching configuration class, override `_run()`, ask questions through
-`ask()`, and record outputs on the task's history entry. The contracts, the
+matching configuration class, override `_run()`, ask proposals through
+`self.ask()`, and record outputs on the task's history entry. The contracts, the
 failure modes, and shipping a task as a plugin are under
 [Workflow tasks](extending.md#workflow-tasks) and [Plugins](extending.md#plugins).
 

@@ -49,7 +49,7 @@ WORKFLOW_ENDS = {
     "workflow_stalled",
     "workflow_failed",
 }
-# Kinds worth a wake-up line of their own (prompts and proposals have theirs).
+# Kinds worth a wake-up line of their own (proposals have theirs).
 INTERESTING = {
     "task_started",
     "task_completed",
@@ -66,7 +66,7 @@ FAILURES_BEFORE_GIVING_UP = 4
 RETRY_DELAY_S = 5.0
 
 GAP_LINE = (
-    "GAP: events were lost before they could be read -- re-read /app/workflow/prompt "
+    "GAP: events were lost before they could be read -- re-read /app/workflow/proposals "
     "and /app/workflow/status rather than assuming nothing happened."
 )
 # A new event stream: its seqs start again. Nothing was lost, and everything in
@@ -175,23 +175,6 @@ def _print_events(events, since, out):
                 f"PROPOSAL RELEASED item={data.get('item_name')} "
                 f"task={data.get('task_name')}"
             )
-        elif kind == "prompt_raised":
-            out(f"PROMPT question={data.get('question_id')} type={data.get('type')}")
-        elif kind == "prompt_answered":
-            line = (
-                f"ANSWERED question={data.get('question_id')} by={event.get('actor')} "
-                f"response={data.get('response')}"
-            )
-            # The operator took the agent's suggestion (FIB-1283).
-            if data.get("suggested_by"):
-                line += f" suggested_by={data['suggested_by']}"
-            out(line)
-        elif kind == "prompt_cancelled":
-            out(f"PROMPT WITHDRAWN question={data.get('question_id')}")
-        elif kind == "prompt_suggestion_dismissed":
-            # The operator declined the agent's suggestion (FIB-1424).
-            line = f"SUGGESTION DISMISSED question={data.get('question_id')}"
-            out(f"{line} reason={data['reason']}" if data.get("reason") else line)
         elif kind in ("request_decided", "request_finished", "request_cancelled"):
             out(_request_line(kind, data))
         elif kind == "command_ended":

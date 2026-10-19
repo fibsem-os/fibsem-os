@@ -189,10 +189,8 @@ def _complete(call, outcome) -> None:
 
 class AutoLamellaUI(QMainWindow):
     # Everything the workflow says without needing an answer, as a
-    # WorkflowStatusEvent. Questions and instructions do not travel on a signal
-    # at all: they are typed requests to the QtResponder, each on its own
-    # future (fibsem/workflows/interaction.py) — the dict workflow_update_signal that
-    # once carried all three kinds of traffic is gone.
+    # WorkflowStatusEvent. Instructions are typed requests to the QtResponder
+    # (fibsem/workflows/interaction.py); proposals are on the record.
     workflow_status_signal = pyqtSignal(object)
     # Its own signal: a queue edit is not a step in the task lifecycle and must
     # not disturb the interaction UI.
@@ -211,9 +209,6 @@ class AutoLamellaUI(QMainWindow):
     # answers are: the work, bound to its arguments and its Future, and marked
     # as whoever asked (FIB-1276) -- the mark stays on the requesting thread.
     _agent_call = pyqtSignal(object)
-    # The agent's suggested answer to the question up (a dict, see
-    # show_suggestion), or None when it goes.
-    suggestion_changed = pyqtSignal(object)
     # The agent added or renamed grid records (App Server); the grid views redraw.
     grids_changed = pyqtSignal()
 
@@ -245,20 +240,14 @@ class AutoLamellaUI(QMainWindow):
         self._setup_ui()
         self.parent_widget = parent_ui
 
-        # The agent's suggestion the responder last showed (see show_suggestion).
-        self.suggestion_shown: Optional[Dict[str, object]] = None
-        # The point-of-interest marker on the FIB view: one for whoever asks
-        # for the point, the question on the record or a PickPOI prompt.
+        # The point-of-interest marker on the FIB view, for the POI proposal.
         self.poi_marker = PoiMarker(self)
         # The Qt side of the workflow's Responder seam: workflow code is handed
         # this one-method object, never the window itself.
         self.ui_responder = QtResponder(self)
         self.session.responder = self.ui_responder
-        # The operator answers the run's questions here, for the session's life.
+        # The operator decides the run's proposals here, for the session's life.
         self.session.attach_decider(OPERATOR)
-        # The timeline renders the responder's question-lifecycle feed; the
-        # widget itself is built in _setup_ui, before the responder exists.
-        self.ui_responder.add_question_observer(self.question_timeline.record)
         # A bound method, not a lambda: the slot must run on this window's thread.
         self._agent_call.connect(self._run_agent_call)
         # Edits to the experiment run on this thread: its widgets listen to it.
@@ -310,16 +299,16 @@ class AutoLamellaUI(QMainWindow):
         # A state question a task asked (``BaseTask.ask`` with the
         # ``state`` kind), shown on the prompt bar: (item_id, task_name,
         # proposal_id). Continue decides it; the decision takes it down.
-        self._state_question: Optional[Tuple[str, str, str]] = None
+        self._state_proposal: Optional[Tuple[str, str, str]] = None
         # A pass of a loop a task asked (``milling``, ``spot_burn``), shown on
         # the prompt bar over its widget: (item_id, task_name, proposal). A
         # button decides it with the widget's value; the decision takes it down.
-        self._loop_question: Optional[Tuple[str, str, Any]] = None
+        self._loop_proposal: Optional[Tuple[str, str, Any]] = None
         # A value a task asked for that is edited on a widget of its own (a
         # ``detection`` on the Detection tab, an ``alignment_area`` or a
         # ``point_of_interest`` on the FIB view): (item_id, task_name,
         # proposal). Continue decides it with the widget's value.
-        self._widget_question: Optional[Tuple[str, str, Any]] = None
+        self._widget_proposal: Optional[Tuple[str, str, Any]] = None
         self._poi_frames_followed: Optional[object] = None
         # A run is active but nothing is executing -- today only during a
         # scheduled-start wait. Set from the worker thread, read by the border.
@@ -377,20 +366,11 @@ class AutoLamellaUI(QMainWindow):
         self.pushButton_yes = QPushButton("Yes")
         self.pushButton_no = QPushButton("No")
 
-        # Who answered what, under the buttons: fed by the responder's
-        # question-lifecycle feed, hidden until the first answer.
-        from fibsem.applications.autolamella.ui.question_timeline_widget import (
-            QuestionTimelineWidget,
-        )
-
-        self.question_timeline = QuestionTimelineWidget(self.centralwidget)
-
         self.gridLayout.addWidget(self.tabWidget, 1, 0, 1, 2)
         self.gridLayout.addWidget(self.label_workflow_information, 2, 0, 1, 2)
         self.gridLayout.addWidget(self.label_instructions, 3, 0, 1, 2)
         self.gridLayout.addWidget(self.pushButton_yes, 4, 0)
         self.gridLayout.addWidget(self.pushButton_no, 4, 1)
-        self.gridLayout.addWidget(self.question_timeline, 5, 0, 1, 2)
 
         self.setCentralWidget(self.centralwidget)
         self.tabWidget.setCurrentIndex(0)
@@ -811,28 +791,18 @@ class AutoLamellaUI(QMainWindow):
             self.tabWidget.setTabVisible(self.tabWidget.indexOf(candidate), True)
             self.tabWidget.setCurrentWidget(candidate)
 
-    def front_question(self) -> None:
-        """Bring forward the tab the question now up is asked on, if it has one.
-
-        A question on its own tab is gone from view the moment the operator
-        looks elsewhere, and the attention button is how they get back to it --
-        so the button cannot just go to the Microscope tab and call it done.
-        Does nothing when no question is up, or when its prompt is the shared
-        one the Microscope tab already shows.
-        """
-        widget = self.question_host()
+    def front_proposal(self) -> None:
+        """Bring forward the tab the proposal now up is decided on, if it has
+        one. The attention button is how the operator gets back to it. Does
+        nothing when no proposal is up, or it is on the prompt bar."""
+        widget = self.proposal_host()
         if widget is not None:
             self.front_tab(widget)
 
-    def question_host(self):
-        """The tab the question now up is answered on, when it has one of its
-        own (a mill's pass, a detection); None when it is on the Microscope
-        tab, or nothing is up."""
-        return (
-            self.loop_question_host()
-            or self.widget_question_host()
-            or self.ui_responder.question_host()
-        )
+    def proposal_host(self):
+        """The tab the proposal now up is decided on, when it has one of its
+        own (a mill's pass, a detection); None otherwise."""
+        return self.loop_proposal_host() or self.widget_proposal_host()
 
     def update_microscope_ui(self):
         """Update the ui based on the current state of the microscope."""
@@ -1876,62 +1846,26 @@ class AutoLamellaUI(QMainWindow):
             self.label_workflow_information.setText(msg)
         self.label_workflow_information.setVisible(show)
 
-    def show_suggestion(
-        self,
-        label: Optional[str],
-        reason: str = "",
-        point: Optional[Tuple[float, float]] = None,
-    ) -> None:
-        """The agent's suggested answer, or None to take it down. Called by the
-        responder, which owns when it stands. Not on the prompt: the agent card
-        shows it (FIB-1407), so this says so through `suggestion_changed`.
-        *point* is a suggested point of interest, in the FIB image's pixels."""
-        if label is None:
-            self.suggestion_shown = None
-        else:
-            self.suggestion_shown = {
-                "question": self.label_instructions.text(),
-                "answer": label,
-                "reason": reason,
-            }
-            if point is not None:
-                self.suggestion_shown["point"] = point
-        self.suggestion_changed.emit(self.suggestion_shown)
-
-    def take_suggestion(self) -> bool:
-        """The operator takes the agent's suggestion: their answer, suggested by
-        the agent. False when it had gone."""
-        return self.ui_responder.take_suggestion()
-
-    def dismiss_suggestion(self, reason: str = "") -> bool:
-        """The operator declines the agent's suggestion, with why if they
-        like; the question stays up. False when it had gone."""
-        return self.ui_responder.dismiss_suggestion(reason)
-
     def push_interaction_button(self):
         """Handle the user interaction with the workflow."""
         self.pushButton_yes.setEnabled(False)
         self.pushButton_no.setEnabled(False)
 
         clicked_yes = bool(self.sender() == self.pushButton_yes)
-        # The pending question owns this click. Otherwise a state question on
-        # the record may: its Continue is a decision, not an answer. A click
-        # with neither (a stray double-click after the answer landed) means
-        # nothing.
-        if self.ui_responder.answer_confirm(clicked_yes):
+        # A click with no proposal up (a stray double-click after the
+        # decision landed) means nothing.
+        if self._loop_proposal is not None:
+            self._decide_loop_proposal(clicked_yes)
             return
-        if self._loop_question is not None:
-            self._decide_loop_question(clicked_yes)
-            return
-        if self._widget_question is not None:
+        if self._widget_proposal is not None:
             if clicked_yes:
-                self._decide_widget_question()
+                self._decide_widget_proposal()
             return
-        self._decide_state_question(clicked_yes)
+        self._decide_state_proposal(clicked_yes)
 
     # -- a state question, on the prompt bar ----------------------------------
 
-    def show_state_question(self, item_id: str, task_name: str, proposal) -> None:
+    def show_state_proposal(self, item_id: str, task_name: str, proposal) -> None:
         """The prompt bar is the renderer for the ``state`` kind: the task's
         message and its button, Continue unless the task names another
         (``positive`` in the provenance). Continue records the operator's
@@ -1943,7 +1877,7 @@ class AutoLamellaUI(QMainWindow):
             WorkflowStatusEvent,
         )
 
-        self._state_question = (item_id, task_name, proposal.id)
+        self._state_proposal = (item_id, task_name, proposal.id)
         message = str(
             proposal.provenance.get("message") or "Press Continue when ready."
         )
@@ -1954,22 +1888,22 @@ class AutoLamellaUI(QMainWindow):
         )
         self.workflow_status_signal.emit(WorkflowStatusEvent())
 
-    def clear_state_question(self, item_id: str, task_name: str) -> None:
+    def clear_state_proposal(self, item_id: str, task_name: str) -> None:
         """A decision landed on the item and task; if it is the question up,
         the prompt comes down (answered here, by an agent, or withdrawn)."""
-        shown = self._state_question
+        shown = self._state_proposal
         if shown is None or shown[:2] != (item_id, task_name):
             return
         from fibsem.workflows.status import (
             WorkflowStatusEvent,
         )
 
-        self._state_question = None
+        self._state_proposal = None
         self.set_instructions_msg("")
         self.workflow_status_signal.emit(WorkflowStatusEvent(message=""))
 
-    def _decide_state_question(self, clicked_yes: bool = True) -> None:
-        shown = self._state_question
+    def _decide_state_proposal(self, clicked_yes: bool = True) -> None:
+        shown = self._state_proposal
         experiment = self.experiment
         if shown is None or experiment is None:
             return
@@ -2009,7 +1943,7 @@ class AutoLamellaUI(QMainWindow):
             return self.spot_burn_widget
         return None
 
-    def show_loop_question(self, item_id: str, task_name: str, proposal) -> None:
+    def show_loop_proposal(self, item_id: str, task_name: str, proposal) -> None:
         """The prompt bar over the milling editor (or the spot-burn widget) is
         the renderer for a loop's pass: the task's message and the pass's two
         buttons. The task has already put what the pass would run in the
@@ -2017,7 +1951,7 @@ class AutoLamellaUI(QMainWindow):
         through ``Experiment.decide`` with the widget's value. Without the
         widget (no spot-burn hardware) the buttons decide the pass as
         proposed."""
-        from fibsem.applications.autolamella.ui.loop_question import loop_prompt
+        from fibsem.applications.autolamella.ui.loop_proposal import loop_prompt
         from fibsem.workflows.proposals import SPOT_BURN
         from fibsem.workflows.status import WorkflowStatusEvent
 
@@ -2033,38 +1967,38 @@ class AutoLamellaUI(QMainWindow):
             self.front_tab(widget)
             # The task owns the mill while it asks: the editor's own Run stands down.
             widget.milling_widget.pushButton_run_milling.setVisible(False)
-        self._loop_question = (item_id, task_name, proposal)
+        self._loop_proposal = (item_id, task_name, proposal)
         prompt = loop_prompt(proposal)
         self.set_instructions_msg(prompt.message, prompt.positive, prompt.negative)
         self.workflow_status_signal.emit(WorkflowStatusEvent())
 
-    def loop_question_host(self):
+    def loop_proposal_host(self):
         """The widget the pass now up is decided in, for the attention button
         to go back to; None when no pass is up."""
-        if self._loop_question is None:
+        if self._loop_proposal is None:
             return None
-        return self._loop_widget(self._loop_question[2].kind)
+        return self._loop_widget(self._loop_proposal[2].kind)
 
-    def clear_loop_question(self, item_id: str, task_name: str) -> None:
+    def clear_loop_proposal(self, item_id: str, task_name: str) -> None:
         """A decision landed on the item and task; if it is the pass up, the
         prompt comes down (decided here, by an agent, or withdrawn). The widget keeps its value: the task asks again, or clears
         it when the loop ends."""
-        shown = self._loop_question
+        shown = self._loop_proposal
         if shown is None or shown[:2] != (item_id, task_name):
             return
         from fibsem.workflows.status import WorkflowStatusEvent
 
-        self._loop_question = None
+        self._loop_proposal = None
         self.set_instructions_msg("")
         self.workflow_status_signal.emit(WorkflowStatusEvent(message=""))
 
-    def _decide_loop_question(self, clicked_yes: bool) -> None:
-        shown = self._loop_question
+    def _decide_loop_proposal(self, clicked_yes: bool) -> None:
+        shown = self._loop_proposal
         experiment = self.experiment
         if shown is None or experiment is None:
             return
         item_id, task_name, proposal = shown
-        from fibsem.applications.autolamella.ui.loop_question import loop_prompt
+        from fibsem.applications.autolamella.ui.loop_proposal import loop_prompt
         from fibsem.workflows.proposals import (
             ACTION_EDIT,
             ACTION_RUN,
@@ -2106,7 +2040,7 @@ class AutoLamellaUI(QMainWindow):
 
     # -- a value edited on its own widget, on the prompt bar ------------------
 
-    def show_widget_question(self, item_id: str, task_name: str, proposal) -> None:
+    def show_widget_proposal(self, item_id: str, task_name: str, proposal) -> None:
         """The widget a value is edited on is the renderer for its kind: a
         detection's features on the Detection tab (the task loaded them there
         first), an alignment area as the rectangle on the FIB view, a point of
@@ -2134,7 +2068,7 @@ class AutoLamellaUI(QMainWindow):
         ):
             self.tabWidget.setCurrentWidget(self.tab)
             self._follow_poi_frames()
-        self._widget_question = (item_id, task_name, proposal)
+        self._widget_proposal = (item_id, task_name, proposal)
         self.set_instructions_msg(message or "Press Continue when ready.", "Continue")
         self.workflow_status_signal.emit(WorkflowStatusEvent())
 
@@ -2152,12 +2086,12 @@ class AutoLamellaUI(QMainWindow):
         a window that started listening mid-question has none to correct."""
         return self.det_widget is not None and self.det_widget.det is not None
 
-    def widget_question_host(self):
+    def widget_proposal_host(self):
         """The tab the value now up is edited on, when it has one of its own
         (a detection), for the attention button to go back to."""
         from fibsem.workflows.proposals import DETECTION
 
-        shown = self._widget_question
+        shown = self._widget_proposal
         if shown is None or shown[2].kind != DETECTION:
             return None
         return self.det_widget
@@ -2167,28 +2101,28 @@ class AutoLamellaUI(QMainWindow):
         signal = getattr(self.image_widget, "viewer_update_signal", None)
         if signal is None or self._poi_frames_followed is self.image_widget:
             return
-        signal.connect(self._sync_poi_question)
+        signal.connect(self._sync_poi_proposal)
         self._poi_frames_followed = self.image_widget
 
-    def _sync_poi_question(self, *_args) -> None:
+    def _sync_poi_proposal(self, *_args) -> None:
         from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
 
-        shown = self._widget_question
+        shown = self._widget_proposal
         if shown is not None and shown[2].kind == POINT_OF_INTEREST:
             self.poi_marker.sync()
 
-    def clear_widget_question(self, item_id: str, task_name: str) -> None:
+    def clear_widget_proposal(self, item_id: str, task_name: str) -> None:
         """A decision landed on the item and task; if it is the value up, the
         prompt and the widget's editing come down (decided here, by an agent,
         or withdrawn)."""
-        shown = self._widget_question
+        shown = self._widget_proposal
         if shown is None or shown[:2] != (item_id, task_name):
             return
         from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
         from fibsem.workflows.proposals import ALIGNMENT_AREA, DETECTION
         from fibsem.workflows.status import WorkflowStatusEvent
 
-        self._widget_question = None
+        self._widget_proposal = None
         kind = shown[2].kind
         if kind == DETECTION and self.det_widget is not None:
             self.det_widget.clear_layers()
@@ -2216,8 +2150,8 @@ class AutoLamellaUI(QMainWindow):
             return {"poi": poi} if poi is not None else {}
         return {}
 
-    def _decide_widget_question(self) -> None:
-        shown = self._widget_question
+    def _decide_widget_proposal(self) -> None:
+        shown = self._widget_proposal
         experiment = self.experiment
         if shown is None or experiment is None:
             return
@@ -2263,12 +2197,6 @@ class AutoLamellaUI(QMainWindow):
     def _workflow_finished(self):
         """Handle the completion of the workflow."""
         logging.info("Workflow finished.")
-        # Before the early returns: whatever question the run left behind must
-        # come down even if the widgets below are gone. Covers the abort race
-        # where a finished mill re-parks the prompt in the gap before the
-        # aborting waiter cancels its future — by the time this runs, the
-        # workflow thread has exited, so anything still parked belongs to nobody.
-        self.ui_responder.abandon()
         if self.image_widget is None:
             return
         if self.microscope is None:

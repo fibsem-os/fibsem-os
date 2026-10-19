@@ -156,6 +156,15 @@ lists where each key went.
   Reject does. The run's hold events are `proposal_held`, `proposal_waiting` and
   `proposal_released` (were `question_*`), the hold kind is `proposal`, and the
   `review_decided` event is gone (`proposal_decided` says the same).
+- **One way for a run to ask: proposals.** The old prompt path is gone: the
+  `Confirm`, `ConfirmDetection`, `EditAlignmentArea` and `PickPOI` requests,
+  `update_detection_ui`, `GET /app/workflow/prompt`, `POST
+  /app/workflow/prompt/answer` and `/prompt/suggest`, the tools `prompt_get`,
+  `prompt_answer` and `prompt_suggest_answer`, the `prompt_*` events and the
+  agent card's suggested answer. No task raised a prompt any more, so an
+  operator sees nothing change; old event logs still read. The window's
+  responder only carries instructions (images, milling config, detections).
+  Suggestions come back on pending proposals.
 - **The point-of-interest kind is named for what it is.** The proposal kind Setup
   records is `point_of_interest` (was `milling_setup`): a point on an image that later
   tasks follow, which is not a milling matter. Its schema carries `poi` only; the

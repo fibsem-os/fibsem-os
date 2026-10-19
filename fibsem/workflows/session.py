@@ -236,7 +236,6 @@ class AppSession:
         try:
             self.recorder = EventRecorder(
                 self.microscope,
-                responder=self.responder,
                 experiment_path=recorded.path if recorded else None,
                 # tasks and the agent mark their own calls; the rest are the
                 # operator's

@@ -1,7 +1,6 @@
 """The point-of-interest marker on the FIB view: placed, dragged, read back.
 
-One marker for whoever asks for the point: a question on the record (Setup's
-point of interest, on the prompt bar) or a ``PickPOI`` prompt. The marker is
+One marker, for Setup's point-of-interest proposal. The marker is
 held in the view's pixels and converted against the frame the FIB view shows,
 so placing, previewing and reading back always use the one frame the operator
 sees (FIB-1410); when the view takes another frame the marker moves to the

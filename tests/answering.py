@@ -18,7 +18,7 @@ ANSWERER = "operator:test"
 
 @contextmanager
 def answering(experiment, actor: str = ANSWERER) -> Iterator[List]:
-    """Confirm, as proposed, each question asked while the block runs.
+    """Confirm, as proposed, each proposal asked while the block runs.
     Yields the proposals answered, in order."""
     answered: List = []
 
