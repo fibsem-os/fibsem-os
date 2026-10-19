@@ -89,8 +89,8 @@ def window(qapp, tmp_path_factory):
     window = module.AutoLamellaSingleWindowUI()
     ui = window.autolamella_ui
     ui.system_widget.connect_to_microscope()
-    # Read unconditionally by the main window's workflow update; first set on
-    # the Run click.
+    # Read unconditionally by the main window's workflow update; the window
+    # sets it when a run starts.
     window.run_border.set_state("idle")
     path = tmp_path_factory.mktemp("spot-burn")
     experiment = Experiment(path=path, name="spot-burn-question-exp")

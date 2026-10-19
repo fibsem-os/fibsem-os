@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import threading
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -33,6 +34,12 @@ from fibsem.structures import (
     Point,
 )
 from fibsem.util.timestamps import now, to_datetime, to_iso
+
+# One process, one open experiment: a single lock serialises the writers that
+# can run on different threads at once -- the workflow thread saving after a
+# task, and a decision from the GUI thread or the App Server. Held
+# briefly by both, so neither serialises a half-applied write of the other.
+EXPERIMENT_WRITE_LOCK = threading.RLock()
 
 # Where a model put the features it was asked to find, for someone to correct:
 # asked while the task runs (FIB-1025). Its value is the feature set, keyed by name, so a delta is per
@@ -58,6 +65,10 @@ ALIGNMENT_AREA = "alignment_area"
 # is written nowhere: the task runs what it is handed.
 MILLING = "milling"
 SPOT_BURN = "spot_burn"
+# What an agent at Assist asks to do: its tool calls, run in order once the
+# operator approves (FIB-1283). About the experiment, not an item; the value
+# is the calls with the operator's lines for each, written nowhere.
+ACTIONS = "actions"
 
 # What a pass may be decided as. Each has one meaning whenever it is asked
 # (FIB-1297): ``run`` runs the value as decided and asks again; ``edit`` takes
@@ -179,6 +190,9 @@ register_proposal_kind(
         actions=LOOP_ACTIONS,
         silence=(ACTION_ACCEPT, ACTION_RUN),
     )
+)
+register_proposal_kind(
+    ProposalKind(name=ACTIONS, values=("actions",), label="Agent request")
 )
 
 

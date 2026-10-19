@@ -49,7 +49,11 @@ def recorder(main_ui):
 
 def _stops(recorder):
     events = recorder.buffer.events_since(0)["events"]
-    return [(e["payload"], e["actor"]) for e in events if e["kind"] == "workflow_stop"]
+    return [
+        ({"stopped": e["payload"]["stops"], "via": e["payload"]["via"]}, e["actor"])
+        for e in events
+        if e["kind"] == "action" and e["payload"].get("stops")
+    ]
 
 
 @pytest.fixture

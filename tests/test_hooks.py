@@ -556,3 +556,17 @@ def test_any_producer_can_fire_events():
 #     assert len(restored._hooks) == 1
 #     assert isinstance(restored._hooks[0], WebhookHook)
 #     assert restored._hooks[0].url == "https://x.com"
+
+
+def test_notify_reaches_the_notifier_and_is_quiet_without_one():
+    """A run's own notices (a grid run's report) go where hooks' do: the app's
+    notifications when it listens, nowhere when headless."""
+    from fibsem.hooks import HookManager
+
+    manager = HookManager()
+    manager.notify("nobody is listening", "info")
+
+    said = []
+    manager.set_notifier(lambda message, kind: said.append((message, kind)))
+    manager.notify("Grid screening report written", "info")
+    assert said == [("Grid screening report written", "info")]

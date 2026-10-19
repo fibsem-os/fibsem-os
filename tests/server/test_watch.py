@@ -246,6 +246,38 @@ def test_the_agent_s_request_is_followed_to_its_end(app):
     ]
 
 
+def test_the_operator_s_note_is_a_message(app):
+    def run():
+        app.buffer.append("note", {"text": "skip 03", "id": "ab12"}, actor="operator")
+        app.buffer.append("note", {"text": "my own note"}, actor="agent")
+        app.buffer.append("workflow_completed", {})
+
+    code, lines = _watch({2: run})
+
+    assert lines[0].startswith("MESSAGE id=ab12 from the operator: skip 03 --")
+    assert not any("my own note" in line for line in lines)
+
+
+def test_the_agent_s_request_decided_on_the_record(app):
+    def decided(proposal_id, outcome, reason=""):
+        payload = dict(proposal_id=proposal_id, kind="actions", outcome=outcome)
+        app.buffer.append("proposal_decided", {**payload, "reason": reason})
+
+    def run():
+        decided("ab12", "Confirmed")
+        decided("cd34", "Rejected", "not now")
+        decided("ef56", "Withdrawn", "the operator stopped the agent")
+        app.buffer.append("workflow_completed", {})
+
+    code, lines = _watch({2: run})
+
+    assert lines[:3] == [
+        "REQUEST ab12 approved",
+        "REQUEST cd34 rejected: not now",
+        "REQUEST ef56 cancelled: the operator stopped the agent",
+    ]
+
+
 def test_a_long_command_s_end_is_a_line(app):
     def run():
         app.buffer.append(

@@ -182,6 +182,8 @@ def _print_events(events, since, out):
             reason = " ".join(str(data.get("reason") or "").split())
             line = f"SUGGESTION DECLINED{_item_of(data)} task={data.get('task')}"
             out(f"{line}: {reason}" if reason else line)
+        elif kind == "proposal_decided" and data.get("kind") == "actions":
+            out(_request_decided_line(data))
         elif kind == "proposal_decided" and data.get("suggestion_id"):
             out(f"SUGGESTION APPROVED{_item_of(data)} task={data.get('task')}")
         elif kind in ("request_decided", "request_finished", "request_cancelled"):
@@ -201,7 +203,9 @@ def _print_events(events, since, out):
             line = _reading_line(data)
             if line:
                 out(line)
-        elif kind == "operator_message":
+        elif kind == "operator_message" or (
+            kind == "note" and event.get("actor") == "operator"
+        ):
             message_id = data.get("id")
             text = " ".join(str(data.get("text", "")).split())
             out(
@@ -305,6 +309,19 @@ def _reading_line(data):
     if reading.get("on_trigger") == "suggest":
         line += " -- the mill goes on; milling_end_stage ends the stage if you agree"
     return line
+
+
+def _request_decided_line(data):
+    """The operator approved or rejected the agent's request, or it was
+    withdrawn: its proposal's decision."""
+    head = f"REQUEST {data.get('proposal_id')}"
+    reason = " ".join(str(data.get("reason") or "").split())
+    outcome = data.get("outcome")
+    if outcome == "Confirmed":
+        return f"{head} approved"
+    if outcome == "Rejected":
+        return f"{head} rejected" + (f": {reason}" if reason else "")
+    return f"{head} cancelled: {reason}"
 
 
 def _request_line(kind, data):

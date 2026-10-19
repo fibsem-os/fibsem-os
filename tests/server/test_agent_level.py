@@ -251,25 +251,27 @@ def test_a_stop_needs_a_reason_and_records_it(client, auth, microscope, milling_
     )
     assert client.post(STOP_MILLING, headers=AGENT, json=WHY).status_code == 200
     assert client.post("/app/workflow/stop", headers=AGENT, json=WHY).status_code == 200
-    stops = [payload for kind, payload in recorded if kind == "agent_stop"]
-    assert stops == [
+    actions = [payload for kind, payload in recorded if kind == "action"]
+    assert actions == [
         {
-            "action": "milling stop",
-            "what": "the mill",
+            "what": "Stop the mill",
+            "ok": True,
             "reason": WHY["reason"],
+            "stops": "milling stop",
+            "target": "the mill",
             "own": False,
             "level": "drive",
         },
         {
-            "action": "workflow",
-            "what": "the run",
+            "what": "Stop the run",
+            "ok": True,
             "reason": WHY["reason"],
+            "stops": "workflow",
+            "target": "the run",
             "own": False,
             "level": "drive",
         },
     ]
-    # Recorded once, as a stop.
-    assert not [kind for kind, _ in recorded if kind == "agent_called"]
 
 
 def test_a_stop_with_nothing_milling_is_refused_and_not_recorded(
@@ -285,7 +287,7 @@ def test_a_stop_with_nothing_milling_is_refused_and_not_recorded(
     refused = client.post(STOP_MILLING, headers=AGENT, json=WHY)
     assert refused.status_code == 409
     assert _error(refused) == "NothingToStop"
-    assert [kind for kind, _ in recorded if kind == "agent_stop"] == []
+    assert [p for kind, p in recorded if kind == "action" and p.get("stops")] == []
 
 
 def test_a_refused_action_is_recorded_and_a_refused_read_is_not(
@@ -316,11 +318,13 @@ def test_a_refused_action_is_recorded_and_a_refused_read_is_not(
         )
     finally:
         microscope.session.record_signal.disconnect(record)
-    refusals = [(p, actor) for kind, p, actor in recorded if kind == "agent_refused"]
+    refusals = [(p, actor) for kind, p, actor in recorded if kind == "action"]
     assert refusals == [
         (
             {
-                "action": "move relative",
+                "what": "move relative",
+                "ok": False,
+                "refused": True,
                 "route": f"POST {MOVE_RELATIVE}",
                 "error_type": "ask_first",
                 "level": "assist",
@@ -329,7 +333,9 @@ def test_a_refused_action_is_recorded_and_a_refused_read_is_not(
         ),
         (
             {
-                "action": "chamber vent",
+                "what": "chamber vent",
+                "ok": False,
+                "refused": True,
                 "route": "POST /microscope/devices/chamber/commands/vent",
                 "error_type": "not_allowed",
                 "level": "drive",
@@ -392,19 +398,19 @@ def test_a_direct_call_is_described_and_recorded(client, auth, microscope):
     # Read from where the stage is: ", from x ..." (sim session 2026-10-16).
     assert actions[0].startswith("Stage · Move 1 µm in x, from x ")
     assert actions[1] == "move relative"
-    calls = [p for kind, p in recorded if kind == "agent_called"]
-    assert calls[0].pop("action") == actions[0]
+    calls = [p for kind, p in recorded if kind == "action"]
+    assert calls[0].pop("what") == actions[0]
     assert calls == [
         {
+            "ok": True,
             "route": f"POST {MOVE_RELATIVE}",
             "status": 200,
-            "ok": True,
             "level": "drive",
             "tool": "stage_move_relative",
             "arguments": {"dx": 1e-06},
         },
         {
-            "action": "move relative",
+            "what": "move relative",
             "route": f"POST {MOVE_RELATIVE}",
             "status": 200,
             "ok": True,
@@ -430,8 +436,8 @@ def test_a_refused_request_at_watch_says_what_was_tried(client, auth, microscope
     finally:
         microscope.session.record_signal.disconnect(record)
     assert refused.status_code == 403
-    refusal = next(p for kind, p in recorded if kind == "agent_refused")
-    assert refusal["action"] == "file a request"
+    refusal = next(p for kind, p in recorded if kind == "action")
+    assert (refusal["what"], refusal["refused"]) == ("file a request", True)
 
 
 def test_a_direct_call_reads_the_state_it_changes(client, auth, microscope):
@@ -458,6 +464,6 @@ def test_a_direct_call_reads_the_state_it_changes(client, auth, microscope):
     finally:
         microscope.session.record_signal.disconnect(record)
     assert answer.status_code == 200, answer.text
-    (call,) = [p for kind, p in recorded if kind == "agent_called"]
-    assert call["action"].startswith("Ion · Set ")
-    assert "→" in call["action"] and "hfw" not in call["action"]
+    (call,) = [p for kind, p in recorded if kind == "action"]
+    assert call["what"].startswith("Ion · Set ")
+    assert "→" in call["what"] and "hfw" not in call["what"]

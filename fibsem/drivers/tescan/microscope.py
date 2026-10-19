@@ -420,49 +420,7 @@ class TescanMicroscope(FibsemMicroscope):
         """
         self._build_devices([DeviceEntry(name="stage", type="stage")], _STAGE_TYPES)
 
-    def is_working_distance_settable(self, beam_type: BeamType) -> bool:
-        """ION working distance is not settable: the SDK's FIB class has no WD or
-        focus control anywhere (FIB.Optics carries only rotation/shift/viewfield) --
-        ion focus on TESCAN is preset-driven. Writing the ion working distance is a
-        best-effort no-op so state restores keep working; anything that *depends* on
-        the write landing (the autofocus sweep) must gate on this instead."""
-        return beam_type is not BeamType.ION
-
-    # What the Tescan API has no control for. These are not keys: the wrappers answer
-    # for themselves, quietly, because state restores call them every time.
-
-    def get_working_distance(self, beam_type: BeamType) -> Optional[float]:
-        if beam_type is BeamType.ION:
-            return None  # the FIB has no working distance in the API
-        return super().get_working_distance(beam_type)
-
-    def set_working_distance(self, wd: float, beam_type: BeamType) -> Optional[float]:
-        if beam_type is BeamType.ION:
-            logging.debug("The Tescan API has no ion working distance; not set.")
-            return None
-        return super().set_working_distance(wd, beam_type)
-
-    def get_detector_mode(self, beam_type: BeamType) -> Optional[str]:
-        return None  # not in the Tescan API
-
-    def set_detector_mode(self, mode: str, beam_type: BeamType) -> Optional[str]:
-        logging.debug("The Tescan API has no detector mode; not set.")
-        return None
-
     @property
     def stage_frame(self) -> str:
         """fibsem's frame through the stage device; Tescan's own without one."""
         return self.stage.frame if self.stage is not None else STAGE_FRAME_TESCAN
-
-    def move_coincident_from_sem(self, dx: float, dy: float) -> FibsemStagePosition:
-        """Correct the coincidence point from the SEM view.
-
-        Deprecated: call ``vertical_move(dy, dx, beam_type=BeamType.ELECTRON)``.
-        Kept for one release because custom scripts may call it.
-        """
-        return self.vertical_move(dy=dy, dx=dx, beam_type=BeamType.ELECTRON)
-
-    def beam_uses_presets(self, beam_type: BeamType) -> bool:
-        """The ion column is set by preset: setting its voltage or current directly
-        is refused by the Tescan API."""
-        return beam_type is BeamType.ION

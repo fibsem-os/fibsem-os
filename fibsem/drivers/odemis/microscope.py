@@ -350,20 +350,9 @@ class OdemisThermoMicroscope(FibsemMicroscope):
     def _disconnect(self) -> None:
         pass
 
-    def set_channel(self, channel: BeamType):
-        """Set the active channels for the microscope."""
-        self._connection.set_channel(channel)
-
     def _fluorescence_default(self) -> bool:
         """The Odemis stack drives its own FM, and has always built one unasked."""
         return True
-
-    def move_coincident_from_sem(self, dx: float, dy: float) -> FibsemStagePosition:
-        """Correct coincident point from SEM to FIB stage position.
-
-        Deprecated: call ``vertical_move(dy, dx, beam_type=BeamType.ELECTRON)``.
-        """
-        return self.vertical_move(dy=dy, dx=dx, beam_type=BeamType.ELECTRON)
 
 
 class OdemisTescanMicroscope(TescanMicroscope):

@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Tuple
 
 from fibsem.acting import TASK, ActorKind, current_actor
+from fibsem.workflows.actions import NOTE
 from fibsem.workflows.events import (
     EventBuffer,
     attach_microscope_taps,
@@ -507,7 +508,7 @@ class EventRecorder:
                 if getattr(ref, "iteration", None) is not None:
                     task["iteration"] = ref.iteration
         if (
-            kind == "agent_note"
+            kind in ("agent_note", NOTE)
             and isinstance(payload, dict)
             and payload.get("item_id")
         ):
@@ -564,8 +565,8 @@ class ProposalTap:
         self._decided: Dict[Tuple[str, int], bool] = {}
         # suggestion id -> whether it was recorded declined
         self._suggested: Dict[str, bool] = {}
-        for item in experiment.items():
-            for proposal in list(item.proposals):
+        for item in [*experiment.items(), experiment]:
+            for proposal in list(getattr(item, "proposals", [])):
                 if proposal.asking:
                     self._asked.add(proposal.id)
                 for index, decision in enumerate(list(proposal.decisions)):
@@ -589,22 +590,37 @@ class ProposalTap:
             except Exception:  # noqa: BLE001
                 pass
 
+    def _proposals(self, item_id: str, task_name: str):
+        """(item, proposals) the signal names; an empty item id is the
+        experiment's own, with no item."""
+        if not item_id:
+            return None, list(self._experiment.proposals)
+        item = self._experiment.get_item_by_id(item_id)
+        return item, item.proposals_from(task_name)
+
     def _on_asked(self, item_id: str, task_name: str) -> None:
         try:
-            item = self._experiment.get_item_by_id(item_id)
-            for proposal in item.proposals_from(task_name):
+            item, proposals = self._proposals(item_id, task_name)
+            for proposal in proposals:
                 if proposal.asking and proposal.id not in self._asked:
                     self._asked.add(proposal.id)
                     payload = _proposal_payload(item, task_name, proposal)
                     payload["message"] = proposal.provenance.get("message", "")
-                    self._buffer.append("proposal_asked", payload, actor=TASK)
+                    if proposal.provenance.get("reason"):
+                        payload["reason"] = proposal.provenance["reason"]
+                    asker = proposal.asked_by
+                    self._buffer.append(
+                        "proposal_asked",
+                        payload,
+                        actor=asker.kind if asker is not None else TASK,
+                    )
         except Exception:  # noqa: BLE001 - recording must not matter
             logging.debug(f"could not record the {task_name} question", exc_info=True)
 
     def _on_decided(self, item_id: str, task_name: str) -> None:
         try:
-            item = self._experiment.get_item_by_id(item_id)
-            for proposal in item.proposals_from(task_name):
+            item, proposals = self._proposals(item_id, task_name)
+            for proposal in proposals:
                 for index, decision in enumerate(list(proposal.decisions)):
                     seen = self._decided.get((proposal.id, index))
                     if seen is None or (seen is False and decision.values):
@@ -675,7 +691,7 @@ def _suggestion_payload(suggestion: Any) -> Dict[str, Any]:
 
 def _proposal_payload(item: Any, task_name: str, proposal: Any) -> Dict[str, Any]:
     payload = {
-        "item": {"id": item.id, "name": item.name},
+        "item": {"id": item.id, "name": item.name} if item is not None else None,
         "task": task_name,
         "proposal_id": proposal.id,
         "kind": proposal.kind,

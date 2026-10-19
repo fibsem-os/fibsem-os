@@ -92,7 +92,6 @@ from fibsem.structures import (
 )
 from fibsem.util.timestamps import now, now_iso
 from fibsem.workflows.attention import Attention
-from fibsem.workflows.experiment import EXPERIMENT_WRITE_LOCK
 from fibsem.workflows.interaction import (
     ClearMillingConfig,
     Responder,
@@ -108,6 +107,7 @@ from fibsem.workflows.proposals import (
     ACTION_SKIP,
     ALIGNMENT_AREA,
     DETECTION,
+    EXPERIMENT_WRITE_LOCK,
     MILLING,
     DecisionOutcome,
 )

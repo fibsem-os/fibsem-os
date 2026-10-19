@@ -1,10 +1,9 @@
 """What the Tescan API has no control for is answered by the wrappers, quietly.
 
 The FIB has no working distance in the Tescan API and neither column has a detector
-mode. State restores call ``set_working_distance`` and ``set_detector_mode`` every time,
-so ``TescanMicroscope`` answers them itself: None, nothing sent to the instrument, and
-nothing logged above debug. The string keys are unsupported too: the beam devices
-do not have them, so they read None and a write does nothing.
+mode. State restores call ``set_working_distance`` and ``set_detector_mode`` every time.
+The beam devices do not have them, so the wrappers answer: None, nothing sent to the
+instrument, and nothing logged above debug.
 
 No hardware or Tescan SDK required: the microscope is connected over the fake SDK
 (``tests/fixtures/tescan_sdk.py``).
