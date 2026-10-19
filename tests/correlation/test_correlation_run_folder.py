@@ -288,3 +288,39 @@ def test_a_cancelled_correlation_leaves_no_run_behind(qapp, tmp_path, monkeypatc
 
     assert opened, "the dialog never opened — the test proves nothing"
     assert LamellaCorrelation.discover(str(lamella / "Correlation")).runs == []
+
+
+def test_each_open_starts_a_new_correlation_on_the_apps_session(
+    qapp, tmp_path, monkeypatch
+):
+    """The dialog views the app's correlation, so whatever reads the session
+    sees the one open; the next open starts afresh, not from the last one's
+    points, and the closed dialog is deleted rather than left listening."""
+    from PyQt5.QtCore import QCoreApplication, QEvent
+
+    import fibsem.ui.correlation.widgets.correlation_tab_widget as ctw
+    from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor import (
+        AutoLamellaProtocolEditorWidget as Editor,
+    )
+    from tests.correlation.test_correlation_setup_regressions import _editor_stub
+
+    seen = []
+
+    def _pick_then_cancel(self):
+        seen.append((self.widget.session, list(self.widget.session.points.coordinates)))
+        self.widget.set_data(_inputs(x=999.0))
+        return 0  # QDialog.Rejected
+
+    monkeypatch.setattr(ctw.CorrelationTabDialog, "exec_", _pick_then_cancel)
+    lamella = tmp_path / "lamella-01"
+    lamella.mkdir()
+    stub = _editor_stub(str(lamella), "", image=None)
+
+    Editor._open_correlation_dialog(stub)
+    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    assert stub.findChildren(ctw.CorrelationTabDialog) == []
+    Editor._open_correlation_dialog(stub)
+
+    app_correlation = stub.parent_widget.session.correlation
+    assert [session for session, _ in seen] == [app_correlation, app_correlation]
+    assert seen[1][1] == []
