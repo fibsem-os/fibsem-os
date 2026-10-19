@@ -78,7 +78,10 @@ from fibsem.milling.progress import (
     MillingProgress,
     MillingProgressStatus,
 )
-from fibsem.milling.strategy.coincidence import CoincidenceMillingStrategy
+from fibsem.milling.strategy.coincidence import (
+    CoincidenceMillingStrategy,
+    CoincidenceMillingStrategyConfig,
+)
 from fibsem.structures import (
     BeamType,
     DeviceImagingState,
@@ -824,14 +827,14 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
                         scan_direction="BottomToTop",
                         cross_section=CrossSectionPattern.CleaningCrossSection,
                     ),
-                    strategy=CoincidenceMillingStrategy(),
+                    strategy=CoincidenceMillingStrategyConfig(),
                 )
             ],
         )
         DEFAULT_MILLING_TASK_CONFIG.alignment.enabled = False
         DEFAULT_MILLING_TASK_CONFIG.acquisition.acquire_fib = False
         DEFAULT_MILLING_TASK_CONFIG.acquisition.acquire_sem = False
-        DEFAULT_MILLING_TASK_CONFIG.stages[0].strategy.config.save_rate_limit = 0.0
+        DEFAULT_MILLING_TASK_CONFIG.stages[0].strategy.save_rate_limit = 0.0
 
         milling_task_config = self._load_milling_config() or DEFAULT_MILLING_TASK_CONFIG
 
@@ -1857,12 +1860,11 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self, milling_task_config: "FibsemMillingTaskConfig"
     ) -> None:
         """Find CoincidenceMillingStrategy instances and seed their bbox from the FM rectangle."""
-        from fibsem.milling.strategy.coincidence import CoincidenceMillingStrategy
-
+        # The strategies the stages will mill with, so the viewer hears their run.
         self._active_strategies: list[CoincidenceMillingStrategy] = [
-            stage.strategy
+            stage.get_strategy()
             for stage in milling_task_config.enabled_stages
-            if isinstance(stage.strategy, CoincidenceMillingStrategy)
+            if isinstance(stage.strategy, CoincidenceMillingStrategyConfig)
         ]
 
         # Seed bbox from the current FM rectangle position if image is loaded

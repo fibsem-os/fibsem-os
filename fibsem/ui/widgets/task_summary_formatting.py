@@ -7,7 +7,6 @@ from fibsem.ui.tokens import (
     ACCENT_COLOR,
     ERROR_COLOR,
     OK_COLOR,
-    ORANGE_COLOR,
     TEXT_MUTED_COLOR,
     WARN_COLOR,
 )
@@ -15,7 +14,6 @@ from fibsem.ui.tokens import (
 # How a status name reads to a person; anything not listed reads as its name.
 STATUS_LABELS = {
     "InProgress": "in progress",
-    "AwaitingDecision": "awaiting decision",
 }
 
 
@@ -31,9 +29,6 @@ STATUS_BADGE_COLORS = {
     "Skipped": (TEXT_MUTED_COLOR, "#aeb4b9"),
     "InProgress": (ACCENT_COLOR, "#9cc7f5"),
     "Cancelled": (WARN_COLOR, "#e8c37f"),  # amber: user-aborted, not an error
-    # orange: the border's colour for "waiting on you" -- the run is over, the
-    # task is not finished until someone decides in the Review tab
-    "AwaitingDecision": (ORANGE_COLOR, "#f2b56b"),
 }
 
 # Status order for count chips (these three are always shown, even at zero)

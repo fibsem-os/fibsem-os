@@ -194,7 +194,7 @@ def test_run_then_accept_mills_once_on_the_workflow_thread(ui, qapp):
     assert ui.pushButton_yes.text() == "Run Milling"
     assert ui.pushButton_no.text() == "Skip"
     assert _pass(ui).provenance["passes"] == 0
-    assert ui.hold is not None and ui.hold.kind is HoldKind.decision
+    assert ui.hold is not None and ui.hold.kind is HoldKind.question
 
     ui.pushButton_yes.click()  # run
     _wait_for_prompt(ui, qapp, AGAIN)
@@ -412,7 +412,7 @@ def test_every_pass_is_on_the_record_with_its_action(ui, qapp):
 
 def test_unsupervised_passes_are_recorded_unreviewed(ui, qapp):
     """Nobody asked: the kind's silence, run once then accept, on the record
-    and not listed to check."""
+    and nothing left waiting."""
     ui._supervision["supervised"] = False
     task, thread, outcome = _start(ui, qapp, wait_for=None)
     _finish(thread, qapp)
@@ -422,7 +422,7 @@ def test_unsupervised_passes_are_recorded_unreviewed(ui, qapp):
     ]
     assert [p.current.outcome for p in passes] == [DecisionOutcome.Unreviewed] * 2
     assert [p.current.action for p in passes] == [ACTION_RUN, ACTION_ACCEPT]
-    assert not any(e[2].kind == MILLING for e in ui.experiment.proposals_to_check())
+    assert ui.experiment.pending_proposals() == []
 
 
 def test_a_stop_interrupts_the_prompt(ui, qapp):

@@ -76,8 +76,8 @@ class BaseTask(ABC):
     ``pre_task`` and ``post_task``, and say whether the run is supervised."""
 
     config: Any
-    # What this task type proposes for the Review tab. The default proposes the
-    # task's result ("here is what I did, look"); a task whose output is a
+    # What this task type puts on the record when it ends. The default proposes
+    # the task's result ("here is what I did, look"); a task whose output is a
     # value someone might change swaps in a proposer for that kind; None only
     # for a type with nothing to look at.
     proposer: ClassVar[Optional[Proposer]] = TaskResultProposer()
@@ -131,9 +131,8 @@ class BaseTask(ABC):
     @property
     @abstractmethod
     def supervised(self) -> bool:
-        """Whether this task's attention is supervised: then a result nobody
-        decided in the run waits on a decision in the Review tab; otherwise
-        its values are used as proposed."""
+        """Whether this task's attention is supervised: then its questions are
+        asked of whoever can answer while it runs."""
 
     # -- lifecycle -------------------------------------------------------------
 
@@ -252,7 +251,6 @@ class BaseTask(ABC):
             self.item,
             proposer=type(self).proposer,
             result_images=self.result_images,
-            supervised=self.supervised,
             inline_decision=self.inline_decision,
             experiment=self.experiment,
             failure=failure,

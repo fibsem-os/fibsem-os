@@ -98,9 +98,10 @@ def test_the_agent_answers_a_supervised_run_with_no_window(agent):
         held = workflow["held"]
         assert held["items"] == [f"{lamella.name}/{SETUP}"]
         assert held["releases"] == f"answer {SETUP} on {lamella.name}"
-        (question,) = workflow["asking"]
+        (question,) = held["questions"]
         # What the task acquired is what the agent sees, window or not.
         assert session.images.get(BeamType.ION) is not None
+        assert _ok(agent.get("/app/experiment/images"))["available"]
         _ok(
             agent.post(
                 "/app/workflow/decide",
@@ -122,6 +123,7 @@ def test_the_agent_answers_a_supervised_run_with_no_window(agent):
     assert all(str(p.current.actor).startswith("agent") for p in asked), (
         "each answer is the agent's"
     )
-    # What is left is the point for afterwards, open until Rough Milling.
-    (left,) = [p for p in lamella.proposals_from(SETUP) if p.id not in answered]
-    assert left.kind == POINT_OF_INTEREST and left.pending and not left.asking
+    # The point of interest is one of the questions, asked while Setup ran,
+    # and nothing is left open after it.
+    assert POINT_OF_INTEREST in {p.kind for p in asked}
+    assert not [p for p in lamella.proposals_from(SETUP) if p.pending]

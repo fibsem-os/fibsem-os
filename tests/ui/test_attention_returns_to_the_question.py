@@ -203,28 +203,25 @@ def main_ui(qapp):
 
 
 def test_a_question_on_one_of_the_windows_own_tabs_is_fronted_there(main_ui, qapp):
-    """The destination comes from the question, not from the hold's kind.
-
+    """The destination comes from the question, not from the hold's kind:
     ``HoldKind.question`` covers a prompt answered on the Microscope tab and
-    one answered on a tab of its own alike, and an in-run review answered in
-    the Review tab (FIB-1025) will be a question hold too -- so the router has
-    to take the answer from the pending request. Stood up here with the Review
-    tab standing in for that future host.
-    """
-    review_tab = main_ui.review_tab
-    main_ui.autolamella_ui.ui_responder.question_host = lambda: review_tab
+    one answered on a tab of its own alike. Stood up here with the Grids tab
+    standing in for a question's host."""
+    host = main_ui.grids_tab
+    main_ui.tab_widget.setTabEnabled(main_ui.tab_widget.indexOf(host), True)
+    main_ui.autolamella_ui.question_host = lambda: host
     main_ui.tab_widget.setCurrentIndex(0)
 
     main_ui._on_user_attention_clicked()
 
-    assert main_ui.tab_widget.currentWidget() is review_tab
+    assert main_ui.tab_widget.currentWidget() is host
 
 
 def test_a_question_elsewhere_still_lands_on_the_microscope_tab(main_ui, qapp):
     """A yes/no prompt on the shared bar has no tab of its own and must not be
     dragged into whatever the last host was."""
-    main_ui.autolamella_ui.ui_responder.question_host = lambda: None
-    main_ui.tab_widget.setCurrentWidget(main_ui.review_tab)
+    main_ui.autolamella_ui.question_host = lambda: None
+    main_ui.tab_widget.setCurrentWidget(main_ui.grids_tab)
 
     main_ui._on_user_attention_clicked()
 

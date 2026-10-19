@@ -113,8 +113,8 @@ def test_the_position_survives_the_file(microscope, tmp_path):
 
 def test_a_confirmed_position_is_checked_and_written_nowhere(microscope, tmp_path):
     """The task uses the position; the writer checks it and touches nothing,
-    like a detection's features. A later look at an unreviewed one is
-    accepted and carries no values."""
+    like a detection's features. Unasked, it is recorded unreviewed, and a
+    later decision on it is refused as already decided."""
     from fibsem.workflows.proposals import ValueRefused, prepare_values
 
     exp = _experiment(tmp_path, microscope)
@@ -140,8 +140,8 @@ def test_a_confirmed_position_is_checked_and_written_nowhere(microscope, tmp_pat
             proposal_id=question.id,
         ),
     )
-    assert looked.applied, looked.reason
-    assert not question.unreviewed and not question.to_check
+    assert not looked.applied and looked.error_type == "invalid_value", looked
+    assert question.unreviewed
 
 
 def test_the_delta_between_positions_is_a_position():

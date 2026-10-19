@@ -273,9 +273,8 @@ class GridTaskEditDialog(QDialog):
         heading.setStyleSheet(_HEADER_STYLE)
         layout.addWidget(heading)
         hint = QLabel(
-            "Tasks whose result this one uses. It waits while one of them awaits "
-            "a decision in the Review tab, and is skipped on a grid where one "
-            "did not complete."
+            "Tasks whose result this one uses. It is skipped on a grid where "
+            "one of them did not complete."
         )
         hint.setWordWrap(True)
         hint.setStyleSheet(f"font-size: 11px; color: {TEXT_MUTED_COLOR};")
@@ -319,11 +318,8 @@ class _TaskRow(QWidget):
         super().__init__(parent)
         self.config = config
         self._reason: Optional[str] = None
-        # Whether another task in the protocol requires this one: what a Review
-        # state needs to be honest about (nothing waits on a task nothing uses).
+        # Whether another task in the protocol requires this one.
         self._has_dependents = False
-        # The tasks set to Review, so "after" can say it waits for a decision.
-        self._reviewed: set = set()
         self.setAttribute(Qt.WA_TranslucentBackground)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(6, 0, 6, 0)
@@ -353,7 +349,7 @@ class _TaskRow(QWidget):
         self.detail_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         layout.addWidget(self.detail_label)
         # Who decides the record, as on the lamella task list, with the two
-        # states a grid task has: Automated or Review. A click toggles.
+        # states a grid task has: Automated or Supervised. A click toggles.
         self.btn_attention = QToolButton()
         self.btn_attention.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.btn_attention.setIconSize(QSize(14, 14))
@@ -392,14 +388,10 @@ class _TaskRow(QWidget):
         self._reason = reason
         self.refresh()
 
-    def set_has_dependents(
-        self, has_dependents: bool, reviewed: set = frozenset()
-    ) -> None:
-        """Whether a task requires this one, and which tasks are set to Review."""
-        reviewed = set(reviewed)
-        if has_dependents != self._has_dependents or reviewed != self._reviewed:
+    def set_has_dependents(self, has_dependents: bool) -> None:
+        """Whether a task requires this one."""
+        if has_dependents != self._has_dependents:
             self._has_dependents = has_dependents
-            self._reviewed = reviewed
             self.refresh()
 
     def _toggle_attention(self) -> None:
@@ -419,21 +411,15 @@ class _TaskRow(QWidget):
             f"background: transparent; font-size: {NAME_PX}px; "
             f"color: {NEUTRAL_200 if available else NEUTRAL_550};",
         )
-        # the column carries the warning when a Review holds nothing; a reason
-        # this system cannot run the task still comes first
-        nothing_waits = available and self._reviewed_without_dependents
-        # the right column, most pressing first: why it cannot run, that a
-        # Review holds nothing, what it waits for (as the lamella list says
-        # it), and otherwise the task's kind
+        # the right column, most pressing first: why it cannot run, what it
+        # waits for (as the lamella list says it), and otherwise the task's kind
         after = (
-            "after " + _requires_phrase(self.config.requires, self._reviewed)
+            "after " + _requires_phrase(self.config.requires)
             if self.config.requires
             else ""
         )
         if not available:
             detail = self._reason
-        elif nothing_waits:
-            detail = "nothing waits on this"
         elif after:
             detail = after
         else:
@@ -445,7 +431,7 @@ class _TaskRow(QWidget):
         style_with_tooltip(
             self.detail_label,
             f"background: transparent; "
-            f"color: {stylesheets.WARN_COLOR if nothing_waits else NEUTRAL_700}; "
+            f"color: {NEUTRAL_700}; "
             f"font-size: {_SIDE_FONT_PX}px;",
         )
         self._refresh_attention()
@@ -454,31 +440,20 @@ class _TaskRow(QWidget):
         self.checkbox.setEnabled(available)
         self.checkbox.setToolTip(self._reason or "")
 
-    @property
-    def _reviewed_without_dependents(self) -> bool:
-        return (
-            self.config.attention is Attention.supervised and not self._has_dependents
-        )
-
     def _refresh_attention(self) -> None:
-        reviewed = self.config.attention is Attention.supervised
-        state = "supervised" if reviewed else "automated"
-        if reviewed:
+        supervised = self.config.attention is Attention.supervised
+        state = "supervised" if supervised else "automated"
+        if supervised:
             colour = stylesheets.PRIMARY_COLOR
             tooltip = (
-                "Supervised — the task ends waiting for your decision in the "
-                "Review tab, with what it acquired to look at; the tasks that "
-                "require it wait on that decision. Click for Automated."
-                if self._has_dependents
-                else "Supervised — but no task requires this one, so nothing waits "
-                "on the decision: what it acquired is in the Review tab to look "
-                "at, and the run goes on. Click for Automated."
+                "Supervised — a question the task needs answered is asked while "
+                "it runs, and the run waits for your answer. Click for Automated."
             )
         else:
             colour = stylesheets.AUTOMATED_COLOR
             tooltip = (
-                "Automated — runs without anyone; what it acquired is listed in "
-                "the Review tab to check. Click for Supervised."
+                "Automated — runs without anyone; what it acquired is recorded "
+                "for you to check. Click for Supervised."
             )
         self.btn_attention.setText(ATTENTION_LABELS[state])
         self.btn_attention.setIcon(fibsem_icon(_CHIP_ICONS[state], color=colour))
@@ -597,8 +572,7 @@ class GridRunOptionsPopup(QFrame):
         self.unload_check = QCheckBox("Unload the grid when the run finishes")
         self.unload_check.setToolTip(
             "Return the last grid to the magazine once every queued task has "
-            "run. A Stop, or a run left waiting on the Review tab, leaves it "
-            "loaded."
+            "run. A Stop leaves it loaded."
         )
         self.report_check = QCheckBox("Write the grid screening report at the end")
         self._report_tooltip = (
@@ -969,25 +943,19 @@ class GridWorkflowWidget(QWidget):
     # -- order -----------------------------------------------------------------
 
     def _refresh_dependents(self) -> None:
-        """Tell each row whether a task requires it and which are set to Review:
-        what its chip warning and its "after review of" need."""
+        """Tell each row whether a task requires it."""
         protocol = self._protocol()
         if protocol is None:
             return
         required = {
             req for config in protocol.task_config.values() for req in config.requires
         }
-        reviewed = {
-            name
-            for name, config in protocol.task_config.items()
-            if config.attention is Attention.supervised
-        }
         for name, row in self._task_rows.items():
-            row.set_has_dependents(name in required, reviewed)
+            row.set_has_dependents(name in required)
 
     def _on_attention_changed(self, task_name: str) -> None:
         """A chip click changed a task's attention: saved with the protocol,
-        like its order. Another row may now read "after review of" it."""
+        like its order."""
         self._refresh_dependents()
         self._save_protocol()
         self.protocol_changed.emit()

@@ -735,7 +735,7 @@ def build_app_control_router(context: AppContext) -> APIRouter:
 
     @router.post("/workflow/decide")
     def decide(body: Dict[str, Any]):
-        # The same function the Review tab calls, on the main thread, blocking
+        # The same function the operator's answer goes through, on the main thread, blocking
         # until applied. Item by id, never by name: names change.
         item_id = body.get("item_id")
         task_name = body.get("task_name")
@@ -1083,30 +1083,16 @@ def build_app_config_router(context: AppContext) -> APIRouter:
     @router.post("/workflow/options")
     def set_workflow_options(body: Dict[str, Any]):
         # The workflow's run options, beside the schedule: whether the run
-        # summary dialog opens, whether the beams go off at the end, and how
-        # long a run waiting on reviews waits (null: until stopped).
+        # summary dialog opens, and whether the beams go off at the end.
         options: Dict[str, Any] = {}
         for key in ("show_run_summary", "turn_beams_off"):
             if key in body:
                 if not isinstance(body[key], bool):
                     raise _missing_field(f"{key} is a boolean.")
                 options[key] = body[key]
-        if "review_wait" in body:
-            wait = body["review_wait"]
-            if wait is not None and (
-                isinstance(wait, bool)
-                or not isinstance(wait, (int, float))
-                or (wait < 0 and wait != -1)
-            ):
-                raise _missing_field(
-                    "review_wait is seconds (0 or more), or -1 (or null) to wait "
-                    "until stopped."
-                )
-            options["review_wait"] = None if wait in (None, -1) else float(wait)
         if not options:
             raise _missing_field(
-                "Pass any of show_run_summary (boolean), turn_beams_off "
-                "(boolean), review_wait (seconds, or -1 to wait until stopped)."
+                "Pass any of show_run_summary (boolean), turn_beams_off (boolean)."
             )
         return context.set_workflow_options(**options)
 

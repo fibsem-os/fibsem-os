@@ -148,7 +148,7 @@ Its lines:
 - `MILL STAGE STARTED` and `MILL ENDED`: every mill, whoever started it (see
   *Milling*). `COMMAND ENDED`: a long command ended.
 - `WORKFLOW STARTED` and `WORKFLOW ENDED`. An ended workflow says how:
-  `workflow_stalled` (decisions are pending), `workflow_failed: <error>`, or
+  `workflow_stalled` (tasks were left that could not run), `workflow_failed: <error>`, or
   `stopped without an end event` (it died without saying so). For the last
   two, read `app_get_log` with the workflow's `task_id` and `level=WARNING`
   before you report.
@@ -183,8 +183,9 @@ A workflow asks in one of two ways:
 - **A prompt** (`PROMPT`): read `prompt_get` and take its `question_id`. At
   Drive you answer it (`prompt_answer`), at Assist you suggest
   (`prompt_suggest_answer`), at Watch you say what you would answer.
-- **A recorded question** (`QUESTION`): a task asks a position, an alignment
-  area or a detection on the item's record and stops on it. `review_list` lists it with `holding_the_run: true`. It is decided
+- **A recorded question** (`QUESTION`): a task asks a position, a point of
+  interest, an alignment area, a detection or a mill's pass on the item's
+  record and stops on it. `review_list` lists it with `holding_the_run: true`. It is decided
   with `review_decide`, never answered or suggested (`409 not_suggestible`).
 
 The operator outranks you: if they answer first, your job for that question

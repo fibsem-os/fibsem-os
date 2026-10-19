@@ -339,7 +339,8 @@ def _held_questions(client):
         response = client.request("GET", "/app/workflow/status", timeout=10.0)
         if response.status_code >= 400:
             return []
-        asking = response.json()["workflow"].get("asking") or []
+        held = response.json()["workflow"].get("held") or {}
+        asking = held.get("questions") or []
     except (OSError, HTTPException, ValueError, KeyError, AttributeError, TypeError):
         return []
     return [

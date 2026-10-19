@@ -475,7 +475,6 @@ class AutoLamellaAppContext:
                 "queue_total": None,
                 "queue_version": None,
                 "held": None,
-                "asking": [],
             },
         }
         if experiment is not None:
@@ -484,18 +483,6 @@ class AutoLamellaAppContext:
                 "path": str(experiment.path),
                 "num_items": len(experiment.positions),
             }
-            # The questions a task is stopped on, for an agent that has just
-            # connected: their events are behind its cursor.
-            payload["workflow"]["asking"] = [
-                {
-                    "item_id": item.id,
-                    "item_name": item.name,
-                    "task_name": task_name,
-                    "proposal_id": proposal.id,
-                }
-                for item, task_name, proposal in experiment.pending_proposals()
-                if proposal.asking
-            ]
         manager = self._manager
         if manager is not None:
             items = manager.queue.items  # thread-safe copy under the queue's lock
@@ -508,13 +495,27 @@ class AutoLamellaAppContext:
             if active is not None:
                 payload["workflow"]["current_task"] = active.task_name
                 payload["workflow"]["current_item"] = active.item_name
-            # Who holds the run and what releases it: a question or a park.
+            # Who holds the run, what releases it, and the questions it is
+            # stopped on, for an agent that has just connected: their events
+            # are behind its cursor.
             hold = manager.hold
             if hold is not None:
                 payload["workflow"]["held"] = {
                     "kind": hold.kind.value,
                     "releases": hold.releases,
                     "items": list(hold.items),
+                    "questions": [
+                        {
+                            "item_id": item.id,
+                            "item_name": item.name,
+                            "task_name": task_name,
+                            "proposal_id": proposal.id,
+                        }
+                        for item, task_name, proposal in experiment.pending_proposals()
+                        if proposal.asking
+                    ]
+                    if experiment is not None
+                    else [],
                 }
         return payload
 
@@ -1910,23 +1911,19 @@ class AutoLamellaAppContext:
     # --- propose and review (FIB-950) -----------------------------------------
 
     def reviews(self) -> Dict[str, Any]:
-        """Every proposal waiting for a decision: the Review tab's inbox, derived
-        from the experiment the same way the tab derives it, with the reference
-        image each proposal's values sit on as an agent-sized preview."""
+        """Every question waiting for an answer, derived from the experiment,
+        with the reference image each proposal's values sit on as an
+        agent-sized preview."""
         experiment = self._experiment
         if experiment is None:
             return {"available": False, "reviews": []}
-        from fibsem.applications.autolamella.server.prompts import _preview_payload
-        from fibsem.applications.autolamella.ui.review_tab_widget import (
-            _load_reference_image,
-            is_gated,
+        from fibsem.applications.autolamella.review_images import (
+            load_reference_image,
             review_preview,
-            waiting_on,
         )
+        from fibsem.applications.autolamella.server.prompts import _preview_payload
         from fibsem.workflows.events import to_plain
         from fibsem.workflows.proposals import rejected_fails_task
-
-        protocol = getattr(experiment, "task_protocol", None)
 
         def describe(item, task_name, proposal):
             doc = to_plain(proposal.to_dict())
@@ -1946,17 +1943,15 @@ class AutoLamellaAppContext:
                     # What Rejected does, as the kind declares it: fail the
                     # task, or (a state question) "don't" and carry on.
                     "rejected_fails_task": rejected_fails_task(proposal.kind),
-                    "gated": is_gated(experiment, task_name, item),
-                    "waiting_on": waiting_on(experiment, task_name, item),
                 }
             )
-            image = _load_reference_image(experiment, item, proposal)
+            image = load_reference_image(experiment, item, proposal)
             # a fluorescence result is shown as its channel composite
             preview = review_preview(image) if image is not None else None
             doc["reference_image"] = (
                 _preview_payload(preview) if preview is not None else None
             )
-            electron = _load_reference_image(
+            electron = load_reference_image(
                 experiment, item, proposal, "reference_image_eb"
             )
             doc["reference_image_eb"] = (
@@ -1965,10 +1960,7 @@ class AutoLamellaAppContext:
             return doc
 
         reviews = [describe(*entry) for entry in experiment.pending_proposals()]
-        # Applied by the producer (advise mode), nobody has looked: an agent
-        # acknowledges one with Confirmed and no values, which writes nothing.
-        to_check = [describe(*entry) for entry in experiment.proposals_to_check()]
-        return {"available": True, "reviews": reviews, "to_check": to_check}
+        return {"available": True, "reviews": reviews}
 
     def decide(
         self,
@@ -1983,7 +1975,7 @@ class AutoLamellaAppContext:
         action: str = "",
         patch: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Decide a pending proposal, exactly as the Review tab would: the same
+        """Decide a pending proposal, exactly as the operator's answer is: the same
         Experiment.decide, on the main thread, blocking until applied. The
         actor is recorded as the agent (``actor`` names its model), never as
         the operator.
@@ -2061,12 +2053,6 @@ class AutoLamellaAppContext:
         doc = result.to_dict()
         doc["available"] = True
         if result.applied:
-            try:
-                experiment.save()
-            except Exception:
-                logging.exception(
-                    "saving the experiment after an agent decision failed"
-                )
             self.record_event(
                 "review_decided",
                 {
@@ -2340,10 +2326,9 @@ class AutoLamellaAppContext:
 
     @property
     def _latest_images(self):
-        """The session's latest image of each beam, which the window shows
-        once a microscope connects, else None: with no window, nothing takes
-        them."""
-        if self._window is None or self._microscope is None:
+        """The session's latest image of each beam, window or not; None
+        until a microscope connects."""
+        if self._microscope is None:
             return None
         return self._session.images
 
@@ -2692,11 +2677,8 @@ class AutoLamellaAppContext:
           starting many short runs turns it off so no dialog stands over the
           window (FIB-1376).
         - ``turn_beams_off``: whether the beams are turned off when a run ends.
-        - ``review_wait``: how long a run whose remaining work all waits on a
-          review keeps waiting, in seconds of inactivity; None waits until it is
-          stopped.
 
-        Each is read when it applies (a run's end, a review wait), so a change
+        Each is read when it applies (a run's end), so a change
         takes effect from then, mid-run included; plain rebinds, so no GUI
         marshal, like ``set_task_schedule``.
         """

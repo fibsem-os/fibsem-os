@@ -51,9 +51,9 @@ def test_each_click_announces_what_changed(row):
     assert seen == [A.supervised, A.automated, A.supervised]
 
 
-def test_a_requirement_on_a_supervised_task_reads_as_the_wait_it_is(qapp):
-    """A supervised task's result waits for a decision, so a task that
-    requires it says so where the wait is felt."""
+def test_a_requirement_reads_the_same_whatever_its_mode(qapp):
+    """Nothing waits on a decision once a task ends, so a requirement on a
+    supervised task is said like any other."""
     setup = AutoLamellaTaskDescription(
         name="Setup", required=True, attention=Attention.supervised
     )
@@ -63,32 +63,15 @@ def test_a_requirement_on_a_supervised_task_reads_as_the_wait_it_is(qapp):
     widget = module.WorkflowConfigWidget()
     widget.set_config(AutoLamellaWorkflowConfig(tasks=[setup, rough]))
     rows = [widget._row(i) for i in range(2)]
-    assert rows[0].requires_label.text() == ""
     assert rows[1].requires_label.text() == ""
     rough.requires = ["Setup"]
     widget.refresh_all()
-    assert rows[1].requires_label.text() == "after review of Setup", (
-        "the wait is said where it is felt"
-    )
-    assert rows[1].toolTip().startswith("Requires: review of Setup")
-    # Setup to Automated: Rough's row stops saying it waits for a review
+    assert rows[1].requires_label.text() == "after Setup"
+    assert rows[1].toolTip().startswith("Requires: Setup")
     rows[0]._on_attention_clicked()
     assert rows[1].requires_label.text() == "after Setup"
     widget.deleteLater()
     qapp.processEvents()
-
-
-def test_the_requires_phrase_leads_with_the_review():
-    """Task names are long and the column elides the tail, so the marker goes
-    first where every requirement is reviewed."""
-    assert module._requires_phrase(["Setup"], {"Setup"}) == "review of Setup"
-    assert module._requires_phrase(["Setup", "Rough"], {"Setup", "Rough"}) == (
-        "review of Setup, Rough"
-    )
-    assert module._requires_phrase(["Setup", "Fiducial"], {"Setup"}) == (
-        "Setup (reviewed), Fiducial"
-    )
-    assert module._requires_phrase(["Setup"], set()) == "Setup"
 
 
 def test_a_schedule_shares_the_dependency_column(qapp):
@@ -208,7 +191,7 @@ def test_the_chip_says_what_the_task_needs_from_you(qapp):
     tip = rows[0].btn_attention.toolTip()
     assert tip.startswith("Supervised — Needs you at the microscope while it runs: ")
     assert "detection and milling" in tip
-    assert "Rough waits for your decision on its result" in tip
+    assert "waits for your decision" not in tip, "nothing waits once it ends"
     assert "Needs you at the microscope" in rows[0].toolTip()
     assert rows[1].btn_attention.toolTip().startswith("Automated — Nobody is asked.")
     # Without a protocol nothing is claimed.

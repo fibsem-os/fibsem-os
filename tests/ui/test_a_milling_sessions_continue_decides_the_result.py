@@ -127,10 +127,8 @@ def test_continue_after_the_mill_is_the_operators_decision_on_the_result(ui, qap
     assert decision.outcome is DecisionOutcome.Confirmed
     assert decision.actor.kind is ActorKind.operator, "theirs, not the producer's"
     assert decision.via == "workflow"
-    assert not proposal.to_check, "a person already looked"
-    assert not ui.experiment.positions[0].is_awaiting_decision(ROUGH), (
-        "the task does not wait a second time for a look it already had"
-    )
+    assert not proposal.unreviewed, "a person decided it"
+    assert ui.experiment.positions[0].latest_run_completed(ROUGH)
 
 
 def test_the_mill_the_task_asks_for_writes_under_the_task_s_folder(

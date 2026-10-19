@@ -82,11 +82,11 @@ def test_coincidence_task_config_roundtrip_preserves_strategy():
     restored = FibsemMillingTaskConfig.from_dict(config.to_dict())
     restored_strategy = restored.stages[0].strategy
 
-    assert isinstance(restored_strategy, CoincidenceMillingStrategy)
-    assert restored_strategy.config.intensity_drop_fraction == 0.55
-    assert restored_strategy.config.supervised is False
-    assert isinstance(restored_strategy.config.bbox, FibsemRectangle)
-    assert restored_strategy.config.bbox == strategy.config.bbox
+    assert isinstance(restored_strategy, CoincidenceMillingStrategyConfig)
+    assert restored_strategy.intensity_drop_fraction == 0.55
+    assert restored_strategy.supervised is False
+    assert isinstance(restored_strategy.bbox, FibsemRectangle)
+    assert restored_strategy.bbox == strategy.config.bbox
 
 
 # ---------------------------------------------------------------------------
@@ -175,7 +175,7 @@ def test_headless_run_stops_on_the_callers_stop_event(fm_microscope, tmp_path):
         fm_microscope.session.record_signal.disconnect(_milling)
 
     # the task runs its own copy of the config; that copy's strategy is the one that ran
-    strategy = task.config.stages[0].strategy
+    strategy = task.config.stages[0].get_strategy()
     assert isinstance(strategy, CoincidenceMillingStrategy)
     assert strategy.microscope is fm_microscope
     assert task._stop_event is stop_event
@@ -204,7 +204,7 @@ def test_headless_run_never_starts_on_a_preset_stop_event(fm_microscope, tmp_pat
 
     task = run_milling_task(fm_microscope, config, stop_event=stop_event)
 
-    strategy = task.config.stages[0].strategy
+    strategy = task.config.stages[0].get_strategy()
     assert not hasattr(strategy, "microscope")  # never set up
 
 

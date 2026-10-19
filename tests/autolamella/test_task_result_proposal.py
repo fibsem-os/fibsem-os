@@ -106,7 +106,7 @@ def _task(microscope, exp: Experiment, body=None) -> MillRoughTask:
     return task
 
 
-def test_a_gated_task_records_its_result_and_the_consumer_waits(microscope, tmp_path):
+def test_a_supervised_task_records_its_result_and_nothing_waits(microscope, tmp_path):
     exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
     task = _task(microscope, exp)
     lamella = exp.positions[0]
@@ -114,7 +114,9 @@ def test_a_gated_task_records_its_result_and_the_consumer_waits(microscope, tmp_
     task.run()
 
     proposal = lamella.proposal(ROUGH)
-    assert proposal.kind == TASK_RESULT and proposal.pending
+    # Nobody decided it inline: used as proposed and recorded Unreviewed.
+    assert proposal.kind == TASK_RESULT and proposal.unreviewed
+    assert str(proposal.current.actor) == f"task:{ROUGH}"
     assert proposal.values == {}
     p = proposal.provenance
     assert p["proposer"] == ROUGH and p["task_name"] == ROUGH
@@ -124,9 +126,11 @@ def test_a_gated_task_records_its_result_and_the_consumer_waits(microscope, tmp_
     # ISO with offset, as the task state writes them (FIB-1197)
     started, ended = (datetime.fromisoformat(p[k]) for k in ("started_at", "ended_at"))
     assert ended >= started and started.tzinfo is not None
-    assert lamella.is_awaiting_decision(ROUGH), "ran, not finished"
-    assert task.task_manager._defer_reason(lamella, POLISH) == "awaiting_decision"
+    assert lamella.latest_run_completed(ROUGH), "finished: nothing waits on it"
+    assert exp.pending_proposals() == [], "not a question"
+    assert task.task_manager._defer_reason(lamella, POLISH) is None
 
+    # Decided already: a later decision is refused, and changing it is a re-run.
     result = exp.decide(
         lamella.id,
         ROUGH,
@@ -136,7 +140,8 @@ def test_a_gated_task_records_its_result_and_the_consumer_waits(microscope, tmp_
             task_id=lamella.proposal(ROUGH).task_id,
         ),
     )
-    assert result.applied and result.synced_tasks == []
+    assert not result.applied and result.error_type == "invalid_value", result
+    assert "already decided" in result.reason
     assert task.task_manager._defer_reason(lamella, POLISH) is None
 
 
@@ -174,7 +179,7 @@ def test_a_failed_task_records_its_result_with_the_failure(microscope, tmp_path)
         task.run()
 
     proposal = lamella.proposal(ROUGH)
-    assert proposal.kind == TASK_RESULT and proposal.pending
+    assert proposal.kind == TASK_RESULT and proposal.unreviewed
     assert proposal.provenance["status"] == "Failed"
     assert proposal.provenance["failure"] == "stage timeout"
     assert proposal.provenance["reference_image"], "what was acquired before it failed"
@@ -190,16 +195,14 @@ def test_not_gated_the_result_is_recorded_and_the_run_goes_on(microscope, tmp_pa
 
     proposal = lamella.proposal(ROUGH)
     assert proposal.kind == TASK_RESULT
-    # Nobody decides it: open, listed to check, and nothing waits on it.
-    assert proposal.pending and not proposal.to_check
-    assert task.task_manager._defer_reason(lamella, POLISH) is None
-    assert [t for _i, t, _p in exp.proposals_to_check()] == [ROUGH]
-    assert exp.pending_proposals() == []
-    # Its consumer starting closes it as used-unreviewed, by the producer's name.
-    assert exp.expire_open(lamella.id, ROUGH, f"{POLISH} started") == 1
-    assert proposal.unreviewed and proposal.to_check
+    # Nobody decides it: used as proposed and recorded Unreviewed, by the
+    # producer's name, the moment the run ends. Nothing waits on it.
+    assert proposal.unreviewed and not proposal.pending
     assert str(proposal.current.actor) == f"task:{ROUGH}"
-    assert f"{POLISH} started" in proposal.current.reason
+    assert proposal.current.reason == "nobody was asked"
+    assert proposal.current.via == "workflow"
+    assert task.task_manager._defer_reason(lamella, POLISH) is None
+    assert exp.pending_proposals() == []
 
 
 def test_what_a_task_type_proposes_is_declared_on_the_class(microscope, tmp_path):
@@ -217,9 +220,13 @@ def test_what_a_task_type_proposes_is_declared_on_the_class(microscope, tmp_path
         SelectMillingPositionTask,
     )
 
-    for cls in (MillFiducialTask, AcquireReferenceImageTask, MillRoughTask):
-        assert cls.proposer.kind == TASK_RESULT, "a bad fiducial is gateable"
-    assert SelectMillingPositionTask.proposer.kind == POINT_OF_INTEREST
+    for cls in (
+        MillFiducialTask,
+        AcquireReferenceImageTask,
+        MillRoughTask,
+        SelectMillingPositionTask,
+    ):
+        assert cls.proposer.kind == TASK_RESULT
     exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
     task = _task(microscope, exp)
     type(task).proposer = None
@@ -271,8 +278,9 @@ def test_a_swapped_proposer_records_its_kind_and_the_base_fills_the_result(
     assert p["proposer"] == "site-picker" and p["version"] == 7 and p["model"] == "m"
     assert p["task_name"] == ROUGH and p["status"] == "Completed"
     assert p["reference_image"] == f"ref_{ROUGH}_final_res_01_ib.tif"
-    assert proposal.pending, "open until something uses it"
-    assert lamella.poi == Point(1e-6, 2e-6), "and live from the moment it was proposed"
+    assert proposal.unreviewed, "nobody was asked: used as proposed"
+    assert proposal.current.values == {"poi": Point(1e-6, 2e-6)}
+    assert lamella.poi == Point(1e-6, 2e-6), "and written through"
 
 
 def test_a_proposer_may_not_carry_a_value_its_kind_does_not_register(
@@ -323,7 +331,7 @@ def test_a_question_answered_during_the_run_is_not_logged_as_a_rerun(
         _task(microscope, exp, body=ask_and_be_answered).run()
 
     result = lamella.proposal(ROUGH)
-    assert result.kind == TASK_RESULT and result.pending
+    assert result.kind == TASK_RESULT and result.unreviewed
     assert lamella.proposals_from(ROUGH) == [asked["question"], result], (
         "the answer is kept"
     )
@@ -332,24 +340,19 @@ def test_a_question_answered_during_the_run_is_not_logged_as_a_rerun(
 
 
 def test_a_rerun_supersedes_a_decided_result(microscope, tmp_path):
+    """The first run's result was decided when it ended; a re-run keeps it on
+    the record and its own result becomes the current one."""
     exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
     lamella = exp.positions[0]
     _task(microscope, exp).run()
-    exp.decide(
-        lamella.id,
-        ROUGH,
-        Decision(
-            outcome=DecisionOutcome.Confirmed,
-            actor="operator:op",
-            task_id=lamella.proposal(ROUGH).task_id,
-        ),
-    )
     decided = lamella.proposal(ROUGH)
+    assert not decided.pending
 
     _task(microscope, exp).run()
 
     fresh = lamella.proposal(ROUGH)
-    assert fresh is not decided and fresh.pending
+    assert fresh is not decided and fresh.unreviewed
+    assert fresh.task_id != decided.task_id
     assert lamella.proposals_from(ROUGH) == [decided, fresh]
 
 

@@ -33,10 +33,6 @@ if TYPE_CHECKING:
 class TaskStatus(Enum):
     NotStarted = auto()
     InProgress = auto()
-    # The microscope work is done and the task's record waits on a decision in
-    # the Review tab. Not finished: nothing that requires this task runs until
-    # a decision moves it to Completed (confirmed) or Failed (rejected).
-    AwaitingDecision = auto()
     Completed = auto()
     Failed = auto()
     Skipped = auto()
@@ -123,7 +119,12 @@ class TaskState:
         # written as lamella_id before the item was any item
         if "lamella_id" in data:
             data.setdefault("item_id", data.pop("lamella_id"))
-        data["status"] = TaskStatus[data.get("status", "NotStarted")]
+        status = data.get("status", "NotStarted")
+        # Written while a supervised result waited on a decision after the
+        # task ended (0.6 development builds): the task had finished.
+        data["status"] = TaskStatus[
+            "Completed" if status == "AwaitingDecision" else status
+        ]
         # Either form: ISO with offset, or the POSIX float written before FIB-1197.
         for key in ("start_timestamp", "end_timestamp"):
             if key in data:
@@ -270,8 +271,6 @@ class HoldKind(str, Enum):
     """Who is holding the run."""
 
     question = "question"  # a supervised question is up, for the operator
-    # parked: nothing can run until a decision lands in the Review tab
-    decision = "decision"
 
 
 @dataclass(frozen=True)
@@ -282,13 +281,13 @@ class Hold:
     and ``WAITING_FOR_REVIEW``): who holds the run and what releases it.
     ``BaseTaskManager.held`` says it and a window's ``hold`` keeps it; None means
     the run is not held. Taken by whoever holds the run -- the responder for a
-    prompt it shows, the task manager for a question or a park -- and read by
+    prompt it shows, the task manager for a question -- and read by
     the window chrome: border colour, attention button, status-bar sentence.
     """
 
     kind: HoldKind
     # what releases it, as a sentence fragment: "answer the question on the
-    # Microscope tab", "decide 01-a and 02-b in the Review tab"
+    # Microscope tab"
     releases: str
     # the lamella/task pairs waiting, when there are some
     items: Tuple[str, ...] = ()

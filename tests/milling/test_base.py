@@ -1,6 +1,7 @@
 from fibsem.milling.base import (
     FibsemMillingStage,
     MillingStrategy,
+    MillingStrategyConfig,
     get_strategy,
 )
 from fibsem.milling.patterning.patterns import RectanglePattern
@@ -30,12 +31,13 @@ def test_milling_stage():
     assert milling_stage.num == 1
     assert isinstance(milling_stage.milling, FibsemMillingSettings)
     assert isinstance(milling_stage.pattern, RectanglePattern)
-    assert isinstance(milling_stage.strategy, MillingStrategy)
+    assert isinstance(milling_stage.strategy, MillingStrategyConfig)
+    assert isinstance(milling_stage.get_strategy(), MillingStrategy)
     assert isinstance(milling_stage.alignment, MillingAlignment)
     assert milling_stage.pattern.width == 10
     assert milling_stage.pattern.height == 5
     assert milling_stage.pattern.depth == 1
-    assert milling_stage.strategy.name == DEFAULT_STRATEGY.name
+    assert milling_stage.strategy.strategy_name == DEFAULT_STRATEGY.name
     assert milling_stage.alignment.enabled is True
 
     # test to_dict method
@@ -62,7 +64,7 @@ def test_milling_stage():
     assert new_milling_stage.num == 1
     assert isinstance(new_milling_stage.milling, FibsemMillingSettings)
     assert isinstance(new_milling_stage.pattern, RectanglePattern)
-    assert isinstance(new_milling_stage.strategy, MillingStrategy)
+    assert isinstance(new_milling_stage.strategy, MillingStrategyConfig)
     assert isinstance(new_milling_stage.alignment, MillingAlignment)
     assert new_milling_stage.imaging.path is None
 
@@ -83,3 +85,49 @@ def test_get_strategy():
     strategy = get_strategy(name="NonExistentStrategy")
     assert isinstance(strategy, MillingStrategy)
     assert strategy.name == DEFAULT_STRATEGY.name
+
+
+def test_a_stage_holds_the_config_and_mills_with_one_strategy_made_from_it():
+    stage = FibsemMillingStage()
+    strategy = stage.get_strategy()
+
+    assert strategy.config is stage.strategy
+    assert stage.get_strategy() is strategy  # the same one until replaced
+    stage.strategy = get_strategy("Overtilt").config
+    assert stage.get_strategy() is not strategy
+    assert stage.get_strategy().name == "Overtilt"
+
+
+def test_a_stage_given_a_strategy_keeps_its_config_and_the_strategy():
+    strategy = get_strategy("Overtilt")
+    stage = FibsemMillingStage(strategy=strategy)
+
+    assert stage.strategy is strategy.config
+    assert stage.get_strategy() is strategy
+
+
+def test_an_unknown_strategy_reads_as_standard_with_a_warning(caplog):
+    data = FibsemMillingStage().to_dict()
+    data["strategy"] = {"name": "NotInstalled", "config": {"passes": 3}}
+
+    with caplog.at_level("WARNING"):
+        stage = FibsemMillingStage.from_dict(data)
+
+    assert stage.strategy.strategy_name == DEFAULT_STRATEGY.name
+    assert "NotInstalled" in caplog.text
+
+
+def test_a_strategy_sharing_a_config_class_keeps_its_name(monkeypatch):
+    from fibsem.milling.strategy import STRATEGY_PLUGINS
+    from fibsem.milling.strategy.standard import StandardMillingStrategy
+
+    class _Shared(StandardMillingStrategy):
+        name = "SharesStandardsConfig"
+
+    monkeypatch.setitem(STRATEGY_PLUGINS.registered, _Shared.name, _Shared)
+    stage = FibsemMillingStage(strategy=_Shared())
+    assert stage.to_dict()["strategy"]["name"] == "SharesStandardsConfig"
+
+    restored = FibsemMillingStage.from_dict(stage.to_dict())
+    assert type(restored.get_strategy()) is _Shared
+    assert restored.to_dict()["strategy"]["name"] == "SharesStandardsConfig"

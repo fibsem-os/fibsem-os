@@ -127,7 +127,7 @@ def test_an_error_on_the_main_thread_is_raised_in_the_worker(qapp, tmp_path):
 
     def worker():
         try:
-            exp.apply_proposed(lamella.id, SETUP, proposal.id)
+            exp.apply_proposed(lamella.id, SETUP, proposal.id, "nobody was asked")
         except Exception as e:  # noqa: BLE001 - the error under test
             seen["error"] = e
         seen["done"] = True

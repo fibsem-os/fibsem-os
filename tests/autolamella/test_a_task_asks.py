@@ -1,10 +1,9 @@
 """A task asks for a value it needs now with ``ask``: one way, on the record.
 
 Headless here. Automated, nobody is asked: the proposal goes on the record with
-an ``Unreviewed`` decision carrying the values the task went on to use, for
-someone to check afterwards. Supervised, the task asks and waits as it would at
-a window, whoever can answer, nobody included: an answer is never taken
-unreviewed (Patrick 2026-10-19). The operator at a window is in tests/ui.
+an ``Unreviewed`` decision carrying the values the task went on to use.
+Supervised, the task asks and waits as it would at a window, whoever can
+answer, nobody included: an answer is never taken unreviewed. The operator at a window is in tests/ui.
 """
 
 import os
@@ -38,9 +37,7 @@ from fibsem.workflows.proposals import (
     PROPOSAL_KINDS,
     Decision,
     DecisionOutcome,
-    Standing,
 )
-from fibsem.workflows.review import standing
 
 ROUGH = "Rough Milling"
 CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
@@ -133,16 +130,14 @@ def test_with_nobody_to_ask_the_proposed_value_is_used_and_recorded_unreviewed(
     assert decision.outcome is DecisionOutcome.Unreviewed
     assert decision.values == {"poi": Point(1e-6, 2e-6)}, "used as proposed"
     assert decision.actor.kind is ActorKind.task
-    # On the record, before the run's own result, and listed to check.
+    # On the record, before the run's own result, and decided already.
     question, result = lamella.proposals_from(ROUGH)
     assert question.kind == POINT_OF_INTEREST and question.unreviewed
     assert question.provenance["reference_image"] == "ref.tif"
     assert question.provenance["task_id"] == result.provenance["task_id"]
-    assert question.to_check and not question.pending
-    assert any(p is question for _i, _t, p in exp.proposals_to_check()), (
-        "listed to check, beside the run's result"
-    )
-    assert not lamella.is_awaiting_decision(ROUGH), "nothing waits on it"
+    assert not question.pending
+    assert exp.pending_proposals() == [], "nobody is asked about it"
+    assert lamella.latest_run_completed(ROUGH), "nothing waits on it"
 
 
 def test_with_the_agent_to_answer_a_supervised_task_asks_and_waits(
@@ -166,7 +161,7 @@ def test_with_the_agent_to_answer_a_supervised_task_asks_and_waits(
         assert time.monotonic() < deadline, "the question was never asked"
         assert asking.is_alive(), "the task did not wait for an answer"
         time.sleep(0.01)
-    assert standing(lamella, ROUGH, question) is Standing.Asking, "the task waits on it"
+    assert question.pending and question.asking, "the task waits on it"
 
     result = exp.decide(
         lamella.id,
@@ -224,7 +219,7 @@ def test_with_nobody_to_answer_a_supervised_task_still_waits(microscope, tmp_pat
 
     time.sleep(0.3)
     assert asking.is_alive(), "nobody answered, so it is still waiting"
-    assert standing(lamella, ROUGH, question) is Standing.Asking
+    assert question.pending and question.asking
     hold, note = holds[0]
     assert "nobody can answer" in hold.releases
     assert "connect the agent at Drive" in note
@@ -304,26 +299,6 @@ def test_unreviewed_is_not_something_a_decider_can_say(microscope, tmp_path):
     assert not result.applied and result.error_type == "invalid_value"
 
 
-def test_a_persons_later_look_clears_it_from_to_check(microscope, tmp_path):
-    exp = _experiment(tmp_path, microscope)
-    lamella = exp.positions[0]
-    _task(microscope, exp).ask(POINT_OF_INTEREST, {"poi": Point(0, 0)})
-    proposal = lamella.proposal(ROUGH)
-    assert proposal.to_check
-    result = exp.decide(
-        lamella.id,
-        ROUGH,
-        Decision(
-            outcome=DecisionOutcome.Confirmed,
-            actor="operator:op",
-            proposal_id=proposal.id,
-        ),
-    )
-    assert result.applied, result.reason
-    assert not proposal.to_check and not proposal.unreviewed
-    assert lamella.poi == Point(0, 0), "a look writes nothing"
-
-
 def test_unreviewed_survives_the_file(microscope, tmp_path):
     exp = _experiment(tmp_path, microscope)
     _task(microscope, exp).ask(POINT_OF_INTEREST, {"poi": Point(3e-6, 0)})
@@ -345,9 +320,9 @@ def test_every_task_type_declares_kinds_the_record_knows():
 
 
 def test_a_question_and_the_runs_result_are_both_current(microscope, tmp_path):
-    """Different kinds do not replace each other: the unreviewed question is
-    listed to check beside the run's result, and is decided by its own id
-    without touching the result."""
+    """Different kinds do not replace each other: the unreviewed question
+    stays current beside the run's result, both decided Unreviewed when the
+    run ends, and a later decision on either is refused as already decided."""
     exp = _experiment(tmp_path, microscope)
     lamella = exp.positions[0]
     _task(
@@ -357,8 +332,8 @@ def test_a_question_and_the_runs_result_are_both_current(microscope, tmp_path):
     ).run()
     question, result = lamella.proposals_from(ROUGH)
     assert lamella.current_proposals(ROUGH) == [question, result]
-    listed = [p for _i, _t, p in exp.proposals_to_check()]
-    assert listed == [question, result]
+    assert question.unreviewed and result.unreviewed
+    assert exp.pending_proposals() == []
 
     looked = exp.decide(
         lamella.id,
@@ -369,6 +344,6 @@ def test_a_question_and_the_runs_result_are_both_current(microscope, tmp_path):
             proposal_id=question.id,
         ),
     )
-    assert looked.applied, looked.reason
-    assert not question.to_check and result.pending, "the result is untouched"
-    assert [p for _i, _t, p in exp.proposals_to_check()] == [result]
+    assert not looked.applied and looked.error_type == "invalid_value", looked
+    assert "already decided" in looked.reason
+    assert len(question.decisions) == 1 and len(result.decisions) == 1

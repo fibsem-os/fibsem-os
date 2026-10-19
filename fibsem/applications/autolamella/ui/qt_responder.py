@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple, Type
 from PyQt5.QtCore import QObject, pyqtSignal
 
 from fibsem.acting import AGENT, OPERATOR, TASK
+from fibsem.applications.autolamella.ui.poi_marker import PoiMarker
 from fibsem.structures import BeamType
 from fibsem.workflows.interaction import (
     ClearMillingConfig,
@@ -44,6 +45,7 @@ from fibsem.workflows.interaction import (
     SetFluorescenceChannels,
     SetImages,
     SetMillingConfig,
+    ShowDetection,
     StalePromptError,
 )
 from fibsem.workflows.status import (
@@ -59,41 +61,6 @@ if TYPE_CHECKING:
     from fibsem.structures import FibsemImage, Point
 
 __all__ = ["QtResponder"]
-
-
-def _poi_frame(responder: object, request: PickPOI) -> "FibsemImage":
-    """The FIB frame the POI marker sits on: the one the FIB view shows.
-
-    The request carries the frame the task last took, and anything since (an
-    agent's approved moves and their images) shows in the view instead
-    (FIB-1399). The marker is placed and read in the view's pixels, so it is
-    converted against the view's frame; the request's is the fallback.
-    """
-    ui = getattr(responder, "_ui", None)
-    shown = getattr(getattr(ui, "image_widget", None), "ib_image", None)
-    return shown if shown is not None else request.image
-
-
-def _poi_pixel(frame: "FibsemImage", point: "Point") -> Tuple[float, float]:
-    """A point of interest (metres from the frame's centre) as *frame*'s
-    (col, row) pixel."""
-    from fibsem import conversions
-
-    px = conversions.microscope_image_to_image_coordinates(
-        point, frame.data.shape, frame.metadata.pixel_size.x
-    )
-    return (px.x, px.y)
-
-
-def _poi_point(frame: "FibsemImage", pixel: Tuple[float, float]) -> "Point":
-    """The inverse of :func:`_poi_pixel`."""
-    from fibsem import conversions
-    from fibsem.structures import Point
-
-    col, row = pixel
-    return conversions.image_to_microscope_image_coordinates(
-        Point(x=col, y=row), frame.data, frame.metadata.pixel_size.x
-    )
 
 
 class QtResponder(QObject):
@@ -118,6 +85,7 @@ class QtResponder(QObject):
             SetMillingConfig: self._set_milling_config,
             ClearMillingConfig: self._clear_milling_config,
             ClearSpotBurn: self._clear_spot_burn,
+            ShowDetection: self._show_detection,
             SetFluorescenceChannels: self._set_fluorescence_channels,
         }
         # Deferred: the handler shows the prompt and someone else completes the
@@ -135,9 +103,9 @@ class QtResponder(QObject):
         # corpse) is a new question and gets a new one.
         self._pending_question: Optional[Tuple[Request, "Future", int]] = None
         self._question_seq = 0
-        # The frame a pending PickPOI's marker was placed on, and the image
-        # widget whose frame changes it follows (FIB-1410).
-        self._poi_marker_frame: Optional["FibsemImage"] = None
+        # A pending PickPOI's marker, the window's one (FIB-1410), and the
+        # image widget whose frame changes it follows.
+        self._marker = getattr(ui, "poi_marker", None) or PoiMarker(ui)
         self._view_frames_followed: Optional[object] = None
         # Question-lifecycle observers (prompt_raised / prompt_answered /
         # prompt_cancelled): the App Server's hosting feeds the event buffer,
@@ -290,9 +258,7 @@ class QtResponder(QObject):
                     )
                 # Echoing what stands is accepting it, not adjusting it.
                 _, live = self._live_answer()
-                adjusted = not pending[0].same_value(
-                    live, value, self._poi_marker_frame
-                )
+                adjusted = not pending[0].same_value(live, value, self._marker.frame)
                 if adjusted:
                     self._apply_value(pending[0], value)
             applied = self.answer_confirm(
@@ -406,7 +372,7 @@ class QtResponder(QObject):
         adjusted = False
         if value is not None and pending is not None:
             _, live = self._live_answer()
-            adjusted = not pending[0].same_value(live, value, self._poi_marker_frame)
+            adjusted = not pending[0].same_value(live, value, self._marker.frame)
             if adjusted:
                 self._apply_value(pending[0], value)
         return self.answer_confirm(
@@ -468,10 +434,9 @@ class QtResponder(QObject):
         the answer is read back from (FIB-1410)."""
         from fibsem.structures import Point
 
-        frame = _poi_frame(self, request)
-        if not isinstance(value, Point) or getattr(frame, "metadata", None) is None:
+        if not isinstance(value, Point):
             return None
-        return _poi_pixel(frame, value)
+        return self._marker.pixel(value, request.image)
 
     def _sync_poi_frame(self) -> None:
         """Keep a pending PickPOI on the frame the FIB view shows.
@@ -486,17 +451,8 @@ class QtResponder(QObject):
         pending = self._pending_question
         if pending is None or not isinstance(pending[0], PickPOI):
             return
-        old = self._poi_marker_frame
-        frame = _poi_frame(self, pending[0])
-        if old is None or frame is old:
+        if not self._marker.sync():
             return
-        self._poi_marker_frame = frame
-        controller = self._view_controller()
-        pts = controller.overlay_points(BeamType.ION, "poi") if controller else None
-        if pts:
-            controller.set_points(
-                BeamType.ION, "poi", [_poi_pixel(frame, _poi_point(old, pts[0]))]
-            )
         if self._suggestion is not None:
             self._show_suggestion()
 
@@ -528,14 +484,8 @@ class QtResponder(QObject):
         if isinstance(request, PickPOI):
             if not isinstance(value, Point):
                 raise ValueError("a PickPOI value must be a Point")
-            controller = self._view_controller()
-            if controller is None:
-                raise RuntimeError("No canvas to place the point of interest on.")
             self._sync_poi_frame()
-            self._poi_marker_frame = _poi_frame(self, request)
-            controller.set_points(
-                BeamType.ION, "poi", [_poi_pixel(self._poi_marker_frame, value)]
-            )
+            self._marker.place(value)
             return
         if isinstance(request, ConfirmDetection):
             if not isinstance(value, dict) or not all(
@@ -585,14 +535,8 @@ class QtResponder(QObject):
             return None, None
         request, _, question_id = pending
         if isinstance(request, PickPOI):
-            controller = self._view_controller()
-            if controller is None:
-                return question_id, None
             self._sync_poi_frame()
-            pts = controller.overlay_points(BeamType.ION, "poi")
-            if not pts:
-                return question_id, None
-            return question_id, _poi_point(_poi_frame(self, request), pts[0])
+            return question_id, self._marker.read()
         if isinstance(request, EditAlignmentArea):
             image_widget = self._ui.image_widget
             if image_widget is None:
@@ -689,6 +633,16 @@ class QtResponder(QObject):
     def _clear_milling_config(self, request: ClearMillingConfig) -> None:
         """Clear the milling editor. Moved from handle_workflow_update."""
         self._milling_widget().clear()
+
+    def _show_detection(self, request: ShowDetection) -> None:
+        """Load the detection into the detection widget. The window fronts its
+        tab when the question is asked."""
+        det_widget = self._ui.det_widget
+        if det_widget is None:
+            # As for ConfirmDetection: the model already ran, so a missing
+            # widget is a defect, not optional hardware.
+            raise RuntimeError("No detection widget available to show the features.")
+        det_widget.set_detected_features(request.detection)
 
     def _clear_spot_burn(self, request: ClearSpotBurn) -> None:
         """Clear the spot-burn widget's points and leave workflow mode, if
@@ -819,10 +773,6 @@ class QtResponder(QObject):
         signal.connect(self._sync_poi_frame)
         self._view_frames_followed = image_widget
 
-    def _view_controller(self):
-        """The main window's quad-view controller, or None standalone."""
-        return getattr(self._ui.parent_widget, "view_controller", None)
-
     def _pick_poi(self, request: PickPOI, future: "Future") -> None:
         """Show a draggable POI marker on the FIB canvas; the click answers with it.
 
@@ -831,45 +781,10 @@ class QtResponder(QObject):
         no-oped and delivered None, so answer None immediately rather than
         putting up a prompt about a marker that is not there.
         """
-        controller = self._view_controller()
-        if controller is None:
+        if not self._marker.show(request.initial, request.image):
             self._deliver(future, None)
             return
-
-        from fibsem.ui.widgets.canvas.canvas_state import PointsSpec
-
-        image = _poi_frame(self, request)
-        self._poi_marker_frame = image
         self._follow_view_frames()
-        if request.initial is not None:
-            col, row = _poi_pixel(image, request.initial)
-        else:
-            row = image.data.shape[0] / 2
-            col = image.data.shape[1] / 2
-        controller.set_overlay(
-            BeamType.ION,
-            PointsSpec(
-                id="poi",
-                points=[(col, row)],
-                # Matches the protocol editor's POI, down to the legend entry: same
-                # concept, same marker. Left to the defaults this drew at size 18 with
-                # PointOverlay's 2.0 edge, a cross visibly fatter than the thin one the
-                # editor and the config preview draw, and absent from the legend
-                # (FIB-582). 1.2 keeps it reading like the centre crosshair.
-                color="magenta",
-                selected_color="magenta",
-                marker="+",
-                size=14,
-                edge_width=1.2,
-                legend_label="Point of Interest",
-                add_on_right_click=False,
-                removable=False,
-            ),
-        )
-        # POI owns FIB-canvas input: stage-move + milling menu stand down. The toolbar
-        # toggle lets the user drop to Move and back. (See active-overlay model.)
-        controller.arm_overlay(BeamType.ION, "poi", label="POI", icon="mdi:map-marker")
-        controller.fib_canvas.set_hint("drag to move")
         self._park_question(request, future, request.message, "Continue", None)
 
     def abandon(self) -> None:
@@ -989,16 +904,8 @@ class QtResponder(QObject):
             # the FIB view shows), and take the overlay down — the old flow's
             # second handshake plus its SELECTED_POI read-back, all in the
             # click's slot.
-            controller = self._view_controller()
-            poi = None
-            if controller is not None:
-                self._sync_poi_frame()
-                pts = controller.overlay_points(BeamType.ION, "poi")
-                if pts:
-                    poi = _poi_point(_poi_frame(self, request), pts[0])
-                self._poi_marker_frame = None
-                controller.arm_overlay(BeamType.ION, None)  # restore Move
-                controller.remove_overlay(BeamType.ION, "poi")
-                controller.fib_canvas.set_hint(None)
+            self._sync_poi_frame()
+            poi = self._marker.read()
+            self._marker.remove()
             return poi
         return clicked_yes
