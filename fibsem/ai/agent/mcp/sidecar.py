@@ -1455,11 +1455,11 @@ def build_sidecar(client, capabilities):
         data, err = _call(client, "GET", "/app/workflow/prompt")
         return err if err else _with_images(data)
 
-    def review_list():
-        data, err = _call(client, "GET", "/app/workflow/reviews")
+    def proposal_list():
+        data, err = _call(client, "GET", "/app/workflow/proposals")
         return err if err else _with_images(data)
 
-    def review_decide(
+    def proposal_decide(
         item_id: str,
         task_name: str,
         outcome: str,
@@ -1647,8 +1647,8 @@ def build_sidecar(client, capabilities):
             app_get_events,
             app_get_display_images,
             prompt_get,
-            review_list,
-            review_decide,
+            proposal_list,
+            proposal_decide,
             prompt_answer,
             prompt_suggest_answer,
             workflow_stop,

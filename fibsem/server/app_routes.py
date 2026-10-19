@@ -357,9 +357,9 @@ def build_app_router(context: Any) -> APIRouter:
     def pending_prompt():
         return context.pending_prompt()
 
-    @router.get("/workflow/reviews")
-    def reviews():
-        return context.reviews()
+    @router.get("/workflow/proposals")
+    def proposals():
+        return context.proposals()
 
     @router.post("/workflow/grids/plan")
     def grid_workflow_plan(body: Dict[str, Any]):
@@ -490,7 +490,7 @@ def build_app_control_router(context: Any) -> APIRouter:
         ):
             raise _missing_field(
                 "Pass item_id, task_name, proposal_id and outcome "
-                "(Confirmed or Rejected) from GET /app/workflow/reviews."
+                "(Confirmed or Rejected) from GET /app/workflow/proposals."
             )
         values = body.get("values")
         if values is not None and not isinstance(values, dict):

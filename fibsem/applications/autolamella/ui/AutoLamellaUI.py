@@ -255,7 +255,7 @@ class AutoLamellaUI(QMainWindow):
         self.ui_responder = QtResponder(self)
         self.session.responder = self.ui_responder
         # The operator answers the run's questions here, for the session's life.
-        self.session.attach_answerer(OPERATOR)
+        self.session.attach_decider(OPERATOR)
         # The timeline renders the responder's question-lifecycle feed; the
         # widget itself is built in _setup_ui, before the responder exists.
         self.ui_responder.add_question_observer(self.question_timeline.record)
@@ -2140,7 +2140,9 @@ class AutoLamellaUI(QMainWindow):
 
     def _reference_image(self, item_id: str, proposal):
         """The image the proposal's values sit on, for a view showing none."""
-        from fibsem.applications.autolamella.review_images import load_reference_image
+        from fibsem.applications.autolamella.reference_images import (
+            load_reference_image,
+        )
 
         item = self.experiment.get_item_by_id(item_id)
         return load_reference_image(self.experiment, item, proposal)
@@ -2201,7 +2203,7 @@ class AutoLamellaUI(QMainWindow):
         """What the widget holds for ``proposal``'s kind; empty (as proposed)
         when the widget was not there to edit it on."""
         from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
-        from fibsem.detection.review import detection_values
+        from fibsem.detection.decided import detection_values
         from fibsem.workflows.proposals import ALIGNMENT_AREA, DETECTION
 
         if proposal.kind == DETECTION and self._detection_shown():

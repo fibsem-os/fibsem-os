@@ -183,10 +183,10 @@ A workflow asks in one of two ways:
 - **A prompt** (`PROMPT`): read `prompt_get` and take its `question_id`. At
   Drive you answer it (`prompt_answer`), at Assist you suggest
   (`prompt_suggest_answer`), at Watch you say what you would answer.
-- **A recorded question** (`QUESTION`): a task asks a position, a point of
-  interest, an alignment area, a detection or a mill's pass on the item's
-  record and stops on it. `review_list` lists it with `holding_the_run: true`. It is decided
-  with `review_decide`, never answered or suggested (`409 not_suggestible`).
+- **A proposal** (`PROPOSAL`): a task asks a position, a point of interest,
+  an alignment area, a detection or a mill's pass on the item's record and
+  stops on it. `proposal_list` lists it. It is decided with
+  `proposal_decide`, never answered or suggested (`409 not_suggestible`).
 
 The operator outranks you: if they answer first, your job for that question
 is over. A `409 stale_prompt` means the question changed under you, usually
@@ -224,7 +224,7 @@ Every read works at Watch.
 |---|---|
 | What's it doing now? | `app_get_status`, `workflow_get_queue` |
 | What's on screen? | `app_get_display_images` (previews, with `acquired_at`) |
-| What's it asking? | `prompt_get`, `review_list` |
+| What's it asking? | `prompt_get`, `proposal_list` |
 | How has the run gone? | `experiment_get_task_history`; `workflow_get_summary` for the last workflow started in this app session |
 | Why did it fail? | `app_get_log` with the `task_id`, `level=WARNING` |
 | One lamella | `item_get`, `item_list_outputs`, `item_get_output_image` |
@@ -578,8 +578,8 @@ At the start of a session:
 2. Start the watcher before anything else, so nothing that happens while you
    read is missed.
 3. Read where things stand: `app_get_status`, `workflow_get_queue`,
-   `prompt_get`, `review_list`. A standing question or a `holding_the_run`
-   review comes first.
+   `prompt_get`, `proposal_list`. A standing prompt or a pending proposal
+   comes first.
 4. Before the first microscope action, get your bearings (above).
 5. At Drive, before you start workflows yourself, turn the run summary
    dialog off with `workflow_set_options(show_run_summary=false)` so no dialog

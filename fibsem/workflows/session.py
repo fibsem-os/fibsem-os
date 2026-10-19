@@ -90,9 +90,9 @@ class AppSession:
         # The agent as the operator meets it: its level, its requests and the
         # operator's messages (FIB-1461).
         self.agent = AgentSession(self)
-        # The surfaces attached to answer a run's questions (a window: the
+        # The surfaces attached to decide a run's proposals (a window: the
         # operator), while they are attached.
-        self._answerers: List[ActorKind] = []
+        self._deciders: List[ActorKind] = []
         self._analysis_services: Optional[Dict[str, Any]] = None
         # The correlation (``CorrelationSession``), made under the lock the
         # first time any thread asks for it.
@@ -123,27 +123,27 @@ class AppSession:
             self._analysis_services = analysis_services()
         return self._analysis_services
 
-    def attach_answerer(self, who: ActorKind) -> Callable[[], None]:
-        """``who`` is here to answer a run's questions, until the returned
+    def attach_decider(self, who: ActorKind) -> Callable[[], None]:
+        """``who`` is here to decide a run's proposals, until the returned
         detach is called: the window attaches the operator."""
-        self._answerers.append(who)
+        self._deciders.append(who)
 
         def detach() -> None:
             try:
-                self._answerers.remove(who)
+                self._deciders.remove(who)
             except ValueError:
                 pass
 
         return detach
 
-    def answerers(self) -> Tuple[ActorKind, ...]:
-        """Who can answer a question now: each attached surface, and the agent
+    def deciders(self) -> Tuple[ActorKind, ...]:
+        """Who can decide a proposal now: each attached surface, and the agent
         while the App Server serves it at Drive and it is listening (heard in
         the last ``AGENT_LISTENING_S``). Empty means nobody: a supervised
-        question still waits, for someone to come back."""
+        proposal still waits, for someone to come back."""
         from fibsem.ai.agent.levels import AGENT_LISTENING_S, AgentLevel
 
-        who = list(dict.fromkeys(self._answerers))
+        who = list(dict.fromkeys(self._deciders))
         host = self.app_server
         if (
             host is not None
@@ -164,7 +164,7 @@ class AppSession:
     @experiment.setter
     def experiment(self, experiment: Optional[Any]) -> None:
         """The open experiment, edited where the session edits it
-        (``ProposalReview.edit_executor``)."""
+        (``ProposalDecisions.edit_executor``)."""
         self._experiment = experiment
         if experiment is not None:
             experiment.edit_executor = self.run_edit

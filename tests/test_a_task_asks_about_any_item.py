@@ -27,7 +27,7 @@ TASK = "overview_sem"
 
 
 class _AsksAboutTheGrid(GridTask):
-    questions = (STATE,)
+    asks = (STATE,)
 
     def _run(self) -> None:
         pass
@@ -50,7 +50,7 @@ def task(tmp_path, microscope):
     config = BeamOverviewGridTaskConfig(task_name=TASK, attention=Attention.supervised)
     exp.grid_protocol.add(config)
     exp.sync_grids_from_inventory(microscope.sample_handling)
-    manager = GridTaskManager(microscope, exp, answerers=lambda: ())
+    manager = GridTaskManager(microscope, exp, deciders=lambda: ())
     return _AsksAboutTheGrid(
         microscope, config, exp.grids[0], experiment=exp, task_manager=manager
     )

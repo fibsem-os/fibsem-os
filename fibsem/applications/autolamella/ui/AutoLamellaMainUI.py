@@ -1522,14 +1522,14 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         sources = PreviewSources(lambda: self.autolamella_ui.experiment)
         self.agent_previews = AgentPreviews(
             lambda: getattr(self, "view_controller", None),
-            reference_image=sources.review_image,
+            reference_image=sources.proposal_image,
             task_config=sources.task_config,
             show_picture=self.agent_chip.card.set_image,
             item_pose=sources.item_pose,
             item_image=sources.item_image,
             overview_image=sources.overview_image,
             item_overview=sources.item_overview,
-            review_proposal=sources.review_proposal,
+            pending_proposal=sources.pending_proposal,
         )
         self._agent_chip_timer = QTimer(self)
         self._agent_chip_timer.setInterval(1000)
@@ -2476,8 +2476,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         right_tabs = QTabWidget()
 
         # History tab: what was done to this lamella, task by task, with each
-        # task's images. Not "Review": that is the main tab where decisions
-        # are made, and one thing in the window is called that.
+        # task's images.
         self.lamella_task_image_widget = LamellaTaskImageWidget()
 
         # Protocol tab: matplotlib canvas (left) + editor (right). The editor owns its

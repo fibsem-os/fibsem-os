@@ -35,7 +35,7 @@ class AcquireReferenceImageTask(AutoLamellaTask):
         AcquireReferenceImageConfig
     )
     # One question: is the position right, before the images are taken.
-    questions = (STATE,)
+    asks = (STATE,)
 
     def _run(self) -> None:
         """Run the task to acquire reference image with the specified settings."""

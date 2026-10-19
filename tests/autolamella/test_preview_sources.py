@@ -19,7 +19,7 @@ def test_previews_read_the_experiment(tmp_path):
     assert sources.task_config("L1", "NoSuchTask") is None
     assert sources.item_pose("L1", "no-such-pose") is None
     assert sources.item_image("L1") is None
-    assert sources.review_proposal({"proposal_id": "nope"}) is None
+    assert sources.pending_proposal({"proposal_id": "nope"}) is None
 
 
 def test_nothing_to_show_with_no_experiment_or_item(tmp_path):
@@ -30,4 +30,4 @@ def test_nothing_to_show_with_no_experiment_or_item(tmp_path):
         assert sources.item_image("missing") is None
         assert sources.overview_image("missing", "overview.tif") is None
         assert sources.item_overview("missing") is None
-        assert sources.review_image({"proposal_id": "nope"}) is None
+        assert sources.proposal_image({"proposal_id": "nope"}) is None

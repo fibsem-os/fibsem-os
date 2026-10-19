@@ -86,8 +86,8 @@ fibsem-mcp watch
 It finds the server as the sidecar does (`--url`/`--token`, the environment
 variables, the discovery file) and follows a restarted app the same way;
 `--since N` resumes after event N. It
-prints `PROMPT`, `ANSWERED`, `PROMPT WITHDRAWN`, `QUESTION`,
-`QUESTION RELEASED`, `REQUEST` (the agent's request decided, finished or
+prints `PROMPT`, `ANSWERED`, `PROMPT WITHDRAWN`, `PROPOSAL`,
+`PROPOSAL RELEASED`, `REQUEST` (the agent's request decided, finished or
 cancelled), `COMMAND ENDED` (a long command's end), task `EVENT` lines,
 `WORKFLOW STARTED`, `WORKFLOW ENDED` and `GAP` (events were lost; re-read the
 prompt and status). A workflow ends completed, cancelled, stalled or failed;

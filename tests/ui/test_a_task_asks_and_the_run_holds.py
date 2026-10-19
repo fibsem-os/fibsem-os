@@ -43,7 +43,7 @@ PROPOSED = {"features": [{"name": "LamellaCentre", "px": Point(10, 20)}]}
 
 
 class _AsksForADetection(MillRoughTask):
-    questions = (DETECTION, POINT_OF_INTEREST)
+    asks = (DETECTION, POINT_OF_INTEREST)
 
 
 @pytest.fixture
@@ -113,7 +113,7 @@ def _task(window):
         microscope=ui.microscope,
         experiment=experiment,
         responder=ui.ui_responder,
-        answerers=ui.session.answerers,
+        deciders=ui.session.deciders,
     )
     # The window hears it as it hears a run the runner starts.
     ui.session.runner.relay(manager)
@@ -155,7 +155,7 @@ def test_the_run_holds_on_the_question_until_it_is_decided(window, qapp):
     task, thread, seen = _start(window)
 
     assert _pump(qapp, lambda: ui.hold is not None), "the run is held"
-    assert ui.hold.kind is HoldKind.question
+    assert ui.hold.kind is HoldKind.proposal
     assert ui.hold.items == (f"{lamella.name}/{ROUGH}",)
     # The hold is set from the worker thread; the notification that puts the
     # question up is queued to this one, so it may land a moment later.
@@ -192,9 +192,9 @@ def test_the_run_holds_on_the_question_until_it_is_decided(window, qapp):
     assert ui.hold is None
     assert "error" not in seen
     assert _pump(qapp, lambda: ui._widget_question is None), "the prompt came down"
-    # The question is decided, and nothing waits on the task's own result.
-    question, result_proposal = lamella.proposals_from(ROUGH)
-    assert question is proposal and result_proposal.kind == "task_result"
+    # The proposal is decided, and the task proposes nothing when it ends.
+    (question,) = lamella.proposals_from(ROUGH)
+    assert question is proposal
     assert not question.pending
     assert lamella.task_state.status is TaskStatus.Completed
 
@@ -283,7 +283,7 @@ def test_every_declared_question_has_a_widget_to_answer_it_on():
 
     shown = set(WIDGET_KINDS) | set(LOOP_KINDS) | {STATE}
     for name, cls in get_tasks().items():
-        for kind in cls.questions:
+        for kind in cls.asks:
             assert kind in shown, f"{name} asks {kind!r}, which nothing puts up"
 
 

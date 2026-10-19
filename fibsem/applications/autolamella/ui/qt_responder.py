@@ -702,7 +702,7 @@ class QtResponder(QObject):
         # The main window re-addresses it to a connected agent when the task
         # is designated so.
         self._ui.hold = Hold(
-            kind=HoldKind.question, releases="answer the question on the Microscope tab"
+            kind=HoldKind.proposal, releases="answer the question on the Microscope tab"
         )
         # We are on the GUI thread that owns the widgets: show the prompt
         # directly, and ping the status channel (message=None: says nothing

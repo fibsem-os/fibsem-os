@@ -502,7 +502,7 @@ def test_evicted_events_print_a_gap_then_carry_on(microscope, tmp_path, discover
     def burst():
         for i in range(5):
             app.buffer.append("tick", {"i": i})
-        app.buffer.append("question_asked", {"item_name": "l1", "task_name": "Mill"})
+        app.buffer.append("proposal_held", {"item_name": "l1", "task_name": "Mill"})
         app.buffer.append("workflow_completed", {})
 
     try:
@@ -513,7 +513,7 @@ def test_evicted_events_print_a_gap_then_carry_on(microscope, tmp_path, discover
 
     assert code is None
     assert lines[0].startswith("GAP:")
-    assert lines[1].startswith("QUESTION item=l1 task=Mill")
+    assert lines[1].startswith("PROPOSAL item=l1 task=Mill")
     assert lines[2] == "WORKFLOW ENDED (workflow_completed)"
 
 
@@ -789,4 +789,4 @@ def test_a_question_held_before_the_watch_started_is_its_first_line(app):
     code, lines = _watch({}, until=lambda lines: len(lines) >= 1)
 
     assert code is None
-    assert lines == [watch_mod._question_line(lamella.name, "Setup Lamella Position")]
+    assert lines == [watch_mod._proposal_line(lamella.name, "Setup Lamella Position")]

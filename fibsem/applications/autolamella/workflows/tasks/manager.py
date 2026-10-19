@@ -63,7 +63,7 @@ class TaskManager(BaseTaskManager):
         experiment: "Experiment",
         hook_manager: Optional[HookManager] = None,
         responder: Optional[Responder] = None,
-        answerers: Optional[Callable[[], Tuple[ActorKind, ...]]] = None,
+        deciders: Optional[Callable[[], Tuple[ActorKind, ...]]] = None,
         images: Optional[Any] = None,
     ):
         super().__init__(
@@ -71,7 +71,7 @@ class TaskManager(BaseTaskManager):
             experiment,
             hook_manager,
             responder,
-            answerers,
+            deciders,
             images,
         )
         # Lamellae already finished when the run started, so re-running a task on

@@ -187,13 +187,13 @@ class MillFiducialTask(AutoLamellaTask):
 
     # The mill, a pass at a time. Then the alignment area around the
     # milled fiducial, asked on the post-mill image.
-    questions = (MILLING, ALIGNMENT_AREA)
+    asks = (MILLING, ALIGNMENT_AREA)
 
     @classmethod
-    def questions_for(cls, config) -> Tuple[str, ...]:
+    def asks_for(cls, config) -> Tuple[str, ...]:
         if not getattr(config, "confirm_alignment_area", True):
             return (MILLING,)
-        return cls.questions
+        return cls.asks
 
     config: MillFiducialTaskConfig
     config_cls: ClassVar[Type[MillFiducialTaskConfig]] = MillFiducialTaskConfig

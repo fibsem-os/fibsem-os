@@ -10,8 +10,8 @@ it would block the agent from acting on what it prints.
     fibsem-mcp watch --since 42          # resume after event 42
     python -m fibsem.ai.agent.mcp.sidecar watch   # where fibsem-mcp is not on PATH
 
-The lines: ``PROMPT``, ``ANSWERED``, ``PROMPT WITHDRAWN``, ``QUESTION``,
-``QUESTION RELEASED``, ``REQUEST`` (the agent's request decided, finished or
+The lines: ``PROMPT``, ``ANSWERED``, ``PROMPT WITHDRAWN``, ``PROPOSAL``,
+``PROPOSAL RELEASED``, ``REQUEST`` (the agent's request decided, finished or
 cancelled, FIB-1283), ``COMMAND ENDED``, ``MILL STAGE STARTED`` and
 ``MILL ENDED`` (every mill, whoever started it), task ``EVENT`` lines,
 ``WORKFLOW STARTED``, ``WORKFLOW ENDED``, ``MESSAGE`` (the operator wrote to
@@ -49,7 +49,7 @@ WORKFLOW_ENDS = {
     "workflow_stalled",
     "workflow_failed",
 }
-# Kinds worth a wake-up line of their own (prompts and questions have theirs).
+# Kinds worth a wake-up line of their own (prompts and proposals have theirs).
 INTERESTING = {
     "task_started",
     "task_completed",
@@ -168,11 +168,11 @@ def _print_events(events, since, out):
         kind = event.get("kind", "")
         data = event.get("payload") or {}
         since = max(since, event.get("seq", since))
-        if kind == "question_asked":
-            out(_question_line(data.get("item_name"), data.get("task_name")))
-        elif kind == "question_released":
+        if kind == "proposal_held":
+            out(_proposal_line(data.get("item_name"), data.get("task_name")))
+        elif kind == "proposal_released":
             out(
-                f"QUESTION RELEASED item={data.get('item_name')} "
+                f"PROPOSAL RELEASED item={data.get('item_name')} "
                 f"task={data.get('task_name')}"
             )
         elif kind == "prompt_raised":
@@ -324,16 +324,16 @@ def _counts(counts):
     return ", ".join((ran or ["nothing ran"]) + skipped)
 
 
-def _question_line(item_name, task_name):
+def _proposal_line(item_name, task_name):
     return (
-        f"QUESTION item={item_name} task={task_name} "
-        "-- the run is stopped on a recorded question: find it in "
-        "review_list (holding_the_run) and decide it"
+        f"PROPOSAL item={item_name} task={task_name} "
+        "-- the run is stopped on a proposal: find it in proposal_list "
+        "and decide it"
     )
 
 
-def _held_questions(client):
-    """The questions a run is stopped on now, as (item_name, task_name), from
+def _held_proposals(client):
+    """The proposals a run is stopped on now, as (item_name, task_name), from
     /app/workflow/status; empty when it cannot say."""
     try:
         response = client.request("GET", "/app/workflow/status", timeout=10.0)
@@ -392,7 +392,7 @@ def watch(client, out=None, sleep_fn=None, poll_s=POLL_S, clock=None, since=None
         out("NO EVENTS: the server has no event stream, so there is nothing to watch.")
         return 1
     stream = snapshot.get("stream")
-    # Started at the tail, a question asked before this watch began is behind
+    # Started at the tail, a proposal asked before this watch began is behind
     # the cursor: said below, first, while a run is live.
     held_before = since is None
     if since is None:
@@ -407,8 +407,8 @@ def watch(client, out=None, sleep_fn=None, poll_s=POLL_S, clock=None, since=None
     workflow_live = _run_is_live(client) is True
     if workflow_live and held_before:
         # An agent that reconnects to a held run hears what it is held on.
-        for item_name, task_name in _held_questions(client):
-            out(_question_line(item_name, task_name))
+        for item_name, task_name in _held_proposals(client):
+            out(_proposal_line(item_name, task_name))
     checked_at = clock()
 
     failures = 0

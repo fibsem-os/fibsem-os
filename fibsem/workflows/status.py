@@ -253,7 +253,7 @@ class WorkflowStatusEvent:
 class HoldKind(str, Enum):
     """Who is holding the run."""
 
-    question = "question"  # a supervised question is up, for the operator
+    proposal = "proposal"  # a supervised proposal is up, for the operator
 
 
 @dataclass(frozen=True)

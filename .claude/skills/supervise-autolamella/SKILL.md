@@ -33,22 +33,23 @@ leave the click to the operator, with a note saying why.
    the experiment*). Do not judge a stale image — wait or escalate.
 4. **First writer wins, and the operator outranks you.** If they answer first,
    your job for that question is over. Never race them.
-5. **A recorded question is decided, not answered.** A task asks a
-   position, a point of interest, an alignment area, a detection, or a
-   mill's or spot burn's pass on the item's record and stops on it; the
-   operator sees it on the widget it is answered on (the prompt bar, the
-   Detection tab, the milling editor, the marker or rectangle on the FIB
-   view). No prompt is raised for you: the watcher prints a
-   `QUESTION item=… task=…` line, and `review_list` lists it with
-   `holding_the_run: true` (its `proposal_id`, `kind`, `values` and image
-   are there). Decide it with `review_decide`: `item_id`, `task_name`,
+5. **A proposal is decided, not answered.** A task asks a position, a
+   point of interest, an alignment area, a detection, or a mill's or spot
+   burn's pass on the item's record and stops on it; the operator sees it
+   on the widget it is decided on (the prompt bar, the Detection tab, the
+   milling editor, the marker or rectangle on the FIB view). No prompt is
+   raised for you: the watcher prints a `PROPOSAL item=… task=…` line, and
+   `proposal_list` lists it (its `proposal_id`, `kind`, `values` and image
+   are there). Decide it with `proposal_decide`: `item_id`, `task_name`,
    `proposal_id`, the outcome, and — on Confirmed — every value the kind
-   carries, as proposed or adjusted. Rejected needs a reason and does what
-   the review's `rejected_fails_task` says: true, it fails the task that
-   asked; false (a `state` question), it means *don't* and the task carries
-   on. When unsure, hold and escalate rather than reject. Nothing runs
-   until it is decided, so take it before anything else. Once a task
-   ends, nothing waits on a decision: its result is used as proposed.
+   carries, as proposed or adjusted. Rejected needs a reason, and what it
+   does depends on the kind: a `detection`, an `alignment_area`, or a
+   `milling` or `spot_burn` pass fails the task; a `state` at a tilt means
+   *don't* tilt and the task carries on; any other `state` and a
+   `point_of_interest` are recorded and the task carries on as if
+   confirmed. When unsure, hold and escalate rather than reject. Nothing
+   runs until it is decided, so take it before anything else. Once a task
+   ends, nothing waits on a decision.
 
 ## Write down why
 
@@ -65,9 +66,9 @@ message; it may be a position instruction ("double click to move… press
 Continue") — for an already-placed item, Continue is safe; for a *new*
 placement, that is the operator's decision (see the ladder).
 
-**A `milling` review** — one pass of the mill, a recorded question (rule
+**A `milling` proposal** — one pass of the mill (rule
 5): `values.milling_config` is the config this pass would mill, and the
-image is the FIB view it sits on. Decide it with `review_decide` Confirmed
+image is the FIB view it sits on. Decide it with `proposal_decide` Confirmed
 and an `action`: `provenance.actions` lists the ones allowed now, and
 `provenance.passes` says how many times the mill has run for this task. No
 values mills it as proposed.
@@ -89,7 +90,7 @@ values mills it as proposed.
 - Between passes the question lends control, as any other does: image,
   move or re-align before the next `run`. Never during a mill.
 
-**An `alignment_area` review** — a recorded question (rule 5):
+**An `alignment_area` proposal** (rule 5):
 `values.alignment_area` is the rectangle (`left`, `top`, `width`,
 `height`, fractions of the frame, origin top-left) and the image is the
 frame it sits on (the post-mill FIB view in a fiducial task, where it
@@ -100,17 +101,17 @@ or with a **corrected rectangle** for a small correction you can justify
 from your criteria — never invent an area from scratch (that is an
 escalation). The task acquires its reference in the decided area.
 
-**A `point_of_interest` review** — a placement, and Setup's result: it is
-proposed at the end of the task on the final FIB image and does not hold
-the run; the milling tasks that follow the point wait on the decision.
+**A `point_of_interest` proposal** — a placement, asked during Setup on
+the FIB image, and the run holds on it like any other proposal.
 `values.poi` is `{"x", "y"}` in metres, milling frame (+y up, origin the
 image centre). In collaborative mode this is **held for the operator**:
 report it, show where the point is, and wait. Where placement has been
 delegated (exemplar mode, or an explicit "you place the rest"), confirm
 with the point you judge right; it is written through and the patterns
-that follow it move with it.
+that follow it move with it. Rejecting it changes nothing: the point stays
+as it was and the task carries on.
 
-**A `detection` review** — feature positions, a recorded question (rule
+**A `detection` proposal** — feature positions (rule
 5): `values.features` are the model's points in source-image pixels
 (origin top-left), each with a name. Held for the operator in
 collaborative mode. Confirm with the features as they are to say the model
@@ -118,7 +119,7 @@ was right; move one only for a correction you can state
 (`{"features": [{"name", "px": {"x", "y"}}]}`). The model's points are
 kept beside your correction, as they are when the operator drags one.
 
-**A `spot_burn` review** — one pass of the spot burn, the same loop as
+**A `spot_burn` proposal** — one pass of the spot burn, the same loop as
 the mill's: `values.spot_burn` is `{coordinates: [{x, y}], milling_current,
 exposure_time}` (fractions of the frame, origin top-left; A; s), decided
 Confirmed with an `action` from `provenance.actions`. Before a burn, `run`
@@ -129,18 +130,18 @@ exposure, confirm with the whole `values.spot_burn` (all the points,
 replacing the old). Placing points is a placement: held for the operator
 unless delegated. The question lends control between burns.
 
-**A `state` review** — the task's position, "press Continue when ready" on
+**A `state` proposal** — the task's position, "press Continue when ready" on
 the record (rule 5). Confirming carries no values: the task reads the
-instrument after the answer, so a move the operator made first is the
-delta. Rejecting is *don't*, not a failure (`rejected_fails_task: false`):
-at Setup's tilt question the task does not tilt and carries on at the angle
-it is at. Sanity-check its `message` against the run before confirming;
+instrument after the decision, so a move the operator made first is the
+delta. Rejecting is not a failure: at Setup's tilt question the task does not tilt and carries on at the angle
+it is at, and at any other `state` the task carries on as if confirmed.
+Sanity-check its `message` against the run before confirming;
 the ladder applies as for any `Confirm`.
 
 **Before a position or a POI: check coincidence.** Setup's position
 question ("Double click the image to move to the milling position… Press
-Continue", a `Confirm` or a `state` review) fixes where the lamella is
-milled, and the `point_of_interest` review after it fixes the point the
+Continue", a `Confirm` or a `state` proposal) fixes where the lamella is
+milled, and the `point_of_interest` proposal after it fixes the point the
 mills follow. Both
 beams have to be looking at the same target. Before you answer, suggest or
 place either:
@@ -160,7 +161,7 @@ Checking only the beam you moved in is not enough. A FIB stable move onto a
 cell once left the SEM centred on a different one, 30 µm away. Moving the
 stage after the position question invalidates the image the point is
 proposed on, so do the check at the position question; at the
-`point_of_interest` review, put the point on the target in its image.
+`point_of_interest` proposal, put the point on the target in its image.
 
 Unknown type → escalate. Do not guess an answer shape.
 
@@ -172,7 +173,7 @@ Unknown type → escalate. Do not guess an answer shape.
 - **Repeats, handle**: once a class has been confirmed, answer its repeats
   the same way without asking.
 - **Interactive types never ladder** in collaborative mode: the
-  `point_of_interest` and `detection` reviews, and any placement-flavoured
+  `point_of_interest` and `detection` proposals, and any placement-flavoured
   `Confirm` stay with the
   operator unless they explicitly delegate ("you place the rest").
 - **Anything novel or wrong-smelling breaks the ladder**: an unexpected

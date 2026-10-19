@@ -12,14 +12,14 @@ import yaml
 from fibsem.applications.volume.position import MILL_POSE, VolumePosition
 from fibsem.applications.volume.protocol import VolumeProtocol
 from fibsem.structures import MicroscopeState, Point
+from fibsem.workflows.deciding import ProposalDecisions
 from fibsem.workflows.experiment import EXPERIMENT_FILENAME, BaseExperiment
-from fibsem.workflows.review import ProposalReview
 from fibsem.workflows.saved_format import check_app
 
 PROTOCOL_FILENAME = "protocol.yaml"
 
 
-class VolumeExperiment(ProposalReview, BaseExperiment):
+class VolumeExperiment(ProposalDecisions, BaseExperiment):
     """Positions milled and imaged slice by slice. The protocol is saved beside
     the experiment, as ``protocol.yaml``."""
 

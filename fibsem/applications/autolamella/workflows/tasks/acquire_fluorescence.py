@@ -110,7 +110,7 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
 
     # "Run autofocus ... Press Continue when ready": a confirmation of the
     # state before the autofocus, on the record.
-    questions = (STATE,)
+    asks = (STATE,)
 
     config: AcquireFluorescenceImageConfig
     config_cls: ClassVar[Type[AcquireFluorescenceImageConfig]] = (

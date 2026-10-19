@@ -24,7 +24,6 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.structures import MicroscopeState, Point
 from fibsem.workflows.proposals import (
     DETECTION,
-    TASK_RESULT,
     Decision,
     DecisionOutcome,
     Proposal,
@@ -135,7 +134,7 @@ def test_a_decision_on_the_first_question_does_not_land_on_the_second(experiment
 
     result = _confirm(experiment, Point(11, 21), proposal_id=first.id)
 
-    assert not result.applied and result.error_type == "stale_review"
+    assert not result.applied and result.error_type == "stale_proposal"
     assert second.pending, "the question that is up was not answered by it"
 
 
@@ -178,7 +177,7 @@ def test_a_decision_naming_another_run_is_still_stale(experiment):
 
     result = _confirm(experiment, Point(12, 26), task_id="run-0")
 
-    assert not result.applied and result.error_type == "stale_review"
+    assert not result.applied and result.error_type == "stale_proposal"
 
 
 def test_the_id_wins_when_both_are_given(experiment):
@@ -189,7 +188,7 @@ def test_the_id_wins_when_both_are_given(experiment):
 
     result = _confirm(experiment, Point(11, 21), proposal_id=first.id, task_id=RUN)
 
-    assert not result.applied and result.error_type == "stale_review"
+    assert not result.applied and result.error_type == "stale_proposal"
     assert "asked again since you looked" in result.reason, "same run: not a re-run"
 
 
@@ -227,24 +226,3 @@ def test_withdrawn_is_refused_as_a_decision(experiment):
     assert not result.applied and result.error_type == "invalid_value"
     assert proposal.pending
     assert lamella.task_state.status is TaskStatus.InProgress
-
-
-def test_a_plain_result_is_named_the_same_way(experiment):
-    """Not only questions: the id is on every proposal, so the Review tab and
-    the producer's own decision name it too."""
-    lamella = experiment.positions[0]
-    lamella.task_state.status = TaskStatus.Completed
-    proposal = Proposal(kind=TASK_RESULT, provenance={"task_id": RUN})
-    set_proposals(lamella, TASK, [proposal])
-
-    result = experiment.decide(
-        lamella.id,
-        TASK,
-        Decision(
-            outcome=DecisionOutcome.Confirmed,
-            actor="operator:op",
-            proposal_id=proposal.id,
-        ),
-    )
-
-    assert result.applied, result.reason

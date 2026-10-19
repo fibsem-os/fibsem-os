@@ -31,7 +31,6 @@ from fibsem.workflows.proposals import (
     PROPOSAL_KINDS,
     SPOT_BURN,
     STATE,
-    TASK_RESULT,
     Decision,
     DecisionOutcome,
     Proposal,

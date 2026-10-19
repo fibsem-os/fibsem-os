@@ -179,7 +179,7 @@ is turning supervision back on.
 
 A **recorded question** (`QUESTION item=… task=…`: a position, an
 alignment area, a detection, a mill's or a spot burn's pass) is decided,
-not answered, so a suggestion is refused (`409 not_suggestible`). At Assist, file the `review_decide` call
+not answered, so a suggestion is refused (`409 not_suggestible`). At Assist, file the `proposal_decide` call
 as a request, with your reason.
 
 A suggestion leaves the click to the operator, so the supervise skill's

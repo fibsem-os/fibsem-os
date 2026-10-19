@@ -138,7 +138,7 @@ def _start(window):
         microscope=ui.microscope,
         experiment=experiment,
         responder=ui.ui_responder,
-        answerers=ui.session.answerers,
+        deciders=ui.session.deciders,
     )
     lamella = experiment.positions[0]
     task = MillUndercutTask(
@@ -191,7 +191,7 @@ def test_each_detection_is_answered_on_the_detection_tab_and_the_stage_follows(
         ui.hold,
     )
     first = _asking(lamella)
-    assert ui.hold.kind is HoldKind.question
+    assert ui.hold.kind is HoldKind.proposal
     assert _pump(qapp, lambda: ui.question_host() is ui.det_widget), "fronted"
     assert first.provenance["features"] == ["LamellaCentre"]
     assert first.provenance["reference_image"].endswith("_eb.tif")
@@ -240,7 +240,7 @@ def test_each_detection_is_answered_on_the_detection_tab_and_the_stage_follows(
         ui.label_instructions.text(),
         seen,
     )
-    assert ui.hold is not None and ui.hold.kind is HoldKind.question, "a session"
+    assert ui.hold is not None and ui.hold.kind is HoldKind.proposal, "a session"
     ui.pushButton_no.click()  # Continue, without milling
 
     # 4. the final alignment

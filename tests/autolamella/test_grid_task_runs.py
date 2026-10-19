@@ -1,15 +1,9 @@
-"""Grid tasks propose and are decided, the way lamella tasks are.
+"""Grid tasks run the way lamella tasks do.
 
 Real overview tasks on the Arctis simulator, run through a real GridTaskManager:
-every run records a proposal on the grid pointing at the stitched overview,
-and its values are used as proposed. Supervised (the protocol says so) asks
-its questions while it runs; nothing waits on a decision once it has ended.
-
-An overview proposes ``overview_positions`` -- where the lamellae go on this
-grid -- rather than a bare result, because that is the question the image is
-acquired to answer, and confirming it creates them (FIB-1015). These tests
-confirm with none placed, which is a real answer and keeps them about the
-run's lifecycle rather than about placing.
+a run is its history and its outputs, in either attention; nothing is proposed
+or waits on a decision once it has ended. Placing lamellae on the overview is
+the Grids window's, outside the record.
 """
 
 import os
@@ -37,11 +31,6 @@ from fibsem.workflows.grid.manager import (
 )
 from fibsem.workflows.grid.protocol import GridTaskProtocol
 from fibsem.workflows.outputs import latest_item_output
-from fibsem.workflows.proposals import (
-    OVERVIEW_POSITIONS,
-    Decision,
-    DecisionOutcome,
-)
 from fibsem.workflows.status import TaskStatus
 from tests.run_state import stub_session
 
@@ -172,70 +161,27 @@ class TestAttentionOnTheConfig:
 
 
 # ---------------------------------------------------------------------------
-# A run proposes
+# A run ends as its record
 # ---------------------------------------------------------------------------
 
 
-class TestAGridTaskProposes:
-    def test_automated_records_its_positions_unreviewed_when_the_run_ends(
-        self, microscope, experiment
+class TestAGridTaskEnds:
+    @pytest.mark.parametrize("attention", [Attention.automated, Attention.supervised])
+    def test_a_run_records_its_overview_and_proposes_nothing(
+        self, microscope, experiment, attention
     ):
-        """Nobody is asked and nobody confirms: the positions are used as
-        proposed and the record says Unreviewed the moment the run ends.
-        Nothing is left waiting on a decision."""
+        experiment.grid_protocol.task_config[OVERVIEW].attention = attention
         _run(microscope, experiment)
         grid = experiment.get_grid_by_name(GRID)
 
         assert grid.task_history[-1].status is TaskStatus.Completed
-        proposal = grid.proposal(OVERVIEW)
-        assert proposal.kind == OVERVIEW_POSITIONS
-        assert not proposal.pending and proposal.unreviewed
+        assert grid.has_completed_task(OVERVIEW)
+        overview = latest_item_output(experiment, grid, OVERVIEW)
+        assert overview is not None and "thumbnail" not in str(overview)
+        assert grid.proposals == []
         assert experiment.pending_proposals() == []
 
-    def test_the_proposal_points_at_the_stitched_overview_not_the_thumbnail(
-        self, microscope, experiment
-    ):
-        _run(microscope, experiment)
-        grid = experiment.get_grid_by_name(GRID)
-
-        reference = grid.proposal(OVERVIEW).provenance["reference_image"]
-        overview = latest_item_output(experiment, grid, OVERVIEW)
-        assert reference.endswith(".tif") and "thumbnail" not in reference
-        path = Path(experiment.item_path(grid)) / reference
-        # the record keeps a forward slash on every platform; compare the files
-        assert path.exists() and os.path.normpath(path) == os.path.normpath(overview)
-
-    def test_supervised_the_task_completes_and_its_positions_are_already_decided(
-        self, microscope, experiment
-    ):
-        """Nothing waits once the task has ended: it is Completed, its
-        positions used as proposed and recorded Unreviewed, and a later
-        decision on them is refused -- changing them is a re-run."""
-        experiment.grid_protocol.task_config[OVERVIEW].attention = Attention.supervised
-        _run(microscope, experiment)
-        grid = experiment.get_grid_by_name(GRID)
-
-        assert grid.task_state.status is TaskStatus.Completed
-        assert grid.has_completed_task(OVERVIEW)
-        assert grid.proposal(OVERVIEW).unreviewed
-        assert grid.proposal(OVERVIEW).task_id == grid.task_history[-1].task_id
-
-        result = experiment.decide(
-            grid.id,
-            OVERVIEW,
-            Decision(
-                outcome=DecisionOutcome.Confirmed,
-                actor="operator:op",
-                values={"positions": []},
-                task_id=grid.proposal(OVERVIEW).task_id,
-            ),
-        )
-        assert not result.applied and result.error_type == "invalid_value", result
-        assert "already decided" in result.reason
-        assert grid.has_completed_task(OVERVIEW)
-        assert len(grid.proposal(OVERVIEW).decisions) == 1
-
-    def test_a_failed_task_proposes_its_failure_and_stays_failed(
+    def test_a_failed_task_stays_failed_and_proposes_nothing(
         self, microscope, experiment
     ):
         experiment.grid_protocol.task_config[OVERVIEW].attention = Attention.supervised
@@ -247,9 +193,7 @@ class TestAGridTaskProposes:
         _run(microscope, experiment)
 
         assert grid.task_history[-1].status is TaskStatus.Failed
-        proposal = grid.proposal(OVERVIEW)
-        assert proposal.provenance["failure"]
-        assert proposal.provenance["reference_image"] == ""
+        assert grid.proposals == []
 
 
 def test_item_path_is_a_lamellas_own_and_a_grids_derived(tmp_path, experiment):

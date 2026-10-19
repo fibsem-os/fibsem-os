@@ -75,11 +75,11 @@ def test_a_status_event_leaves_a_pending_question_alone(ui):
     # The reason the channel exists: an answer belongs to one request, and merely
     # saying something must not complete it. The polled flag is gone entirely;
     # the display state a parked question sets must survive a status emit.
-    ui.hold = Hold(HoldKind.question, "answer the question on the Microscope tab")
+    ui.hold = Hold(HoldKind.proposal, "answer the question on the Microscope tab")
 
     ui.workflow_status_signal.emit(_status_event("Moving stage..."))
 
-    assert ui.hold is not None and ui.hold.kind is HoldKind.question
+    assert ui.hold is not None and ui.hold.kind is HoldKind.proposal
     assert not hasattr(ui, "WAITING_FOR_UI_UPDATE")
     ui.hold = None
 

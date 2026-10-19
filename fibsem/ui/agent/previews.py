@@ -141,7 +141,7 @@ def config_edit_stages(
 def review_passes(
     request: Dict[str, Any], proposal_for: Callable[[Dict[str, Any]], object]
 ) -> Tuple[List, List, List]:
-    """``(milled, kept, points)``: what the request's ``review_decide`` calls on
+    """``(milled, kept, points)``: what the request's ``proposal_decide`` calls on
     a loop's pass would do. A run mills ``milled`` (the pass's config as
     decided: the call's values, patched, else the pass's own) or burns
     ``points`` (fractions of the frame); a pass decided without running leaves
@@ -158,7 +158,7 @@ def review_passes(
 
     milled, kept, points = [], [], []
     for action in request.get("actions", []):
-        if action.get("tool") != "review_decide":
+        if action.get("tool") != "proposal_decide":
             continue
         arguments = action.get("arguments") or {}
         proposal = proposal_for(arguments)
@@ -706,16 +706,16 @@ class AgentPreviews:
         overview_image: Optional[Callable[[str, str], object]] = None,
         load_image: Optional[Callable[[str], object]] = None,
         item_overview: Optional[Callable[[str], object]] = None,
-        review_proposal: Optional[Callable[[Dict[str, Any]], object]] = None,
+        pending_proposal: Optional[Callable[[Dict[str, Any]], object]] = None,
     ) -> None:
         # Asked when there is something to draw: the views are built after this.
         self._view_controller = view_controller
-        # The image a review_decide action's values sit on (its arguments), or
+        # The image a proposal_decide action's values sit on (its arguments), or
         # None: the window reads it from the experiment.
         self._reference_image = reference_image or (lambda arguments: None)
-        # The pending proposal a review_decide action decides (its arguments),
+        # The pending proposal a proposal_decide action decides (its arguments),
         # or None: for a loop's pass, what it would run.
-        self._review_proposal = review_proposal or (lambda arguments: None)
+        self._pending_proposal = pending_proposal or (lambda arguments: None)
         # An item's task config (item name, task name), for a config edit's
         # patterns; None when there is none.
         self._task_config = task_config or (lambda item, task: None)
@@ -766,7 +766,7 @@ class AgentPreviews:
             return
         patterns = request_patterns(request)
         before, after = config_edit_stages(request, self._task_config)
-        passed, kept, _points = review_passes(request, self._review_proposal)
+        passed, kept, _points = review_passes(request, self._pending_proposal)
         milled = request_stages(request) + after + passed
         live = _frame(controller, BeamType.ION)
         aspect = live.data.shape[0] / live.data.shape[1] if live is not None else 2 / 3
@@ -837,7 +837,7 @@ class AgentPreviews:
         """``(image, ION, what)``: the image the first pass a request decides
         was asked on, and what the call names; None when it has none."""
         for action in request.get("actions", []):
-            if action.get("tool") != "review_decide":
+            if action.get("tool") != "proposal_decide":
                 continue
             image = self._reference_image(action.get("arguments") or {})
             if _has_pixel_size(image):
@@ -914,7 +914,7 @@ class AgentPreviews:
             tool = action.get("tool")
             arguments = action.get("arguments") or {}
             self._item_marks(tool, arguments, add)
-            if tool == "review_decide":
+            if tool == "proposal_decide":
                 self._review_marks(request, action, arguments, add)
             elif tool == "item_update":
                 # Metres in the item's milling frame, and fractions of it: on
@@ -956,7 +956,7 @@ class AgentPreviews:
         point of interest, a spot burn's points."""
         poi = _point((arguments.get("values") or {}).get("poi"))
         _milled, _kept, points = review_passes(
-            {"actions": [action]}, self._review_proposal
+            {"actions": [action]}, self._pending_proposal
         )
         if poi is None and not points:
             return

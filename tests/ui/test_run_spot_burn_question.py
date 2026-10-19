@@ -149,7 +149,7 @@ def _task(ui, points=((0.5, 0.5),)):
         microscope=ui.microscope,
         experiment=ui.experiment,
         responder=ui.ui_responder,
-        answerers=ui.session.answerers,
+        deciders=ui.session.deciders,
     )
     # The window hears it as it hears a run the runner starts.
     ui.session.runner.relay(manager)
@@ -258,7 +258,7 @@ def test_run_then_accept_burns_once_on_the_workflow_thread(ui, qapp):
     assert ui.pushButton_yes.text() == "Run Spot Burn"
     assert ui.pushButton_no.text() == "Skip"
     assert ui.spot_burn_widget._workflow_mode is True
-    assert ui.hold is not None and ui.hold.kind is HoldKind.question
+    assert ui.hold is not None and ui.hold.kind is HoldKind.proposal
 
     ui.pushButton_yes.click()  # run
     _wait_for_prompt(ui, qapp, AGAIN_HINT)

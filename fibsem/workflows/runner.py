@@ -125,7 +125,7 @@ class RunRules:
 
     ``check(experiment, microscope, request)`` refuses the request or accepts
     it with its names resolved; ``make_manager(microscope, experiment,
-    request, hook_manager=, responder=, answerers=, images=)`` makes the run's
+    request, hook_manager=, responder=, deciders=, images=)`` makes the run's
     task manager. The same check is asked before work joins a running queue.
     ``plan_addition(queue, request, run_next)`` is the pairs that adding the
     request queues, or a refusal; each task over each item by default.
@@ -319,7 +319,7 @@ class WorkflowRunner:
                 request,
                 hook_manager=self.run_hooks(experiment.app),
                 responder=self._session.responder,
-                answerers=self._session.answerers,
+                deciders=self._session.deciders,
                 images=self._session.images,
             )
             self.relay(self.manager)

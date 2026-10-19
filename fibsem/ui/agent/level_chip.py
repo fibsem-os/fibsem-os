@@ -51,9 +51,9 @@ from fibsem.ui.agent.style import (
 from fibsem.ui.tokens import (
     BORDER_COLOR,
     PURPLE_COLOR,
-    REVIEW_COLOR,
     TEXT_MUTED_COLOR,
     TEXT_STRONG_COLOR,
+    WAITING_COLOR,
 )
 
 __all__ = [

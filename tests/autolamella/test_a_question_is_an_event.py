@@ -2,7 +2,7 @@
 
 ``ask`` raises no prompt, so nothing in the event stream told a watcher the
 run had stopped to be told something. The manager's hold on the question
-records ``question_asked`` when it is raised and ``question_released`` when
+records ``proposal_held`` when it is raised and ``proposal_released`` when
 it is let go, through the microscope's ``record_event``, which is what the
 event stream taps. A microscope without one records nothing.
 """
@@ -33,12 +33,12 @@ def test_the_hold_on_a_question_is_two_events(tmp_path):
         )
     )
 
-    with manager.holding_a_question("L1", "Trench"):
+    with manager.holding_a_proposal("L1", "Trench"):
         assert microscope.recorded == [
-            ("question_asked", {"item_name": "L1", "task_name": "Trench"})
+            ("proposal_held", {"item_name": "L1", "task_name": "Trench"})
         ]
     assert microscope.recorded[-1] == (
-        "question_released",
+        "proposal_released",
         {"item_name": "L1", "task_name": "Trench"},
     )
 
@@ -50,13 +50,13 @@ def test_a_microscope_with_no_record_records_nothing(tmp_path):
             experiment=make_experiment(tmp_path, lamella_names=["L1"]),
         )
     )
-    with manager.holding_a_question("L1", "Trench"):
+    with manager.holding_a_proposal("L1", "Trench"):
         pass
 
 
 def test_who_can_answer_changing_is_on_the_record(tmp_path):
     """While a question waits, the window opening or the agent going quiet is
-    said once, as ``question_waiting``, so a watcher can tell why it waits."""
+    said once, as ``proposal_waiting``, so a watcher can tell why it waits."""
     from fibsem.acting import OPERATOR
 
     microscope = RecordingMicroscope()
@@ -65,18 +65,18 @@ def test_who_can_answer_changing_is_on_the_record(tmp_path):
         TaskManager(
             microscope=microscope,
             experiment=make_experiment(tmp_path, lamella_names=["L1"]),
-            answerers=lambda: tuple(who),
+            deciders=lambda: tuple(who),
         )
     )
 
-    with manager.holding_a_question("L1", "Trench") as refresh:
+    with manager.holding_a_proposal("L1", "Trench") as refresh:
         refresh()
-        assert [kind for kind, _ in microscope.recorded] == ["question_asked"]
+        assert [kind for kind, _ in microscope.recorded] == ["proposal_held"]
         who.append(OPERATOR)
         refresh()
         refresh()
     assert microscope.recorded[1] == (
-        "question_waiting",
-        {"item_name": "L1", "task_name": "Trench", "answerers": ["operator"]},
+        "proposal_waiting",
+        {"item_name": "L1", "task_name": "Trench", "deciders": ["operator"]},
     )
-    assert [kind for kind, _ in microscope.recorded][2:] == ["question_released"]
+    assert [kind for kind, _ in microscope.recorded][2:] == ["proposal_released"]

@@ -93,7 +93,7 @@ def test_a_decision_on_it_is_refused_as_stale(experiment):
         ),
     )
 
-    assert not result.applied and result.error_type == "stale_review", result
+    assert not result.applied and result.error_type == "stale_proposal", result
 
 
 def test_a_value_nobody_was_asked_about_loads_as_it_was(experiment):
