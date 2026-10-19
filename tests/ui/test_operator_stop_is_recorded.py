@@ -52,36 +52,39 @@ def _stops(recorder):
     return [(e["payload"], e["actor"]) for e in events if e["kind"] == "workflow_stop"]
 
 
-def test_the_stop_button_records_the_operator_s_stop(main_ui, recorder, monkeypatch):
-    stopped = []
+@pytest.fixture
+def runner(main_ui, monkeypatch):
+    """A run going, for the runner to record its stop against."""
+    ui = main_ui.autolamella_ui
+    stub = StubRunner(ui.session, is_running=True)
+    monkeypatch.setattr(ui.session, "runner", stub)
+    yield stub
+    stub.is_running = False  # so closing the window asks nothing
+
+
+def test_the_stop_button_records_the_operator_s_stop(
+    main_ui, recorder, runner, monkeypatch
+):
     monkeypatch.setattr(
         QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Yes)
     )
-    monkeypatch.setattr(
-        main_ui.autolamella_ui, "stop_task_workflow", lambda: stopped.append(True)
-    )
     main_ui._on_stop_workflow_clicked()
-    assert stopped == [True]
+    assert runner.stops == ["run"]
     assert _stops(recorder) == [({"stopped": "workflow", "via": "Stop"}, "operator")]
 
 
-def test_a_stop_not_confirmed_records_nothing(main_ui, recorder, monkeypatch):
+def test_a_stop_not_confirmed_records_nothing(main_ui, recorder, runner, monkeypatch):
     monkeypatch.setattr(
         QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.No)
     )
-    monkeypatch.setattr(
-        main_ui.autolamella_ui,
-        "stop_task_workflow",
-        lambda: pytest.fail("stopped without a yes"),
-    )
     main_ui._on_stop_workflow_clicked()
+    assert runner.stops == [], "stopped without a yes"
     assert _stops(recorder) == []
 
 
-def test_closing_the_window_mid_run_records_the_stop(main_ui, recorder, monkeypatch):
-    ui = main_ui.autolamella_ui
-    monkeypatch.setattr(ui.session, "runner", StubRunner(ui.session, is_running=True))
-    monkeypatch.setattr(ui, "stop_task_workflow", lambda: None)
+def test_closing_the_window_mid_run_records_the_stop(
+    main_ui, recorder, runner, monkeypatch
+):
     monkeypatch.setattr(QMessageBox, "exec_", lambda self: QMessageBox.Yes)
     assert main_ui._confirm_close_during_workflow() is True
     assert _stops(recorder) == [

@@ -427,6 +427,7 @@ class AutoLamellaUI(QMainWindow):
         runner.starting.connect(self._on_run_starting)
         runner.finished.connect(self._on_run_finished)
         runner.notice.connect(self._on_run_notice)
+        runner.queue_changed.connect(self._on_run_queue_changed)
 
         # workflow info
         self.set_current_workflow_message(msg=None, show=False)
@@ -1131,6 +1132,11 @@ class AutoLamellaUI(QMainWindow):
         """A hook's notice, from the run's thread: signals are thread-safe."""
         self._hook_toast_signal.emit(message, notification_type)
 
+    def _on_run_queue_changed(self, info: dict) -> None:
+        """The running queue was edited, from any thread: signals are
+        thread-safe."""
+        self.queue_changed_signal.emit(info)
+
     def _run_on_gui_thread(self, call) -> "Future":
         """The session's executor: ``call()`` on the GUI thread as whoever
         called this; any thread. Resolves to its result, or its exception."""
@@ -1693,21 +1699,23 @@ class AutoLamellaUI(QMainWindow):
         except Exception:
             logging.exception("editor refresh after agent config patch failed")
 
-    def stop_task_workflow(self):
+    def stop_task_workflow(self, actor=None, via: str = "") -> None:
+        """Stop the run and bring the hardware to a halt; ``actor`` and ``via``
+        say who stopped it and from where, for the record (``runner.stop``)."""
         if not self.session.runner.is_running:
             return
-        self.session.runner.stop()
+        self.session.runner.stop(actor=actor, via=via)
         self.stop_current_operations()
         self.workflow_stopping_signal.emit()
 
-    def stop_current_task(self) -> None:
+    def stop_current_task(self, actor=None, via: str = "", **details) -> None:
         """Abandon the task now running and carry on with the rest of the queue.
 
         Stop Task's two halves, as Stop Workflow has them: tell the queue this
         task is being abandoned, and bring the hardware to a halt. Without the
         second, the task stops waiting for the mill but the mill keeps going.
         """
-        self.session.runner.stop_task()
+        self.session.runner.stop_task(actor=actor, via=via, **details)
         self.stop_current_operations()
 
     #### UI UPDATES

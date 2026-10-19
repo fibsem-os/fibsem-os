@@ -11,6 +11,8 @@ import time
 from contextlib import contextmanager
 from typing import Any, Callable, Dict, List, Optional, Protocol, Set, Tuple
 
+from psygnal import Signal
+
 from fibsem.acting import WORKFLOW, ActorKind
 from fibsem.cancellation import AnyStopEvent, OperationCancelledError
 from fibsem.control import MicroscopeBusy
@@ -52,12 +54,11 @@ class WorkflowExperiment(Protocol):
 
 class WorkflowWindow(Protocol):
     """What the manager tells a window about a run: who holds it, whether it
-    waits between tasks, and the queue and status channels. Written on the
+    waits between tasks, and the status channel. Written on the
     worker thread; the window reads them on its own."""
 
     hold: Optional[Hold]
     WORKFLOW_PENDING: bool
-    queue_changed_signal: Any
     workflow_status_signal: Any
 
 
@@ -80,7 +81,12 @@ class BaseTaskManager:
     UI, and the hook run context. What they do not share is the run loop, which
     each subclass writes: what an item is, how it is looked up, when it is skipped
     and what it costs to reach are the whole difference between the two.
+
+    ``queue_changed({queue_items, version})`` is emitted on whichever thread
+    edited the queue; the session's runner relays it.
     """
+
+    queue_changed = Signal(dict)
 
     def __init__(
         self,
@@ -567,7 +573,7 @@ class BaseTaskManager:
         return self._abort_token
 
     def notify_queue_changed(self) -> None:
-        """Tell the UI the queue's contents changed, outside the task lifecycle.
+        """Say the queue's contents changed, outside the task lifecycle.
 
         Status updates only fire when a task starts, finishes or is skipped, so
         an edit made between two tasks would otherwise stay invisible until the
@@ -577,9 +583,7 @@ class BaseTaskManager:
         edit is not a step in the task lifecycle, and the status handler
         repaints run chrome an edit must not touch.
         """
-        if self.parent_ui is None:
-            return
-        self.parent_ui.queue_changed_signal.emit(
+        self.queue_changed.emit(
             {
                 "queue_items": self.queue.items,  # thread-safe snapshot
                 "version": self.queue.version,

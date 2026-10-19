@@ -5,6 +5,8 @@ import threading
 from dataclasses import replace
 from typing import Any, Callable, List, Optional
 
+from psygnal import Signal
+
 from fibsem.workflows.runner import (
     APP_RUNS,
     GRIDS,
@@ -31,13 +33,13 @@ class StubRunner(WorkflowRunner):
         self.is_running = is_running
         self.stops: list = []
 
-    def stop(self) -> None:
+    def stop(self, **who) -> None:
         self.stops.append("run")
-        super().stop()
+        super().stop(**who)
 
-    def stop_task(self) -> None:
+    def stop_task(self, **who) -> None:
         self.stops.append("task")
-        super().stop_task()
+        super().stop_task(**who)
 
 
 def stub_session(manager: Optional[Any] = None, is_running: bool = False) -> AppSession:
@@ -59,6 +61,7 @@ class HeldManager:
     its slot without touching the microscope."""
 
     should_abort = False
+    queue_changed = Signal(dict)
 
     def __init__(self, request: Any, on_execute: Optional[Callable[[], None]] = None):
         self.request = request

@@ -6,7 +6,6 @@ import logging
 import os
 import sys
 import time
-import uuid
 from dataclasses import replace
 from typing import Callable, List, Optional, Tuple
 
@@ -1604,9 +1603,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # server starts and stops with the microscope connection, from the other
         # window, and a poll a second is cheaper than threading that through.
         self.agent_chip = AgentLevelChip(
-            last_heard=self._agent_seconds_since_seen,
+            last_heard=lambda: self._agent.seconds_since_seen(),
             parent=self.status_bar,
-            agent_client=self._agent_client,
+            agent_client=lambda: self._agent.client(),
         )
         self.agent_chip.hide()
         self.agent_chip.level_chosen.connect(self._on_agent_level_chosen)
@@ -1623,11 +1622,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # down before it says the question was answered).
         self._dropped_agent_suggestion: Optional[dict] = None
         self.status_bar.add_action(self.agent_chip)
-        # The agent's requests (FIB-1283): the store being watched, and the
-        # requests whose outcome a toast has already said (FIB-1404).
-        self._agent_requests = None
-        self._agent_requests_unsubscribe = None
-        self._agent_requests_reported: set = set()
+        # The agent's requests (FIB-1283) move the chip as they change.
         self.agent_request_changed.connect(self._refresh_agent_chip)
         # What the agent is doing on the microscope, on the line (FIB-1375).
         self.agent_activity = AgentActivity(
@@ -1680,9 +1675,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             QMessageBox.No,
         )
         if reply == QMessageBox.Yes and self.autolamella_ui is not None:
-            self._record_operator_stop("workflow", "Stop")
             # The border goes red on workflow_stopping_signal, as for any stop.
-            self.autolamella_ui.stop_task_workflow()
+            self.autolamella_ui.stop_task_workflow(actor=OPERATOR, via="Stop")
 
     def _on_workflow_stopping(self) -> None:
         """A stop was asked of the run, from any source. A bound method rather
@@ -3491,8 +3485,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             box.setDefaultButton(QMessageBox.No)
             if box.exec_() != QMessageBox.Yes:
                 return
-            self._record_operator_stop("task", "Stop Task", task=label)
-            self.autolamella_ui.stop_current_task()
+            self.autolamella_ui.stop_current_task(
+                actor=OPERATOR, via="Stop Task", task=label
+            )
             # No queue mutation here: the task unwinds on the worker thread and the
             # status it emits on the way out is what updates the timeline.
             self._show_queue_message(f"Stopping {label}...")
@@ -3708,7 +3703,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             open_in_browser,
         )
 
-        host = self._running_app_server()
+        host = self._agent.host
         if host is None:
             return
         open_in_browser(AppServerDialog.event_log_url(host))
@@ -3745,33 +3740,28 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         )
         self.autolamella_ui.set_app_server_microscope(serve)
 
-    def _running_app_server(self):
-        """The App Server's host while it runs, else None."""
-        host = self.autolamella_ui.session.app_server
-        if host is None or not getattr(host, "running", False):
-            return None
-        if getattr(host, "auth", None) is None:
-            return None
-        return host
+    @property
+    def _agent(self):
+        """The agent as the operator meets it (``fibsem.ai.agent.session``)."""
+        return self.autolamella_ui.session.agent
 
     def _refresh_agent_chip(self) -> None:
         """Show the chip while the App Server runs, at the level its auth holds."""
         recorder = self.autolamella_ui.session.recorder
         self.agent_activity.follow_events(getattr(recorder, "buffer", None))
-        host = self._running_app_server()
-        if host is None:
-            self._watch_agent_requests(None)
+        agent = self._agent
+        level = agent.level
+        self._follow_agent_requests()
+        if level is None:
+            self.agent_chip.set_request(None)
             self.agent_previews.show_request(None)
             self.agent_chip.hide()
             self._set_agent_driving(False)
             return
-        level = host.auth.level or AgentLevel.WATCH
         if self.agent_chip.level is not level:
             self.agent_chip.set_level(level)
         self._set_agent_driving(level is AgentLevel.DRIVE)
-        store = getattr(host, "requests", None)
-        self._watch_agent_requests(store)
-        self._show_agent_request(store)
+        self._show_agent_request()
         self.agent_chip.show()
 
     def _set_agent_driving(self, driving: bool) -> None:
@@ -3782,44 +3772,23 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._agent_driving = driving
         self._apply_border()
 
-    def _watch_agent_requests(self, store) -> None:
-        """Follow *store*'s changes, so the chip moves as a request is filed and
-        applied rather than on the next poll."""
-        if store is self._agent_requests:
-            return
-        if self._agent_requests_unsubscribe is not None:
-            self._agent_requests_unsubscribe()
-            self._agent_requests_unsubscribe = None
-        self._agent_requests = store
-        if store is None:
-            self.agent_chip.set_request(None)
-            return
-        # What ended before the window was watching is not news.
-        self._agent_requests_reported.update(
-            request.id
-            for request in store.recent()
-            if request.status not in ("pending", "applying")
-        )
+    def _follow_agent_requests(self) -> None:
+        """Move the chip as a request is filed and applied rather than on the
+        next poll."""
 
-        def changed(_request, signal=self.agent_request_changed):
+        def changed(signal=self.agent_request_changed):
             try:
                 signal.emit()
             except RuntimeError:  # the window has gone
                 pass
 
-        self._agent_requests_unsubscribe = store.subscribe(changed)
+        self._agent.follow(changed)
 
-    def _show_agent_request(self, store) -> None:
+    def _show_agent_request(self) -> None:
         """The chip shows a request waiting or being applied; how one ended is
         said once, as a toast, so the status bar keeps what is running now."""
-        current = None
-        for request in store.recent() if store is not None else []:
-            if request.status in ("pending", "applying"):
-                current = current or request
-                continue
-            if request.id in self._agent_requests_reported:
-                continue
-            self._agent_requests_reported.add(request.id)
+        agent = self._agent
+        for request in agent.outcomes():
             outcome = request_outcome(request.to_dict())
             if outcome is not None:
                 message, kind = outcome
@@ -3831,8 +3800,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                     if kind == "error"
                     else None,
                 )
+        current = agent.current()
         if current is not None and current.status == "pending":
-            self._describe_agent_request_again(store, current.id)
+            self._describe_agent_request_again(agent.requests, current.id)
         shown = current.to_dict() if current is not None else None
         if shown != self.agent_chip.request:
             self.agent_chip.set_request(shown)
@@ -3870,125 +3840,36 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     ) -> None:
         from fibsem.server.requests import RequestRefused
 
-        host = self._running_app_server()
-        store = getattr(host, "requests", None) if host is not None else None
-        if store is None:
-            return
         try:
             if approve:
-                store.approve(request_id)
+                self._agent.approve(request_id)
             else:
-                store.reject(request_id, reason=reason)
+                self._agent.reject(request_id, reason=reason)
         except RequestRefused as refused:
             notification_service.show_toast(f"Agent's request: {refused}", "error")
-        logging.info(
-            "Agent's request %s %s by the operator",
-            request_id,
-            "approved" if approve else "rejected",
-        )
         self._refresh_agent_chip()
 
     def _on_agent_level_chosen(self, level: AgentLevel) -> None:
         """GUI thread, from the chip's menu: set the agent's level, effective for
         its next request."""
-        host = self._running_app_server()
-        if host is not None:
-            previous = host.auth.level
-            refused = self.autolamella_ui.session.set_agent_level(level)
+        if self._agent.host is not None:
+            refused = self._agent.set_level(level)
             if refused:
                 notification_service.show_toast(refused, "error")
-            else:
-                logging.info("Agent level set to %s by the operator", level.value)
-                self._record_agent_event(
-                    "agent_level_set", previous=previous, level=level
-                )
         self._refresh_agent_chip()
 
     def _on_stop_agent(self) -> None:
-        """GUI thread, from the chip: the brake. Down to Watch at once, without
-        asking; the agent's next action is refused as stopped, and what it is
-        doing on the microscope is stopped (FIB-1267). A running workflow is
-        left running -- runs are the app's, with their own Stop."""
-        host = self._running_app_server()
-        if host is not None:
-            previous = host.auth.level
-            stopped = host.stop_agent(self.autolamella_ui.microscope)
-            logging.warning(
-                "Agent stopped by the operator: level set to watch%s",
-                f"; stopped {stopped}" if stopped else "",
-            )
-            self._record_agent_event(
-                "agent_stopped",
-                previous=previous,
-                level=host.auth.level,
-                stopped=stopped,
-            )
+        """GUI thread, from the chip: the brake (``AgentSession.stop``)."""
+        self._agent.stop()
         self._refresh_agent_chip()
 
-    def _record_operator_stop(self, stopped: str, via: str, **extra) -> None:
-        """Put the operator's stop on the session's record (events.jsonl) and in
-        the log, before the stop runs: what was stopped (the workflow or one
-        task) and from where. Without it a stop leaves only the run's
-        ``task_cancelled``, which does not say who stopped it (FIB-1397). The
-        agent's stop records itself (``agent_stop``)."""
-        logging.info("%s stopped by the operator (%s)", stopped.capitalize(), via)
-        recorder = self.autolamella_ui.session.recorder
-        if recorder is None:
-            return
-        recorder.buffer.append(
-            "workflow_stop", {"stopped": stopped, "via": via, **extra}, actor=OPERATOR
-        )
-
     def _on_operator_message(self, text: str) -> None:
-        """GUI thread, from the card: put the operator's message to the agent on
-        the session's record, where the agent's watch hears it as a ``MESSAGE``
-        line and the agent answers with a note naming its id (FIB-1423)."""
-        recorder = self.autolamella_ui.session.recorder
-        if recorder is None:
+        """GUI thread, from the card: the operator's message to the agent
+        (``AgentSession.message``)."""
+        if self._agent.message(text) is None:
             notification_service.show_toast(
                 "No experiment is recording: the agent can't hear messages", "warning"
             )
-            return
-        message_id = uuid.uuid4().hex[:8]
-        logging.info("Operator message to the agent (%s): %s", message_id, text)
-        recorder.buffer.append(
-            "operator_message", {"id": message_id, "text": text}, actor=OPERATOR
-        )
-
-    def _record_agent_event(self, kind: str, previous, level, **extra) -> None:
-        """Put a level change on the session's record (events.jsonl). Emitted
-        here, on the GUI thread, so the recorder names the operator."""
-        recorder = self.autolamella_ui.session.recorder
-        if recorder is None:
-            return
-        recorder.buffer.append(
-            kind,
-            {
-                "previous": previous.value if previous is not None else None,
-                "level": level.value,
-                **extra,
-            },
-        )
-
-    def _agent_seconds_since_seen(self) -> Optional[float]:
-        """Seconds since the agent's token last made a request, or None."""
-        host = self.autolamella_ui.session.app_server
-        if host is None:
-            return None
-        try:
-            return host.agent_seconds_since_seen()
-        except Exception:
-            return None
-
-    def _agent_client(self) -> Optional[str]:
-        """The MCP client the agent's sidecar named, or None."""
-        host = self.autolamella_ui.session.app_server
-        if host is None:
-            return None
-        try:
-            return host.agent_client()
-        except Exception:
-            return None
 
     def _on_question_event(self, kind: str, payload: dict, actor: str) -> None:
         """GUI thread, from the responder: a question was raised, answered or
@@ -4601,8 +4482,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         box.setDefaultButton(QMessageBox.No)
         if box.exec_() != QMessageBox.Yes:
             return False
-        self._record_operator_stop("workflow", "closing the window")
-        ui.stop_task_workflow()
+        ui.stop_task_workflow(actor=OPERATOR, via="closing the window")
         return True
 
     def closeEvent(self, event):

@@ -182,12 +182,15 @@ class WorkflowRunner:
     chrome there, whoever started the run. ``finished(cancelled)`` is
     emitted on the run's thread when it has ended. ``notice(message, type)``
     is what a hook asks to be shown, from the run's thread; with nobody
-    listening, notification hooks log instead.
+    listening, notification hooks log instead. ``queue_changed(info)`` is the
+    running queue's ``BaseTaskManager.queue_changed``, from whichever thread
+    edited it: a window or a headless listener hears it the same way.
     """
 
     starting = Signal(object)
     finished = Signal(bool)
     notice = Signal(str, str)
+    queue_changed = Signal(dict)
 
     def __init__(self, session: Any) -> None:
         self._session = session
@@ -214,17 +217,40 @@ class WorkflowRunner:
         manager = self.manager
         return manager is not None and manager.should_abort
 
-    def stop(self) -> None:
-        """End the run after the task now running unwinds."""
+    def stop(self, actor: Any = None, via: str = "", **details: Any) -> None:
+        """End the run after the task now running unwinds. Named, ``actor``'s
+        stop goes on the record first, saying from where (``via``)."""
+        self._record_stop("workflow", actor, via, details)
         manager = self.manager
         if manager is not None:
             manager.stop()
 
-    def stop_task(self) -> None:
-        """Abandon the task now running and go on with the rest."""
+    def stop_task(self, actor: Any = None, via: str = "", **details: Any) -> None:
+        """Abandon the task now running and go on with the rest; recorded as
+        :meth:`stop` records."""
+        self._record_stop("task", actor, via, details)
         manager = self.manager
         if manager is not None:
             manager.stop_task()
+
+    def _record_stop(
+        self, stopped: str, actor: Any, via: str, details: Dict[str, Any]
+    ) -> None:
+        """Put a stop on the session's record (events.jsonl) and in the log,
+        before it runs: what was stopped, by whom and from where. Without it a
+        stop leaves only the run's ``task_cancelled``, which does not say who
+        stopped it (FIB-1397). The agent's stop records itself (``agent_stop``),
+        so a stop with no actor named records nothing here."""
+        if actor is None or not self.is_running:
+            return
+        logging.info("%s stopped by the %s (%s)", stopped.capitalize(), actor, via)
+        buffer = self._event_buffer()
+        if buffer is not None:
+            buffer.append(
+                "workflow_stop",
+                {"stopped": stopped, "via": via, **details},
+                actor=actor,
+            )
 
     def rules(self, experiment: Any, kind: str) -> RunRules:
         if kind == GRIDS:
@@ -291,6 +317,7 @@ class WorkflowRunner:
                 responder=self._session.responder,
                 answerers=self._session.answerers,
             )
+            self.manager.queue_changed.connect(self.queue_changed)
             # The run is whoever started it: the agent's run records its
             # events as the agent's (FIB-1276), so it runs in a copy of the
             # starter's context.

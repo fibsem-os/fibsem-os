@@ -426,6 +426,8 @@ def manager(widget, tmp_path) -> TaskManager:
     m = TaskManager(
         microscope=_NoMicroscope(), experiment=experiment, parent_ui=parent_ui
     )
+    # What AutoLamellaUI does with the runner's relay of it: re-emit on Qt.
+    m.queue_changed.connect(lambda info: parent_ui.queue_changed_signal.emit(info))
     m.queue.build_from_matrix(
         ["Trench", "Undercut"], [p.name for p in experiment.positions]
     )
@@ -464,14 +466,17 @@ def test_notify_queue_changed_reaches_the_timeline(widget, manager):
     assert [r._label.text() for r in widget._outer._rows[0]._inner_rows] == ["Setup"]
 
 
-def test_notify_queue_changed_is_a_noop_headless(tmp_path):
+def test_notify_queue_changed_is_heard_headless(tmp_path):
     m = TaskManager(
         microscope=_NoMicroscope(),
         experiment=_experiment(tmp_path, names=["L1"]),
         parent_ui=None,
     )
     m.queue.build_from_matrix(["Trench"], ["L1"])
-    m.notify_queue_changed()  # must not raise
+    heard = []
+    m.queue_changed.connect(heard.append)
+    m.notify_queue_changed()
+    assert [len(info["queue_items"]) for info in heard] == [1]
 
 
 def test_a_queue_edit_stays_off_the_status_channel(manager):
