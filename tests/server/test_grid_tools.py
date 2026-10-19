@@ -326,16 +326,17 @@ def test_a_failed_run_fails_its_request_step(arctis):
     auth = AuthConfig(token=TOKEN, dashboard_token="dashboard")
     auth.set_level(AgentLevel.ASSIST)
     app = build_server(arctis, app_context=RecordingContext(host), auth=auth)
+    arctis.sample_handling.magazine.device.fail_next_exchange = True
     with TestClient(app, raise_server_exceptions=False) as client:
         filed = client.post(
             "/app/agent/requests",
             headers=AUTH,
             json={
                 "actions": [
-                    {"tool": "grid_load", "arguments": {"grid_name": "G9"}},
+                    {"tool": "grid_load", "arguments": {"grid_name": "G2"}},
                     {"tool": "grid_load", "arguments": {"grid_name": "G1"}},
                 ],
-                "reason": "G9 first",
+                "reason": "G2 first",
             },
         )
         assert filed.status_code == 202, filed.text
@@ -345,7 +346,7 @@ def test_a_failed_run_fails_its_request_step(arctis):
 
     assert done.status == "failed", done.results
     assert [r["ok"] for r in done.results] == [False]
-    assert "G9" in done.results[0]["error"]["message"]
+    assert done.results[0]["error"]["message"]
     assert arctis.sample_handling.loaded_grids == []
 
 
@@ -471,3 +472,21 @@ def test_the_record_lines_say_which_grids_and_what_changes():
         "what": "Grid 'G2'",
         "change": "Rename it 'Lyso-2', on its slot and in the experiment",
     }
+
+
+def test_a_load_the_inventory_doesn_t_hold_is_refused_unless_a_scan_comes_first():
+    """Round 10 (FIB-1493): the operator is never asked to approve a load that
+    can only fail, unless an inventory scan before it may find the grid."""
+    from fibsem.ai.agent.request_text import describe_actions
+
+    load = ("grid_load", {"grid_name": "G9"}, "/x")
+    ((refused),) = describe_actions([load], read=EXCHANGE.get)
+    assert "run an inventory first" in refused["refused"]
+    _, after_scan = describe_actions(
+        [("grid_run_inventory", {}, "/x"), load], read=EXCHANGE.get
+    )
+    assert "refused" not in after_scan
+    ((held),) = describe_actions(
+        [("grid_load", {"grid_name": "G2"}, "/x")], read=EXCHANGE.get
+    )
+    assert "refused" not in held

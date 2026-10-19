@@ -103,3 +103,14 @@ def test_one_stop_failing_does_not_keep_the_others_from_running(
     with microscope.control.take(AGENT, "POST /run_milling"):
         host.stop_agent(microscope)
     assert "acquisition" in stops
+
+
+def test_an_operator_s_stop_records_none_given_for_its_reason():
+    """Round 10 (FIB-1495): the operator's Stop buttons ask no reason, and the
+    record said nothing at all."""
+    from fibsem.workflows.actions import NO_REASON, action_record
+
+    assert action_record("Stop milling", stops="milling")["reason"] == NO_REASON
+    given = action_record("Stop milling", stops="milling", reason="off target")
+    assert given["reason"] == "off target"
+    assert "reason" not in action_record("Move the stage")

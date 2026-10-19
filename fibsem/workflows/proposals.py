@@ -839,6 +839,10 @@ class Proposal:
     # exists while something is waiting on it, and a flag that survived a
     # reload would claim a waiter that is gone.
     asking: bool = field(default=False, compare=False, repr=False)
+    # Whether the asker fills in the values of an "as it stands" confirmation
+    # once it lands (``BaseTask.ask`` with ``decided``). Not persisted: the
+    # record holds the decision once, with its values (FIB-1491).
+    filling_in: bool = field(default=False, compare=False, repr=False)
     # This proposal's own name, minted when it is made. What a decision names
     # (``Decision.proposal_id``), and what anything outside the record -- an
     # event, a responder waiting on an answer -- points at: ``(item, task)``

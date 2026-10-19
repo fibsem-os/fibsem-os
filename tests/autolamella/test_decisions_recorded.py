@@ -196,7 +196,8 @@ def test_a_question_is_recorded_and_so_is_the_position_it_was_confirmed_at(
     experiment, recorder
 ):
     """A state asked mid-run, confirmed "as it stands" from the prompt bar:
-    the task fills in the position afterwards, and that is recorded too."""
+    the task fills in the position afterwards, and the decision is recorded
+    once, with it (FIB-1491)."""
     lamella = experiment.positions[0]
     lamella.task_state.status = TaskStatus.InProgress
     asked_at = FibsemStagePosition(x=1e-3, y=0, z=0, r=0, t=0, name="asked")
@@ -206,23 +207,24 @@ def test_a_question_is_recorded_and_so_is_the_position_it_was_confirmed_at(
         values={"stage_position": asked_at},
         provenance={"task_id": RUN, "proposer": TASK, "message": "Confirm it"},
     )
+    proposal.filling_in = True  # as BaseTask.ask marks it
     assert experiment.ask_proposal(lamella.id, TASK, proposal)
 
     _decide(experiment, proposal, "operator:op", via="workflow")
+    assert [e["kind"] for e in _events(recorder)] == ["proposal_asked"]
     assert experiment.fill_in_decision(
         lamella.id, TASK, proposal.id, {"stage_position": moved_to}
     )
 
-    asked, confirmed, filled = _events(recorder)
+    asked, confirmed = _events(recorder)
     assert (asked["kind"], asked["actor"]) == ("proposal_asked", "task")
     assert asked["payload"]["message"] == "Confirm it"
     assert asked["payload"]["proposed"]["stage_position"]["x"] == 1e-3
     assert (confirmed["kind"], confirmed["actor"]) == ("proposal_decided", "operator")
-    assert confirmed["payload"]["decided"] == {}
-    assert (filled["kind"], filled["actor"]) == ("proposal_decided", "operator")
-    assert filled["payload"]["filled_in"] is True
-    assert filled["payload"]["decision"] == confirmed["payload"]["decision"] == 0
-    assert filled["payload"]["decided"]["stage_position"]["x"] == 1.002e-3
+    assert confirmed["payload"]["decision"] == 0
+    assert confirmed["payload"]["decided"]["stage_position"]["x"] == 1.002e-3
+    assert "filled_in" not in confirmed["payload"]
+    assert not proposal.filling_in
 
 
 def test_what_nobody_decided_is_recorded_as_the_task_s(experiment, recorder):

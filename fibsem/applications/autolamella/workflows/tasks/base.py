@@ -102,6 +102,7 @@ if TYPE_CHECKING:
     from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
     from fibsem.autofunctions.autofocus import AutoFocusResult
     from fibsem.fm.structures import FluorescenceImage
+    from fibsem.milling.tasks import FibsemMillingTaskConfig
 
 TAutoLamellaTaskConfig = TypeVar(
     "TAutoLamellaTaskConfig", bound="AutoLamellaTaskConfig"
@@ -517,6 +518,24 @@ class AutoLamellaTask(BaseTask):
         for sem_image, fib_image in images:
             self._record_output(f"{phase}_sem", sem_image)
             self._record_output(f"{phase}_fib", fib_image)
+
+    def _image_after_pass(
+        self, config: "FibsemMillingTaskConfig", passes: int, take: bool = True
+    ) -> str:
+        """The mill's own finished frame, else one FIB frame at the milling
+        field of view when the proposal will be asked: the decision on a pass
+        is made on what it milled (FIB-1494)."""
+        image = super()._image_after_pass(config, passes, take)
+        if image or not take:
+            return image
+        self._acquire_channels(
+            deepcopy(self.config.imaging),
+            filename=f"ref_{self.task_name}_pass_{passes}",
+            field_of_view=config.field_of_view,
+            acquire_sem=False,
+            acquire_fib=True,
+        )
+        return self._last_fib_image_file()
 
     def _acquire_channels(
         self,

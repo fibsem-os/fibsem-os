@@ -565,6 +565,20 @@ def estimate_milling_time(pattern: BasePattern, milling_current: float) -> float
     if hasattr(pattern, "time") and pattern.time != 0:
         return pattern.time
 
+    volume = pattern.volume  # m3
+
+    if (
+        hasattr(pattern, "cross_section")
+        and pattern.cross_section is CrossSectionPattern.CleaningCrossSection
+    ):
+        volume *= 0.66  # ccs is approx 2/3 of the volume of a rectangle
+
+    return estimate_volume_time(volume, milling_current)
+
+
+def estimate_volume_time(volume: float, milling_current: float) -> float:
+    """Seconds to mill *volume* (m3) at *milling_current* (A), from the sputter
+    rate table."""
     # get the key that is closest to the milling current
     sp_keys = list(MILLING_SPUTTER_RATE.keys())
     sp_keys.sort(key=lambda x: abs(x - milling_current))
@@ -574,13 +588,6 @@ def estimate_milling_time(pattern: BasePattern, milling_current: float) -> float
 
     # scale the sputter rate based on the expected current
     sputter_rate = sputter_rate * (milling_current / sp_keys[0])
-    volume = pattern.volume  # m3
-
-    if (
-        hasattr(pattern, "cross_section")
-        and pattern.cross_section is CrossSectionPattern.CleaningCrossSection
-    ):
-        volume *= 0.66  # ccs is approx 2/3 of the volume of a rectangle
 
     time = (volume * 1e6**3) / sputter_rate
     return time * 0.75  # QUERY: accuracy of this estimate?
