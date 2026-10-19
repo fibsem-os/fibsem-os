@@ -34,6 +34,7 @@ PATTERN_NAME = "Fixture Pattern"
 STRATEGY_NAME = "Fixture Strategy"
 TASK_TYPE = "FIXTURE_TASK"
 GRID_TASK_TYPE = "FIXTURE_GRID_TASK"
+VOLUME_TASK_TYPE = "FIXTURE_VOLUME_TASK"
 CLASHING_PATTERN_NAME = "Rectangle"  # a built-in name the fixture claims on purpose
 FAILING_ENTRY_POINTS = ("wrong_base_class", "missing_module")  # declared to fail
 DRIVER_MANUFACTURER = "Fixture Microscopes"
@@ -156,6 +157,18 @@ def test_grid_task_plugin_resolves_through_the_registry():
     assert GRID_TASK_TYPE in get_grid_tasks(), sorted(get_grid_tasks())
     loaded = load_grid_task_configs({"Fixture": {"task_type": GRID_TASK_TYPE}})
     assert type(loaded["Fixture"]).__name__ == "FixtureGridTaskConfig"
+    assert loaded["Fixture"].task_name == "Fixture"
+
+
+def test_volume_task_plugin_resolves_through_the_registry():
+    from fibsem.applications.volume.tasks import (
+        get_volume_tasks,
+        load_volume_task_configs,
+    )
+
+    assert VOLUME_TASK_TYPE in get_volume_tasks(), sorted(get_volume_tasks())
+    loaded = load_volume_task_configs({"Fixture": {"task_type": VOLUME_TASK_TYPE}})
+    assert type(loaded["Fixture"]).__name__ == "FixtureVolumeTaskConfig"
     assert loaded["Fixture"].task_name == "Fixture"
 
 
@@ -317,6 +330,7 @@ def test_report_lists_the_fixture_across_every_group():
         "fibsem.milling.strategies",
         "fibsem.autolamella.tasks",
         "fibsem.grid.tasks",
+        "fibsem.volume.tasks",
         "fibsem.drivers",
     ]
 
@@ -326,6 +340,7 @@ def test_report_lists_the_fixture_across_every_group():
         STRATEGY_NAME,
         TASK_TYPE,
         GRID_TASK_TYPE,
+        VOLUME_TASK_TYPE,
         DRIVER_MANUFACTURER,
     ):
         assert name in text
