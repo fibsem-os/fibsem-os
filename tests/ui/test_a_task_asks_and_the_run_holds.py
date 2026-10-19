@@ -207,11 +207,11 @@ def test_a_window_that_starts_listening_mid_hold_puts_the_question_up(window, qa
     task, thread, seen = _start(window)
     assert _pump(qapp, lambda: ui._widget_question is not None)
     experiment = ui.experiment
-    window._listen_for_questions(None)
+    window.attention.listen(None)
     ui.clear_widget_question(lamella.id, ROUGH)
     assert ui._widget_question is None
 
-    window._listen_for_questions(experiment)
+    window.attention.listen(experiment)
 
     assert ui._widget_question is not None, "the standing question is up again"
     assert ui.pushButton_yes.text() == "Continue"
@@ -276,7 +276,7 @@ def test_stop_withdraws_the_question_and_cancels_the_task(window, qapp):
 def test_every_declared_question_has_a_widget_to_answer_it_on():
     """A task says what it asks; the window has to be able to put it up: on
     the widget its value is edited on, or the prompt bar for a state."""
-    from fibsem.applications.autolamella.ui.AutoLamellaMainUI import WIDGET_KINDS
+    from fibsem.applications.autolamella.ui.attention import WIDGET_KINDS
     from fibsem.applications.autolamella.ui.loop_question import LOOP_KINDS
     from fibsem.applications.autolamella.workflows.tasks import get_tasks
     from fibsem.workflows.proposals import STATE

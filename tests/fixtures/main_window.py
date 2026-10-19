@@ -2,7 +2,7 @@
 task's questions through it.
 
 A question a task asks on the record is put in front of the operator by the
-main window (``_on_question_asked``): a state or a loop's pass on the prompt
+main window (``AttentionRouter``): a state or a loop's pass on the prompt
 bar, anything else in the Review tab. A test that answers a pass on the
 prompt bar needs that window, not the bare ``AutoLamellaUI`` inside it.
 """

@@ -5,7 +5,7 @@ view the moment the operator looks at something else. The button says
 "Attention Required" and the run is stopped on that question, so pressing it
 has to land on the question, not merely on the Microscope tab.
 
-Before this, ``_on_user_attention_clicked`` sent everything that was not a
+Before this, Attention Required sent everything that was not a
 review hold to tab index 0, and the Detection tab is not index 0 -- it is a
 tab of ``AutoLamellaUI``'s own tab bar, hidden until it is asked for. So the
 operator was returned to a tab with no prompt on it and no way to find one.
@@ -212,7 +212,7 @@ def test_a_question_on_one_of_the_windows_own_tabs_is_fronted_there(main_ui, qap
     main_ui.autolamella_ui.question_host = lambda: host
     main_ui.tab_widget.setCurrentIndex(0)
 
-    main_ui._on_user_attention_clicked()
+    main_ui.attention.attention_clicked()
 
     assert main_ui.tab_widget.currentWidget() is host
 
@@ -223,6 +223,6 @@ def test_a_question_elsewhere_still_lands_on_the_microscope_tab(main_ui, qapp):
     main_ui.autolamella_ui.question_host = lambda: None
     main_ui.tab_widget.setCurrentWidget(main_ui.grids_tab)
 
-    main_ui._on_user_attention_clicked()
+    main_ui.attention.attention_clicked()
 
     assert main_ui.tab_widget.currentIndex() == 0
