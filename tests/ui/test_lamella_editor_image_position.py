@@ -23,7 +23,7 @@ from psygnal.containers import EventedDict
 
 pytest.importorskip("PyQt5")
 
-from PyQt5.QtWidgets import QApplication, QWidget
+from PyQt5.QtWidgets import QApplication
 
 from fibsem import utils
 from fibsem.applications.autolamella.structures import (
@@ -34,6 +34,7 @@ from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor impo
     AutoLamellaProtocolEditorWidget,
 )
 from fibsem.structures import BeamType, FibsemImage, MicroscopeState
+from tests.fixtures.app_session import app_session
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
@@ -43,15 +44,6 @@ OLD_EB = "ref_Setup Lamella Position_final_res_01_eb.tif"
 NEW_IB = "ref_Rough Milling_final_res_01_ib.tif"  # where it is now
 NEW_EB = "ref_Rough Milling_final_res_01_eb.tif"
 MOVE_M = 50e-6
-
-
-class _Host(QWidget):
-    """The two attributes the editor reads off its parent."""
-
-    def __init__(self, microscope, experiment):
-        super().__init__()
-        self.microscope = microscope
-        self.experiment = experiment
 
 
 @pytest.fixture
@@ -82,9 +74,7 @@ def scene(tmp_path):
     lamella.milling_pose = microscope.get_microscope_state()
 
     def editor():
-        host = _Host(microscope, exp)
-        widget = AutoLamellaProtocolEditorWidget(parent=host)
-        widget._host = host  # keep it alive
+        widget = AutoLamellaProtocolEditorWidget(session=app_session(microscope, exp))
         # as a card click does; the editor selects nothing on its own
         widget.select_lamella(lamella.name)
         return widget

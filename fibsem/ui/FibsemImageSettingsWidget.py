@@ -1,5 +1,5 @@
 import logging
-from typing import List, Optional
+from typing import Any, Callable, List, Optional
 
 from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtCore import QEvent, pyqtSignal
@@ -34,15 +34,32 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         self,
         microscope: FibsemMicroscope,
         image_settings: ImageSettings,
-        parent: QtWidgets.QWidget,
+        parent: Optional[QtWidgets.QWidget] = None,
         images: Optional[LatestImages] = None,
+        *,
+        view_controller: Callable[[], Any] = lambda: None,
+        toggle_movement: Optional[Callable[[bool], None]] = None,
+        lamella_list: Optional[Any] = None,
+        experiment: Optional[Callable[[], Any]] = None,
+        revise_prompt: Optional[Callable[[str, bool], None]] = None,
     ):
         """``images``: where the latest image of each beam is kept, the app
-        session's when there is one, so readers need no widget."""
+        session's when there is one, so readers need no widget.
+
+        What the host offers, each None when it has none: ``view_controller``
+        returns the quad view; ``toggle_movement`` locks the Movement tab with
+        this one; ``lamella_list`` (its selection) and ``experiment`` (a
+        getter) are where images can be saved; ``revise_prompt(msg,
+        can_continue)`` says on the prompt bar whether an alignment area can
+        be confirmed."""
         super().__init__(parent=parent)
         self.images = images if images is not None else LatestImages()
 
-        self.parent = parent
+        self._host_view_controller = view_controller
+        self._toggle_movement = toggle_movement
+        self._lamella_list = lamella_list
+        self._experiment = experiment
+        self._revise_prompt = revise_prompt
         self.microscope = microscope
         # generate initial blank images, labelled with their slot's beam type:
         # generate_blank_image defaults both to ELECTRON, and _on_acquire routes
@@ -97,18 +114,8 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
     # ------------------------------------------------------------------
 
     def _view_controller(self):
-        """Return the quad-view MicroscopeViewController, or None when inactive.
-
-        Two hosts expose it: standalone ``FibsemUI`` (the direct parent holds
-        ``view_controller``) and AutoLamella (parent -> ``AutoLamellaUI`` ->
-        ``parent_widget`` -> the main window). Check the direct parent first, then the
-        AutoLamella chain; ``None`` if neither holds one.
-        """
-        controller = getattr(self.parent, "view_controller", None)
-        if controller is not None:
-            return controller
-        parent_ui = getattr(self.parent, "parent_widget", None)
-        return getattr(parent_ui, "view_controller", None)
+        """The quad-view MicroscopeViewController, or None when inactive."""
+        return self._host_view_controller()
 
     # ------------------------------------------------------------------
     # Backward-compatibility properties for callers outside this widget
@@ -235,7 +242,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         self.pushButton_take_all_images.clicked.connect(self.acquire_reference_images)
 
         # save image with selected lamella control
-        show_lamella_controls = hasattr(self.parent, "experiment")
+        show_lamella_controls = self._lamella_list is not None
         self.checkBox_save_with_selected_lamella.setVisible(show_lamella_controls)
         self.checkBox_save_with_selected_lamella.toggled.connect(
             self.update_ui_saving_settings
@@ -246,12 +253,10 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         self.image_settings_widget.save_image_check.toggled.connect(
             self.update_ui_saving_settings
         )
-        try:
-            self.parent.lamella_list.lamella_selected.connect(
+        if self._lamella_list is not None:
+            self._lamella_list.lamella_selected.connect(
                 self._on_current_lamella_changed
             )
-        except Exception as e:
-            logging.debug(f"Error connecting to lamella selection changes: {e}")
 
         # the image settings offer what the selected beam can acquire
         self.dual_beam_widget.sem_radio.toggled.connect(self._use_selected_beam)
@@ -604,18 +609,14 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
 
         if save_with_lamella:
             try:
-                lamella = self.parent.lamella_list.selected_lamella
+                lamella = self._lamella_list.selected_lamella
                 self.image_settings_widget.path_edit.setText(str(lamella.path))
             except Exception as e:
                 logging.debug(f"Error setting image path from selected lamella: {e}")
         else:
-            if (
-                hasattr(self.parent, "experiment")
-                and self.parent.experiment is not None
-            ):
-                self.image_settings_widget.path_edit.setText(
-                    str(self.parent.experiment.path)
-                )
+            experiment = self._experiment() if self._experiment else None
+            if experiment is not None:
+                self.image_settings_widget.path_edit.setText(str(experiment.path))
 
     def _on_current_lamella_changed(self, lamella):
         """Update the image path when the selected lamella changes"""
@@ -644,7 +645,8 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
             btn.setEnabled(enable)
         self.image_group.setEnabled(enable)
         self.dual_beam_widget.setEnabled(enable)
-        self.parent.movement_widget._toggle_interactions(enable, caller="ui")
+        if self._toggle_movement is not None:
+            self._toggle_movement(enable)
         if enable:
             for btn in self.acquisition_buttons:
                 btn.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
@@ -855,21 +857,15 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
             self.alignment_area_updated.emit(value)
 
     def _on_alignment_area_updated(self, reduced_area: FibsemRectangle):
-        """Update the parent ui with the new alignment area. (compatibility for AutoLamellaUI)
-        TODO: migrate to AutoLamellaUI once mono-repo is complete.
-        Args:
-            reduced_area (FibsemRectangle): The new alignment area.
-        """
-        if self.parent is None:
+        """Say on the prompt bar whether the edited alignment area can be
+        confirmed."""
+        if self._revise_prompt is None:
             return
-        try:
-            is_valid = reduced_area.is_valid_reduced_area
-            msg = "Edit Alignment Area. Press Continue when done."
-            if not is_valid:
-                msg = "Invalid Alignment Area. Please adjust inside FIB Image."
-            self.parent.prompt_bar.revise(msg, can_continue=is_valid)
-        except Exception as e:
-            logging.info(f"Error updating alignment area: {e}")
+        is_valid = reduced_area.is_valid_reduced_area
+        msg = "Edit Alignment Area. Press Continue when done."
+        if not is_valid:
+            msg = "Invalid Alignment Area. Please adjust inside FIB Image."
+        self._revise_prompt(msg, is_valid)
 
     def get_alignment_area(self) -> Optional[FibsemRectangle]:
         """Get the alignment area from the scene model."""

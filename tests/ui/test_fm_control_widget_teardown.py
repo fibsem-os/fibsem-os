@@ -51,7 +51,11 @@ def widget(qapp):
     from tests.fixtures.fm_microscope import build_microscope
 
     host = _DemoHost()
-    w = FMControlWidget(microscope=build_microscope(), parent=host)
+    w = FMControlWidget(
+        microscope=build_microscope(),
+        parent=host,
+        view_controller=lambda: host.view_controller,
+    )
     # Keep the host alive for the test's duration; the widget only weakly needs it,
     # but a collected parent would destroy the child and mask what we are testing.
     w._test_host = host

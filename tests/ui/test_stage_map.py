@@ -314,16 +314,14 @@ def test_the_window_hands_the_map_the_experiment_s_lamellae(controller, microsco
     window = SimpleNamespace(
         view_controller=controller,
         overview_tab=SimpleNamespace(refresh_positions=lambda: None),
-        autolamella_ui=SimpleNamespace(
-            experiment=SimpleNamespace(
-                positions=[SimpleNamespace(stage_position=p) for p in positions]
-            )
+        experiment=SimpleNamespace(
+            positions=[SimpleNamespace(stage_position=p) for p in positions]
         ),
     )
     AutoLamellaSingleWindowUI._refresh_overview_positions(window)
     assert controller.widget.chamber_view.map._positions == positions
 
-    window.autolamella_ui.experiment = None
+    window.experiment = None
     AutoLamellaSingleWindowUI._refresh_overview_positions(window)
     assert controller.widget.chamber_view.map._positions == []
 
