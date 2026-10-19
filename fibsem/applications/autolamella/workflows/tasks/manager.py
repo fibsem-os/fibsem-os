@@ -90,29 +90,15 @@ class TaskManager(BaseTaskManager):
             required_lamella: List of lamella names to run tasks on. If None, all lamellas are processed.
 
         Every selected (lamella, task) pair runs, completed ones included:
-        that is how a task is re-run. The one exception is a task that is
-        AwaitingDecision -- its run is over and its record waits in the Review
-        tab -- which is left out: running it again would re-move the stage
-        and supersede the proposal someone is about to decide, or just did.
-        Re-running it is a deliberate act on that task, not a side effect of
-        pressing Run.
+        that is how a task is re-run.
         """
         if required_lamella is None:
             required_lamella = [p.name for p in self.experiment.positions]
-        pairs = [
-            (name, task)
-            for task in task_names
-            for name in required_lamella
-            if not self._awaiting_decision(name, task)
-        ]
+        pairs = [(name, task) for task in task_names for name in required_lamella]
         self.queue.build_from_pairs(
             pairs, task_names=task_names, item_names=required_lamella
         )
         self._run_queue()
-
-    def _awaiting_decision(self, lamella_name: str, task_name: str) -> bool:
-        lamella = self.experiment.get_lamella_by_name(lamella_name)
-        return lamella is not None and lamella.is_awaiting_decision(task_name)
 
     def _item_defer_reason(self, item: WorkItem) -> Optional[str]:
         lamella = self.experiment.get_lamella_by_name(item.item_name)
@@ -125,27 +111,19 @@ class TaskManager(BaseTaskManager):
         self._snapshot_completion()
         with self._recording():
             self._fire_workflow_hook(HookEvent.WORKFLOW_STARTED)
-            self.experiment.decided.connect(self._on_decided)
             try:
                 self._prepare()
                 self._run_items()
             except Exception as e:
                 self._end_escaped_run(e)
                 raise
-            finally:
-                self.experiment.decided.disconnect(self._on_decided)
 
     def _run_items(self) -> None:
         while not self.is_stopped:
-            # Cleared before the scan, so a decision that lands between a scan
-            # finding nothing and the wait starting is not lost.
-            self._decision_event.clear()
             item = self._next_item()
             if item is None:
-                if self.queue.is_empty:
-                    break
-                if self._wait_for_a_decision():
-                    continue
+                if not self.queue.is_empty:
+                    self._stall()
                 break
 
             # A stop_task click that landed between two tasks was aimed at the one
@@ -200,8 +178,6 @@ class TaskManager(BaseTaskManager):
                 if self.is_stopped:
                     break
 
-            self._expire_what_this_consumes(lamella.id, item.task_name)
-
             # Emit InProgress status
             self._emit_status(
                 item=item,
@@ -253,8 +229,8 @@ class TaskManager(BaseTaskManager):
         elif self.stalled:
             # Drained but not done. Not completed -- work remains -- and not
             # cancelled -- nobody pressed Stop. The experiment is not finishable
-            # from here either. Items that never ran stay NotStarted; the tasks
-            # awaiting a decision stay so; the next Run picks up from there.
+            # from here either. Items that never ran stay NotStarted; the next
+            # Run picks up from there.
             self._report_stall()
         else:
             self._fire_workflow_hook(
@@ -397,7 +373,7 @@ class TaskManager(BaseTaskManager):
 
     def _task_counts(self) -> Dict[str, int]:
         """How the run's tasks ended: completed, failed and skipped. A task that
-        ended any other way (cancelled, awaiting a decision) is in none of them."""
+        ended any other way (cancelled) is in none of them."""
         counts = Counter(item.status for item in self.queue.items)
         return {
             "completed": counts[TaskStatus.Completed],
@@ -447,24 +423,16 @@ class TaskManager(BaseTaskManager):
             # for the rest of the run.
             self._set_workflow_pending(False)
 
-    def _requirements_of(self, task_name: str) -> List[str]:
-        return list(
-            self.experiment.task_protocol.workflow_config.requirements(task_name)
-        )
-
     def _defer_reason(self, lamella: "Lamella", task_name: str) -> Optional[str]:
         """Why this task cannot run *yet* -- as opposed to _should_skip, which
         says why it never will this run.
 
         The prerequisite check used to be terminal: unmet meant Skipped, done for
         the run. That was right only because ordering guaranteed the prerequisite
-        had already had its turn. Two things break the guarantee, and both are
-        answered by looking at the queue and the item rather than at history:
-
-        - ``awaiting_decision``: a required task ran and is not finished: its
-          record waits in the Review tab. The decision makes this runnable.
-        - ``prereq_pending``: a required task is still in the queue ahead or
-          behind (a re-run, a mid-run insertion). It will get its turn.
+        had already had its turn. A re-run or a mid-run insertion breaks the
+        guarantee, and is answered by looking at the queue rather than at
+        history: ``prereq_pending``, a required task is still in the queue
+        ahead or behind. It will get its turn.
 
         Deferred items stay pending and are offered again on the next scan.
         Nothing is logged per scan: a long stall would flood the log with one
@@ -477,8 +445,6 @@ class TaskManager(BaseTaskManager):
             # earlier run of it did (FIB-1006)
             if self.queue.has_pending_pair(lamella.name, req):
                 return "prereq_pending"
-            if lamella.is_awaiting_decision(req):
-                return "awaiting_decision"
         return None
 
     def _should_skip(self, lamella: "Lamella", task_name: str) -> Optional[str]:

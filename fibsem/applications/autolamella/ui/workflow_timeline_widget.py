@@ -104,9 +104,6 @@ def _queue_status_to_step_status(s) -> "StepStatus":
         TaskStatus.NotStarted: StepStatus.PENDING,
         TaskStatus.InProgress: StepStatus.ACTIVE,
         TaskStatus.Completed: StepStatus.COMPLETED,
-        # Ran, not finished: the record waits in the Review tab. Drawn as done
-        # in the timeline, which shows the run; the History list says awaiting.
-        TaskStatus.AwaitingDecision: StepStatus.COMPLETED,
         TaskStatus.Failed: StepStatus.FAILED,
         TaskStatus.Skipped: StepStatus.SKIPPED,
         TaskStatus.Cancelled: StepStatus.CANCELLED,
@@ -938,7 +935,6 @@ class WorkflowProgressWidget(QWidget):
         # Completion/failure/cancel — set subtitle, hide inner, resolve last inner step
         if task_status in (
             TaskStatus.Completed,
-            TaskStatus.AwaitingDecision,
             TaskStatus.Failed,
             TaskStatus.Cancelled,
         ):
@@ -1253,7 +1249,6 @@ class WorkflowProgressWidget(QWidget):
             if i.status
             in (
                 TaskStatus.Completed,
-                TaskStatus.AwaitingDecision,
                 TaskStatus.Skipped,
                 TaskStatus.Cancelled,
             )

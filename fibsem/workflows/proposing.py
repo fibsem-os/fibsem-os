@@ -1,8 +1,8 @@
 """Proposing and settling a finished task's result, for any item a task runs on.
 
 A lamella task and a grid task end the same way: the run is recorded, then its
-result is proposed on the item and decided -- by the operator's inline answer,
-by the Review tab, or by the producer itself. What differs between them is
+result is proposed on the item and decided -- by the operator's inline answer
+or by the producer itself, as proposed. What differs between them is
 supplied by the task (its proposer, whether it is supervised, the decision it
 took inline, which output roles are its result images), so the two task bases
 share this code (``BaseTask._settle``) rather than each keeping a copy.
@@ -23,7 +23,6 @@ from fibsem.workflows.proposals import (
     Proposer,
     TaskResultProposer,
 )
-from fibsem.workflows.status import TaskStatus
 
 
 def _iso(value) -> Optional[str]:
@@ -99,16 +98,8 @@ def propose(
         )
     elif decided is not None:
         logging.info(
-            f"{item.name}: {task.task_name} re-run; the decided "
-            "proposal stays on the record and a new one is pending."
-        )
-    experiment = getattr(getattr(task, "task_manager", None), "experiment", None)
-    if experiment is not None:
-        # A re-run while the last run's value is still open: nobody looked at
-        # it, and it was used as it stood, so it is closed as such rather than
-        # dropped as a question nobody answered.
-        experiment.expire_open(
-            item.id, task.task_name, f"{task.task_name} re-ran before anyone looked"
+            f"{item.name}: {task.task_name} re-run; the earlier "
+            "proposal stays on the record and this run's follows it."
         )
     item.record_proposal(task.task_name, proposal)
     logging.debug(
@@ -133,7 +124,6 @@ def settle(
     *,
     proposer: Optional[Proposer],
     result_images: Mapping[str, str],
-    supervised: bool,
     inline_decision: Optional[Decision],
     experiment: Any,
     failure: str = "",
@@ -142,35 +132,26 @@ def settle(
     recorded. After post_task on purpose: Experiment.decide refuses a decision
     on a task in progress.
 
-    The decision, in every mode, goes through Experiment.decide -- same lock,
-    same thread, same write-through, one place that appends. Which decision:
-    the operator's inline answer when the task asked one (supervised; recorded
-    without a second write-through of a value that is already applied), else
-    for a supervised task none -- a task that completed moves to
-    AwaitingDecision and the decision in the Review tab finishes it -- else
-    none either: the values are used as proposed, so nothing downstream
-    waits. A failed task stays Failed; its record waits for someone to look,
-    but no decision changes the outcome.
+    The decision goes through Experiment.decide -- same lock, same thread,
+    same write-through, one place that appends. Which decision: the
+    operator's inline answer when the task asked one (a mill's Accept;
+    recorded without a second write-through of a value that is already
+    applied), else none: the values are used as proposed and recorded
+    Unreviewed, so nothing waits on a decision after the task ends. A failed
+    task stays Failed; no decision changes the outcome.
     """
     proposal = propose(task, item, proposer, result_images, failure=failure)
     if proposal is None:
         return
     decision = inline_decision
     if decision is None:
-        if supervised:
-            if item.task_state.status is TaskStatus.Completed:
-                item.set_task_status(task.task_name, TaskStatus.AwaitingDecision)
-                logging.info(
-                    f"{item.name}: {task.task_name} awaits a decision "
-                    "in the Review tab."
-                )
-            return
-        # Nobody decides this: the values are used as proposed, live from now,
-        # and the proposal stays open to correct until the task that consumes
-        # them starts, when it is recorded Unreviewed. Not a decision by the
-        # producer: nobody agreed to anything.
-        if experiment is not None and proposal.values:
-            result = experiment.apply_proposed(item.id, task.task_name, proposal.id)
+        # Nobody decides this: the values are used as proposed and the record
+        # says Unreviewed. Not a decision by the producer: nobody agreed to
+        # anything.
+        if experiment is not None:
+            result = experiment.apply_proposed(
+                item.id, task.task_name, proposal.id, "nobody was asked"
+            )
             if not result.applied:
                 logging.warning(
                     f"{item.name}: the proposed {task.task_name} values were not "
@@ -187,8 +168,7 @@ def settle(
     except Exception:
         logging.exception(
             f"{item.name}: could not record the decision on the "
-            f"{task.task_name} proposal; it is left pending, so its consumer "
-            "will wait."
+            f"{task.task_name} proposal; it is left pending."
         )
         return
     if not result.applied:

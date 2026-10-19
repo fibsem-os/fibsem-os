@@ -1,9 +1,9 @@
 """A supervised task that asks with ``ask`` holds the run until the decision.
 
 The hold is the task manager's, not the responder's: the task records the
-question, the manager raises the hold, the main window fronts the Review tab,
-and the decision -- from the tab, from an agent -- releases the task with the
-decided values. Stop withdraws the question. No prompt, no adapter.
+question, the manager raises the hold, the main window puts the question up
+on its widget, and the decision -- from Continue, from an agent -- releases
+the task with the decided values. Stop withdraws the question. No prompt, no adapter.
 """
 
 import os
@@ -154,16 +154,14 @@ def test_the_run_holds_on_the_question_until_it_is_decided(window, qapp):
     task, thread, seen = _start(window)
 
     assert _pump(qapp, lambda: ui.hold is not None), "the run is held"
-    assert ui.hold.kind is HoldKind.decision
+    assert ui.hold.kind is HoldKind.question
     assert ui.hold.items == (f"{lamella.name}/{ROUGH}",)
-    # The hold is set from the worker thread; the notification that fronts
-    # the tab is queued to this one, so it may land a moment later.
-    assert _pump(
-        qapp, lambda: window.tab_widget.currentWidget() is window.review_tab
-    ), "fronted"
-    assert any("Holding" in s for s in window.review_tab.row_summaries()), (
-        window.review_tab.row_summaries()
-    )
+    # The hold is set from the worker thread; the notification that puts the
+    # question up is queued to this one, so it may land a moment later.
+    assert _pump(qapp, lambda: ui._widget_question is not None), "put up"
+    assert ui.pushButton_yes.text() == "Continue"
+    if ui.det_widget is not None:
+        assert ui.question_host() is ui.det_widget, "on the Detection tab"
     assert _pump(
         qapp,
         lambda: "waiting for you to answer" in ui.label_workflow_information.text(),
@@ -192,13 +190,30 @@ def test_the_run_holds_on_the_question_until_it_is_decided(window, qapp):
     assert decision.actor.kind is ActorKind.operator
     assert ui.hold is None
     assert "error" not in seen
-    # The question is decided; the task's own result is not: supervised with
-    # the preference on and no inline confirmation of the result, it waits for
-    # one in the Review tab, as any supervised task's does.
+    assert _pump(qapp, lambda: ui._widget_question is None), "the prompt came down"
+    # The question is decided, and nothing waits on the task's own result.
     question, result_proposal = lamella.proposals_from(ROUGH)
     assert question is proposal and result_proposal.kind == "task_result"
-    assert not question.pending and result_proposal.pending
-    assert lamella.task_state.status is TaskStatus.AwaitingDecision
+    assert not question.pending
+    assert lamella.task_state.status is TaskStatus.Completed
+
+
+def test_a_window_that_starts_listening_mid_hold_puts_the_question_up(window, qapp):
+    """A run can be asking before the window listens to its experiment (a run
+    started without it). The question already standing is put up at once."""
+    ui = window.autolamella_ui
+    lamella = ui.experiment.positions[0]
+    task, thread, seen = _start(window)
+    assert _pump(qapp, lambda: ui._widget_question is not None)
+    experiment = ui.experiment
+    window._listen_for_questions(None)
+    ui.clear_widget_question(lamella.id, ROUGH)
+    assert ui._widget_question is None
+
+    window._listen_for_questions(experiment)
+
+    assert ui._widget_question is not None, "the standing question is up again"
+    assert ui.pushButton_yes.text() == "Continue"
 
 
 def test_stop_withdraws_the_question_and_cancels_the_task(window, qapp):
@@ -218,16 +233,18 @@ def test_stop_withdraws_the_question_and_cancels_the_task(window, qapp):
     assert lamella.task_state.status is TaskStatus.Cancelled
 
 
-def test_every_declared_question_has_a_renderer_to_answer_it_in():
-    """A task says what it asks; the Review tab has to be able to show it."""
-    from fibsem.applications.autolamella.ui.review_tab_widget import REVIEW_RENDERERS
+def test_every_declared_question_has_a_widget_to_answer_it_on():
+    """A task says what it asks; the window has to be able to put it up: on
+    the widget its value is edited on, or the prompt bar for a state."""
+    from fibsem.applications.autolamella.ui.AutoLamellaMainUI import WIDGET_KINDS
+    from fibsem.applications.autolamella.ui.loop_question import LOOP_KINDS
     from fibsem.applications.autolamella.workflows.tasks import get_tasks
+    from fibsem.workflows.proposals import STATE
 
+    shown = set(WIDGET_KINDS) | set(LOOP_KINDS) | {STATE}
     for name, cls in get_tasks().items():
         for kind in cls.questions:
-            assert kind in REVIEW_RENDERERS, (
-                f"{name} asks {kind!r}, which nothing renders"
-            )
+            assert kind in shown, f"{name} asks {kind!r}, which nothing puts up"
 
 
 def test_the_run_lends_control_while_the_question_stands(window, qapp):

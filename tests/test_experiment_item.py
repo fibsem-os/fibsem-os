@@ -53,18 +53,26 @@ def test_a_failed_rerun_is_not_the_latest_completion():
     assert not item.latest_run_completed("Mill")
 
 
-def test_a_decision_moves_the_frozen_run_and_the_live_one():
-    live = _run("Mill", TaskStatus.AwaitingDecision, "a")
+def test_a_status_change_moves_the_frozen_run_and_the_live_one():
+    live = _run("Mill", TaskStatus.Completed, "a")
     item = PlainItem(
         "p1",
         task_state=live,
-        task_history=[_run("Mill", TaskStatus.AwaitingDecision, "a")],
+        task_history=[_run("Mill", TaskStatus.Completed, "a")],
     )
-    assert item.is_awaiting_decision("Mill")
 
-    item.set_task_status("Mill", TaskStatus.Completed, "accepted")
+    item.set_task_status("Mill", TaskStatus.Failed, "rejected")
 
-    assert item.task_history[-1].status is TaskStatus.Completed
-    assert live.status is TaskStatus.Completed
-    assert live.status_message == "accepted"
-    assert not item.is_awaiting_decision("Mill")
+    assert item.task_history[-1].status is TaskStatus.Failed
+    assert live.status is TaskStatus.Failed
+    assert live.status_message == "rejected"
+
+
+def test_a_run_saved_awaiting_a_decision_loads_as_completed():
+    """0.6 development builds held a supervised result after the task ended;
+    the task had finished, so it reads as Completed."""
+    from fibsem.workflows.status import TaskState
+
+    state = TaskState.from_dict({"name": "Mill", "status": "AwaitingDecision"})
+
+    assert state.status is TaskStatus.Completed

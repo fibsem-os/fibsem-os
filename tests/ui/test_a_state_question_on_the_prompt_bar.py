@@ -2,9 +2,8 @@
 
 The prompt bar is the renderer for the ``state`` kind: the operator is at
 the instrument, and confirming a position needs no image. Continue there is
-a decision through ``Experiment.decide``, the one write path; the Review tab
-lists the same question and can answer it too, and either way the prompt
-comes down. The task then reads the instrument for the position as confirmed.
+a decision through ``Experiment.decide``, the one write path; an agent can
+answer it too, and either way the prompt comes down. The task then reads the instrument for the position as confirmed.
 """
 
 import os
@@ -35,7 +34,7 @@ from fibsem.applications.autolamella.workflows.tasks.reference_image import (
 )
 from fibsem.structures import FibsemStagePosition
 from fibsem.workflows.attention import Attention
-from fibsem.workflows.proposals import STATE, DecisionOutcome
+from fibsem.workflows.proposals import STATE, Decision, DecisionOutcome
 from fibsem.workflows.status import HoldKind, TaskStatus
 
 REF = "Acquire Reference Image"
@@ -166,13 +165,10 @@ def test_the_question_is_asked_on_the_prompt_bar_and_continue_decides_it(window,
     )
     assert ui.pushButton_yes.text() == "Continue"
     assert ui.pushButton_no.isHidden(), "one verb"
-    assert window.tab_widget.currentIndex() == 0, "not sent to the Review tab"
-    assert ui.hold is not None and ui.hold.kind is HoldKind.decision
+    assert window.tab_widget.currentIndex() == 0, "on the Microscope tab"
+    assert ui.hold is not None and ui.hold.kind is HoldKind.question
     question = lamella.proposal(REF, STATE)
     assert question is not None and question.pending and question.asking
-    assert any("asking now" in s for s in window.review_tab.row_summaries()), (
-        "listed in the Review tab too"
-    )
 
     ui.pushButton_yes.click()
 
@@ -187,25 +183,32 @@ def test_the_question_is_asked_on_the_prompt_bar_and_continue_decides_it(window,
     assert (pose.x, pose.y, pose.z) == pytest.approx((here.x, here.y, here.z))
     assert _prompt_is_down(ui), "the prompt came down"
     assert ui.hold is None
-    assert lamella.task_state.status is TaskStatus.AwaitingDecision, (
-        "its own result still waits for a look, as any supervised task's does"
-    )
+    assert lamella.task_state.status is TaskStatus.Completed, "nothing waits"
 
 
-def test_answered_from_the_review_tab_the_prompt_comes_down_too(window, qapp):
+def test_answered_by_an_agent_the_prompt_comes_down_too(window, qapp):
     ui = window.autolamella_ui
     lamella = ui.experiment.positions[0]
     task, thread, seen = _start(window)
     assert _pump(qapp, lambda: _prompt_is_up(ui))
-    tab = window.review_tab
-    assert tab.select(lamella.id, REF)
+    asked = lamella.proposal(REF, STATE)
 
-    tab.confirm_current()
+    result = ui.experiment.decide(
+        lamella.id,
+        REF,
+        Decision(
+            outcome=DecisionOutcome.Confirmed,
+            actor="agent:x",
+            via="agent",
+            proposal_id=asked.id,
+        ),
+    )
+    assert result.applied, result.reason
 
     assert _pump(qapp, lambda: not thread.is_alive())
     assert "error" not in seen
     question = lamella.proposal(REF, STATE)
-    assert question.current.via == "review"
+    assert question.current.via == "agent"
     assert isinstance(
         question.current.values.get("stage_position"), FibsemStagePosition
     )

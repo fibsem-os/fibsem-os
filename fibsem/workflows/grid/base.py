@@ -60,21 +60,20 @@ class GridTaskConfig(Configurable, ABC):
         "",
         doc="The task's name, unique within the protocol: the key the workflow knows it by.",
     )  # unique within a protocol; the key the workflow uses
-    # Who decides the task's record: automated (the task confirms its own) or
-    # supervised (the task ends AwaitingDecision and the Review tab decides;
-    # a grid task asks nothing while it runs, so that is the whole of it).
-    # One per task name, shared by every grid like the rest of the config.
+    # Whether its questions are asked (supervised) or recorded for someone to
+    # check (automated). One per task name, shared by every grid like the rest
+    # of the config.
     attention: Attention = param(
         Attention.automated,
-        doc="Who decides the task's result: the task itself (automated), or the operator in the Review tab (supervised).",
+        doc="Whether the task's questions are asked while it runs (supervised) or recorded Unreviewed without asking (automated).",
         display=Display("Attention"),
     )
     # The tasks, by name, whose result this one uses, as on the lamella
-    # workflow: it waits while one of them awaits a decision or is still queued
-    # for the grid, and is skipped when one of them did not complete. Empty:
+    # workflow: it waits while one of them is still queued for the grid, and
+    # is skipped when one of them did not complete. Empty:
     # it runs whatever happened before it on the grid.
     requires: List[str] = param(
-        doc="The tasks, by name, whose result this one uses. It waits while one of them awaits a decision or is still queued for the grid, and is skipped when one did not complete. Empty runs whatever happened before it.",
+        doc="The tasks, by name, whose result this one uses. It waits while one of them is still queued for the grid, and is skipped when one did not complete. Empty runs whatever happened before it.",
         display=Display("Requires"),
         default_factory=list,
     )

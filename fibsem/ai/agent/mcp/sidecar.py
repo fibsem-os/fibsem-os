@@ -1399,15 +1399,12 @@ def build_sidecar(client, capabilities):
     def workflow_set_options(
         show_run_summary: Optional[bool] = None,
         turn_beams_off: Optional[bool] = None,
-        review_wait: Optional[float] = None,
     ):
         payload: dict = {}
         if show_run_summary is not None:
             payload["show_run_summary"] = bool(show_run_summary)
         if turn_beams_off is not None:
             payload["turn_beams_off"] = bool(turn_beams_off)
-        if review_wait is not None:
-            payload["review_wait"] = review_wait
         return _app_post("/app/workflow/options", payload)
 
     def protocol_set_supervision(task_name: str, supervise: bool):
