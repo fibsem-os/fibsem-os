@@ -776,11 +776,12 @@ def configured_devices(
     """
     import yaml
 
+    from fibsem.codec.upgrades.configuration import upgrade
     from fibsem.devices.entries import build_device_entries, resolve_device_entries
     from fibsem.structures import read_device_entries
 
     with open(path) as f:
-        settings = yaml.safe_load(f) or {}
+        settings = upgrade(yaml.safe_load(f) or {})
     configured = read_device_entries(settings)
     manufacturer = (settings.get("info") or {}).get("manufacturer")
     resolved = resolve_device_entries([], configured, manufacturer)

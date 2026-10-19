@@ -14,6 +14,7 @@ import yaml
 from PIL import Image
 
 from fibsem import config as cfg
+from fibsem.codec.upgrades.configuration import upgrade
 from fibsem.constants import DATETIME_LOG, MICRON_SYMBOL, MU_SYMBOL, TIME_FILE
 from fibsem.structures import (
     CONFIGURATION_VERSION,
@@ -530,7 +531,7 @@ def load_microscope_configuration(
         config_path = DEFAULT_CONFIGURATION_PATH
 
     # load config
-    config = load_yaml(os.path.join(config_path))
+    config = _load_configuration_file(config_path)
 
     report_unrecognised_configuration_keys(config, source=str(config_path))
 
@@ -549,33 +550,6 @@ def load_microscope_configuration(
 
     return settings
 
-
-# Keys a configuration may carry that this version reads for migration and never
-# writes back. When a key moves house -- `stage.shuttle_pre_tilt` onto
-# the holder, the beam defaults into their own block -- the old spelling is still read
-# so existing files load, and is listed here so it is not reported as unrecognised.
-LEGACY_CONFIGURATION_KEYS: Set[str] = {
-    # `plasma: bool` was folded into `plasma_gas`: a column with a gas is a plasma
-    # column. Still read, so `plasma: false` in an old file wins over a stray gas.
-    "ion.plasma",
-    # Where the stage travels for each device moved from the stage onto each device's
-    # entry, with a range each instead of one shared one.
-    "hardware.stage.devices",
-    "hardware.stage.device_range",
-}
-
-# Old block spellings that are still read. A key under one of these is legal if it
-# is legal under the block it moved to: `imaging.hfw` was the acquire tab's opening
-# state and now lives at `defaults.imaging.hfw`; `electron.voltage` was mixed in
-# with the column's hardware and now lives at `defaults.electron.voltage`. A mapping
-# of old home to new, not a second copy of the schema.
-LEGACY_CONFIGURATION_BLOCKS: Dict[str, Tuple[str, ...]] = {
-    "stage": ("hardware.devices.stage", "calibration"),
-    "electron": ("hardware.devices.electron", "defaults.electron"),
-    "ion": ("hardware.devices.ion", "defaults.ion"),
-    "fm": ("hardware.devices.fm",),
-    "imaging": ("defaults.imaging",),
-}
 
 # Blocks accepted wholesale. `sim:` is a plain dict the simulator reads with `.get()`
 # rather than a dataclass, and `protocol:` is the application's; policing either would
@@ -652,20 +626,10 @@ def unrecognised_configuration_keys(config: dict) -> List[str]:
     and nothing said so. One line at load is the difference between "my setting
     vanished" and "my setting is not supported".
     """
-    known = (
-        written_configuration_keys()
-        | LEGACY_CONFIGURATION_KEYS
-        | _version_1_device_keys(written_configuration_keys())
-    )
+    known = written_configuration_keys()
 
     def is_known(path: str) -> bool:
-        if path in known:
-            return True
-        block, _, rest = path.partition(".")
-        return any(
-            (f"{alias}.{rest}" if rest else alias) in known
-            for alias in LEGACY_CONFIGURATION_BLOCKS.get(block, ())
-        )
+        return path in known
 
     unknown: List[str] = []
     for block, value in (config or {}).items():
@@ -690,18 +654,6 @@ def unrecognised_configuration_keys(config: dict) -> List[str]:
                     f"{path}.{k}" for k in sub if not is_known(f"{path}.{k}")
                 )
     return sorted(unknown)
-
-
-def _version_1_device_keys(written: Set[str]) -> Set[str]:
-    """The `hardware.<name>.<key>` paths a version 1 file states for the same keys.
-
-    Version 1 had a block per device where version 2 has a list entry; both are read,
-    so a key legal in one is legal in the other.
-    """
-    prefix = f"{DEVICE_LIST}."
-    return {
-        f"hardware.{path[len(prefix) :]}" for path in written if path.startswith(prefix)
-    }
 
 
 def _unrecognised_device_keys(entries: list, known: Set[str]) -> List[str]:
@@ -772,64 +724,55 @@ def write_configuration(path: Union[str, Path], updates: dict) -> None:
     application: a calibration action writes `calibration.*`, the defaults panel
     writes `defaults.*`, and neither can disturb the other's section.
 
-    The file is also brought to the current version on the way (`upgrade_configuration`),
+    The file is also brought to the current version on the way (`upgrade`),
     so a site's file takes the device list the first time anything saves it.
     """
     config = _read_for_writing(path)
     _deep_update(config, updates)
-    _retire_legacy_duplicates(config)
     _write_configuration_file(path, config)
 
 
 def _read_for_writing(path: Union[str, Path]) -> dict:
     """The configuration at *path*, upgraded, with a copy kept of an older version."""
     config = load_yaml(os.path.join(path)) or {}
+    _keep_an_older_version(path, config)
+    return upgrade(config)
+
+
+def _keep_an_older_version(path: Union[str, Path], config: dict) -> bool:
+    """Keep a copy of the file at *path* when *config*, read from it, is from an older
+    version; whether it is."""
     version = config.get("version")
     if version is None:
         _keep_the_file_as_it_was(path)
     elif version < CONFIGURATION_VERSION:
         _keep_the_file_as_it_was(path, before=CONFIGURATION_VERSION)
-    return upgrade_configuration(config)
+    else:
+        return False
+    return True
 
 
-def upgrade_configuration(config: dict) -> dict:
-    """Bring a configuration dict to `CONFIGURATION_VERSION`, in place, and return it.
+def _load_configuration_file(path: Union[str, Path]) -> dict:
+    """The configuration at *path*, in the current version.
 
-    Version 1's blocks under `hardware:` become entries of `hardware.devices`, one per
-    device, keys and all; an entry the list already has for the device wins key by key,
-    as the reader would have it. A file from before the sections has no version and is
-    left without one: its flat blocks are retired key by key as they are written
-    (`_retire_legacy_duplicates`), not converted wholesale.
+    A file from an older version is saved back upgraded, after a copy of it is kept,
+    so it is upgraded once rather than on every load. Where it can't be written (a
+    read-only share), it is upgraded on every load instead.
     """
-    hardware = config.get("hardware")
-    if isinstance(hardware, dict):
-        listed = hardware.get("devices")
-        listed = list(listed) if isinstance(listed, list) else []
-        by_name = {}
-        for item in listed:
-            if isinstance(item, dict):
-                try:
-                    by_name[DeviceEntry.from_dict(item).name] = item
-                except ValueError:
-                    pass  # left as it is, for the reader to report
-        converted = []
-        for name, type_ in CONFIGURED_DEVICES.items():
-            block = hardware.pop(name, None)
-            if not isinstance(block, dict):
-                continue
-            entry = by_name.get(name)
-            if entry is None:
-                converted.append({"name": name, "type": type_, **block})
-                continue
-            merged = {"name": name, "type": type_, **block, **entry}
-            entry.clear()
-            entry.update(merged)
-        if converted or "devices" in hardware:
-            hardware["devices"] = converted + listed
-    # Never lowered: a file from a later version keeps saying so.
-    if "version" in config and config["version"] < CONFIGURATION_VERSION:
-        config["version"] = CONFIGURATION_VERSION
-    return config
+    config = load_yaml(os.path.join(path)) or {}
+    upgraded = upgrade(config)
+    try:
+        if _keep_an_older_version(path, config):
+            _write_configuration_file(path, upgraded)
+            logging.info(
+                f"Saved {path} in configuration version {CONFIGURATION_VERSION}."
+            )
+    except OSError as e:
+        logging.warning(
+            f"Could not save {path} in configuration version {CONFIGURATION_VERSION} "
+            f"({e}); it is upgraded each time it loads."
+        )
+    return upgraded
 
 
 def configuration_device(config: dict, name: str, create: bool = False) -> dict:
@@ -872,13 +815,12 @@ def configuration_backup_path(path: Union[str, Path], before: int = 1) -> Path:
 def _keep_the_file_as_it_was(path: Union[str, Path], before: int = 1) -> None:
     """Copy a file written before version *before*, once, before it is changed.
 
-    A file from before the sections (*before* 1): the first write can move keys out of
-    the old flat blocks (see `_retire_legacy_duplicates`), and a version from before
-    the sections cannot read the result. A version 1 file (*before* 2): the first write
-    lists its devices (`upgrade_configuration`), and version 1 does not read the list
-    -- it would load every device's geometry as the defaults. The copy is what a site
-    going back to that version restores. Made once: a second write must not replace
-    the original with a half-converted file.
+    The upgrade (`fibsem.codec.upgrades.configuration`) writes the current version,
+    which a version from before *before* cannot read: before 1, it reads none of the
+    sections; at 1, it does not read the device list and would load every device's
+    geometry as the defaults. The copy is what a site going back to that version
+    restores. Made once: a second write must not replace the original with a
+    half-converted file.
     """
     backup = configuration_backup_path(path, before)
     if backup.exists() or not os.path.exists(path):
@@ -890,39 +832,6 @@ def _keep_the_file_as_it_was(path: Union[str, Path], before: int = 1) -> None:
         f"Kept a copy of {path} as {backup} before changing it; a version of "
         f"fibsem-os from before configuration v{before} can read the copy."
     )
-
-
-def _retire_legacy_duplicates(config: dict) -> None:
-    """Drop a key from an old flat block once its new home states it.
-
-    A file written before the sections existed keeps its flat blocks, and the
-    reader accepts them. Writing `defaults.electron.voltage` into such a file
-    would otherwise leave `electron.voltage` beside it -- two homes for one value,
-    the reader silently preferring the new one, and the warning suppressed by the
-    legacy alias. Here the old copy goes, and an emptied block goes with it.
-    """
-    for block, aliases in LEGACY_CONFIGURATION_BLOCKS.items():
-        old = config.get(block)
-        if not isinstance(old, dict):
-            continue
-        for alias in aliases:
-            if alias.startswith(f"{DEVICE_LIST}."):
-                new_home = configuration_device(config, alias[len(DEVICE_LIST) + 1 :])
-            else:
-                new_home = config
-                for part in alias.split("."):
-                    new_home = (
-                        new_home.get(part) if isinstance(new_home, dict) else None
-                    )
-                    if new_home is None:
-                        break
-            if not isinstance(new_home, dict):
-                continue
-            for key in list(old):
-                if key in new_home:
-                    del old[key]
-        if not old:
-            del config[block]
 
 
 def write_objective_calibration(
@@ -959,7 +868,6 @@ def write_holder_calibration(
         calibration = config["calibration"] = {}
     calibration["holders"] = holders
     calibration["active_holder"] = active_holder
-    _retire_legacy_duplicates(config)
     _write_configuration_file(path, config)
 
 

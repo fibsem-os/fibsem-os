@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from fibsem import config as cfg
+from fibsem.codec.upgrades.configuration import upgrade
 
 logger = logging.getLogger(__name__)
 
@@ -350,7 +351,7 @@ def shipped_stage_values(model: MicroscopeModel) -> Dict[str, float]:
     from fibsem import utils
 
     try:
-        config = utils.upgrade_configuration(utils.load_yaml(model.path))
+        config = upgrade(utils.load_yaml(model.path))
         stage = utils.configuration_device(config, "stage")
         calibration = config.get("calibration") or {}
     except Exception as e:  # pragma: no cover - unreadable shipped file
@@ -537,7 +538,7 @@ def build_configuration(choices: SetupChoices) -> dict:
     model = choices.model
     # In the current version whatever the shipped file is in, so a new site's file
     # starts with the device list.
-    config = utils.upgrade_configuration(utils.load_yaml(model.path))
+    config = upgrade(utils.load_yaml(model.path))
 
     manufacturer = choices.manufacturer
 

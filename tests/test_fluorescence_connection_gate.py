@@ -227,7 +227,8 @@ def test_the_driver_keys_are_known_configuration_keys():
         "required": True,
     }
 
-    assert utils.unrecognised_configuration_keys({"hardware": {"fm": block}}) == []
+    config = {"hardware": {"devices": [{"name": "fm", "type": "fm", **block}]}}
+    assert utils.unrecognised_configuration_keys(config) == []
 
 
 def test_a_remote_fm_is_not_looked_for_on_the_beams_connection(tmp_path):
