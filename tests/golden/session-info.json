@@ -1,0 +1,27 @@
+{
+  "plugins": {
+    "fibsem-plugin-example": "0.1.0"
+  },
+  "recorded_at": "2026-10-01T10:00:00+10:00",
+  "system": {
+    "application": null,
+    "fibsem_revision": "v0.6.0-1-gabcdef0",
+    "fibsem_version": "0.6.0",
+    "hardware_version": "Unknown",
+    "ip_address": "Unknown",
+    "manufacturer": "ThermoFisher",
+    "model": "Unknown",
+    "name": "Arctis",
+    "port": null,
+    "serial_number": "Unknown",
+    "software_version": "Unknown"
+  },
+  "user": {
+    "email": "op@example.com",
+    "hostname": null,
+    "name": "operator",
+    "organization": null
+  },
+  "utc_offset": "+10:00",
+  "zone_name": "AEST"
+}
