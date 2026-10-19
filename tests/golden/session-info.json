@@ -5,7 +5,7 @@
   "recorded_at": "2026-10-01T10:00:00+10:00",
   "system": {
     "application": null,
-    "fibsem_revision": "v0.5.3-1368-g396e41d4c",
+    "fibsem_revision": "v0.6.0-1-gabcdef0",
     "fibsem_version": "0.6.0",
     "hardware_version": "Unknown",
     "ip_address": "Unknown",

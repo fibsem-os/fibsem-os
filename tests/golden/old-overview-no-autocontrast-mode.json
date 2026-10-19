@@ -1,6 +1,6 @@
 {
-  "autocontrast_mode": "once",
-  "autofocus_mode": "none",
+  "autocontrast_mode": "ONCE",
+  "autofocus_mode": "NONE",
   "autofocus_settings": {
     "channel_name": null,
     "method": "TENENGRAD",
@@ -52,5 +52,5 @@
   "overlap": 0.1,
   "register_tiles": false,
   "tile_mask": null,
-  "tile_order": "serpentine"
+  "tile_order": "SERPENTINE"
 }

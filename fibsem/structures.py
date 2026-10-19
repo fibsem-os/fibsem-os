@@ -16,6 +16,7 @@ from enum import Enum, auto
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
+    Annotated,
     Any,
     Callable,
     ClassVar,
@@ -39,6 +40,7 @@ import numpy as np
 import tifffile as tff
 import yaml
 from numpy.typing import NDArray
+from pydantic import BeforeValidator
 
 import fibsem
 from fibsem.codec import (
@@ -57,9 +59,7 @@ from fibsem.config import (
 from fibsem.util.timestamps import (
     acquisition_datetime_of,
     now,
-    to_aware,
     to_datetime,
-    to_iso,
     utc_offset_of,
     zone_from_offset,
 )
@@ -866,7 +866,7 @@ class TileOrderStrategy(NamedEnum, Enum):
     SPIRAL = "spiral"  # outward clockwise spiral from centre tile
 
 
-class AutoContrastMode(Enum):
+class AutoContrastMode(NamedEnum, Enum):
     """When to set the contrast during a tiled acquisition.
 
     ONCE is one detector setting for the whole mosaic, taken at the grid centre
@@ -1734,89 +1734,27 @@ class OverviewAcquisitionSettings(Configurable):
         """Total horizontal FOV in meters (alias for total_fov_x)."""
         return self.total_fov_x
 
-    @staticmethod
-    def from_dict(d: dict) -> "OverviewAcquisitionSettings":
-        # backward compat: old configs had a bare use_focus_stack bool
-        if "focus_stack_settings" not in d and "use_focus_stack" in d:
-            fss = FocusStackSettings(enabled=d["use_focus_stack"])
-        else:
-            fss = FocusStackSettings.from_dict(d.get("focus_stack_settings", {}))
-        mask = d.get("tile_mask")
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> Any:
+        # autofocus imports this module, so its class is named here only while the
+        # schema is built
+        from fibsem.autofunctions.autofocus import AutoFocusSettings
 
-        # Two shapes of the same two facts. Before FIB-646 the mode lived *inside*
-        # `autofocus_settings`, in a class that held nothing else:
-        #
-        #     {"autofocus_settings": {"mode": "EACH_ROW"}}          <- old
-        #     {"autofocus_mode": "EACH_ROW",                        <- new
-        #      "autofocus_settings": {"method": ..., "passes": [...]}}
-        #
-        # `"mode"` is a safe discriminator and not a heuristic: the real sweep config
-        # writes method / passes / probe_resolution / probe_dwell_time / reduced_area /
-        # use_autocontrast / channel_name, and never a "mode" key. So an old file is
-        # recognised by the one key the new shape cannot produce.
-        #
-        # An old file carries no sweep at all, so it gets the default -- which is the
-        # right answer rather than a fallback: it is exactly what it was running under,
-        # since the mode was the only thing it could configure.
-        raw_autofocus = d.get("autofocus_settings") or {}
-        if "mode" in raw_autofocus:
-            mode = AutoFocusMode(raw_autofocus["mode"])
-            sweep = _default_autofocus_settings()
-        else:
-            mode = AutoFocusMode(d.get("autofocus_mode", AutoFocusMode.NONE.value))
-            if raw_autofocus:
-                from fibsem.autofunctions.autofocus import AutoFocusSettings
+        globals()["AutoFocusSettings"] = AutoFocusSettings
+        try:
+            return handler(source)
+        finally:
+            del globals()["AutoFocusSettings"]
 
-                sweep = AutoFocusSettings.from_dict(raw_autofocus)
-            else:
-                sweep = _default_autofocus_settings()
+    @classmethod
+    def from_dict(cls, d: dict) -> "OverviewAcquisitionSettings":
+        """Read settings saved by any version (`fibsem.codec.upgrades.overview`)."""
+        from fibsem.codec.upgrades.overview import acquisition_settings
 
-        image_settings = ImageSettings.from_dict(d.get("image_settings", {}))
-        # A file from before the mode existed said "auto contrast" with the
-        # per-image flag alone. It meant the mosaic, not each tile: ONCE.
-        if "autocontrast_mode" in d:
-            autocontrast_mode = AutoContrastMode(d["autocontrast_mode"])
-        elif image_settings.autocontrast:
-            autocontrast_mode = AutoContrastMode.ONCE
-        else:
-            autocontrast_mode = AutoContrastMode.NONE
-
-        return OverviewAcquisitionSettings(
-            image_settings=image_settings,
-            nrows=d.get("nrows", 3),
-            ncols=d.get("ncols", 3),
-            overlap=d.get("overlap", 0.1),
-            focus_stack_settings=fss,
-            autofocus_mode=mode,
-            autofocus_settings=sweep,
-            autocontrast_mode=autocontrast_mode,
-            tile_order=TileOrderStrategy(
-                d.get("tile_order", TileOrderStrategy.TYPEWRITER.value)
-            ),
-            tile_mask=None
-            if mask is None
-            else [[bool(v) for v in row] for row in mask],
-            register_tiles=bool(d.get("register_tiles", False)),
-        )
+        return decode(cls, acquisition_settings(d))
 
     def to_dict(self) -> dict:
-        return {
-            "image_settings": self.image_settings.to_dict(),
-            "nrows": self.nrows,
-            "ncols": self.ncols,
-            "overlap": self.overlap,
-            "focus_stack_settings": self.focus_stack_settings.to_dict(),
-            "autofocus_mode": self.autofocus_mode.value,
-            "autofocus_settings": self.autofocus_settings.to_dict(),
-            "autocontrast_mode": self.autocontrast_mode.value,
-            "tile_order": self.tile_order.value,
-            # plain bools: np.bool_ does not survive yaml.safe_dump, and a mask arriving
-            # from a numpy grid is exactly how one gets here.
-            "tile_mask": None
-            if self.tile_mask is None
-            else [[bool(v) for v in row] for row in self.tile_mask],
-            "register_tiles": self.register_tiles,
-        }
+        return encode(self)
 
 
 # `current` and `eucentric_height` are how a configuration's beam defaults spell
@@ -3114,12 +3052,12 @@ class ManipulatorSystemSettings:
     # axes the arm has from its device too, so neither is set here.
     enabled: bool = True
 
-    def to_dict(self):
-        return {"enabled": self.enabled}
+    def to_dict(self) -> dict:
+        return encode(self)
 
-    @staticmethod
-    def from_dict(settings: dict):
-        return ManipulatorSystemSettings(enabled=settings.get("enabled", True))
+    @classmethod
+    def from_dict(cls, data: dict) -> "ManipulatorSystemSettings":
+        return decode(cls, data)
 
 
 @dataclass
@@ -4161,6 +4099,7 @@ class FibsemUser:
         return user
 
 
+@saved(absent={"recorded_at": None})
 @dataclass
 class SessionInfo:
     """Which instrument, whose account, and what software worked on an experiment.
@@ -4203,7 +4142,7 @@ class SessionInfo:
 
     # Aware, written as ISO 8601 with its offset (FIB-1197); older experiments hold
     # a POSIX float, which reads as this machine's zone.
-    recorded_at: Optional[datetime] = field(default_factory=now)
+    recorded_at: Optional[Timestamp] = field(default_factory=now)
     system: Optional[SystemInfo] = None
     user: Optional[FibsemUser] = None
     # Distribution name -> version for every installed extension; see
@@ -4260,27 +4199,11 @@ class SessionInfo:
         )
 
     def to_dict(self) -> dict:
-        return {
-            "recorded_at": to_iso(self.recorded_at),
-            "system": self.system.to_dict() if self.system is not None else None,
-            "user": self.user.to_dict() if self.user is not None else None,
-            "plugins": dict(self.plugins),
-            "utc_offset": self.utc_offset,
-            "zone_name": self.zone_name,
-        }
+        return encode(self)
 
-    @staticmethod
-    def from_dict(ddict: dict) -> "SessionInfo":
-        system = ddict.get("system")
-        user = ddict.get("user")
-        return SessionInfo(
-            recorded_at=to_datetime(ddict.get("recorded_at")),
-            system=SystemInfo.from_dict(system) if system else None,
-            user=FibsemUser.from_dict(user) if user else None,
-            plugins=dict(ddict.get("plugins") or {}),
-            utc_offset=ddict.get("utc_offset"),
-            zone_name=ddict.get("zone_name"),
-        )
+    @classmethod
+    def from_dict(cls, data: dict) -> "SessionInfo":
+        return decode(cls, data)
 
 
 @saved(keys={"image_settings": "image"})
@@ -5026,6 +4949,7 @@ def calculate_fiducial_area_v2(
 DEFAULT_ALIGNMENT_AREA = {"left": 0.7, "top": 0.3, "width": 0.25, "height": 0.4}
 
 
+@saved(absent={"enabled": False})
 @dataclass
 class MillingAlignment(Configurable):
     """Drift correction settings for milling"""
@@ -5078,34 +5002,12 @@ class MillingAlignment(Configurable):
         display=Display("Full Frame At Or Below", scale=1e12, step=10, decimals=0),
     )
 
-    def to_dict(self):
-        return {
-            "enabled": self.enabled,
-            "interval_enabled": self.interval_enabled,
-            "interval": self.interval,
-            "rect": self.rect.to_dict(),
-            "use_autocontrast": self.use_autocontrast,
-            "use_autofocus": self.use_autofocus,
-            "steps": self.steps,
-            "imaging": self.imaging.to_dict(),
-            "full_frame_below": self.full_frame_below,
-        }
+    def to_dict(self) -> dict:
+        return encode(self)
 
-    @staticmethod
-    def from_dict(d: dict) -> "MillingAlignment":
-        return MillingAlignment(
-            enabled=d.get("enabled", False),
-            interval_enabled=d.get("interval_enabled", False),
-            interval=d.get("interval", 30),
-            rect=FibsemRectangle.from_dict(
-                d.get("rect", DEFAULT_ALIGNMENT_AREA),
-            ),
-            use_autocontrast=d.get("use_autocontrast", True),
-            use_autofocus=d.get("use_autofocus", False),
-            steps=d.get("steps", 3),
-            imaging=ImageSettings.from_dict(d.get("imaging", {})),
-            full_frame_below=float(d.get("full_frame_below", 0.0)),
-        )
+    @classmethod
+    def from_dict(cls, data: dict) -> "MillingAlignment":
+        return decode(cls, data)
 
 
 @dataclass
@@ -5124,28 +5026,11 @@ class ReferenceImageParameters(Configurable):
     acquire_image2: bool = param(True, doc="Whether to acquire second reference image")
 
     def to_dict(self) -> dict:
-        return {
-            "imaging": self.imaging.to_dict(),
-            "field_of_view1": self.field_of_view1,
-            "field_of_view2": self.field_of_view2,
-            "acquire_sem": self.acquire_sem,
-            "acquire_fib": self.acquire_fib,
-            "acquire_image1": self.acquire_image1,
-            "acquire_image2": self.acquire_image2,
-        }
+        return encode(self)
 
-    @staticmethod
-    def from_dict(settings: dict) -> "ReferenceImageParameters":
-        imaging = ImageSettings.from_dict(settings.get("imaging", {}))
-        return ReferenceImageParameters(
-            imaging=imaging,
-            field_of_view1=settings.get("field_of_view1", 100e-6),
-            field_of_view2=settings.get("field_of_view2", 150e-6),
-            acquire_sem=settings.get("acquire_sem", True),
-            acquire_fib=settings.get("acquire_fib", True),
-            acquire_image1=settings.get("acquire_image1", True),
-            acquire_image2=settings.get("acquire_image2", True),
-        )
+    @classmethod
+    def from_dict(cls, data: dict) -> "ReferenceImageParameters":
+        return decode(cls, data)
 
     @property
     def field_of_views(self) -> Tuple[float, ...]:
@@ -5190,19 +5075,16 @@ class SampleGrid(Configurable):
     )
 
     def to_dict(self) -> dict:
-        return {
-            "name": self.name,
-            "description": self.description,
-            "radius": self.radius,
-        }
+        return encode(self)
 
     @classmethod
     def from_dict(cls, data: dict) -> "SampleGrid":
-        return SampleGrid(
-            name=data.get("name", ""),
-            description=data.get("description", ""),
-            radius=data.get("radius", GRID_RADIUS),
-        )
+        return decode(cls, data)
+
+
+def _blank_is_none(value: Any) -> Any:
+    # older holder files wrote "" for a time nobody captured
+    return value or None
 
 
 @dataclass
@@ -5223,11 +5105,11 @@ class SlotCalibration:
     # When the wizard captured it: aware, written as ISO 8601 with its offset
     # (FIB-1190, FIB-1197). Records before FIB-1190 hold a naive string, which stays
     # naive. None for a position nobody captured.
-    captured_at: Optional[datetime] = None
+    captured_at: Annotated[Optional[Timestamp], BeforeValidator(_blank_is_none)] = None
     fibsem_version: str = ""
 
     def __post_init__(self) -> None:
-        # the string a holder file or a caller holds
+        # the string a caller holds
         self.captured_at = to_datetime(self.captured_at) if self.captured_at else None
 
     @classmethod
@@ -5258,23 +5140,11 @@ class SlotCalibration:
         )
 
     def to_dict(self) -> dict:
-        return {
-            "orientation": self.orientation,
-            "pre_tilt": self.pre_tilt,
-            "rotation_reference": self.rotation_reference,
-            "captured_at": to_iso(self.captured_at) or "",
-            "fibsem_version": self.fibsem_version,
-        }
+        return encode(self)
 
     @classmethod
     def from_dict(cls, data: dict) -> "SlotCalibration":
-        return SlotCalibration(
-            orientation=str(data.get("orientation", "")),
-            pre_tilt=float(data.get("pre_tilt", 0.0)),
-            rotation_reference=float(data.get("rotation_reference", 0.0)),
-            captured_at=data.get("captured_at") or None,
-            fibsem_version=str(data.get("fibsem_version", "")),
-        )
+        return decode(cls, data)
 
 
 @dataclass
@@ -5292,51 +5162,23 @@ class GridSlot:
     loaded_grid: Optional[SampleGrid] = None
     calibration: Optional[SlotCalibration] = None
 
+    def __post_init__(self) -> None:
+        if self.position is not None:
+            self.position.name = self.name
+
     @property
     def is_calibrated(self) -> bool:
         return self.position is not None and self.calibration is not None
 
     def to_dict(self) -> dict:
-        return {
-            "name": self.name,
-            "index": self.index,
-            "position": self.position.to_dict() if self.position is not None else None,
-            "loaded_grid": self.loaded_grid.to_dict()
-            if self.loaded_grid is not None
-            else None,
-            "calibration": self.calibration.to_dict()
-            if self.calibration is not None
-            else None,
-        }
+        return encode(self)
 
     @classmethod
     def from_dict(cls, data: dict) -> "GridSlot":
-        loaded_grid_data = data.get("loaded_grid")
-        loaded_grid = (
-            SampleGrid.from_dict(loaded_grid_data)
-            if loaded_grid_data is not None
-            else None
-        )
-        position_data = data.get("position")
-        position = (
-            FibsemStagePosition(**position_data) if position_data is not None else None
-        )
-        calibration_data = data.get("calibration")
-        calibration = (
-            SlotCalibration.from_dict(calibration_data)
-            if calibration_data is not None
-            else None
-        )
-        slot = GridSlot(
-            name=data.get("name", ""),
-            index=data.get("index", 0),
-            position=position,
-            loaded_grid=loaded_grid,
-            calibration=calibration,
-        )
-        if slot.position is not None:
-            slot.position.name = slot.name
-        return slot
+        """Read a slot saved by any version (`fibsem.codec.upgrades.holder`)."""
+        from fibsem.codec.upgrades.holder import slot
+
+        return decode(cls, slot(data))
 
 
 @dataclass
@@ -5479,19 +5321,11 @@ class SampleHolder(Configurable):
             del self.slots[name]
 
     def to_dict(self, include_grids: bool = True) -> dict:
-        slots = {}
-        for name, slot in self.slots.items():
-            data = slot.to_dict()
-            if not include_grids:
-                data["loaded_grid"] = None
-            slots[name] = data
-        return {
-            "name": self.name,
-            "capacity": self.capacity,
-            "slots": slots,
-            "description": self.description,
-            "pre_tilt": self.pre_tilt,
-        }
+        data = encode(self)
+        if not include_grids:
+            for slot in data["slots"].values():
+                slot["loaded_grid"] = None
+        return data
 
     # -- occupancy: which grid is in which slot, kept apart from the calibration --
 
@@ -5513,21 +5347,19 @@ class SampleHolder(Configurable):
 
     @classmethod
     def from_dict(cls, data: dict) -> "SampleHolder":
-        slots = {
-            name: GridSlot.from_dict(slot_data)
-            for name, slot_data in data.get("slots", {}).items()
-        }
-        # A file that does not state one reads as 0.0 here, and that is safe only
-        # because of what happens next: `_resolve_configured_holder` overwrites it
-        # with the configured pre-tilt before the holder is used. The required field
-        # constrains *constructions in code*, which is where a forgotten pre-tilt has
-        # nothing else to catch it; a silent file is caught at connect instead.
-        holder = SampleHolder(
-            pre_tilt=float(data.get("pre_tilt") or 0.0),
-            name=data.get("name", "Sample Holder"),
-            capacity=data.get("capacity", max(len(slots), 1)),
-            slots=slots,
-            description=data.get("description", ""),
+        # A file that does not state a pre-tilt reads as 0.0, which is safe only
+        # because `_resolve_configured_holder` overwrites it with the configured one
+        # before the holder is used. A file with no capacity holds the slots it lists.
+        from fibsem.codec.upgrades.holder import holder as upgrade
+
+        data = upgrade(data)
+        holder = decode(
+            cls,
+            {
+                "capacity": max(len(data.get("slots") or {}), 1),
+                **data,
+                "pre_tilt": float(data.get("pre_tilt") or 0.0),
+            },
         )
         holder._ensure_slots()
         return holder

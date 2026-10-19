@@ -435,7 +435,12 @@ BUILT_REST = {
     ),
     "session-info": SessionInfo(
         recorded_at=datetime.fromisoformat("2026-10-01T10:00:00+10:00"),
-        system=SystemInfo(name="Arctis", manufacturer="Thermo", fibsem_version="0.6.0"),
+        system=SystemInfo(
+            name="Arctis",
+            manufacturer="Thermo",
+            fibsem_version="0.6.0",
+            fibsem_revision="v0.6.0-1-gabcdef0",
+        ),
         user=FibsemUser(name="operator", email="op@example.com"),
         plugins={"fibsem-plugin-example": "0.1.0"},
         utc_offset="+10:00",
@@ -503,7 +508,15 @@ OLD_REST = {
                 "Slot-01": {
                     "name": "Slot-01",
                     "index": 0,
-                    "position": {"x": 0.001, "y": 0.0, "z": 0.0, "r": 0.0, "t": 0.0},
+                    "position": {
+                        "name": "Slot-01",
+                        "x": 0.001,
+                        "y": 0.0,
+                        "z": 0.0,
+                        "r": 0.0,
+                        "t": 0.0,
+                        "coordinate_system": "RAW",
+                    },
                     "loaded_grid": None,
                 }
             },
@@ -511,7 +524,7 @@ OLD_REST = {
     ),
     "old-session-posix": (
         SessionInfo,
-        {"recorded_at": 1760000000.0, "system": {}, "user": None, "plugins": None},
+        {"recorded_at": 1760000000.0, "system": None, "user": None},
     ),
 }
 

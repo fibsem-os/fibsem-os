@@ -1044,16 +1044,11 @@ class TestTheOverviewDefaults:
         assert second.image_settings.hfw == pytest.approx(500e-6)
         assert second.nrows == 3
 
-    def test_a_file_without_image_settings_loads_as_before(self):
-        """The house defaults are for new overviews; a saved one keeps what it said."""
-        from fibsem.structures import (
-            AutoContrastMode,
-            ImageSettings,
-            OverviewAcquisitionSettings,
-        )
+    def test_a_file_without_image_settings_takes_the_overview_defaults(self):
+        from fibsem.structures import AutoContrastMode, OverviewAcquisitionSettings
 
         loaded = OverviewAcquisitionSettings.from_dict({"nrows": 2})
-        assert loaded.image_settings.hfw == ImageSettings().hfw
+        assert loaded.image_settings == OverviewAcquisitionSettings().image_settings
         assert loaded.autocontrast_mode is AutoContrastMode.NONE
 
 

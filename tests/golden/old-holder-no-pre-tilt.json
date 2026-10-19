@@ -10,7 +10,7 @@
       "loaded_grid": null,
       "name": "Slot-01",
       "position": {
-        "coordinate_system": null,
+        "coordinate_system": "RAW",
         "name": "Slot-01",
         "r": 0.0,
         "t": 0.0,

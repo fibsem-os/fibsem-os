@@ -210,5 +210,5 @@ def test_a_slot_calibration_reads_its_time_as_written(written):
 def test_a_builtin_slot_calibration_has_no_time():
     record = SlotCalibration.builtin(35.0, 0.0)
     assert record.captured_at is None and record.is_builtin
-    assert record.to_dict()["captured_at"] == ""
+    assert record.to_dict()["captured_at"] is None
     assert SlotCalibration.from_dict(record.to_dict()).is_builtin

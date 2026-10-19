@@ -1,6 +1,6 @@
 {
-  "autocontrast_mode": "none",
-  "autofocus_mode": "none",
+  "autocontrast_mode": "NONE",
+  "autofocus_mode": "NONE",
   "autofocus_settings": {
     "channel_name": null,
     "method": "TENENGRAD",
@@ -34,9 +34,9 @@
     "beam_type": "ELECTRON",
     "drift_correction": false,
     "dwell_time": 1e-06,
-    "filename": "default_image",
+    "filename": "overview-image",
     "frame_integration": null,
-    "hfw": 0.00015,
+    "hfw": 0.0005,
     "line_integration": null,
     "path": null,
     "reduced_area": null,
@@ -44,7 +44,7 @@
       1536,
       1024
     ],
-    "save": false,
+    "save": true,
     "scan_interlacing": null
   },
   "ncols": 3,
@@ -52,5 +52,5 @@
   "overlap": 0.1,
   "register_tiles": false,
   "tile_mask": null,
-  "tile_order": "typewriter"
+  "tile_order": "TYPEWRITER"
 }
