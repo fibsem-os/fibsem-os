@@ -11,8 +11,8 @@ from what the task does.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, List, Optional, Sequence, Tuple, Type
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Mapping, Optional, Sequence, Tuple, Type
 
 from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
 from fibsem.workflows.attention import Attention
@@ -31,6 +31,7 @@ if TYPE_CHECKING:
         AutoLamellaTaskProtocol,
     )
     from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
+    from fibsem.workflows.grid.protocol import GridTaskProtocol
 
 # How a kind is said to the operator. A kind asked mid-run is what the person
 # is needed for; a kind left for afterwards is what waits on them.
@@ -154,18 +155,67 @@ def attendance_for(
     )
 
 
-def run_attendance(protocol: "AutoLamellaTaskProtocol", task_names: List[str]) -> str:
-    """The pre-run sentence: which of ``task_names`` need a person present."""
+@dataclass(frozen=True)
+class RunAttendance:
+    """Who a run needs, said before it: the tasks that wait for a person, a
+    line per task, and the sentence for the run. Beside the run's estimate,
+    not inside it: a duration does not depend on who is in the room."""
+
+    # the tasks that pause for a person, in run order
+    supervised: Tuple[str, ...] = ()
+    # what each task needs from a person, said in a line; a task whose type
+    # this build does not know has none
+    lines: Mapping[str, str] = field(default_factory=dict)
+    # the pre-run sentence: which tasks need a person present
+    summary: str = ""
+
+    @property
+    def waits_for_a_human(self) -> bool:
+        return bool(self.supervised)
+
+
+def run_attendance(
+    protocol: "AutoLamellaTaskProtocol", task_names: Sequence[str]
+) -> RunAttendance:
+    """What a run of ``task_names`` needs from a person."""
+    workflow = protocol.workflow_config
+    lines = {}
     present = []
     for name in task_names:
         att = attendance_for(protocol, name)
-        if att is not None and att.needs_a_person_present:
+        if att is None:
+            continue
+        lines[name] = att.line
+        if att.needs_a_person_present:
             present.append(name)
     if not present:
-        return "This run needs nobody present."
-    if len(present) == len(task_names):
-        return f"This run needs you present for every task: {_named(present)}."
-    return (
-        f"This run needs you present for {_named(present)}. "
-        "Everything else runs on its own."
+        summary = "This run needs nobody present."
+    elif len(present) == len(task_names):
+        summary = f"This run needs you present for every task: {_named(present)}."
+    else:
+        summary = (
+            f"This run needs you present for {_named(present)}. "
+            "Everything else runs on its own."
+        )
+    return RunAttendance(
+        supervised=tuple(
+            name
+            for name in task_names
+            if workflow.get_attention(name) is Attention.supervised
+        ),
+        lines=lines,
+        summary=summary,
     )
+
+
+def grid_run_attendance(
+    protocol: "GridTaskProtocol", task_names: Sequence[str]
+) -> RunAttendance:
+    """What a grid run of ``task_names`` needs from a person: the tasks that
+    wait for one. A grid task says nothing more about it."""
+    supervised = []
+    for name in task_names:
+        config = protocol.task_config.get(name)
+        if config is not None and config.attention is Attention.supervised:
+            supervised.append(name)
+    return RunAttendance(supervised=tuple(supervised))

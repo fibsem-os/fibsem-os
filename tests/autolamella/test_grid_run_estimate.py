@@ -19,10 +19,6 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.workflows.workflow_estimate import (
-    estimate_grid_run,
-    grid_item_seconds,
-)
 from fibsem.autofunctions.autofocus import AutoFocusSettings, FocusSweepPass
 from fibsem.drivers.autoscript.devices import AutoscriptSampleLoader
 from fibsem.fm.structures import ChannelSettings, OverviewParameters
@@ -32,6 +28,10 @@ from fibsem.structures import (
     BeamType,
     ImageSettings,
     OverviewAcquisitionSettings,
+)
+from fibsem.workflows.grid.estimate import (
+    estimate_grid_run,
+    grid_item_seconds,
 )
 from fibsem.workflows.grid.fluorescence import (
     FluorescenceOverviewGridTaskConfig,
@@ -211,7 +211,7 @@ def test_a_three_grid_run_prices_an_exchange_per_grid_and_each_task_per_grid(
         experiment, ["SEM", "FIB", "FM"], grids, exchanges, loader.exchange_seconds, NOW
     )
 
-    assert [(t.name, t.lamella_count) for t in est.tasks] == [
+    assert [(t.name, t.count) for t in est.tasks] == [
         (LOAD_ENTRY_NAME, 3),
         ("SEM", 3),
         ("FIB", 3),

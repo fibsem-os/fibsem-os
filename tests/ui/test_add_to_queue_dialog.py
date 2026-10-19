@@ -1,6 +1,6 @@
 """What the Add to Queue dialog says about time (FIB-731).
 
-The arithmetic is tested in tests/autolamella/test_workflow_estimate.py without a widget.
+The arithmetic is tested in tests/autolamella/test_run_estimate.py without a widget.
 What is checked here is the dialog's own job: showing two figures that are allowed to
 disagree, saying why when they do, and staying usable when there is no estimate at all.
 
@@ -27,10 +27,10 @@ from PyQt5.QtWidgets import QDialog, QLabel
 from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
     confirm_add_to_queue_dialog,
 )
-from fibsem.applications.autolamella.workflows.workflow_estimate import (
+from fibsem.ui.stylesheets import NAPARI_STYLE
+from fibsem.workflows.estimate import (
     estimate_addition,
 )
-from fibsem.ui.stylesheets import NAPARI_STYLE
 from fibsem.workflows.queue import WorkItem
 
 NOW = datetime(2026, 8, 19, 14, 0, 0)

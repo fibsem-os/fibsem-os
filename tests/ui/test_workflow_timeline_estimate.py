@@ -1,6 +1,6 @@
 """The estimate column and the header's remaining/finish line (FIB-666).
 
-The arithmetic itself is tested in tests/autolamella/test_workflow_estimate.py, without a
+The arithmetic itself is tested in tests/autolamella/test_run_estimate.py, without a
 widget. What is checked here is what the timeline *says*, and when it changes its mind:
 the column predicts while it can and reports once it cannot, and the header quotes a clock
 only while a clock can honestly be quoted.

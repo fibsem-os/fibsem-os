@@ -20,7 +20,6 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.applications.autolamella.workflows.workflow_estimate import estimate_queue
 from fibsem.constants import TIME_DISPLAY_AMPM_SHORT
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import fibsem_icon
@@ -32,6 +31,7 @@ from fibsem.ui.tokens import (
 from fibsem.ui.widgets.custom_widgets import ElidedLabel
 from fibsem.ui.widgets.preflight import format_clock
 from fibsem.util.durations import format_duration_rounded
+from fibsem.workflows.estimate import estimate_queue
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 _DOT_COMPLETED = stylesheets.GREEN_COLOR

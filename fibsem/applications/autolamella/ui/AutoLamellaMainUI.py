@@ -97,14 +97,16 @@ from fibsem.applications.autolamella.ui.workflow_preflight_dialog import (
 from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
     WorkflowProgressWidget,
 )
-from fibsem.applications.autolamella.workflows.tasks.tasks import get_task_supervision
-from fibsem.applications.autolamella.workflows.workflow_estimate import (
-    AdditionEstimate,
-    estimate_addition,
-    estimate_grid_run,
-    estimate_workflow,
-    grid_item_seconds,
+from fibsem.applications.autolamella.workflows.estimate import (
+    estimate_queue_addition,
+    step_seconds,
+    task_schedule,
 )
+from fibsem.applications.autolamella.workflows.tasks.attendance import (
+    grid_run_attendance,
+    run_attendance,
+)
+from fibsem.applications.autolamella.workflows.tasks.tasks import get_task_supervision
 from fibsem.server.levels import AgentLevel
 from fibsem.structures import BeamType
 from fibsem.tools.app_identity import set_app_identity
@@ -137,19 +139,27 @@ from fibsem.ui.widgets.connection_dialog import connect_to_microscope_dialog
 from fibsem.ui.widgets.notifications import NotificationBell, ToastManager
 from fibsem.ui.widgets.status_bar import FibsemStatusBar
 from fibsem.util.durations import format_duration_rounded
-from fibsem.util.timestamps import format_time, now
+from fibsem.util.timestamps import format_time
 from fibsem.versioning import get_version_string
 from fibsem.workflows.attention import Attention
-from fibsem.workflows.grid.manager import (
+from fibsem.workflows.estimate import AdditionEstimate, estimate_run
+from fibsem.workflows.grid.estimate import estimate_grid_run
+from fibsem.workflows.grid.manager import plan_grid_run
+from fibsem.workflows.grid.naming import (
     grid_has_run,
     grid_rename_refusal,
-    plan_grid_run,
     rename_grid,
 )
 from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.proposals import STATE
 from fibsem.workflows.queue import QUEUE_ACTIONS
-from fibsem.workflows.runner import GRIDS, ITEMS, QueueEdit, RunRequest
+from fibsem.workflows.runner import (
+    GRIDS,
+    ITEMS,
+    QueueEdit,
+    RunRequest,
+    item_task_pairs,
+)
 from fibsem.workflows.status import (
     Hold,
     HoldKind,
@@ -261,18 +271,20 @@ def play_notification_sound():
 
 def confirm_run_workflow_dialog(
     experiment: Experiment,
-    lamella_names: list,
-    task_names: list,
+    request: RunRequest,
     parent=None,
 ) -> bool:
     """Show the pre-flight estimate before starting the workflow.
 
     Returns True if confirmed. Replaces two columns of bullets that restated the
-    selection the user had just made; see WorkflowPreflightDialog. Takes the
-    experiment because the estimate reads each lamella's task configs.
+    selection the user had just made; see WorkflowPreflightDialog. The estimate
+    walks the pairs the run will queue, priced from each lamella's task configs.
     """
-    estimate = estimate_workflow(experiment, task_names, lamella_names)
-    dlg = WorkflowPreflightDialog(estimate, parent=parent)
+    estimate = estimate_run(
+        item_task_pairs(request), step_seconds(experiment), task_schedule(experiment)
+    )
+    attendance = run_attendance(experiment.task_protocol, request.task_names)
+    dlg = WorkflowPreflightDialog(estimate, attendance, parent=parent)
     return dlg.exec_() == QDialog.Accepted
 
 
@@ -1788,9 +1800,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             QMessageBox.warning(self, "Cannot run", checked.reason)
             return
 
-        if not confirm_run_workflow_dialog(
-            ui.experiment, lamella_names, task_names, parent=self
-        ):
+        if not confirm_run_workflow_dialog(ui.experiment, request, parent=self):
             return
 
         started = ui.session.runner.start(ui.experiment, request)
@@ -1825,6 +1835,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             beams_off=self._beams_off(),
             first_run=[g.name for g in grids if not grid_has_run(g)],
             estimate=self._grid_run_estimate(task_names, grid_names, exchanges),
+            attendance=self._grid_run_attendance(task_names),
             **ending,
             parent=self,
         )
@@ -3344,6 +3355,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             adding=True,
             first_run=[g.name for g in grids if not grid_has_run(g)],
             addition=self._estimate_addition(manager, list(plan.pairs), run_next=False),
+            attendance=self._grid_run_attendance(task_names),
             parent=self,
         )
         if dialog.exec_() != QDialog.Accepted:
@@ -3364,88 +3376,22 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.workflow_timeline.refresh_queue(items)
 
     def _estimate_addition(self, manager, pairs: list, run_next: bool):
-        """What adding `pairs` would cost the running queue, or None if it cannot say.
-
-        Priced from the same `estimated_duration` the pre-flight dialog and the timeline
-        use, over a snapshot of the live queue — `queue.items` hands out copies, so the
-        hypothetical is built without touching what is running.
-        """
+        """What adding `pairs` would cost the running queue, or None if it cannot
+        say: the same walk the pre-flight dialog and the timeline use."""
         experiment = getattr(self.autolamella_ui, "experiment", None)
         if experiment is None:
             return None
-
-        lamella_by_name = {lam.name: lam for lam in experiment.positions}
-        step_seconds = self._step_seconds(experiment)
-
-        def seconds_for(item):
-            try:
-                return step_seconds(item.item_name, item.task_name)
-            except Exception:
-                # `estimated_time` divides by the sputter rate (milling/base.py:292), so
-                # a hand-edited protocol can raise. Losing the figure is a great deal
-                # better than losing the dialog that queues the work.
-                logging.warning(
-                    "Could not estimate duration for %s on %s.",
-                    item.task_name,
-                    item.item_name,
-                    exc_info=True,
-                )
-                return None
-
-        schedule = {}
-        protocol = experiment.task_protocol
-        if protocol is not None:
-            schedule = {
-                task.name: task.scheduled_at
-                for task in protocol.workflow_config.tasks
-                if task.scheduled_at is not None
-            }
-
-        # Wall-clock since the running task started, which is what the recorded duration
-        # measures too. It counts any supervised wait, so the absolute finish can run a
-        # little optimistic — but both walks share it, so the *delay* is unaffected.
-        active_elapsed = None
-        active = manager.queue.active
-        if active is not None:
-            item = lamella_by_name.get(active.item_name)
-            if item is None:
-                item = experiment.get_grid_by_name(active.item_name)
-            started = item.task_state.start_timestamp if item is not None else None
-            if started is not None:
-                active_elapsed = max(0.0, (now() - started).total_seconds())
-
-        return estimate_addition(
-            manager.queue.items,
-            pairs,
-            seconds_for,
-            run_next=run_next,
-            schedule=schedule,
-            active_elapsed=active_elapsed,
+        return estimate_queue_addition(
+            experiment, manager.queue, pairs, run_next, self._step_seconds(experiment)
         )
 
     def _step_seconds(self, experiment):
-        """``(item, task) -> seconds``, or None for a step with nothing to offer:
-        a lamella's from its own task config, a grid's from the grid protocol and
-        the loader's exchange (``grid_item_seconds``). The timeline and the queue
-        key steps by name, so one lookup serves either kind of run."""
-        lamella_by_name = {lam.name: lam for lam in experiment.positions}
-        grid_seconds = None
-        if experiment.task_protocol is not None:
-            view = self.grid_workflow_widget
-            grid_seconds = grid_item_seconds(
-                experiment, view.exchange_seconds(), view.loaded_grid_names()
-            )
-
-        def seconds_for(item_name: str, task_name: str):
-            lamella = lamella_by_name.get(item_name)
-            if lamella is not None:
-                config = lamella.task_config.get(task_name)
-                return config.estimated_duration if config is not None else None
-            if grid_seconds is not None:
-                return grid_seconds(item_name, task_name)
-            return None
-
-        return seconds_for
+        """What a step costs, with the loader's exchange and the grids on the
+        stage as the Grids view knows them."""
+        view = self.grid_workflow_widget
+        return step_seconds(
+            experiment, view.exchange_seconds(), view.loaded_grid_names()
+        )
 
     def _grid_run_estimate(self, task_names: list, grid_names: list, exchanges: int):
         """What a grid run will take, for its confirmation; None if it cannot say.
@@ -3465,6 +3411,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             logging.warning("Could not estimate the grid run.", exc_info=True)
             return None
 
+    def _grid_run_attendance(self, task_names: list):
+        experiment = getattr(self.autolamella_ui, "experiment", None)
+        if experiment is None:
+            return None
+        return grid_run_attendance(experiment.grid_protocol, task_names)
+
     def _push_timeline_estimates(self, pairs: list) -> None:
         """Give the timeline the per-item durations, and the schedule they walk past.
 
@@ -3478,41 +3430,16 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if experiment is None:
             return
 
-        step_seconds = self._step_seconds(experiment)
+        # A step with no config for the task, or one that cannot be priced, has
+        # no duration to offer, and the column leaves it empty (see step_seconds).
+        seconds_for = self._step_seconds(experiment)
         estimates = {}
-        for lamella_name, task_name in pairs:
-            try:
-                seconds = step_seconds(lamella_name, task_name)
-                # A lamella with no config for the task has no duration to offer,
-                # and inventing one would be worse than leaving the column empty.
-                if seconds is not None:
-                    estimates[(lamella_name, task_name)] = seconds
-            except Exception:
-                # Deliberately caught, against this codebase's fail-fast default. This
-                # runs in a slot, and PyQt5 aborts the process on an unhandled exception
-                # in one (FIB-329) — which here would kill the worker thread mid-mill
-                # over a decorative number. `estimated_time` divides by the sputter rate
-                # (milling/base.py:292), so a hand-edited protocol can reach a
-                # ZeroDivisionError. The column already has a well-defined "no estimate
-                # to offer" state, so degrading into it is the graceful failure.
-                logging.warning(
-                    "Could not estimate duration for %s on %s; the timeline will show "
-                    "no estimate for it.",
-                    task_name,
-                    lamella_name,
-                    exc_info=True,
-                )
+        for item_name, task_name in pairs:
+            seconds = seconds_for(item_name, task_name)
+            if seconds is not None:
+                estimates[(item_name, task_name)] = seconds
         self.workflow_timeline.set_estimates(estimates)
-
-        protocol = experiment.task_protocol
-        schedule = {}
-        if protocol is not None:
-            schedule = {
-                task.name: task.scheduled_at
-                for task in protocol.workflow_config.tasks
-                if task.scheduled_at is not None
-            }
-        self.workflow_timeline.set_schedule(schedule)
+        self.workflow_timeline.set_schedule(task_schedule(experiment))
 
     def _on_queue_action(self, action: str, item_id: str) -> None:
         """Apply a timeline row action to the live queue.

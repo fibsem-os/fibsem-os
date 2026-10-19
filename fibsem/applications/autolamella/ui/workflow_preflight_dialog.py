@@ -28,10 +28,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.applications.autolamella.workflows.workflow_estimate import (
-    TaskEstimate,
-    WorkflowEstimate,
-)
+from fibsem.applications.autolamella.workflows.tasks.attendance import RunAttendance
 from fibsem.ui import stylesheets
 from fibsem.ui.widgets.preflight import (
     BACKGROUND,
@@ -51,6 +48,7 @@ from fibsem.ui.widgets.preflight import (
     metric as _metric,
 )
 from fibsem.util.durations import format_duration_rounded
+from fibsem.workflows.estimate import RunEstimate, TaskEstimate
 
 # The duration column is fixed and right-aligned so the times hold one line down the
 # dialog however many chips a row carries. That column is what gets scanned; a ragged
@@ -67,8 +65,13 @@ _NAMES_SHOWN = 12
 _ON_PANEL = ON_PANEL  # see preflight.ON_PANEL for why every label on a panel needs it
 
 
-def _task_row(task: TaskEstimate, reference: Optional[datetime] = None) -> QWidget:
+def _task_row(
+    task: TaskEstimate,
+    reference: Optional[datetime] = None,
+    attendance: Optional[RunAttendance] = None,
+) -> QWidget:
     """`Rough milling  ×2   [chips]   20m 24s`."""
+    attendance = attendance or RunAttendance()
     row = QWidget()
     row.setStyleSheet(_ON_PANEL)
     layout = QHBoxLayout(row)
@@ -76,17 +79,18 @@ def _task_row(task: TaskEstimate, reference: Optional[datetime] = None) -> QWidg
     layout.setSpacing(8)
 
     name = QLabel(
-        f"{task.name}  <span style='color: {TEXT_MUTED};'>×{task.lamella_count}</span>"
+        f"{task.name}  <span style='color: {TEXT_MUTED};'>×{task.count}</span>"
     )
     name.setStyleSheet(_ON_PANEL + f"color: {TEXT}; font-size: 11px;")
     # Task names are user-supplied and can be long. The name is what gives if a row
     # runs out of room -- the duration column is fixed and the chips are the point --
     # so it carries the full name where a clipped one would lose it silently.
     # The full name, and what the task needs from a person while it runs.
-    name.setToolTip(f"{task.name}\n{task.attendance}" if task.attendance else task.name)
+    line = attendance.lines.get(task.name, "")
+    name.setToolTip(f"{task.name}\n{line}" if line else task.name)
     layout.addWidget(name, stretch=1)
 
-    if task.supervised:
+    if task.name in attendance.supervised:
         layout.addWidget(chip("Supervised"))
     if task.scheduled_at is not None:
         layout.addWidget(chip(f"Scheduled {_clock(task.scheduled_at, reference)}"))
@@ -100,7 +104,9 @@ def _task_row(task: TaskEstimate, reference: Optional[datetime] = None) -> QWidg
 
 
 def _task_block(
-    tasks: List[TaskEstimate], reference: Optional[datetime] = None
+    tasks: List[TaskEstimate],
+    reference: Optional[datetime] = None,
+    attendance: Optional[RunAttendance] = None,
 ) -> QFrame:
     frame = QFrame()
     # Scoped by name: the rows carry chips, and chips are QFrames, so a bare selector
@@ -114,20 +120,27 @@ def _task_block(
     layout.setContentsMargins(12, 10, 12, 10)
     layout.setSpacing(6)
     for task in tasks:
-        layout.addWidget(_task_row(task, reference))
+        layout.addWidget(_task_row(task, reference, attendance))
     return frame
 
 
 class WorkflowPreflightDialog(QDialog):
     """The estimate, and the two exceptions that stop it being the whole story.
 
-    Takes a finished :class:`WorkflowEstimate` rather than an experiment: the
-    arithmetic is tested without Qt, and this lays out what it is handed.
+    Takes a finished :class:`RunEstimate` and :class:`RunAttendance` rather than an
+    experiment: the arithmetic is tested without Qt, and this lays out what it is
+    handed.
     """
 
-    def __init__(self, estimate: WorkflowEstimate, parent: Optional[QWidget] = None):
+    def __init__(
+        self,
+        estimate: RunEstimate,
+        attendance: Optional[RunAttendance] = None,
+        parent: Optional[QWidget] = None,
+    ):
         super().__init__(parent)
         self.estimate = estimate
+        self.attendance = attendance or RunAttendance()
         self.setWindowTitle("Run Workflow")
         # Wide enough for a row carrying both chips: "Supervised" plus a scheduled
         # time dated to another day is the widest a row gets before the task name
@@ -138,13 +151,14 @@ class WorkflowPreflightDialog(QDialog):
 
     def _init_ui(self) -> None:
         est = self.estimate
+        att = self.attendance
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 14, 16, 14)
         layout.setSpacing(10)
 
         # No in-dialog heading: the window title already says "Run Workflow".
-        n_tasks, n_lamella = len(est.tasks), len(est.lamella_names)
+        n_tasks, n_lamella = len(est.tasks), len(est.item_names)
         layout.addWidget(
             meta_label(
                 f"{n_tasks} task{'s' if n_tasks != 1 else ''} over "
@@ -155,8 +169,8 @@ class WorkflowPreflightDialog(QDialog):
         chips = QHBoxLayout()
         chips.setSpacing(6)
         chips.addWidget(chip(f"{est.step_count} steps"))
-        if est.supervised_tasks:
-            chips.addWidget(chip(f"{len(est.supervised_tasks)} supervised"))
+        if att.supervised:
+            chips.addWidget(chip(f"{len(att.supervised)} supervised"))
         chips.addStretch()
         chips.addWidget(self._lamella_disclosure())
         layout.addLayout(chips)
@@ -164,10 +178,10 @@ class WorkflowPreflightDialog(QDialog):
 
         # Whether the operator has to be there: said before the run, from
         # what each selected task's type asks (attendance.py).
-        self.attendance_label = QLabel(est.attendance_summary)
+        self.attendance_label = QLabel(att.summary)
         self.attendance_label.setStyleSheet(f"color: {TEXT}; font-size: 11px;")
         self.attendance_label.setWordWrap(True)
-        self.attendance_label.setVisible(bool(est.attendance_summary))
+        self.attendance_label.setVisible(bool(att.summary))
         layout.addWidget(self.attendance_label)
 
         metrics = QHBoxLayout()
@@ -186,7 +200,7 @@ class WorkflowPreflightDialog(QDialog):
         for note in self._exception_notes():
             layout.addWidget(note)
 
-        layout.addWidget(_task_block(est.tasks, est.started_at))
+        layout.addWidget(_task_block(est.tasks, est.started_at, att))
 
         footnote = QLabel(
             "Estimates round up. Time spent waiting for you is not included."
@@ -232,7 +246,7 @@ class WorkflowPreflightDialog(QDialog):
         names.setVisible(False)
 
         button = QToolButton()
-        button.setText(f"{len(self.estimate.lamella_names)} lamellae")
+        button.setText(f"{len(self.estimate.item_names)} lamellae")
         button.setCheckable(True)
         button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         button.setArrowType(Qt.RightArrow)
@@ -260,7 +274,7 @@ class WorkflowPreflightDialog(QDialog):
         count, not by reading all of them -- and the count is what "+88 more" gives
         that a scrollbar hides.
         """
-        names = self.estimate.lamella_names
+        names = self.estimate.item_names
         shown = "   ".join(names[:_NAMES_SHOWN])
         remaining = len(names) - _NAMES_SHOWN
         if remaining > 0:
@@ -298,11 +312,11 @@ class WorkflowPreflightDialog(QDialog):
                 )
             )
 
-        supervised = self.estimate.supervised_tasks
+        supervised = self.attendance.supervised
         if len(supervised) == 1:
             notes.append(
                 self._note(
-                    f"{supervised[0].name} waits for you. The work is counted above; "
+                    f"{supervised[0]} waits for you. The work is counted above; "
                     f"the wait is not."
                 )
             )

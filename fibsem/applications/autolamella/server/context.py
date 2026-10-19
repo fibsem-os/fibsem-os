@@ -1428,10 +1428,7 @@ class AutoLamellaAppContext:
         """Rename a grid as the Grids tab's Rename does: the slot that holds it
         first, then its record. Refused for a grid that has run, a name another
         grid has, and while a workflow runs (its queue holds grids by name)."""
-        from fibsem.workflows.grid.manager import (
-            grid_rename_refusal,
-            rename_grid,
-        )
+        from fibsem.workflows.grid.naming import grid_rename_refusal, rename_grid
 
         name = name.strip()
         if not name:

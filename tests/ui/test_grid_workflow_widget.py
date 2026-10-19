@@ -851,10 +851,10 @@ def test_the_preflight_quotes_the_time_per_task_and_the_finish(
     row of their own priced at the loader's figure, a total and a finish."""
     from datetime import datetime
 
-    from fibsem.applications.autolamella.workflows.workflow_estimate import (
+    from fibsem.util.durations import format_duration_rounded
+    from fibsem.workflows.grid.estimate import (
         estimate_grid_run,
     )
-    from fibsem.util.durations import format_duration_rounded
 
     view.grid_header.checkbox_all.setChecked(True)
     grids = view.get_selected_grids()
@@ -900,7 +900,7 @@ def test_the_preflight_quotes_the_time_per_task_and_the_finish(
 def test_the_preflight_says_what_adding_costs_and_moves_the_finish(qapp):
     from datetime import datetime, timedelta
 
-    from fibsem.applications.autolamella.workflows.workflow_estimate import (
+    from fibsem.workflows.estimate import (
         AdditionEstimate,
     )
 
@@ -965,7 +965,7 @@ def test_the_window_prices_a_grid_run_for_the_confirmation_and_the_timeline(
     main_ui.grid_workflow_widget.grid_header.checkbox_all.setChecked(True)
     main_ui._run_grid_workflow()
     (estimate,) = shown
-    assert [(t.name, t.lamella_count) for t in estimate.tasks] == [("overview_sem", 2)]
+    assert [(t.name, t.count) for t in estimate.tasks] == [("overview_sem", 2)]
     per_grid = exp.grid_protocol.task_config["overview_sem"].estimated_duration
     assert estimate.work_seconds == pytest.approx(2 * per_grid)
 

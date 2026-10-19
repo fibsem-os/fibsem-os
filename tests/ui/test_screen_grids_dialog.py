@@ -385,11 +385,11 @@ def test_the_quote_is_for_the_grids_the_scan_found(qapp, unscanned, experiment):
     and the exchanges they need, not the grids known before it."""
     from datetime import datetime
 
-    from fibsem.applications.autolamella.workflows.workflow_estimate import (
-        estimate_grid_run,
-    )
     from fibsem.workflows.grid import (
         BeamOverviewGridTaskConfig,
+    )
+    from fibsem.workflows.grid.estimate import (
+        estimate_grid_run,
     )
 
     experiment.grid_protocol.add(BeamOverviewGridTaskConfig(task_name="overview_sem"))
