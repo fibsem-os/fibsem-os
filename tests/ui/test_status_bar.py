@@ -594,6 +594,18 @@ def test_a_run_that_fails_a_task_leaves_a_line_until_the_next_run(
     window._on_workflow_finished()
     assert bar.failure is None
     assert toasts[-1] == "Workflow finished."
+
+    # A run with a summary is announced once, by the "Run ended" toast.
+    import pandas as pd
+
+    runner = window.autolamella_ui.session.runner
+    runner.last_summary = pd.DataFrame(
+        [{"lamella_name": "01", "task_name": "Polishing", "task_status": "Completed"}]
+    )
+    before = len(toasts)
+    signal.emit(_report(TaskStatus.InProgress, item="01-fancy-mite"))
+    window._on_workflow_finished()
+    assert toasts[before:] == []
     window.autolamella_ui.microscope.disconnect()
     _close(window, qapp)
 
