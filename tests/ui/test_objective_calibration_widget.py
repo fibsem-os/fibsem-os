@@ -60,7 +60,11 @@ def widget(qapp):
     from tests.fixtures.fm_microscope import build_microscope
 
     host = _DemoHost()
-    w = FMControlWidget(microscope=build_microscope(), parent=host)
+    w = FMControlWidget(
+        microscope=build_microscope(),
+        parent=host,
+        view_controller=lambda: host.view_controller,
+    )
     yield w
     w.close()
     w.deleteLater()

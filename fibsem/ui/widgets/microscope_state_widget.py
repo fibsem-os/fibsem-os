@@ -170,7 +170,7 @@ class MicroscopeStateWidget(QWidget):
 
         # There is no fluorescence section. `MicroscopeState` carries only
         # `objective_position` for it -- no channel, no filter -- and
-        # `get_microscope_state` does not even populate that (AutoLamellaUI patches it
+        # `get_microscope_state` does not even populate that (the Experiment tab patches it
         # in at the call site afterwards). A section that could never fill is worse
         # than no section: it reads as an instrument fault rather than a gap in the
         # record. It arrives when the record can answer for it.

@@ -20,7 +20,7 @@ import os
 from copy import deepcopy
 from datetime import datetime
 from functools import partial
-from typing import Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
@@ -66,6 +66,9 @@ from fibsem.workflows.grid.manager import (
 from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.status import TaskStatus
 
+if TYPE_CHECKING:
+    from fibsem.workflows.session import AppSession
+
 logger = logging.getLogger(__name__)
 
 _SIDE_WIDTH = 260
@@ -91,9 +94,18 @@ class GridPositionsWidget(QWidget):
     done_requested = pyqtSignal()
     lamella_selected = pyqtSignal(object)
 
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
+    def __init__(
+        self,
+        parent: Optional[QWidget] = None,
+        *,
+        session: Optional["AppSession"] = None,
+        add_lamella: Optional[Callable[..., Lamella]] = None,
+    ) -> None:
+        """*session* and *add_lamella* make lamellae from here; without them
+        the view only looks."""
         super().__init__(parent)
-        self._autolamella_ui = None
+        self._session = session
+        self._add_lamella = add_lamella
         self._experiment: Optional[Experiment] = None
         self._grid: Optional[GridRecord] = None
         self._loaded = False
@@ -194,10 +206,6 @@ class GridPositionsWidget(QWidget):
 
     # -- model -----------------------------------------------------------------
 
-    def set_autolamella_ui(self, autolamella_ui) -> None:
-        """The application widget that makes lamellae; None to only look."""
-        self._autolamella_ui = autolamella_ui
-
     def set_experiment(self, experiment: Optional[Experiment]) -> None:
         self._experiment = experiment
         if experiment is None or (
@@ -236,7 +244,7 @@ class GridPositionsWidget(QWidget):
 
     @property
     def microscope(self):
-        return getattr(self._autolamella_ui, "microscope", None)
+        return self._session.microscope if self._session is not None else None
 
     def _load_images(self) -> None:
         """Place every overview the grid's history records that is not on the
@@ -407,10 +415,9 @@ class GridPositionsWidget(QWidget):
     def _on_add_requested(self, position, _record_id=None) -> None:
         """A new lamella at a point on the stored overview, on this grid."""
         grid = self._grid
-        ui = self._autolamella_ui
         if grid is None or self._experiment is None:
             return
-        if ui is None or ui.microscope is None:
+        if self._add_lamella is None or self.microscope is None:
             notification_service.show_toast(
                 "Connect to a microscope to mark positions: a lamella's poses are "
                 "built with the instrument's geometry.",
@@ -418,7 +425,7 @@ class GridPositionsWidget(QWidget):
             )
             return
         try:
-            lamella = ui.add_new_lamella(
+            lamella = self._add_lamella(
                 stage_position=position, grid_id=grid.id, **self._add_kwargs()
             )
         except Exception as e:  # noqa: BLE001 - said to the user, not raised

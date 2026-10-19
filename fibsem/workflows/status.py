@@ -1,5 +1,5 @@
 """The status a task runs through, in any application's workflow, and the typed
-payloads on ``workflow_status_signal`` that report it.
+payloads on the runner's ``status`` that report it.
 
 ``WorkflowStatusUpdate`` began as the record nested inside the dict
 ``workflow_update_signal``'s ``status`` key; that signal is gone (FIB-826), and
@@ -222,7 +222,7 @@ class WorkflowStatusUpdate:
 
 @dataclass(frozen=True)
 class WorkflowStatusEvent:
-    """One fire-and-forget status update, on ``workflow_status_signal``.
+    """One fire-and-forget status update, on the runner's ``status``.
 
     Everything the workflow says without needing an answer travels as one of
     these — its own channel, so that saying something can never release a

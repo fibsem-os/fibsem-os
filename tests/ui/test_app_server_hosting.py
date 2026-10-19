@@ -13,9 +13,12 @@ pytest.importorskip("fastapi")
 httpx = pytest.importorskip("httpx")
 
 from fibsem import config as fibsem_cfg
-from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
+from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
+    AutoLamellaSingleWindowUI,
+)
 from fibsem.server import hosting
 from fibsem.workflows.event_recording import recorder_for
+from tests.fixtures.main_window import close_window
 
 
 def _free_port() -> int:
@@ -26,13 +29,13 @@ def _free_port() -> int:
 
 @pytest.fixture
 def ui(qapp):
-    window = AutoLamellaUI(parent_ui=None)
+    window = AutoLamellaSingleWindowUI()
     try:
         yield window
     finally:
         window.session.stop_app_server()
         window.session.stop_recording()
-        window.close()
+        close_window(window)
         window.deleteLater()
         qapp.processEvents()
 
@@ -239,10 +242,8 @@ def test_tools_app_server_saves_both_switches(monkeypatch):
     monkeypatch.setattr(fibsem_cfg, "save_user_preferences", lambda p: None)
     calls = []
     window = SimpleNamespace(
-        autolamella_ui=SimpleNamespace(
-            sync_app_server_with_preference=lambda: calls.append("sync"),
-            set_app_server_microscope=lambda on: calls.append(("microscope", on)),
-        )
+        sync_app_server_with_preference=lambda: calls.append("sync"),
+        set_app_server_microscope=lambda on: calls.append(("microscope", on)),
     )
 
     AutoLamellaSingleWindowUI._set_app_server_microscope(window, True)

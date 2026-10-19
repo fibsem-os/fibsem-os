@@ -52,7 +52,7 @@ class AutoLamellaFluorescenceOverviewTab(AutoLamellaOverviewTabBase):
     # ── what makes this the fluorescence side ────────────────────────────
 
     def _build_overview(self, microscope) -> QWidget:
-        return FMOverviewWidget(self.autolamella_ui.session.overview(FLUORESCENCE))
+        return FMOverviewWidget(self.session.overview(FLUORESCENCE))
 
     def _can_build(self, microscope) -> bool:
         """Whether there is a fluorescence detector to drive.
@@ -197,5 +197,5 @@ class AutoLamellaFluorescenceOverviewTab(AutoLamellaOverviewTabBase):
 
         experiment.save()
         self.refresh_positions()
-        self.autolamella_ui.update_ui()
+        experiment.positions.events.changed.emit()
         notification_service.show_toast(f"Moved {name}.", "info")

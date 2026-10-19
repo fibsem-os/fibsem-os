@@ -87,7 +87,7 @@ def window(qapp, tmp_path_factory):
         setattr(module_, name, value)
 
     window = module.AutoLamellaSingleWindowUI()
-    ui = window.autolamella_ui
+    ui = window
     ui.system_widget.connect_to_microscope()
     # Read unconditionally by the main window's workflow update; the window
     # sets it when a run starts.
@@ -131,7 +131,7 @@ def window(qapp, tmp_path_factory):
 
 @pytest.fixture
 def ui(window):
-    ui = window.autolamella_ui
+    ui = window
     ui._burns.clear()
     ui._burn_failures.clear()
     ui._supervision["supervised"] = True
@@ -187,8 +187,8 @@ def _wait_for_prompt(ui, qapp, hint, timeout_s=10.0):
     _wait(
         qapp,
         lambda: (
-            ui.prompt_bar.message.text().endswith(hint)
-            and ui.prompt_bar.yes.isEnabled()
+            ui.panel.prompt_bar.message.text().endswith(hint)
+            and ui.panel.prompt_bar.yes.isEnabled()
         ),
         timeout_s,
         f"the prompt {hint!r} never appeared",
@@ -210,8 +210,8 @@ def _finish(thread, qapp, timeout_s=10.0):
 
 def _pass(ui):
     """The pass up on the prompt bar: the spot burn question being asked."""
-    assert ui._loop_proposal is not None, "no pass is up"
-    proposal = ui._loop_proposal[2]
+    assert ui.proposals._loop_proposal is not None, "no pass is up"
+    proposal = ui.proposals._loop_proposal[2]
     assert proposal.kind == SPOT_BURN and proposal.asking
     return proposal
 
@@ -255,18 +255,18 @@ def _points(settings):
 def test_run_then_accept_burns_once_on_the_workflow_thread(ui, qapp):
     task, thread, outcome = _start(ui, qapp)
 
-    assert ui.prompt_bar.yes.text() == "Run Spot Burn"
-    assert ui.prompt_bar.no.text() == "Skip"
-    assert ui.spot_burn_widget._workflow_mode is True
-    assert ui.hold is not None and ui.hold.kind is HoldKind.proposal
+    assert ui.panel.prompt_bar.yes.text() == "Run Spot Burn"
+    assert ui.panel.prompt_bar.no.text() == "Skip"
+    assert ui.panel.spot_burn_widget._workflow_mode is True
+    assert ui.run_relay.hold is not None and ui.run_relay.hold.kind is HoldKind.proposal
 
-    ui.prompt_bar.yes.click()  # run
+    ui.panel.prompt_bar.yes.click()  # run
     _wait_for_prompt(ui, qapp, AGAIN_HINT)
-    assert ui.prompt_bar.yes.text() == "Burn Again"
-    assert ui.prompt_bar.no.text() == "Accept"
+    assert ui.panel.prompt_bar.yes.text() == "Burn Again"
+    assert ui.panel.prompt_bar.no.text() == "Accept"
     assert _pass(ui).provenance["passes"] == 1
 
-    ui.prompt_bar.no.click()  # accept
+    ui.panel.prompt_bar.no.click()  # accept
     _finish(thread, qapp)
 
     assert "error" not in outcome
@@ -276,26 +276,26 @@ def test_run_then_accept_burns_once_on_the_workflow_thread(ui, qapp):
     assert _points(burn.settings) == [(0.5, 0.5)]
     assert burn.settings.exposure_time == 7.0
     # The question cleared the widget on its way out.
-    assert ui.spot_burn_widget._workflow_mode is False
-    assert ui.spot_burn_widget.get_coordinates() == []
-    assert ui.hold is None
+    assert ui.panel.spot_burn_widget._workflow_mode is False
+    assert ui.panel.spot_burn_widget.get_coordinates() == []
+    assert ui.run_relay.hold is None
 
 
 def test_burn_again_runs_a_second_pass(ui, qapp):
     task, thread, outcome = _start(ui, qapp)
 
-    ui.prompt_bar.yes.click()
+    ui.panel.prompt_bar.yes.click()
     _wait_for_prompt(ui, qapp, AGAIN_HINT)
-    ui.prompt_bar.yes.click()  # burn again
+    ui.panel.prompt_bar.yes.click()  # burn again
     _wait(
         qapp,
         lambda: (
             _current_pass(ui) is not None
             and _current_pass(ui).provenance["passes"] == 2
-            and ui.prompt_bar.no.isEnabled()
+            and ui.panel.prompt_bar.no.isEnabled()
         ),
     )
-    ui.prompt_bar.no.click()
+    ui.panel.prompt_bar.no.click()
     _finish(thread, qapp)
 
     assert len(ui._burns) == 2
@@ -304,7 +304,7 @@ def test_burn_again_runs_a_second_pass(ui, qapp):
 def test_skip_goes_on_without_a_burn(ui, qapp):
     task, thread, outcome = _start(ui, qapp)
 
-    ui.prompt_bar.no.click()  # skip
+    ui.panel.prompt_bar.no.click()  # skip
     _finish(thread, qapp)
 
     assert "error" not in outcome
@@ -315,12 +315,14 @@ def test_a_failed_burn_asks_again_with_the_error(ui, qapp):
     ui._burn_failures.append(RuntimeError("beam blanker"))
     task, thread, outcome = _start(ui, qapp)
 
-    ui.prompt_bar.yes.click()
+    ui.panel.prompt_bar.yes.click()
     _wait_for_prompt(ui, qapp, AGAIN_HINT)
-    assert ui.prompt_bar.message.text().startswith("Spot burn failed: beam blanker")
+    assert ui.panel.prompt_bar.message.text().startswith(
+        "Spot burn failed: beam blanker"
+    )
     assert _pass(ui).provenance["last_error"] == "beam blanker"
 
-    ui.prompt_bar.no.click()
+    ui.panel.prompt_bar.no.click()
     _finish(thread, qapp)
     assert "error" not in outcome
 
@@ -328,13 +330,13 @@ def test_a_failed_burn_asks_again_with_the_error(ui, qapp):
 def test_a_run_with_no_points_burns_nothing_and_asks_again(ui, qapp):
     task, thread, outcome = _start(ui, qapp, points=())
 
-    ui.prompt_bar.yes.click()  # run, with nothing placed
+    ui.panel.prompt_bar.yes.click()  # run, with nothing placed
     _wait(
         qapp,
         lambda: (
             _current_pass(ui) is not None
             and _current_pass(ui).provenance["last_error"] is not None
-            and ui.prompt_bar.no.isEnabled()
+            and ui.panel.prompt_bar.no.isEnabled()
         ),
     )
     asked = _current_pass(ui)
@@ -342,7 +344,7 @@ def test_a_run_with_no_points_burns_nothing_and_asks_again(ui, qapp):
     assert "No points to burn" in asked.provenance["last_error"]
     assert ui._burns == []
 
-    ui.prompt_bar.no.click()
+    ui.panel.prompt_bar.no.click()
     _finish(thread, qapp)
     assert "error" not in outcome
 
@@ -390,7 +392,7 @@ def test_an_agents_edit_lands_in_the_widget_and_asks_again(ui, qapp):
     _decide(ui, qapp, ACTION_EDIT, edit)
     _wait_for_prompt(ui, qapp, FIRST_HINT)
     assert ui._burns == []
-    shown = ui.spot_burn_widget.get_settings()
+    shown = ui.panel.spot_burn_widget.get_settings()
     assert _points(shown) == [(0.25, 0.75), (0.6, 0.1)]
     assert shown.milling_current == pytest.approx(3e-10)
     assert shown.exposure_time == pytest.approx(2.5)
@@ -401,7 +403,7 @@ def test_an_agents_edit_lands_in_the_widget_and_asks_again(ui, qapp):
     assert _points(burn.settings) == [(0.25, 0.75), (0.6, 0.1)]
     assert burn.settings.exposure_time == pytest.approx(2.5)
 
-    ui.prompt_bar.no.click()
+    ui.panel.prompt_bar.no.click()
     _finish(thread, qapp)
     assert "error" not in outcome
     # What was burned is what the protocol keeps.
@@ -443,32 +445,35 @@ def test_accept_keeps_what_was_burned_not_a_later_edit(ui, qapp):
 
     task, thread, outcome = _start(ui, qapp)
 
-    ui.prompt_bar.yes.click()
+    ui.panel.prompt_bar.yes.click()
     _wait_for_prompt(ui, qapp, AGAIN_HINT)
     later = replace(_pass(ui).values["spot_burn"], exposure_time=30.0)
     _decide(ui, qapp, ACTION_EDIT, later)
     _wait_for_prompt(ui, qapp, AGAIN_HINT)
-    ui.prompt_bar.no.click()  # accept
+    ui.panel.prompt_bar.no.click()  # accept
     _finish(thread, qapp)
 
     assert task.config.exposure_time == pytest.approx(7.0)
 
 
 def test_no_spot_burn_widget_still_asks_on_the_prompt_bar(window, ui, qapp):
-    real_widget = ui.spot_burn_widget
-    ui.spot_burn_widget = None
+    real_widget = ui.panel.spot_burn_widget
+    ui.panel.spot_burn_widget = None
     try:
         task, thread, outcome = _start(ui, qapp, wait_for=None)
         _wait(
             qapp,
-            lambda: _current_pass(ui) is not None and ui._loop_proposal is not None,
+            lambda: (
+                _current_pass(ui) is not None
+                and ui.proposals._loop_proposal is not None
+            ),
             why="the pass was not put on the prompt bar",
         )
-        assert ui.prompt_bar.no.text() == "Skip"
-        ui.prompt_bar.no.click()
+        assert ui.panel.prompt_bar.no.text() == "Skip"
+        ui.panel.prompt_bar.no.click()
         _finish(thread, qapp)
     finally:
-        ui.spot_burn_widget = real_widget
+        ui.panel.spot_burn_widget = real_widget
 
     assert "error" not in outcome
     assert ui._burns == []

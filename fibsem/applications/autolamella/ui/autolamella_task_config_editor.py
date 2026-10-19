@@ -86,9 +86,9 @@ def _valid_resolution(resolution) -> Tuple[int, int]:
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment
-    from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
     from fibsem.milling.tasks import FibsemMillingTaskConfig
     from fibsem.structures import ReferenceImageParameters
+    from fibsem.workflows.session import AppSession
 
 
 class AddTaskDialog(QDialog):
@@ -308,20 +308,20 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
     # built inside this editor, after the window has wired its signals.
     grid_protocol_changed = pyqtSignal()
 
-    def __init__(self, parent: "AutoLamellaUI"):
+    def __init__(self, session: "AppSession", parent: Optional[QWidget] = None):
         super().__init__(parent)
-        self.parent_widget = parent
+        self.session = session
         # Each edit, for the experiment's record (FIB-1034).
         self._edits = PendingEdits(
-            lambda: getattr(self.parent_widget, "microscope", None),
+            lambda: self.session.microscope,
             via="protocol editor",
             parent=self,
         )
         self.setStyleSheet(stylesheets.NAPARI_STYLE)
 
         self.milling_task_editor: Optional[MillingTaskViewerWidget] = None
-        self.microscope = getattr(self.parent_widget, "microscope", None)  # type: ignore[assignment]
-        self.experiment: "Experiment" = getattr(self.parent_widget, "experiment", None)  # type: ignore[assignment]
+        self.microscope = self.session.microscope  # type: ignore[assignment]
+        self.experiment: "Experiment" = self.session.experiment  # type: ignore[assignment]
         self._current_milling_key: Optional[str] = None
 
         self._main_layout = QVBoxLayout(self)
@@ -344,9 +344,9 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         self._on_selected_task_changed()
 
     def _on_microscope_connected(self):
-        if self.parent_widget.microscope is None:
+        if self.session.microscope is None:
             raise ValueError("Microscope is None, cannot open protocol editor.")
-        self.microscope = self.parent_widget.microscope
+        self.microscope = self.session.microscope
         if self.milling_task_editor is not None:
             # Reconnect: this editor is built once and survives disconnect, so every
             # widget under it still holds the microscope it was built with, and each
@@ -864,8 +864,8 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
 
     def _save_experiment(self):
         """Save the experiment if available."""
-        if self.parent_widget is not None and self.parent_widget.experiment is not None:
-            self.parent_widget.experiment.save(save_protocol=True)
+        if self.session.experiment is not None:
+            self.session.experiment.save(save_protocol=True)
 
     def _on_add_task_clicked(self):
         """Show dialog to add a new task."""

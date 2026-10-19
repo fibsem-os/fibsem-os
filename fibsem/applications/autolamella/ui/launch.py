@@ -117,9 +117,7 @@ def run_ui(argv: Optional[List[str]] = None, splash: Optional[Splash] = None):
         # the first paint — an empty window frame for the whole wait. A zero timer
         # fires as soon as the window system's queue, that first paint included,
         # has drained.
-        QTimer.singleShot(
-            0, lambda: window.autolamella_ui.quickstart(load_experiment=args.quickload)
-        )
+        QTimer.singleShot(0, lambda: window.quickstart(load_experiment=args.quickload))
     sys.exit(app.exec_())
 
 

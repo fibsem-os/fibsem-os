@@ -57,20 +57,12 @@ from fibsem.ui.widgets.canvas.quad_view import (
     MicroscopeViewController,
 )
 from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
+from tests.fixtures.app_session import app_session
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
 _HFW = 150e-6
 _RESOLUTION = (1536, 1024)
-
-
-class _Host(QWidget):
-    """The two attributes the editor actually reads off its parent."""
-
-    def __init__(self, microscope=None, experiment=None):
-        super().__init__()
-        self.microscope = microscope
-        self.experiment = experiment
 
 
 def _session():
@@ -104,9 +96,7 @@ def _editor(with_microscope: bool = True):
     tmp = tempfile.mkdtemp()
     microscope = _session()[0] if with_microscope else None
     exp = _experiment(tmp)
-    host = _Host(microscope=microscope, experiment=exp)
-    editor = AutoLamellaProtocolEditorWidget(parent=host)
-    editor._host = host  # keep it alive
+    editor = AutoLamellaProtocolEditorWidget(session=app_session(microscope, exp))
     # The window selects a lamella when its card is clicked; the editor picks none.
     editor.select_lamella(exp.positions[0].name)
     return editor, exp

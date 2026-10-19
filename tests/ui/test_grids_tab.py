@@ -316,8 +316,8 @@ def main_ui(qapp):
 
     window = module.AutoLamellaSingleWindowUI()
     yield window
-    if window.autolamella_ui.microscope is not None:
-        window.autolamella_ui.microscope.disconnect()
+    if window.microscope is not None:
+        window.microscope.disconnect()
     original_quit = qapp.quit
     qapp.quit = lambda: None
     try:
@@ -356,7 +356,7 @@ def test_the_grid_workflow_flag_is_gone():
 
 
 def test_the_tab_follows_the_connection_and_the_experiment(main_ui, tmp_path):
-    ui = main_ui.autolamella_ui
+    ui = main_ui
     assert main_ui.grids_tab.stage is None
     ui.system_widget.connect_to_microscope()
     assert main_ui.grids_tab.stage is ui.microscope.sample_handling
@@ -380,7 +380,7 @@ def test_an_experiment_with_no_lamella_tasks_loads(main_ui, tmp_path):
     """A grid-only experiment, or one built from an empty protocol: the lamella
     task editor has nothing to show and says so by hiding its columns, where it
     used to raise on the empty selection and stop the whole experiment load."""
-    ui = main_ui.autolamella_ui
+    ui = main_ui
     ui.system_widget.connect_to_microscope()
     exp = Experiment(path=tmp_path, name="exp")
     (tmp_path / "exp").mkdir()
@@ -397,7 +397,7 @@ def test_a_grid_task_added_on_the_protocol_tab_reaches_the_run_view(main_ui, tmp
     """The Workflow tab's Grids view lists the protocol's grid tasks; a task
     added on the Protocol tab's Grid page used to appear there only after an
     inventory or an experiment reload."""
-    ui = main_ui.autolamella_ui
+    ui = main_ui
     ui.system_widget.connect_to_microscope()
     exp = Experiment(path=tmp_path, name="exp")
     (tmp_path / "exp").mkdir()
@@ -421,7 +421,7 @@ def test_a_load_from_a_card_reaches_the_sample_view(main_ui, tmp_path):
     from fibsem.ui.FibsemSampleWidget import FibsemSampleWidget
     from tests.fixtures.demo_stage import demo_grid_loader
 
-    ui = main_ui.autolamella_ui
+    ui = main_ui
     ui.system_widget.connect_to_microscope()
     microscope = ui.microscope
     microscope.stage_device.compustage = True
@@ -429,7 +429,7 @@ def test_a_load_from_a_card_reaches_the_sample_view(main_ui, tmp_path):
     microscope.sample_handling.magazine = demo_grid_loader(microscope, occupied=(1, 2))
     # The Sample view is built at connect, against the stage of that moment;
     # rebuild it for the swapped stage the way a connect would.
-    ui.sample_widget = FibsemSampleWidget(microscope=microscope)
+    ui.panel.sample_widget = FibsemSampleWidget(microscope=microscope)
     main_ui._refresh_grids_tab_microscope()
     exp = Experiment(path=tmp_path, name="exp")
     (tmp_path / "exp").mkdir()
@@ -443,7 +443,7 @@ def test_a_load_from_a_card_reaches_the_sample_view(main_ui, tmp_path):
     main_ui.grids_tab.btn_inventory.click()
 
     def sample_states():
-        return [r.state for r in ui.sample_widget.loader_widget._rows[:2]]
+        return [r.state for r in ui.panel.sample_widget.loader_widget._rows[:2]]
 
     assert sample_states() == ["occupied", "occupied"]
     card = main_ui.grids_tab.cards.cards[1]
@@ -459,7 +459,7 @@ def _window_with_magazine(main_ui, tmp_path):
     from fibsem.ui.FibsemSampleWidget import FibsemSampleWidget
     from tests.fixtures.demo_stage import demo_grid_loader
 
-    ui = main_ui.autolamella_ui
+    ui = main_ui
     ui.system_widget.connect_to_microscope()
     microscope = ui.microscope
     microscope.stage_device.compustage = True
@@ -467,7 +467,7 @@ def _window_with_magazine(main_ui, tmp_path):
     microscope.sample_handling.magazine = demo_grid_loader(
         microscope, occupied=(1, 2, 3)
     )
-    ui.sample_widget = FibsemSampleWidget(microscope=microscope)
+    ui.panel.sample_widget = FibsemSampleWidget(microscope=microscope)
     main_ui._refresh_grids_tab_microscope()
     exp = Experiment(path=tmp_path, name="exp")
     (tmp_path / "exp").mkdir()
@@ -485,7 +485,7 @@ def _window_with_magazine(main_ui, tmp_path):
 
 
 def _name_on_the_sample_view(ui, index, name):
-    row = ui.sample_widget.loader_widget._row_widget(index)
+    row = ui.panel.sample_widget.loader_widget._row_widget(index)
     row.name_edit.setText(name)
     row.name_edit.editingFinished.emit()
 
@@ -517,7 +517,10 @@ class TestNamingOnTheSampleView:
             microscope.sample_handling.magazine.slots["Slot-01"].loaded_grid.name
             == "Grid-01"
         )
-        assert "cannot be renamed" in ui.sample_widget.loader_widget.status_label.text()
+        assert (
+            "cannot be renamed"
+            in ui.panel.sample_widget.loader_widget.status_label.text()
+        )
 
     def test_a_name_another_grid_has_is_refused(self, main_ui, tmp_path):
         ui, microscope, exp = _window_with_magazine(main_ui, tmp_path)
@@ -540,7 +543,7 @@ class TestNamingOnTheSampleView:
             ui.session.runner = runner
         assert [g.name for g in exp.grids] == ["Grid-01", "Grid-02", "Grid-03"]
         assert "while a workflow is running" in (
-            ui.sample_widget.loader_widget.status_label.text()
+            ui.panel.sample_widget.loader_widget.status_label.text()
         )
 
 

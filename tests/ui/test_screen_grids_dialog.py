@@ -285,7 +285,7 @@ def test_screen_all_grids_from_the_window_runs_on_the_named_grids(
     from PyQt5.QtTest import QTest
 
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
-    from fibsem.applications.autolamella.ui import AutoLamellaUI as ui_module
+    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as ui_module
     from fibsem.applications.autolamella.ui import workflow_tab
     from fibsem.workflows.grid import (
         BeamOverviewGridTaskConfig,
@@ -336,7 +336,7 @@ def test_screen_all_grids_from_the_window_runs_on_the_named_grids(
     monkeypatch.setattr(workflow_tab.ScreenGridsDialog, "exec_", _drive)
 
     window = module.AutoLamellaSingleWindowUI()
-    ui = window.autolamella_ui
+    ui = window
     try:
         ui.system_widget.connect_to_microscope()
         microscope = ui.microscope

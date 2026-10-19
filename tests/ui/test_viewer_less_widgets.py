@@ -63,37 +63,43 @@ def _image(beam: BeamType = BeamType.ELECTRON) -> FibsemImage:
 
 
 class _CanvasHost(QWidget):
-    """Stands in for standalone FibsemUI: a view_controller, no viewer."""
+    """Stands in for a host with a quad view (FibsemUI, the AutoLamella panel):
+    it hands its widgets the controller and each other, as both hosts do."""
 
     def __init__(self) -> None:
         super().__init__()
         self.view_controller = MicroscopeViewController(parent=self)
-
-
-class _NestedCanvasHost(QWidget):
-    """Stands in for AutoLamella's shape: the controller lives one level up, on
-    ``parent_widget``. Both hosts must resolve, or the Microscope tab silently keeps
-    drawing nothing after Phase 4b flips it."""
-
-    def __init__(self, outer) -> None:
-        super().__init__()
-        self.parent_widget = outer
+        self.image_widget = None
+        self.movement_widget = None
+        self.milling_widget = None
 
 
 def _image_widget(host) -> FibsemImageSettingsWidget:
     _, settings = _session()
     widget = FibsemImageSettingsWidget(
-        microscope=_session()[0], image_settings=settings.image, parent=host
+        microscope=_session()[0],
+        image_settings=settings.image,
+        parent=host,
+        view_controller=lambda: host.view_controller,
+        toggle_movement=lambda enable: host.movement_widget._toggle_interactions(
+            enable, caller="ui"
+        ),
     )
     host.image_widget = widget
     return widget
 
 
 def _movement_widget(host) -> FibsemMovementWidget:
-    """Both real hosts publish the widget as ``movement_widget``, and the image widget
-    reaches back through it when interactions are toggled — so a host that omits it
-    passes tests the app would fail."""
-    widget = FibsemMovementWidget(microscope=_session()[0], parent=host)
+    """Both real hosts give the image widget a way to toggle movement through
+    this one when interactions are toggled — so a host that omits it passes
+    tests the app would fail."""
+    widget = FibsemMovementWidget(
+        microscope=_session()[0],
+        image_widget=host.image_widget,
+        view_controller=lambda: host.view_controller,
+        milling_widget=lambda: host.milling_widget,
+        parent=host,
+    )
     host.movement_widget = widget
     return widget
 
@@ -114,13 +120,16 @@ def test_host_with_a_controller_resolves_it():
     assert widget._view_controller() is host.view_controller
 
 
-def test_controller_resolves_through_parent_widget():
-    """AutoLamella nests the controller one level up. A resolver that only checked the
-    direct parent would leave the Microscope tab blank after 4b, with no error."""
-    outer = _CanvasHost()
-    host = _NestedCanvasHost(outer)
+def test_a_controller_the_host_builds_later_is_found():
+    """The AutoLamella panel is built before the window's quad view, so the widget
+    asks the host's getter each time rather than keeping what it saw first."""
+    host = _CanvasHost()
+    later = host.view_controller
+    host.view_controller = None
     widget = _image_widget(host)
-    assert widget._view_controller() is outer.view_controller
+    assert widget._view_controller() is None
+    host.view_controller = later
+    assert widget._view_controller() is later
 
 
 # --- images actually reach the display ---------------------------------------
@@ -500,8 +509,8 @@ def test_milling_widget_reports_whether_it_is_milling():
 
 
 def test_double_click_to_move_survives_a_host_that_owns_a_milling_widget():
-    """``FibsemUI`` sets ``self.milling_widget``; ``AutoLamellaUI`` does not — which is
-    why only the standalone app hit this. The move must be dispatched, not swallowed."""
+    """``FibsemUI`` has a milling widget beside the movement one. The move must be
+    dispatched, not swallowed."""
     from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
 
     host = _CanvasHost()

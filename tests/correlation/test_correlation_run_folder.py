@@ -321,6 +321,6 @@ def test_each_open_starts_a_new_correlation_on_the_apps_session(
     assert stub.findChildren(ctw.CorrelationTabDialog) == []
     Editor._open_correlation_dialog(stub)
 
-    app_correlation = stub.parent_widget.session.correlation
+    app_correlation = stub.session.correlation
     assert [session for session, _ in seen] == [app_correlation, app_correlation]
     assert seen[1][1] == []
