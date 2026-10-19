@@ -36,7 +36,6 @@ from __future__ import annotations
 import logging
 import math
 import os
-import threading
 from copy import deepcopy
 from functools import partial
 from typing import Callable, Dict, Iterable, List, NamedTuple, Optional, Set, Tuple
@@ -66,7 +65,6 @@ from fibsem.geometry.projection import BeamStageProjection, lifted, posed_like
 from fibsem.imaging import tiled
 from fibsem.imaging.overview_session import POSITIONS, SELECTION, OverviewSession
 from fibsem.imaging.reduce import downsample, downsample_mask
-from fibsem.imaging.tiled import stamped_overview_name
 from fibsem.imaging.tiling import unreachable_tiles
 from fibsem.imaging.tiling.progress import (
     MODALITY_BEAM,
@@ -591,7 +589,8 @@ class FibsemOverviewWidget(QWidget):
         self.session = session
         self.microscope = session.microscope
 
-        self._stop_event = threading.Event()
+        # Cancel has been pressed on the run under way; the imaging service stops it.
+        self._cancelling = False
         self._worker: Optional[FunctionWorker] = None
         self._records: Dict[str, OverviewRecord] = {}
         self._record_count = 0
@@ -2189,7 +2188,7 @@ class FibsemOverviewWidget(QWidget):
         # Not gated on `_interactive`: a host locking the tab must not take away the
         # only way to stop a run that is already under way. Off once cancellation has
         # been asked for, so a second press cannot read as "it did not work".
-        self.button_cancel.setEnabled(running and not self._stop_event.is_set())
+        self.button_cancel.setEnabled(running and not self._cancelling)
         self.settings_widget.setEnabled(self.session.interactive and not running)
 
     def _planned_tile_count(self) -> int:
@@ -2778,6 +2777,8 @@ class FibsemOverviewWidget(QWidget):
         if record is None:
             return
         record.view = self._view_of(mosaic)
+        # The name as saved, stamped with the time by the imaging service.
+        record.label = mosaic.metadata.image_settings.filename or record.label
         key, tile = self._place(mosaic, key=record.id)
         if key is None or tile is None:
             logger.debug("The finished overview could not be placed.")
@@ -3883,9 +3884,6 @@ class FibsemOverviewWidget(QWidget):
             # somewhere, and failing at the second tile with `os.path.join(None, ...)`
             # is the worst way to find out.
             settings.image_settings.path = self._save_directory or os.getcwd()
-        settings.image_settings.filename = stamped_overview_name(
-            settings.image_settings.filename
-        )
 
         # Where this run happens, resolved **once**, before the dialog, and handed to the
         # runner unchanged. Everything about a run then comes from one value: the plan
@@ -3930,7 +3928,7 @@ class FibsemOverviewWidget(QWidget):
         )
         self._refresh_overview_list()
 
-        self._stop_event.clear()
+        self._cancelling = False
         self._set_running(True)
         # Copied, because the target can be dragged again while the run is under way and
         # the run has to keep the grid it was started with. `_run_centre` rather than
@@ -4035,23 +4033,25 @@ class FibsemOverviewWidget(QWidget):
         settings: OverviewAcquisitionSettings,
         centre_position: Optional[FibsemStagePosition] = None,
     ) -> None:
-        """Runs off the GUI thread. Only signals may cross back."""
-        from fibsem.cancellation import OperationCancelledError
+        """Runs off the GUI thread. Only signals may cross back.
 
+        Through the imaging service, the path the agent's overviews take: it
+        stamps the name with the time and `stop` ends it.
+        """
         result = {"cancelled": False, "error": None}
         try:
-            self.session.mosaic = tiled.acquire_tiled_overview(
-                self.microscope,
+            answer = self.microscope.imaging.acquire_overview(
                 settings,
                 settings.image_settings.path,
                 settings.image_settings.filename,
                 centre_position=centre_position,
-                stop_event=self._stop_event,
-            ).image
-            self.overview_acquired.emit(self.session.mosaic)
-        except OperationCancelledError:
-            logger.info("Overview acquisition cancelled")
-            result["cancelled"] = True
+            )
+            if answer["image"] is None:
+                logger.info("Overview acquisition cancelled")
+                result["cancelled"] = True
+            else:
+                self.session.mosaic = answer["image"]
+                self.overview_acquired.emit(self.session.mosaic)
         except Exception as e:
             logger.error(f"Overview acquisition failed: {e}", exc_info=True)
             result["error"] = str(e)
@@ -4062,7 +4062,8 @@ class FibsemOverviewWidget(QWidget):
         if not self.is_acquiring:
             return
         logger.info("Cancelling overview acquisition")
-        self._stop_event.set()
+        self._cancelling = True
+        self.microscope.imaging.stop()
         self.label_status.setText("Cancelling…")
         # A run stops at the next tile boundary, so the button stays there for a while
         # after it is pressed. Disabled once asked, or a second press reads as the first
@@ -4094,7 +4095,7 @@ class FibsemOverviewWidget(QWidget):
     @pyqtSlot(dict)
     def _on_finished(self, result: dict) -> None:
         self._worker = None
-        self._stop_event.clear()
+        self._cancelling = False
         self._set_running(False)
         # The bar has done its job; the label below it carries the outcome from here.
         self.progress.reset()
@@ -4198,7 +4199,7 @@ class FibsemOverviewWidget(QWidget):
 
     def closeEvent(self, event) -> None:
         if self.is_acquiring:
-            self._stop_event.set()
+            self.microscope.imaging.stop()
         # Every psygnal this widget subscribed to, without exception. They outlive the
         # widget -- they belong to the microscope -- and they hold bound methods of Qt
         # objects that `close` has already torn down on the C++ side, so the next emit

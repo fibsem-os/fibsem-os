@@ -1,8 +1,8 @@
 """Acquire a fluorescence overview: settings, run control, and live result.
 
 Standalone, and embeddable as a tab. It owns nothing the acquisition needs -- it is
-handed a microscope and runs `acquire_fm_tiled_overview` -- so it can be dropped into
-the AutoLamella UI or opened on its own against a simulator.
+handed a microscope and runs the imaging service's `fm_acquire_overview` -- so it can
+be dropped into the AutoLamella UI or opened on its own against a simulator.
 
 Layout follows the house convention: canvas on the left, controls on the right,
 actions along the bottom.
@@ -10,9 +10,8 @@ actions along the bottom.
 
 import logging
 import os
-import threading
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 from PyQt5.QtCore import QPoint, Qt, pyqtSignal
@@ -30,8 +29,6 @@ from PyQt5.QtWidgets import (
 from superqt import ensure_main_thread
 
 from fibsem import constants
-from fibsem.cancellation import OperationCancelledError
-from fibsem.fm.acquisition import OverviewDestination, acquire_fm_tiled_overview
 from fibsem.fm.progress import (
     FluorescenceAcquisitionProgress,
     FluorescenceAcquisitionStatus,
@@ -204,6 +201,9 @@ class FMOverviewWidget(QWidget):
     """Configure, run and view a fluorescence overview acquisition."""
 
     overview_acquired = pyqtSignal(FluorescenceImage)
+    # A run that failed before its run could report it on `tiled_progress`: the
+    # service refused it, or its folder could not be made. Crosses from the worker.
+    _run_failed = pyqtSignal(str)
     # Whether a run is in progress here. A *state*, re-emitted on every change
     # rather than an edge, so a host that connects late or recomputes from
     # several facts cannot end up holding a stale answer. The host that matters
@@ -267,7 +267,8 @@ class FMOverviewWidget(QWidget):
         self.microscope = session.microscope
         self.fm = session.microscope.fm
 
-        self._stop_event = threading.Event()
+        # Cancel has been pressed on the run under way; the imaging service stops it.
+        self._cancelling = False
         self._worker: Optional[FunctionWorker] = None
         # What the run in progress was started with, for the worker: the channels,
         # parameters, z-stack, autofocus and centre `acquire` read before it began.
@@ -305,14 +306,8 @@ class FMOverviewWidget(QWidget):
         # Set only while `_on_drag_finished` is running the refresh a drag deferred.
         # See there: that refresh must not re-frame the view.
         self._finishing_drag = False
-        # Where acquired overviews are written. None means nowhere: the widget opens
-        # standalone against a simulator as often as it runs inside an experiment, and
-        # inventing a directory for those runs would scatter files through whatever
-        # working directory it happened to be launched from. A host that has somewhere
-        # to put them says so -- see `set_save_directory`. Held in the Output panel
-        # rather than here, so that editing the folder and being told one are the same
-        # thing; `_save_directory` reads it back for the callers that only want a path.
-        self._destination: Optional[OverviewDestination] = None
+        # Where acquired overviews are written: the Output panel's folder (see
+        # `set_save_directory`), else the working directory, as on the beam tab.
         self._saved_path: Optional[str] = None
         # Set by `_on_move_errored` so `_on_move_finished`, which always runs, knows
         # not to clear a message the failure has just put up.
@@ -323,6 +318,7 @@ class FMOverviewWidget(QWidget):
         self._on_settings_changed()
 
         self._tile_progress_received.connect(self._apply_tile_progress)
+        self._run_failed.connect(self._on_run_failed)
         self._fm_progress_received.connect(self._apply_fm_progress)
         # Two scales, two signals, two handlers. The tileset -- tile n of N, the mosaic
         # so far, and how the run ended -- reports on the imaging service's
@@ -338,6 +334,7 @@ class FMOverviewWidget(QWidget):
         # On the imaging service, which a microscope with no beam doesn't have.
         if self.microscope.imaging is not None:
             self.microscope.imaging.tiled_progress.connect(self._on_tile_progress)
+            self.microscope.imaging.overview_acquired.connect(self._on_acquired)
         self.fm.acquisition_progress_signal.connect(self._on_fm_progress)
         self._stage_moved.connect(self._on_stage_moved)
         self._session_changed.connect(self._on_session_changed)
@@ -2459,11 +2456,8 @@ class FMOverviewWidget(QWidget):
         )
         # Cancel is deliberately not gated on `_interactive`: a host locking the tab
         # mid-run must not take away the only way to stop the stage. Once a cancel has
-        # been asked for, the button goes and stays away -- the stop event is the record
-        # of that, so asking it beats a second flag that could disagree.
-        self.button_cancel.setEnabled(
-            self.session.running and not self._stop_event.is_set()
-        )
+        # been asked for, the button goes and stays away.
+        self.button_cancel.setEnabled(self.session.running and not self._cancelling)
         self.settings_widget.setEnabled(idle)
         self.channel_widget.setEnabled(idle)
 
@@ -2487,6 +2481,13 @@ class FMOverviewWidget(QWidget):
             notification_service.show_toast(
                 f"The fluorescence microscope is in use ({reason}). "
                 f"Wait for it to finish before acquiring an overview.",
+                "warning",
+            )
+            return
+        if self.microscope.imaging is None:
+            notification_service.show_toast(
+                "No beam is enabled on this microscope, so there is no imaging "
+                "service to acquire an overview with.",
                 "warning",
             )
             return
@@ -2575,15 +2576,7 @@ class FMOverviewWidget(QWidget):
             logging.info("Overview acquisition cancelled before starting")
             return
 
-        # Claimed on the GUI thread, before the worker starts: it makes a directory, so
-        # an unwritable path is reported now rather than after the stage has moved.
-        self._destination = self._claim_destination()
-
-        # Held for the length of the run, so nothing else drives the FM while the stage
-        # is walking the grid. Cleared in the worker's `finally` (FIB-441).
-        self.fm.set_acquiring(True, "overview acquisition")
-
-        self._stop_event.clear()
+        self._cancelling = False
         self._set_running(True)
         self._run_settings = dict(
             channels=channels,
@@ -2594,6 +2587,8 @@ class FMOverviewWidget(QWidget):
             # stage still returns to where it started afterwards -- the target is the
             # grid's centre, not a new home.
             centre_position=self._target,
+            path=self._save_directory or os.getcwd(),
+            name=self.settings_widget.basename,
         )
         self._worker = FunctionWorker(self._acquire_worker)
         self._worker.start()
@@ -2664,62 +2659,35 @@ class FMOverviewWidget(QWidget):
             logging.debug(f"Could not read the camera resolution: {e}")
             return None
 
-    def _claim_destination(self) -> Optional["OverviewDestination"]:
-        """Where this run's files go, or None if nowhere.
-
-        Failing to claim one is not fatal: an overview you can see is worth more than
-        no overview at all, so the run goes ahead unsaved and says so.
-        """
-        if self._save_directory is None:
-            return None
-        try:
-            # Stamped by the panel, the way the FIB/SEM tab stamps its filename:
-            # the stem is a directory, so two runs sharing a name land on each
-            # other. `create` steps a taken name besides, which covers the case
-            # of two runs inside the same second.
-            return OverviewDestination.create(
-                self._save_directory, self.settings_widget.basename
-            )
-        except OSError as e:
-            logging.error(f"Cannot save into {self._save_directory}: {e}")
-            notification_service.show_toast(
-                f"Could not prepare a save directory; this overview will not be "
-                f"saved.\n{e}",
-                "warning",
-            )
-            return None
-
     def _acquire_worker(self) -> None:
         """Runs off the GUI thread. Only signals may cross back.
 
-        The run reports its save and its end itself (`acquire_fm_tiled_overview`).
-        The tiles go in the destination claimed before the worker started, None when
-        no save directory has been set -- the standalone default. Each tile is written
-        as it lands, so a cancelled run keeps what it got.
+        Through the imaging service, the path the agent's overviews take: it holds
+        the FM for the run, stamps the name, and reports the save and the end on
+        ``tiled_progress``. Each tile is written as it lands, so a cancelled run
+        keeps what it got.
         """
         try:
-            acquire_fm_tiled_overview(
-                self.microscope,
-                destination=self._destination,
-                stop_event=self._stop_event,
-                on_acquired=self._on_acquired,
-                **self._run_settings,
-            )
-        except OperationCancelledError:
-            logging.info("Overview acquisition cancelled")
+            answer = self.microscope.imaging.fm_acquire_overview(**self._run_settings)
+            if answer["status"] == "cancelled":
+                logging.info("Overview acquisition cancelled")
         except Exception as e:
             logging.error(f"Overview acquisition failed: {e}", exc_info=True)
-        finally:
-            # A run that ends still marked as acquiring leaves the FM unusable for
-            # the rest of the session, with nothing on screen to say why -- so this goes
-            # in a `finally` rather than after the run, and stays right if a future
-            # edit narrows one of the `except` clauses above.
-            self.fm.set_acquiring(False)
+            self._run_failed.emit(str(e))
 
-    def _on_acquired(self, mosaic: FluorescenceImage, path: Optional[str]) -> None:
+    def _on_run_failed(self, error: str) -> None:
+        # Already finished when the run got far enough to report its failure.
+        if self.session.running:
+            self._finish(TiledStatus.FAILED, error)
+
+    def _on_acquired(self, mosaic: Any, path: Optional[str]) -> None:
         """Keep the saved mosaic and say it arrived, before the run reports finished:
         the finished report places `_mosaic` and names `_saved_path`, and a consumer
-        of `overview_acquired` may want the file."""
+        of `overview_acquired` may want the file. Called by psygnal on the acquiring
+        thread, for every overview the imaging service takes: only this tab's
+        fluorescence run is kept."""
+        if not self.session.running or not isinstance(mosaic, FluorescenceImage):
+            return
         self.session.mosaic = mosaic
         self._saved_path = path
         self.overview_acquired.emit(mosaic)
@@ -2728,7 +2696,8 @@ class FMOverviewWidget(QWidget):
         if not self.is_acquiring:
             return
         logging.info("Cancelling overview acquisition")
-        self._stop_event.set()
+        self._cancelling = True
+        self.microscope.imaging.stop()
         self._apply_enabled_state()
         self.status.setText("Cancelling…")
 
@@ -2970,17 +2939,12 @@ class FMOverviewWidget(QWidget):
     def _describe_save(self) -> Tuple[str, str]:
         """Status suffix and tooltip for whether the overview reached disk.
 
-        Silent when nothing was meant to be saved, so the standalone app does not report
-        a failure every run. When a destination *was* claimed and the mosaic did not
-        land, that is worth saying: otherwise a failed save reads exactly like a
-        successful one, and the difference only turns up when someone goes looking for
-        the file.
+        A mosaic that did not land is worth saying: otherwise a failed save reads
+        exactly like a successful one.
         """
         if self._saved_path:
             return "  ·  saved", self._saved_path
-        if self._destination is not None:
-            return "  ·  not saved", "Could not be written to disk — see the log."
-        return "", ""
+        return "  ·  not saved", "Could not be written to disk — see the log."
 
     def _finish(self, status: TiledStatus, error: Optional[str]) -> None:
         # Hides both bars. The per-tile one stays hidden -- there is no tile in progress
@@ -3042,7 +3006,7 @@ class FMOverviewWidget(QWidget):
 
     def closeEvent(self, event) -> None:
         if self.is_acquiring:
-            self._stop_event.set()
+            self.microscope.imaging.stop()
         # Every psygnal this widget subscribed to, without exception. They outlive the
         # widget -- they belong to the microscope -- and they hold bound methods of Qt
         # objects that `close` has already torn down on the C++ side, so the next emit
@@ -3068,6 +3032,9 @@ class FMOverviewWidget(QWidget):
         if self.microscope.imaging is not None:
             subscriptions.append(
                 (self.microscope.imaging.tiled_progress, self._on_tile_progress)
+            )
+            subscriptions.append(
+                (self.microscope.imaging.overview_acquired, self._on_acquired)
             )
         if self.microscope.stage is not None:
             subscriptions.append(

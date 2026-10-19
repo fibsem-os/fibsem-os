@@ -4207,15 +4207,25 @@ class TestTwoRunsCannotLandOnEachOther:
     list called `overview-image`, all sharing one directory.
     """
 
-    def _capture(self, widget, monkeypatch, tmp_path):
+    def _capture(self, widget, monkeypatch, tmp_path, run=True):
+        """The name a run is saved under: through the imaging service, which
+        stamps it, to a tiler that stops at once."""
+        from fibsem.cancellation import OperationCancelledError
+        from fibsem.imaging import tiled as tiled_module
+
         captured = {}
 
+        def fake_tiler(microscope, settings, path, name, **kwargs):
+            captured["name"] = name
+            raise OperationCancelledError()
+
         def fake_worker(fn, *args):
-            captured["settings"] = args[0]
+            captured["base"] = args[0].image_settings.filename
 
             class _W:
                 def start(self_inner):
-                    pass
+                    if run:
+                        fn(*args)
 
                 def is_alive(self_inner):
                     return False
@@ -4223,11 +4233,12 @@ class TestTwoRunsCannotLandOnEachOther:
             return _W()
 
         widget.set_save_directory(str(tmp_path))
+        monkeypatch.setattr(tiled_module, "acquire_tiled_overview", fake_tiler)
         monkeypatch.setattr(
             "fibsem.ui.widgets.overview_widget.FunctionWorker", fake_worker
         )
         widget.acquire()
-        return captured["settings"].image_settings.filename
+        return captured["name"] if run else captured["base"]
 
     def test_a_run_is_stamped_with_the_time_it_started(
         self, widget, monkeypatch, tmp_path
@@ -4274,20 +4285,26 @@ class TestTwoRunsCannotLandOnEachOther:
         self._capture(widget, monkeypatch, tmp_path)
         assert widget.settings_widget.filename_edit.text() == "overview-image"
 
-    def test_the_dialog_reports_where_it_will_actually_land(
+    def test_the_dialog_says_the_name_will_be_stamped(
         self, widget, monkeypatch, tmp_path, confirmations
     ):
-        """The one place the stamped name is shown before the run. Without this the
+        """The one place the stamp is shown before the run. Without this the
         stamp is invisible until the files appear."""
-        name = self._capture(widget, monkeypatch, tmp_path)
+        self._capture(widget, monkeypatch, tmp_path, run=False)
         saving_to = dict(confirmations[0]._rows())["Saving to"]
-        assert saving_to.endswith(name), f"{saving_to} does not name {name}"
+        assert saving_to.endswith("overview-image-HH-MM-SS"), saving_to
 
     def test_the_record_carries_the_stamped_name(self, widget, monkeypatch, tmp_path):
         """So the Overviews list can tell two runs apart, which is where the collision
-        was noticed."""
-        name = self._capture(widget, monkeypatch, tmp_path)
-        assert [r.label for r in widget._records.values()] == [name]
+        was noticed. The service stamps it, so the record takes it from the mosaic."""
+        base = self._capture(widget, monkeypatch, tmp_path, run=False)
+        (record,) = widget._records.values()
+        assert record.label == base
+
+        mosaic = FibsemImage.generate_blank_image(resolution=(32, 32))
+        mosaic.metadata.image_settings.filename = "overview-image-14-23-05"
+        widget._place_finished_mosaic(mosaic)
+        assert record.label == "overview-image-14-23-05"
 
 
 class TestContrastActsOnEveryOverview:

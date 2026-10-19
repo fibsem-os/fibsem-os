@@ -1635,13 +1635,16 @@ def test_centring_the_grid_is_only_offered_once_it_is_off_centre(
     assert widget.tile_grid_overlay._anchor() == pytest.approx(anchor)
 
 
-def test_the_target_reaches_the_acquisition(qapp, interactive_widget, monkeypatch):
+def test_the_target_reaches_the_acquisition(
+    qapp, interactive_widget, monkeypatch, tmp_path
+):
     """The drag is only worth anything if the run is actually centred there."""
     from fibsem.cancellation import OperationCancelledError
     from fibsem.fm import acquisition
     from fibsem.ui.fm.widgets import fm_overview_widget as module
 
     widget = interactive_widget
+    widget.set_save_directory(str(tmp_path))
     recorded = {}
 
     class _RecordingRunner:
@@ -1972,43 +1975,80 @@ def _fresh_widget(qapp):
     return widget
 
 
-def test_nothing_is_saved_until_a_host_says_where(qapp):
-    """The standalone default. This app is mostly run against a simulator to exercise
-    the UI, and those runs must not leave tiles wherever it was launched from."""
+def _accept_and_run(widget, monkeypatch):
+    """Press Acquire, accept the dialog, and run the worker here."""
+    from fibsem.ui.fm.widgets import fm_overview_widget as module
+
+    monkeypatch.setattr(
+        module, "FunctionWorker", lambda *a, **k: _SynchronousWorker(lambda: None)
+    )
+    monkeypatch.setattr(
+        module.FMOverviewConfirmationDialog,
+        "exec_",
+        lambda self: module.QDialog.Accepted,
+    )
+    widget.fm.objective.insert()
+    monkeypatch.setattr(widget, "at_acquisition_orientation", lambda: True)
+    widget.acquire()
+    widget._acquire_worker()
+
+
+def test_without_a_host_folder_a_run_saves_in_the_working_directory(
+    qapp, monkeypatch, tmp_path
+):
+    """As the beam tab does: the imaging service takes a path, always."""
     widget = _fresh_widget(qapp)
+    monkeypatch.chdir(tmp_path)
+    calls = []
+    monkeypatch.setattr(
+        widget.microscope.imaging,
+        "fm_acquire_overview",
+        lambda **kwargs: calls.append(kwargs) or {"status": "cancelled"},
+    )
+
+    _accept_and_run(widget, monkeypatch)
 
     assert widget._save_directory is None
-    assert widget._claim_destination() is None
-
+    assert calls[0]["path"] == str(tmp_path)
+    widget._set_running(False)
     widget.close()
 
 
-def test_a_save_directory_gives_every_run_its_own_place(qapp, tmp_path):
-    """Not the experiment directory itself: tiles are named by row and column, so two
-    overviews written straight into one directory would replace each other tile by
-    tile."""
+def test_the_run_asks_for_the_name_and_the_service_stamps_it(
+    qapp, monkeypatch, tmp_path
+):
     widget = _fresh_widget(qapp)
     widget.set_save_directory(str(tmp_path))
+    widget.settings_widget.filename_edit.setText("grid1")
+    calls = []
+    monkeypatch.setattr(
+        widget.microscope.imaging,
+        "fm_acquire_overview",
+        lambda **kwargs: calls.append(kwargs) or {"status": "cancelled"},
+    )
 
-    first = widget._claim_destination()
-    second = widget._claim_destination()
+    _accept_and_run(widget, monkeypatch)
 
-    assert first.tiles_directory != second.tiles_directory
-    assert os.path.dirname(first.tiles_directory) == str(tmp_path)
-
+    assert calls[0]["path"] == str(tmp_path)
+    assert calls[0]["name"] == "grid1"
+    widget._set_running(False)
     widget.close()
 
 
-def test_an_unwritable_directory_does_not_stop_the_run(qapp, tmp_path):
-    """An overview you can see is worth more than no overview at all, so a save
-    directory that cannot be prepared degrades to not saving rather than refusing."""
+def test_an_unwritable_directory_fails_the_run(qapp, monkeypatch, tmp_path):
+    """Refused before the stage moves, and the tab says so rather than staying on
+    a run that never started."""
     blocked = tmp_path / "file-not-a-directory"
     blocked.write_text("")
     widget = _fresh_widget(qapp)
     widget.set_save_directory(str(blocked))
 
-    assert widget._claim_destination() is None
+    _accept_and_run(widget, monkeypatch)
+    qapp.processEvents()
 
+    assert widget.session.running is False
+    assert widget.status.text().startswith("Failed")
+    assert widget.fm.is_acquiring is False
     widget.close()
 
 
@@ -2017,21 +2057,14 @@ def test_a_failed_save_is_not_reported_as_a_successful_one(qapp, tmp_path):
     file and it is not there."""
     widget = _fresh_widget(qapp)
 
-    # Nothing was meant to be saved: silent.
-    widget._destination, widget._saved_path = None, None
-    assert widget._describe_save() == ("", "")
-
-    # A destination was claimed and the mosaic did not land: say so.
-    widget.set_save_directory(str(tmp_path))
-    widget._destination = widget._claim_destination()
     widget._saved_path = None
     assert "not saved" in widget._describe_save()[0]
 
     # It landed, and the tooltip says where.
-    widget._saved_path = widget._destination.mosaic_path
+    widget._saved_path = str(tmp_path / "overview.ome.tiff")
     suffix, tooltip = widget._describe_save()
     assert suffix == "  ·  saved"
-    assert tooltip == widget._destination.mosaic_path
+    assert tooltip == widget._saved_path
 
     widget.close()
 
@@ -5446,7 +5479,6 @@ def test_the_worker_announces_the_save_before_it_writes(
     sends it itself cannot see.
     """
     from fibsem.fm import acquisition
-    from fibsem.fm.acquisition import OverviewDestination
 
     widget = overview_widget
     mosaic = _acquire(widget)
@@ -5460,11 +5492,7 @@ def test_the_worker_announces_the_save_before_it_writes(
 
     seen = []
     widget.microscope.imaging.tiled_progress.connect(seen.append)
-    settings, destination, saved = (
-        widget._run_settings,
-        widget._destination,
-        widget._saved_path,
-    )
+    settings, saved = widget._run_settings, widget._saved_path
     monkeypatch.setattr(acquisition, "FMTiledAcquisitionRunner", _StubRunner)
     try:
         widget._run_settings = dict(
@@ -5473,16 +5501,13 @@ def test_the_worker_announces_the_save_before_it_writes(
             zparams=None,
             autofocus_settings=None,
             centre_position=None,
+            path=str(tmp_path),
+            name="overview",
         )
-        widget._destination = OverviewDestination.create(str(tmp_path))
         widget._acquire_worker()
     finally:
         widget.microscope.imaging.tiled_progress.disconnect(seen.append)
-        widget._run_settings, widget._destination, widget._saved_path = (
-            settings,
-            destination,
-            saved,
-        )
+        widget._run_settings, widget._saved_path = settings, saved
 
     states = [p.status for p in seen]
     assert TiledStatus.SAVING in states, "the write is still silent"
