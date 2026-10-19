@@ -192,7 +192,6 @@ class GridTask(BaseTask):
         config: GridTaskConfig,
         grid: GridRecord,
         experiment: "GridExperiment",
-        parent_ui=None,
         task_manager=None,
     ) -> None:
         super().__init__(
@@ -200,7 +199,6 @@ class GridTask(BaseTask):
             config,
             grid,
             experiment=experiment,
-            parent_ui=parent_ui,
             task_manager=task_manager,
         )
         # What the history entry says on success, when there is more to say than

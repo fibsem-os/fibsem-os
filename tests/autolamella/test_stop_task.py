@@ -46,7 +46,7 @@ def manager(tmp_path: Path) -> TaskManager:
         experiment.positions.append(
             Lamella(path=Path(experiment.path) / name, number=i, petname=name)
         )
-    m = TaskManager(microscope=NoMicroscope(), experiment=experiment, parent_ui=None)
+    m = TaskManager(microscope=NoMicroscope(), experiment=experiment)
     m.queue.build_from_matrix(TASKS, ["L1", "L2"])
     return m
 

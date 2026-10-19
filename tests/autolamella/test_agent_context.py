@@ -404,7 +404,7 @@ def test_requeue_task_reruns_a_completed_pair(experiment, microscope):
     assert idle["queued"] is False
     assert "no workflow is running" in idle["reason"]
 
-    manager = TaskManager(microscope, experiment, parent_ui=None)
+    manager = TaskManager(microscope, experiment)
     manager.queue.build_from_matrix(
         ["Rough Milling"], [p.name for p in experiment.positions]
     )
@@ -438,7 +438,7 @@ def test_requeue_task_reruns_a_completed_pair(experiment, microscope):
 def test_queue_snapshot_uses_item_name_vocabulary(experiment, microscope):
     from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 
-    manager = TaskManager(microscope, experiment, parent_ui=None)
+    manager = TaskManager(microscope, experiment)
     names = [p.name for p in experiment.positions]
     manager.queue.build_from_matrix(["Task A", "Task B"], names)
 
@@ -500,7 +500,7 @@ def test_edit_queue_removes_or_moves_a_waiting_pair(experiment, microscope):
     # No run, no queue: a structured refusal.
     assert ctx.edit_queue(first, "Rough Milling", "remove")["applied"] is False
 
-    manager = TaskManager(microscope, experiment, parent_ui=None)
+    manager = TaskManager(microscope, experiment)
     manager.queue.build_from_matrix(["Rough Milling"], [first, second])
     host.runner.manager = manager
 
@@ -543,7 +543,7 @@ def test_edit_queue_keeps_the_grid_load_step(experiment, microscope):
     host = stub_session()
     host.experiment = experiment
     ctx = AutoLamellaAppContext(host)
-    manager = GridTaskManager(microscope, experiment, parent_ui=None)
+    manager = GridTaskManager(microscope, experiment)
     manager.queue.build_from_pairs(
         [("grid-1", LOAD_ENTRY_NAME), ("grid-1", "Overview")]
     )

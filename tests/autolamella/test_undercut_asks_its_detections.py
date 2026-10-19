@@ -99,13 +99,12 @@ def _experiment(tmp_path: Path, microscope, attention=Attention.automated):
 
 
 def _task(microscope, exp) -> MillUndercutTask:
-    manager = TaskManager(microscope=microscope, experiment=exp, parent_ui=None)
+    manager = TaskManager(microscope=microscope, experiment=exp)
     lamella = exp.positions[0]
     return MillUndercutTask(
         microscope=microscope,
         config=lamella.task_config[UNDERCUT],
         lamella=lamella,
-        parent_ui=None,
         task_manager=manager,
     )
 

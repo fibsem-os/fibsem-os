@@ -1,5 +1,5 @@
 import logging
-from typing import TYPE_CHECKING, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from fibsem import acquire
 from fibsem import config as fcfg
@@ -20,7 +20,6 @@ from fibsem.structures import (
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Lamella
-    from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
 
 
 # CORE WORKFLOW STEPS
@@ -44,16 +43,20 @@ def align_feature_coincident(
     image_settings: ImageSettings,
     lamella: "Lamella",
     checkpoint: str,
-    parent_ui: Optional["AutoLamellaUI"],
+    run: Optional[Any],
     detect: Callable[..., DetectedFeatures],
     hfw: float = fcfg.REFERENCE_HFW_MEDIUM,
-    feature: Feature = LamellaCentre(),
+    feature: Optional[Feature] = None,
 ) -> "Lamella":
     """Align the feature in the electron and ion beams to be coincident.
 
     ``detect`` is how the two detections are asked: a task passes its own
-    ``detect`` so they go on its record.
+    ``detect`` so they go on its record. ``run`` is the task's manager: where
+    the status and the images go. ``feature`` is a new LamellaCentre by default:
+    detection writes onto the feature it is given.
     """
+    if feature is None:
+        feature = LamellaCentre()
 
     # bookkeeping
     features = [feature]
@@ -61,7 +64,7 @@ def align_feature_coincident(
     # update status
     log_status_message(lamella, "ALIGN_FEATURE_COINCIDENT")
     update_status_ui(
-        parent_ui, f"{lamella.info} Aligning Feature Coincident ({feature.name})..."
+        run, f"{lamella.info} Aligning Feature Coincident ({feature.name})..."
     )
     image_settings.beam_type = BeamType.ELECTRON
     image_settings.hfw = hfw
@@ -70,7 +73,7 @@ def align_feature_coincident(
     )
     image_settings.save = True
     eb_image, ib_image = acquire.take_reference_images(microscope, image_settings)
-    set_images_ui(parent_ui, eb_image, ib_image)
+    set_images_ui(run, eb_image, ib_image)
 
     # detect
     det = detect(
@@ -112,6 +115,6 @@ def align_feature_coincident(
         f"ref_{lamella.task_state.name}_{feature.name}_align_coincident_final"
     )
     sem_image, fib_image = acquire.take_reference_images(microscope, image_settings)
-    set_images_ui(parent_ui, sem_image, fib_image)
+    set_images_ui(run, sem_image, fib_image)
 
     return lamella

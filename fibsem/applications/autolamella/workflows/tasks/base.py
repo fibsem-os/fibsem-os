@@ -123,7 +123,6 @@ from fibsem.workflows.task import BaseTask, run_folder
 
 if TYPE_CHECKING:
     from fibsem.alignment import AlignmentResult
-    from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
     from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
     from fibsem.autofunctions.autofocus import AutoFocusResult
     from fibsem.fm.structures import FluorescenceImage
@@ -169,12 +168,9 @@ class AutoLamellaTask(BaseTask):
         microscope: FibsemMicroscope,
         config: AutoLamellaTaskConfig,
         lamella: Lamella,
-        parent_ui: Optional["AutoLamellaUI"] = None,
         task_manager: Optional["TaskManager"] = None,
     ):
-        super().__init__(
-            microscope, config, lamella, parent_ui=parent_ui, task_manager=task_manager
-        )
+        super().__init__(microscope, config, lamella, task_manager=task_manager)
         # This task object is one run: its folder is fixed as it starts (FIB-1275).
         self._output_dir = run_folder(
             lamella.path, config.task_name, now(), iteration=self.iteration
@@ -306,7 +302,7 @@ class AutoLamellaTask(BaseTask):
         self, message: str, workflow_info: Optional[str] = None
     ) -> None:
         update_status_ui(
-            parent_ui=self.parent_ui,
+            run=self.task_manager,
             msg=f"{self.lamella.name} [{self.task_name}] {message}",
             workflow_info=workflow_info,
         )
@@ -337,7 +333,7 @@ class AutoLamellaTask(BaseTask):
         Supervised: the run holds here -- the manager raises the hold --
         until the decision lands, or Stop, which withdraws the question and
         raises ``InterruptedError``. It holds whoever can answer, nobody
-        included: an answer is never taken unreviewed (Patrick 2026-10-19), so
+        included: an answer is never taken unreviewed, so
         with no window and no agent listening at Drive the question waits for
         one to come back, and the hold says who can answer as that changes.
         Automated, nobody is asked: the proposal goes on the record with an
@@ -473,7 +469,9 @@ class AutoLamellaTask(BaseTask):
         names = ", ".join(f.name for f in features)
         if len(names) > 15:
             names = names[:15] + "..."
-        update_status_ui(self.parent_ui, f"{message}: Detecting Features ({names})...")
+        update_status_ui(
+            self.task_manager, f"{message}: Detecting Features ({names})..."
+        )
         detection = detection_module.take_image_and_detect_features(
             microscope=self.microscope,
             image_settings=image_settings,
@@ -490,7 +488,7 @@ class AutoLamellaTask(BaseTask):
             ask(
                 self.responder,
                 ShowDetection(detection=deepcopy(detection)),
-                abort=lambda: _abort_requested(self.parent_ui),
+                abort=lambda: _abort_requested(self.task_manager),
                 timeout=INSTRUCTION_TIMEOUT_S,
             )
         decision = self.ask(
@@ -661,7 +659,7 @@ class AutoLamellaTask(BaseTask):
 
     def _set_milling_config_ui(self, milling_config: FibsemMillingTaskConfig):
         """Set the milling config in the milling widget."""
-        if self.parent_ui is None or self.responder is None:
+        if self.responder is None:
             return
 
         self._check_for_abort()
@@ -671,19 +669,19 @@ class AutoLamellaTask(BaseTask):
         ask(
             self.responder,
             SetMillingConfig(config=deepcopy(milling_config)),
-            abort=lambda: _abort_requested(self.parent_ui),
+            abort=lambda: _abort_requested(self.task_manager),
             timeout=INSTRUCTION_TIMEOUT_S,
         )
 
     def clear_milling_config_ui(self):
         """Clear the milling config from the milling widget."""
-        if self.parent_ui is None or self.responder is None:
+        if self.responder is None:
             return
 
         ask(
             self.responder,
             ClearMillingConfig(),
-            abort=lambda: _abort_requested(self.parent_ui),
+            abort=lambda: _abort_requested(self.task_manager),
             timeout=INSTRUCTION_TIMEOUT_S,
         )
 
@@ -894,7 +892,7 @@ class AutoLamellaTask(BaseTask):
         self._record_channel_outputs(phase, [(sem_image, fib_image)])
         if fib_image is not None:
             self._last_fib_image = fib_image
-        set_images_ui(self.parent_ui, sem_image, fib_image)
+        set_images_ui(self.task_manager, sem_image, fib_image)
 
     def _acquire_set_of_channels(
         self,
@@ -940,7 +938,7 @@ class AutoLamellaTask(BaseTask):
         if fib_image is not None:
             self._last_fib_image = fib_image
         set_images_ui(
-            self.parent_ui, sem_image, fib_image
+            self.task_manager, sem_image, fib_image
         )  # show the last acquired image
 
     def _retract_objective(self) -> None:
@@ -1099,13 +1097,13 @@ class AutoLamellaTask(BaseTask):
         self, channel_settings: List[ChannelSettings]
     ) -> None:
         """Set the fluorescence channel settings in the fluorescence widget."""
-        if self.parent_ui is None or self.responder is None:
+        if self.responder is None:
             return
 
         ask(
             self.responder,
             SetFluorescenceChannels(channels=deepcopy(channel_settings)),
-            abort=lambda: _abort_requested(self.parent_ui),
+            abort=lambda: _abort_requested(self.task_manager),
             timeout=INSTRUCTION_TIMEOUT_S,
         )
 

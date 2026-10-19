@@ -105,15 +105,15 @@ def _task(ui):
     manager = TaskManager(
         microscope=ui.microscope,
         experiment=experiment,
-        parent_ui=ui,
         responder=ui.ui_responder,
         answerers=ui.session.answerers,
     )
+    # The window hears it as it hears a run the runner starts.
+    ui.session.runner.relay(manager)
     task = MillRoughTask(
         microscope=ui.microscope,
         config=lamella.task_config[ROUGH],
         lamella=lamella,
-        parent_ui=ui,
         task_manager=manager,
     )
     task._manager = manager

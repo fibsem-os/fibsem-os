@@ -62,6 +62,10 @@ class HeldManager:
 
     should_abort = False
     queue_changed = Signal(dict)
+    status = Signal(object)
+    held = Signal(object)
+    pending = Signal(bool)
+    step = Signal(str)
 
     def __init__(self, request: Any, on_execute: Optional[Callable[[], None]] = None):
         self.request = request

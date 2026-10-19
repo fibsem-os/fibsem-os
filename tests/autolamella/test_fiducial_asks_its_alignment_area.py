@@ -65,7 +65,6 @@ def test_the_question_sits_on_the_image_the_mill_left_behind(microscope, tmp_pat
         microscope=microscope,
         config=config,
         lamella=lamella,
-        parent_ui=None,
         task_manager=None,
     )
     milling = config.milling[FIDUCIAL_KEY]
@@ -115,12 +114,11 @@ def test_with_no_finished_image_the_task_takes_one_frame_to_ask_on(
     lamella = exp.positions[0]
     lamella.path.mkdir(parents=True, exist_ok=True)
     lamella.milling_pose = microscope.get_microscope_state()
-    manager = TaskManager(microscope=microscope, experiment=exp, parent_ui=None)
+    manager = TaskManager(microscope=microscope, experiment=exp)
     task = MillFiducialTask(
         microscope=microscope,
         config=lamella.task_config[FIDUCIAL],
         lamella=lamella,
-        parent_ui=None,
         task_manager=manager,
     )
     # the mill itself is not the point: the session hands back its config

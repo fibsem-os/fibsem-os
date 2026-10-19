@@ -47,7 +47,7 @@ def _ask_on_worker_thread(ui, qapp, msg="Continue?", pos="Continue", neg="Exit")
             outcome["answer"] = ask(
                 ui.ui_responder,
                 Confirm(message=msg, positive=pos, negative=neg),
-                abort=lambda: _abort_requested(ui),
+                abort=lambda: _abort_requested(ui.session.runner),
             )
         except Exception as exc:  # noqa: BLE001 - the test inspects it
             outcome["error"] = exc

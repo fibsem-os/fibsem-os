@@ -29,7 +29,6 @@ from fibsem.applications.autolamella.structures import (
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.workflows.status import TaskStatus as Status
-from tests.run_state import stub_session
 
 TASKS = ["Trench", "Undercut"]
 
@@ -49,7 +48,7 @@ def manager(tmp_path: Path) -> TaskManager:
     experiment.positions.append(
         Lamella(path=Path(experiment.path) / "L1", number=1, petname="L1")
     )
-    m = TaskManager(microscope=NoMicroscope(), experiment=experiment, parent_ui=None)
+    m = TaskManager(microscope=NoMicroscope(), experiment=experiment)
     m.queue.build_from_matrix(TASKS, ["L1"])
     return m
 
@@ -237,42 +236,30 @@ def test_the_workflow_config_finds_a_task_schedule():
 # ── the border can tell a parked run from a running one (FIB-676) ─────────────
 
 
-class _Signal:
-    """The one method `update_status_ui` calls on `workflow_status_signal`."""
-
-    def __init__(self, on_emit):
-        self._on_emit = on_emit
-
-    def emit(self, info: dict) -> None:
-        self._on_emit(info)
-
-
 class RecordingUI:
-    """Stands in for AutoLamellaUI at the only boundary the wait touches.
-
-    Samples WORKFLOW_PENDING at each status emit — i.e. exactly where the real UI
-    reads it, since the border block runs at the end of `_on_workflow_status`. That
-    makes these tests about what the border can *see*, not merely about an attribute
+    """Listens to the run the way AutoLamellaUI does: ``pending`` sets its
+    WORKFLOW_PENDING, and each ``status`` samples it, where the real window
+    reads it (the border block runs at the end of `_on_workflow_status`). That
+    makes these tests about what the border can *see*, not merely about a flag
     being written and rewritten around the call.
     """
 
     def __init__(self, manager: TaskManager):
-        self.session = stub_session(manager)
         self.WORKFLOW_PENDING = False
         self.pending_at_each_emit: List[bool] = []
-        # Everything the workflow says arrives on workflow_status_signal now
-        # (the dict signal is gone); the border block runs at the end of its
-        # handler. Sample at each emit, as the real window would.
-        self.workflow_status_signal = _Signal(
-            lambda event: self.pending_at_each_emit.append(self.WORKFLOW_PENDING)
-        )
+        manager.pending.connect(self._on_pending)
+        manager.status.connect(self._on_status)
+
+    def _on_pending(self, pending: bool) -> None:
+        self.WORKFLOW_PENDING = pending
+
+    def _on_status(self, event) -> None:
+        self.pending_at_each_emit.append(self.WORKFLOW_PENDING)
 
 
 @pytest.fixture
 def ui(manager: TaskManager) -> RecordingUI:
-    recording = RecordingUI(manager)
-    manager.parent_ui = recording
-    return recording
+    return RecordingUI(manager)
 
 
 def test_the_border_sees_pending_while_the_wait_is_happening(manager, ui):

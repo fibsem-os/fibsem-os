@@ -106,16 +106,16 @@ def _start(window):
     manager = TaskManager(
         microscope=ui.microscope,
         experiment=experiment,
-        parent_ui=ui,
         responder=ui.ui_responder,
         answerers=ui.session.answerers,
     )
+    # The window hears it as it hears a run the runner starts.
+    ui.session.runner.relay(manager)
     lamella = experiment.positions[0]
     task = AcquireReferenceImageTask(
         microscope=ui.microscope,
         config=lamella.task_config[REF],
         lamella=lamella,
-        parent_ui=ui,
         task_manager=manager,
     )
     seen = {}

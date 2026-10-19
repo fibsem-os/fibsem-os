@@ -27,6 +27,7 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.workflows.status import TaskState
 from fibsem.workflows.status import TaskStatus as Status
+from tests.proposal_records import set_proposals
 from tests.run_state import stub_session
 
 
@@ -39,11 +40,21 @@ class RecordingUI:
     one would take it out of CI, where PyQt5 is not installed.
     """
 
-    def __init__(self):
-        # Everything the workflow says arrives on workflow_status_signal now
-        # (the dict signal is gone).
+    def __init__(self, manager: TaskManager):
+        # Everything the run says arrives on its status, and who holds it on
+        # held: the window listens to both.
         self.workflow_status_signal = _Recorder()
-        self.session = stub_session()  # _check_for_abort reads its runner
+        self.hold = None
+        manager.status.connect(self.workflow_status_signal.emit)
+        manager.held.connect(self._on_held)
+
+    def _on_held(self, hold) -> None:
+        self.hold = hold
+
+
+def _listened(manager: TaskManager) -> TaskManager:
+    manager.ui = RecordingUI(manager)
+    return manager
 
 
 class _Recorder:
@@ -124,7 +135,6 @@ def run_queue_with(manager: TaskManager, on_task=None):
             on_task(task_name, lamella)
         return None
 
-    manager.parent_ui.session.runner.manager = manager
     manager._run_single_task = _run_single_task
     manager._run_queue()
     return executed
@@ -132,17 +142,18 @@ def run_queue_with(manager: TaskManager, on_task=None):
 
 @pytest.fixture
 def manager(tmp_path) -> TaskManager:
-    m = TaskManager(
-        microscope=NoMicroscope(),
-        experiment=make_experiment(tmp_path),
-        parent_ui=RecordingUI(),
+    m = _listened(
+        TaskManager(
+            microscope=NoMicroscope(),
+            experiment=make_experiment(tmp_path),
+        )
     )
     m.queue.build_from_matrix(["Trench", "Undercut"], ["L1", "L2"])
     return m
 
 
 def last_status(manager: TaskManager):
-    return manager.parent_ui.workflow_status_signal.emitted[-1].report
+    return manager.ui.workflow_status_signal.emitted[-1].report
 
 
 # ── _emit_status ──────────────────────────────────────────────────────────────
@@ -239,12 +250,12 @@ def test_emit_passes_through_error_and_skip_detail(manager):
     status = last_status(manager)
     assert status.error_message == "it broke"
     assert status.task_duration == 12.5
-    assert manager.parent_ui.workflow_status_signal.emitted[-1].message == "boom"
+    assert manager.ui.workflow_status_signal.emitted[-1].message == "boom"
 
 
 def test_emit_is_a_noop_headless(tmp_path):
     experiment = make_experiment(tmp_path, lamella_names=["L1"])
-    m = TaskManager(microscope=NoMicroscope(), experiment=experiment, parent_ui=None)
+    m = TaskManager(microscope=NoMicroscope(), experiment=experiment)
     m.queue.build_from_matrix(["Trench"], ["L1"])
     m._emit_status(
         item=m.queue.items[0],
@@ -273,9 +284,7 @@ def test_missing_prerequisites_are_skipped(tmp_path):
     experiment = make_experiment(
         tmp_path, requirements={"Undercut": ["Trench"]}, lamella_names=["L1"]
     )
-    m = TaskManager(
-        microscope=NoMicroscope(), experiment=experiment, parent_ui=RecordingUI()
-    )
+    m = _listened(TaskManager(microscope=NoMicroscope(), experiment=experiment))
     m.queue.build_from_matrix(["Trench", "Undercut"], ["L1"])
     lamella = experiment.get_lamella_by_name("L1")
     assert m._should_skip(lamella, "Undercut") == "missing_prereqs"
@@ -305,11 +314,12 @@ def test_a_skip_names_the_requirement_and_the_end_says_nothing_ran(tmp_path):
         TaskState(name="Trench", status=Status.Cancelled)
     )
     hooks, fired = _recorded_hooks()
-    m = TaskManager(
-        microscope=NoMicroscope(),
-        experiment=experiment,
-        parent_ui=RecordingUI(),
-        hook_manager=hooks,
+    m = _listened(
+        TaskManager(
+            microscope=NoMicroscope(),
+            experiment=experiment,
+            hook_manager=hooks,
+        )
     )
     m.queue.build_from_matrix(["Undercut"], ["L1"])
 
@@ -328,11 +338,12 @@ def test_the_end_of_a_run_counts_how_its_tasks_ended(tmp_path):
     )
     make_lamella(experiment, "L3", is_failure=True)
     hooks, fired = _recorded_hooks()
-    m = TaskManager(
-        microscope=NoMicroscope(),
-        experiment=experiment,
-        parent_ui=RecordingUI(),
-        hook_manager=hooks,
+    m = _listened(
+        TaskManager(
+            microscope=NoMicroscope(),
+            experiment=experiment,
+            hook_manager=hooks,
+        )
     )
     m.queue.build_from_matrix(["Trench"], ["L1", "L2", "L3"])
 
@@ -351,9 +362,7 @@ def test_a_prerequisite_still_in_the_queue_defers_rather_than_skips(tmp_path):
     experiment = make_experiment(
         tmp_path, requirements={"Undercut": ["Trench"]}, lamella_names=["L1"]
     )
-    m = TaskManager(
-        microscope=NoMicroscope(), experiment=experiment, parent_ui=RecordingUI()
-    )
+    m = _listened(TaskManager(microscope=NoMicroscope(), experiment=experiment))
     m.queue.build_from_pairs([("L1", "Undercut"), ("L1", "Trench")])
     lamella = experiment.get_lamella_by_name("L1")
     assert m._defer_reason(lamella, "Undercut") == "prereq_pending"
@@ -371,9 +380,7 @@ def _one_lamella_manager(tmp_path):
     experiment = make_experiment(
         tmp_path, requirements={"Undercut": ["Trench"]}, lamella_names=["L1"]
     )
-    m = TaskManager(
-        microscope=NoMicroscope(), experiment=experiment, parent_ui=RecordingUI()
-    )
+    m = _listened(TaskManager(microscope=NoMicroscope(), experiment=experiment))
     return m, experiment.get_lamella_by_name("L1")
 
 
@@ -415,9 +422,7 @@ def test_unrunnable_work_with_nothing_to_unblock_it_exits_with_an_error(tmp_path
     experiment = make_experiment(
         tmp_path, requirements={"Undercut": ["Trench"]}, lamella_names=["L1"]
     )
-    m = TaskManager(
-        microscope=NoMicroscope(), experiment=experiment, parent_ui=RecordingUI()
-    )
+    m = _listened(TaskManager(microscope=NoMicroscope(), experiment=experiment))
     m.queue.build_from_matrix(["Undercut"], ["L1"])
     # Make the scan defer it, then remove what it was waiting on.
     m._is_deferred = lambda item: True
@@ -516,7 +521,7 @@ def test_status_bar_text_is_derivable_for_added_items(manager):
             added.append(manager.queue.add("L99", "Polishing"))
 
     run_queue_with(manager, on_task)
-    for event in manager.parent_ui.workflow_status_signal.emitted:
+    for event in manager.ui.workflow_status_signal.emitted:
         status = event.report
         if status is None:
             continue

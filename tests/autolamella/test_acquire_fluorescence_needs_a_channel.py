@@ -47,7 +47,6 @@ def test_no_channels_is_refused_by_name(microscope, tmp_path):
         microscope=microscope,
         config=config,
         lamella=lamella,
-        parent_ui=None,
         task_manager=None,
     )
 

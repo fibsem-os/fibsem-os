@@ -44,7 +44,6 @@ def _manager(experiment: Experiment, hook_manager: HookManager) -> TaskManager:
     return TaskManager(
         microscope=_NoMicroscope(),
         experiment=experiment,
-        parent_ui=None,
         hook_manager=hook_manager,
     )
 

@@ -214,9 +214,7 @@ def _make_headless_spot_burn_task(coordinates, tmp_path):
     config = SpotBurnFiducialTaskConfig(
         task_name="Spot Burn Fiducial", coordinates=coordinates
     )
-    return SpotBurnFiducialTask(
-        microscope=MagicMock(), config=config, lamella=lamella, parent_ui=None
-    )
+    return SpotBurnFiducialTask(microscope=MagicMock(), config=config, lamella=lamella)
 
 
 def test_update_spot_burn_ui_skips_when_no_coordinates(monkeypatch, tmp_path):
@@ -283,10 +281,7 @@ def test_update_spot_burn_ui_runs_stored_coordinates_headless(monkeypatch, tmp_p
             microscope=microscope,
             config=lamella.task_config[name],
             lamella=lamella,
-            parent_ui=None,
-            task_manager=TaskManager(
-                microscope=microscope, experiment=exp, parent_ui=None
-            ),
+            task_manager=TaskManager(microscope=microscope, experiment=exp),
         )
         task.update_spot_burn_parameters_ui()
     finally:

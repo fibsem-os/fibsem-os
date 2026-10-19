@@ -689,7 +689,7 @@ def test_adding_grids_to_a_running_queue_appends_their_blocks(
     )
 
     # a grid run under way on grid-aspen, with the manager where the window looks
-    manager = GridTaskManager(microscope, exp, parent_ui=ui)
+    manager = GridTaskManager(microscope, exp)
     manager.queue.build_from_pairs(plan_grid_run(["overview_sem"], ["grid-aspen"]))
     manager.queue.next()  # grid-aspen's load is active
     ui.session.runner.manager = manager
@@ -714,7 +714,7 @@ def test_adding_grids_to_a_running_queue_appends_their_blocks(
     # a lamella run refuses grid tasks, and the Add button says so instead of
     # offering an add the handler would refuse (seen on the bench: it was
     # enabled with a grid ticked during a lamella run)
-    ui.session.runner.manager = TaskManager(microscope, exp, parent_ui=ui)
+    ui.session.runner.manager = TaskManager(microscope, exp)
     main_ui._on_workflow_selection_changed()
     # The button's own flag: the timeline as a whole is only enabled once an
     # experiment is loaded through the window, which this harness skips.

@@ -2316,10 +2316,9 @@ class AutoLamellaAppContext:
 
     @property
     def _latest_images(self):
-        """The session's latest image of each beam, which the window shows
-        once a microscope connects, else None: with no window, nothing takes
-        them."""
-        if self._window is None or self._microscope is None:
+        """The session's latest image of each beam, window or not; None
+        until a microscope connects."""
+        if self._microscope is None:
             return None
         return self._session.images
 

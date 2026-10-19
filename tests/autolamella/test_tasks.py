@@ -218,7 +218,6 @@ def test_task_is_cancellation_classifies_stop_vs_failure(tmp_path: Path):
         return TaskManager(
             microscope=_NoMicroscope(),
             experiment=Experiment(path=tmp_path, name="test-exp"),
-            parent_ui=None,
         )
 
     def _isc(exc, manager=None):
