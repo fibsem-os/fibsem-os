@@ -1,10 +1,6 @@
 """The agent card's Recent list (FIB-1414): what the agent did lately, one line
 each with how it ended, read from the session's record."""
 
-import pytest
-
-pytest.importorskip("PyQt5")
-
 from fibsem.acting import AGENT, OPERATOR, TASK
 from fibsem.ui.agent.recent import (
     ERROR,
