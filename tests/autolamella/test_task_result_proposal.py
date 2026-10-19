@@ -422,11 +422,15 @@ def test_a_task_the_run_cannot_save_after_ends_failed(
     task = _task(microscope, exp)
     manager = task.task_manager
     fired = _record_events(task)
-    _block_the_save(exp)
 
     from fibsem.applications.autolamella.workflows.tasks import manager as module
 
-    monkeypatch.setattr(module, "run_task", lambda **_kwargs: task.run())
+    def run_then_block(**_kwargs):
+        task.run()  # its end saved the experiment; the run's save after it fails
+        os.remove(os.path.join(exp.path, "experiment.yaml"))
+        _block_the_save(exp)
+
+    monkeypatch.setattr(module, "run_task", run_then_block)
     with pytest.raises(OSError):
         manager._run_single_task(ROUGH, lamella)
 
