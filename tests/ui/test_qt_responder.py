@@ -140,7 +140,9 @@ def test_a_gui_side_failure_reraises_on_the_workflow_thread(ui, qapp):
     ui.image_widget._on_acquire = broken
     sem = deepcopy(ui.image_widget.eb_image)
 
-    outcome = _call_on_worker_thread(qapp, lambda: set_images_ui(_Run(ui), eb_image=sem))
+    outcome = _call_on_worker_thread(
+        qapp, lambda: set_images_ui(_Run(ui), eb_image=sem)
+    )
 
     assert isinstance(outcome.get("error"), RuntimeError)
     assert "display fell over" in str(outcome["error"])
