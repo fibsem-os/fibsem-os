@@ -96,10 +96,10 @@ class MillingStep:
         self.pauses: List[Dict[str, Any]] = []
         self.notable: List[Dict[str, Any]] = []
         self._milled = 0.0
-        # While counted by the clock: when it was set, and up to what it may
-        # run on in real time until the next count.
-        self._milled_at = 0.0
-        self._milled_until: Optional[float] = None
+        # The step's own watch, for a mill the instrument is not looked at
+        # (`count_milled_time`): whether it counts, and since when it runs.
+        self._counting = False
+        self._since: Optional[float] = None
         # Numbers each reading; the service's numbers run on across steps.
         self._next_seq = seq or itertools.count(1).__next__
         # The live monitors (those with a view) and the view they share.
@@ -130,17 +130,30 @@ class MillingStep:
 
     def milled_time(self) -> float:
         """Seconds milled so far in this step, paused time left out."""
-        until = self._milled_until
-        if until is None or self._held or self.pausing.is_set() or self.ending.is_set():
-            return self._milled
-        return min(self._milled + time.monotonic() - self._milled_at, until)
+        with self._hold_lock:
+            if self._since is None:
+                return self._milled
+            return self._milled + time.monotonic() - self._since
 
-    def set_milled_time(self, seconds: float, until: Optional[float] = None) -> None:
-        """*seconds* milled; with *until*, the time runs on in real time up to
-        it until the next count (the clock counts once a wait)."""
+    def set_milled_time(self, seconds: float) -> None:
+        """*seconds* milled, as the instrument says."""
         self._milled = float(seconds)
-        self._milled_at = time.monotonic()
-        self._milled_until = until
+
+    def count_milled_time(self, on: bool) -> None:
+        """Measure the milled time on the step's own watch from now (*on*), or
+        stop: the time it runs while the pattern mills, pauses left out."""
+        with self._hold_lock:
+            self._counting = on
+            self._tick()
+
+    def _tick(self) -> None:
+        """Take the time run so far into the milled time, and run on from now
+        while the pattern mills. Under ``_hold_lock``."""
+        now = time.monotonic()
+        if self._since is not None:
+            self._milled += now - self._since
+        milling = not (self._held or self.pausing.is_set() or self.ending.is_set())
+        self._since = now if self._counting and milling else None
 
     def hold(self, pause: Callable[[], None]) -> None:
         """The operator's (or agent's) Pause: the pattern is paused with
@@ -148,6 +161,7 @@ class MillingStep:
         after the monitor is done, until ``release``."""
         with self._hold_lock:
             self._held = True
+            self._tick()
             if not self.pausing.is_set():
                 pause()
         self.restore_view()
@@ -159,6 +173,7 @@ class MillingStep:
             self._held = False
             if not self.pausing.is_set():
                 resume()
+            self._tick()
         self.restore_view()
 
     @property
@@ -227,6 +242,7 @@ class MillingStep:
             with self._hold_lock:
                 # Set first: the state monitor does not look from here on.
                 self.pausing.set()
+                self._tick()
                 if not self._held:
                     self.milling._pause()
             self.restore_view()
@@ -263,6 +279,7 @@ class MillingStep:
                             self.milling._resume()
                     finally:
                         self.pausing.clear()
+                        self._tick()
                 if resume:
                     self.restore_view()
 
@@ -273,6 +290,8 @@ class MillingStep:
                 return False
             self._end = end
         self.ending.set()
+        with self._hold_lock:
+            self._tick()
         return True
 
     def stop_beam(self, stop: Callable[[], None]) -> bool:

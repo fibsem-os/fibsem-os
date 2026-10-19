@@ -527,3 +527,26 @@ def test_the_operator_s_resume_during_a_monitor_s_pause_waits_for_the_monitor():
         assert milling.calls == ["pause"], "not resumed under the monitor's look"
     assert milling.calls == ["pause", "resume"]
     assert not step.held and not step.pausing.is_set()
+
+
+def test_milled_time_is_measured_with_its_pauses_left_out(monkeypatch):
+    now = [100.0]
+    monkeypatch.setattr(time, "monotonic", lambda: now[0])
+    step, milling = _step()
+
+    step.count_milled_time(True)
+    now[0] += 3
+    assert step.milled_time() == 3
+    with step.paused("look"):
+        now[0] += 5
+    assert step.milled_time() == 3, "a monitor's pause is not milled"
+    now[0] += 2
+    step.hold(milling._pause)
+    now[0] += 7
+    step.release(milling._resume)
+    now[0] += 1
+    assert step.milled_time() == 6, "nor the operator's"
+
+    step.count_milled_time(False)
+    now[0] += 4
+    assert step.milled_time() == 6
