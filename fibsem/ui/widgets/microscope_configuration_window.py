@@ -46,7 +46,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.fm.structures import emission_filter_from_dict
+from fibsem.fm.structures import ChannelSettings
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import ImageSettings
 from fibsem.ui import stylesheets
@@ -559,7 +559,7 @@ def _angle(radians) -> str:
 
 
 def _emission(channel: dict) -> str:
-    return emission_filter_from_dict(channel).label
+    return ChannelSettings.from_dict(channel).emission_filter.label
 
 
 def _channel_row(channel: dict) -> Tuple[str, str, str, str, str]:

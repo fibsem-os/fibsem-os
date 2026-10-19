@@ -165,6 +165,16 @@ lists where each key went.
   operator sees nothing change; old event logs still read. The window's
   responder only carries instructions (images, milling config, detections).
   Suggestions come back on pending proposals.
+- **Agent suggestions on proposals.** At Assist an agent suggests a decision
+  on a pending proposal (`proposal_suggest`, `POST
+  /app/workflow/proposals/suggest`), with its reason and optionally its
+  evidence image. The Agent chip says "Agent suggests" and the card shows the
+  suggestion drawn on the proposal's image, with Approve (decides it as
+  suggested, as the operator's decision, naming the suggestion) and Decline
+  (an optional reason goes back to the agent). One suggestion is kept per
+  proposal, in `experiment.yaml`; decisions carry `suggestion_id`. Events
+  `proposal_suggested` and `suggestion_declined`; `proposal_decided` gains
+  `suggested_by`.
 - **The point-of-interest kind is named for what it is.** The proposal kind Setup
   records is `point_of_interest` (was `milling_setup`): a point on an image that later
   tasks follow, which is not a milling matter. Its schema carries `poi` only; the

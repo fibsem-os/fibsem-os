@@ -820,7 +820,7 @@ class ScanMode(Enum):
     SPOT = "spot"
 
 
-class AutoFocusMode(Enum):
+class AutoFocusMode(NamedEnum, Enum):
     """When to run autofocus during a tiled acquisition.
 
     One vocabulary for both tilers. There used to be two enums of this name --
@@ -860,7 +860,7 @@ class AutoFocusMode(Enum):
         return None
 
 
-class TileOrderStrategy(Enum):
+class TileOrderStrategy(NamedEnum, Enum):
     TYPEWRITER = "typewriter"  # rows always left-to-right
     SERPENTINE = "serpentine"  # alternating: row 0 L→R, row 1 R→L, ...
     SPIRAL = "spiral"  # outward clockwise spiral from centre tile

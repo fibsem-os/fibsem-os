@@ -62,8 +62,8 @@ def seen(window, monkeypatch):
         QDesktopServices, "openUrl", lambda url: seen["opened"].append(url) or True
     )
     monkeypatch.setattr(
-        window,
-        "show_toast",
+        window.menu_bar,
+        "_show_toast",
         lambda message, level="info": seen["toasts"].append((level, message)),
     )
     return seen
@@ -104,7 +104,7 @@ def test_the_report_is_written_opened_and_printed(window, seen, tmp_path):
     experiment = _experiment(tmp_path, "recorded")
     window.autolamella_ui.experiment = experiment
 
-    window.action_generate_report_v2.trigger()
+    window.menu_bar.action_generate_report_v2.trigger()
 
     # written on a worker, then opened, then printed on another
     assert _toasts(seen, 2) == [
@@ -123,7 +123,7 @@ def test_with_no_pdf_the_page_still_is_and_says_how_to_make_one(window, seen, tm
     window.autolamella_ui.experiment = _experiment(tmp_path, "no-browser")
     seen["no_pdf"] = "no Edge, Chrome or Chromium was found to print the page with"
 
-    window.action_generate_report_v2.trigger()
+    window.menu_bar.action_generate_report_v2.trigger()
 
     assert _toasts(seen, 2)[1] == (
         "warning",
@@ -136,7 +136,7 @@ def test_with_no_pdf_the_page_still_is_and_says_how_to_make_one(window, seen, tm
 def test_an_older_experiment_says_why_there_is_no_v2_report(window, seen, tmp_path):
     window.autolamella_ui.experiment = _experiment(tmp_path, "older", recorded=False)
 
-    window.action_generate_report_v2.trigger()
+    window.menu_bar.action_generate_report_v2.trigger()
 
     assert seen["opened"] == [] and seen["printed"] == []
     ((level, message),) = seen["toasts"]
@@ -146,7 +146,7 @@ def test_an_older_experiment_says_why_there_is_no_v2_report(window, seen, tmp_pa
 def test_with_no_experiment_open(window, seen):
     window.autolamella_ui.experiment = None
 
-    window.action_generate_report_v2.trigger()
+    window.menu_bar.action_generate_report_v2.trigger()
 
     assert seen["opened"] == [] and seen["printed"] == []
     assert seen["toasts"] == [("warning", "Open an experiment to report on.")]

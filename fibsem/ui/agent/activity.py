@@ -37,7 +37,11 @@ from superqt import ensure_main_thread
 
 from fibsem.acting import AGENT
 from fibsem.ai.agent.recent import RecentActions, RecentRow
-from fibsem.milling.progress import AgentMillOwner, MillingProgress
+from fibsem.milling.progress import (
+    AgentMillOwner,
+    MillingProgress,
+    MillingProgressStatus,
+)
 from fibsem.structures import BeamType
 from fibsem.ui import notification_service
 from fibsem.ui.tokens import PURPLE_COLOR
@@ -102,7 +106,10 @@ class AgentActivity(QObject):
         self._announce_timer.timeout.connect(self._announce)
         # The agent's mill and how far it is: (name, stage, of, seconds left).
         self._mill_owner = AgentMillOwner()
-        self._mill: Optional[Tuple[str, Optional[int], Optional[int], Optional[float]]]
+        # name, stage, of, seconds left, and whether a stage is starting
+        self._mill: Optional[
+            Tuple[str, Optional[int], Optional[int], Optional[float], bool]
+        ]
         self._mill = None
         self._now: Optional[str] = None
         self._events = None
@@ -234,10 +241,15 @@ class AgentActivity(QObject):
         stage, total = report.display_stage, report.total_stages
         if stage is None and last is not None:
             stage, total = last[1], last[2]  # a tick does not repeat the stage
+        # A stage starting has no countdown yet: the last stage's is over.
+        preparing = report.status in (
+            MillingProgressStatus.TASK_STARTED,
+            MillingProgressStatus.STAGE_STARTED,
+        )
         remaining = report.remaining_time
-        if remaining is None and last is not None:
+        if remaining is None and last is not None and not preparing:
             remaining = last[3]
-        self._set_mill((name, stage, total, remaining))
+        self._set_mill((name, stage, total, remaining, preparing))
 
     def _set_mill(self, mill) -> None:
         self._mill = mill
@@ -246,11 +258,13 @@ class AgentActivity(QObject):
     def _say_now(self) -> None:
         now = self._action
         if self._mill is not None:
-            name, stage, total, remaining = self._mill
+            name, stage, total, remaining, preparing = self._mill
             parts = [f"Milling '{name}'"]
             if stage and total and total > 1:
                 parts.append(f"stage {stage} of {total}")
-            if remaining is not None:
+            if preparing and remaining is None:
+                parts.append("preparing")
+            elif remaining is not None:
                 parts.append(f"about {format_duration_rounded(remaining)} left")
             now = " · ".join(parts)
         if now != self._now:

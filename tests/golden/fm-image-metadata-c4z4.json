@@ -1,0 +1,97 @@
+{
+  "acquisition_datetime": "2026-09-23T10:00:00",
+  "channels": [
+    {
+      "binning": 1,
+      "color": "gray",
+      "emission_filter": {
+        "bands": [],
+        "multi_band": false,
+        "name": "Reflection"
+      },
+      "excitation_wavelength": 488.0,
+      "exposure_time": 0.1,
+      "gain": 1.0,
+      "name": "ch0",
+      "objective_magnification": null,
+      "objective_numerical_aperture": null,
+      "objective_position": 0.0,
+      "offset": 0.0,
+      "power": 0.5
+    },
+    {
+      "binning": 1,
+      "color": "gray",
+      "emission_filter": {
+        "bands": [],
+        "multi_band": false,
+        "name": "Reflection"
+      },
+      "excitation_wavelength": 488.0,
+      "exposure_time": 0.1,
+      "gain": 1.0,
+      "name": "ch1",
+      "objective_magnification": null,
+      "objective_numerical_aperture": null,
+      "objective_position": 0.0,
+      "offset": 0.0,
+      "power": 0.5
+    },
+    {
+      "binning": 1,
+      "color": "gray",
+      "emission_filter": {
+        "bands": [],
+        "multi_band": false,
+        "name": "Reflection"
+      },
+      "excitation_wavelength": 488.0,
+      "exposure_time": 0.1,
+      "gain": 1.0,
+      "name": "ch2",
+      "objective_magnification": null,
+      "objective_numerical_aperture": null,
+      "objective_position": 0.0,
+      "offset": 0.0,
+      "power": 0.5
+    },
+    {
+      "binning": 1,
+      "color": "gray",
+      "emission_filter": {
+        "bands": [],
+        "multi_band": false,
+        "name": "Reflection"
+      },
+      "excitation_wavelength": 488.0,
+      "exposure_time": 0.1,
+      "gain": 1.0,
+      "name": "ch3",
+      "objective_magnification": null,
+      "objective_numerical_aperture": null,
+      "objective_position": 0.0,
+      "offset": 0.0,
+      "power": 0.5
+    }
+  ],
+  "description": null,
+  "dimension_order": "CZYX",
+  "experiment": null,
+  "filename": null,
+  "geometry": null,
+  "pixel_size_x": 2e-07,
+  "pixel_size_y": 2e-07,
+  "pixel_size_z": 5e-07,
+  "resolution": [
+    7,
+    6
+  ],
+  "stage_position": null,
+  "system_info": null,
+  "z_positions": [
+    0.0,
+    5e-07,
+    1e-06,
+    1.5e-06
+  ]
+}

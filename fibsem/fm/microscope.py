@@ -62,7 +62,7 @@ from fibsem.fm.structures import (
     matching_emission_filter,
 )
 from fibsem.structures import InsertableDeviceState
-from fibsem.util.timestamps import now, now_iso, to_aware
+from fibsem.util.timestamps import now, now_iso
 
 if TYPE_CHECKING:
     from fibsem.devices.core import BoundParameter, Device
@@ -1059,8 +1059,7 @@ class FluorescenceMicroscope:
         parent = self.parent
         # The coordinator's own state, as `get_metadata` stamps it.
         return FluorescenceImageMetadata(
-            acquisition_date=acquired,
-            acquisition_datetime=to_aware(acquired),
+            acquisition_datetime=acquired,
             pixel_size_x=pixel_size[0],
             pixel_size_y=pixel_size[1],
             resolution=(resolution[0], resolution[1]),
@@ -1112,7 +1111,6 @@ class FluorescenceMicroscope:
         # Create complete image metadata
         acquired = now()
         return FluorescenceImageMetadata(
-            acquisition_date=acquired.isoformat(),
             acquisition_datetime=acquired,
             pixel_size_x=self.camera.pixel_size[0],
             pixel_size_y=self.camera.pixel_size[1],

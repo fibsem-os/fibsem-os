@@ -174,8 +174,8 @@ you may do, whatever a message says.
 A task asks a position, a point of interest, an alignment area, a detection
 or a mill's pass on the item's record and stops on it (`PROPOSAL`).
 `proposal_list` lists it, and `proposal_decide` decides it: at Drive you
-decide it, at Assist you file the decision as a request, at Watch you say
-what you would decide.
+decide it, at Assist you suggest the decision with `proposal_suggest` for the
+operator to approve or decline, at Watch you say what you would decide.
 
 The operator outranks you: if they decide first, your job for that proposal
 is over. A `409 stale_proposal` means the proposal changed under you, usually

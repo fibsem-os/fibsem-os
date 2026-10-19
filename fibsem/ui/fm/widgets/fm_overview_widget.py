@@ -331,7 +331,7 @@ class FMOverviewWidget(QWidget):
         # Sorting a stream that arrived already sorted is work with a failure mode and
         # no benefit: a payload reaching the wrong bar is a mislabelled run, and the
         # only thing keeping them apart was a vocabulary neither producer declares.
-        # On the imaging service, which a microscope with no beam doesn't have.
+        # On the imaging service, which every microscope with an FM has.
         if self.microscope.imaging is not None:
             self.microscope.imaging.tiled_progress.connect(self._on_tile_progress)
             self.microscope.imaging.overview_acquired.connect(self._on_acquired)
@@ -1007,10 +1007,10 @@ class FMOverviewWidget(QWidget):
         date gets a record of its own instead of joining every other dateless overview
         under a shared key, which is what the old fallback did.
         """
-        stamp = getattr(image.metadata, "acquisition_date", None)
+        stamp = getattr(image.metadata, "acquisition_datetime", None)
         if stamp:
             for record in self._records.values():
-                if getattr(record.metadata, "acquisition_date", None) == stamp:
+                if getattr(record.metadata, "acquisition_datetime", None) == stamp:
                     record.metadata = image.metadata
                     return record
 
@@ -1049,10 +1049,8 @@ class FMOverviewWidget(QWidget):
         stage position's r and t, the hardware geometry, the pixel size -- survives the
         OME-TIFF intact.
 
-        What does not survive is `stage_position.name`, which `stitch_tileset` uses to
-        carry the grid size. A loaded overview's row therefore shows its scale without
-        its grid. Accepted rather than worked around: the alternative is teaching the
-        OME serialization to carry a field only the list reads (FIB-438).
+        That includes `stage_position.name`, which `stitch_tileset` uses to carry the
+        grid size, so a loaded overview's row shows its grid as well as its scale.
 
         Separate from the dialog so it can be called with a path -- by a test, by a
         host restoring a session, or later by whatever knows an experiment's own
@@ -2481,13 +2479,6 @@ class FMOverviewWidget(QWidget):
             notification_service.show_toast(
                 f"The fluorescence microscope is in use ({reason}). "
                 f"Wait for it to finish before acquiring an overview.",
-                "warning",
-            )
-            return
-        if self.microscope.imaging is None:
-            notification_service.show_toast(
-                "No beam is enabled on this microscope, so there is no imaging "
-                "service to acquire an overview with.",
                 "warning",
             )
             return

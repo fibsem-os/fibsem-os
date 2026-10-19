@@ -241,12 +241,40 @@ def test_the_image_shows_beside_the_steps_and_follows_the_card_s_width(qapp):
     card.image_label.enlarge()
     assert card.image_label.window_.isVisible()
     card.image_label.window_.close()
+    # A suggestion's image is its own: the request's stays with the request.
+    card.set_image(None, suggestion=True)
+    assert card.image_label is not None
     card.set_image(None)
     assert card.image_label is None
     # No image to draw on: why, in its place (FIB-1424).
     card.set_image(None, "No FIB image of 05-pale-lark yet to draw on")
     qapp.processEvents()
     assert "No FIB image of 05-pale-lark yet to draw on" in _labels(card)
+    card.deleteLater()
+
+
+def test_a_long_step_header_leaves_approve_on_the_card(qapp):
+    # Sim session 2026-10-19 F5: a long header widened the steps past
+    # STEPS_MIN, and the picture beside them pushed Approve 28 px off the card.
+    from PyQt5.QtGui import QImage
+
+    card = AgentCard()
+    card.resize(1000, 500)
+    card.show()
+    request = _request()
+    request["actions"] = [
+        {
+            "tool": "item_update",
+            "what": "01-meet-ghoul · Setup Lamella Position · Point of interest",
+            "change": "Point of interest: (0, 0) → (−3, +2) µm",
+        }
+    ]
+    card.set_request(request)
+    card.set_image(QImage(1024, 683, QImage.Format_RGB32), "FIB · 05:12")
+    qapp.processEvents()
+    button = card.approve_button
+    right = button.mapTo(card, button.rect().topRight()).x()
+    assert right <= card.width() - card.layout().contentsMargins().right()
     card.deleteLater()
 
 
@@ -380,6 +408,75 @@ def test_an_ended_request_leaves_the_card(qapp):
     chip.deleteLater()
 
 
+_SUGGESTION = {
+    "proposal": "01-causal-pony · Setup Lamella Position · State: Is the lamella centred?",
+    "decision": "Continue",
+    "reason": "the trench is centred on 01",
+}
+
+
+def test_a_suggestion_turns_the_chip_and_the_card_offers_approve(qapp):
+    chip = AgentLevelChip()
+    chip.set_level(AgentLevel.ASSIST)
+    chip.set_suggestion(_SUGGESTION)
+    assert chip.text() == "Agent suggests"
+    # In the level's look, not amber: the run's Attention Required is.
+    from fibsem.ui.agent.style import LEVEL_STYLES
+
+    assert chip.styleSheet() == LEVEL_STYLES[AgentLevel.ASSIST]
+    card = chip.card
+    assert card.approve_suggestion_button is not None and card.approve_button is None
+    assert card.approve_suggestion_button.text() == "Approve"
+    assert {
+        "Agent suggests",
+        _SUGGESTION["proposal"],
+        "Continue",
+        "the trench is centred on 01",
+    } <= set(_labels(card))
+
+    approved = []
+    chip.suggestion_approved.connect(lambda: approved.append(True))
+    chip.toggle_card()
+    card.approve_suggestion_button.click()
+    assert approved == [True]
+    assert not chip.popup.isVisible()
+
+    chip.set_suggestion(None)
+    assert chip.text() == "Agent: Assisting"
+    assert card.approve_suggestion_button is None
+
+
+def test_a_suggestion_can_be_declined_with_why(qapp):
+    chip = AgentLevelChip()
+    chip.set_level(AgentLevel.ASSIST)
+    chip.set_suggestion(_SUGGESTION)
+    card = chip.card
+    declined = []
+    chip.suggestion_declined.connect(declined.append)
+    assert card.decline_button.text() == "Decline…"
+    card.decline_button.click()  # asks why, optionally
+    assert card.reason_edit is not None and card.approve_suggestion_button is None
+    card.back_button.click()
+    assert card.reason_edit is None and card.approve_suggestion_button is not None
+    card.decline_button.click()
+    card.reason_edit.setText("the trench is off to the left")
+    card.decline_button.click()
+    assert declined == ["the trench is off to the left"]
+    chip.set_suggestion(None)
+    assert card.decline_button is None and card.reason_edit is None
+
+
+def test_a_request_shows_before_a_suggestion(qapp):
+    chip = AgentLevelChip()
+    chip.set_suggestion(_SUGGESTION)
+    chip.set_request(_request())
+    assert chip.text() == "Agent asks"
+    assert chip.card.approve_button is not None
+    assert chip.card.approve_suggestion_button is None
+    chip.set_request(None)
+    assert chip.text() == "Agent suggests"
+
+
 def test_the_card_stacks_when_narrow(qapp):
     card = AgentCard()
     card.set_request(_request())
@@ -496,33 +593,33 @@ def host(main_ui):
     ui.session.agent_auth = ui.session.app_server.auth
     yield ui.session.app_server
     ui.session.app_server, ui.session.agent_auth = previous
-    main_ui._refresh_agent_chip()
+    main_ui.agent_host.refresh()
 
 
 def test_the_chip_is_hidden_without_a_running_app_server(main_ui):
     main_ui.autolamella_ui.session.app_server = None
-    main_ui._refresh_agent_chip()
-    assert main_ui.agent_chip.isHidden()
+    main_ui.agent_host.refresh()
+    assert main_ui.agent_host.chip.isHidden()
 
 
 def test_the_chip_shows_the_running_server_s_level_and_sets_it(main_ui, host):
-    main_ui._refresh_agent_chip()
-    assert not main_ui.agent_chip.isHidden()
-    assert main_ui.agent_chip.text() == "Agent: Watching"
+    main_ui.agent_host.refresh()
+    assert not main_ui.agent_host.chip.isHidden()
+    assert main_ui.agent_host.chip.text() == "Agent: Watching"
 
-    main_ui.agent_chip.level_chosen.emit(AgentLevel.DRIVE)
+    main_ui.agent_host.chip.level_chosen.emit(AgentLevel.DRIVE)
     assert host.auth.level is AgentLevel.DRIVE
-    assert main_ui.agent_chip.text() == "Agent: Driving"
+    assert main_ui.agent_host.chip.text() == "Agent: Driving"
 
-    main_ui.agent_chip.level_chosen.emit(AgentLevel.OFF)
+    main_ui.agent_host.chip.level_chosen.emit(AgentLevel.OFF)
     assert host.auth.level is AgentLevel.OFF
     # Off is still shown: the chip is how the agent comes back.
-    assert not main_ui.agent_chip.isHidden()
-    assert main_ui.agent_chip.text() == "Agent: Off"
+    assert not main_ui.agent_host.chip.isHidden()
+    assert main_ui.agent_host.chip.text() == "Agent: Off"
 
     host.running = False
-    main_ui._refresh_agent_chip()
-    assert main_ui.agent_chip.isHidden()
+    main_ui.agent_host.refresh()
+    assert main_ui.agent_host.chip.isHidden()
 
 
 def test_stop_agent_drops_to_watch_and_is_the_operator_s_on_the_record(main_ui, host):
@@ -536,10 +633,10 @@ def test_stop_agent_drops_to_watch_and_is_the_operator_s_on_the_record(main_ui, 
     recorder = EventRecorder(microscope, default_actor="operator")
     ui.session.recorder = recorder
     try:
-        main_ui.agent_chip.level_chosen.emit(AgentLevel.DRIVE)
-        main_ui.agent_chip.stop_clicked.emit()
+        main_ui.agent_host.chip.level_chosen.emit(AgentLevel.DRIVE)
+        main_ui.agent_host.chip.stop_clicked.emit()
         assert host.auth.level is AgentLevel.WATCH and host.auth.stopped
-        assert main_ui.agent_chip.text() == "Agent: Watching"
+        assert main_ui.agent_host.chip.text() == "Agent: Watching"
 
         events = recorder.buffer.events_since(0)["events"]
         kinds = [(e["kind"], e["payload"]) for e in events]
@@ -560,8 +657,8 @@ def test_stop_agent_drops_to_watch_and_is_the_operator_s_on_the_record(main_ui, 
 def test_the_window_shows_the_request_and_passes_on_the_decision(main_ui, host):
     host.auth.set_level(AgentLevel.ASSIST)
     host.requests.requests = [_request()]
-    main_ui._refresh_agent_chip()
-    chip = main_ui.agent_chip
+    main_ui.agent_host.refresh()
+    chip = main_ui.agent_host.chip
     assert chip.text() == "Agent asks"
     # A change from the store's worker thread reaches the chip without a poll.
     assert len(host.requests.listeners) == 1
@@ -571,7 +668,7 @@ def test_the_window_shows_the_request_and_passes_on_the_decision(main_ui, host):
     assert chip.text() == "Agent: applying 1/3"
 
     host.requests.requests = [_request("pending", request_id="cd34")]
-    main_ui._refresh_agent_chip()
+    main_ui.agent_host.refresh()
     chip.reject_clicked.emit("cd34", "not now")
     assert host.requests.decided[-1] == ("reject", "cd34", "not now")
     assert chip.text() == "Agent: Assisting"
@@ -603,10 +700,10 @@ def test_how_a_request_ended_is_a_toast_once_not_the_status_bar(
         request_id="ef56",
     )
     host.auth.set_level(AgentLevel.ASSIST)
-    main_ui._refresh_agent_chip()
+    main_ui.agent_host.refresh()
     host.requests.requests = [failed]
-    main_ui._refresh_agent_chip()
-    main_ui._refresh_agent_chip()
+    main_ui.agent_host.refresh()
+    main_ui.agent_host.refresh()
     assert shown == [
         (
             "Agent's request failed at 1 of 3: the workflow is in control. "
@@ -649,13 +746,13 @@ def test_the_window_draws_a_waiting_request_s_mill_on_the_card_and_takes_it_down
     )
     host.auth.set_level(AgentLevel.ASSIST)
     host.requests.requests = [waiting]
-    main_ui._refresh_agent_chip()
-    assert main_ui.agent_previews.request_picture is not None
-    assert main_ui.agent_chip.card.image_label is not None
+    main_ui.agent_host.refresh()
+    assert main_ui.agent_host.previews.request_picture is not None
+    assert main_ui.agent_host.chip.card.image_label is not None
 
     host.requests.requests = [dict(waiting, status="rejected")]
-    main_ui._refresh_agent_chip()
-    assert main_ui.agent_previews.request_picture is None
+    main_ui.agent_host.refresh()
+    assert main_ui.agent_host.previews.request_picture is None
 
 
 def test_the_card_is_narrow_until_something_waits(qapp):
@@ -1148,7 +1245,7 @@ def test_the_border_is_the_agent_s_purple_while_it_drives(main_ui, host):
         return main_ui.run_border.shown
 
     main_ui.run_border.set_state("supervised")
-    main_ui.agent_chip.level_chosen.emit(AgentLevel.DRIVE)
+    main_ui.agent_host.chip.level_chosen.emit(AgentLevel.DRIVE)
     assert shown() == "agent"
     for state in ("idle", "automated", "pending", "waiting"):
         main_ui.run_border.set_state(state)
@@ -1158,11 +1255,11 @@ def test_the_border_is_the_agent_s_purple_while_it_drives(main_ui, host):
     assert shown() == "stopping"
 
     main_ui.run_border.set_state("supervised")
-    main_ui.agent_chip.level_chosen.emit(AgentLevel.ASSIST)
+    main_ui.agent_host.chip.level_chosen.emit(AgentLevel.ASSIST)
     assert shown() == "supervised"
 
     # The border's switch turns the purple off too.
-    main_ui.agent_chip.level_chosen.emit(AgentLevel.DRIVE)
+    main_ui.agent_host.chip.level_chosen.emit(AgentLevel.DRIVE)
     enabled = main_ui.run_border.on
     main_ui.run_border.set_on(False)
     assert shown() == "idle"
@@ -1171,7 +1268,7 @@ def test_the_border_is_the_agent_s_purple_while_it_drives(main_ui, host):
 
     # No App Server, no agent: the run's own colour.
     host.running = False
-    main_ui._refresh_agent_chip()
+    main_ui.agent_host.refresh()
     assert shown() == "supervised"
     main_ui.run_border.set_state("idle")
 
@@ -1222,33 +1319,29 @@ def test_the_coincidence_viewer_follows_the_border_switch(
     )
 
     microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    ui = main_ui.autolamella_ui
     viewer = FluorescenceCoincidenceViewerWidget(
         microscope=microscope,
         experiment=Experiment(path=str(tmp_path), name="border-switch"),
     )
     enabled, driving = main_ui.run_border.on, main_ui.run_border.agent_driving
-    previous = getattr(ui, "_coincidence_viewer_window", None)
 
     def shown():
         return viewer.run_border.shown
 
     try:
         main_ui.run_border.agent_driving = True
-        main_ui._on_border_toggle(True)
+        main_ui.menu_bar._on_border_toggle(True)
         viewer.run_border.set_state("supervised")
         # Opened: it takes the switch and the agent's purple from the window.
-        ui._coincidence_viewer_window = viewer
-        main_ui._sync_coincidence_viewer_border()
+        main_ui.run_border.mirror_to(viewer.run_border)
         assert shown() == "agent"
-        main_ui._on_border_toggle(False)
+        main_ui.menu_bar._on_border_toggle(False)
         assert shown() == "idle"
-        main_ui._on_border_toggle(True)
+        main_ui.menu_bar._on_border_toggle(True)
         assert shown() == "agent"
     finally:
-        ui._coincidence_viewer_window = previous
         main_ui.run_border.agent_driving = driving
-        main_ui._on_border_toggle(enabled)
+        main_ui.menu_bar._on_border_toggle(enabled)
         viewer.deleteLater()
 
 

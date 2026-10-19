@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 
+from fibsem.ai.agent import allowlist
 from fibsem.server import files
 from fibsem.server.auth import take_control
 
@@ -585,6 +586,79 @@ def build_app_control_router(context: Any) -> APIRouter:
         task_names = _names(body, "task_names", "the grid tasks to add")
         grid_names = _names(body, "grid_names", "the grids to add them for")
         return context.queue_grid_tasks(task_names, grid_names)
+
+    return router
+
+
+def build_app_suggest_router(context: Any) -> APIRouter:
+    """Suggesting on a pending proposal. Mounted (by build_server) for Assist
+    and Drive: a suggestion decides nothing, so it needs no request."""
+    router = APIRouter(prefix="/app")
+
+    @router.post("/workflow/proposals/suggest")
+    def suggest(body: Dict[str, Any]):
+        item_id = body.get("item_id")
+        task_name = body.get("task_name")
+        proposal_id = body.get("proposal_id")
+        if not all(isinstance(v, str) and v for v in (item_id, task_name, proposal_id)):
+            raise _missing_field(
+                "Pass item_id, task_name and proposal_id from "
+                "GET /app/workflow/proposals."
+            )
+        reason = body.get("reason")
+        if not isinstance(reason, str) or not reason.strip():
+            raise _missing_field(
+                "Pass a reason: the operator reads it when deciding whether to "
+                "approve the suggestion."
+            )
+        for name, shape in (
+            ("values", "keyed by value name"),
+            ("patch", "{path: value}"),
+        ):
+            given = body.get(name)
+            if given is not None and not isinstance(given, dict):
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "error_type": "invalid_value",
+                        "message": f"{name}, when given, is a JSON object {shape}.",
+                    },
+                )
+        image = body.get("image") or None
+        if image is not None:
+            refusal = allowlist.image_refusal(
+                image, lambda: getattr(context, "experiment_path", None)
+            )
+            if refusal is not None:
+                status, error_type, message = refusal
+                raise HTTPException(
+                    status_code=status,
+                    detail={"error_type": error_type, "message": message},
+                )
+        result = context.suggest(
+            item_id,
+            task_name,
+            proposal_id,
+            reason=reason.strip(),
+            outcome=str(body.get("outcome") or "Confirmed"),
+            values=body.get("values"),
+            patch=body.get("patch"),
+            action=str(body.get("action") or ""),
+            image=image,
+            actor=str(body.get("actor", "")),
+        )
+        if not result.get("applied", False) and result.get("available", True):
+            error_type = result.get("error_type") or "invalid_value"
+            raise HTTPException(
+                status_code=422
+                if error_type in ("missing_field", "invalid_value")
+                else 409,
+                detail={
+                    "error_type": error_type,
+                    "message": result.get("reason", "Not suggested."),
+                },
+            )
+        return result
 
     return router
 

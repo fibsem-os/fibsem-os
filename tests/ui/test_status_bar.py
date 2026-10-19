@@ -465,7 +465,7 @@ def test_a_queue_confirmation_is_a_toast_not_the_line(no_quit, qapp, monkeypatch
     )
     window = module.AutoLamellaSingleWindowUI()
     window.status_bar.set_run("lamella-02 › Polishing", None, "3 of 4")
-    window._show_queue_message("Moved lamella-03 up.")
+    window.workflow_tab._show_queue_message("Moved lamella-03 up.")
     assert shown == ["Moved lamella-03 up."]
     assert window.status_bar.text == "lamella-02 › Polishing · 3 of 4"
     _close(window, qapp)
@@ -583,11 +583,11 @@ def test_a_run_that_fails_a_task_leaves_a_line_until_the_next_run(
 
     # Show: the Workflow tab, the failed row selected.
     window.tab_widget.setTabEnabled(
-        window.tab_widget.indexOf(window._workflow_tab_container), True
+        window.tab_widget.indexOf(window.workflow_tab), True
     )
     bar._details_btn.click()
-    assert window.tab_widget.currentWidget() is window._workflow_tab_container
-    assert window.workflow_timeline._outer._selected_index == 1
+    assert window.tab_widget.currentWidget() is window.workflow_tab
+    assert window.workflow_tab.timeline._outer._selected_index == 1
 
     signal.emit(_report(TaskStatus.InProgress, item="01-fancy-mite"))
     assert bar.failure is None, "the next run starts clean"

@@ -2501,10 +2501,6 @@ def open_coincidence_viewer_window(
     return widget
 
 
-# Backwards-compatible alias (previously a QDialog)
-open_coincidence_viewer_dialog = open_coincidence_viewer_window
-
-
 # ---------------------------------------------------------------------------
 # Standalone smoke-test
 # ---------------------------------------------------------------------------

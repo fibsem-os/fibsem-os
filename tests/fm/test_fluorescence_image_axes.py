@@ -64,7 +64,7 @@ def _image(data, nc=None, nz=None):
     nc = data.shape[0] if nc is None else nc
     nz = data.shape[1] if nz is None else nz
     metadata = FluorescenceImageMetadata(
-        acquisition_date="2026-09-23T10:00:00",
+        acquisition_datetime="2026-09-23T10:00:00",
         pixel_size_x=2e-7,
         pixel_size_y=2e-7,
         resolution=(WIDTH, HEIGHT),

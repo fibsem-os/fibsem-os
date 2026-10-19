@@ -84,3 +84,35 @@ def test_the_run_s_border_follows_what_the_run_is_doing():
     assert state(running="automated", pending=True, held=True) == "waiting"
     # A stop stays red until the run has unwound, whatever else is true.
     assert state("stopping", held=True, running="automated") == "stopping"
+
+
+def test_a_mirrored_border_takes_the_switch_and_the_purple_but_keeps_its_state(qapp):
+    from PyQt5.QtCore import QCoreApplication, QEvent
+
+    from fibsem.ui.widgets.run_border import RunBorder
+
+    main, viewer = (
+        RunBorder("workflow_border_frame"),
+        RunBorder("coincidence_border_frame"),
+    )
+    main.set_on(False)
+    main.set_agent_driving(True)
+    viewer.set_state("supervised")
+    main.mirror_to(viewer)
+    assert (viewer.on, viewer.agent_driving) == (False, True)
+    assert viewer.shown == "idle"
+
+    main.set_on(True)
+    assert viewer.shown == "agent"
+    main.set_agent_driving(False)
+    assert viewer.shown == "supervised"
+    assert main.state == "idle"
+
+    # Mirroring the same viewer again does not list it twice.
+    main.mirror_to(viewer)
+    assert sum(ref() is viewer for ref in main._mirrors) == 1
+
+    # A viewer that has closed is skipped.
+    viewer.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    main.set_on(False)

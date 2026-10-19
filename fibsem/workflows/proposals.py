@@ -633,6 +633,8 @@ class Decision:
     # What was decided, for a kind with actions (a loop's pass: run, edit,
     # skip, accept). Empty for a yes/no kind, and not saved then.
     action: str = ""
+    # The suggestion this decision approved; empty when it approved none.
+    suggestion_id: str = ""
 
     def __post_init__(self) -> None:
         # a string from the file, the wire or a test is accepted and parsed
@@ -651,6 +653,8 @@ class Decision:
         }
         if self.action:
             doc["action"] = self.action
+        if self.suggestion_id:
+            doc["suggestion_id"] = self.suggestion_id
         return doc
 
     @classmethod
@@ -665,6 +669,78 @@ class Decision:
             task_id=data.get("task_id", ""),
             proposal_id=data.get("proposal_id", ""),
             action=data.get("action", ""),
+            suggestion_id=data.get("suggestion_id", ""),
+        )
+
+
+@dataclass
+class Suggestion:
+    """What someone other than the decider (an agent, at Assist) puts forward
+    on a pending proposal: the decision they would make, and why. Nothing is
+    decided by it; the decider approves it, declines it, or decides otherwise.
+
+    ``patch`` is kept as sent when the suggester edited fields of the proposed
+    value (a milling config's depth); ``values`` when it sent whole values.
+    ``image`` is a path inside the experiment the suggester's evidence is in.
+    """
+
+    actor: Actor
+    reason: str
+    outcome: DecisionOutcome = DecisionOutcome.Confirmed
+    values: Dict[str, Any] = field(default_factory=dict)
+    patch: Dict[str, Any] = field(default_factory=dict)
+    action: str = ""
+    image: str = ""
+    timestamp: Optional[datetime] = field(default_factory=now)
+    id: str = field(default_factory=lambda: uuid.uuid4().hex)
+    declined: bool = False
+    declined_reason: str = ""
+
+    def __post_init__(self) -> None:
+        self.actor = Actor.parse(self.actor)
+
+    def values_for(self, proposal: "Proposal") -> Dict[str, Any]:
+        """The values a decision approving this carries: ``values``, or the
+        proposed ones with ``patch`` set on them."""
+        if self.patch:
+            return patch_values(
+                proposal.kind, dict(self.values or proposal.values), self.patch
+            )
+        return dict(self.values)
+
+    def to_dict(self) -> dict:
+        doc = {
+            "id": self.id,
+            "actor": str(self.actor),
+            "outcome": self.outcome.name,
+            "reason": self.reason,
+            "timestamp": to_iso(self.timestamp),
+        }
+        if self.values:
+            doc["values"] = _encode_values(self.values)
+        if self.patch:
+            doc["patch"] = dict(self.patch)
+        for name in ("action", "image", "declined_reason"):
+            if getattr(self, name):
+                doc[name] = getattr(self, name)
+        if self.declined:
+            doc["declined"] = True
+        return doc
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Suggestion":
+        return cls(
+            actor=Actor.parse(data.get("actor", "")),
+            reason=data.get("reason", ""),
+            outcome=DecisionOutcome[data.get("outcome", "Confirmed")],
+            values=_decode_values(data.get("values", {})),
+            patch=dict(data.get("patch", {})),
+            action=data.get("action", ""),
+            image=data.get("image", ""),
+            timestamp=to_datetime(data.get("timestamp")),
+            id=data.get("id") or uuid.uuid4().hex,
+            declined=bool(data.get("declined", False)),
+            declined_reason=data.get("declined_reason", ""),
         )
 
 
@@ -701,6 +777,8 @@ class Proposal:
     # Who asked: the task that made it, an agent or a model. None for one that
     # nothing asked yet; the item's record stamps it when it is recorded.
     asked_by: Optional[Actor] = None
+    # The latest suggestion on it, while pending; a new one replaces it.
+    suggestion: Optional[Suggestion] = None
 
     def asked_by_task(self, task_name: str) -> bool:
         """Whether *task_name* asked this: what a task's view of an item reads."""
@@ -770,6 +848,11 @@ class Proposal:
             "created_at": to_iso(self.created_at),
             "id": self.id,
             "asked_by": str(self.asked_by) if self.asked_by is not None else None,
+            **(
+                {"suggestion": self.suggestion.to_dict()}
+                if self.suggestion is not None
+                else {}
+            ),
         }
 
     @classmethod
@@ -782,6 +865,9 @@ class Proposal:
             created_at=to_datetime(data.get("created_at")),
             id=data.get("id") or _id_for_a_record_without_one(data),
             asked_by=Actor.parse(data["asked_by"]) if data.get("asked_by") else None,
+            suggestion=Suggestion.from_dict(data["suggestion"])
+            if data.get("suggestion")
+            else None,
         )
 
 

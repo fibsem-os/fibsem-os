@@ -9,8 +9,10 @@ log). No menu and no dialog.
 
 At Assist the agent acts by asking (FIB-1283). While its request waits, the chip
 turns amber, "Agent asks", and the card shows the request. Only one request waits
-at a time, so the chip carries no count. A request opens the card on its own,
-floating, so it is seen without a click (`show_card`).
+at a time, so the chip carries no count. A suggestion on the pending proposal
+says "Agent suggests" in its level's look, not amber (the run's Attention
+Required already is), and the card shows it with Approve. Either one opens
+the card on its own, floating, so it is seen without a click (`show_card`).
 
 While the agent acts on the microscope (the card's Now line), the chip pulses.
 
@@ -198,6 +200,8 @@ class AgentLevelChip(QPushButton):
     event_log_clicked = pyqtSignal()
     approve_clicked = pyqtSignal(str)  # request id
     reject_clicked = pyqtSignal(str, str)  # request id, the operator's reason
+    suggestion_approved = pyqtSignal()  # the suggestion shown
+    suggestion_declined = pyqtSignal(str)  # the suggestion shown, the operator's why
     message_sent = pyqtSignal(str)  # the operator's message to the agent
 
     def __init__(
@@ -211,6 +215,7 @@ class AgentLevelChip(QPushButton):
         self._agent_client = agent_client
         self._level: Optional[AgentLevel] = None
         self._request: Optional[Dict[str, Any]] = None
+        self._suggestion: Optional[Dict[str, str]] = None
         self.setCursor(Qt.PointingHandCursor)  # type: ignore
         self._acting = False
         self._pulse_ms = 0
@@ -225,6 +230,8 @@ class AgentLevelChip(QPushButton):
         self.card.connect_clicked.connect(self._closing(self.connect_clicked))
         self.card.approve_clicked.connect(self._on_approve)
         self.card.reject_clicked.connect(self._on_reject)
+        self.card.suggestion_approved.connect(self._closing(self.suggestion_approved))
+        self.card.suggestion_declined.connect(self._on_decline)
         # The card stays open: the operator may write again.
         self.card.message_sent.connect(self.message_sent)
         self.card.float_clicked.connect(self._on_float_clicked)
@@ -244,7 +251,7 @@ class AgentLevelChip(QPushButton):
             self.set_level(level)
             self.ensurePolished()
             widths.append(self.sizeHint().width())
-        for text in ("Agent asks", "Agent: applying 20/20"):
+        for text in ("Agent asks", "Agent suggests", "Agent: applying 20/20"):
             self.setText(text)
             widths.append(self.sizeHint().width())
         self.setFixedWidth(max(widths))
@@ -275,6 +282,21 @@ class AgentLevelChip(QPushButton):
         ) != shown
         self._request = dict(request) if request is not None else None
         self.card.set_request(self._request)
+        self._paint()
+        self._fit_popup()
+        if arrived:
+            self.show_card()
+
+    @property
+    def suggestion(self) -> Optional[Dict[str, str]]:
+        return self._suggestion
+
+    def set_suggestion(self, suggestion: Optional[Dict[str, str]]) -> None:
+        """Show the agent's suggestion (see `AgentCard.set_suggestion`),
+        or None for none. Does not emit: this is the window telling the chip."""
+        arrived = suggestion is not None and dict(suggestion) != self._suggestion
+        self._suggestion = dict(suggestion) if suggestion is not None else None
+        self.card.set_suggestion(self._suggestion)
         self._paint()
         self._fit_popup()
         if arrived:
@@ -325,6 +347,11 @@ class AgentLevelChip(QPushButton):
         if self._request is not None:
             text, style = chip_request_text(self._request), REQUEST_CHIP
             tooltip = "The agent is asking: click to see what, and decide"
+        elif self._suggestion is not None:
+            # Not amber: the run's Attention Required already is, for the same
+            # proposal, and the card opens itself with the suggestion.
+            text = "Agent suggests"
+            tooltip = "The agent suggests a decision on the proposal: click to see it"
         elif self._pulse.isActive():
             # Full at the start and end of a cycle, faintest halfway.
             phase = 2 * math.pi * self._pulse_ms / PULSE_MS
@@ -353,8 +380,8 @@ class AgentLevelChip(QPushButton):
         self._fit_popup()
 
     def show_card(self) -> None:
-        """The card, floating, for a new request waiting for the operator. Its
-        own window rather than the popup, which
+        """The card, floating, for something new waiting for the operator: a
+        request or a suggestion. Its own window rather than the popup, which
         takes the mouse and closes on the next click elsewhere; closed, it
         stays closed until the next one. Already open, it stays where it is."""
         if not self.isVisible() or self.popup.isVisible():
@@ -404,9 +431,9 @@ class AgentLevelChip(QPushButton):
             panel.hide()
 
     def _card_width(self) -> int:
-        """Wide while a request waits, else narrow (no narrower than the stacked
-        card needs)."""
-        if self._request is not None:
+        """Wide while a request or a suggestion waits, else narrow (no narrower
+        than the stacked card needs)."""
+        if self._request is not None or self._suggestion is not None:
             return WIDE_WIDTH
         return max(NARROW_WIDTH, self.card.minimumSizeHint().width() + 2)
 
@@ -443,6 +470,10 @@ class AgentLevelChip(QPushButton):
     def _on_approve(self, request_id: str) -> None:
         self.popup.close()
         self.approve_clicked.emit(request_id)
+
+    def _on_decline(self, reason: str) -> None:
+        self.popup.close()
+        self.suggestion_declined.emit(reason)
 
     def _on_reject(self, request_id: str, reason: str) -> None:
         self.popup.close()

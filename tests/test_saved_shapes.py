@@ -14,16 +14,38 @@ Write the golden files again with::
 import json
 import math
 import os
+from datetime import datetime
 from pathlib import Path
 
+import numpy as np
 import pytest
 import yaml
 
 from fibsem import structures
+from fibsem.autofunctions.autofocus import (
+    AutoFocusSettings,
+    FocusMethod,
+    FocusSweepPass,
+)
 from fibsem.codec.upgrades.configuration import upgrade
+from fibsem.fm.structures import (
+    CameraSettings,
+    ChannelSettings,
+    EmissionFilter,
+    FluorescenceChannelMetadata,
+    FluorescenceConfiguration,
+    FluorescenceImage,
+    FluorescenceImageMetadata,
+    ObjectiveStartPosition,
+    OverviewParameters,
+    ZParameters,
+    ZStackOrder,
+)
 from fibsem.structures import (
+    AutoFocusMode,
     BeamSettings,
     BeamType,
+    CameraImageTransform,
     FibsemDetectorSettings,
     FibsemImageMetadata,
     FibsemManipulatorPosition,
@@ -35,6 +57,7 @@ from fibsem.structures import (
     MicroscopeState,
     OverviewAcquisitionSettings,
     Point,
+    TileOrderStrategy,
 )
 
 TESTS = Path(__file__).parent
@@ -171,3 +194,202 @@ METADATA_FILES = {
 def test_image_metadata_saves_again_as_pinned(case):
     data = json.loads(METADATA_FILES[case].read_text())
     _check(case, FibsemImageMetadata.from_dict(data).to_dict())
+
+
+# ---- fluorescence and autofocus ----------------------------------------------
+
+FM_CHANNEL = ChannelSettings(
+    name="GFP",
+    excitation_wavelength=488,
+    emission_filter=EmissionFilter("GFP", bands=[(500.0, 550.0)]),
+    power=0.2,
+    exposure_time=0.1,
+    color="green",
+    gain=0.5,
+)
+FM_DUAL_BAND = EmissionFilter("DAPI/GFP", bands=[(500.0, 550.0), (420.0, 460.0)])
+FOCUS = AutoFocusSettings(
+    method=FocusMethod.LAPLACIAN,
+    passes=[
+        FocusSweepPass(search_range=40e-6, step_size=4e-6),
+        FocusSweepPass(search_range=8e-6, step_size=1e-6, enabled=False),
+    ],
+    probe_resolution=(1536, 1024),
+    probe_dwell_time=1e-6,
+    reduced_area=RECTANGLE,
+    use_autocontrast=False,
+    channel_name="GFP",
+)
+FM_OVERVIEW = OverviewParameters(
+    rows=2,
+    cols=3,
+    overlap=0.2,
+    use_zstack=True,
+    autofocus_mode=AutoFocusMode.EACH_ROW,
+    tile_order=TileOrderStrategy.SERPENTINE,
+    tile_mask=[[True, False, True], [True, True, False]],
+    objective_start=ObjectiveStartPosition.FOCUS,
+    register_tiles=True,
+)
+FM_CAMERA = CameraSettings(
+    gain=0.3, offset=0.1, binning=2, transform=CameraImageTransform.FLIP_X
+)
+FM_Z = ZParameters(zmin=-5e-6, zmax=5e-6, zstep=0.5e-6, order=ZStackOrder.Z_LEVEL)
+
+BUILT_FM = {
+    "emission-filter": FM_DUAL_BAND,
+    "channel-settings": FM_CHANNEL,
+    "z-parameters": FM_Z,
+    "overview-parameters": FM_OVERVIEW,
+    "camera-settings": FM_CAMERA,
+    "autofocus-settings": FOCUS,
+    "fluorescence-configuration": FluorescenceConfiguration(
+        channel_settings=[FM_CHANNEL, ChannelSettings()],
+        z_parameters=FM_Z,
+        overview_parameters=FM_OVERVIEW,
+        autofocus_settings=FOCUS,
+        camera_settings=FM_CAMERA,
+        focus_position=8.3e-3,
+        limit_position=8.6e-3,
+        default_orientation="FM",
+    ),
+    "fluorescence-image-metadata": FluorescenceImageMetadata(
+        acquisition_datetime=datetime.fromisoformat("2026-10-19T03:00:00+11:00"),
+        pixel_size_x=100e-9,
+        pixel_size_y=100e-9,
+        resolution=(512, 256),
+        channels=[
+            FluorescenceChannelMetadata(
+                name="GFP",
+                excitation_wavelength=488,
+                power=0.2,
+                exposure_time=0.1,
+                gain=None,
+                offset=0.0,
+                emission_filter=FM_DUAL_BAND,
+                binning=2,
+                objective_position=8.4e-3,
+                objective_magnification=100.0,
+                objective_numerical_aperture=0.9,
+                color="green",
+            )
+        ],
+        z_positions=[8.3e-3, 8.4e-3, 8.5e-3],
+        stage_position=STAGE,
+        filename="fm-image",
+        description="an overview tile",
+        system_info={"name": "sim"},
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(BUILT_FM))
+def test_a_built_fm_structure_saves_as_pinned_and_reads_back(case):
+    value = BUILT_FM[case]
+    saved = value.to_dict()
+    _check(case, saved)
+    assert _plain(type(value).from_dict(_plain(saved)).to_dict()) == _plain(saved)
+
+
+# Shapes older builds wrote, read and saved again.
+OLD_FM = {
+    "old-channel-emission-wavelength-number": (
+        ChannelSettings,
+        {
+            "name": "Red",
+            "excitation_wavelength": 550,
+            "emission_wavelength": 610,
+            "power": 0.1,
+            "exposure_time": 0.2,
+            "color": "red",
+            "gain": 0.0,
+        },
+    ),
+    "old-channel-emission-wavelength-text": (
+        ChannelSettings,
+        {
+            "name": "Fluo",
+            "excitation_wavelength": 550,
+            "emission_wavelength": "Fluorescence",
+            "power": 0.1,
+            "exposure_time": 0.2,
+        },
+    ),
+    "old-channel-emission-wavelength-none": (
+        ChannelSettings,
+        {"name": "Refl", "excitation_wavelength": 550, "emission_wavelength": None},
+    ),
+    "old-autofocus-coarse-fine": (
+        AutoFocusSettings,
+        {
+            "coarse_range": 40e-6,
+            "coarse_step": 4e-6,
+            "coarse_enabled": True,
+            "fine_range": 8e-6,
+            "fine_step": 1e-6,
+            "fine_enabled": False,
+            "method": "laplacian",
+            "channel_name": "Reflection Channel",
+        },
+    ),
+    "old-autofocus-n-steps": (
+        AutoFocusSettings,
+        {"method": "sobel", "passes": [{"n_steps": 10, "step_size": 2e-6}]},
+    ),
+    "old-autofocus-no-passes": (AutoFocusSettings, {"passes": []}),
+    "old-camera-rotate-180": (CameraSettings, {"transform": "rotate-180"}),
+    "old-camera-rotate-90": (CameraSettings, {"gain": 0.2, "transform": "rotate-90"}),
+    "old-overview-int-autofocus-mode": (
+        OverviewParameters,
+        {"rows": 2, "cols": 2, "autofocus_mode": 2},
+    ),
+    "old-overview-numpy-mask": (
+        OverviewParameters,
+        {"rows": 1, "cols": 2, "tile_mask": [[np.bool_(True), np.bool_(False)]]},
+    ),
+    "old-fm-configuration-no-camera": (
+        FluorescenceConfiguration,
+        {
+            "channel_settings": [{"name": "Refl", "emission_wavelength": None}],
+            "z_parameters": {},
+            "overview_parameters": {},
+            "camera_settings": None,
+            "autofocus_settings": {},
+        },
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(OLD_FM))
+def test_an_old_fm_shape_saves_again_as_pinned(case):
+    cls, data = OLD_FM[case]
+    _check(case, cls.from_dict(data).to_dict())
+
+
+def test_the_default_fm_configuration_saves_again_as_pinned():
+    data = yaml.safe_load(
+        (CONFIGURATIONS / "fm" / "fm-configuration-default.yaml").read_text()
+    )
+    _check(
+        "fm-configuration-default", FluorescenceConfiguration.from_dict(data).to_dict()
+    )
+
+
+FM_IMAGES = sorted((FIXTURES / "fm_legacy").glob("*.ome.tiff"))
+
+
+@pytest.mark.parametrize("path", FM_IMAGES, ids=[p.name for p in FM_IMAGES])
+def test_an_old_fm_image_metadata_saves_again_as_pinned(path):
+    image = FluorescenceImage.load(str(path))
+    _check(f"fm-image-metadata-{path.name.split('.')[0]}", image.metadata.to_dict())
+
+
+def test_a_numpy_tile_mask_saves_as_plain_bools():
+    mask = np.array([[True, False], [False, True]])
+    overview = OverviewParameters(rows=2, cols=2, tile_mask=[list(row) for row in mask])
+
+    saved = overview.to_dict()
+
+    assert saved["tile_mask"] == [[True, False], [False, True]]
+    assert all(type(v) is bool for row in saved["tile_mask"] for v in row)
+    yaml.safe_dump(saved)

@@ -1,0 +1,6 @@
+{
+  "binning": 2,
+  "gain": 0.3,
+  "offset": 0.1,
+  "transform": "FLIP_X"
+}

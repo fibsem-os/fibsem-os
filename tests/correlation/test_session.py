@@ -50,7 +50,7 @@ ARCTIS = next(
 
 def _fm_image():
     meta = FluorescenceImageMetadata(
-        acquisition_date=datetime(2026, 7, 24).isoformat(),
+        acquisition_datetime=datetime(2026, 7, 24).isoformat(),
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         pixel_size_z=300e-9,
@@ -59,7 +59,7 @@ def _fm_image():
             FluorescenceChannelMetadata(
                 name="GFP",
                 excitation_wavelength=488.0,
-                emission_filter=EmissionFilter("520 nm", low=520.0),
+                emission_filter=EmissionFilter.band("520 nm", 520.0),
                 power=0.3,
                 exposure_time=0.05,
                 gain=1.5,
@@ -841,3 +841,42 @@ def test_the_app_session_does_not_import_the_correlation_until_asked():
     root = str(Path(__file__).resolve().parents[2])  # this checkout's fibsem
     env = {**os.environ, "PYTHONPATH": root}
     subprocess.run([sys.executable, "-c", code], check=True, env=env)
+
+
+def test_a_reset_starts_a_new_correlation(ready, tmp_path):
+    from fibsem.correlation.config import CorrelationConfig
+
+    ready.run()
+    ready.set_project_dir(str(tmp_path / "run"))
+    ready.config.load_spot_burns = False
+    ready.ignore_placement_offset = True
+    ready.mark_seeded()
+
+    ready.reset()
+
+    assert ready.points.coordinates == []
+    assert ready.result is None and ready.last_seed is None
+    assert ready.fib_image is None and ready.fm_image is None
+    assert ready.ri_pre_correction_factor is None
+    assert ready.seeded_positions is None and not ready.ignore_placement_offset
+    assert ready.prior_runs == [] and ready.project_dir is None
+    assert ready.config == CorrelationConfig()
+    assert not ready.auto_save_due()
+
+
+def test_a_run_in_flight_at_a_reset_delivers_nothing(ready):
+    pending = ready.start_run()
+
+    ready.reset()
+
+    assert ready.finish_run(pending.compute()) is RunOutcome.SUPERSEDED
+    assert ready.result is None and not ready.running
+
+
+def test_what_listens_to_the_points_hears_a_reset(ready):
+    told = []
+    ready.points.subscribe(lambda change, _coords: told.append(change))
+
+    ready.reset()
+
+    assert point_rules.STRUCTURE in told

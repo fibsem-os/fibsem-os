@@ -566,7 +566,7 @@ def _accept_correlation(editor, monkeypatch, result):
     given = {}
 
     class _Dialog:
-        def __init__(self, parent=None):
+        def __init__(self, parent=None, session=None):
             self.correlation_config = None
             self.result = result
 
@@ -590,6 +590,9 @@ def _accept_correlation(editor, monkeypatch, result):
 
         def exec_(self):
             return lamella_editor_module.QDialog.Accepted
+
+        def deleteLater(self):
+            pass
 
     monkeypatch.setattr(ctw, "CorrelationTabDialog", _Dialog)
     editor._open_correlation_dialog()

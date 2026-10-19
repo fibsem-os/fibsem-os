@@ -74,11 +74,33 @@ def recording(recorded):
     return [{**case, "old": PINS["cases"][case["key"]]} for case in recorded["cases"]]
 
 
+def _saved_now(result):
+    """A pinned result's image metadata as it is saved now: the channel and plane
+    counts are no longer written, and the dimension order is."""
+    if not isinstance(result, dict) or "metadata" not in result:
+        return result
+    metadata = {
+        k: v
+        for k, v in result["metadata"].items()
+        if k not in ("channel_count", "z_count")
+    }
+    return {**result, "metadata": {**metadata, "dimension_order": "CZYX"}}
+
+
 @pytest.fixture(scope="module")
 def api(recorded):
     """Each FM API case with what the old class's pin keeps of it as ``old``."""
     assert {case["key"] for case in recorded["api"]} == set(PINS["api"])
-    return [{**case, "old": PINS["api"][case["key"]]} for case in recorded["api"]]
+    return [
+        {
+            **case,
+            "old": {
+                **PINS["api"][case["key"]],
+                "result": _saved_now(PINS["api"][case["key"]]["result"]),
+            },
+        }
+        for case in recorded["api"]
+    ]
 
 
 @pytest.fixture(scope="module")

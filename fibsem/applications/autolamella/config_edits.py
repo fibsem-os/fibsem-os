@@ -22,7 +22,7 @@ from fibsem.applications.autolamella.edit_recording import (
     PendingEdits,
     touch_agent_patch,
 )
-from fibsem.server.config_patch import PatchError, apply_patch
+from fibsem.server.config_patch import PatchError, apply_patch, check_patch
 from fibsem.workflows.events import to_plain
 
 # The item-document fields an agent may patch: what a lamella IS — geometry,
@@ -211,6 +211,31 @@ def patch_task_config(
     return result
 
 
+_ITEM_NONE_TYPES = {"description": str}
+
+
+def _not_editable(path: str) -> Optional[str]:
+    if path.split(".", 1)[0] in ITEM_PATCH_FIELDS:
+        return None
+    return (
+        f"{path!r} is not an editable item field; editable: {sorted(ITEM_PATCH_FIELDS)}"
+    )
+
+
+def item_patch_refusal(lamella, patch: dict) -> Optional[str]:
+    """Why :func:`patch_item_fields` would refuse *patch*, setting nothing; None
+    when it would apply. An alignment area is judged whole, once applied."""
+    for path in patch:
+        why = _not_editable(path)
+        if why is not None:
+            return why
+    try:
+        check_patch(lamella, patch, none_types=_ITEM_NONE_TYPES)
+    except PatchError as exc:
+        return str(exc)
+    return None
+
+
 def patch_item_fields(experiment, item_name: str, patch: dict, version: str) -> dict:
     """Patch the lamella's own editable fields, ITEM_PATCH_FIELDS only.
 
@@ -223,17 +248,13 @@ def patch_item_fields(experiment, item_name: str, patch: dict, version: str) -> 
     if refusal:
         return {"applied": False, **refusal}
     for path in patch:
-        if path.split(".", 1)[0] not in ITEM_PATCH_FIELDS:
-            return {
-                "applied": False,
-                "invalid_patch": f"{path!r} is not an editable item field; "
-                f"editable: {sorted(ITEM_PATCH_FIELDS)}",
-                "path": path,
-            }
+        why = _not_editable(path)
+        if why is not None:
+            return {"applied": False, "invalid_patch": why, "path": path}
     if item_fields_version(lamella) != version:
         return {"applied": False, "stale": True}
     try:
-        changes = apply_patch(lamella, patch, none_types={"description": str})
+        changes = apply_patch(lamella, patch, none_types=_ITEM_NONE_TYPES)
     except PatchError as exc:
         return {"applied": False, "invalid_patch": str(exc), "path": exc.path}
     area = lamella.alignment_area

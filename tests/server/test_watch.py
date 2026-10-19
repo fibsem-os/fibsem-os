@@ -562,7 +562,8 @@ def test_a_server_that_stays_gone_ends_the_watch(app):
         raise ConnectionRefusedError("refused")
 
     sleeps = []
-    code, lines = _watch({n: gone for n in range(2, 20)}, sleeps=sleeps)
+    tries = watch_mod.FAILURES_BEFORE_GIVING_UP + 5
+    code, lines = _watch({n: gone for n in range(2, 2 + tries)}, sleeps=sleeps)
 
     assert code == 1
     assert lines[-1].startswith("SERVER GONE")
@@ -582,8 +583,11 @@ def test_agent_off_is_not_the_app_stopping(app):
         app.buffer.append("workflow_completed", {})
 
     sleeps = []
-    # request 2 is the status check, then four refused polls
-    code, lines = _watch({2: off, 7: back}, sleeps=sleeps)
+    # request 2 is the status check, then as many refused polls as end a watch
+    # on a gone server
+    code, lines = _watch(
+        {2: off, 3 + watch_mod.FAILURES_BEFORE_GIVING_UP: back}, sleeps=sleeps
+    )
 
     assert code is None
     assert lines == [
@@ -592,7 +596,7 @@ def test_agent_off_is_not_the_app_stopping(app):
         "EVENT task_started lamella-01",
         "WORKFLOW ENDED (workflow_completed)",
     ]
-    # as many refusals as end a watch on a gone server: these never count
+    # these never count
     assert len(sleeps) == watch_mod.FAILURES_BEFORE_GIVING_UP
 
 

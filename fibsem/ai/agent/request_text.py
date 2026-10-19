@@ -1751,6 +1751,12 @@ def _line(
                 change += f", setting {_values_text(a.get('patch'))}"
         name = _proposal_item(get("/app/workflow/proposals"), a.get("item_id"))
         return {"what": f"{name or a.get('item_id')} · {task}", "change": change}
+    if tool == "proposal_suggest":
+        name = _proposal_item(get("/app/workflow/proposals"), a.get("item_id"))
+        return {
+            "what": f"{name or a.get('item_id')} · {task}",
+            "change": f"Suggest a decision: {a.get('reason', '')}".rstrip(": "),
+        }
     if tool == "experiment_create":
         protocol = a.get("protocol")
         replaces = _open_experiment(get)

@@ -562,19 +562,27 @@ class ProposalTap:
         self._asked = set()
         # (proposal id, decision index) -> whether it was recorded with values
         self._decided: Dict[Tuple[str, int], bool] = {}
+        # suggestion id -> whether it was recorded declined
+        self._suggested: Dict[str, bool] = {}
         for item in experiment.items():
             for proposal in list(item.proposals):
                 if proposal.asking:
                     self._asked.add(proposal.id)
                 for index, decision in enumerate(list(proposal.decisions)):
                     self._decided[(proposal.id, index)] = bool(decision.values)
+                if proposal.suggestion is not None:
+                    self._suggested[proposal.suggestion.id] = (
+                        proposal.suggestion.declined
+                    )
         experiment.asked.connect(self._on_asked)
         experiment.decided.connect(self._on_decided)
+        experiment.suggested.connect(self._on_suggested)
 
     def dispose(self) -> None:
         for signal, slot in (
             (self._experiment.asked, self._on_asked),
             (self._experiment.decided, self._on_decided),
+            (self._experiment.suggested, self._on_suggested),
         ):
             try:
                 signal.disconnect(slot)
@@ -605,6 +613,32 @@ class ProposalTap:
         except Exception:  # noqa: BLE001 - recording must not matter
             logging.debug(f"could not record a {task_name} decision", exc_info=True)
 
+    def _on_suggested(self, item_id: str, task_name: str) -> None:
+        try:
+            item = self._experiment.get_item_by_id(item_id)
+            for proposal in item.proposals_from(task_name):
+                suggestion = proposal.suggestion
+                if suggestion is None:
+                    continue
+                seen = self._suggested.get(suggestion.id)
+                if seen is None:
+                    payload = _proposal_payload(item, task_name, proposal)
+                    payload.update(_suggestion_payload(suggestion))
+                    self._buffer.append(
+                        "proposal_suggested", payload, actor=suggestion.actor.kind
+                    )
+                if suggestion.declined and not seen:
+                    payload = _proposal_payload(item, task_name, proposal)
+                    payload.update(
+                        suggestion_id=suggestion.id,
+                        suggested_by=str(suggestion.actor),
+                        reason=suggestion.declined_reason,
+                    )
+                    self._buffer.append("suggestion_declined", payload)
+                self._suggested[suggestion.id] = suggestion.declined
+        except Exception:  # noqa: BLE001 - recording must not matter
+            logging.debug(f"could not record a {task_name} suggestion", exc_info=True)
+
     def _record(self, item, task_name, proposal, index, decision, seen) -> None:
         record = decision.to_dict()
         payload = _proposal_payload(item, task_name, proposal)
@@ -618,9 +652,25 @@ class ProposalTap:
         )
         if record.get("action"):
             payload["action"] = record["action"]
+        suggestion = proposal.suggestion
+        if decision.suggestion_id and suggestion is not None:
+            payload["suggestion_id"] = decision.suggestion_id
+            payload["suggested_by"] = str(suggestion.actor)
         if seen is False:  # recorded before its values were filled in
             payload["filled_in"] = True
         self._buffer.append("proposal_decided", payload, actor=decision.actor.kind)
+
+
+def _suggestion_payload(suggestion: Any) -> Dict[str, Any]:
+    doc = suggestion.to_dict()
+    return {
+        "suggestion_id": doc["id"],
+        "suggested_by": doc["actor"],
+        "outcome": doc["outcome"],
+        "reason": doc["reason"],
+        **{k: doc[k] for k in ("values", "patch", "action") if k in doc},
+        **({"evidence": doc["image"]} if "image" in doc else {}),
+    }
 
 
 def _proposal_payload(item: Any, task_name: str, proposal: Any) -> Dict[str, Any]:
