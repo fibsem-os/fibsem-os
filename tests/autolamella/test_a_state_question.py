@@ -68,13 +68,12 @@ def _experiment(tmp_path: Path, microscope, attention=Attention.automated):
 
 
 def _task(microscope, exp) -> AcquireReferenceImageTask:
-    manager = TaskManager(microscope=microscope, experiment=exp, parent_ui=None)
+    manager = TaskManager(microscope=microscope, experiment=exp)
     lamella = exp.positions[0]
     return AcquireReferenceImageTask(
         microscope=microscope,
         config=lamella.task_config[REF],
         lamella=lamella,
-        parent_ui=None,
         task_manager=manager,
     )
 

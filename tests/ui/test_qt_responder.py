@@ -60,6 +60,21 @@ def ui(qapp, monkeypatch):
     widget.close()
 
 
+class _Run:
+    """The run ``set_images_ui`` is handed, as the window's runner would make
+    it: the window answers, the session keeps the images, and the runner's stop
+    is its stop."""
+
+    def __init__(self, ui):
+        self._runner = ui.session.runner
+        self.responder = ui.ui_responder
+        self.images = ui.session.images
+
+    @property
+    def should_abort(self) -> bool:
+        return self._runner.should_abort
+
+
 def _call_on_worker_thread(qapp, fn, timeout_s=10.0):
     """Run ``fn`` on a worker thread while spinning the GUI loop; return its outcome."""
     outcome = {}
@@ -91,7 +106,7 @@ def test_images_land_in_the_widget_from_a_worker_thread(ui, qapp):
     assert fib.metadata.beam_type is BeamType.ION
 
     outcome = _call_on_worker_thread(
-        qapp, lambda: set_images_ui(ui, eb_image=sem, ib_image=fib)
+        qapp, lambda: set_images_ui(_Run(ui), eb_image=sem, ib_image=fib)
     )
 
     assert "error" not in outcome
@@ -110,7 +125,7 @@ def test_the_widget_update_runs_on_the_gui_thread(ui, qapp):
     ui.image_widget._on_acquire = recording
     sem = deepcopy(ui.image_widget.eb_image)
 
-    _call_on_worker_thread(qapp, lambda: set_images_ui(ui, eb_image=sem))
+    _call_on_worker_thread(qapp, lambda: set_images_ui(_Run(ui), eb_image=sem))
 
     assert threads == ["MainThread"]
 
@@ -125,7 +140,9 @@ def test_a_gui_side_failure_reraises_on_the_workflow_thread(ui, qapp):
     ui.image_widget._on_acquire = broken
     sem = deepcopy(ui.image_widget.eb_image)
 
-    outcome = _call_on_worker_thread(qapp, lambda: set_images_ui(ui, eb_image=sem))
+    outcome = _call_on_worker_thread(
+        qapp, lambda: set_images_ui(_Run(ui), eb_image=sem)
+    )
 
     assert isinstance(outcome.get("error"), RuntimeError)
     assert "display fell over" in str(outcome["error"])
@@ -187,7 +204,7 @@ def test_a_stop_interrupts_the_wait(ui):
 
     def target():
         try:
-            set_images_ui(ui, eb_image=sem)
+            set_images_ui(_Run(ui), eb_image=sem)
         except Exception as exc:  # noqa: BLE001 - the test inspects it
             outcome["error"] = exc
 
@@ -209,7 +226,7 @@ def test_a_wedged_gui_thread_times_out_instead_of_hanging_forever(ui, monkeypatc
     sem = deepcopy(ui.image_widget.eb_image)
     started = time.monotonic()
 
-    outcome = _call_with_the_gui_wedged(lambda: set_images_ui(ui, eb_image=sem))
+    outcome = _call_with_the_gui_wedged(lambda: set_images_ui(_Run(ui), eb_image=sem))
 
     assert isinstance(outcome.get("error"), TimeoutError)
     assert time.monotonic() - started < 5
@@ -282,7 +299,6 @@ def test_fluorescence_channels_reach_the_fm_widget(ui, qapp):
     channels = [ChannelSettings(name="channel-from-the-workflow")]
 
     class _Task:
-        parent_ui = ui
         responder = ui.ui_responder
         _check_for_abort = staticmethod(lambda *a, **k: False)
 

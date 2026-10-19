@@ -84,7 +84,7 @@ def test_a_run_starts_and_ends_with_no_window(session, experiment, monkeypatch):
     )
     ran, ended = [], []
     monkeypatch.setattr(
-        TaskManager, "run", lambda self, *args: ran.append((args, self.parent_ui))
+        TaskManager, "run", lambda self, *args: ran.append((args, self.responder))
     )
     session.runner.finished.connect(ended.append)
 

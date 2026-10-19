@@ -42,7 +42,6 @@ def _manager(experiment: Experiment, hook_manager: HookManager) -> TaskManager:
     return TaskManager(
         microscope=_NoMicroscope(),
         experiment=experiment,
-        parent_ui=None,
         hook_manager=hook_manager,
     )
 
@@ -159,7 +158,7 @@ def _status_messages(monkeypatch) -> List[str]:
     captured: List[str] = []
     monkeypatch.setattr(
         "fibsem.applications.autolamella.workflows.tasks.manager.update_status_ui",
-        lambda parent_ui, msg, workflow_info=None, **kw: captured.append(workflow_info),
+        lambda run, msg, workflow_info=None, **kw: captured.append(workflow_info),
     )
     return captured
 

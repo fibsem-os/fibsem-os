@@ -433,11 +433,14 @@ class AutoLamellaUI(QMainWindow):
         # Every run starts and ends through the session's runner, whoever
         # started it: the window hears the run's status, and redraws.
         runner = self.session.runner
-        runner.window = self
         runner.starting.connect(self._on_run_starting)
         runner.finished.connect(self._on_run_finished)
         runner.notice.connect(self._on_run_notice)
         runner.queue_changed.connect(self._on_run_queue_changed)
+        runner.status.connect(self._on_run_status)
+        runner.held.connect(self._on_run_held)
+        runner.pending.connect(self._on_run_pending)
+        runner.step.connect(self._on_run_step)
 
         # workflow info
         self.set_current_workflow_message(msg=None, show=False)
@@ -1156,6 +1159,23 @@ class AutoLamellaUI(QMainWindow):
         """The running queue was edited, from any thread: signals are
         thread-safe."""
         self.queue_changed_signal.emit(info)
+
+    def _on_run_status(self, event: "WorkflowStatusEvent") -> None:
+        """A status line or a task's report, from the run's thread."""
+        self.workflow_status_signal.emit(event)
+
+    def _on_run_held(self, hold: Optional["Hold"]) -> None:
+        """Who holds the run, from the run's thread. Kept here for the chrome,
+        which the status line that follows redraws."""
+        self.hold = hold
+
+    def _on_run_pending(self, pending: bool) -> None:
+        """Whether the run waits between tasks, from the run's thread."""
+        self.WORKFLOW_PENDING = pending
+
+    def _on_run_step(self, step: str) -> None:
+        """The step a task is on, from the run's thread."""
+        self.step_update_signal.emit(step)
 
     def _run_on_gui_thread(self, call) -> "Future":
         """The session's executor: ``call()`` on the GUI thread as whoever

@@ -1,8 +1,8 @@
 """Someone answering a run's questions, for tests that run supervised tasks
 with no window.
 
-A supervised question waits for an answer, whoever is there, nobody included
-(Patrick 2026-10-19), so a headless test that runs one has to answer it.
+A supervised question waits for an answer, whoever is there, nobody included,
+so a headless test that runs one has to answer it.
 ``answering`` does what a reviewer who agrees with everything would: each
 question a task stops on is confirmed as proposed, a loop's pass with the
 action its kind takes when nobody is asked.

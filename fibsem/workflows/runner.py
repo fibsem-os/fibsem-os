@@ -125,7 +125,7 @@ class RunRules:
 
     ``check(experiment, microscope, request)`` refuses the request or accepts
     it with its names resolved; ``make_manager(microscope, experiment,
-    request, parent_ui, hook_manager, responder, answerers)`` makes the run's
+    request, hook_manager=, responder=, answerers=, images=)`` makes the run's
     task manager. The same check is asked before work joins a running queue.
     ``plan_addition(queue, request, run_next)`` is the pairs that adding the
     request queues, or a refusal; each task over each item by default.
@@ -185,12 +185,19 @@ class WorkflowRunner:
     listening, notification hooks log instead. ``queue_changed(info)`` is the
     running queue's ``BaseTaskManager.queue_changed``, from whichever thread
     edited it: a window or a headless listener hears it the same way.
+    ``status``, ``held``, ``pending`` and ``step`` are the run's own
+    (``BaseTaskManager``), from the run's thread; a status line nobody
+    hears goes to the log.
     """
 
     starting = Signal(object)
     finished = Signal(bool)
     notice = Signal(str, str)
     queue_changed = Signal(dict)
+    status = Signal(object)
+    held = Signal(object)
+    pending = Signal(bool)
+    step = Signal(str)
 
     def __init__(self, session: Any) -> None:
         self._session = session
@@ -198,9 +205,6 @@ class WorkflowRunner:
         self._thread: Optional[threading.Thread] = None
         # The run's task manager while one runs.
         self.manager: Optional[Any] = None
-        # Who hears the run's hold, queue and status (``WorkflowWindow``):
-        # the window, when one is attached.
-        self.window: Optional[Any] = None
         # The last run's summary and why it ended short of done, kept after
         # its manager is gone: the App Server's run summary reads them.
         self.last_summary: Optional[Any] = None
@@ -312,12 +316,12 @@ class WorkflowRunner:
                 microscope,
                 experiment,
                 request,
-                parent_ui=self.window,
                 hook_manager=self.run_hooks(experiment.app),
                 responder=self._session.responder,
                 answerers=self._session.answerers,
+                images=self._session.images,
             )
-            self.manager.queue_changed.connect(self.queue_changed)
+            self.relay(self.manager)
             # The run is whoever started it: the agent's run records its
             # events as the agent's (FIB-1276), so it runs in a copy of the
             # starter's context.
@@ -335,6 +339,21 @@ class WorkflowRunner:
             logging.exception("a window's run chrome failed; the run goes on")
         thread.start()
         return replace(checked, request=request)
+
+    def relay(self, manager: Any) -> None:
+        """Pass on what ``manager``'s run says (``BaseTaskManager``'s signals)
+        as this runner's own, for a window or anyone else listening."""
+        manager.queue_changed.connect(self.queue_changed)
+        manager.status.connect(self._on_status)
+        manager.held.connect(self.held)
+        manager.pending.connect(self.pending)
+        manager.step.connect(self.step)
+
+    def _on_status(self, event: Any) -> None:
+        if len(self.status):
+            self.status.emit(event)
+        elif event.report is None:
+            logging.info(event.message or event.status_bar or "")
 
     def _run(self, manager: Any, request: RunRequest) -> None:
         try:

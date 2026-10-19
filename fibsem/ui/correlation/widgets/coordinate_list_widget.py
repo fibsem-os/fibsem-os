@@ -27,6 +27,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem.correlation.points import point_names
 from fibsem.correlation.structures import (
     Coordinate,
     PointProvenance,
@@ -34,8 +35,6 @@ from fibsem.correlation.structures import (
     PointType,
 )
 from fibsem.ui import stylesheets
-from fibsem.ui.correlation.point_store import CorrelationPointStore
-from fibsem.ui.correlation.widgets.correlation_point_overlay import generate_names
 from fibsem.ui.icon import (
     DRAG_HANDLE_HEIGHT,
     DRAG_HANDLE_WIDTH,
@@ -51,6 +50,7 @@ from fibsem.ui.tokens import (
     state_style,
 )
 from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueSpinBox
+from fibsem.ui.widgets.point_store import PointStore
 
 _NAME_FIXED_WIDTH = 100
 _SPIN_FIXED_WIDTH = 62
@@ -507,7 +507,7 @@ class CoordinateListWidget(QWidget):
         coordinates: Optional[List[Coordinate]] = None,
         point_type: Optional[PointType] = None,
         parent: Optional[QWidget] = None,
-        store: Optional[CorrelationPointStore] = None,
+        store: Optional[PointStore] = None,
     ) -> None:
         super().__init__(parent)
         if point_type is None:
@@ -516,7 +516,7 @@ class CoordinateListWidget(QWidget):
         # The points and the selection live in the store (FIB-973); this widget
         # renders them. Until the tab widget shares one store between the lists
         # and the canvases, each list has its own.
-        self._store = store if store is not None else CorrelationPointStore(self)
+        self._store = store if store is not None else PointStore(self)
         self._assigning = False
         self._x_max: Optional[float] = None
         self._y_max: Optional[float] = None
@@ -597,7 +597,7 @@ class CoordinateListWidget(QWidget):
                     w.set_z_view(view)
 
     @property
-    def store(self) -> CorrelationPointStore:
+    def store(self) -> PointStore:
         return self._store
 
     @property
@@ -633,7 +633,7 @@ class CoordinateListWidget(QWidget):
     def _rebuild_rows(self) -> None:
         coords = self.coordinates
         self._list.clear()
-        for coord, name in zip(coords, generate_names(coords)):
+        for coord, name in zip(coords, point_names(coords)):
             self._add_row(coord, name)
         self._empty_label.setVisible(len(coords) == 0)
         self._fit_height_to_rows()

@@ -47,7 +47,6 @@ class _Task(AutoLamellaTask):
             microscope=microscope,
             lamella=lamella,
             config=_Config(task_name="Test Task"),
-            parent_ui=None,
             **kwargs,
         )
         self._body = body or (lambda: None)

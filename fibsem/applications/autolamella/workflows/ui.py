@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, List, Optional, Sequence
+from typing import TYPE_CHECKING, Any, List, Optional, Sequence
 
 from fibsem import milling
 from fibsem.detection import detection
@@ -10,6 +10,7 @@ from fibsem.detection.detection import DetectedFeatures, Feature
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling import FibsemMillingStage
 from fibsem.structures import (
+    BeamType,
     FibsemImage,
     FibsemStagePosition,
     ImageSettings,
@@ -31,22 +32,21 @@ INSTRUCTION_TIMEOUT_S = 30
 
 
 # CORE UI FUNCTIONS -> PROBS SEPARATE FILE
-def _abort_requested(parent_ui: Optional["AutoLamellaUI"]) -> bool:
+def _abort_requested(run: Optional[Any]) -> bool:
     """Whether the workflow has been asked to stop. Never raises.
 
-    Asks the session's runner, which asks the run's manager: the same predicate
-    AutoLamellaTask._check_for_abort uses, so the two cannot disagree about what
-    counts as cancelled. Also the ``abort`` predicate for :func:`interaction.ask`.
+    Asks the run's manager (or the session's runner, which asks it): the same
+    predicate AutoLamellaTask._check_for_abort uses, so the two cannot disagree
+    about what counts as cancelled. Also the ``abort`` predicate for
+    :func:`interaction.ask`.
     """
-    if parent_ui is None:
-        return False
-    return parent_ui.session.runner.should_abort
+    return bool(getattr(run, "should_abort", False))
 
 
 def _check_for_abort(
-    parent_ui: Optional["AutoLamellaUI"], msg: str = "Workflow aborted by user."
+    run: Optional[Any], msg: str = "Workflow aborted by user."
 ) -> bool:
-    if _abort_requested(parent_ui):
+    if _abort_requested(run):
         raise InterruptedError(msg)
     return False
 
@@ -64,7 +64,11 @@ def update_detection_ui(
     feat_str = ", ".join([f.name for f in features])
     if len(feat_str) > 15:
         feat_str = feat_str[:15] + "..."
-    update_status_ui(parent_ui, f"{msg}: Detecting Features ({feat_str})...")
+    runner = parent_ui.session.runner if parent_ui is not None else None
+    update_status_ui(
+        runner.manager if runner is not None else None,
+        f"{msg}: Detecting Features ({feat_str})...",
+    )
 
     det = detection.take_image_and_detect_features(
         microscope=microscope,
@@ -82,7 +86,7 @@ def update_detection_ui(
         det = ask(
             parent_ui.ui_responder,
             ConfirmDetection(detection=det),
-            abort=lambda: _abort_requested(parent_ui),
+            abort=lambda: _abort_requested(runner),
         )
     else:
         det_utils.save_ml_feature_data(det)
@@ -92,15 +96,26 @@ def update_detection_ui(
 
 
 def set_images_ui(
-    parent_ui: Optional["AutoLamellaUI"],
+    run: Optional[Any],
     eb_image: Optional[FibsemImage] = None,
     ib_image: Optional[FibsemImage] = None,
 ):
-    # headless mode
-    if parent_ui is None:
+    """Keep a task's images as the latest of each beam (the run's ``images``),
+    then have the window, when one answers, show them."""
+    if run is None:
         return
 
-    _check_for_abort(parent_ui)
+    _check_for_abort(run)
+
+    images = getattr(run, "images", None)
+    if images is not None:
+        if eb_image is not None:
+            images.set(eb_image, BeamType.ELECTRON)
+        if ib_image is not None:
+            images.set(ib_image, BeamType.ION)
+    responder = getattr(run, "responder", None)
+    if responder is None:
+        return
 
     # TMP: prevent milling images overwriting existing
     if eb_image is not None:
@@ -112,15 +127,15 @@ def set_images_ui(
     # no other emitter can release it. A GUI-side failure re-raises here, on the
     # workflow thread, instead of aborting the process out of a queued slot.
     ask(
-        parent_ui.ui_responder,
+        responder,
         SetImages(sem_image=eb_image, fib_image=ib_image),
-        abort=lambda: _abort_requested(parent_ui),
+        abort=lambda: _abort_requested(run),
         timeout=INSTRUCTION_TIMEOUT_S,
     )
 
 
 def update_status_ui(
-    parent_ui: Optional["AutoLamellaUI"],
+    run: Optional[Any],
     msg: Optional[str],
     workflow_info: Optional[str] = None,
     status_bar: Optional[str] = None,
@@ -134,5 +149,5 @@ def update_status_ui(
     the one status that has to get out precisely because the run was aborted.
     """
     if check_abort:
-        _check_for_abort(parent_ui)
-    post_status(parent_ui, msg, workflow_info=workflow_info, status_bar=status_bar)
+        _check_for_abort(run)
+    post_status(run, msg, workflow_info=workflow_info, status_bar=status_bar)

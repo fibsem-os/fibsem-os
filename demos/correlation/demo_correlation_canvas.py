@@ -1,4 +1,4 @@
-"""Hands-on harness for CorrelationCanvasWidget — the FIB correlation surface.
+"""Hands-on harness for PointCanvasWidget — the FIB correlation surface.
 
 Was a side-by-side against `ImagePointCanvas` while the migration was in flight;
 that class is gone, so this is the single-widget form. It survives because the
@@ -48,15 +48,15 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.correlation.structures import Coordinate, PointType, PointXYZ
-from fibsem.ui.correlation.widgets.correlation_canvas_widget import (
-    CorrelationCanvasWidget,
-)
 from fibsem.ui.tokens import (
     ACCENT_COLOR,
     OK_COLOR,
     SURFACE_COLOR,
     TEXT_MUTED_COLOR,
     TEXT_STRONG_COLOR,
+)
+from fibsem.ui.widgets.canvas.point_canvas import (
+    PointCanvasWidget,
 )
 
 _FIB_TYPES = [PointType.FIB, PointType.SURFACE]
@@ -129,14 +129,14 @@ _RESULT_GROUPS = (
 class DemoWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("CorrelationCanvasWidget — FIB correlation surface")
+        self.setWindowTitle("PointCanvasWidget — FIB correlation surface")
         self.resize(1000, 860)
 
         root = QWidget()
         root_layout = QVBoxLayout(root)
         self.setCentralWidget(root)
 
-        self.canvas = CorrelationCanvasWidget(allowed_point_types=_FIB_TYPES)
+        self.canvas = PointCanvasWidget(allowed_point_types=_FIB_TYPES)
         self.canvas.set_image(_synthetic_image())
         self.canvas.set_pixel_size(2e-8)
         self.canvas.point_selected.connect(lambda c: self._say("selected", c))

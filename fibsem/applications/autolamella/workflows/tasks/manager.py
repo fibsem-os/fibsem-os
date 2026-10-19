@@ -4,7 +4,7 @@ import logging
 import time
 from collections import Counter
 from datetime import datetime
-from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple
 
 import pandas as pd
 
@@ -23,14 +23,12 @@ from fibsem.workflows.status import TaskStatus
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment, Lamella
-    from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
 
 
 def run_task(
     microscope: FibsemMicroscope,
     task_name: str,
     lamella: "Lamella",
-    parent_ui: Optional["AutoLamellaUI"] = None,
     task_manager: Optional["TaskManager"] = None,
 ) -> None:
     """Run a specific AutoLamella task."""
@@ -51,7 +49,6 @@ def run_task(
         microscope=microscope,
         config=task_config,
         lamella=lamella,
-        parent_ui=parent_ui,
         task_manager=task_manager,
     )
     task.run()
@@ -66,13 +63,18 @@ class TaskManager(BaseTaskManager):
         self,
         microscope: FibsemMicroscope,
         experiment: "Experiment",
-        parent_ui: Optional["AutoLamellaUI"] = None,
         hook_manager: Optional[HookManager] = None,
         responder: Optional[Responder] = None,
         answerers: Optional[Callable[[], Tuple[ActorKind, ...]]] = None,
+        images: Optional[Any] = None,
     ):
         super().__init__(
-            microscope, experiment, parent_ui, hook_manager, responder, answerers
+            microscope,
+            experiment,
+            hook_manager,
+            responder,
+            answerers,
+            images,
         )
         # Lamellae already finished when the run started, so re-running a task on
         # finished work does not re-announce it. Seeded in _run_queue.
@@ -221,7 +223,7 @@ class TaskManager(BaseTaskManager):
             # After a Stop the abort predicate is true, so this line must not
             # be a cancellation point itself: it is the report of one.
             update_status_ui(
-                self.parent_ui,
+                self,
                 "",
                 workflow_info="Workflow cancelled by user.",
                 check_abort=False,
@@ -236,9 +238,7 @@ class TaskManager(BaseTaskManager):
             self._fire_workflow_hook(
                 HookEvent.WORKFLOW_COMPLETED, task_counts=self._task_counts()
             )
-            update_status_ui(
-                self.parent_ui, "", workflow_info=self._completion_message()
-            )
+            update_status_ui(self, "", workflow_info=self._completion_message())
             # After the run event, since finishing the run is what makes the experiment
             # finishable. Not fired on the cancelled path: an aborted run has not
             # established anything about the experiment.
@@ -413,7 +413,7 @@ class TaskManager(BaseTaskManager):
                         f"Waiting until {target_str} to start {task_name} on "
                         f"{lamella.name} ({format_duration_rounded(remaining)} remaining)."
                     )
-                    update_status_ui(self.parent_ui, "", status_bar=msg)
+                    update_status_ui(self, "", status_bar=msg)
                     next_update = now + 15.0
 
                 time.sleep(min(1.0, remaining))
@@ -513,7 +513,6 @@ class TaskManager(BaseTaskManager):
                 microscope=self.microscope,
                 task_name=task_name,
                 lamella=lamella,
-                parent_ui=self.parent_ui,
                 task_manager=self,
             )
         except Exception as e:

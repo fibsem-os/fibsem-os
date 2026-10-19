@@ -15,6 +15,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
+from psygnal import Signal
 
 pytest.importorskip("PyQt5")
 
@@ -74,6 +75,12 @@ def test_a_genuine_failure_still_logs_an_error(ui, monkeypatch, caplog):
     )
 
 
+class _StoppedRun(Stopped):
+    """A stopped run, with the status a window listens to."""
+
+    status = Signal(object)
+
+
 def test_the_closing_line_gets_out_after_a_stop(ui):
     """After Stop the abort predicate is true, and a status point raises on it:
     that is what kept "Workflow cancelled by user." off the label. The manager's closing
@@ -82,10 +89,11 @@ def test_the_closing_line_gets_out_after_a_stop(ui):
 
     seen = []
     ui.workflow_status_signal.connect(lambda event: seen.append(event.workflow_info))
-    ui.session.runner.manager = Stopped()
+    run = _StoppedRun()
+    run.status.connect(ui._on_run_status)
     with pytest.raises(InterruptedError):
-        update_status_ui(ui, "", workflow_info="Workflow cancelled by user.")
+        update_status_ui(run, "", workflow_info="Workflow cancelled by user.")
     update_status_ui(
-        ui, "", workflow_info="Workflow cancelled by user.", check_abort=False
+        run, "", workflow_info="Workflow cancelled by user.", check_abort=False
     )
     assert seen == ["Workflow cancelled by user."]

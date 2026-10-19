@@ -89,7 +89,6 @@ def run_grid_task(
     task_name: str,
     experiment: "GridExperiment",
     grid: "GridRecord",
-    parent_ui=None,
     task_manager=None,
 ) -> GridTask:
     """Run the named task from the experiment's grid protocol on one grid.
@@ -108,7 +107,6 @@ def run_grid_task(
         config=deepcopy(saved),
         grid=grid,
         experiment=experiment,
-        parent_ui=parent_ui,
         task_manager=task_manager,
     )
     task.run()

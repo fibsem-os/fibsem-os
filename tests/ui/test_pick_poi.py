@@ -77,7 +77,7 @@ def _pick_on_worker_thread(ui, qapp, image, initial=None, msg="Pick the point.")
             outcome["poi"] = ask(
                 ui.ui_responder,
                 PickPOI(image=image, initial=initial, message=msg),
-                abort=lambda: _abort_requested(ui),
+                abort=lambda: _abort_requested(ui.session.runner),
             )
         except Exception as exc:  # noqa: BLE001 - the test inspects it
             outcome["error"] = exc

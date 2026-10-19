@@ -71,7 +71,7 @@ def _edit_on_worker_thread(ui, qapp, msg="Adjust the area, then Continue."):
             outcome["area"] = ask(
                 ui.ui_responder,
                 EditAlignmentArea(initial=INITIAL, message=msg),
-                abort=lambda: _abort_requested(ui),
+                abort=lambda: _abort_requested(ui.session.runner),
             )
         except Exception as exc:  # noqa: BLE001 - the test inspects it
             outcome["error"] = exc

@@ -99,15 +99,12 @@ def _experiment(
 
 
 def _task(microscope, exp: Experiment, answerers=None) -> SelectMillingPositionTask:
-    manager = TaskManager(
-        microscope=microscope, experiment=exp, parent_ui=None, answerers=answerers
-    )
+    manager = TaskManager(microscope=microscope, experiment=exp, answerers=answerers)
     lamella = exp.positions[0]
     return SelectMillingPositionTask(
         microscope=microscope,
         config=lamella.task_config[SETUP],
         lamella=lamella,
-        parent_ui=None,
         task_manager=manager,
     )
 

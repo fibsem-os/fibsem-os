@@ -101,9 +101,9 @@ def test_serialisation_survives_an_image_without_metadata():
     data = CorrelationInputData(fib_image=img, fib_coordinates=[_fib()])
 
     payload = data.to_dict()  # must not raise
-    assert payload["fib_image_pixel_size"] is None
-    assert payload["fib_image_filename"] is None
-    assert tuple(payload["fib_image_shape"]) == (200, 300)
+    assert payload["stored_fib_image_pixel_size"] is None
+    assert payload["stored_fib_image_filename"] is None
+    assert tuple(payload["stored_fib_image_shape"]) == (200, 300)
 
 
 def test_autosave_failure_is_reported_not_swallowed(qapp, tmp_path, monkeypatch):
@@ -164,7 +164,7 @@ def test_changing_the_image_clears_coordinates_and_result(qapp, monkeypatch):
     _load_via_picker(w, monkeypatch, QMessageBox.Ok)
 
     assert w.data.fib_coordinates == []  # points belonged to the previous image
-    assert w._result is None
+    assert w.session.result is None
 
 
 def test_declining_the_change_keeps_both_image_and_points(qapp, monkeypatch):
@@ -178,7 +178,7 @@ def test_declining_the_change_keeps_both_image_and_points(qapp, monkeypatch):
     _load_via_picker(w, monkeypatch, QMessageBox.Cancel)
 
     assert w.data.fib_coordinates[0].point.x == 1382.0
-    assert w._fib_image is original
+    assert w.session.fib_image is original
     # the picker must not be left showing a file that was never loaded
     assert w._images_tab._fib_picker.current_path() == w._images_tab._fib_loaded_path
 
@@ -226,10 +226,10 @@ def test_adopting_a_state_without_a_result_discards_the_old_one(qapp, tmp_path):
     w = _widget()
     w.set_project_dir(str(tmp_path))
     w._load_result(_result(_inputs(x=1.0)), adopt_inputs=False)
-    assert w._result is not None
+    assert w.session.result is not None
 
     w._adopt_state(CorrelationState(input_data=_inputs(x=5.0), result=None))
-    assert w._result is None
+    assert w.session.result is None
 
     saved = json.loads((tmp_path / "correlation.json").read_text(encoding="utf-8"))
     assert saved["result"] is None  # not re-saved against the new coordinates
@@ -239,4 +239,4 @@ def test_seeding_discards_a_previous_result(qapp):
     w = _widget()
     w._load_result(_result(_inputs(x=1.0)), adopt_inputs=False)
     w.seed_coordinates(_inputs(x=7.0))
-    assert w._result is None
+    assert w.session.result is None

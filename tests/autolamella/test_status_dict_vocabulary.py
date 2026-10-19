@@ -29,10 +29,17 @@ class _FakeSignal:
 
 
 class _FakeUI:
-    """Just enough parent_ui for _emit_status: it only touches this one signal."""
+    """Hears the run's ``status`` as the window does, which is all
+    _emit_status says on."""
 
-    def __init__(self) -> None:
+    def __init__(self, manager: TaskManager) -> None:
         self.workflow_status_signal = _FakeSignal()
+        manager.status.connect(self.workflow_status_signal.emit)
+
+
+def _listened(manager: TaskManager) -> TaskManager:
+    manager.ui = _FakeUI(manager)
+    return manager
 
 
 @pytest.fixture
@@ -42,10 +49,11 @@ def manager(tmp_path: Path) -> TaskManager:
 
     experiment = Experiment(path=tmp_path, name="test-exp")
     experiment.task_protocol = AutoLamellaTaskProtocol()
-    return TaskManager(
-        microscope=_NoMicroscope(),
-        experiment=experiment,
-        parent_ui=_FakeUI(),
+    return _listened(
+        TaskManager(
+            microscope=_NoMicroscope(),
+            experiment=experiment,
+        )
     )
 
 
@@ -57,7 +65,7 @@ def _emit(manager: TaskManager, name: str = "lam-1") -> dict:
         lamella=lamella,
         status=TaskStatus.InProgress,
     )
-    return manager.parent_ui.workflow_status_signal.payloads[-1].report
+    return manager.ui.workflow_status_signal.payloads[-1].report
 
 
 def test_the_status_dict_names_the_item_the_way_the_hook_does(manager: TaskManager):

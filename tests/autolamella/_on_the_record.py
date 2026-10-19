@@ -14,4 +14,4 @@ def manager_for(microscope, lamella: Lamella) -> TaskManager:
     """A headless manager whose experiment holds ``lamella``."""
     experiment = Experiment(path=lamella.path.parent, name="on-the-record")
     experiment.positions.append(lamella)
-    return TaskManager(microscope=microscope, experiment=experiment, parent_ui=None)
+    return TaskManager(microscope=microscope, experiment=experiment)

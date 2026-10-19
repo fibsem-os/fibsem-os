@@ -57,20 +57,18 @@ def _config() -> FibsemMillingTaskConfig:
     return config
 
 
-def _task(ui, parent_ui, milling_enabled=True):
+def _task(ui, window, milling_enabled=True):
     experiment = ui.experiment
     lamella = experiment.positions[0]
     task = MillRoughTask(
         microscope=ui.microscope,
         config=lamella.task_config[ROUGH],
         lamella=lamella,
-        parent_ui=parent_ui,
         task_manager=TaskManager(
             microscope=ui.microscope,
             experiment=experiment,
-            parent_ui=parent_ui,
-            responder=parent_ui.ui_responder if parent_ui is not None else None,
-            answerers=parent_ui.session.answerers if parent_ui is not None else None,
+            responder=window.ui_responder if window is not None else None,
+            answerers=window.session.answerers if window is not None else None,
         ),
     )
 
@@ -124,7 +122,7 @@ def _finish(thread, qapp):
 
 def test_a_run_then_accept_records_the_run_and_no_skip(ui, qapp):
     events = _milling_events(ui.microscope)
-    task = _task(ui, parent_ui=ui)
+    task = _task(ui, window=ui)
     thread, outcome = _run_on_worker_thread(task, ui, qapp)
 
     ui.pushButton_yes.click()  # Run Milling
@@ -139,7 +137,7 @@ def test_a_run_then_accept_records_the_run_and_no_skip(ui, qapp):
 
 def test_skip_records_a_skip(ui, qapp):
     events = _milling_events(ui.microscope)
-    task = _task(ui, parent_ui=ui)
+    task = _task(ui, window=ui)
     thread, outcome = _run_on_worker_thread(task, ui, qapp)
 
     ui.pushButton_no.click()  # Skip
@@ -157,7 +155,7 @@ def test_milling_turned_off_records_a_skip_without_a_window(ui):
 
     # Supervised with no window: the task's question waits, so it is answered.
     with answering(ui.experiment):
-        _task(ui, parent_ui=None, milling_enabled=False).run()
+        _task(ui, window=None, milling_enabled=False).run()
 
     (skipped,) = events
     assert skipped["status"] == "skipped"
