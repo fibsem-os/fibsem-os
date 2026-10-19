@@ -2,10 +2,10 @@
 
 Both used to be anchored to the task x lamella lists frozen at launch, which
 broke as soon as the queue could be mutated: an added task raised ValueError
-out of _emit_status, and an added lamella was silently skipped as
+out of _emit_report, and an added lamella was silently skipped as
 "not_required". Progress is now measured against the live queue instead.
 
-These drive _emit_status/_should_skip against a real Experiment, real Lamellas
+These drive _emit_report/_should_skip against a real Experiment, real Lamellas
 and a real task protocol. The only stand-ins are the two the environment cannot
 provide: a microscope and the Qt UI.
 """
@@ -156,14 +156,14 @@ def last_status(manager: TaskManager):
     return manager.ui.workflow_status_signal.emitted[-1].report
 
 
-# ── _emit_status ──────────────────────────────────────────────────────────────
+# ── _emit_report ──────────────────────────────────────────────────────────────
 
 
 def test_emit_reports_position_in_the_live_queue(manager):
     item = manager.queue.items[2]
-    manager._emit_status(
+    manager._emit_report(
         item=item,
-        lamella=manager.experiment.get_lamella_by_name(item.item_name),
+        item_name=item.item_name,
         status=Status.InProgress,
     )
     status = last_status(manager)
@@ -175,9 +175,9 @@ def test_emit_for_a_task_outside_the_launch_plan(manager):
     """Regression: this raised ValueError out of task_names.index()."""
     added = manager.queue.add("L1", "Polishing")
 
-    manager._emit_status(
+    manager._emit_report(
         item=added,
-        lamella=manager.experiment.get_lamella_by_name("L1"),
+        item_name="L1",
         status=Status.InProgress,
     )
     status = last_status(manager)
@@ -188,9 +188,9 @@ def test_emit_for_a_task_outside_the_launch_plan(manager):
 
 def test_emit_for_a_lamella_outside_the_launch_plan(manager):
     added = manager.queue.add("L99", "Trench")
-    manager._emit_status(
+    manager._emit_report(
         item=added,
-        lamella=make_lamella(manager.experiment, "L99"),
+        item_name=make_lamella(manager.experiment, "L99").name,
         status=Status.InProgress,
     )
     status = last_status(manager)
@@ -201,9 +201,9 @@ def test_emit_for_a_lamella_outside_the_launch_plan(manager):
 def test_emit_position_follows_a_reorder(manager):
     item = manager.queue.items[3]
     manager.queue.move_to_front(item.id)
-    manager._emit_status(
+    manager._emit_report(
         item=item,
-        lamella=manager.experiment.get_lamella_by_name(item.item_name),
+        item_name=item.item_name,
         status=Status.InProgress,
     )
     assert last_status(manager).queue_position == 1
@@ -211,9 +211,9 @@ def test_emit_position_follows_a_reorder(manager):
 
 def test_emit_includes_a_queue_snapshot(manager):
     item = manager.queue.items[0]
-    manager._emit_status(
+    manager._emit_report(
         item=item,
-        lamella=manager.experiment.get_lamella_by_name("L1"),
+        item_name="L1",
         status=Status.InProgress,
     )
     snapshot = last_status(manager).queue_items
@@ -224,9 +224,9 @@ def test_emit_includes_a_queue_snapshot(manager):
 
 def test_emit_passes_through_error_and_skip_detail(manager):
     item = manager.queue.items[0]
-    manager._emit_status(
+    manager._emit_report(
         item=item,
-        lamella=manager.experiment.get_lamella_by_name("L1"),
+        item_name="L1",
         status=Status.Failed,
         msg="boom",
         error_message="it broke",
@@ -242,9 +242,9 @@ def test_emit_is_a_noop_headless(tmp_path):
     experiment = make_experiment(tmp_path, lamella_names=["L1"])
     m = TaskManager(microscope=NoMicroscope(), experiment=experiment)
     m.queue.build_from_matrix(["Trench"], ["L1"])
-    m._emit_status(
+    m._emit_report(
         item=m.queue.items[0],
-        lamella=experiment.get_lamella_by_name("L1"),
+        item_name="L1",
         status=Status.InProgress,
     )  # must not raise
 
