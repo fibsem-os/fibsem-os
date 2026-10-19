@@ -99,6 +99,53 @@ watched, and otherwise runs until it is stopped. It needs only fibsem, not the `
 `fibsem-mcp` is not on the PATH, `python -m fibsem.ai.agent.mcp.sidecar watch` is the
 same thing.
 
+## 5. Or run it with nobody at a terminal: `fibsem-agent`
+
+Everything above is Claude Code in a terminal, kept awake by a person.
+`fibsem-agent` is a second way to run the same agent, on the
+[Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk): one long
+session with this sidecar as its only MCP server, and the watcher run for it,
+so each batch of watcher lines is the agent's next turn. It reads the same
+skills, from this checkout's `.claude/skills`. The Claude Code path is
+unchanged.
+
+```bash
+pip install -e ".[server,agent]"
+fibsem-agent --role observe        # or assist, supervise
+```
+
+- **Role, not level.** `--role` picks the skill the agent works by and what
+  its first turn says. The level is still set from the Agent chip, and the
+  server still refuses what it doesn't allow. The runner never sets it.
+- **Tools.** The `mcp__fibsem__*` tools run without a prompt, since the
+  server decides what they may do. The agent also has the Skill tool and
+  nothing else: no shell, no file reads or writes, no web. Nothing waits on a
+  permission prompt; anything else is denied. So the offline
+  `read_record.py` reader stays with Claude Code.
+- **Your Claude Code config stays out.** The session loads this checkout's
+  project settings and skills, not `~/.claude`, and only this sidecar, not a
+  `fibsem` server you registered with `claude mcp add`. It signs in the way
+  Claude Code does on this machine.
+- **What it says.** The agent's replies and tool calls go to the console and
+  to `~/.fibsem/agent/fibsem-agent-<time>.log` (`--log` to choose). What the
+  operator must see in the app, it puts in a note (`experiment_add_note`),
+  answering a message from the Agent card with its `reply_to`.
+- **Waking.** Lines are held while the level is Off, and come as one turn
+  once it is back. A `GAP`, a restart or the level coming back tells the
+  agent to re-read the status. If the app can't be watched, the runner waits
+  up to `--server-wait` seconds (default 600) for it to answer again, then
+  stops with exit code 1.
+- **Limits.** `--max-turns` (default 40) caps the tool calls in one
+  wake-up. `--max-budget-usd` (default 5) caps the whole session's spend.
+  At the cap the runner stops with exit code 2. `--model` picks the model.
+  The SDK compacts a long session's context by itself, and the log says when.
+- **Stopping and resuming.** Ctrl-C interrupts the agent's turn and ends the
+  session cleanly; a second Ctrl-C ends it at once. The log names the session
+  id, and `--resume <id>` carries it on after a restart. The watcher starts
+  again from then, so the agent is told to re-read where things stand.
+- **From another machine**, `--url`/`--token` work as they do for the
+  sidecar.
+
 ## Order and troubleshooting
 
 - **Order doesn't matter**: the sidecar answers the MCP client at once, even
