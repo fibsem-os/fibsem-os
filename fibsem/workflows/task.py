@@ -19,12 +19,20 @@ import uuid
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from datetime import datetime
-from typing import Any, ClassVar, Dict, Optional
+from typing import Any, Callable, ClassVar, Dict, Optional, Tuple
 
 from fibsem.acting import TASK, acting
-from fibsem.cancellation import OperationCancelledError
+from fibsem.cancellation import AnyStopEvent, OperationCancelledError, StopEvent
+from fibsem.control import lending
 from fibsem.util.timestamps import now, now_iso
-from fibsem.workflows.proposals import Decision, Proposer, TaskResultProposer
+from fibsem.workflows.proposals import (
+    PROPOSAL_KINDS,
+    Decision,
+    DecisionOutcome,
+    Proposal,
+    Proposer,
+    TaskResultProposer,
+)
 from fibsem.workflows.proposing import settle
 from fibsem.workflows.status import TaskStatus, take_back_finish
 
@@ -66,6 +74,9 @@ def run_folder(
     return folder
 
 
+# How often a question's hold re-reads who can answer while it waits.
+_HOLD_REFRESH_S = 1.0
+
 # Steps recorded as the task's own lifecycle events (task_started,
 # task_completed), not as task_step.
 LIFECYCLE_STEPS = {"STARTED", "FINISHED"}
@@ -86,6 +97,18 @@ class BaseTask(ABC):
     result_images: ClassVar[Dict[str, str]] = {}
     # What the item is called in the log and in task_step events.
     item_type: ClassVar[str] = "item"
+    # What this task type asks *while it runs*, as proposal kinds: the values
+    # it needs answered before its next line (a detection, then the stage
+    # move that follows it). The proposer is what it leaves for afterwards;
+    # this is what it needs now. Declared on the type, so what needs a person
+    # present is known before the run. ``ask`` refuses a kind that is not here.
+    questions: ClassVar[Tuple[str, ...]] = ()
+
+    @classmethod
+    def questions_for(cls, config: Any) -> Tuple[str, ...]:
+        """The kinds this task asks under ``config``: a setting may turn one
+        off (Setup's ``confirm_alignment_area``). By default, everything declared."""
+        return cls.questions
 
     def __init__(
         self,
@@ -133,6 +156,152 @@ class BaseTask(ABC):
     def supervised(self) -> bool:
         """Whether this task's attention is supervised: then its questions are
         asked of whoever can answer while it runs."""
+
+    # -- questions -------------------------------------------------------------
+
+    def ask(
+        self,
+        kind: str,
+        values: Dict[str, Any],
+        *,
+        image: str = "",
+        provenance: Optional[Dict[str, Any]] = None,
+        message: str = "",
+        decided: Optional[Callable[[], Dict[str, Any]]] = None,
+        enabled: bool = True,
+    ) -> Decision:
+        """Ask for ``values`` of ``kind`` and wait for the answer, on the record.
+
+        The one way a task asks for a value it needs before it can carry on.
+        The ask is a proposal on the item (``values`` are what the task
+        would use as they stand; ``image`` the saved file they sit on, relative
+        to the item's folder), and the answer is a decision on it, through
+        ``Experiment.decide`` like every other: from the widget the kind is
+        answered on (the prompt bar, the Detection tab, the milling editor),
+        from a connected agent. Returned as the decision, so the
+        task reads ``.outcome`` and ``.values``; a task applies the decided
+        values itself, so a kind asked here must not write them through.
+
+        Supervised: the run holds here -- the manager raises the hold --
+        until the decision lands, or Stop, which withdraws the question and
+        raises ``InterruptedError``. It holds whoever can answer, nobody
+        included: an answer is never taken unreviewed, so with no window
+        and no agent listening at Drive the question waits for one to come
+        back. Stop and the answer wake it at once, and the hold says who can
+        answer as that changes.
+        Automated, nobody is asked: the proposal goes on the record with an
+        ``Unreviewed`` decision carrying the proposed values, for someone to
+        check afterwards, and returns at once. A declared kind that
+        ``questions_for`` leaves out under this config is the same: recorded,
+        not asked.
+
+        ``decided`` is for a confirmation: an answer that says "as it stands"
+        and carries no values of its own (a state, confirmed from the prompt
+        bar). The task, which can read the instrument, is asked for the
+        values as they stand once the confirmation lands, and they go on the
+        decision, so a change the operator made before confirming is the
+        delta. Not called for an answer that already carries values.
+
+        ``enabled`` is the ask's own switch in the task's settings
+        (``confirm_position``, say), for a task that asks the same kind more
+        than once: off, this one is recorded and not asked, as a kind
+        ``questions_for`` leaves out is.
+        """
+        declared = type(self).questions
+        if kind not in declared:
+            raise ValueError(
+                f"{type(self).__name__} does not declare {kind!r} in questions "
+                f"(it declares {list(declared)}); a task says what it asks."
+            )
+        carried = PROPOSAL_KINDS[kind].values
+        unknown = [n for n in values if n not in carried]
+        if unknown:
+            raise ValueError(f"{kind} does not carry {unknown}; it carries {carried}")
+        manager = self.task_manager
+        experiment = self.experiment
+        if manager is None or experiment is None:
+            raise RuntimeError("ask needs a task manager with an experiment")
+
+        item = self.item
+        proposal = Proposal(
+            kind=kind,
+            values=dict(values),
+            provenance={
+                "proposer": self.task_name,
+                "task_id": item.task_state.task_id or self.task_id,
+                "reference_image": image,
+                "message": message,
+                **(provenance or {}),
+            },
+        )
+        reason = self.unasked_reason(kind, enabled=enabled)
+        if reason:
+            experiment.record_unasked(item.id, self.task_name, proposal, reason)
+            return proposal.current
+
+        answered = StopEvent()
+        # Woken by the answer or by either stop, whichever comes first.
+        wake = AnyStopEvent(answered, *([self._stop_event] if self._stop_event else []))
+
+        def _on_decided(item_id: str, task_name: str) -> None:
+            # This question, and decided: ``decided`` also fires for the
+            # previous question's fill-in, which can land after this one was
+            # recorded when the task asks twice in a row (FIB-1053).
+            if (item_id, task_name) == (item.id, self.task_name):
+                current = item.proposal(task_name)
+                if (
+                    current is not None
+                    and current.id == proposal.id
+                    and current.current is not None
+                ):
+                    answered.set()
+
+        experiment.decided.connect(_on_decided)
+        try:
+            # While the question stands, the run lends its control of the
+            # microscope: whoever answers may act first (FIB-1270). Lent before
+            # the question is put, so nobody who sees it is refused.
+            with lending():
+                if not experiment.ask_proposal(item.id, self.task_name, proposal):
+                    raise RuntimeError(f"could not record the {kind} question")
+                with manager.holding_a_question(item.name, self.task_name) as refresh:
+                    while not answered.is_set():
+                        if self._stop_event is not None and self._stop_event.is_set():
+                            experiment.withdraw_proposal(
+                                item.id,
+                                self.task_name,
+                                "the run stopped before it was answered",
+                            )
+                            raise InterruptedError(f"{kind} question cancelled")
+                        # Who can answer changes without an event (the agent
+                        # going quiet), so the hold is re-read now and then.
+                        wake.wait(_HOLD_REFRESH_S)
+                        refresh()
+        finally:
+            experiment.decided.disconnect(_on_decided)
+        decision = proposal.current
+        if decision is None or decision.outcome is DecisionOutcome.Withdrawn:
+            raise InterruptedError(f"{kind} question withdrawn before it was answered")
+        if (
+            decided is not None
+            and decision.outcome is DecisionOutcome.Confirmed
+            and not decision.values
+        ):
+            experiment.fill_in_decision(
+                item.id, self.task_name, proposal.id, dict(decided())
+            )
+        return decision
+
+    def unasked_reason(self, kind: str, *, enabled: bool = True) -> str:
+        """Why a question of ``kind`` would be recorded rather than asked now;
+        empty when it would be asked. Asked when this config asks it and the
+        task is supervised, whether or not anyone can answer yet: a supervised
+        question waits for an answer (``ask``)."""
+        if not enabled or kind not in type(self).questions_for(self.config):
+            return "turned off in the task's settings"
+        if not self.supervised:
+            return "nobody was asked: the task is not supervised"
+        return ""
 
     # -- lifecycle -------------------------------------------------------------
 

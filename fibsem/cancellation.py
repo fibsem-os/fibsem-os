@@ -30,6 +30,19 @@ class NothingToStop(Exception):
     stopped something (FIB-1398)."""
 
 
+# Notified by every StopEvent as it is set, so a wait on any of them wakes then.
+_STOPPED = threading.Condition()
+
+
+class StopEvent(threading.Event):
+    """A ``threading.Event`` whose ``set()`` wakes every ``AnyStopEvent.wait``."""
+
+    def set(self) -> None:
+        with _STOPPED:
+            super().set()
+            _STOPPED.notify_all()
+
+
 class AnyStopEvent:
     """A stop signal that is set when any of its component events is set.
 
@@ -48,6 +61,13 @@ class AnyStopEvent:
 
     def is_set(self) -> bool:
         return any(event.is_set() for event in self._events)
+
+    def wait(self, timeout: Optional[float] = None) -> bool:
+        """Block until one of the events is set, or ``timeout`` passes; whether
+        one is set. A ``StopEvent`` wakes it as it is set; a plain Event is
+        only seen at the timeout."""
+        with _STOPPED:
+            return _STOPPED.wait_for(self.is_set, timeout)
 
 
 def raise_if_cancelled(
