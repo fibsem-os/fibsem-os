@@ -430,14 +430,9 @@ class ChannelSettings(Configurable):
         return decode(cls, channel(ddict))
 
     @property
-    def pretty_name(self) -> str:
-        """Generate a pretty name for the channel based on its properties."""
-        return f"{self.name} ({self.excitation_wavelength:.0f}nm → {self.emission_filter.label}) P:{self.power * 100:.1f}%, EXP:{self.exposure_time * 1000:.1f}ms"
-
-    @property
     def pretty(self) -> str:
-        """Generate a concise pretty representation of the channel."""
-        return self.pretty_name
+        """The channel's name and settings, in one line."""
+        return f"{self.name} ({self.excitation_wavelength:.0f}nm → {self.emission_filter.label}) P:{self.power * 100:.1f}%, EXP:{self.exposure_time * 1000:.1f}ms"
 
 
 @dataclass
@@ -1297,91 +1292,6 @@ class FluorescenceImage:
             filepath=self.filepath,
         )
 
-    def calculate_histogram(
-        self,
-        channel: Optional[int] = None,
-        bins: int = 256,
-        density: bool = False,
-        range_values: Optional[Tuple[float, float]] = None,
-    ) -> dict:
-        """Calculate histogram of pixel intensities for FluorescenceImage.
-
-        Args:
-            channel: Optional channel index to calculate histogram for. If None, calculates for all channels.
-                    Zero-indexed (0 = first channel, 1 = second channel, etc.)
-            bins: Number of histogram bins or sequence of bin edges (default: 256)
-            density: If True, return probability density instead of counts (default: False)
-            range_values: Optional tuple (min, max) to set histogram range. If None, uses data range.
-
-        Returns:
-            Dictionary containing histogram data:
-            - If single channel: {"counts": array, "bin_edges": array, "channel_name": str}
-            - If multiple channels: {"channel_0": {"counts": array, "bin_edges": array, "channel_name": str}, ...}
-
-        Raises:
-            ValueError: If the specified channel index is out of range
-
-        Example:
-            >>> image = FluorescenceImage(data=data, metadata=metadata)
-            >>> # Get histogram for all channels
-            >>> hist_all = image.calculate_histogram()
-            >>> # Get histogram for first channel only
-            >>> hist_ch0 = image.calculate_histogram(channel=0)
-            >>> # Get histogram with custom bins and range
-            >>> hist_custom = image.calculate_histogram(bins=100, range_values=(0, 4095))
-        """
-        # Temporarily reshape 2D data to 4D (1C, 1Z, Y, X) for consistent processing
-        if self.data.ndim == 2:
-            data = self.data.reshape(1, 1, *self.data.shape)
-        elif self.data.ndim == 3:
-            data = self.data.reshape(1, *self.data.shape)
-        else:
-            data = self.data
-
-        nc, nz, ny, nx = data.shape
-
-        # Validate channel index
-        if channel is not None:
-            if channel < 0 or channel >= nc:
-                raise ValueError(f"Channel index {channel} out of range [0, {nc - 1}]")
-
-        # Calculate histogram for specific channel
-        if channel is not None:
-            channel_data = data[
-                channel, :, :, :
-            ].flatten()  # Flatten all z, y, x dimensions
-            channel_name = self.metadata.channels[channel].name
-
-            hist_counts, bin_edges = np.histogram(
-                channel_data, bins=bins, density=density, range=range_values
-            )
-
-            return {
-                "counts": hist_counts,
-                "bin_edges": bin_edges,
-                "channel_name": channel_name,
-            }
-
-        # Calculate histogram for all channels
-        result = {}
-        for ch_idx in range(nc):
-            channel_data = data[
-                ch_idx, :, :, :
-            ].flatten()  # Flatten all z, y, x dimensions
-            channel_name = self.metadata.channels[ch_idx].name
-
-            hist_counts, bin_edges = np.histogram(
-                channel_data, bins=bins, density=density, range=range_values
-            )
-
-            result[f"channel_{ch_idx}"] = {
-                "counts": hist_counts,
-                "bin_edges": bin_edges,
-                "channel_name": channel_name,
-            }
-
-        return result
-
     @staticmethod
     def generate_blank_image(
         resolution: Tuple[int, int] = (1024, 1024),
@@ -1539,14 +1449,6 @@ class FluorescenceImageMetadata:
     def add_channel(self, channel: FluorescenceChannelMetadata) -> None:
         """Add a new channel to the metadata."""
         self.channels.append(channel)
-
-    def get_channel_count(self) -> int:
-        """Get the number of channels."""
-        return len(self.channels)
-
-    def get_z_count(self) -> int:
-        """Get the number of z-planes."""
-        return len(self.z_positions) if self.z_positions else 1
 
     def to_dict(self) -> dict:
         return encode(self)

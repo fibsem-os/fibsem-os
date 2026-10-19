@@ -10,6 +10,7 @@ import os
 import pytest
 
 from fibsem import utils
+from fibsem.autofunctions.autofocus import FocusSweepPass
 from fibsem.fm.acquisition import acquire_image
 from fibsem.fm.calibration import run_coarse_fine_autofocus
 from fibsem.fm.structures import (
@@ -69,7 +70,7 @@ def test_a_z_stack_records_the_file_it_was_saved_to(microscope, tmp_path):
     assert os.path.exists(payload["path"])
     assert [c["name"] for c in payload["channels"]] == ["GFP"]
     assert payload["channels"][0]["exposure_time"] == pytest.approx(0.1)
-    assert len(payload["z_positions"]) == image.metadata.get_z_count()
+    assert len(payload["z_positions"]) == len(image.metadata.z_positions or [None])
     assert payload["acquired_at"] == image.metadata.acquisition_date
     assert payload["overview"] is None
 
@@ -107,11 +108,11 @@ def test_an_overview_is_one_event_not_one_per_tile(microscope, tmp_path):
 
 
 def _af_settings():
-    return AutoFocusSettings.from_coarse_fine(
-        coarse_range=4e-6,
-        coarse_step=2e-6,
-        fine_range=2e-6,
-        fine_step=1e-6,
+    return AutoFocusSettings(
+        passes=[
+            FocusSweepPass(search_range=4e-6, step_size=2e-6),
+            FocusSweepPass(search_range=2e-6, step_size=1e-6),
+        ],
         method=FocusMethod.LAPLACIAN,
     )
 
@@ -244,7 +245,7 @@ def test_report_v2_reads_each_acquisition_once(microscope, tmp_path):
 
     first, second = rows
     assert (first["planes"], first["path"]) == (
-        stack.metadata.get_z_count(),
+        len(stack.metadata.z_positions),
         stack.filepath,
     )
     assert not isinstance(first["overview"], str)  # None, or NaN on pandas 3

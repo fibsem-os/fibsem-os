@@ -283,8 +283,8 @@ def test_fluorescence_image_metadata():
     assert metadata.system_info == {"microscope": "Test Scope"}
 
     # Test helper methods
-    assert metadata.get_channel_count() == 2
-    assert metadata.get_z_count() == 3
+    assert len(metadata.channels) == 2
+    assert len(metadata.z_positions) == 3
 
     # Test add_channel
     channel3 = FluorescenceChannelMetadata(
@@ -296,7 +296,7 @@ def test_fluorescence_image_metadata():
         offset=200.0,
     )
     metadata.add_channel(channel3)
-    assert metadata.get_channel_count() == 3
+    assert len(metadata.channels) == 3
     assert metadata.channels[2].name == "Cy5"
 
 

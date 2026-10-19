@@ -145,30 +145,6 @@ class AutoFocusSettings(Configurable):
         """True if any pass is enabled (i.e. autofocus should run)."""
         return any(p.enabled for p in self.passes)
 
-    @classmethod
-    def from_coarse_fine(
-        cls,
-        coarse_range: float = 50e-6,
-        coarse_step: float = 5e-6,
-        coarse_enabled: bool = True,
-        fine_range: float = 10e-6,
-        fine_step: float = 1e-6,
-        fine_enabled: bool = True,
-        method: "FocusMethod" = FocusMethod.TENENGRAD,
-        channel_name: Optional[str] = None,
-        **kwargs,
-    ) -> "AutoFocusSettings":
-        """Build a two-pass (coarse + fine) AutoFocusSettings."""
-        passes = [
-            FocusSweepPass(
-                search_range=coarse_range, step_size=coarse_step, enabled=coarse_enabled
-            ),
-            FocusSweepPass(
-                search_range=fine_range, step_size=fine_step, enabled=fine_enabled
-            ),
-        ]
-        return cls(method=method, passes=passes, channel_name=channel_name, **kwargs)
-
     def to_dict(self) -> dict:
         return encode(self)
 
