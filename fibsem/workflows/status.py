@@ -137,7 +137,7 @@ class TaskState:
 
 @dataclass(frozen=True, eq=False)
 class WorkflowStatusUpdate:
-    """One report on a task's lifecycle, from ``TaskManager._emit_status``.
+    """One report on a task's lifecycle, from ``BaseTaskManager._emit_report``.
 
     ``eq=False`` is load-bearing, for a different reason than ``TiledProgress``'s.
     Three fields hold lists, and ``WorkItem`` is a *mutable* dataclass, so it is

@@ -50,6 +50,7 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
     Lamella,
 )
+from fibsem.applications.autolamella.task_outputs import PreviewSources
 from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor import (
     AutoLamellaProtocolEditorWidget,
 )
@@ -1620,16 +1621,17 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._agent_request_described: Tuple[Optional[str], float] = (None, 0.0)
         # What the agent's waiting request would do: on the card,
         # on the image its values were measured on; on the views.
+        sources = PreviewSources(lambda: self.autolamella_ui.experiment)
         self.agent_previews = AgentPreviews(
             lambda: getattr(self, "view_controller", None),
-            reference_image=self._agent_proposal_image,
-            task_config=self._agent_task_config,
+            reference_image=sources.proposal_image,
+            task_config=sources.task_config,
             show_picture=self.agent_chip.card.set_image,
-            item_pose=self._agent_item_pose,
-            item_image=self._agent_item_image,
-            overview_image=self._agent_overview_image,
-            item_overview=self._agent_item_overview,
-            pending_proposal=self._agent_proposal,
+            item_pose=sources.item_pose,
+            item_image=sources.item_image,
+            overview_image=sources.overview_image,
+            item_overview=sources.item_overview,
+            pending_proposal=sources.pending_proposal,
         )
         self._agent_chip_timer = QTimer(self)
         self._agent_chip_timer.setInterval(1000)
@@ -3759,135 +3761,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             notification_service.show_toast(
                 "No experiment is recording: the agent can't hear messages", "warning"
             )
-
-    def _agent_task_config(self, item_name: str, task_name: str):
-        """An item's config for a task, for a waiting config edit's preview;
-        None when there is no such item or task."""
-        from fibsem.applications.autolamella.server.context import find_item
-
-        experiment = self.autolamella_ui.experiment
-        if experiment is None:
-            return None
-        lamella, refusal = find_item(experiment, item_name)
-        if refusal:
-            return None
-        return dict(lamella.task_config).get(task_name)
-
-    def _agent_item_pose(self, item_name: str, pose_name: str):
-        """Where an item's pose puts the stage, for a waiting pose request's
-        preview; None when there is no such item or pose."""
-        from fibsem.applications.autolamella.server.context import find_item
-
-        experiment = self.autolamella_ui.experiment
-        if experiment is None:
-            return None
-        lamella, refusal = find_item(experiment, item_name)
-        if refusal:
-            return None
-        pose = dict(lamella.poses).get(pose_name)
-        return getattr(pose, "stage_position", None)
-
-    def _agent_item_image(self, item_name: str):
-        """An item's last FIB image, the one its point of interest and
-        alignment area are drawn on: its last completed task's final one, else
-        the last one listed. None when it has none (FIB-1424)."""
-        from fibsem.applications.autolamella.server.context import find_item
-        from fibsem.applications.autolamella.task_outputs import (
-            lamella_images,
-            latest_task_image,
-        )
-        from fibsem.structures import FibsemImage
-
-        experiment = self.autolamella_ui.experiment
-        if experiment is None:
-            return None
-        lamella, refusal = find_item(experiment, item_name)
-        if refusal:
-            return None
-        listed = [f for f in lamella_images(lamella, "_ib.tif") if "alignment" not in f]
-        filename = latest_task_image(lamella, "_ib.tif") or (
-            listed[-1] if listed else ""
-        )
-        if not filename:
-            return None
-        try:
-            return FibsemImage.load(os.path.join(lamella.path, filename))
-        except Exception:  # noqa: BLE001 - a broken file: nothing to draw on
-            return None
-
-    def _agent_overview_image(self, grid_name: str, filename: str):
-        """A grid's recorded overview, for a waiting item_add's preview; None
-        when there is none, or it is not a beam image."""
-        from fibsem.applications.autolamella.server.context import (
-            AutoLamellaAppContext,
-        )
-        from fibsem.structures import FibsemImage
-
-        experiment = self.autolamella_ui.experiment
-        grid = experiment.get_grid_by_name(grid_name) if experiment else None
-        if grid is None:
-            return None
-        path = AutoLamellaAppContext.recorded_grid_file(experiment, grid, filename)
-        try:
-            return FibsemImage.load(path) if path else None
-        except Exception:  # noqa: BLE001 - a fluorescence or broken file
-            return None
-
-    def _agent_item_overview(self, item_name: str):
-        """The latest overview of an item's grid, SEM before FIB: where a pose
-        off the live view is drawn instead. None when there is none."""
-        from fibsem.applications.autolamella.server.context import find_item
-        from fibsem.structures import FibsemImage
-        from fibsem.workflows.outputs import latest_item_output
-
-        experiment = self.autolamella_ui.experiment
-        if experiment is None:
-            return None
-        lamella, refusal = find_item(experiment, item_name)
-        grid = None if refusal else experiment.get_grid_for_lamella(lamella)
-        if grid is None:
-            return None
-        for role in ("overview_sem", "overview_fib"):
-            path = latest_item_output(experiment, grid, role)
-            if path is None:
-                continue
-            try:
-                return FibsemImage.load(path)
-            except Exception:  # noqa: BLE001 - a broken file: try the next
-                continue
-        return None
-
-    def _agent_proposal_pending(self, arguments: dict):
-        """``(item, proposal)``: the pending proposal a waiting
-        ``proposal_decide`` decides, by its id, else its item and task; None."""
-        experiment = self.autolamella_ui.experiment
-        if experiment is None:
-            return None
-        for item, task_name, proposal in experiment.pending_proposals():
-            if proposal.id == arguments.get("proposal_id") or (
-                not arguments.get("proposal_id")
-                and arguments.get("item_id") == item.id
-                and arguments.get("task_name") == task_name
-            ):
-                return item, proposal
-        return None
-
-    def _agent_proposal(self, arguments: dict):
-        """The pending proposal a waiting ``proposal_decide`` decides, or None."""
-        found = self._agent_proposal_pending(arguments)
-        return found[1] if found is not None else None
-
-    def _agent_proposal_image(self, arguments: dict):
-        """The image a waiting ``proposal_decide``'s values sit on: its proposal's
-        reference image. None when the proposal is not pending or has none."""
-        from fibsem.applications.autolamella.reference_images import (
-            load_reference_image,
-        )
-
-        found = self._agent_proposal_pending(arguments)
-        if found is None:
-            return None
-        return load_reference_image(self.autolamella_ui.experiment, *found)
 
     def _refresh_workflow_indicators(self) -> None:
         """Re-read the waiting/supervised/running state into the window chrome."""

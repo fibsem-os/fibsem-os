@@ -65,9 +65,10 @@ class BaseTaskManager:
     """What running a queue of (item, task) work needs, whatever the item is.
 
     The lamella and grid workflows share everything here: the queue, the two stop
-    intents and the token tasks poll, the run's signals, and the hook run context. What they do not share is the run loop, which
-    each subclass writes: what an item is, how it is looked up, when it is skipped
-    and what it costs to reach are the whole difference between the two.
+    intents and the token tasks poll, the run's signals, the hook run context and
+    the run loop. Each subclass says what an item's record is (``_record_for``),
+    when it is skipped and what it costs to reach (``_ready``), how a task runs on
+    it (``_run_task``) and how a run ends (``_complete``, ``_end_run``).
 
     ``queue_changed({queue_items, version})`` is emitted on whichever thread
     edited the queue. ``status(WorkflowStatusEvent)`` is a status line or a
@@ -409,6 +410,156 @@ class BaseTaskManager:
 
     def run(self, task_names: List[str], names: Optional[List[str]] = None) -> None:
         raise NotImplementedError
+
+    # --- The run loop: the same for every app; the steps below are each app's ---
+
+    # The line the workflow label closes a stopped run with.
+    CANCELLED_LINE = "Workflow cancelled by user."
+    # What the status reports say as a task starts, completes and fails, with
+    # ``{task}`` and ``{item}``.
+    TASK_LINES = (
+        "Starting {task} on {item}.",
+        "Completed {task} on {item}.",
+        "Error in {task} on {item}.",
+    )
+
+    def _run_queue(self) -> None:
+        """Process queue items until empty or stopped."""
+        self._before_run()
+        with self._recording():
+            self._fire_workflow_hook(HookEvent.WORKFLOW_STARTED)
+            try:
+                self._prepare()
+                self._run_items()
+            except Exception as e:
+                self._end_escaped_run(e)
+                raise
+
+    def _run_items(self) -> None:
+        while not self.is_stopped:
+            item = self._next_item()
+            if item is None:
+                if not self.queue.is_empty:
+                    self._stall()
+                break
+
+            # A stop_task click that landed between two tasks was aimed at the one
+            # that has just finished, not at this one.
+            self._task_stop_event.clear()
+
+            record = self._record_for(item)
+            if record is None or not self._ready(item, record):
+                continue
+
+            start, done, failed = self.TASK_LINES
+            lines = {"task": item.task_name, "item": record.name}
+            self._emit_report(
+                item=item,
+                item_name=record.name,
+                status=TaskStatus.InProgress,
+                msg=start.format(**lines),
+            )
+            err = self._run_single_task(item.task_name, record)
+            final_status = record.task_state.status
+            self.queue.mark_done(item, final_status)
+            self._emit_report(
+                item=item,
+                item_name=record.name,
+                status=final_status,
+                error_message=record.task_state.status_message,
+                task_duration=record.task_state.duration,
+                msg=(done if err is None else failed).format(**lines),
+            )
+            self._after_task(item, record)
+
+        self._end_run()
+
+    def _before_run(self) -> None:
+        """Before the run's first task."""
+
+    def _record_for(self, item: WorkItem) -> Optional[Any]:
+        """The record ``item`` runs on; None once the app has retired an item
+        whose record is gone."""
+        raise NotImplementedError
+
+    def _ready(self, item: WorkItem, record: Any) -> bool:
+        """The app's steps before a task starts. False when it retired the item
+        itself (skipped it, with its report and hook) or a stop came first."""
+        return True
+
+    def _run_task(self, task_name: str, record: Any) -> None:
+        """Run one task on one record; raises what the task raised."""
+        raise NotImplementedError
+
+    def _after_task(self, item: WorkItem, record: Any) -> None:
+        """After a task's end is reported."""
+
+    def _record_unstarted(self, record: Any, task_name: str) -> None:
+        """The history entry for a task that failed before it existed; by
+        default none."""
+
+    def _run_single_task(self, task_name: str, record: Any) -> Optional[Exception]:
+        """Execute one task on one record. Returns the exception, or None."""
+        recorded = len(record.task_history)
+        try:
+            self._run_task(task_name, record)
+        except Exception as e:
+            # The task records its own outcome before re-raising (FIB-490); this
+            # is the fallback for what fails before a task exists -- an unknown
+            # task name, a construction failure. The cancellation predicate is
+            # the task's, so the live state and the history cannot disagree.
+            if self.should_abort or isinstance(
+                e, (OperationCancelledError, InterruptedError)
+            ):
+                logging.info(f"Task {task_name} on {record.name} cancelled by user.")
+                record.task_state.status = TaskStatus.Cancelled
+                record.task_state.status_message = "Cancelled by user."
+            else:
+                logging.warning(
+                    f"Error running task {task_name} on {record.name}: {e}",
+                    exc_info=True,
+                )
+                record.task_state.status = TaskStatus.Failed
+                record.task_state.status_message = str(e)
+            # A task that failed before it existed left no history entry.
+            if len(record.task_history) == recorded:
+                self._record_unstarted(record, task_name)
+            self.experiment.save()
+            return e
+        try:
+            self.experiment.save()
+        except Exception as e:
+            self._result_not_saved(record, task_name, e)
+            raise
+        return None
+
+    def _end_run(self) -> None:
+        """The run's closing: cancelled, stalled or completed. The loop exits
+        when the queue drains *or* on Stop; only one of those is a finish."""
+        if self.is_stopped:
+            self._fire_workflow_hook(HookEvent.WORKFLOW_CANCELLED)
+            self._say(workflow_info=self.CANCELLED_LINE)
+        elif self.stalled:
+            # Drained with work that cannot run: not completed, not cancelled.
+            # The next Run picks up from there.
+            self._report_stall()
+        else:
+            self._complete()
+
+    def _complete(self) -> None:
+        """A run that drained with nothing left to do."""
+        self._fire_workflow_hook(HookEvent.WORKFLOW_COMPLETED)
+        self._say(workflow_info=self._completion_message())
+
+    def _completion_message(self) -> str:
+        raise NotImplementedError
+
+    def _say(
+        self, workflow_info: Optional[str] = None, status_bar: Optional[str] = None
+    ) -> None:
+        """A line for the workflow-information label or the status bar, that
+        gets out after a Stop too: the closing "cancelled" line is the point."""
+        post_status(self, "", workflow_info=workflow_info, status_bar=status_bar)
 
     def _end_unstarted_quietly(self, error: BaseException) -> None:
         try:

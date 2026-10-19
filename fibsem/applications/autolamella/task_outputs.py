@@ -13,11 +13,15 @@ from __future__ import annotations
 
 import glob
 import os
-from typing import Dict, List, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 
 from fibsem.applications.autolamella.structures import Lamella
 from fibsem.workflows.outputs import recorded_outputs
 from fibsem.workflows.status import TaskState
+
+if TYPE_CHECKING:
+    from fibsem.applications.autolamella.structures import Experiment
+    from fibsem.structures import FibsemImage
 
 
 def fluorescence_images(lamella: Lamella, *tasks: TaskState) -> List[str]:
@@ -151,3 +155,120 @@ def final_images_by_task(lamella: Lamella) -> List[Tuple[str, List[str]]]:
     """Each task's final reference images, in the order the tasks last ran: the
     tasks of ``images_by_task`` that left any."""
     return [(name, finals) for name, finals, _ in images_by_task(lamella) if finals]
+
+
+class PreviewSources:
+    """What the agent's previews read from the experiment open now: an item's
+    config, pose and images, a grid's overview, a pending proposal. Each
+    returns None when there is nothing to show."""
+
+    def __init__(self, experiment: Callable[[], Optional["Experiment"]]) -> None:
+        self._experiment = experiment
+
+    def _lamella(self, item_name: str) -> Optional[Lamella]:
+        experiment = self._experiment()
+        return experiment.get_lamella_by_name(item_name) if experiment else None
+
+    def task_config(self, item_name: str, task_name: str) -> Any:
+        """An item's config for a task, for a waiting config edit's preview."""
+        lamella = self._lamella(item_name)
+        return dict(lamella.task_config).get(task_name) if lamella else None
+
+    def item_pose(self, item_name: str, pose_name: str) -> Any:
+        """Where an item's pose puts the stage, for a waiting pose request."""
+        lamella = self._lamella(item_name)
+        if lamella is None:
+            return None
+        pose = dict(lamella.poses).get(pose_name)
+        return getattr(pose, "stage_position", None)
+
+    def item_image(self, item_name: str) -> Optional["FibsemImage"]:
+        """An item's last FIB image, the one its point of interest and
+        alignment area are drawn on: its last completed task's final one, else
+        the last one listed (FIB-1424)."""
+        from fibsem.structures import FibsemImage
+
+        lamella = self._lamella(item_name)
+        if lamella is None:
+            return None
+        listed = [f for f in lamella_images(lamella, "_ib.tif") if "alignment" not in f]
+        filename = latest_task_image(lamella, "_ib.tif") or (
+            listed[-1] if listed else ""
+        )
+        if not filename:
+            return None
+        try:
+            return FibsemImage.load(os.path.join(lamella.path, filename))
+        except Exception:  # noqa: BLE001 - a broken file: nothing to draw on
+            return None
+
+    def overview_image(self, grid_name: str, filename: str) -> Optional["FibsemImage"]:
+        """A grid's recorded overview, for a waiting item_add's preview; None
+        when it is not a beam image."""
+        from fibsem.applications.autolamella.server.context import (
+            AutoLamellaAppContext,
+        )
+        from fibsem.structures import FibsemImage
+
+        experiment = self._experiment()
+        grid = experiment.get_grid_by_name(grid_name) if experiment else None
+        if grid is None:
+            return None
+        path = AutoLamellaAppContext.recorded_grid_file(experiment, grid, filename)
+        try:
+            return FibsemImage.load(path) if path else None
+        except Exception:  # noqa: BLE001 - a fluorescence or broken file
+            return None
+
+    def item_overview(self, item_name: str) -> Optional["FibsemImage"]:
+        """The latest overview of an item's grid, SEM before FIB: where a pose
+        off the live view is drawn instead."""
+        from fibsem.structures import FibsemImage
+        from fibsem.workflows.outputs import latest_item_output
+
+        experiment = self._experiment()
+        lamella = self._lamella(item_name)
+        grid = experiment.get_grid_for_lamella(lamella) if lamella else None
+        if grid is None:
+            return None
+        for role in ("overview_sem", "overview_fib"):
+            path = latest_item_output(experiment, grid, role)
+            if path is None:
+                continue
+            try:
+                return FibsemImage.load(path)
+            except Exception:  # noqa: BLE001 - a broken file: try the next
+                continue
+        return None
+
+    def proposal_pending(self, arguments: dict) -> Optional[Tuple[Any, Any]]:
+        """``(item, proposal)``: the pending proposal a waiting
+        ``proposal_decide`` decides, by its id, else its item and task."""
+        experiment = self._experiment()
+        if experiment is None:
+            return None
+        for item, task_name, proposal in experiment.pending_proposals():
+            if proposal.id == arguments.get("proposal_id") or (
+                not arguments.get("proposal_id")
+                and arguments.get("item_id") == item.id
+                and arguments.get("task_name") == task_name
+            ):
+                return item, proposal
+        return None
+
+    def pending_proposal(self, arguments: dict) -> Any:
+        """The pending proposal a waiting ``proposal_decide`` decides."""
+        found = self.proposal_pending(arguments)
+        return found[1] if found is not None else None
+
+    def proposal_image(self, arguments: dict) -> Optional["FibsemImage"]:
+        """The image a waiting ``proposal_decide``'s values sit on: its
+        proposal's reference image."""
+        from fibsem.applications.autolamella.reference_images import (
+            load_reference_image,
+        )
+
+        found = self.proposal_pending(arguments)
+        if found is None:
+            return None
+        return load_reference_image(self._experiment(), *found)

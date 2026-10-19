@@ -450,7 +450,7 @@ def test_a_real_config_reaches_the_column_through_the_managers_own_payload(live)
 
     item = manager.queue.next()
     lamella = manager.experiment.get_lamella_by_name(item.item_name)
-    manager._emit_status(item=item, lamella=lamella, status=Status.InProgress)
+    manager._emit_report(item=item, item_name=lamella.name, status=Status.InProgress)
 
     assert column(widget)[1] == _fmt(sibling.estimated_duration)
     # Sanity, not a pin: a real task takes real time, and re-measuring a cost primitive

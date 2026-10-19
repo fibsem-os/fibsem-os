@@ -1,6 +1,6 @@
 """The typed record carried on `workflow_update_signal`'s `status` key (FIB-827).
 
-Nothing emits one yet -- `TaskManager._emit_status` still builds a dict, and both
+Nothing emits one yet -- `BaseTaskManager._emit_report` still builds a dict, and both
 consumers decode through `from_payload`, which accepts either. What is worth pinning
 before the producer flips is the shape, and in particular the two properties that are
 cheap to get wrong and expensive to notice: a record that cannot be hashed, and a
