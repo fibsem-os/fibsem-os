@@ -15,6 +15,7 @@ the milling service: draw, start, wait, one teardown. Every step ends once, with
 
 from __future__ import annotations
 
+import itertools
 import threading
 import time
 from contextlib import contextmanager
@@ -69,6 +70,7 @@ class MillingStep:
 
     It is all a monitor may do to the mill: read the milled time, ``report`` a
     reading onto ``readings``, ``end`` the step, or pause it (``paused``).
+    ``view`` is the view its live monitors need (``fib``, ``sem``, ``fm``), if any.
     """
 
     # Every reading reported in the step: {monitor, seq, milled_time, notable,
@@ -80,6 +82,7 @@ class MillingStep:
         index: int = 0,
         milling: Any = None,
         stage: Any = None,
+        seq: Optional[Callable[[], int]] = None,
     ):
         self.index = index
         # The milling service milling it, and the stage it is a step of (None
@@ -93,7 +96,13 @@ class MillingStep:
         self.pauses: List[Dict[str, Any]] = []
         self.notable: List[Dict[str, Any]] = []
         self._milled = 0.0
-        self._seq = 0
+        # Numbers each reading; the service's numbers run on across steps.
+        self._next_seq = seq or itertools.count(1).__next__
+        # The live monitors (those with a view) and the view they share.
+        self.live: List[Any] = []
+        self.view: Optional[str] = None
+        # The pattern is paused (by a monitor, or the service's pause).
+        self._held = False
         self._end: Optional[MillingStepEnd] = None
         self._beam_stopped = False
         self._lock = threading.Lock()
@@ -120,14 +129,36 @@ class MillingStep:
     def set_milled_time(self, seconds: float) -> None:
         self._milled = float(seconds)
 
+    def hold(self) -> None:
+        """The pattern is paused: no milled time until ``release``."""
+        self._held = True
+
+    def release(self) -> None:
+        self._held = False
+
+    @property
+    def held(self) -> bool:
+        """Whether the pattern is paused now."""
+        return self._held
+
+    def restore_view(self) -> None:
+        """Give the live monitors their view back: pausing and resuming the
+        pattern selects the milling view on some instruments (AutoScript)."""
+        for monitor in self.live:
+            monitor.guarded(monitor.restore_view)
+
     def report(
-        self, reading: Dict[str, Any], notable: bool = False, monitor: str = ""
+        self,
+        reading: Dict[str, Any],
+        notable: bool = False,
+        monitor: str = "",
+        keep: bool = True,
     ) -> None:
         """Put *reading* onto ``readings``. A notable one (a drop, a threshold
-        crossed, an error) is also kept for the step's record."""
+        crossed, an error) is also kept for the step's record, unless the record
+        has it already (*keep* False: a pause, the end)."""
         with self._lock:
-            self._seq += 1
-            seq = self._seq
+            seq = self._next_seq()
         entry = {
             "monitor": monitor,
             "seq": seq,
@@ -135,7 +166,7 @@ class MillingStep:
             "notable": notable,
             "reading": reading,
         }
-        if notable:
+        if notable and keep:
             self.notable.append(entry)
         self.readings.emit(entry)
 
@@ -169,7 +200,12 @@ class MillingStep:
                 yield
                 return
             self.milling._pause()
+            self.hold()
             self.pausing.set()
+            self.restore_view()
+            self.report(
+                {"paused": reason, "by": by}, notable=True, monitor="step", keep=False
+            )
             began = time.monotonic()
             timer = None
             if max_pause is not None:
@@ -195,7 +231,9 @@ class MillingStep:
                 try:
                     if not self.ending.is_set():
                         self.milling._resume()
+                        self.restore_view()
                 finally:
+                    self.release()
                     self.pausing.clear()
 
     def end_as(self, end: MillingStepEnd) -> bool:

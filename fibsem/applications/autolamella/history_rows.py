@@ -102,6 +102,17 @@ class MillingStageLine:
     strategy: str = ""
     said: str = ""
     figure: Optional[str] = None  # a figure the strategy saved, if still there
+    # What each of its monitors said (FIB-1481), a line each under the strategy.
+    monitors: List["MonitorLine"] = field(default_factory=list)
+
+
+@dataclass
+class MonitorLine:
+    """What one monitor said about one mill step of a stage."""
+
+    name: str  # "Intensity Drop", or "Intensity Drop · step 2" with several steps
+    said: str
+    figure: Optional[str] = None
 
 
 @dataclass
@@ -578,8 +589,32 @@ def milling_stages(operation: HistoryOperation) -> List[MillingStageLine]:
                 strategy=name if own_line else "",
                 said=said if own_line else "",
                 figure=figure,
+                monitors=_monitor_lines(stage),
             )
         )
+    return lines
+
+
+def _monitor_lines(stage: Dict[str, Any]) -> List[MonitorLine]:
+    """What a stage's monitors said, each step's in turn; the step named only
+    when the stage milled in several."""
+    steps = [s for s in stage.get("steps") or [] if isinstance(s, dict)]
+    lines = []
+    for number, step in enumerate(steps, start=1):
+        for record in step.get("monitors") or []:
+            if not isinstance(record, dict):
+                continue
+            name = _strategy_name(record.get("name")) or "Monitor"
+            if len(steps) > 1:
+                name = f"{name} · step {number}"
+            said = _strategy_said(record)
+            if record.get("error"):
+                said = " · ".join(p for p in (f"failed: {record['error']}", said) if p)
+            figure = record.get("figure")
+            figure = figure if figure and os.path.isfile(str(figure)) else None
+            lines.append(
+                MonitorLine(name=name, said=said or "nothing to say", figure=figure)
+            )
     return lines
 
 
