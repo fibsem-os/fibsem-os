@@ -13,8 +13,7 @@ except Exception:
 
 from datetime import datetime
 
-import numpy as np
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal
+from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
     QAction,
@@ -115,6 +114,7 @@ from fibsem.ui.tokens import (
 )
 from fibsem.ui.widgets import preflight
 from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
+from fibsem.ui.widgets.coincidence_menu import CoincidenceMenu
 from fibsem.ui.widgets.connection_dialog import connect_to_microscope_dialog
 from fibsem.ui.widgets.notifications import ToastManager
 from fibsem.ui.widgets.run_border import RunBorder, run_border_state
@@ -341,9 +341,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     which open windows of their own (FIB-407).
     """
 
-    # CoincidenceProgress from the align-loop worker, delivered on the GUI thread
-    coincidence_progress = pyqtSignal(object)
-
     def __init__(self):
         super().__init__()
         self.setWindowTitle(f"AutoLamella v{get_version_string()} ")
@@ -417,18 +414,22 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         self.action_new_experiment = QAction("New Experiment", self)
         set_menu_icon(self.action_new_experiment, "mdi:plus")
-        self.action_new_experiment.triggered.connect(self._on_new_experiment)
+        self.action_new_experiment.triggered.connect(
+            lambda: self.autolamella_ui.create_experiment()
+        )
 
         self.action_load_experiment = QAction("Load Experiment", self)
         set_menu_icon(self.action_load_experiment, "mdi:folder-open")
-        self.action_load_experiment.triggered.connect(self._on_load_experiment)
+        self.action_load_experiment.triggered.connect(
+            lambda: self.autolamella_ui.load_experiment()
+        )
 
         self.action_open_experiment_directory = QAction(
             "Open Experiment Directory", self
         )
         set_menu_icon(self.action_open_experiment_directory, "mdi:folder")
         self.action_open_experiment_directory.triggered.connect(
-            self._on_open_experiment_directory
+            lambda: self.autolamella_ui._open_experiment_directory()
         )
 
         self.action_export_image = QAction("Export Image...", self)
@@ -436,9 +437,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_export_image.triggered.connect(self._on_export_image)
 
         self.action_load_protocol = QAction("Load Protocol", self)
-        self.action_load_protocol.triggered.connect(self._on_load_protocol)
+        self.action_load_protocol.triggered.connect(
+            lambda: self.autolamella_ui.load_protocol()
+        )
         self.action_save_protocol = QAction("Save Protocol", self)
-        self.action_save_protocol.triggered.connect(self._on_save_protocol)
+        self.action_save_protocol.triggered.connect(
+            lambda: self.autolamella_ui.export_protocol_ui()
+        )
         self.action_exit = QAction("Exit", self)
         self.action_exit.triggered.connect(self.close)  # type: ignore
 
@@ -501,7 +506,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # experiment; it is a file viewer.
         view_menu.addSeparator()
         self.action_open_fm_image_viewer = QAction("Fluorescence Image Viewer...", self)
-        self.action_open_fm_image_viewer.triggered.connect(self._open_fm_image_viewer)
+        self.action_open_fm_image_viewer.triggered.connect(
+            lambda: self.autolamella_ui._open_fm_image_viewer()
+        )
         view_menu.addAction(self.action_open_fm_image_viewer)
 
         # keep the checkable / enabled state honest each time the menu opens
@@ -535,7 +542,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if reporting_menu is None:
             raise RuntimeError("Failed to create Reporting submenu in AutoLamella UI.")
         self.action_generate_report = QAction("Generate Report", self)
-        self.action_generate_report.triggered.connect(self._on_generate_report)
+        self.action_generate_report.triggered.connect(
+            lambda: self.autolamella_ui.action_generate_report()
+        )
         # Report v2 (FIB-1036): an HTML page built from events.jsonl. Offered
         # beside the PDF report until it has been checked against real runs.
         self.action_generate_report_v2 = QAction("Generate Report v2 (preview)", self)
@@ -546,7 +555,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_generate_report_v2.triggered.connect(self._on_generate_report_v2)
         self.action_generate_overview_plot = QAction("Generate Overview Plot", self)
         self.action_generate_overview_plot.triggered.connect(
-            self._on_generate_overview_plot
+            lambda: self.autolamella_ui.action_generate_overview_plot()
         )
         # The grid screening report (FIB-1057): what the Grids tab holds, as a PDF.
         self.action_generate_grid_report = QAction(
@@ -646,7 +655,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_report_issue.triggered.connect(self._on_report_issue)
         help_menu.addAction(self.action_report_issue)
         self.action_about = QAction("About", self)
-        self.action_about.triggered.connect(self._show_about_dialog)
+        self.action_about.triggered.connect(
+            lambda: self.autolamella_ui.open_information_dialog()
+        )
         help_menu.addAction(self.action_about)
 
         # add development menu
@@ -666,69 +677,29 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         )
         dev_menu.addAction(self.action_open_coincidence_viewer)
 
-        coincidence_menu = dev_menu.addMenu("Coincidence Alignment")
-        if coincidence_menu is None:
-            raise RuntimeError("Failed to create Coincidence Alignment menu.")
-
-        self.action_ensure_coincidence = QAction(
-            "Run SEM/FIB Coincidence Alignment", self
+        self.coincidence_menu = CoincidenceMenu(
+            dev_menu,
+            microscope=lambda: getattr(self.autolamella_ui, "microscope", None),
+            experiment_path=lambda: getattr(
+                getattr(self.autolamella_ui, "experiment", None), "path", None
+            ),
+            show_toast=self.show_toast,
+            parent=self,
         )
-        self.action_ensure_coincidence.setToolTip(
-            "Measure the SEM/FIB coincidence at the current position and "
-            "correct it with vertical moves until within tolerance (FIB-868)"
-        )
-        self.action_ensure_coincidence.triggered.connect(
-            lambda: self._on_ensure_coincidence(reference=BeamType.ELECTRON)
-        )
-        coincidence_menu.addAction(self.action_ensure_coincidence)
-
-        self.action_ensure_coincidence_fib = QAction(
-            "Run SEM/FIB Coincidence Alignment (keep FIB view)", self
-        )
-        self.action_ensure_coincidence_fib.setToolTip(
-            "As above, but what is centred in the FIB view stays put and the "
-            "SEM view is the one corrected - the case after choosing a site "
-            "in the FIB view"
-        )
-        self.action_ensure_coincidence_fib.triggered.connect(
-            lambda: self._on_ensure_coincidence(reference=BeamType.ION)
-        )
-        coincidence_menu.addAction(self.action_ensure_coincidence_fib)
-        self.coincidence_progress.connect(self._on_coincidence_progress)
-
-        self.action_tilt_coincident_milling = QAction(
-            "Tilt to Milling Angle (Coincident)", self
-        )
-        self.action_tilt_coincident_milling.setToolTip(
-            "Tilt straight to the configured milling angle and restore "
-            "SEM/FIB coincidence there, keeping the FIB view (FIB-899)"
-        )
-        self.action_tilt_coincident_milling.triggered.connect(
-            lambda: self._on_tilt_coincident("milling")
-        )
-        coincidence_menu.addAction(self.action_tilt_coincident_milling)
-
-        self.action_tilt_coincident_sem = QAction(
-            "Tilt to SEM Orientation (Coincident)", self
-        )
-        self.action_tilt_coincident_sem.setToolTip(
-            "Tilt straight to the SEM orientation and restore SEM/FIB "
-            "coincidence there, keeping the FIB view (FIB-899)"
-        )
-        self.action_tilt_coincident_sem.triggered.connect(
-            lambda: self._on_tilt_coincident("sem")
-        )
-        coincidence_menu.addAction(self.action_tilt_coincident_sem)
 
         self._dev_menu = dev_menu
         self._dev_menu.menuAction().setVisible(self.dev_mode)
 
         action_load_fm_configuration = QAction("Load Fluorescence Configuration", self)
-        action_load_fm_configuration.triggered.connect(self._import_fm_configuration)
+        action_load_fm_configuration.triggered.connect(
+            lambda: self.autolamella_ui.import_fm_configuration()
+        )
         dev_menu.addAction(action_load_fm_configuration)
 
         action_save_fm_configuration = QAction("Save Fluorescence Configuration", self)
-        action_save_fm_configuration.triggered.connect(self._export_fm_configuration)
+        action_save_fm_configuration.triggered.connect(
+            lambda: self.autolamella_ui.export_fm_configuration()
+        )
         dev_menu.addAction(action_save_fm_configuration)
 
         dev_menu.addSeparator()
@@ -737,7 +708,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             "Export Targeting ML Data...", self
         )
         self.action_export_targeting_ml_data.triggered.connect(
-            self._on_export_targeting_ml_data
+            lambda: self.autolamella_ui.export_targeting_ml_data()
         )
         dev_menu.addAction(self.action_export_targeting_ml_data)
 
@@ -962,21 +933,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         system_widget.settings = result.settings
         system_widget.update_ui()
 
-    def _on_new_experiment(self):
-        """Handle New Experiment action."""
-        if self.autolamella_ui is not None:
-            self.autolamella_ui.create_experiment()
-
-    def _on_load_experiment(self):
-        """Handle Load Experiment action."""
-        if self.autolamella_ui is not None:
-            self.autolamella_ui.load_experiment()
-
-    def _on_open_experiment_directory(self):
-        """Handle Open Experiment Directory action."""
-        if self.autolamella_ui is not None:
-            self.autolamella_ui._open_experiment_directory()
-
     def _on_export_image(self):
         """Handle Export Image action: pick an image, starting in the experiment."""
         from fibsem.ui.widgets.image_export_dialog import open_image_export
@@ -986,21 +942,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if experiment is not None and experiment.path is not None:
             start_dir = os.fspath(experiment.path)
         open_image_export(self, start_dir)
-
-    def _on_load_protocol(self):
-        """Handle Load Protocol action."""
-        if self.autolamella_ui is not None:
-            self.autolamella_ui.load_protocol()
-
-    def _on_save_protocol(self):
-        """Handle Save Protocol action."""
-        if self.autolamella_ui is not None:
-            self.autolamella_ui.export_protocol_ui()
-
-    def _show_about_dialog(self):
-        """Show the About dialog."""
-        if self.autolamella_ui is not None:
-            self.autolamella_ui.open_information_dialog()
 
     def _on_report_issue(self):
         """Open the Report an Issue dialog."""
@@ -1161,11 +1102,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return
         image_widget.run_autofocus()
 
-    def _on_generate_report(self):
-        """Handle Generate Report action."""
-        if self.autolamella_ui is not None:
-            self.autolamella_ui.action_generate_report()
-
     def _on_generate_report_v2(self):
         """Tools → Reporting → Generate Report v2 (preview): write the page from
         the experiment's events.jsonl, under its folder, and open it; then
@@ -1244,189 +1180,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return
         self.tab_widget.setCurrentWidget(tab)
         tab.generate_report()
-
-    def _on_generate_overview_plot(self):
-        """Handle Generate Overview Plot action."""
-        if self.autolamella_ui is not None:
-            self.autolamella_ui.action_generate_overview_plot()
-
-    def _on_export_targeting_ml_data(self):
-        """Handle Export Targeting ML Data action."""
-        if self.autolamella_ui is not None:
-            self.autolamella_ui.export_targeting_ml_data()
-
-    def _open_fm_image_viewer(self):
-        """Open the Fluorescence Image Viewer widget."""
-        if self.autolamella_ui is not None:
-            self.autolamella_ui._open_fm_image_viewer()
-
-    def _import_fm_configuration(self):
-        """Load a fluorescence microscope configuration."""
-        if self.autolamella_ui is not None:
-            self.autolamella_ui.import_fm_configuration()
-
-    def _export_fm_configuration(self):
-        """Save the current fluorescence microscope configuration."""
-        if self.autolamella_ui is not None:
-            self.autolamella_ui.export_fm_configuration()
-
-    def _on_ensure_coincidence(self, reference: BeamType = BeamType.ELECTRON) -> None:
-        """Run the coincidence align loop at the current position (dev tool).
-
-        The loop acquires its own image pairs and may move the stage
-        several times; runs off the GUI thread, reports by toast. `reference`
-        is the view whose centre is preserved.
-        """
-        microscope = getattr(self.autolamella_ui, "microscope", None)
-        if microscope is None:
-            self.show_toast("Not connected to a microscope.", "warning")
-            return
-        actions = self._coincidence_actions()
-        for action in actions:
-            action.setEnabled(False)
-        worker = self._ensure_coincidence_worker(reference)
-        worker.returned.connect(self._on_ensure_coincidence_finished)
-        worker.errored.connect(
-            lambda exc: self.show_toast(f"Coincidence alignment failed: {exc}", "error")
-        )
-        worker.finished.connect(lambda: [a.setEnabled(True) for a in actions])
-        worker.start()
-
-    def _coincidence_diagnostics_path(self) -> str:
-        """Where a run's diagnostic figures go: the open experiment, else the log."""
-        from fibsem import config as cfg
-        from fibsem.alignment import ALIGNMENT_SUBDIR
-
-        experiment = getattr(self.autolamella_ui, "experiment", None)
-        base = experiment.path if experiment is not None else cfg.LOG_PATH
-        return os.path.join(base, ALIGNMENT_SUBDIR)
-
-    def _ensure_coincidence_worker(self, reference: BeamType):
-        from fibsem.ui.qt.threading import thread_worker
-
-        microscope = self.autolamella_ui.microscope
-        diagnostics_path = self._coincidence_diagnostics_path()
-        # progress crosses back to the GUI thread as a signal, never a call
-        on_progress = self.coincidence_progress.emit
-
-        @thread_worker
-        def _run():
-            from fibsem.alignment.coincidence import ensure_coincident
-            from fibsem.alignment.plotting import save_coincidence_diagnostics
-
-            result = ensure_coincident(
-                microscope, on_progress=on_progress, reference=reference
-            )
-            save_coincidence_diagnostics(result, diagnostics_path)
-            return result
-
-        return _run()
-
-    def _on_coincidence_progress(self, progress) -> None:
-        self.show_toast(progress.describe(), "info", temporary=True)
-        # show each measured pair in the views as it lands, the same way a
-        # spot burn pushes its post-burn image: `imaging.show` is what the image
-        # widget listens to
-        m = progress.measurement
-        if m is None or m.sem_image is None or m.fib_image is None:
-            return
-        imaging = self.autolamella_ui.microscope.imaging
-        if imaging is not None:
-            imaging.show(m.sem_image)
-            imaging.show(m.fib_image)
-
-    def _on_ensure_coincidence_finished(self, result) -> None:
-        final_dz = result.final.dz * 1e6
-        where = f" Diagnostics in {self._coincidence_diagnostics_path()}"
-        if result.converged:
-            self.show_toast(
-                f"Coincident: residual {final_dz:+.2f} um after "
-                f"{result.moves_applied} corrective move(s)."
-                f"{' Coarse pass used.' if result.coarse_used else ''}{where}",
-                "success",
-                duration=10000,
-            )
-        else:
-            self.show_toast(
-                f"Not coincident: {result.reason} "
-                f"(last measured dz {final_dz:+.2f} um, "
-                f"{result.moves_applied} move(s) applied).{where}",
-                "warning",
-                duration=10000,
-            )
-
-    def _coincidence_actions(self):
-        return (
-            self.action_ensure_coincidence,
-            self.action_ensure_coincidence_fib,
-            self.action_tilt_coincident_milling,
-            self.action_tilt_coincident_sem,
-        )
-
-    def _on_tilt_coincident(self, where: str) -> None:
-        """Tilt to the milling angle or the SEM orientation, coincident (dev tool).
-
-        Tilts straight there and runs the coincidence loop at the target,
-        stepping only if the measurement refuses; keeps the FIB view.
-        """
-        from fibsem.ui.qt.threading import thread_worker
-
-        microscope = getattr(self.autolamella_ui, "microscope", None)
-        if microscope is None:
-            self.show_toast("Not connected to a microscope.", "warning")
-            return
-        actions = self._coincidence_actions()
-        for action in actions:
-            action.setEnabled(False)
-        on_progress = self.coincidence_progress.emit
-
-        @thread_worker
-        def _run():
-            from fibsem.alignment.coincidence import tilt_coincident
-            from fibsem.transformations import get_stage_tilt_from_milling_angle
-
-            if where == "milling":
-                target = get_stage_tilt_from_milling_angle(
-                    microscope, np.radians(microscope.system.stage.milling_angle)
-                )
-            else:
-                target = microscope.get_orientation("SEM").t
-            return tilt_coincident(
-                microscope, target, reference=BeamType.ION, on_progress=on_progress
-            )
-
-        worker = _run()
-        worker.returned.connect(self._on_tilt_coincident_finished)
-        worker.errored.connect(
-            lambda exc: self.show_toast(f"Coincident tilt failed: {exc}", "error")
-        )
-        worker.finished.connect(lambda: [a.setEnabled(True) for a in actions])
-        worker.start()
-
-    def _on_tilt_coincident_finished(self, result) -> None:
-        tilts = ", ".join(f"{np.degrees(t):.1f}" for t in result.tilts)
-        if result.converged:
-            offset = (
-                f" Surface {result.tilt_axis_offset * 1e6:+.0f} um off the tilt axis;"
-                f" walk of {abs(result.walk) * 1e6:.0f} um"
-                f"{' undone' if result.walk_undone else ' left'}."
-                if result.tilt_axis_offset is not None
-                else ""
-            )
-            self.show_toast(
-                f"Coincident at {np.degrees(result.tilts[-1]):.1f} deg after "
-                f"{result.moves_applied} corrective move(s) (tilts visited: {tilts})."
-                f"{offset}",
-                "success",
-                duration=10000,
-            )
-        else:
-            self.show_toast(
-                f"Not coincident at the target tilt: {result.reason} "
-                f"(tilts visited: {tilts}, {result.moves_applied} move(s) applied).",
-                "warning",
-                duration=10000,
-            )
 
     def _open_coincidence_milling_viewer(self):
         """Open the Coincidence Milling Viewer dialog."""
@@ -2077,10 +1830,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             new_experiment=self.action_new_experiment,
             load_experiment=self.action_load_experiment,
             open_experiment_directory=self.action_open_experiment_directory,
-            on_new_experiment=self._on_new_experiment,
-            on_load_experiment=self._on_load_experiment,
+            on_new_experiment=self.autolamella_ui.create_experiment,
+            on_load_experiment=self.autolamella_ui.load_experiment,
             on_connect=self._on_connect_microscope,
-            on_about=self._show_about_dialog,
+            on_about=self.autolamella_ui.open_information_dialog,
             toast_manager=self.toast_manager,
         )
         self.tab_widget.setCornerWidget(self.experiment_header)
