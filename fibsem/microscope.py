@@ -1033,10 +1033,6 @@ class FibsemMicroscope(ABC):
         position = self._get_saved_manipulator_position(name)
         return self.move_manipulator_absolute(position)
 
-    def set_channel(self, channel: BeamType) -> None:
-        """Make `channel` the active view and device, for the calls that act on it."""
-        raise self._unsupported("set_channel")
-
     def _build_stage_movement(self, service: Optional[type] = None) -> None:
         """Build the stage movement service over the stage and beams, of the driver's
         class (`StageMovement` by default); the view-corrected moves then go to it.

@@ -57,9 +57,26 @@ def test_the_service_makes_the_same_sdk_calls_logs_and_results(recording):
     different = [
         {"key": c["key"], "old": old[c["key"]], "new": c["new"]}
         for c in recording["cases"]
-        if c["new"] != old[c["key"]]
+        if _without_the_channel_select(c) != old[c["key"]]
     ]
     assert different == [], json.dumps(different[:2], indent=1)
+
+
+# The one change from the old code: drawing and clearing select the milling beam's
+# view first, as starting already did, so an FM acquisition beside a coincidence mill
+# can't leave the patterns in another view.
+ION_SELECT = [
+    ["call", "connection.imaging.set_active_view", [2], "{}"],
+    ["call", "connection.imaging.set_active_device", [2], "{}"],
+]
+
+
+def _without_the_channel_select(case):
+    result, calls, messages = case["new"]
+    if case["key"] == "clear" or case["key"].startswith("draw"):
+        assert calls[:2] == ION_SELECT, case["key"]
+        calls = calls[2:]
+    return [result, calls, messages]
 
 
 def test_the_old_methods_go_through_the_service(recording):
@@ -82,6 +99,8 @@ def test_finish_milling_puts_back_what_setup_found(recording):
     assert facts["after"] == facts["before"]
     writes = [entry[1] for entry in facts["finish"][1] if entry[0] in ("set", "call")]
     assert writes == [
+        "connection.imaging.set_active_view",
+        "connection.imaging.set_active_device",
         "connection.patterning.clear_patterns",
         "connection.beams.ion_beam.high_voltage.value",
         "connection.beams.ion_beam.beam_current.value",

@@ -66,7 +66,7 @@ class TestTheFMTakesTheChannel:
     def test_a_bare_set_leaves_it_on_the_fm(self, microscope):
         """The shape of the bug: this is what a property getter does. `objective.state`
         called it on every stage poll, and the poll runs constantly."""
-        microscope.set_channel(BeamType.ELECTRON)
+        microscope._connection.set_channel(BeamType.ELECTRON)
 
         microscope.fm.set_active_channel()
 
@@ -74,7 +74,7 @@ class TestTheFMTakesTheChannel:
         assert microscope._connection.imaging_system.active_device == FM_ACTIVE_DEVICE
 
     def test_the_scope_hands_it_back(self, microscope):
-        microscope.set_channel(BeamType.ELECTRON)
+        microscope._connection.set_channel(BeamType.ELECTRON)
 
         with microscope.fm.active_channel():
             assert microscope._connection.imaging_system.active_view == FM_ACTIVE_VIEW
@@ -86,7 +86,7 @@ class TestTheFMTakesTheChannel:
     def test_it_restores_whatever_was_there(self, microscope):
         """Not a hardcoded beam view: it puts back what it found."""
         for beam_type in (BeamType.ELECTRON, BeamType.ION):
-            microscope.set_channel(beam_type)
+            microscope._connection.set_channel(beam_type)
 
             with microscope.fm.active_channel():
                 pass
@@ -96,7 +96,7 @@ class TestTheFMTakesTheChannel:
     def test_the_device_comes_back_with_the_view(self, microscope):
         """A view left correct with the device still on the FM would be a half-restore
         that reads as clean."""
-        microscope.set_channel(BeamType.ION)
+        microscope._connection.set_channel(BeamType.ION)
 
         with microscope.fm.active_channel():
             pass
@@ -105,7 +105,7 @@ class TestTheFMTakesTheChannel:
 
     def test_it_hands_it_back_when_the_body_fails(self, microscope):
         """An FM that is off, or answering slowly, must not strand the beam side."""
-        microscope.set_channel(BeamType.ION)
+        microscope._connection.set_channel(BeamType.ION)
 
         with pytest.raises(RuntimeError):
             with microscope.fm.active_channel():
@@ -117,7 +117,7 @@ class TestTheFMTakesTheChannel:
         """A tileset holds the channel for the whole run and each tile opens a scope
         inside it. An inner scope that restored would put the beam view back between
         every pair of tiles."""
-        microscope.set_channel(BeamType.ION)
+        microscope._connection.set_channel(BeamType.ION)
 
         with microscope.fm.active_channel():
             with microscope.fm.active_channel():
@@ -134,7 +134,7 @@ class TestTheFMTakesTheChannel:
         """The path everything above the driver actually takes:
         `FluorescenceMicroscope.acquire_image` is the chokepoint every FM image passes
         through, and it is scoped."""
-        microscope.set_channel(BeamType.ELECTRON)
+        microscope._connection.set_channel(BeamType.ELECTRON)
 
         microscope.fm.acquire_image()
 

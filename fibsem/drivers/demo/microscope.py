@@ -272,9 +272,6 @@ class DemoMicroscope(FibsemMicroscope):
         self._connection.disconnect()
         logging.info("Disconnected from Demo Microscope")
 
-    def set_channel(self, channel: BeamType) -> None:
-        self._connection.set_channel(channel)
-
     # The beam methods, on the beam devices.
 
     def _spot_and_beam(

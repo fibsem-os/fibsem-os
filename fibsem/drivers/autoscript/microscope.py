@@ -626,7 +626,7 @@ class ThermoMicroscope(FibsemMicroscope):
         # selects the channel; any other outcome leaves it on the electron beam.
         self.fm = self._build_fluorescence(self.driver_name)
         if not isinstance(self.fm, ThermoFisherFluorescenceMicroscope):
-            self.set_channel(BeamType.ELECTRON)
+            self._connection.set_channel(BeamType.ELECTRON)
 
         self._apply_fluorescence_calibration()
         self._warn_on_fluorescence_geometry()
@@ -744,15 +744,6 @@ class ThermoMicroscope(FibsemMicroscope):
         if device is None:
             logging.info("No sample loader: grids are exchanged by hand.")
         return device
-
-    def set_channel(self, channel: BeamType) -> None:
-        """
-        Set the active channel for the microscope.
-
-        Args:
-            channel (BeamType): The beam type to set as the active channel.
-        """
-        self._connection.set_channel(channel)
 
     @property
     def rotation_centre(self) -> Optional[Tuple[float, float]]:
