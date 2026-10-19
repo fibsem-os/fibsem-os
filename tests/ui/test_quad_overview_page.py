@@ -250,7 +250,7 @@ def test_the_window_feeds_the_page_its_experiment(world):
         quad_overview_page=page,
         overview_tab=SimpleNamespace(refresh_positions=lambda: None),
         view_controller=None,
-        autolamella_ui=SimpleNamespace(experiment=world.experiment),
+        experiment=world.experiment,
     )
     AutoLamellaSingleWindowUI._refresh_overview_positions(window)
     assert page.experiment is world.experiment
@@ -423,13 +423,11 @@ def test_a_hidden_page_finds_new_overviews_when_shown(world):
 @pytest.fixture
 def window(qapp, tmp_path):
     window = AutoLamellaSingleWindowUI()
-    window.autolamella_ui.system_widget.connect_to_microscope()
-    window.autolamella_ui.adopt_experiment(
-        Experiment.create(path=tmp_path, name="refresh")
-    )
+    window.system_widget.connect_to_microscope()
+    window.adopt_experiment(Experiment.create(path=tmp_path, name="refresh"))
     yield window
-    if window.autolamella_ui.microscope is not None:
-        window.autolamella_ui.microscope.disconnect()
+    if window.microscope is not None:
+        window.microscope.disconnect()
     # closeEvent ends in app.quit(); on the shared QApplication that latches.
     original_quit = qapp.quit
     qapp.quit = lambda: None
@@ -446,8 +444,8 @@ def test_the_window_tells_the_page_to_look_for_new_overviews(window, source):
     )
 
     page = window.quad_overview_page
-    experiment = window.autolamella_ui.experiment
-    microscope = window.autolamella_ui.microscope
+    experiment = window.experiment
+    microscope = window.microscope
     assert page._index == {}
     _overview(
         microscope,
@@ -459,7 +457,7 @@ def test_the_window_tells_the_page_to_look_for_new_overviews(window, source):
     if source == "overview acquired":
         window.overview_tab.beam_tab.acquiring_changed.emit(False)
     else:
-        window.autolamella_ui.run_relay.status.emit(WorkflowStatusEvent())
+        window.run_relay.status.emit(WorkflowStatusEvent())
     assert [o.path for o in page._index.get(NO_GRID, [])] == [
         os.path.join(str(experiment.path), "overview-image-new.tif")
     ]

@@ -11,8 +11,8 @@ def main_ui(qapp):
 
     window = module.AutoLamellaSingleWindowUI()
     yield window
-    if window.autolamella_ui.microscope is not None:
-        window.autolamella_ui.microscope.disconnect()
+    if window.microscope is not None:
+        window.microscope.disconnect()
     # closeEvent ends in app.quit(); on the shared test QApplication that latches
     # an interrupt. Run the real close cleanup with quit stubbed out.
     original_quit = qapp.quit
@@ -29,7 +29,7 @@ def _tab_labels(ui):
 
 
 def test_the_sample_tab_lives_for_the_connection(main_ui):
-    ui = main_ui.autolamella_ui
+    ui = main_ui
     assert "Sample" not in _tab_labels(ui)
     assert ui.panel.sample_widget is None
 

@@ -75,8 +75,8 @@ def window(qapp, tmp_path, checkpoint):
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
 
     win = module.AutoLamellaSingleWindowUI()
-    win.autolamella_ui.system_widget.connect_to_microscope()
-    ui = win.autolamella_ui
+    win.system_widget.connect_to_microscope()
+    ui = win
     experiment = Experiment(path=tmp_path, name="undercut-exp")
     os.makedirs(experiment.path, exist_ok=True)
     experiment.task_protocol = AutoLamellaTaskProtocol(
@@ -132,7 +132,7 @@ def _pump(qapp, predicate, timeout_s=60.0) -> bool:
 
 
 def _start(window):
-    ui = window.autolamella_ui
+    ui = window
     experiment = ui.experiment
     manager = TaskManager(
         microscope=ui.microscope,
@@ -170,7 +170,7 @@ def _asking(lamella):
 def test_each_detection_is_answered_on_the_detection_tab_and_the_stage_follows(
     window, qapp
 ):
-    ui = window.autolamella_ui
+    ui = window
     lamella = ui.experiment.positions[0]
     microscope = ui.microscope
     moves = []

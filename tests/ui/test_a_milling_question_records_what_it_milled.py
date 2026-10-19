@@ -47,7 +47,7 @@ def ui(qapp, tmp_path):
         {ROUGH: MillRoughTaskConfig(task_name=ROUGH)},
         supervised=[ROUGH],
     ) as window:
-        yield window.autolamella_ui
+        yield window
 
 
 def _config() -> FibsemMillingTaskConfig:

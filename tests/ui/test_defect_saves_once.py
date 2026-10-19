@@ -1,6 +1,6 @@
 """Toggling a defect on the Experiment tab writes the experiment once, not twice.
 
-`AutoLamellaUI.lamella_list.defect_changed` had two handlers and both called
+The Experiment tab's `lamella_list.defect_changed` had two handlers and both called
 `experiment.save()` -- one on the widget, one on the window that embeds it. Marking a
 lamella defective therefore serialised the whole experiment twice, back to back: 1.7 s
 of frozen GUI at 100 lamella against 0.84 s for the one write that was needed
@@ -14,8 +14,8 @@ that reintroduces it, so "somebody still saves" is asserted as hard as "only onc
 
 Split across two mechanisms because the two halves live in different places:
 
-* the widget can be built (`AutoLamellaUI(parent_ui=None)` constructs offscreen), so
-  what it does on the signal is checked by driving it;
+* the Experiment tab can be built on its own, so what it does on the signal is
+  checked by driving it;
 * the window cannot -- `AutoLamellaSingleWindowUI` builds a vispy quad view and a
   napari viewer, neither of which survives `QT_QPA_PLATFORM=offscreen` -- so its half is
   read off the source, the same way `test_lamella_defect_sync.py` handles the minimap
@@ -52,7 +52,7 @@ class TestTheWidgetNoLongerSavesItself:
     ):
         """Driven, not read: the connection is what changed, so emit and count.
 
-        `parent_ui=None` leaves the window's handler unconnected, which is precisely
+        The tab on its own leaves the window's handler unconnected, which is precisely
         the seam wanted -- whatever this widget does on its own is all that is counted.
 
         The widget is given a real experiment, and that is load-bearing rather than
@@ -62,7 +62,8 @@ class TestTheWidgetNoLongerSavesItself:
         putting it back. Without an experiment the test asserts nothing at all.
         """
         from fibsem.applications.autolamella.structures import Experiment
-        from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
+        from fibsem.applications.autolamella.ui.experiment_tab import ExperimentTab
+        from fibsem.workflows.session import AppSession
 
         experiment = Experiment(path=str(tmp_path), name="defect-save-count")
         experiment.positions.append(lamella)
@@ -70,11 +71,12 @@ class TestTheWidgetNoLongerSavesItself:
         saves = []
         monkeypatch.setattr(Experiment, "save", lambda self, **kw: saves.append(1))
 
-        widget = AutoLamellaUI(parent_ui=None)
+        session = AppSession()
+        widget = ExperimentTab(session, movement_widget=lambda: None)
         try:
-            widget.experiment = experiment
+            session.experiment = experiment
             lamella.defect = DefectState(state=DefectType.FAILURE)
-            widget.panel.experiment_tab.lamella_list.defect_changed.emit(lamella)
+            widget.lamella_list.defect_changed.emit(lamella)
         finally:
             widget.close()
 
@@ -117,7 +119,7 @@ class TestTheWindowStillSaves:
         Counted by parsing rather than by substring: the widget and the window both
         contain other `defect_changed.connect(...)` calls for their other lists (the
         card container, the workflow widget), and a text search cannot tell those from
-        the one under test. The chain `autolamella_ui.panel.experiment_tab.lamella_list.defect_changed`
+        the one under test. The chain `panel.experiment_tab.lamella_list.defect_changed`
         names it exactly.
         """
         from pathlib import Path
@@ -131,7 +133,6 @@ class TestTheWindowStillSaves:
                 AutoLamellaMainUI,
                 [
                     "self",
-                    "autolamella_ui",
                     "panel",
                     "experiment_tab",
                     "lamella_list",

@@ -45,8 +45,8 @@ def window(qapp, tmp_path):
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
 
     win = module.AutoLamellaSingleWindowUI()
-    win.autolamella_ui.system_widget.connect_to_microscope()
-    ui = win.autolamella_ui
+    win.system_widget.connect_to_microscope()
+    ui = win
     experiment = Experiment(path=tmp_path, name="state-exp")
     os.makedirs(experiment.path, exist_ok=True)
     experiment.task_protocol = AutoLamellaTaskProtocol(
@@ -101,7 +101,7 @@ def _pump(qapp, predicate, timeout_s=15.0) -> bool:
 
 def _start(window):
     """The real task, its real run, on a worker thread."""
-    ui = window.autolamella_ui
+    ui = window
     experiment = ui.experiment
     manager = TaskManager(
         microscope=ui.microscope,
@@ -152,7 +152,7 @@ def _prompt_is_down(ui) -> bool:
 
 
 def test_the_question_is_asked_on_the_prompt_bar_and_continue_decides_it(window, qapp):
-    ui = window.autolamella_ui
+    ui = window
     lamella = ui.experiment.positions[0]
     task, thread, seen = _start(window)
 
@@ -187,7 +187,7 @@ def test_the_question_is_asked_on_the_prompt_bar_and_continue_decides_it(window,
 
 
 def test_answered_by_an_agent_the_prompt_comes_down_too(window, qapp):
-    ui = window.autolamella_ui
+    ui = window
     lamella = ui.experiment.positions[0]
     task, thread, seen = _start(window)
     assert _pump(qapp, lambda: _prompt_is_up(ui))
@@ -216,7 +216,7 @@ def test_answered_by_an_agent_the_prompt_comes_down_too(window, qapp):
 
 
 def test_stop_takes_the_prompt_down_and_withdraws_the_question(window, qapp):
-    ui = window.autolamella_ui
+    ui = window
     lamella = ui.experiment.positions[0]
     task, thread, seen = _start(window)
     assert _pump(qapp, lambda: _prompt_is_up(ui))

@@ -408,8 +408,8 @@ def main_ui(qapp):
 
     window = module.AutoLamellaSingleWindowUI()
     yield window
-    if window.autolamella_ui.microscope is not None:
-        window.autolamella_ui.microscope.disconnect()
+    if window.microscope is not None:
+        window.microscope.disconnect()
     original_quit = qapp.quit
     qapp.quit = lambda: None
     try:
@@ -501,7 +501,7 @@ def test_the_grids_view_sits_beside_lamella(main_ui):
 def test_an_inventory_on_the_grids_tab_reaches_the_run_view(main_ui, tmp_path):
     """The Grids tab creates the records; the Workflow view's rows must follow
     without a reload."""
-    ui = main_ui.autolamella_ui
+    ui = main_ui
     ui.system_widget.connect_to_microscope()
     microscope = ui.microscope
     microscope.stage_device.compustage = False
@@ -541,7 +541,7 @@ def test_an_inventory_on_the_sample_view_reaches_the_grids_tab_and_run_view(
     grids it lists, and the Grids tab and the Workflow view's rows follow, with
     nothing pressed on the Grids tab. An autoloader, so the Sample view has a
     loader panel to fire from."""
-    ui = main_ui.autolamella_ui
+    ui = main_ui
     config = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
     monkeypatch.setattr(
         ui.system_widget, "load_configuration", lambda configuration_name=None: config
@@ -573,9 +573,9 @@ def test_an_inventory_on_the_sample_view_reaches_the_grids_tab_and_run_view(
 def test_a_grid_run_from_the_window_on_a_fixed_holder(main_ui, tmp_path, monkeypatch):
     """End to end: the Run button on the Grids view, the worker, the manager, the
     shared timeline and the record. A fixed holder, so no exchange."""
-    ui = main_ui.autolamella_ui
+    ui = main_ui
     # The post-run summary is modal; under offscreen it would block forever.
-    from fibsem.applications.autolamella.ui import AutoLamellaUI as ui_module
+    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as ui_module
 
     class _NoDialog:
         def __init__(self, *args, **kwargs):
@@ -663,7 +663,7 @@ def test_adding_grids_to_a_running_queue_appends_their_blocks(
         plan_grid_run,
     )
 
-    ui = main_ui.autolamella_ui
+    ui = main_ui
     ui.system_widget.connect_to_microscope()
     microscope = ui.microscope
     microscope.stage_device.compustage = False
@@ -743,7 +743,7 @@ def test_run_and_screen_all_name_the_grids_running_for_the_first_time(
     Screen all grids runs on the grids its own dialog names."""
     from fibsem.applications.autolamella.ui import workflow_tab
 
-    ui = main_ui.autolamella_ui
+    ui = main_ui
     ui.system_widget.connect_to_microscope()
     microscope = ui.microscope
     microscope.stage_device.compustage = False
@@ -907,7 +907,7 @@ def test_the_window_prices_a_grid_run_for_the_confirmation_and_the_timeline(
     gets a figure for every step of the plan."""
     from fibsem.applications.autolamella.ui import workflow_tab
 
-    ui = main_ui.autolamella_ui
+    ui = main_ui
     ui.system_widget.connect_to_microscope()
     microscope = ui.microscope
     microscope.stage_device.compustage = False

@@ -316,8 +316,8 @@ def main_ui(qapp):
 
     window = module.AutoLamellaSingleWindowUI()
     yield window
-    if window.autolamella_ui.microscope is not None:
-        window.autolamella_ui.microscope.disconnect()
+    if window.microscope is not None:
+        window.microscope.disconnect()
     original_quit = qapp.quit
     qapp.quit = lambda: None
     try:
@@ -356,7 +356,7 @@ def test_the_grid_workflow_flag_is_gone():
 
 
 def test_the_tab_follows_the_connection_and_the_experiment(main_ui, tmp_path):
-    ui = main_ui.autolamella_ui
+    ui = main_ui
     assert main_ui.grids_tab.stage is None
     ui.system_widget.connect_to_microscope()
     assert main_ui.grids_tab.stage is ui.microscope.sample_handling
@@ -380,7 +380,7 @@ def test_an_experiment_with_no_lamella_tasks_loads(main_ui, tmp_path):
     """A grid-only experiment, or one built from an empty protocol: the lamella
     task editor has nothing to show and says so by hiding its columns, where it
     used to raise on the empty selection and stop the whole experiment load."""
-    ui = main_ui.autolamella_ui
+    ui = main_ui
     ui.system_widget.connect_to_microscope()
     exp = Experiment(path=tmp_path, name="exp")
     (tmp_path / "exp").mkdir()
@@ -397,7 +397,7 @@ def test_a_grid_task_added_on_the_protocol_tab_reaches_the_run_view(main_ui, tmp
     """The Workflow tab's Grids view lists the protocol's grid tasks; a task
     added on the Protocol tab's Grid page used to appear there only after an
     inventory or an experiment reload."""
-    ui = main_ui.autolamella_ui
+    ui = main_ui
     ui.system_widget.connect_to_microscope()
     exp = Experiment(path=tmp_path, name="exp")
     (tmp_path / "exp").mkdir()
@@ -421,7 +421,7 @@ def test_a_load_from_a_card_reaches_the_sample_view(main_ui, tmp_path):
     from fibsem.ui.FibsemSampleWidget import FibsemSampleWidget
     from tests.fixtures.demo_stage import demo_grid_loader
 
-    ui = main_ui.autolamella_ui
+    ui = main_ui
     ui.system_widget.connect_to_microscope()
     microscope = ui.microscope
     microscope.stage_device.compustage = True
@@ -459,7 +459,7 @@ def _window_with_magazine(main_ui, tmp_path):
     from fibsem.ui.FibsemSampleWidget import FibsemSampleWidget
     from tests.fixtures.demo_stage import demo_grid_loader
 
-    ui = main_ui.autolamella_ui
+    ui = main_ui
     ui.system_widget.connect_to_microscope()
     microscope = ui.microscope
     microscope.stage_device.compustage = True

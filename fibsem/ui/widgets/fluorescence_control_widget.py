@@ -392,7 +392,7 @@ class FMControlWidget(QWidget):
         us when the widget dies: psygnal's weak ref is to the *Python* object, and
         ``deleteLater`` destroys the C++ one underneath it while that stays alive. The
         host tears down without stopping the acquisition first
-        (``AutoLamellaUI.setup_experiment``), so a disconnect during a live run leaves
+        (``MicroscopePanel.show_microscope``), so a disconnect during a live run leaves
         a worker emitting into these slots (FIB-550).
         """
         for signal, slot in (
@@ -424,7 +424,7 @@ class FMControlWidget(QWidget):
 
         # Clear the FM panel's live chrome. The canvas outlives this widget, and the
         # host tears down without stopping the acquisition first
-        # (`AutoLamellaUI.setup_experiment`), so the green border and badge would
+        # (`MicroscopePanel.show_microscope`), so the green border and badge would
         # otherwise stay on a panel with nothing left to drive them.
         controller = self._view_controller()
         if controller is not None:

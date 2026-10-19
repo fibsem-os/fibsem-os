@@ -55,8 +55,8 @@ def window(qapp, tmp_path):
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
 
     win = module.AutoLamellaSingleWindowUI()
-    win.autolamella_ui.system_widget.connect_to_microscope()
-    ui = win.autolamella_ui
+    win.system_widget.connect_to_microscope()
+    ui = win
     experiment = Experiment(path=tmp_path, name="setup-exp")
     os.makedirs(experiment.path, exist_ok=True)
     experiment.task_protocol = AutoLamellaTaskProtocol(
@@ -123,7 +123,7 @@ def _pump(qapp, predicate, timeout_s=30.0) -> bool:
 
 def _start(window):
     """The real task, its real run, on a worker thread."""
-    ui = window.autolamella_ui
+    ui = window
     experiment = ui.experiment
     manager = TaskManager(
         microscope=ui.microscope,
@@ -165,7 +165,7 @@ def _prompt_says(ui, words: str) -> bool:
 
 
 def test_the_tilt_and_the_position_are_confirmed_on_the_prompt_bar(window, qapp):
-    ui = window.autolamella_ui
+    ui = window
     lamella = ui.experiment.positions[0]
     microscope = ui.microscope
     assert microscope.get_current_milling_angle() == pytest.approx(38.0)
@@ -262,7 +262,7 @@ def test_the_tilt_and_the_position_are_confirmed_on_the_prompt_bar(window, qapp)
 def test_skip_does_not_tilt(window, qapp):
     """Skip rejects the tilt: the task carries on at the angle it is at, and
     asks for the position there."""
-    ui = window.autolamella_ui
+    ui = window
     experiment = ui.experiment
     lamella = experiment.positions[0]
     microscope = ui.microscope

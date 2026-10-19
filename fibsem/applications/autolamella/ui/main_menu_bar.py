@@ -8,11 +8,11 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from PyQt5.QtCore import QObject, Qt, pyqtSignal
 from PyQt5.QtGui import QKeySequence
-from PyQt5.QtWidgets import QAction, QDialog, QMainWindow, QMessageBox
+from PyQt5.QtWidgets import QAction, QDialog, QMessageBox
 
 import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella.ui.attention import play_notification_sound
@@ -23,6 +23,11 @@ from fibsem.ui.stylesheets import GRAY_ICON_COLOR
 from fibsem.ui.widgets.coincidence_menu import CoincidenceMenu
 from fibsem.ui.widgets.connection_dialog import connect_to_microscope_dialog
 from fibsem.ui.widgets.run_border import RunBorder
+
+if TYPE_CHECKING:
+    from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
+        AutoLamellaSingleWindowUI,
+    )
 
 
 def set_menu_icon(action: QAction, key: str) -> None:
@@ -41,9 +46,8 @@ class MainMenuBar(QObject):
 
     def __init__(
         self,
-        window: QMainWindow,
+        window: AutoLamellaSingleWindowUI,
         *,
-        ui: Callable[[], Any],
         view_controller: Callable[[], Any],
         run_border: RunBorder,
         preferences: Any,
@@ -53,11 +57,10 @@ class MainMenuBar(QObject):
         on_coincidence_viewer: Callable[[], None],
         parent: Optional[QObject] = None,
     ) -> None:
-        """Builds the menus on *window*'s menu bar. *ui* is the window's
-        ``AutoLamellaUI``; *preferences* are the ones read at start-up."""
+        """Builds the menus on *window*'s menu bar, whose actions they run;
+        *preferences* are the ones read at start-up."""
         super().__init__(parent)
         self._window = window
-        self._ui = ui
         self._view_controller = view_controller
         self._run_border = run_border
         self._show_toast = show_toast
@@ -105,13 +108,13 @@ class MainMenuBar(QObject):
         self.action_new_experiment = QAction("New Experiment", self._window)
         set_menu_icon(self.action_new_experiment, "mdi:plus")
         self.action_new_experiment.triggered.connect(
-            lambda: self._ui().create_experiment()
+            lambda: self._window.create_experiment()
         )
 
         self.action_load_experiment = QAction("Load Experiment", self._window)
         set_menu_icon(self.action_load_experiment, "mdi:folder-open")
         self.action_load_experiment.triggered.connect(
-            lambda: self._ui().load_experiment()
+            lambda: self._window.load_experiment()
         )
 
         self.action_open_experiment_directory = QAction(
@@ -119,7 +122,7 @@ class MainMenuBar(QObject):
         )
         set_menu_icon(self.action_open_experiment_directory, "mdi:folder")
         self.action_open_experiment_directory.triggered.connect(
-            lambda: self._ui()._open_experiment_directory()
+            lambda: self._window._open_experiment_directory()
         )
 
         self.action_export_image = QAction("Export Image...", self._window)
@@ -127,10 +130,12 @@ class MainMenuBar(QObject):
         self.action_export_image.triggered.connect(self._on_export_image)
 
         self.action_load_protocol = QAction("Load Protocol", self._window)
-        self.action_load_protocol.triggered.connect(lambda: self._ui().load_protocol())
+        self.action_load_protocol.triggered.connect(
+            lambda: self._window.load_protocol()
+        )
         self.action_save_protocol = QAction("Save Protocol", self._window)
         self.action_save_protocol.triggered.connect(
-            lambda: self._ui().export_protocol_ui()
+            lambda: self._window.export_protocol_ui()
         )
         self.action_exit = QAction("Exit", self._window)
         self.action_exit.triggered.connect(self._window.close)
@@ -197,7 +202,7 @@ class MainMenuBar(QObject):
             "Fluorescence Image Viewer...", self._window
         )
         self.action_open_fm_image_viewer.triggered.connect(
-            lambda: self._ui()._open_fm_image_viewer()
+            lambda: self._window._open_fm_image_viewer()
         )
         view_menu.addAction(self.action_open_fm_image_viewer)
 
@@ -233,7 +238,7 @@ class MainMenuBar(QObject):
             raise RuntimeError("Failed to create Reporting submenu in AutoLamella UI.")
         self.action_generate_report = QAction("Generate Report", self._window)
         self.action_generate_report.triggered.connect(
-            lambda: self._ui().action_generate_report()
+            lambda: self._window.action_generate_report()
         )
         # Report v2 (FIB-1036): an HTML page built from events.jsonl. Offered
         # beside the PDF report until it has been checked against real runs.
@@ -249,7 +254,7 @@ class MainMenuBar(QObject):
             "Generate Overview Plot", self._window
         )
         self.action_generate_overview_plot.triggered.connect(
-            lambda: self._ui().action_generate_overview_plot()
+            lambda: self._window.action_generate_overview_plot()
         )
         # The grid screening report (FIB-1057): what the Grids tab holds, as a PDF.
         self.action_generate_grid_report = QAction(
@@ -350,7 +355,7 @@ class MainMenuBar(QObject):
         help_menu.addAction(self.action_report_issue)
         self.action_about = QAction("About", self._window)
         self.action_about.triggered.connect(
-            lambda: self._ui().open_information_dialog()
+            lambda: self._window.open_information_dialog()
         )
         help_menu.addAction(self.action_about)
 
@@ -373,8 +378,8 @@ class MainMenuBar(QObject):
 
         self.coincidence_menu = CoincidenceMenu(
             dev_menu,
-            microscope=lambda: self._ui().microscope,
-            experiment_path=lambda: getattr(self._ui().experiment, "path", None),
+            microscope=lambda: self._window.microscope,
+            experiment_path=lambda: getattr(self._window.experiment, "path", None),
             show_toast=self._show_toast,
             parent=self,
         )
@@ -385,7 +390,7 @@ class MainMenuBar(QObject):
             "Load Fluorescence Configuration", self._window
         )
         action_load_fm_configuration.triggered.connect(
-            lambda: self._ui().panel.import_fm_configuration()
+            lambda: self._window.panel.import_fm_configuration()
         )
         dev_menu.addAction(action_load_fm_configuration)
 
@@ -393,7 +398,7 @@ class MainMenuBar(QObject):
             "Save Fluorescence Configuration", self._window
         )
         action_save_fm_configuration.triggered.connect(
-            lambda: self._ui().panel.export_fm_configuration()
+            lambda: self._window.panel.export_fm_configuration()
         )
         dev_menu.addAction(action_save_fm_configuration)
 
@@ -403,7 +408,7 @@ class MainMenuBar(QObject):
             "Export Targeting ML Data...", self
         )
         self.action_export_targeting_ml_data.triggered.connect(
-            lambda: self._ui().export_targeting_ml_data()
+            lambda: self._window.export_targeting_ml_data()
         )
         dev_menu.addAction(self.action_export_targeting_ml_data)
 
@@ -546,10 +551,10 @@ class MainMenuBar(QObject):
         """
         from fibsem.applications.autolamella.scripting import ScriptContext
 
-        experiment = self._ui().experiment
+        experiment = self._window.experiment
         if experiment is None:
             return None, "Load an experiment to run scripts"
-        if self._ui().session.runner.is_running:
+        if self._window.session.runner.is_running:
             # tasks mutate lamella state on a worker thread, so a script reading
             # mid-workflow would get a torn snapshot.
             return None, "Unavailable while a workflow is running"
@@ -557,7 +562,7 @@ class MainMenuBar(QObject):
         return ScriptContext(
             experiment=experiment,
             log=logging.info,
-            microscope=self._ui().microscope,
+            microscope=self._window.microscope,
         ), ""
 
     def connect_microscope(self):
@@ -567,12 +572,12 @@ class MainMenuBar(QObject):
         the application follows its `connected_signal`, so routing through it means
         the dialog needs to know nothing about who cares.
         """
-        system_widget = self._ui().system_widget
+        system_widget = self._window.system_widget
         result = connect_to_microscope_dialog(
             parent=self._window,
             microscope=system_widget.microscope,
             settings=system_widget.settings,
-            workflow_running=self._ui().session.runner.is_running,
+            workflow_running=self._window.session.runner.is_running,
         )
         if not result.changed:
             return
@@ -588,7 +593,7 @@ class MainMenuBar(QObject):
         """Handle Export Image action: pick an image, starting in the experiment."""
         from fibsem.ui.widgets.image_export_dialog import open_image_export
 
-        experiment = self._ui().experiment
+        experiment = self._window.experiment
         start_dir = ""
         if experiment is not None and experiment.path is not None:
             start_dir = os.fspath(experiment.path)
@@ -598,8 +603,8 @@ class MainMenuBar(QObject):
         """Open the Report an Issue dialog."""
         from fibsem.ui.widgets.bug_report_widget import open_bug_report_dialog
 
-        experiment = self._ui().experiment
-        microscope = self._ui().microscope
+        experiment = self._window.experiment
+        microscope = self._window.microscope
         open_bug_report_dialog(
             experiment_path=str(experiment.path) if experiment is not None else None,
             microscope=microscope,
@@ -614,7 +619,7 @@ class MainMenuBar(QObject):
         connection uses -- and so the live microscope is handed over, rather than the
         wizard opening a second client against the same instrument.
         """
-        self._ui().system_widget.run_guided_setup()
+        self._window.system_widget.run_guided_setup()
 
     def _on_show_plugins(self):
         """Open the read-only listing of registered extensions."""
@@ -696,7 +701,7 @@ class MainMenuBar(QObject):
         """F2: acquire the selected view (SEM / FIB / FM), if a microscope is connected
         and an acquisition isn't already running."""
         view = self._view_controller().selected_view
-        ui = self._ui()
+        ui = self._window
         if view in (BeamType.ELECTRON, BeamType.ION):
             image_widget = ui.panel.image_widget
             if image_widget is None:
@@ -730,7 +735,7 @@ class MainMenuBar(QObject):
             BeamType.ION,
         ):
             return None
-        return self._ui().panel.image_widget
+        return self._window.panel.image_widget
 
     def _hotkey_toggle_live(self) -> None:
         """F6: toggle live acquisition on the selected SEM/FIB beam."""
@@ -765,7 +770,7 @@ class MainMenuBar(QObject):
         thumbnails, and the PDF takes a browser a few seconds. Each says when it
         is done, or why it could not be.
         """
-        experiment = self._ui().experiment
+        experiment = self._window.experiment
         if experiment is None:
             self._show_toast("Open an experiment to report on.", "warning")
             return

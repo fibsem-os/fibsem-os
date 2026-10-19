@@ -265,16 +265,19 @@ def test_the_guard_finds_the_real_milling_widget_on_a_real_host(qapp):
 
     It is the check that was missing: click-to-move went unguarded through every mill in
     AutoLamella, because `FibsemUI` publishes the `MillingTaskViewerWidget` as
-    `milling_widget` and `AutoLamellaUI` keeps the same widget as
+    `milling_widget` and the panel keeps the same widget as
     `milling_task_config_widget`. The old lookup read the first name only and the
     `hasattr` turned the miss into a silent skip.
 
     Deliberately asserts on the *resolved object*, not on an attribute name. Naming the
     attribute here would re-create the original bug the moment the widget moves again.
     """
-    from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
+    from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
+        AutoLamellaSingleWindowUI,
+    )
+    from tests.fixtures.main_window import close_window
 
-    ui = AutoLamellaUI(parent_ui=None)
+    ui = AutoLamellaSingleWindowUI()
     ui.system_widget.connect_to_microscope()
     qapp.processEvents()
     try:
@@ -282,7 +285,7 @@ def test_the_guard_finds_the_real_milling_widget_on_a_real_host(qapp):
         found = control._milling_widget()
 
         assert found is not None, (
-            "the guard cannot see a milling widget on AutoLamellaUI, so click-to-move "
+            "the guard cannot see a milling widget on the panel, so click-to-move "
             "is unguarded during a mill"
         )
         assert found.is_milling is False, "precondition: nothing should be milling"
@@ -311,7 +314,7 @@ def test_the_guard_finds_the_real_milling_widget_on_a_real_host(qapp):
         assert dispatched == [], "the stage was moved during a mill"
     finally:
         ui.panel.movement_widget._teardown_connections()
-        ui.close()  # and with it the event recorder
+        close_window(ui)  # and with it the event recorder
         ui.microscope.disconnect()
         ui.deleteLater()
 

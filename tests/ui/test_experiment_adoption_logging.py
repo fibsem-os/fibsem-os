@@ -21,12 +21,14 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from fibsem.applications.autolamella.structures import Experiment  # noqa: E402
-from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI  # noqa: E402
+from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (  # noqa: E402
+    AutoLamellaSingleWindowUI,
+)
 from fibsem.workflows.session import EXPERIMENT, AppSession  # noqa: E402
 
 
 class _StubUI:
-    """The parts of AutoLamellaUI that adopt_experiment touches."""
+    """The parts of the window that adopt_experiment touches."""
 
     def __init__(self):
         self.session = AppSession()
@@ -67,7 +69,7 @@ def test_adopting_an_experiment_points_logging_at_its_logfile(
     experiment = Experiment.create(path=tmp_path, name="exp")
     ui = _StubUI()
 
-    AutoLamellaUI.adopt_experiment(ui, experiment)
+    AutoLamellaSingleWindowUI.adopt_experiment(ui, experiment)
 
     logfile = Path(experiment.path) / "logfile.log"
     assert logfile.is_file()
@@ -88,7 +90,7 @@ def test_adopting_an_experiment_still_does_the_rest_of_the_wiring(
     experiment = Experiment.create(path=tmp_path, name="exp")
     ui = _StubUI()
 
-    AutoLamellaUI.adopt_experiment(ui, experiment)
+    AutoLamellaSingleWindowUI.adopt_experiment(ui, experiment)
 
     assert ui.experiment is experiment
     assert ui.disconnected == 1
@@ -105,8 +107,8 @@ def test_a_second_adoption_moves_logging_to_the_new_experiment(
     second = Experiment.create(path=tmp_path / "b", name="exp")
     ui = _StubUI()
 
-    AutoLamellaUI.adopt_experiment(ui, first)
-    AutoLamellaUI.adopt_experiment(ui, second)
+    AutoLamellaSingleWindowUI.adopt_experiment(ui, first)
+    AutoLamellaSingleWindowUI.adopt_experiment(ui, second)
 
     logging.info("belongs to the second experiment")
     for handler in logging.getLogger().handlers:
@@ -126,7 +128,7 @@ def test_previewing_an_experiment_leaves_logging_alone(tmp_path, quiet_root_logg
     happens to be browsing -- the bug this issue is about."""
     experiment = Experiment.create(path=tmp_path, name="exp")
     ui = _StubUI()
-    AutoLamellaUI.adopt_experiment(ui, experiment)
+    AutoLamellaSingleWindowUI.adopt_experiment(ui, experiment)
 
     other = Experiment.create(path=tmp_path / "elsewhere", name="other")
     before = [getattr(h, "baseFilename", "") for h in logging.getLogger().handlers]

@@ -275,7 +275,7 @@ class FibsemSpotBurnWidget(QWidget):
                 pass
 
     # ------------------------------------------------------------------
-    # Activation lifecycle (called by the workflow via AutoLamellaUI)
+    # Activation lifecycle (called by the workflow via MicroscopePanel)
     # ------------------------------------------------------------------
 
     def set_active(self) -> None:

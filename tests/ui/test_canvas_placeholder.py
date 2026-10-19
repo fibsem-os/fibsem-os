@@ -1,6 +1,7 @@
 """What an empty canvas says, and the quad's FM panel on a system with no FM."""
 
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -39,11 +40,6 @@ def test_a_placeholder_does_not_cover_an_image():
     assert "No fluorescence microscope available" in _texts(canvas)
 
 
-class _UI:
-    def __init__(self, microscope):
-        self.microscope = microscope
-
-
 class _Scope:
     def __init__(self, fm):
         self.fm = fm
@@ -64,7 +60,7 @@ def test_the_fm_panel_says_when_there_is_no_fm(microscope, expected):
     from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
 
     host = AutoLamellaSingleWindowUI.__new__(AutoLamellaSingleWindowUI)
-    host.autolamella_ui = _UI(microscope)
+    host.session = SimpleNamespace(microscope=microscope)
     host.view_controller = MicroscopeViewController()
     AutoLamellaSingleWindowUI._refresh_fm_placeholder(host)
 
