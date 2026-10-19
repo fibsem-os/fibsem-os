@@ -1413,7 +1413,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="grid_set_note",
-        description="Keep a note on a grid's record, as the Grids tab's Note does; an empty note clears it. Apart from the verdict, so judging the grid again keeps it. Saved.",
+        description="Keep a note on a grid's record, as the Grids tab's Note does; an empty note clears it. Apart from the verdict, so judging the grid again keeps it. Saved, and a note (not a clearing) goes on the record as your note on the grid.",
         method="POST",
         path="/app/experiment/grids/{grid_name}/note",
         level="drive",

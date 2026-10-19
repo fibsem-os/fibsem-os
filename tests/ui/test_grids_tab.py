@@ -293,6 +293,30 @@ class TestCards:
         tab.cards.set_mode("cozy")
 
 
+def test_the_operator_s_grid_note_is_their_note_on_the_record(tab, arctis, experiment):
+    from fibsem.acting import OPERATOR, current_actor
+    from fibsem.workflows.actions import NOTE
+
+    grid = GridRecord(name="G1")
+    experiment.add_grid(grid)
+    recorded = []
+
+    def record(kind, payload):
+        recorded.append((kind, payload, current_actor()))
+
+    arctis.session.record_signal.connect(record)
+    try:
+        tab._on_note(grid, "thin ice")
+        tab._on_note(grid, "")  # cleared: not a note
+    finally:
+        arctis.session.record_signal.disconnect(record)
+
+    assert grid.description == ""
+    assert [r for r in recorded if r[0] == NOTE] == [
+        (NOTE, {"text": "thin ice", "item_id": grid.id, "item_name": "G1"}, OPERATOR)
+    ]
+
+
 def test_on_a_fixed_holder_there_is_nothing_to_load(qapp, experiment):
     microscope, _ = utils.setup_session(manufacturer="Demo")
     microscope.stage_device.compustage = False

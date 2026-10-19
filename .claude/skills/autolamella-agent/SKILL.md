@@ -151,6 +151,8 @@ Its lines:
 - `AGENT OFF` and `AGENT BACK`: the operator set the level to Off and back.
 - `MESSAGE id=…`: the operator wrote to you from the Agent card. See
   *Messages from the operator*.
+- `NOTE from the operator on <grid>`: the operator kept a note on a grid.
+  It is not to you; nothing to answer.
 
 A workflow's end is not the end of the session: the next one may start from
 the app at any time, or from you. Keep the watcher running until the operator

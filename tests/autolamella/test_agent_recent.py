@@ -323,6 +323,10 @@ def test_actions_and_notes_on_the_record_make_the_same_rows():
     )
     recent.add(_record("note", {"text": "skip 03", "id": "ab12"}, actor=OPERATOR))
     recent.add(_record("note", {"text": "skipping 03", "reply_to": "ab12"}))
+    # The operator's note on a grid is not to the agent.
+    assert not recent.add(
+        _record("note", {"text": "thin ice", "item_name": "G1"}, actor=OPERATOR)
+    )
     # The operator's own stop is not the agent's row.
     assert not recent.add(
         _record("action", {"what": "Stop the run", "stops": "workflow"}, OPERATOR)

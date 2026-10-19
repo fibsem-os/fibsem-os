@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
+from fibsem.acting import OPERATOR, acting
+
 ACTION = "action"
 NOTE = "note"
 
@@ -55,3 +57,9 @@ def note_record(
         payload.update(item_id=item_id, item_name=item_name)
     payload.update({k: v for k, v in fields.items() if v is not None and v != ""})
     return payload
+
+
+def record_operator_action(microscope: Any, what: str, **fields: Any) -> None:
+    """The operator's act at a control, on the microscope's record."""
+    with acting(OPERATOR):
+        microscope.record_event(ACTION, action_record(what, **fields))

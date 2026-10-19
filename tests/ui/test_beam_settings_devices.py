@@ -185,3 +185,27 @@ def test_the_current_choices_follow_a_voltage_change():
 
     combo = widget.beam_current_combo
     assert [combo.itemData(i) for i in range(combo.count())] == currents[target]
+
+
+def test_a_change_at_a_control_is_the_operator_s_act_on_the_record():
+    from fibsem.acting import OPERATOR, current_actor
+    from fibsem.workflows.actions import ACTION
+
+    microscope = _demo()
+    widget = _widget(microscope, I)
+    recorded = []
+
+    def record(kind, payload):
+        recorded.append((kind, payload, current_actor()))
+
+    microscope.session.record_signal.connect(record)
+    try:
+        widget.hfw_spinbox.setValue(widget.hfw_spinbox.value() * 2)
+    finally:
+        microscope.session.record_signal.disconnect(record)
+
+    ((kind, payload, actor),) = [r for r in recorded if r[0] == ACTION]
+    assert actor == OPERATOR
+    assert payload["what"] == "Set the ION field width"
+    assert payload["setting"] == "hfw" and payload["via"] == "Beam settings"
+    assert payload["value"] == pytest.approx(microscope.get_field_of_view(I))
