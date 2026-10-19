@@ -293,7 +293,7 @@ class TestFromTheWindow:
         main_ui.grids_tab.set_experiment(exp)
 
         card = main_ui.lamella_card_container._cards[exp.positions[0].id]
-        row = main_ui.lamella_list_widget._row(0)
+        row = main_ui.workflow_tab.lamella_workflow_widget.lamella_list._row(0)
         assert card._grid_label.text() == "Grid-02"
         assert _colour(card._grid_label) == "muted"
         assert not card._action_move.isEnabled()
@@ -305,6 +305,6 @@ class TestFromTheWindow:
         assert stage.loaded_grids[0].name == "Grid-02"
         assert card._action_move.isEnabled()
         assert _colour(card._grid_label) == "accent"
-        assert main_ui.lamella_list_widget._row(0).grid_label.toolTip() == (
-            "Grid-02 is on the stage"
-        )
+        assert main_ui.workflow_tab.lamella_workflow_widget.lamella_list._row(
+            0
+        ).grid_label.toolTip() == ("Grid-02 is on the stage")

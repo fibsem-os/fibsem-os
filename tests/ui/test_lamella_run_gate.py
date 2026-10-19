@@ -20,6 +20,7 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
 )
 from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+from fibsem.applications.autolamella.ui import workflow_tab
 from fibsem.applications.autolamella.workflows.tasks.reference_image import (
     AcquireReferenceImageConfig,
 )
@@ -75,23 +76,23 @@ def test_run_is_refused_by_name_until_the_grid_is_loaded(
         grid_id=grid.id,
     )
     main_ui._on_experiment_update()
-    main_ui.lamella_workflow_widget.lamella_list.set_all_selected(True)
-    main_ui.lamella_workflow_widget.workflow.set_all_selected(True)
-    assert main_ui.lamella_workflow_widget.get_selected_lamella()
-    assert main_ui.lamella_workflow_widget.get_selected_tasks()
+    main_ui.workflow_tab.lamella_workflow_widget.lamella_list.set_all_selected(True)
+    main_ui.workflow_tab.lamella_workflow_widget.workflow.set_all_selected(True)
+    assert main_ui.workflow_tab.lamella_workflow_widget.get_selected_lamella()
+    assert main_ui.workflow_tab.lamella_workflow_widget.get_selected_tasks()
 
     warnings, confirmations = [], []
     monkeypatch.setattr(
         module.QMessageBox, "warning", lambda *a, **k: warnings.append(a[2])
     )
     monkeypatch.setattr(
-        module,
+        workflow_tab,
         "confirm_run_workflow_dialog",
         lambda *a, **k: (confirmations.append(a), False)[1],
     )
     held = hold_runs(monkeypatch, ITEMS)
 
-    main_ui._on_run_workflow_clicked()
+    main_ui.workflow_tab.run()
     assert warnings == [
         "Cannot run: on-two is on Grid-02, which is not on the stage. "
         "Load Grid-02 from the Grids tab first, or leave that lamella out."
@@ -99,7 +100,7 @@ def test_run_is_refused_by_name_until_the_grid_is_loaded(
     assert confirmations == [] and started_with(held) == []
 
     stage.ensure_loaded("Grid-02")
-    main_ui._on_run_workflow_clicked()
+    main_ui.workflow_tab.run()
     assert len(warnings) == 1  # no new refusal
     assert len(confirmations) == 1  # went on to the confirmation, which declined
     assert started_with(held) == []

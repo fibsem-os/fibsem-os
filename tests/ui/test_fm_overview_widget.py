@@ -3736,16 +3736,20 @@ class _ListStub:
 
 def _list_host(qapp, tmp_path, experiment=None):
     """A `_StubHost` that can run the real `_rebuild_lamella_list`."""
+    from types import SimpleNamespace
+
     from tests.fixtures.fm_microscope import build_microscope
 
     host = _StubHost(microscope=build_microscope())
     host._build_fm_overview_widget()
     host.autolamella_ui.experiment = experiment
-    host.lamella_list_widget = _ListStub()
+    host.workflow_tab = SimpleNamespace(
+        lamella_workflow_widget=SimpleNamespace(lamella_list=_ListStub()),
+        selection_changed=lambda: None,
+    )
     host.lamella_card_container = _ListStub()
     host._lamella_list_experiment = None
     host._on_lamella_card_selected = lambda lamella: None
-    host._on_workflow_selection_changed = lambda: None
     host._update_lamella_tab_enabled = lambda: None
     return host
 
@@ -3774,7 +3778,7 @@ def test_a_lamella_added_anywhere_reaches_the_fm_canvas(qapp, tmp_path):
     experiment.positions.append(lamella)  # nobody calls the FM refresh by hand
 
     assert [p.name for p in host.fm_overview_widget.session.positions] == ["Lamella-01"]
-    assert host.lamella_list_widget.lamellae == [lamella]
+    assert host.workflow_tab.lamella_workflow_widget.lamella_list.lamellae == [lamella]
 
     host._teardown_fm_overview_widget()
 
@@ -3848,7 +3852,7 @@ def test_a_rebuild_keeps_the_ticks_and_the_selected_card(qapp, tmp_path):
 
     experiment = _real_experiment(tmp_path)
     host = _list_host(qapp, tmp_path, experiment)
-    host.lamella_list_widget = LamellaListWidget()
+    host.workflow_tab.lamella_workflow_widget.lamella_list = LamellaListWidget()
     host.lamella_card_container = LamellaCardContainer(columns=1)
     reselected = []
     host._on_lamella_card_selected = reselected.append
@@ -3857,25 +3861,29 @@ def test_a_rebuild_keeps_the_ticks_and_the_selected_card(qapp, tmp_path):
     second = _real_lamella("Lamella-02", microscope, tmp_path)
     experiment.positions.extend([first, second])
     host._rebuild_lamella_list()
-    host.lamella_list_widget._row(1).checkbox.setChecked(True)
+    host.workflow_tab.lamella_workflow_widget.lamella_list._row(1).checkbox.setChecked(
+        True
+    )
     host.lamella_card_container.select_lamella(second.name)
     host._selected_card_lamella = second
 
     experiment.positions.append(_real_lamella("Lamella-03", microscope, tmp_path))
     host._rebuild_lamella_list()
 
-    assert host.lamella_list_widget.get_selected() == [second]
+    assert host.workflow_tab.lamella_workflow_widget.lamella_list.get_selected() == [
+        second
+    ]
     assert host.lamella_card_container._selected_id == second.id
     assert reselected[-1] is second
 
     experiment.positions.remove(second)
     host._rebuild_lamella_list()
 
-    assert host.lamella_list_widget.get_selected() == []
+    assert host.workflow_tab.lamella_workflow_widget.lamella_list.get_selected() == []
     assert host.lamella_card_container._selected_id is None
     assert reselected[-1] is None
 
-    host.lamella_list_widget.close()
+    host.workflow_tab.lamella_workflow_widget.lamella_list.close()
     host.lamella_card_container.close()
     host._teardown_fm_overview_widget()
 
