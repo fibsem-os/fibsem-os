@@ -56,10 +56,7 @@ from fibsem.workflows.grid.manager import (
 from fibsem.workflows.grid.manager import (
     LOAD_ENTRY_NAME as _LOAD_ENTRY_NAME,
 )
-from fibsem.workflows.grid.manager import (
-    NAME_FIXED_REASON,
-    grid_has_run,
-)
+from fibsem.workflows.grid.naming import NAME_FIXED_REASON, grid_has_run
 from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.outputs import latest_item_output
 from fibsem.workflows.quality import Verdict

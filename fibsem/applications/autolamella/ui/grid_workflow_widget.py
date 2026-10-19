@@ -61,10 +61,7 @@ from fibsem.applications.autolamella.ui.workflow_config_widget import (
 from fibsem.applications.autolamella.ui.workflow_preflight_dialog import (
     _task_block as task_block,
 )
-from fibsem.applications.autolamella.workflows.workflow_estimate import (
-    AdditionEstimate,
-    WorkflowEstimate,
-)
+from fibsem.applications.autolamella.workflows.tasks.attendance import RunAttendance
 from fibsem.structures import BeamType, GridInventoryEntry, GridSlotState
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import (
@@ -103,6 +100,7 @@ from fibsem.ui.widgets.preflight import (
 )
 from fibsem.util.durations import format_duration_rounded
 from fibsem.workflows.attention import Attention
+from fibsem.workflows.estimate import AdditionEstimate, RunEstimate
 from fibsem.workflows.grid import (
     FluorescenceOverviewGridTaskConfig,
     GridTaskConfig,
@@ -1074,8 +1072,9 @@ class GridRunPreflightDialog(QDialog):
         adding: bool = False,
         beams_off: Sequence[BeamType] = (),
         first_run: Sequence[str] = (),
-        estimate: Optional[WorkflowEstimate] = None,
+        estimate: Optional[RunEstimate] = None,
         addition: Optional[AdditionEstimate] = None,
+        attendance: Optional[RunAttendance] = None,
         unload_at_end: bool = False,
         report_at_end: bool = False,
         parent: Optional[QWidget] = None,
@@ -1087,7 +1086,8 @@ class GridRunPreflightDialog(QDialog):
         run will fix. ``estimate``: what the run will take, task by task
         (``estimate_grid_run``); ``addition``: what adding it to the running
         queue costs, and how much later the queue now finishes. Without
-        either, no time is quoted. ``unload_at_end``, ``report_at_end``: how
+        either, no time is quoted. ``attendance``: the tasks that wait for a
+        person (``grid_run_attendance``). ``unload_at_end``, ``report_at_end``: how
         the run ends, from the Grids page's ⚙; said, not chosen, here."""
         super().__init__(parent)
         self.setWindowTitle(
@@ -1135,10 +1135,12 @@ class GridRunPreflightDialog(QDialog):
         for widget in self._time_figures(estimate, addition):
             layout.addWidget(widget)
         if estimate is not None and estimate.tasks:
-            layout.addWidget(task_block(estimate.tasks, estimate.started_at))
+            layout.addWidget(
+                task_block(estimate.tasks, estimate.started_at, attendance)
+            )
         if estimate is not None or (addition is not None and addition.is_priced):
             note = "Estimates round up."
-            if estimate is not None and estimate.waits_for_a_human:
+            if attendance is not None and attendance.waits_for_a_human:
                 note += " Time spent waiting for you is not included."
             if screen_all:
                 # The plan is built from the grids known before the inventory
@@ -1237,7 +1239,7 @@ class GridRunPreflightDialog(QDialog):
 
     @staticmethod
     def _time_figures(
-        estimate: Optional[WorkflowEstimate], addition: Optional[AdditionEstimate]
+        estimate: Optional[RunEstimate], addition: Optional[AdditionEstimate]
     ) -> List[QWidget]:
         """The duration and the finish, as the lamella preflight and Add to queue
         quote them: a run's own, or what an addition adds and moves the finish to."""

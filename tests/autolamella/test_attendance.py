@@ -157,12 +157,12 @@ def test_the_protocol_names_the_type_the_attention_and_who_waits():
 
 def test_the_run_summary_names_who_needs_you():
     protocol = _protocol()
-    assert run_attendance(protocol, [SETUP, ROUGH]) == (
+    assert run_attendance(protocol, [SETUP, ROUGH]).summary == (
         f"This run needs you present for {SETUP}. Everything else runs on its own."
     )
-    assert run_attendance(protocol, [ROUGH]) == "This run needs nobody present."
+    assert run_attendance(protocol, [ROUGH]).summary == "This run needs nobody present."
     protocol.workflow_config.tasks[1].attention = Attention.supervised
-    assert run_attendance(protocol, [SETUP, ROUGH]).startswith(
+    assert run_attendance(protocol, [SETUP, ROUGH]).summary.startswith(
         "This run needs you present for every task:"
     )
 

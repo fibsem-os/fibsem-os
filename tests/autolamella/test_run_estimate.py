@@ -1,7 +1,8 @@
-"""Workflow-level assembly of the per-task estimates (FIB-666).
+"""Run-level assembly of the per-task estimates (FIB-666).
 
 The per-task numbers are tested in test_task_duration_estimates.py; these are about
-what the workflow does with them -- ordering, holds, and which rows are flagged.
+what the run does with them -- ordering, holds, and which rows are flagged -- over
+the pairs the run queues, priced as the pre-flight prices them.
 """
 
 from datetime import datetime, timedelta
@@ -15,16 +16,20 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
     Lamella,
 )
+from fibsem.applications.autolamella.workflows.estimate import (
+    step_seconds,
+    task_schedule,
+)
+from fibsem.applications.autolamella.workflows.tasks.attendance import run_attendance
 from fibsem.applications.autolamella.workflows.tasks.fiducial import (
     MillFiducialTaskConfig,
 )
 from fibsem.applications.autolamella.workflows.tasks.select_position import (
     SelectMillingPositionTaskConfig,
 )
-from fibsem.applications.autolamella.workflows.workflow_estimate import (
-    estimate_workflow,
-)
 from fibsem.workflows.attention import Attention
+from fibsem.workflows.estimate import estimate_run
+from fibsem.workflows.runner import ITEMS, RunRequest, item_task_pairs
 
 NOW = datetime(2026, 8, 18, 14, 0, 0)
 
@@ -66,6 +71,20 @@ def _names(exp) -> list:
     return [lam.name for lam in exp.positions]
 
 
+def _same_time(a, b) -> bool:
+    """The walk steps the clock per item, so a finish can differ by a microsecond
+    of rounding from one sum added at once."""
+    return abs((a - b).total_seconds()) < 1e-3
+
+
+def estimate_workflow(exp, task_names, names, now):
+    """The pre-flight's estimate: the run's pairs, priced from the experiment."""
+    request = RunRequest(kind=ITEMS, task_names=tuple(task_names), names=tuple(names))
+    return estimate_run(
+        item_task_pairs(request), step_seconds(exp), task_schedule(exp), now=now
+    )
+
+
 # ── the breakdown ────────────────────────────────────────────────────────────
 
 
@@ -82,7 +101,7 @@ def test_a_row_totals_every_lamella_it_runs_on(tmp_path):
     est = estimate_workflow(exp, ["Mill Fiducial"], _names(exp), now=NOW)
     row = est.tasks[0]
     single = exp.positions[0].task_config["Mill Fiducial"].estimated_duration
-    assert row.lamella_count == 3
+    assert row.count == 3
     assert row.seconds == pytest.approx(3 * single)
 
 
@@ -100,13 +119,13 @@ def test_a_lamella_without_a_config_for_the_task_is_not_counted(tmp_path):
     exp = _experiment(tmp_path, n_lamella=2)
     del exp.positions[1].task_config["Mill Fiducial"]
     est = estimate_workflow(exp, ["Mill Fiducial"], _names(exp), now=NOW)
-    assert est.tasks[0].lamella_count == 1
+    assert est.tasks[0].count == 1
 
 
 def test_only_the_named_lamella_are_included(tmp_path):
     exp = _experiment(tmp_path, n_lamella=3)
     est = estimate_workflow(exp, ["Mill Fiducial"], [exp.positions[0].name], now=NOW)
-    assert est.tasks[0].lamella_count == 1
+    assert est.tasks[0].count == 1
 
 
 # ── the totals ───────────────────────────────────────────────────────────────
@@ -123,7 +142,7 @@ def test_work_seconds_is_the_sum_of_the_rows(tmp_path):
 def test_finish_is_now_plus_the_work_when_nothing_is_scheduled(tmp_path):
     exp = _experiment(tmp_path)
     est = estimate_workflow(exp, ["Mill Fiducial"], _names(exp), now=NOW)
-    assert est.expected_finish == NOW + timedelta(seconds=est.work_seconds)
+    assert _same_time(est.expected_finish, NOW + timedelta(seconds=est.work_seconds))
     assert est.hold_seconds == 0.0
 
 
@@ -142,20 +161,18 @@ def test_supervised_work_still_counts_towards_the_total(tmp_path):
     )
 
 
-def test_supervised_rows_are_flagged_and_countable(tmp_path):
+def test_supervised_tasks_are_named_beside_the_estimate(tmp_path):
     exp = _experiment(tmp_path, supervised=("Mill Fiducial",))
-    est = estimate_workflow(
-        exp, ["Mill Fiducial", "Setup Lamella Position"], _names(exp), now=NOW
-    )
-    assert [t.name for t in est.supervised_tasks] == ["Mill Fiducial"]
-    assert est.waits_for_a_human is True
+    att = run_attendance(exp.task_protocol, ["Mill Fiducial", "Setup Lamella Position"])
+    assert att.supervised == ("Mill Fiducial",)
+    assert att.waits_for_a_human is True
 
 
 def test_a_workflow_with_no_supervision_says_so(tmp_path):
     exp = _experiment(tmp_path)
-    est = estimate_workflow(exp, ["Mill Fiducial"], _names(exp), now=NOW)
-    assert est.waits_for_a_human is False
-    assert est.supervised_tasks == []
+    att = run_attendance(exp.task_protocol, ["Mill Fiducial"])
+    assert att.waits_for_a_human is False
+    assert att.supervised == ()
 
 
 # ── scheduling makes it a walk, not a sum ────────────────────────────────────
@@ -168,7 +185,7 @@ def test_a_scheduled_task_holds_the_workflow_until_its_time(tmp_path):
     est = estimate_workflow(exp, ["Mill Fiducial"], _names(exp), now=NOW)
 
     assert est.hold_seconds == pytest.approx(4 * 3600)
-    assert est.expected_finish == at + timedelta(seconds=est.work_seconds)
+    assert _same_time(est.expected_finish, at + timedelta(seconds=est.work_seconds))
     assert est.expected_finish > NOW + timedelta(seconds=est.work_seconds)
 
 
@@ -191,7 +208,7 @@ def test_a_scheduled_time_already_past_holds_nothing(tmp_path):
     exp = _experiment(tmp_path, scheduled={"Mill Fiducial": NOW - timedelta(hours=1)})
     est = estimate_workflow(exp, ["Mill Fiducial"], _names(exp), now=NOW)
     assert est.hold_seconds == 0.0
-    assert est.expected_finish == NOW + timedelta(seconds=est.work_seconds)
+    assert _same_time(est.expected_finish, NOW + timedelta(seconds=est.work_seconds))
 
 
 def test_the_hold_is_measured_from_where_the_earlier_tasks_left_the_clock(tmp_path):
@@ -238,10 +255,10 @@ def test_an_empty_workflow_finishes_now(tmp_path):
 
 
 # ── the live queue ────────────────────────────────────────────────────────────
-# `estimate_queue` answers the same question as `estimate_workflow` from the other end:
+# `estimate_queue` answers the same question as `estimate_run` from the other end:
 # against a queue that is part-way through rather than an experiment about to start.
 
-from fibsem.applications.autolamella.workflows.workflow_estimate import (  # noqa: E402
+from fibsem.workflows.estimate import (  # noqa: E402
     estimate_queue,
 )
 from fibsem.workflows.queue import WorkItem  # noqa: E402
@@ -399,7 +416,7 @@ def test_a_timezone_aware_schedule_in_the_queue_does_not_raise():
 # Two figures that can disagree: the work added, and the delay it causes. The gap
 # between them is the whole reason this is computed by difference rather than summed.
 
-from fibsem.applications.autolamella.workflows.workflow_estimate import (  # noqa: E402
+from fibsem.workflows.estimate import (  # noqa: E402
     estimate_addition,
 )
 
@@ -460,7 +477,7 @@ def test_the_same_work_after_the_hold_does_delay_it():
 def test_run_next_lands_the_batch_ahead_of_the_pending_work_not_of_history():
     """`front=True` clamps to `_pending_start()`, so a completed item stays where it is
     and the addition cannot be placed before the running one."""
-    from fibsem.applications.autolamella.workflows.workflow_estimate import (
+    from fibsem.workflows.estimate import (
         _with_addition,
     )
 

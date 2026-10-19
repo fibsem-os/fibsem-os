@@ -36,9 +36,9 @@ from fibsem.workflows.grid.manager import (
     SKIP_TASK_REMOVED,
     UNLOAD_ENTRY_NAME,
     GridTaskManager,
-    grid_has_run,
     plan_grid_run,
 )
+from fibsem.workflows.grid.naming import grid_has_run
 from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.outputs import item_outputs
 from fibsem.workflows.status import TaskStatus as Status
