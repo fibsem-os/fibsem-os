@@ -105,8 +105,13 @@ class MillingMonitor(Generic[TMillingMonitorConfig]):
         self.guarded(self.on_start)
 
     def stop(self) -> Dict[str, Any]:
-        """Stop, and say what it saw, as the step's record holds it."""
-        self.guarded(self.on_stop)
+        """Stop, and say what it saw, as the step's record holds it. Its
+        ``on_stop`` runs even after it failed, to let go of what it holds."""
+        try:
+            self.on_stop()
+        except Exception as e:  # noqa: BLE001 - a monitor's own failure
+            logging.warning(f"Milling monitor {self.name} failed to stop: {e}")
+            self.error = self.error or e
         self._report_held()
         record: Dict[str, Any] = {"name": self.name}
         try:

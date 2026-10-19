@@ -14,7 +14,7 @@ import csv
 import logging
 import os
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 import numpy as np
@@ -65,18 +65,6 @@ class FmIntensityConfig(MillingMonitorConfig):
     bbox: Optional[FibsemRectangle] = param(
         None, display=Display(hidden=True)
     )  # the area whose mean is watched, in the frame's fractions
-
-    def to_dict(self) -> Dict[str, Any]:
-        d = asdict(self)
-        d["bbox"] = self.bbox.to_dict() if self.bbox is not None else None
-        return d
-
-    @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "FmIntensityConfig":
-        d = dict(d)
-        if d.get("bbox") is not None and not isinstance(d["bbox"], FibsemRectangle):
-            d["bbox"] = FibsemRectangle.from_dict(d["bbox"])
-        return cls(**d)
 
 
 class FmIntensityMonitor(MillingStreamMonitor[FmIntensityConfig]):

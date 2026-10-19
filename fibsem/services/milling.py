@@ -561,21 +561,23 @@ class Milling(Service):
 
     @command
     def pause(self) -> None:
-        """Pause milling."""
-        self._pause()
+        """Pause milling. While a monitor has the pattern paused (an SEM
+        peek), it stays paused when the monitor is done."""
         step = self._step
-        if step is not None:
-            step.hold()
-            step.restore_view()
+        if step is None:
+            self._pause()
+        else:
+            step.hold(self._pause)
 
     @command
     def resume(self) -> None:
-        """Resume paused milling."""
-        self._resume()
+        """Resume paused milling. While a monitor has the pattern paused, it
+        resumes when the monitor is done."""
         step = self._step
-        if step is not None:
-            step.release()
-            step.restore_view()
+        if step is None:
+            self._resume()
+        else:
+            step.release(self._resume)
 
     @query
     def follow_readings(self, since: int = 0, timeout: float = 0.0) -> Dict[str, Any]:
@@ -834,8 +836,9 @@ class Milling(Service):
         step.view = views[0] if views else None
         if stage_run is not None:
             stage_run.steps.append(step)
+        # The `readings` parameter shows this step's, none for a plain step.
+        self._readings.start_step(getattr(stage, "name", None), index)
         if monitors:
-            self._readings.start_step(getattr(stage, "name", None), index)
             step.readings.connect(self._on_reading)
         self._step = step
         self._before_run()

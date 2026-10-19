@@ -2,6 +2,8 @@
 and SEM Peek."""
 
 import os
+import threading
+import time
 
 import numpy as np
 import pytest
@@ -213,18 +215,37 @@ def test_fm_intensity_reads_the_sim_arctis_fm(
     config.setdefault("sim", {}).setdefault("sample", {})["enabled"] = False
     config_path = tmp_path / "sim-arctis-configuration.yaml"
     config_path.write_text(yaml.safe_dump(config, sort_keys=False))
-    monkeypatch.setattr(demo_services, "_PATTERN_TIME", 2)
+    # A long mill, ended once the monitor has read the FM: under load the
+    # first frame can take seconds.
+    monkeypatch.setattr(demo_services, "_PATTERN_TIME", 60)
     arctis = milling_in_real_time(config_path=str(config_path))
     assert arctis.fm is not None
     stage = _stage(_fm(warmup_duration=0.5))
     stage.output_dir = str(tmp_path / "out")
+    milling = arctis.milling
 
-    with arctis.milling.stage_run(stage) as stage_run:
-        arctis.milling.draw(stage.pattern.define())
-        assert arctis.milling.run() == "completed"
+    def end_once_read():
+        since, deadline = 0, time.monotonic() + 30
+        while time.monotonic() < deadline:
+            followed = milling.follow_readings(since=since, timeout=1)
+            since = followed["seq"]
+            if any(r["monitor"] == "FM Intensity" for r in followed["readings"]):
+                break
+        milling.end("read the FM", by="test")
+
+    with milling.stage_run(stage) as stage_run:
+        milling.draw(stage.pattern.define())
+        ender = threading.Thread(target=end_once_read, daemon=True)
+        ender.start()
+        assert milling.run() == "completed"
+        ender.join()
 
     (record,) = stage_run.steps[0].to_dict()["monitors"]
     assert "error" not in record
     assert record["facts"]["Frames"] >= 1
     assert os.path.isfile(os.path.join(record["files"], "intensity.csv"))
+    # Stopping lets the frame being taken finish first.
+    deadline = time.monotonic() + 10
+    while arctis.fm.is_acquiring and time.monotonic() < deadline:
+        time.sleep(0.05)
     assert not arctis.fm.is_acquiring, "the FM stopped with the step"
