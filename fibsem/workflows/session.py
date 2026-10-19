@@ -57,7 +57,7 @@ class AppSession:
         executor: Optional[EditExecutor] = None,
     ) -> None:
         self.microscope: Optional[Any] = None
-        self.experiment: Optional[Any] = None
+        self._experiment: Optional[Any] = None
         # Where what is done is recorded while no application's experiment is
         # open: a plain FibsemExperiment, made the first time the agent may act.
         self.plain_experiment: Optional[Any] = None
@@ -137,6 +137,18 @@ class AppSession:
                 who.append(AGENT)
         return tuple(who)
 
+    @property
+    def experiment(self) -> Optional[Any]:
+        return self._experiment
+
+    @experiment.setter
+    def experiment(self, experiment: Optional[Any]) -> None:
+        """The open experiment, edited where the session edits it
+        (``ProposalReview.edit_executor``)."""
+        self._experiment = experiment
+        if experiment is not None:
+            experiment.edit_executor = self.run_edit
+
     def run_edit(self, call: Callable[[], Any]) -> "Future[Any]":
         """Run ``call()`` where the experiment is edited; any thread. Resolves
         to its result, or its exception."""
@@ -144,9 +156,8 @@ class AppSession:
 
     def adopt(self, experiment: Any) -> None:
         """Open ``experiment``: the session's, and the one its events are
-        recorded to from now on, and edited where the session edits it."""
+        recorded to from now on."""
         self.experiment = experiment
-        experiment.edit_executor = self.run_edit
         if self.recorder is not None:
             self.recorder.set_experiment(experiment.path, experiment)
 

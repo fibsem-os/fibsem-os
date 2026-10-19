@@ -1,9 +1,10 @@
-"""Experiment.decide runs on the Qt main thread and blocks its caller.
+"""Experiment.decide runs where the session edits the experiment, the Qt
+main thread with a window, and blocks its caller.
 
-The Review tab calls it from the GUI thread and the App Server from a
-worker; both must land on the main thread because a confirm can end in Qt
-work (a generative review adds lamellae, whose list rebuild is not safe off
-the GUI thread). Without a QApplication it is a plain call -- covered in
+The window calls it from the GUI thread and the App Server from a worker;
+both must land on the main thread because a confirm can end in Qt work (a
+generative review adds lamellae, whose list rebuild is not safe off the GUI
+thread). With no executor it is a plain call -- covered in
 tests/autolamella/test_proposals.py.
 """
 
@@ -27,6 +28,7 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (  #
 )
 from fibsem.structures import FibsemStagePosition, MicroscopeState, Point  # noqa: E402
 from fibsem.workflows.proposals import Decision, DecisionOutcome, Proposal  # noqa: E402
+from tests.gui_thread import on_the_gui_thread  # noqa: E402
 from tests.proposal_records import set_proposals  # noqa: E402
 
 SETUP = "Setup Lamella Position"
@@ -35,6 +37,7 @@ SETUP = "Setup Lamella Position"
 def _experiment(tmp_path) -> Experiment:
     exp = Experiment(path=tmp_path, name="test-exp")
     exp.task_protocol = AutoLamellaTaskProtocol()
+    exp.edit_executor = on_the_gui_thread
     os.makedirs(exp.path, exist_ok=True)
     exp.add_new_lamella(
         MicroscopeState(stage_position=FibsemStagePosition()),
