@@ -1497,6 +1497,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.agent_chip.stop_clicked.connect(self._on_stop_agent)
         self.agent_chip.approve_clicked.connect(self._on_approve_agent_request)
         self.agent_chip.reject_clicked.connect(self._on_reject_agent_request)
+        self.agent_chip.suggestion_approved.connect(self._on_approve_agent_suggestion)
+        self.agent_chip.suggestion_declined.connect(self._on_decline_agent_suggestion)
+        # The pending proposal the card's suggestion is on: (item id, task, id).
+        self._suggested: Optional[Tuple[str, str, str]] = None
         self.agent_chip.message_sent.connect(self._on_operator_message)
         self.status_bar.add_action(self.agent_chip)
         # The agent's requests (FIB-1283) move the chip as they change.
@@ -1511,8 +1515,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.agent_activity.recent_changed.connect(self.agent_chip.set_recent)
         # A waiting request's lines, read again while the operator looks at it.
         self._agent_request_described: Tuple[Optional[str], float] = (None, 0.0)
-        # What the agent's waiting request would do: on the card,
-        # on the image its values were measured on; on the views.
+        # What the agent's waiting request or suggestion would do: on the card,
+        # on the image its values were measured on.
         sources = PreviewSources(lambda: self.autolamella_ui.experiment)
         self.agent_previews = AgentPreviews(
             lambda: getattr(self, "view_controller", None),
@@ -1575,14 +1579,17 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             try:
                 previous.asked.disconnect(self._on_proposal_asked)
                 previous.decided.disconnect(self._on_proposal_decided)
+                previous.suggested.disconnect(self._on_proposal_suggested)
             except Exception:
                 pass
         self._asked_experiment = experiment
         if experiment is not None:
             experiment.asked.connect(self._on_proposal_asked)
             experiment.decided.connect(self._on_proposal_decided)
+            experiment.suggested.connect(self._on_proposal_suggested)
             for item, task_name, _proposal in experiment.pending_proposals():
                 self._on_proposal_asked(item.id, task_name)
+        self._show_agent_suggestion()
 
     def _on_proposal_asked(self, item_id: str, task_name: str) -> None:
         """Put a question a task just asked in front of the operator, where
@@ -1611,6 +1618,57 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.autolamella_ui.clear_state_proposal(item_id, task_name)
         self.autolamella_ui.clear_loop_proposal(item_id, task_name)
         self.autolamella_ui.clear_widget_proposal(item_id, task_name)
+        self._show_agent_suggestion()
+
+    def _on_proposal_suggested(self, item_id: str, task_name: str) -> None:
+        self._show_agent_suggestion()
+
+    def _show_agent_suggestion(self) -> None:
+        """The card shows the agent's suggestion on a pending proposal, until
+        it is approved, declined, or the proposal is decided otherwise."""
+        from fibsem.ui.agent.suggestions import (
+            front_suggestion,
+            suggestion_card,
+            suggestion_request,
+        )
+
+        experiment = getattr(self, "_asked_experiment", None)
+        front = front_suggestion(experiment)
+        if front is None:
+            self._suggested = None
+            self.agent_chip.set_suggestion(None)
+            self.agent_previews.show_suggestion(None)
+            return
+        item, task_name, proposal = front
+        self._suggested = (item.id, task_name, proposal.id)
+        self.agent_chip.set_suggestion(suggestion_card(item, task_name, proposal))
+        self.agent_previews.show_suggestion(
+            suggestion_request(item, task_name, proposal, str(experiment.path))
+        )
+
+    def _on_approve_agent_suggestion(self) -> None:
+        """Approve on the agent's card: the proposal is decided as suggested,
+        as the operator's decision, naming the suggestion."""
+        experiment = getattr(self, "_asked_experiment", None)
+        if self._suggested is None or experiment is None:
+            return
+        result = experiment.approve_suggestion(
+            *self._suggested, actor=experiment.actor(), via="workflow"
+        )
+        if not result.applied:
+            notification_service.show(
+                f"Could not approve the agent's suggestion: {result.reason}", "info"
+            )
+        self._show_agent_suggestion()
+
+    def _on_decline_agent_suggestion(self, reason: str) -> None:
+        """Decline on the agent's card: the suggestion is dropped, with the
+        operator's reason for the agent; the proposal stays up."""
+        experiment = getattr(self, "_asked_experiment", None)
+        if self._suggested is None or experiment is None:
+            return
+        experiment.decline_suggestion(*self._suggested, reason=reason.strip())
+        self._show_agent_suggestion()
 
     def _on_user_attention_clicked(self):
         """Handle user attention button click - switch to the Microscope tab.

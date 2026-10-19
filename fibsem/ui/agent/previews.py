@@ -1,15 +1,17 @@
-"""What the agent's waiting request would do, drawn on the card
+"""What the agent's waiting request or suggestion would do, drawn on the card
 where the operator decides (FIB-1404, FIB-1411).
 
 Under Why: the image the values were measured on, every value drawn on it in the
 agent's purple. A review's or an item's point of interest on that item's image;
 an item edit's alignment area; the patterns a mill would draw, a config edit's as
 it would leave them (as they are now in grey) and any reaching past the edge of
-the field in red, on the FIB image; where a move would go.
+the field in red, on the FIB image; where a move would go. A suggestion on a
+pending proposal is drawn as the decision it would make.
 
 Nothing is drawn on the live views: they show what the microscope does, and the
 agent's real patterns only once its mill runs (`agent_activity`). The picture
-comes down when the request is decided.
+comes down when the request is decided, or the suggestion is approved,
+declined or dropped.
 
 A value on the sample is kept with the frame it was measured on and re-projected
 through the stage onto the frame it is drawn on (FIB-1411). Patterns are places
@@ -32,6 +34,7 @@ ITEM_MARK = "item"
 POSE_MARK = "pose"
 POSE_NOW_MARK = "pose_now"
 SPOT_MARK = "spot"
+FEATURE_MARK = "features"
 
 # The beam a move tool works in when the agent does not say: as the tools do.
 _MOVE_BEAMS = {
@@ -646,8 +649,8 @@ def _stage_patterns(stages) -> List:
 
 
 class AgentPreviews:
-    """Draws the agent's waiting request on the card, on the image its values
-    were measured on. Nothing on the views."""
+    """Draws the agent's waiting request and suggestion on the card, on the
+    image their values were measured on. Nothing on the views."""
 
     def __init__(
         self,
@@ -687,30 +690,41 @@ class AgentPreviews:
         self._item_overview = item_overview or (lambda item: None)
         # A request's own image, by path (the agent's evidence).
         self._load_image = load_image or _load_beam_image
-        # The card's picture: (QImage or None, caption, legend=legend_entries).
+        # The card's picture: (QImage or None, caption, suggestion=bool,
+        # legend=legend_entries).
         self._show_picture = show_picture or (lambda *args, **kwargs: None)
-        self._request_id: Optional[str] = None
-        # The card's picture, as drawn: (frame, layers), for tests and reading.
+        self._shown_ids: Dict[bool, Optional[str]] = {False: None, True: None}
+        # The card's pictures, as drawn: (frame, layers), for tests and reading.
         self.request_picture: Optional[Tuple[object, List[_Layer]]] = None
+        self.suggestion_picture: Optional[Tuple[object, List[_Layer]]] = None
 
     # --- requests ---------------------------------------------------------------
 
     def show_request(self, request: Optional[Dict[str, Any]]) -> None:
         """Draw what *request* would do while it waits; anything else (None, or a
         request being applied or ended) takes the previews down."""
+        self._draw(request, suggestion=False)
+
+    def show_suggestion(self, suggestion: Optional[Dict[str, Any]]) -> None:
+        """Draw the agent's suggestion on a pending proposal, given as the
+        request that would decide it (``suggestion_request``); None takes it
+        down."""
+        self._draw(suggestion, suggestion=True)
+
+    def _draw(self, request: Optional[Dict[str, Any]], suggestion: bool) -> None:
         waiting = request is not None and request.get("status") == "pending"
         request_id = request.get("request_id") if waiting else None
+        picture = self.suggestion_picture if suggestion else self.request_picture
         # Once drawn, a request's picture stays; one that had nothing to draw on
         # tries again, as the views take images (sim session 2026-10-16: none
         # came until the request was filed again).
-        if request_id == self._request_id and (
-            request_id is None or self.request_picture is not None
-        ):
+        shown = self._shown_ids[suggestion]
+        if request_id == shown and (request_id is None or picture is not None):
             return
-        again = request_id == self._request_id
-        self._request_id = request_id
+        again = request_id == shown
+        self._shown_ids[suggestion] = request_id
         if not again:
-            self._picture(None, None, [])
+            self._picture(None, None, [], suggestion=suggestion)
         if not waiting:
             return
         controller = self._view_controller()
@@ -747,7 +761,11 @@ class AgentPreviews:
         if frame is None:
             if missing:
                 # Not the live view: an item's values are in its own frame.
-                self._show_picture(None, f"No FIB image of {missing[0]} yet to draw on")
+                self._show_picture(
+                    None,
+                    f"No FIB image of {missing[0]} yet to draw on",
+                    suggestion=suggestion,
+                )
             return
         layers = [
             _Layer(_BEFORE),
@@ -780,6 +798,7 @@ class AgentPreviews:
             frame,
             beam,
             layers,
+            suggestion=suggestion,
             agent_image=evidence is not None,
             title="" if evidence is not None else title,
         )
@@ -903,13 +922,20 @@ class AgentPreviews:
         return marks
 
     def _review_marks(self, request, action, arguments, add) -> None:
-        """A review decision's values on the image its proposal sits on: a
-        point of interest, a spot burn's points."""
-        poi = _point((arguments.get("values") or {}).get("poi"))
+        """A decision's values on the image its proposal sits on: a point of
+        interest, an alignment area, detected features, a spot burn's points."""
+        values = arguments.get("values") or {}
+        poi = _point(values.get("poi"))
+        area = _area(values) if values.get("alignment_area") else None
+        features = [
+            point
+            for feature in values.get("features") or []
+            if isinstance(feature, dict) and (point := _point(feature.get("px")))
+        ]
         _milled, _kept, points = review_passes(
             {"actions": [action]}, self._pending_proposal
         )
-        if poi is None and not points:
+        if poi is None and area is None and not features and not points:
             return
         image = self._reference_image(arguments)
         if not _has_pixel_size(image):
@@ -921,6 +947,23 @@ class AgentPreviews:
                 BeamType.ION,
                 "point of interest",
                 [(image, _offset_pixel(image, poi))],
+                title=title,
+            )
+        if area is not None:
+            add(
+                AREA_MARK,
+                BeamType.ION,
+                "alignment area",
+                [(image, _fraction_pixel(image, corner)) for corner in area],
+                area=True,
+                title=title,
+            )
+        if features:
+            add(
+                FEATURE_MARK,
+                BeamType.ION,
+                "features",
+                [(image, (p.x, p.y)) for p in features],
                 title=title,
             )
         if points:
@@ -1023,6 +1066,7 @@ class AgentPreviews:
         frame,
         beam: Optional[BeamType],
         layers: List[_Layer],
+        suggestion: bool = False,
         agent_image: bool = False,
         title: str = "",
     ) -> None:
@@ -1030,9 +1074,12 @@ class AgentPreviews:
         # The agent's own image shows with nothing drawn on it, too.
         if frame is not None and (agent_image or any(layers)):
             drawn = (frame, layers)
-        self.request_picture = drawn
+        if suggestion:
+            self.suggestion_picture = drawn
+        else:
+            self.request_picture = drawn
         if drawn is None:
-            self._show_picture(None, "")
+            self._show_picture(None, "", suggestion=suggestion)
             return
         caption = picture_caption(frame, beam)
         if title:
@@ -1040,5 +1087,6 @@ class AgentPreviews:
         self._show_picture(
             draw_picture(frame, layers),
             f"The agent's image · {caption}" if agent_image else caption,
+            suggestion=suggestion,
             legend=legend_entries(layers),
         )

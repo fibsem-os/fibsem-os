@@ -175,6 +175,12 @@ def _print_events(events, since, out):
                 f"PROPOSAL RELEASED item={data.get('item_name')} "
                 f"task={data.get('task_name')}"
             )
+        elif kind == "suggestion_declined":
+            reason = " ".join(str(data.get("reason") or "").split())
+            line = f"SUGGESTION DECLINED{_item_of(data)} task={data.get('task')}"
+            out(f"{line}: {reason}" if reason else line)
+        elif kind == "proposal_decided" and data.get("suggestion_id"):
+            out(f"SUGGESTION APPROVED{_item_of(data)} task={data.get('task')}")
         elif kind in ("request_decided", "request_finished", "request_cancelled"):
             out(_request_line(kind, data))
         elif kind == "command_ended":
