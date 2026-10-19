@@ -13,7 +13,8 @@ it would block the agent from acting on what it prints.
 The lines: ``PROMPT``, ``ANSWERED``, ``PROMPT WITHDRAWN``, ``PROPOSAL``,
 ``PROPOSAL RELEASED``, ``REQUEST`` (the agent's request decided, finished or
 cancelled, FIB-1283), ``COMMAND ENDED``, ``MILL STAGE STARTED`` and
-``MILL ENDED`` (every mill, whoever started it), task ``EVENT`` lines,
+``MILL ENDED`` (every mill, whoever started it), ``MILL READING`` (a milling
+monitor's trigger or error), task ``EVENT`` lines,
 ``WORKFLOW STARTED``, ``WORKFLOW ENDED``, ``MESSAGE`` (the operator wrote to
 the agent from its card, FIB-1423), ``GAP``, ``RESTARTED`` and
 ``AGENT OFF``/``AGENT BACK``.
@@ -196,6 +197,10 @@ def _print_events(events, since, out):
             out(_mill_stage_line(event, data))
         elif kind == "milling":
             out(_mill_ended_line(event, data))
+        elif kind == "milling_reading":
+            line = _reading_line(data)
+            if line:
+                out(line)
         elif kind == "operator_message":
             message_id = data.get("id")
             text = " ".join(str(data.get("text", "")).split())
@@ -264,14 +269,42 @@ def _mill_ended_line(event, data):
         f"MILL ENDED '{data.get('milling_task_name')}'{_item_of(event)} "
         f"status={status} run={data.get('milling_run_id')}"
     )
-    stages = [
-        f"{stage.get('name')}={stage.get('status')}"
-        + (f" ({stage['reason']})" if stage.get("reason") else "")
-        for stage in data.get("stages") or []
-    ]
+    stages = [_stage_part(stage) for stage in data.get("stages") or []]
     if stages:
         line += " stages: " + ", ".join(stages)
     return f"{line} ({data['error']})" if data.get("error") else line
+
+
+def _stage_part(stage):
+    """A stage's part of the MILL ENDED line, with why it ended other than by
+    milling its patterns out: a skipped stage's reason, else its end's
+    (``ended by monitor:FM Intensity: intensity drop``)."""
+    part = f"{stage.get('name')}={stage.get('status')}"
+    end = stage.get("end") or {}
+    if stage.get("reason"):
+        return f"{part} ({stage['reason']})"
+    if end.get("kind") in (None, "finished") or not end.get("reason"):
+        return part
+    by = f" by {end['by']}" if end.get("by") else ""
+    return f"{part} ({end['kind']}{by}: {end['reason']})"
+
+
+def _reading_line(data):
+    """A monitor's notable reading, from ``milling_reading``: a trigger (a
+    drop) or the monitor's error. A step's own pauses and end are left to the
+    MILL ENDED line."""
+    reading = data.get("reading") or {}
+    head = f"MILL READING monitor='{data.get('monitor')}' milled={data.get('milled_time')}s"
+    if reading.get("error"):
+        return f"{head} error: {reading['error']}"
+    if not reading.get("trigger"):
+        return None
+    line = (
+        f"{head} trigger='{reading['trigger']}' on_trigger={reading.get('on_trigger')}"
+    )
+    if reading.get("on_trigger") == "suggest":
+        line += " -- the mill goes on; milling_end_stage ends the stage if you agree"
+    return line
 
 
 def _request_line(kind, data):

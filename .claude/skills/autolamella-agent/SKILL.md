@@ -139,7 +139,8 @@ Its lines:
 - `EVENT`: a task started, completed, failed, was cancelled or skipped (with
   why).
 - `MILL STAGE STARTED` and `MILL ENDED`: every mill, whoever started it (see
-  *Milling*). `COMMAND ENDED`: a long command ended.
+  *Milling*). `MILL READING`: a milling monitor triggered or failed (see
+  *Milling monitors*). `COMMAND ENDED`: a long command ended.
 - `WORKFLOW STARTED` and `WORKFLOW ENDED`. An ended workflow says how:
   `workflow_stalled` (tasks were left that could not run), `workflow_failed: <error>`, or
   `stopped without an end event` (it died without saying so). For the last
@@ -412,6 +413,23 @@ wrong, stop the mill as your level allows (see *Stopping*) and tell the
 operator. Collect the result with `service_wait_for_run` milling, with the
 line's `run` as `run_id`, or without one for the mill going on.
 
+**Milling monitors.** A stage can list monitors that watch it while it
+mills, each `{name, config}` in its `monitors`. `milling_list_options` lists
+them with their config fields; you pick one by name and set its config, never
+supply code. FM Intensity watches the fluorescence under the mill and triggers
+on a drop. It needs an Arctis whose software restrictions on running the FM
+while milling an operator has disabled: if they haven't, don't use it. SEM
+Peek pauses the mill every `interval` seconds of milled time for an SEM image.
+A monitor's `on_trigger` decides what a trigger does: `end` ends the stage
+itself, `suggest` only says so and the mill goes on. A trigger prints a
+`MILL READING` line; for a suggestion, look (`milling_follow_readings` gives
+every reading since a `seq`) and end the stage with `milling_end_stage` if you
+agree, as your level allows (see *Stopping*). Ending keeps what the stage
+milled and a milling task goes on to its next stage; `milling_stop` stops the
+whole task. A monitor set to `end` keeps working when you are slow or gone.
+A protocol stage's monitor config is patched as
+`stages.<stage>.monitors.<i>.config.<field>`.
+
 **Polishing by hand.** When the operator asks you to thin a lamella outside
 the task, one `milling_run_stage` per step:
 
@@ -551,11 +569,13 @@ reads. Never use a stop to "pause and think"; ask instead.
   damage (milling the wrong place, a stage move that makes no sense, a task
   repeating), tell the operator at once, plainly, and say they should press
   Stop.
-- **Assist**: a mill you started yourself you may stop directly
-  (`milling_stop`). Anything else (the workflow, the operator's mill) is a
-  request, filed at once with what you saw as the reason.
+- **Assist**: a mill you started yourself you may stop or end directly
+  (`milling_stop`, `milling_end_stage`). Anything else (the workflow, the
+  operator's mill) is a request, filed at once with what you saw as the
+  reason.
 - **Drive**: stop first when you believe the run is doing damage
-  (`workflow_stop`, `milling_stop`), then say why.
+  (`workflow_stop`, `milling_stop`), then say why. End a stage
+  (`milling_end_stage`) when it has milled enough, with why.
 
 ## Session setup
 

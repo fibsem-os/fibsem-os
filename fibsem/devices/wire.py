@@ -271,6 +271,14 @@ def refuse_unknown_keys(path: str, sent: Any, decoded: Any) -> None:
         return
     if not isinstance(sent, dict) or not _is_structure(decoded):
         return
+    saved_under = getattr(type(decoded), "SAVED_UNDER", None)
+    if saved_under in sent:
+        # Saved as `{name, <saved_under>: fields}` (a stage's monitor): the
+        # fields are checked under that key.
+        sent = {k: v for k, v in sent.items() if k != "name"}
+        if set(sent) == {saved_under}:
+            refuse_unknown_keys(f"{path}.{saved_under}", sent[saved_under], decoded)
+            return
     known = _known_keys(decoded)
     if not known:
         return

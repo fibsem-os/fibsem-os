@@ -357,6 +357,7 @@ def _prepare(kwargs: Dict[str, Any]) -> Dict[str, Any]:
 _MILLING = {
     "start": "Start milling what is drawn",
     "stop": "Stop the mill now running",
+    "end": "End the milling stage now running, keeping what it milled",
     "pause": "Pause the mill",
     "resume": "Resume the paused mill",
     "clear": "Clear the drawn patterns",
@@ -1422,6 +1423,8 @@ def _line(
         return _grid_line(tool, a, get, stage_now)
     if tool == "milling_stop":
         return {"what": "Milling", "change": _MILLING["stop"]}
+    if tool == "milling_end_stage":
+        return {"what": "Milling", "change": _MILLING["end"]}
     if tool == "stage_move_to_milling_angle":
         return {
             "what": "Stage",

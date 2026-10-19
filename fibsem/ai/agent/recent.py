@@ -375,7 +375,9 @@ class RecentActions:
         )
 
     def _on_agent_stop(self, record, p, agent):
-        text = f"Stopped {p.get('what') or _words(p.get('action'))}"
+        text = (
+            f"{p.get('verb') or 'Stopped'} {p.get('what') or _words(p.get('action'))}"
+        )
         if p.get("reason"):
             text += f": {p['reason']}"
         return self._put(

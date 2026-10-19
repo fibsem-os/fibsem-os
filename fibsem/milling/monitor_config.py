@@ -7,7 +7,7 @@ stage without importing them.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Dict, Type, TypeVar
+from typing import TYPE_CHECKING, Any, ClassVar, Dict, Type, TypeVar
 
 from fibsem.structures import Configurable, param
 
@@ -21,6 +21,10 @@ TMillingMonitorConfig = TypeVar("TMillingMonitorConfig", bound="MillingMonitorCo
 class MillingMonitorConfig(Configurable):
     """What a monitor is configured by, held on the stage. Which monitor is the
     one whose ``config_class`` this is."""
+
+    # Saved as `{name, config}`, like a strategy's: a patch names the fields
+    # `stages.0.monitors.0.config.<field>`.
+    SAVED_UNDER: ClassVar[str] = "config"
 
     max_pause: float = param(
         60.0,

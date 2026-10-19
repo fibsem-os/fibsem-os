@@ -673,6 +673,13 @@ def build_sidecar(client, capabilities):
         data, err = _route("milling_stop", reason=reason)
         return err if err else {"status": "ok"}
 
+    def milling_end_stage(reason: str):
+        data, err = _route("milling_end_stage", reason=reason)
+        return err if err else {"status": "ok"}
+
+    def milling_follow_readings(since: int = 0, timeout: float = 0.0):
+        return _routed("milling_follow_readings", since=since, timeout=timeout)
+
     def beam_acquire_image(
         beam_type: str = "ELECTRON", image_settings: Optional[dict] = None
     ):
@@ -1561,6 +1568,8 @@ def build_sidecar(client, capabilities):
             alignment_check_coincidence,
             alignment_measure_coincidence,
             milling_stop,
+            milling_end_stage,
+            milling_follow_readings,
             beam_acquire_image,
             stage_move_relative,
             stage_stable_move,
