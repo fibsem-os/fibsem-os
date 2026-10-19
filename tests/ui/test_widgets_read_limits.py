@@ -221,7 +221,9 @@ def test_the_overtilt_image_resolution_offers_the_ion_beams_resolutions():
     microscope = _demo()
     _report(microscope, I, "resolution", choices=RESOLUTIONS)
     # a list, as a loaded protocol has it
-    config = get_strategy_config("Overtilt", {"config": {"image_resolution": [1024, 884]}})
+    config = get_strategy_config(
+        "Overtilt", {"config": {"image_resolution": [1024, 884]}}
+    )
     widget = FibsemStrategySettingsWidget(config, microscope=microscope)
     (row,) = [r for r in widget._rows if r.field == "image_resolution"]
 
