@@ -745,15 +745,6 @@ class ThermoMicroscope(FibsemMicroscope):
             logging.info("No sample loader: grids are exchanged by hand.")
         return device
 
-    def get_detector_settings(
-        self, beam_type: BeamType = BeamType.ELECTRON
-    ) -> FibsemDetectorSettings:
-        """The four detector reads under one hold of the imaging channel, so they
-        describe one detector and claim the channel once against other callers
-        (FIB-544). The lock is re-entrant, so the reads inside take it freely."""
-        with self._threading_lock:
-            return super().get_detector_settings(beam_type)
-
     def set_channel(self, channel: BeamType) -> None:
         """
         Set the active channel for the microscope.
@@ -762,22 +753,6 @@ class ThermoMicroscope(FibsemMicroscope):
             channel (BeamType): The beam type to set as the active channel.
         """
         self._connection.set_channel(channel)
-
-    def move_coincident_from_sem(self, dx: float, dy: float) -> FibsemStagePosition:
-        """Correct coincident point from SEM to FIB stage position.
-
-        Deprecated: call ``vertical_move(dy, dx, beam_type=BeamType.ELECTRON)``.
-        Kept for one release because custom scripts may call it.
-        """
-        return self.vertical_move(dy=dy, dx=dx, beam_type=BeamType.ELECTRON)
-
-    def move_manipulator_to_position_offset(
-        self, offset: FibsemManipulatorPosition, name: str = None
-    ) -> FibsemManipulatorPosition:
-        """Move the manipulator to the specified coordinates, offset by the provided offset."""
-        if self.manipulator_device is None:
-            raise self._unsupported("move_manipulator_to_position_offset")
-        return self.manipulator_device.move_to_offset(offset, name)
 
     @property
     def rotation_centre(self) -> Optional[Tuple[float, float]]:

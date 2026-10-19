@@ -358,13 +358,6 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         """The Odemis stack drives its own FM, and has always built one unasked."""
         return True
 
-    def move_coincident_from_sem(self, dx: float, dy: float) -> FibsemStagePosition:
-        """Correct coincident point from SEM to FIB stage position.
-
-        Deprecated: call ``vertical_move(dy, dx, beam_type=BeamType.ELECTRON)``.
-        """
-        return self.vertical_move(dy=dy, dx=dx, beam_type=BeamType.ELECTRON)
-
 
 class OdemisTescanMicroscope(TescanMicroscope):
     """Tescan integration through Odemis.

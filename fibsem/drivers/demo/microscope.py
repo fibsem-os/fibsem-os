@@ -282,8 +282,3 @@ class DemoMicroscope(FibsemMicroscope):
     ) -> Tuple[Union[None, Point, FibsemRectangle], BeamSettings]:
         beam = self.beams[beam_type]
         return beam.sim_scanning_mode_value, beam.sim_beam
-
-    def move_manipulator_to_position_offset(
-        self, offset: FibsemManipulatorPosition, name: Optional[str] = None
-    ) -> FibsemManipulatorPosition:
-        return self.manipulator_device.move_to_offset(offset, name or "EUCENTRIC")

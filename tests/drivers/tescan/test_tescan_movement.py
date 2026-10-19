@@ -88,7 +88,7 @@ def stage_at(
 
 
 # ---------------------------------------------------------------------------
-# move_coincident_from_sem: slide along the FIB axis, so the FIB image is
+# vertical_move from the SEM view: slide along the FIB axis, so the FIB image is
 # untouched while the SEM offset closes
 # ---------------------------------------------------------------------------
 
@@ -100,21 +100,6 @@ def test_tescan_declares_the_sem_view_as_supported():
 
     assert m.supports_vertical_move(BeamType.ELECTRON)
     assert m.supports_vertical_move(BeamType.ION)
-
-
-def test_the_deprecated_name_is_the_electron_branch():
-    """``move_coincident_from_sem`` is kept for one release for custom scripts. It must
-    stay exactly the ELECTRON branch, not a second implementation of it."""
-    dx, dy = 1e-6, 10e-6
-
-    m_new = make_microscope(stage_position=stage_at(-15.0))
-    m_new.vertical_move(dy=dy, dx=dx, beam_type=BeamType.ELECTRON)
-
-    m_old = make_microscope(stage_position=stage_at(-15.0))
-    m_old.move_coincident_from_sem(dx=dx, dy=dy)
-
-    assert len(m_new._recorded_moves) == 1
-    assert m_new._recorded_moves[0].is_close2(m_old._recorded_moves[0], tol=1e-12)
 
 
 def test_relaxation_is_accepted_but_not_applied_from_the_sem_view():
@@ -140,7 +125,7 @@ def test_coincident_from_sem_explicit_values_flat():
     m = make_microscope(pretilt_deg=40.0, stage_position=stage_at(0.0))
     dy = 10e-6
 
-    m.move_coincident_from_sem(dx=0.0, dy=dy)
+    m.vertical_move(dy=dy, dx=0.0, beam_type=BeamType.ELECTRON)
 
     (move,) = m._recorded_moves
     assert move.y == pytest.approx(-10.00e-6, abs=0.01e-6)  # inverted, like stable_move
@@ -156,7 +141,7 @@ def test_coincident_from_sem_logged_milling_pose_regression():
     m = make_microscope(pretilt_deg=40.0, stage_position=stage_at(20.0))
     dy = 33.3e-6
 
-    m.move_coincident_from_sem(dx=0.0, dy=dy)
+    m.vertical_move(dy=dy, dx=0.0, beam_type=BeamType.ELECTRON)
 
     (move,) = m._recorded_moves
     assert move.y == pytest.approx(-35.44e-6, abs=0.01e-6)
@@ -171,7 +156,7 @@ def test_coincident_from_sem_is_pretilt_independent(tilt_deg):
     moves = []
     for pretilt_deg in (0.0, 40.0):
         m = make_microscope(pretilt_deg=pretilt_deg, stage_position=stage_at(tilt_deg))
-        m.move_coincident_from_sem(dx=0.0, dy=dy)
+        m.vertical_move(dy=dy, dx=0.0, beam_type=BeamType.ELECTRON)
         moves.append(m._recorded_moves[0])
 
     assert moves[0].y == pytest.approx(moves[1].y)
@@ -190,7 +175,7 @@ def test_coincident_move_is_invisible_in_fib_view(tilt_deg, pretilt_deg):
     dy = 12e-6
     m = make_microscope(pretilt_deg=pretilt_deg, stage_position=stage_at(tilt_deg))
 
-    m.move_coincident_from_sem(dx=0.0, dy=dy)
+    m.vertical_move(dy=dy, dx=0.0, beam_type=BeamType.ELECTRON)
 
     (move,) = m._recorded_moves
     tilt = np.deg2rad(tilt_deg)
@@ -216,8 +201,8 @@ def test_coincident_from_sem_scan_rotation_180_flips_all_axes():
         pretilt_deg=40.0, stage_position=stage_at(20.0), scan_rotation_deg=180.0
     )
 
-    m0.move_coincident_from_sem(dx=dx, dy=dy)
-    m180.move_coincident_from_sem(dx=dx, dy=dy)
+    m0.vertical_move(dy=dy, dx=dx, beam_type=BeamType.ELECTRON)
+    m180.vertical_move(dy=dy, dx=dx, beam_type=BeamType.ELECTRON)
 
     (move0,) = m0._recorded_moves
     (move180,) = m180._recorded_moves

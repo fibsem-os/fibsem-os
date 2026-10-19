@@ -581,23 +581,26 @@ def test_run_auto_focus_queries_capability_for_the_requested_beam():
     m.is_working_distance_settable.assert_called_once_with(BeamType.ELECTRON)
 
 
-def test_wd_settable_capability_matrix():
-    """Tescan: preset-driven ion focus, no FIB WD control anywhere in the SDK.
-    Everything else inherits the base's True."""
-    from fibsem.drivers.demo.simulator import DemoMicroscope
-    from fibsem.drivers.tescan.microscope import TescanMicroscope
-    from fibsem.microscope import FibsemMicroscope
+def test_wd_settable_capability_matrix(monkeypatch):
+    """Read from the beam's working_distance parameter: Tescan's ion column has none
+    (preset-driven focus, no FIB WD control in the SDK); every other column can set it."""
+    from fibsem import config as cfg
+    from fibsem import utils
+    from tests.fixtures.tescan_sdk import connect
 
-    tescan = object.__new__(TescanMicroscope)
+    system = utils.load_microscope_configuration(
+        os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
+    ).system
+    tescan, _ = connect(monkeypatch, system)
     assert tescan.is_working_distance_settable(BeamType.ELECTRON) is True
     assert tescan.is_working_distance_settable(BeamType.ION) is False
 
-    demo = object.__new__(DemoMicroscope)
-    assert demo.is_working_distance_settable(BeamType.ION) is True
-    assert (
-        DemoMicroscope.is_working_distance_settable
-        is FibsemMicroscope.is_working_distance_settable
-    )
+    demo, _ = utils.setup_session(manufacturer="Demo", setup_logging=False)
+    try:
+        assert demo.is_working_distance_settable(BeamType.ELECTRON) is True
+        assert demo.is_working_distance_settable(BeamType.ION) is True
+    finally:
+        demo.disconnect()
 
 
 def test_run_auto_focus_puts_back_only_what_its_probe_images_changed():
