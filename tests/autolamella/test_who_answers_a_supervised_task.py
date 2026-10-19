@@ -34,9 +34,9 @@ def experiment(tmp_path):
     return experiment
 
 
-def _validate(experiment, answerers):
+def _validate(experiment, deciders):
     manager = TaskManager(
-        microscope=None, experiment=experiment, answerers=lambda: answerers
+        microscope=None, experiment=experiment, deciders=lambda: deciders
     )
     task = types.SimpleNamespace(task_manager=manager, task_name=TASK)
     return AutoLamellaTask.validate.fget(task)
@@ -51,11 +51,11 @@ def test_a_supervised_task_asks_the_attached_operator(experiment):
     assert _validate(experiment, (OPERATOR,)) is True
 
 
-@pytest.mark.parametrize("answerers", [(), (AGENT,)], ids=["nobody", "agent"])
-def test_without_the_operator_it_asks_nobody_as_it_runs(experiment, answerers):
+@pytest.mark.parametrize("deciders", [(), (AGENT,)], ids=["nobody", "agent"])
+def test_without_the_operator_it_asks_nobody_as_it_runs(experiment, deciders):
     # The milling and spot burn loops are asked on a window until they are
     # proposals; an agent answers the task's proposals, not these.
-    assert _validate(experiment, answerers) is False
+    assert _validate(experiment, deciders) is False
 
 
 def test_a_task_outside_a_run_asks_nobody():

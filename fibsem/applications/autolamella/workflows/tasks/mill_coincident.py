@@ -152,7 +152,7 @@ class MillCoincidentTaskConfig(AutoLamellaTaskConfig):
 class MillCoincidentTask(AutoLamellaTask):
     """Mill the coincident trench for a lamella, stopping on the intensity drop."""
 
-    questions = (MILLING,)
+    asks = (MILLING,)
 
     config: MillCoincidentTaskConfig
     config_cls: ClassVar[Type[MillCoincidentTaskConfig]] = MillCoincidentTaskConfig

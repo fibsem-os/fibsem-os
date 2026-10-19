@@ -1267,7 +1267,7 @@ def test_a_decision_says_what_was_decided_by_whom_and_what_they_changed(tmp_path
         "Point of interest used as proposed, unreviewed: Rough Milling started"
         " (workflow)",
         "Position withdrawn: the run stopped (workflow)",
-        "Result confirmed (review)",
+        "Task result confirmed (review)",
     ]
     assert [e.actor for e in events] == [
         "task",

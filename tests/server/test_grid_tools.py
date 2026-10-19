@@ -6,7 +6,9 @@ The Demo is an Arctis here: a compustage whose autoloader holds G1, G2 and an
 unnamed third grid.
 """
 
+import inspect
 import os
+import time
 
 import pytest
 
@@ -266,6 +268,103 @@ def test_assist_asks_for_an_exchange_and_the_operator_reads_it(arctis, tmp_path)
         run = client.get(RUN_STATE, headers=AUTH, params={"wait": 10}).json()["run"]
         assert run["state"] == "done"
     assert [g.name for g in arctis.sample_handling.loaded_grids] == ["G2"]
+
+
+def _slowed(monkeypatch, service, command, seconds=0.3):
+    """*command* on *service*, taking *seconds* longer: a run that is still
+    going when the next call comes."""
+    method = getattr(service, command)
+
+    def slow(**kwargs):
+        time.sleep(seconds)
+        return method(**kwargs)
+
+    slow.__signature__ = inspect.signature(method)
+    monkeypatch.setattr(service, command, slow)
+
+
+def test_a_request_s_next_step_waits_for_a_long_command_to_end(arctis, monkeypatch):
+    """Two loads and an unload in one request run one after another, each to its
+    end (sim session 2026-10-19 F1: the second load started 10 ms after the
+    first, beside it, and failed "A grid is already on the stage")."""
+    _slowed(monkeypatch, arctis.sample_handling, "ensure_loaded")
+    host = stub_session()
+    host.microscope = arctis
+    auth = AuthConfig(token=TOKEN, dashboard_token="dashboard")
+    auth.set_level(AgentLevel.ASSIST)
+    context = RecordingContext(host)
+    app = build_server(arctis, app_context=context, auth=auth)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        filed = client.post(
+            "/app/agent/requests",
+            headers=AUTH,
+            json={
+                "actions": [
+                    {"tool": "grid_load", "arguments": {"grid_name": "G2"}},
+                    {"tool": "grid_load", "arguments": {"grid_name": "G1"}},
+                    {"tool": "grid_unload", "arguments": {}},
+                ],
+                "reason": "screen G2, then G1",
+            },
+        )
+        assert filed.status_code == 202, filed.text
+        store = app.state.requests
+        store.approve(filed.json()["request_id"])
+        done = store.wait(filed.json()["request_id"], timeout=20)
+
+    assert done.status == "applied", done.results
+    # Each step's result is its run as it ended, not as it started.
+    assert [r["result"]["result"]["state"] for r in done.results] == ["done"] * 3
+    assert arctis.sample_handling.loaded_grids == []
+
+
+def test_a_failed_run_fails_its_request_step(arctis):
+    """A long command that ends in failure fails the step that started it, and
+    the steps after it do not run."""
+    host = stub_session()
+    host.microscope = arctis
+    auth = AuthConfig(token=TOKEN, dashboard_token="dashboard")
+    auth.set_level(AgentLevel.ASSIST)
+    app = build_server(arctis, app_context=RecordingContext(host), auth=auth)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        filed = client.post(
+            "/app/agent/requests",
+            headers=AUTH,
+            json={
+                "actions": [
+                    {"tool": "grid_load", "arguments": {"grid_name": "G9"}},
+                    {"tool": "grid_load", "arguments": {"grid_name": "G1"}},
+                ],
+                "reason": "G9 first",
+            },
+        )
+        assert filed.status_code == 202, filed.text
+        store = app.state.requests
+        store.approve(filed.json()["request_id"])
+        done = store.wait(filed.json()["request_id"], timeout=20)
+
+    assert done.status == "failed", done.results
+    assert [r["ok"] for r in done.results] == [False]
+    assert "G9" in done.results[0]["error"]["message"]
+    assert arctis.sample_handling.loaded_grids == []
+
+
+def test_a_long_command_does_not_start_beside_another(driving, arctis, monkeypatch):
+    """Its starter may image or move beside a running long command, but not
+    start another: two sample-handling moves at once is the case to avoid."""
+    _slowed(monkeypatch, arctis.sample_handling, "ensure_loaded", seconds=1.0)
+    started = _call(driving, "grid_load", grid_name="G1")
+    assert started.status_code == 200, started.text
+
+    beside = _call(driving, "grid_unload")
+    assert beside.status_code == 409, beside.text
+    assert beside.json()["detail"]["error_type"] == "microscope_busy"
+    # A read beside it is still fine.
+    assert _call(driving, "grid_get_inventory").status_code == 200
+
+    run = started.json()["result"]
+    ended = driving.get(RUN_STATE, params={"run_id": run["run_id"], "wait": 10})
+    assert ended.json()["run"]["state"] == "done"
 
 
 # --- the experiment's grid records ------------------------------------------------

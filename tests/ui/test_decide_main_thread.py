@@ -3,7 +3,7 @@ main thread with a window, and blocks its caller.
 
 The window calls it from the GUI thread and the App Server from a worker;
 both must land on the main thread because a confirm can end in Qt work (a
-generative review adds lamellae, whose list rebuild is not safe off the GUI
+write that changes the item list, whose rebuild is not safe off the GUI
 thread). With no executor it is a plain call -- covered in
 tests/autolamella/test_proposals.py.
 """
@@ -119,9 +119,6 @@ def test_an_error_on_the_main_thread_is_raised_in_the_worker(qapp, tmp_path):
     in a Qt slot, which aborts the process, with the worker still waiting.
     It is the worker's error now, and the experiment says it is unsaved."""
     exp = _experiment(tmp_path)
-    lamella = exp.positions[0]
-    proposal = lamella.proposals_from(SETUP)[0]
-    proposal.values = {"poi": Point(3e-6, 0.0)}
     # A directory where the file goes: the open fails, whoever runs the test
     # (IsADirectoryError on POSIX, PermissionError on Windows).
     blocker = os.path.join(exp.path, "experiment.yaml")
@@ -130,7 +127,7 @@ def test_an_error_on_the_main_thread_is_raised_in_the_worker(qapp, tmp_path):
 
     def worker():
         try:
-            exp.apply_proposed(lamella.id, SETUP, proposal.id, "nobody was asked")
+            exp._run_edit(exp.save)
         except Exception as e:  # noqa: BLE001 - the error under test
             seen["error"] = e
         seen["done"] = True
@@ -143,7 +140,6 @@ def test_an_error_on_the_main_thread_is_raised_in_the_worker(qapp, tmp_path):
     assert isinstance(seen.get("error"), OSError)
     assert exp.unsaved
     assert type(seen["error"]).__name__ in exp.save_error
-    assert lamella.poi == Point(3e-6, 0.0), "memory keeps what was applied"
 
     os.rmdir(blocker)
     exp.save()

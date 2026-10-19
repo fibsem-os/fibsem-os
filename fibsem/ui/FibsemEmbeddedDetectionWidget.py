@@ -11,10 +11,10 @@ from PyQt5.QtWidgets import QGridLayout, QLabel, QSizePolicy, QSpacerItem
 
 import fibsem
 from fibsem.detection import utils as det_utils
-from fibsem.detection.detection import DetectedFeatures
-from fibsem.detection.review import (
+from fibsem.detection.decided import (
     apply_feature_px,
 )
+from fibsem.detection.detection import DetectedFeatures
 from fibsem.segmentation.model import load_model
 from fibsem.structures import (
     BeamType,

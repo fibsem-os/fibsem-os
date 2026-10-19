@@ -68,7 +68,7 @@ def _task(ui, window, milling_enabled=True):
             microscope=ui.microscope,
             experiment=experiment,
             responder=window.ui_responder if window is not None else None,
-            answerers=window.session.answerers if window is not None else None,
+            deciders=window.session.deciders if window is not None else None,
         ),
     )
 

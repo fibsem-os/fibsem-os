@@ -1,13 +1,6 @@
-"""A supervised milling task's closing answer (Accept, or Skip) is the decision
-on its result.
-
-The operator watched the mill and answered: that is their judgement on
-what the task produced, and it is recorded as theirs. Before this the record
-said the producer agreed with itself (``auto:<task>``), and with the review
-preference on the task would then have waited a second time in the Review tab
-for a look it had already had.
-
-Under Automated there is no session and no question, so nothing changes there.
+"""A supervised milling task's answer at the mill (Run, Accept, or Skip) is the
+operator's decision on that pass, recorded as theirs. The task proposes
+nothing after it ends.
 """
 
 import os
@@ -30,7 +23,7 @@ from fibsem.applications.autolamella.workflows.tasks.rough import (
 )
 from fibsem.milling import FibsemMillingStage
 from fibsem.milling.tasks import FibsemMillingTaskConfig
-from fibsem.workflows.proposals import TASK_RESULT, DecisionOutcome
+from fibsem.workflows.proposals import ACTION_SKIP, MILLING, DecisionOutcome
 from tests.fixtures.main_window import main_window
 
 ROUGH = "Rough Milling"
@@ -66,7 +59,7 @@ def _task(ui) -> MillRoughTask:
         microscope=ui.microscope,
         experiment=experiment,
         responder=ui.ui_responder,
-        answerers=ui.session.answerers,
+        deciders=ui.session.deciders,
     )
     lamella = experiment.positions[0]
     task = MillRoughTask(
@@ -113,7 +106,7 @@ def _finish(thread, qapp):
     assert not thread.is_alive()
 
 
-def test_continue_after_the_mill_is_the_operators_decision_on_the_result(ui, qapp):
+def test_skip_is_the_operators_decision_on_the_pass(ui, qapp):
     task = _task(ui)
     thread, outcome = _run_on_worker_thread(task, ui, qapp)
 
@@ -121,11 +114,12 @@ def test_continue_after_the_mill_is_the_operators_decision_on_the_result(ui, qap
     _finish(thread, qapp)
 
     assert "error" not in outcome
-    proposal = ui.experiment.positions[0].proposal(ROUGH)
-    assert proposal.kind == TASK_RESULT and not proposal.pending
+    (proposal,) = ui.experiment.positions[0].proposals_from(ROUGH)
+    assert proposal.kind == MILLING and not proposal.pending
     decision = proposal.current
     assert decision.outcome is DecisionOutcome.Confirmed
-    assert decision.actor.kind is ActorKind.operator, "theirs, not the producer's"
+    assert decision.action == ACTION_SKIP
+    assert decision.actor.kind is ActorKind.operator, "theirs, not the task's"
     assert decision.via == "workflow"
     assert not proposal.unreviewed, "a person decided it"
     assert ui.experiment.positions[0].latest_run_completed(ROUGH)

@@ -150,7 +150,7 @@ def test_a_status_event_refreshes_the_waiting_indicators(main_ui):
     )
 
     main_ui.autolamella_ui.hold = Hold(
-        HoldKind.question, "answer the question on the Microscope tab"
+        HoldKind.proposal, "answer the question on the Microscope tab"
     )
     main_ui.autolamella_ui.workflow_status_signal.emit(WorkflowStatusEvent())
     assert main_ui.workflow_controls.attention_btn.isVisibleTo(main_ui)

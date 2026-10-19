@@ -623,7 +623,7 @@ def test_a_held_run_says_so_on_the_line(no_quit, qapp):
     ui = window.autolamella_ui
     ui.system_widget.connect_to_microscope()
     ui.workflow_status_signal.emit(_report(TaskStatus.InProgress))
-    ui.hold = Hold(HoldKind.question, "answer the question on the Microscope tab")
+    ui.hold = Hold(HoldKind.proposal, "answer the question on the Microscope tab")
     ui.workflow_status_signal.emit(WorkflowStatusEvent())
     assert window.status_bar.text.startswith(
         "02-civil-cub › Polishing answer the question on the Microscope tab · waiting"

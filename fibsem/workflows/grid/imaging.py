@@ -41,7 +41,6 @@ from fibsem.workflows.grid.base import (
     GridTask,
     GridTaskConfig,
 )
-from fibsem.workflows.proposals import OVERVIEW_POSITIONS, Proposal, Proposer
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
@@ -98,30 +97,9 @@ class BeamOverviewGridTaskConfig(GridTaskConfig):
         return timing.stage_move_cost(1) + timing.beam_overview_cost(self.settings)
 
 
-class OverviewPositionsProposer:
-    """What an overview is for: somewhere to put the lamellae.
-
-    Proposes nothing in this version -- a missing proposal is an empty
-    default, so the review opens as placement on the image that was just
-    acquired. A model that picks sites is a swap for this class and changes
-    nothing downstream, which is the point of proposing through one.
-    """
-
-    kind = OVERVIEW_POSITIONS
-    name = "place-by-hand"
-    version = 1
-
-    def propose(self, task: "BeamOverviewGridTask") -> Optional[Proposal]:
-        return Proposal(kind=self.kind, values={"positions": []})
-
-
 class BeamOverviewGridTask(GridTask):
     config_cls: ClassVar[Type[GridTaskConfig]] = BeamOverviewGridTaskConfig
     config: BeamOverviewGridTaskConfig
-    # Under review, this asks where the lamellae go, and confirming creates
-    # them. Automated it records the overview and the run goes on, the same as
-    # any other task's result.
-    proposer: ClassVar[Optional[Proposer]] = OverviewPositionsProposer()
 
     def grid_centre(self) -> FibsemStagePosition:
         """The grid's calibrated slot position, in the requested orientation.

@@ -229,16 +229,6 @@ class AppServerHost:
             self.lifecycle_hook = make_lifecycle_hook(self.event_buffer)
             self._disposers = attach_microscope_taps(self.event_buffer, microscope)
 
-            # The question-lifecycle feed: prompt_raised / prompt_answered /
-            # prompt_cancelled straight from the responder into the buffer, so a
-            # supervising agent can sleep on the events long-poll instead of
-            # polling /app/workflow/prompt, and answers carry who answered them.
-            responder = session.responder
-            if responder is not None:
-                self._disposers.append(
-                    responder.add_question_observer(self.event_buffer.append)
-                )
-
         app = build_server(
             microscope,
             app_context=self._app_context(self.event_buffer),

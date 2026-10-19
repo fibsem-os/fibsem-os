@@ -30,7 +30,6 @@ from fibsem.structures import FibsemStagePosition
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.proposals import (
     STATE,
-    TASK_RESULT,
     Decision,
     DecisionOutcome,
     compute_delta,
@@ -79,7 +78,7 @@ def _task(microscope, exp) -> AcquireReferenceImageTask:
 
 
 def test_the_task_declares_its_question():
-    assert AcquireReferenceImageTask.questions == (STATE,)
+    assert AcquireReferenceImageTask.asks == (STATE,)
 
 
 def test_headless_the_position_goes_on_the_record_unreviewed(microscope, tmp_path):
@@ -88,8 +87,8 @@ def test_headless_the_position_goes_on_the_record_unreviewed(microscope, tmp_pat
 
     _task(microscope, exp).run()
 
-    question, result = lamella.proposals_from(REF)
-    assert question.kind == STATE and result.kind == TASK_RESULT
+    (question,) = lamella.proposals_from(REF)
+    assert question.kind == STATE
     assert question.unreviewed
     pose = question.values["stage_position"]
     assert isinstance(pose, FibsemStagePosition)

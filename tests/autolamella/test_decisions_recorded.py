@@ -3,8 +3,8 @@
 
 The app's own ``EventRecorder`` on Demo, watching a real ``Experiment``. Every
 decision is made through the experiment's own methods -- ``decide`` for a
-person or an agent, ``apply_proposed``, ``withdraw_proposal`` and
-``record_unasked`` for the record itself -- and read back from the buffer.
+person or an agent, ``withdraw_proposal`` and ``record_unasked`` for the
+record itself -- and read back from the buffer.
 """
 
 import os
@@ -20,11 +20,11 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.detection.detection import DetectedFeatures, LamellaCentre
-from fibsem.detection.review import (
+from fibsem.detection.decided import (
     detection_provenance,
     detection_values,
 )
+from fibsem.detection.detection import DetectedFeatures, LamellaCentre
 from fibsem.structures import FibsemStagePosition, MicroscopeState, Point
 from fibsem.workflows.event_recording import EventRecorder
 from fibsem.workflows.proposals import (
@@ -227,12 +227,7 @@ def test_a_question_is_recorded_and_so_is_the_position_it_was_confirmed_at(
 
 def test_what_nobody_decided_is_recorded_as_the_task_s(experiment, recorder):
     lamella = experiment.positions[0]
-    # A result nobody was asked about: used as proposed when the run ended.
-    open_one = _poi_proposal(lamella)
-    assert experiment.apply_proposed(
-        lamella.id, TASK, open_one.id, "nobody was asked"
-    ).applied
-    # A question nobody was asked: the task is not supervised.
+    # A proposal nobody was asked: the task is not supervised.
     unasked = Proposal(
         kind=STATE,
         values={"stage_position": FibsemStagePosition(x=0, y=0, z=0, r=0, t=0)},
@@ -252,13 +247,12 @@ def test_what_nobody_decided_is_recorded_as_the_task_s(experiment, recorder):
         (e["payload"]["proposal_id"], e["payload"]["outcome"], e["actor"])
         for e in decided
     ] == [
-        (open_one.id, "Unreviewed", "task"),
         (unasked.id, "Unreviewed", "task"),
         (withdrawn.id, "Withdrawn", "task"),
     ]
     unreviewed = decided[0]["payload"]
     assert unreviewed["decided"] == unreviewed["proposed"]  # used as proposed
-    assert unreviewed["reason"] == "nobody was asked"
+    assert unreviewed["reason"] == "not supervised"
 
 
 def test_what_the_experiment_held_when_watched_is_not_recorded_again(

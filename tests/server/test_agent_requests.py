@@ -341,7 +341,7 @@ def test_assist_asks_to_stop_as_it_asks_for_the_rest(
         ("/app/workflow/stop", why),
         ("/microscope/services/milling/commands/stop", why),
         (MOVE_RELATIVE, {}),
-        ("/app/workflow/prompt/answer", {}),
+        ("/app/workflow/decide", {}),
     ):
         refused = client.post(path, headers=AGENT, json=body)
         assert refused.status_code == 403, path
@@ -884,7 +884,7 @@ def test_a_run_task_reads_by_its_stages_with_whose_estimate_it_is():
             "Open 'AutoLamella-2026-10-15'",
         ),
         (
-            "review_decide",
+            "proposal_decide",
             {
                 "item_id": "abc",
                 "task_name": "Setup",
@@ -892,8 +892,8 @@ def test_a_run_task_reads_by_its_stages_with_whose_estimate_it_is():
                 "values": {"poi": {"x": 1.2e-6, "y": -3e-6}},
             },
             {
-                "/app/workflow/reviews": {
-                    "reviews": [{"item_id": "abc", "item_name": "02-saving-wolf"}]
+                "/app/workflow/proposals": {
+                    "proposals": [{"item_id": "abc", "item_name": "02-saving-wolf"}]
                 }
             },
             "02-saving-wolf · Setup",
@@ -1229,3 +1229,66 @@ def test_a_lamella_added_on_an_overview_names_the_overview_not_its_file():
     }
     line = describe_action("item_add", {"overview": overview}, "")
     assert line["change"] == "Add on the Grid-01 overview (04:58), 60% across, 62% down"
+
+
+def test_a_config_edit_that_would_fail_is_refused_at_filing(client, app, context):
+    """Checked as it would apply, on nothing: the operator never approves an edit
+    that can only fail after (sim session 2026-10-19 F2)."""
+    item = context._session.experiment.positions[0]
+    protocol = AutoLamellaTaskProtocol.load(_PROTOCOL)
+    context._session.experiment.task_protocol = protocol
+    rough = next(
+        name for name, c in protocol.task_config.items() if c.task_type == "MILL_ROUGH"
+    )
+    unused = {
+        "tool": "protocol_update_task_config",
+        "arguments": {
+            "task_name": rough,
+            "patch": {"milling.mill_rough.alignment.interval_enabled": True},
+            "version": "v",
+        },
+    }
+    section = {
+        "tool": "item_update",
+        "arguments": {
+            "item_name": item.name,
+            "patch": {"poi": {"x": -3e-6, "y": 2e-6}},
+            "version": "v",
+        },
+    }
+    for action, said in ((unused, "is not used"), (section, "names a section")):
+        refused = _file(client, NUDGE, action)
+        assert refused.status_code == 422, refused.text
+        detail = _detail(refused)
+        assert detail["error_type"] == "invalid_patch"
+        assert detail["message"].startswith("Action 2: ")
+        assert said in detail["message"]
+    assert app.state.requests.pending() is None
+    assert (
+        protocol.task_config[rough].milling["mill_rough"].alignment.interval_enabled
+        is False
+    )
+
+
+def test_a_new_lamella_s_point_of_interest_takes_a_float(client, app, context):
+    """Before Setup a lamella's point of interest is (0, 0): a patch of a
+    fraction of a micrometre is a number, not "an integer" (sim session
+    2026-10-19 F3)."""
+    from fibsem.applications.autolamella.config_edits import item_fields_version
+
+    item = context._session.experiment.positions[0]
+    edit = {
+        "tool": "item_update",
+        "arguments": {
+            "item_name": item.name,
+            "patch": {"poi.x": -3e-6},
+            "version": item_fields_version(item),
+        },
+    }
+    filed = _file(client, edit)
+    assert filed.status_code == 202, filed.text
+    store = app.state.requests
+    store.approve(filed.json()["request_id"])
+    done = store.wait(filed.json()["request_id"], timeout=10)
+    assert done.status == "applied", done.results
+    assert item.poi.x == -3e-6

@@ -60,7 +60,7 @@ def make_volume_manager(
     request: RunRequest,
     hook_manager: Any = None,
     responder: Any = None,
-    answerers: Any = None,
+    deciders: Any = None,
     images: Any = None,
 ) -> VolumeTaskManager:
     return VolumeTaskManager(
@@ -68,7 +68,7 @@ def make_volume_manager(
         experiment=experiment,
         hook_manager=hook_manager,
         responder=responder,
-        answerers=answerers,
+        deciders=deciders,
         images=images,
     )
 

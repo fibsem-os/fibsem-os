@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 import os
 import sys
-import time
 from dataclasses import replace
 from typing import List, Optional, Tuple
 
@@ -38,14 +37,16 @@ from PyQt5.QtWidgets import (
 import fibsem
 import fibsem.config as fibsem_cfg
 from fibsem.acting import OPERATOR
-from fibsem.ai.agent.levels import AgentLevel
 from fibsem.applications.autolamella.poses import remove_lamella
-from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
 from fibsem.applications.autolamella.structures import (
     Experiment,
     Lamella,
 )
 from fibsem.applications.autolamella.task_outputs import PreviewSources
+from fibsem.applications.autolamella.ui.attention import (
+    AttentionRouter,
+    play_notification_sound,
+)
 from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor import (
     AutoLamellaProtocolEditorWidget,
 )
@@ -66,7 +67,6 @@ from fibsem.applications.autolamella.ui.lamella_task_image_widget import (
 from fibsem.applications.autolamella.ui.lamella_workflow_widget import (
     LamellaWorkflowWidget,
 )
-from fibsem.applications.autolamella.ui.loop_question import LOOP_KINDS
 from fibsem.applications.autolamella.ui.overview_container_tab import (
     AutoLamellaOverviewContainerTab,
 )
@@ -99,12 +99,7 @@ from fibsem.applications.autolamella.workflows.tasks.tasks import get_task_super
 from fibsem.structures import BeamType
 from fibsem.tools.apps import AUTOLAMELLA, App, apps
 from fibsem.ui import notification_service
-from fibsem.ui.agent.activity import AgentActivity
-from fibsem.ui.agent.level_chip import (
-    AgentLevelChip,
-    request_outcome,
-)
-from fibsem.ui.agent.previews import AgentPreviews
+from fibsem.ui.agent.chip_host import AgentChipHost
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.stylesheets import (
     GRAY_ICON_COLOR,
@@ -135,7 +130,6 @@ from fibsem.workflows.grid.naming import (
     grid_rename_refusal,
     rename_grid,
 )
-from fibsem.workflows.proposals import ALIGNMENT_AREA, DETECTION
 from fibsem.workflows.queue import QUEUE_ACTIONS
 from fibsem.workflows.runner import (
     GRIDS,
@@ -150,13 +144,6 @@ from fibsem.workflows.status import (
     WorkflowStatusUpdate,
 )
 
-# The kinds a task asks whose value is edited on a widget of its own.
-WIDGET_KINDS = (DETECTION, ALIGNMENT_AREA, POINT_OF_INTEREST)
-
-
-# How often a waiting request the operator is looking at is read again.
-AGENT_REQUEST_REFRESH_S = 15.0
-
 
 def set_menu_icon(action: QAction, key: str) -> None:
     """Give a menu action an icon that actually renders.
@@ -166,11 +153,6 @@ def set_menu_icon(action: QAction, key: str) -> None:
     """
     action.setIcon(fibsem_icon(key, color=GRAY_ICON_COLOR))
     action.setIconVisibleInMenu(True)
-
-
-def play_notification_sound():
-    """Play a notification sound to alert the user."""
-    QApplication.beep()
 
 
 def confirm_run_workflow_dialog(
@@ -367,9 +349,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     # CoincidenceProgress from the align-loop worker, delivered on the GUI thread
     coincidence_progress = pyqtSignal(object)
-    # The agent's request changed (FIB-1283): emitted from the request's worker
-    # thread, delivered on the GUI thread.
-    agent_request_changed = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -397,8 +376,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # on it and the menu is built before the tabs are.
         self._connection_chip_enabled = self._preferences.features.connection_chip
 
-        # User attention tracking
-        self._user_interaction_sound_played = False  # Track if sound was played
         self._sound_enabled = self._preferences.display.sound_enabled
         self.run_border.set_on(self._preferences.display.border_enabled)
         self.dev_mode = self._preferences.display.dev_mode
@@ -877,7 +854,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             lambda p: setattr(p.display, "border_enabled", checked)
         )
         self.run_border.set_on(checked)
-        self._sync_coincidence_viewer_border()
 
     def _on_open_preferences(self):
         """Open the preferences dialog."""
@@ -901,7 +877,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         d = self._preferences.display
         self._sound_enabled = d.sound_enabled
         self.run_border.set_on(d.border_enabled)
-        self._sync_coincidence_viewer_border()
         self.dev_mode = d.dev_mode
         # The lamella strip's density. Guarded because _apply_preferences also runs
         # before the Lamella tab is built.
@@ -1463,8 +1438,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Open the Coincidence Milling Viewer dialog."""
         if self.autolamella_ui is not None:
             self.autolamella_ui._open_coincidence_milling_viewer()
-            # Opens with this window's border switch, not its own default.
-            self._sync_coincidence_viewer_border()
+            viewer = getattr(self.autolamella_ui, "_coincidence_viewer_window", None)
+            if viewer is not None:
+                # This window's border switch and agent purple, not its own.
+                self.run_border.mirror_to(viewer.run_border)
 
     def _create_status_bar(self):
         """Create the status bar: the shared bar's line on the left (FIB-1188), with
@@ -1481,67 +1458,19 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.status_bar.failure_details_requested.connect(self._show_run_failures)
 
         self._current_task_name = None  # Track current task for supervision toggle
-        # The agent chip (FIB-1035): the agent's level, beside the workflow buttons,
-        # shown whenever the App Server runs. Polled rather than signalled: the
-        # server starts and stops with the microscope connection, from the other
-        # window, and a poll a second is cheaper than threading that through.
-        self.agent_chip = AgentLevelChip(
-            last_heard=lambda: self._agent.seconds_since_seen(),
-            parent=self.status_bar,
-            agent_client=lambda: self._agent.client(),
-        )
-        self.agent_chip.hide()
-        self.agent_chip.level_chosen.connect(self._on_agent_level_chosen)
-        self.agent_chip.connect_clicked.connect(self._on_connect_agent_dialog)
-        self.agent_chip.event_log_clicked.connect(self._on_open_event_log)
-        self.agent_chip.stop_clicked.connect(self._on_stop_agent)
-        self.agent_chip.approve_clicked.connect(self._on_approve_agent_request)
-        self.agent_chip.reject_clicked.connect(self._on_reject_agent_request)
-        self.agent_chip.accept_clicked.connect(self._on_accept_agent_suggestion)
-        self.agent_chip.dismiss_clicked.connect(self._on_dismiss_agent_suggestion)
-        self.agent_chip.message_sent.connect(self._on_operator_message)
-        # The suggestion the operator dropped by answering otherwise, until the
-        # answer that dropped it is heard (the responder takes the suggestion
-        # down before it says the question was answered).
-        self._dropped_agent_suggestion: Optional[dict] = None
-        self.status_bar.add_action(self.agent_chip)
-        # The agent's requests (FIB-1283) move the chip as they change.
-        self.agent_request_changed.connect(self._refresh_agent_chip)
-        # What the agent is doing on the microscope, on the line (FIB-1375).
-        self.agent_activity = AgentActivity(
+        # The agent's chip, beside the workflow buttons (FIB-1035).
+        self.agent_host = AgentChipHost(
             self.status_bar,
+            session=lambda: self.autolamella_ui.session,
             view_controller=lambda: getattr(self, "view_controller", None),
+            sources=PreviewSources(lambda: self.autolamella_ui.experiment),
+            on_driving=self.run_border.set_agent_driving,
             parent=self,
         )
-        self.agent_activity.now_changed.connect(self.agent_chip.set_now)
-        self.agent_activity.recent_changed.connect(self.agent_chip.set_recent)
-        # A waiting request's lines, read again while the operator looks at it.
-        self._agent_request_described: Tuple[Optional[str], float] = (None, 0.0)
-        # What the agent's waiting request or suggestion would do: on the card,
-        # on the image its values were measured on; on the views.
-        sources = PreviewSources(lambda: self.autolamella_ui.experiment)
-        self.agent_previews = AgentPreviews(
-            lambda: getattr(self, "view_controller", None),
-            reference_image=sources.review_image,
-            task_config=sources.task_config,
-            show_picture=self.agent_chip.card.set_image,
-            item_pose=sources.item_pose,
-            item_image=sources.item_image,
-            overview_image=sources.overview_image,
-            item_overview=sources.item_overview,
-            review_proposal=sources.review_proposal,
-        )
-        self._agent_chip_timer = QTimer(self)
-        self._agent_chip_timer.setInterval(1000)
-        self._agent_chip_timer.timeout.connect(self._refresh_agent_chip)
-        self._agent_chip_timer.start()
 
         # Attention Required, the supervision chip, Run and Stop: one component on the
         # right of the bar, which shows what it is told; what a click does is here.
         self.workflow_controls = WorkflowControls(self.status_bar)
-        self.workflow_controls.attention_clicked.connect(
-            self._on_user_attention_clicked
-        )
         self.workflow_controls.supervision_clicked.connect(
             self._on_supervised_status_clicked
         )
@@ -1567,76 +1496,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         than a lambda, so a stop from the App Server's thread is delivered on
         this window's (GUI) thread."""
         self.run_border.set_state("stopping")
-
-    def _listen_for_questions(self, experiment) -> None:
-        """A question a task asks mid-run (``BaseTask.ask``) is put up
-        on the widget its kind is answered on when it is recorded. One
-        subscription per experiment; the previous experiment's is dropped. A
-        question already standing when the window starts listening (a run that
-        began without it) is put up at once."""
-        previous = getattr(self, "_asked_experiment", None)
-        if previous is experiment:
-            return
-        if previous is not None:
-            try:
-                previous.asked.disconnect(self._on_question_asked)
-                previous.decided.disconnect(self._on_question_decided)
-            except Exception:
-                pass
-        self._asked_experiment = experiment
-        if experiment is not None:
-            experiment.asked.connect(self._on_question_asked)
-            experiment.decided.connect(self._on_question_decided)
-            for item, task_name, _proposal in experiment.pending_proposals():
-                self._on_question_asked(item.id, task_name)
-
-    def _on_question_asked(self, item_id: str, task_name: str) -> None:
-        """Put a question a task just asked in front of the operator, where
-        its kind is answered: a mill's or a spot burn's pass on the prompt bar
-        over its widget, where the operator edits what runs; a detection, an
-        alignment area or a point of interest on the widget it is edited on;
-        anything else (a state) on the prompt bar of the Microscope tab, where
-        Continue confirms it as it stands."""
-        experiment = getattr(self, "_asked_experiment", None)
-        if experiment is None:
-            return
-        item = experiment.get_item_by_id(item_id)
-        proposal = item.proposal(task_name) if item is not None else None
-        if proposal is None or not proposal.asking:
-            return
-        if proposal.kind in LOOP_KINDS:
-            self.autolamella_ui.show_loop_question(item_id, task_name, proposal)
-        elif proposal.kind in WIDGET_KINDS:
-            self.autolamella_ui.show_widget_question(item_id, task_name, proposal)
-        else:
-            self.autolamella_ui.show_state_question(item_id, task_name, proposal)
-
-    def _on_question_decided(self, item_id: str, task_name: str) -> None:
-        """However a question was answered -- the prompt bar, an agent, or
-        withdrawn by Stop -- the prompt comes down."""
-        self.autolamella_ui.clear_state_question(item_id, task_name)
-        self.autolamella_ui.clear_loop_question(item_id, task_name)
-        self.autolamella_ui.clear_widget_question(item_id, task_name)
-
-    def _on_user_attention_clicked(self):
-        """Handle user attention button click - switch to the Microscope tab.
-
-        A question asked on a tab of its own -- a detection, a mill -- is not on
-        the Microscope tab, so landing there leaves the operator looking for a
-        prompt that is somewhere else. This is the way back to it. The
-        destination comes from the question, never from the hold's kind: the
-        kind says only that something holds the run.
-        """
-        # The agent's suggested answer is on its card, not on the prompt.
-        if self.agent_chip.suggestion is not None:
-            self.agent_chip.show_card()
-        host = self.autolamella_ui.question_host()
-        if host is not None and self.tab_widget.indexOf(host) != -1:
-            # A question answered on one of this window's own tabs.
-            self.tab_widget.setCurrentWidget(host)
-            return
-        self.tab_widget.setCurrentIndex(0)  # Microscope tab is index 0
-        self.autolamella_ui.front_question()
 
     def _on_run_workflow_clicked(self):
         """Run the workflow using the lamella and task selections from the workflow widget."""
@@ -2056,16 +1915,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return False, "the other overview is acquiring"
         return True, ""
 
-    def _sync_coincidence_viewer_border(self) -> None:
-        """The coincidence viewer's border follows this window's: the Show
-        Workflow Border switch, and the agent's purple while it drives."""
-        ui = getattr(self, "autolamella_ui", None)
-        viewer = getattr(ui, "_coincidence_viewer_window", None)
-        if viewer is None:
-            return
-        viewer.run_border.set_on(self.run_border.on)
-        viewer.run_border.set_agent_driving(self.run_border.agent_driving)
-
     def _running_border_state(self, task_name: Optional[str]) -> str:
         """The border for a running workflow: automated or supervised."""
         if task_name is None or not get_task_supervision(
@@ -2171,7 +2020,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.status_bar.set_microscope(
             self.autolamella_ui.microscope if self.autolamella_ui else None
         )
-        self.agent_activity.set_microscope(
+        self.agent_host.activity.set_microscope(
             self.autolamella_ui.microscope if self.autolamella_ui else None
         )
         self._refresh_header()
@@ -2212,10 +2061,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self._refresh_quad_overviews
         )
         self.autolamella_ui._hook_toast_signal.connect(self.show_toast)
-        # Question lifecycle refreshes the waiting chrome. GUI thread: the
-        # responder emits these where the lifecycle already runs.
-        self.autolamella_ui.ui_responder.add_question_observer(self._on_question_event)
-        self.autolamella_ui.suggestion_changed.connect(self._on_agent_suggestion)
         self.autolamella_ui.grids_changed.connect(self._refresh_after_naming)
         notification_service._get_service().toast.connect(self._on_notification_service)
         notification_service._get_service().toast_action.connect(
@@ -2288,6 +2133,15 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.add_lamella_editor_tab()
         self.add_grids_tab()
         self.add_workflow_tab()
+        self.attention = AttentionRouter(
+            prompts=self.autolamella_ui,
+            tab_widget=self.tab_widget,
+            controls=self.workflow_controls,
+            status_bar=self.status_bar,
+            timeline=self.workflow_timeline,
+            sound_enabled=lambda: self._sound_enabled,
+            parent=self,
+        )
 
         self.experiment_header = ExperimentHeader(
             chip_enabled=self._connection_chip_enabled,
@@ -2324,7 +2178,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.grid_workflow_widget.set_experiment(self.autolamella_ui.experiment)
         experiment = self.autolamella_ui.experiment
         self.quad_overview_page.set_experiment(experiment)
-        self._listen_for_questions(experiment)
+        self.attention.listen(experiment)
         if experiment is not None and experiment.task_protocol is not None:
             self.lamella_workflow_widget.set_experiment(experiment)
             self.lamella_workflow_widget.set_workflow_config(
@@ -2476,8 +2330,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         right_tabs = QTabWidget()
 
         # History tab: what was done to this lamella, task by task, with each
-        # task's images. Not "Review": that is the main tab where decisions
-        # are made, and one thing in the window is called that.
+        # task's images.
         self.lamella_task_image_widget = LamellaTaskImageWidget()
 
         # Protocol tab: matplotlib canvas (left) + editor (right). The editor owns its
@@ -3278,30 +3131,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             if tab is not None and getattr(tab, "lamella_list", None) is not None
         ]
 
-    def _on_connect_agent_dialog(self) -> None:
-        """From the agent chip's menu: the agent token and how to register the
-        sidecar (FIB-1035)."""
-        from fibsem.ui.agent.connect_agent_dialog import (
-            ConnectAgentDialog,
-        )
-
-        dialog = ConnectAgentDialog(
-            lambda: self.autolamella_ui.session.app_server, self
-        )
-        dialog.exec_()
-
-    def _on_open_event_log(self) -> None:
-        """From the agent chip's menu: the App Server's event log in the browser."""
-        from fibsem.ui.agent.app_server_dialog import (
-            AppServerDialog,
-            open_in_browser,
-        )
-
-        host = self._agent.host
-        if host is None:
-            return
-        open_in_browser(AppServerDialog.event_log_url(host))
-
     def _on_app_server_dialog(self) -> None:
         """Open Tools → App Server: status, services, clients, the dashboard."""
         from fibsem.ui.agent.app_server_dialog import (
@@ -3334,213 +3163,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         )
         self.autolamella_ui.set_app_server_microscope(serve)
 
-    @property
-    def _agent(self):
-        """The agent as the operator meets it (``fibsem.ai.agent.session``)."""
-        return self.autolamella_ui.session.agent
-
-    def _refresh_agent_chip(self) -> None:
-        """Show the chip while the App Server runs, at the level its auth holds."""
-        recorder = self.autolamella_ui.session.recorder
-        self.agent_activity.follow_events(getattr(recorder, "buffer", None))
-        agent = self._agent
-        level = agent.level
-        self._follow_agent_requests()
-        if level is None:
-            self.agent_chip.set_request(None)
-            self.agent_previews.show_request(None)
-            self.agent_chip.hide()
-            self._set_agent_driving(False)
-            return
-        if self.agent_chip.level is not level:
-            self.agent_chip.set_level(level)
-        self._set_agent_driving(level is AgentLevel.DRIVE)
-        self._show_agent_request()
-        self.agent_chip.show()
-
-    def _set_agent_driving(self, driving: bool) -> None:
-        """The agent's purple on the border while it drives, here and on the
-        coincidence viewer's border."""
-        self.run_border.set_agent_driving(driving)
-        self._sync_coincidence_viewer_border()
-
-    def _follow_agent_requests(self) -> None:
-        """Move the chip as a request is filed and applied rather than on the
-        next poll."""
-
-        def changed(signal=self.agent_request_changed):
-            try:
-                signal.emit()
-            except RuntimeError:  # the window has gone
-                pass
-
-        self._agent.follow(changed)
-
-    def _show_agent_request(self) -> None:
-        """The chip shows a request waiting or being applied; how one ended is
-        said once, as a toast, so the status bar keeps what is running now."""
-        agent = self._agent
-        for request in agent.outcomes():
-            outcome = request_outcome(request.to_dict())
-            if outcome is not None:
-                message, kind = outcome
-                # Kept in the bell's history: the toast goes, the outcome stays.
-                notification_service.show(
-                    message,
-                    kind,
-                    action=("Show in event log", self._on_open_event_log)
-                    if kind == "error"
-                    else None,
-                )
-        current = agent.current()
-        if current is not None and current.status == "pending":
-            self._describe_agent_request_again(agent.requests, current.id)
-        shown = current.to_dict() if current is not None else None
-        if shown != self.agent_chip.request:
-            self.agent_chip.set_request(shown)
-        self.agent_previews.show_request(shown)
-        self.agent_chip.set_now(self.agent_activity.now)
-
-    def _describe_agent_request_again(self, store, request_id: str) -> None:
-        """While the card shows a waiting request, its values now are read
-        again (FIB-1412): on opening the card, and every
-        `AGENT_REQUEST_REFRESH_S` while it stays open. Off the GUI thread: it
-        reads the routes the request describes."""
-        if not (self.agent_chip.popup.isVisible() or self.agent_chip.floating):
-            self._agent_request_described = (None, 0.0)
-            return
-        last_id, last_at = self._agent_request_described
-        now = time.monotonic()
-        if last_id == request_id and now - last_at < AGENT_REQUEST_REFRESH_S:
-            return
-        self._agent_request_described = (request_id, now)
-        from fibsem.ui.qt.threading import FunctionWorker
-
-        FunctionWorker(store.refresh, request_id).start()
-
-    def _on_approve_agent_request(self, request_id: str) -> None:
-        """GUI thread, from the chip: run the request. Its actions run on their
-        own worker thread, so this returns at once."""
-        self._decide_agent_request(request_id, approve=True)
-
-    def _on_reject_agent_request(self, request_id: str, reason: str) -> None:
-        """GUI thread, from the chip: run none of it; the agent gets the reason."""
-        self._decide_agent_request(request_id, approve=False, reason=reason)
-
-    def _decide_agent_request(
-        self, request_id: str, approve: bool, reason: str = ""
-    ) -> None:
-        from fibsem.server.requests import RequestRefused
-
-        try:
-            if approve:
-                self._agent.approve(request_id)
-            else:
-                self._agent.reject(request_id, reason=reason)
-        except RequestRefused as refused:
-            notification_service.show_toast(f"Agent's request: {refused}", "error")
-        self._refresh_agent_chip()
-
-    def _on_agent_level_chosen(self, level: AgentLevel) -> None:
-        """GUI thread, from the chip's menu: set the agent's level, effective for
-        its next request."""
-        if self._agent.host is not None:
-            refused = self._agent.set_level(level)
-            if refused:
-                notification_service.show_toast(refused, "error")
-        self._refresh_agent_chip()
-
-    def _on_stop_agent(self) -> None:
-        """GUI thread, from the chip: the brake (``AgentSession.stop``)."""
-        self._agent.stop()
-        self._refresh_agent_chip()
-
-    def _on_operator_message(self, text: str) -> None:
-        """GUI thread, from the card: the operator's message to the agent
-        (``AgentSession.message``)."""
-        if self._agent.message(text) is None:
-            notification_service.show_toast(
-                "No experiment is recording: the agent can't hear messages", "warning"
-            )
-
-    def _on_question_event(self, kind: str, payload: dict, actor: str) -> None:
-        """GUI thread, from the responder: a question was raised, answered or
-        cancelled, so the waiting chrome follows."""
-        dropped, self._dropped_agent_suggestion = self._dropped_agent_suggestion, None
-        if (
-            dropped is not None
-            and kind == "prompt_answered"
-            and actor == OPERATOR
-            and not payload.get("suggested_by")
-        ):
-            notification_service.show(
-                "Agent's suggestion dropped: you answered the question yourself",
-                "info",
-            )
-        self._refresh_workflow_indicators()
-
-    def _on_agent_suggestion(self, suggestion: Optional[dict]) -> None:
-        """GUI thread: the agent's suggested answer went up or came down. It
-        shows on the agent's card, not on the prompt (FIB-1407)."""
-        shown = self.agent_chip.suggestion
-        self._dropped_agent_suggestion = shown if suggestion is None else None
-        self.agent_chip.set_suggestion(suggestion)
-        self.agent_previews.show_suggested_point(
-            suggestion.get("point") if suggestion is not None else None
-        )
-        responder = self.autolamella_ui.ui_responder
-        standing = responder.suggestion if suggestion is not None else None
-        self.agent_previews.show_suggestion(
-            responder.pending_question() if standing else None,
-            standing[2] if standing else None,
-            image=standing[4] if standing else None,
-        )
-
-    def _on_accept_agent_suggestion(self) -> None:
-        """Accept on the agent's card: the operator answers with the agent's
-        suggestion, as theirs."""
-        self._dropped_agent_suggestion = None
-        if not self.autolamella_ui.take_suggestion():
-            notification_service.show(
-                "The agent's suggestion had gone: the question was answered or "
-                "taken down",
-                "info",
-            )
-
-    def _on_dismiss_agent_suggestion(self, reason: str) -> None:
-        """Dismiss on the agent's card: the operator declines the suggestion,
-        recorded with their reason for the agent; the question stays up."""
-        self.autolamella_ui.dismiss_suggestion(reason)
-        # Declined, not dropped: no "you answered it yourself" later.
-        self._dropped_agent_suggestion = None
-
     def _refresh_workflow_indicators(self) -> None:
         """Re-read the waiting/supervised/running state into the window chrome."""
         # refresh the supervised status chip
         self._update_supervised_status()
 
         hold = self.autolamella_ui.hold
-        # The timeline freezes its countdown on a hold: a wait for an answer or
-        # a decision is not machine time whoever is giving it, and left running
-        # it would spend the estimate while nothing is happening.
-        self.workflow_timeline.set_waiting_for_user(hold is not None)
-        # A question is a wait for the operator, whether or not an agent is
-        # connected and may answer first.
-        # The line says what releases a hold the operator can release, and counts
-        # the wait; Attention Required stays the way there.
-        self.status_bar.set_waiting(hold.releases if hold is not None else None)
-        if hold is not None:
-            self.workflow_controls.set_attention(
-                "Attention Required", f"The run is waiting on you: {hold.releases}."
-            )
-            # Play notification sound once when entering waiting state
-            if not self._user_interaction_sound_played and self._sound_enabled:
-                play_notification_sound()
-                self._user_interaction_sound_played = True
-        else:
-            # Hide user attention button and reset to original dark theme
-            self.workflow_controls.set_attention(None)
-            self._user_interaction_sound_played = False  # Reset for next time
+        self.attention.show_hold(hold)
 
         self.run_border.set_state(
             run_border_state(

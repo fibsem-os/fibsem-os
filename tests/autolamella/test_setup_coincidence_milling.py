@@ -221,7 +221,7 @@ class _Manager:
         self.experiment = experiment
         self.abort_token = threading.Event()
 
-    def answerers(self):
+    def deciders(self):
         return ()
 
 

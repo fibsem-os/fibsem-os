@@ -1,5 +1,5 @@
-"""How a detection is recorded for review, and how a correction to it is
-applied (FIB-1025).
+"""How a detection is recorded as a proposal, and how a decided correction
+to it is applied (FIB-1025).
 
 A detection a task records goes on the item's record as its feature points;
 the decided points come back onto a copy of the detection, and the training

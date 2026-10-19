@@ -94,7 +94,7 @@ def make_grid_manager(
     request: RunRequest,
     hook_manager: Any = None,
     responder: Any = None,
-    answerers: Any = None,
+    deciders: Any = None,
     images: Any = None,
 ) -> GridTaskManager:
     return GridTaskManager(
@@ -102,7 +102,7 @@ def make_grid_manager(
         experiment=experiment,
         hook_manager=hook_manager,
         responder=responder,
-        answerers=answerers,
+        deciders=deciders,
         images=images,
         unload_at_end=request.option("unload_at_end"),
         report_at_end=request.option("report_at_end"),

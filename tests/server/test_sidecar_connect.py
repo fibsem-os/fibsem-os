@@ -140,7 +140,7 @@ def test_a_dropped_connection_follows_a_moved_server(monkeypatch):
     assert client.base_url == "http://fake:1"  # delegated to the live client
 
 
-def test_a_prompt_image_travels_as_mcp_image_content():
+def test_a_proposal_image_travels_as_mcp_image_content():
     """Not base64 inside the JSON, which overflowed the tool result (#6)."""
     import asyncio
     import base64
@@ -148,23 +148,28 @@ def test_a_prompt_image_travels_as_mcp_image_content():
 
     jpeg = b"\xff\xd8\xffjpeg"
     payload = {
-        "pending": True,
-        "request": {
-            "type": "PickPOI",
-            "image": {"image_b64_jpeg": base64.b64encode(jpeg).decode(), "width": 4},
-        },
+        "available": True,
+        "proposals": [
+            {
+                "kind": "point_of_interest",
+                "reference_image": {
+                    "image_b64_jpeg": base64.b64encode(jpeg).decode(),
+                    "width": 4,
+                },
+            }
+        ],
     }
     fake = _FakeClient([_FakeResponse(200, payload)])
     capabilities = {"routers": {"app": True}, "level": "watch"}
     mcp = sidecar.build_sidecar(fake, capabilities)
-    result = asyncio.run(mcp.call_tool("prompt_get", {}))
+    result = asyncio.run(mcp.call_tool("proposal_list", {}))
     contents = result[0] if isinstance(result, tuple) else result
     contents = getattr(contents, "content", contents)
     texts = [c.text for c in contents if getattr(c, "type", "") == "text"]
     images = [c for c in contents if getattr(c, "type", "") == "image"]
     assert len(images) == 1 and base64.b64decode(images[0].data) == jpeg
     body = json.loads(texts[0])
-    assert body["request"]["image"] == {"width": 4, "image_index": 0}
+    assert body["proposals"][0]["reference_image"] == {"width": 4, "image_index": 0}
 
 
 def test_the_user_agent_names_the_mcp_client():
@@ -250,6 +255,8 @@ def test_start_up_does_not_wait_for_the_server(monkeypatch):
     assert names == {t.name for t in sidecar.CATALOG}
     data, err = sidecar._call(client, "GET", "/app/workflow/status")
     assert data is None and err == "fibsem-mcp: no server found."
+    # An error the agent can't take for a result (sim session 2026-10-19).
+    assert isinstance(err, sidecar._Failure)
     assert connects == [True]
 
 

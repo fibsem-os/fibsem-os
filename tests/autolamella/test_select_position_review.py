@@ -37,7 +37,6 @@ from fibsem.workflows.proposals import (
     ALIGNMENT_AREA,
     MILLING,
     STATE,
-    TASK_RESULT,
     Decision,
     DecisionOutcome,
 )
@@ -98,8 +97,8 @@ def _experiment(
     return exp
 
 
-def _task(microscope, exp: Experiment, answerers=None) -> SelectMillingPositionTask:
-    manager = TaskManager(microscope=microscope, experiment=exp, answerers=answerers)
+def _task(microscope, exp: Experiment, deciders=None) -> SelectMillingPositionTask:
+    manager = TaskManager(microscope=microscope, experiment=exp, deciders=deciders)
     lamella = exp.positions[0]
     return SelectMillingPositionTask(
         microscope=microscope,
@@ -136,7 +135,7 @@ def test_supervised_with_the_agent_to_answer_the_point_is_asked_and_written(
     config = lamella.task_config[SETUP]
     config.confirm_position = config.confirm_tilt = False
     config.confirm_alignment_area = False
-    task = _task(microscope, exp, answerers=lambda: (ActorKind.agent,))
+    task = _task(microscope, exp, deciders=lambda: (ActorKind.agent,))
     rough_point = _rough_point(lamella)
     running = threading.Thread(target=task.run, daemon=True)
     running.start()
@@ -183,7 +182,7 @@ def test_supervised_the_point_asked_is_the_one_already_set(microscope, tmp_path)
     assert point.values["poi"] is not lamella.poi, "a copy, not the live point"
     assert lamella.poi == Point(4e-6, -2e-6), "not undone by the step checking it"
     assert lamella.has_completed_task(SETUP)
-    assert MILLING not in SelectMillingPositionTask.questions, "nothing milled"
+    assert MILLING not in SelectMillingPositionTask.asks, "nothing milled"
 
 
 def test_automated_the_point_is_recorded_unasked_and_nothing_waits(
@@ -206,8 +205,7 @@ def test_automated_the_point_is_recorded_unasked_and_nothing_waits(
         STATE,
         POINT_OF_INTEREST,
         ALIGNMENT_AREA,
-        TASK_RESULT,
-    ], "the questions nobody was asked, and the result"
+    ], "the proposals nobody was asked"
     assert all(p.unreviewed for p in recorded)
     assert exp.pending_proposals() == []
 
@@ -221,7 +219,7 @@ def test_with_select_poi_off_the_point_is_not_asked(microscope, tmp_path):
 
     (point,) = _points(lamella)
     assert point.unreviewed and "turned off" in point.current.reason
-    assert POINT_OF_INTEREST not in SelectMillingPositionTask.questions_for(
+    assert POINT_OF_INTEREST not in SelectMillingPositionTask.asks_for(
         lamella.task_config[SETUP]
     )
 

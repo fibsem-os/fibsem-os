@@ -149,7 +149,7 @@ def _task(ui, points=((0.5, 0.5),)):
         microscope=ui.microscope,
         experiment=ui.experiment,
         responder=ui.ui_responder,
-        answerers=ui.session.answerers,
+        deciders=ui.session.deciders,
     )
     # The window hears it as it hears a run the runner starts.
     ui.session.runner.relay(manager)
@@ -210,8 +210,8 @@ def _finish(thread, qapp, timeout_s=10.0):
 
 def _pass(ui):
     """The pass up on the prompt bar: the spot burn question being asked."""
-    assert ui._loop_question is not None, "no pass is up"
-    proposal = ui._loop_question[2]
+    assert ui._loop_proposal is not None, "no pass is up"
+    proposal = ui._loop_proposal[2]
     assert proposal.kind == SPOT_BURN and proposal.asking
     return proposal
 
@@ -258,7 +258,7 @@ def test_run_then_accept_burns_once_on_the_workflow_thread(ui, qapp):
     assert ui.pushButton_yes.text() == "Run Spot Burn"
     assert ui.pushButton_no.text() == "Skip"
     assert ui.spot_burn_widget._workflow_mode is True
-    assert ui.hold is not None and ui.hold.kind is HoldKind.question
+    assert ui.hold is not None and ui.hold.kind is HoldKind.proposal
 
     ui.pushButton_yes.click()  # run
     _wait_for_prompt(ui, qapp, AGAIN_HINT)
@@ -461,7 +461,7 @@ def test_no_spot_burn_widget_still_asks_on_the_prompt_bar(window, ui, qapp):
         task, thread, outcome = _start(ui, qapp, wait_for=None)
         _wait(
             qapp,
-            lambda: _current_pass(ui) is not None and ui._loop_question is not None,
+            lambda: _current_pass(ui) is not None and ui._loop_proposal is not None,
             why="the pass was not put on the prompt bar",
         )
         assert ui.pushButton_no.text() == "Skip"
