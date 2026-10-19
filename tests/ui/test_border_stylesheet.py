@@ -108,6 +108,10 @@ def test_a_mirrored_border_takes_the_switch_and_the_purple_but_keeps_its_state(q
     assert viewer.shown == "supervised"
     assert main.state == "idle"
 
+    # Mirroring the same viewer again does not list it twice.
+    main.mirror_to(viewer)
+    assert sum(ref() is viewer for ref in main._mirrors) == 1
+
     # A viewer that has closed is skipped.
     viewer.deleteLater()
     QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)

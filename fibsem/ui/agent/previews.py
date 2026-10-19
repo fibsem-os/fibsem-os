@@ -2,7 +2,7 @@
 where the operator decides (FIB-1404, FIB-1411).
 
 Under Why: the image the values were measured on, every value drawn on it in the
-agent's purple. A review's or an item's point of interest on that item's image;
+agent's purple. A decision's or an item's point of interest on that item's image;
 an item edit's alignment area; the patterns a mill would draw, a config edit's as
 it would leave them (as they are now in grey) and any reaching past the edge of
 the field in red, on the FIB image; where a move would go.
@@ -136,7 +136,7 @@ def config_edit_stages(
     return before, after
 
 
-def review_passes(
+def decided_passes(
     request: Dict[str, Any], proposal_for: Callable[[Dict[str, Any]], object]
 ) -> Tuple[List, List, List]:
     """``(milled, kept, points)``: what the request's ``proposal_decide`` calls on
@@ -718,7 +718,7 @@ class AgentPreviews:
             return
         patterns = request_patterns(request)
         before, after = config_edit_stages(request, self._task_config)
-        passed, kept, _points = review_passes(request, self._pending_proposal)
+        passed, kept, _points = decided_passes(request, self._pending_proposal)
         milled = request_stages(request) + after + passed
         live = _frame(controller, BeamType.ION)
         aspect = live.data.shape[0] / live.data.shape[1] if live is not None else 2 / 3
@@ -796,7 +796,7 @@ class AgentPreviews:
         return None
 
     def _measured_on(self, controller, marks: Dict[str, "_Mark"], milling: bool):
-        """The frame the request's values were measured on: a review's or an
+        """The frame the request's values were measured on: a decision's or an
         item's own image; else the FIB view's, where a mill draws; else the
         view of the beam a move is in. With its beam; None, None for none."""
         for mark in marks.values():
@@ -842,7 +842,7 @@ class AgentPreviews:
     def _request_marks(
         self, request: Dict[str, Any], missing: List[str]
     ) -> Dict[str, _Mark]:
-        """What *request* places on the sample: move targets, a review's or an
+        """What *request* places on the sample: move targets, a decision's or an
         item edit's point of interest, an item edit's alignment area. An item
         edit whose item has no FIB image to draw on goes in *missing*."""
         marks: Dict[str, _Mark] = {}
@@ -866,7 +866,7 @@ class AgentPreviews:
             arguments = action.get("arguments") or {}
             self._item_marks(tool, arguments, add)
             if tool == "proposal_decide":
-                self._review_marks(request, action, arguments, add)
+                self._decision_marks(request, action, arguments, add)
             elif tool == "item_update":
                 # Metres in the item's milling frame, and fractions of it: on
                 # the item's own last FIB image, never the live view, which may
@@ -902,11 +902,11 @@ class AgentPreviews:
                     )
         return marks
 
-    def _review_marks(self, request, action, arguments, add) -> None:
-        """A review decision's values on the image its proposal sits on: a
+    def _decision_marks(self, request, action, arguments, add) -> None:
+        """A decision's values on the image its proposal sits on: a
         point of interest, a spot burn's points."""
         poi = _point((arguments.get("values") or {}).get("poi"))
-        _milled, _kept, points = review_passes(
+        _milled, _kept, points = decided_passes(
             {"actions": [action]}, self._pending_proposal
         )
         if poi is None and not points:

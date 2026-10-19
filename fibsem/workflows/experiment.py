@@ -44,7 +44,7 @@ EXPERIMENT_FILENAME = "experiment.yaml"
 
 # One process, one open experiment: a single lock serialises the writers that
 # can run on different threads at once -- the workflow thread saving after a
-# task, and a review confirming from the GUI thread or the App Server. Held
+# task, and a decision from the GUI thread or the App Server. Held
 # briefly by both, so neither serialises a half-applied write of the other.
 EXPERIMENT_WRITE_LOCK = threading.RLock()
 

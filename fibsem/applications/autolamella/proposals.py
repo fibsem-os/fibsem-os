@@ -87,6 +87,5 @@ def _prepare_poi(experiment: Any, item: Any, value: Any) -> PreparedWrite:
 
 # name -> prepare(experiment, item, value): checks the value and plans every
 # effect without touching anything, returning how to apply it and how to undo
-# it. Positions on an overview are a built-in value (fibsem.workflows.proposals);
-# the lamellae they make are planned by Experiment.prepare_items_at.
+# it.
 register_value_writer("poi", _prepare_poi)

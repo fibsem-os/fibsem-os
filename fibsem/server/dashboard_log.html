@@ -202,7 +202,7 @@ function hms(e) {
 function um(v) { return typeof v === "number" ? (v * 1e6).toFixed(2) + " µm" : "?"; }
 function signed(v) { return typeof v === "number" ? (v >= 0 ? "+" : "−") + Math.abs(v * 1e6).toFixed(2) + " µm" : null; }
 // The questions a run raises are the run's, whatever thread posted them.
-// question_asked / question_released: what logs written before 2026-10-19 call them.
+// question_asked / question_released: what older logs call them.
 const RUN_ASKS = new Set(["prompt_raised", "prompt_cancelled", "proposal_held", "proposal_released", "question_asked", "question_released"]);
 function whoOf(e) {
   if (RUN_ASKS.has(e.kind)) return "task";
