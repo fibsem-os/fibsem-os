@@ -328,19 +328,13 @@ class AppWindow(Protocol):
 
     def stop_current_task(self) -> None: ...
 
-    # The config edits, applied by the window until they move to the session
-    # (FIB-1446); each resolves to its outcome dict.
-    def request_apply_item_patch(self, item_name, patch, version): ...
+    # Around an agent's config edit (``config_edits``): flush what the
+    # editors hold first, then redraw and tell the operator what changed.
+    def before_config_edit(self) -> None: ...
 
-    def request_reorder_milling_stages(
-        self, level, item_name, task_name, milling_key, order, version
-    ): ...
-
-    def request_apply_protocol_to_item(self, item_name, task_names): ...
-
-    def request_apply_protocol_task_config_patch(self, task_name, patch, version): ...
-
-    def request_apply_task_config_patch(self, item_name, task_name, patch, version): ...
+    def after_config_edit(
+        self, level: str, item_name: str, task_name: str, result
+    ) -> None: ...
 
 
 class AutoLamellaAppContext:
@@ -1277,6 +1271,37 @@ class AutoLamellaAppContext:
 
         return self._session.run_edit(edit).result(timeout=timeout)
 
+    def _config_edit(
+        self, level, item_name, task_name, patch, version, timeout: float, shown=None
+    ) -> Dict[str, Any]:
+        """An agent's config edit (``config_edits``) where the session edits
+        the experiment, between the window's flush and redraw when one is
+        attached; *shown* is the level the window redraws, when not *level*."""
+        from fibsem.applications.autolamella.config_edits import apply_agent_edit
+
+        window = self._window
+        session = self._session
+
+        def edit():
+            if window is not None:
+                window.before_config_edit()
+            result = apply_agent_edit(
+                session.experiment,
+                lambda: session.microscope,
+                level,
+                item_name,
+                task_name,
+                patch,
+                version,
+            )
+            if window is not None and result.get("applied"):
+                window.after_config_edit(shown or level, item_name, task_name, result)
+            return result
+
+        result = session.run_edit(edit).result(timeout=timeout)
+        result["available"] = True
+        return result
+
     def _editable(self):
         """The experiment and microscope an edit needs, or a refusal."""
         experiment = self._experiment
@@ -1835,13 +1860,9 @@ class AutoLamellaAppContext:
         outcome, and it means an edit here is the value the NEXT run starts
         from, not a permanent override.
         """
-        window = self._window
-        if window is None:
-            return {"available": False, "applied": False}
-        outcome = window.request_apply_item_patch(item_name, dict(patch), str(version))
-        result = outcome.result(timeout=timeout)
-        result["available"] = True
-        return result
+        return self._config_edit(
+            "item_fields", item_name, "", dict(patch), str(version), timeout
+        )
 
     def apply_item_correlation(
         self, item_name: str, run_path: str, timeout: float = 10.0
@@ -2126,14 +2147,11 @@ class AutoLamellaAppContext:
     ) -> Dict[str, Any]:
         """Reorder one milling config's stages — structure, so a verb.
 
-        Same rules as the config patches: version-guarded on the GUI thread,
+        Same rules as the config patches: version-guarded beside the apply,
         refused while that task runs for that item, recorded on the event
         stream. Same-set-by-name: this can never add, drop, or duplicate a
         stage.
         """
-        window = self._window
-        if window is None:
-            return {"available": False, "applied": False}
         if level == "item":
             manager = self._manager
             if manager is not None:
@@ -2151,12 +2169,16 @@ class AutoLamellaAppContext:
                         "error": f"{task_name!r} is running for {item_name!r} "
                         "and has already copied its config.",
                     }
-        outcome = window.request_reorder_milling_stages(
-            level, item_name, task_name, milling_key, list(order), str(version)
+        payload = {"level": level, "milling_key": milling_key, "order": list(order)}
+        return self._config_edit(
+            "reorder_stages",
+            item_name,
+            task_name,
+            payload,
+            str(version),
+            timeout,
+            shown=level,
         )
-        result = outcome.result(timeout=timeout)
-        result["available"] = True
-        return result
 
     def apply_protocol_to_item(
         self,
@@ -2172,9 +2194,6 @@ class AutoLamellaAppContext:
         so no version dance; a task currently running for this item is
         refused like any other config write.
         """
-        window = self._window
-        if window is None:
-            return {"available": False, "applied": False}
         manager = self._manager
         if manager is not None:
             experiment = self._experiment
@@ -2200,10 +2219,9 @@ class AutoLamellaAppContext:
                     f"{item_name!r} right now and has already copied its "
                     "config. Apply after it finishes.",
                 }
-        outcome = window.request_apply_protocol_to_item(item_name, task_names)
-        result = outcome.result(timeout=timeout)
-        result["available"] = True
-        return result
+        return self._config_edit(
+            "apply_protocol", item_name, "", {"task_names": task_names}, "", timeout
+        )
 
     def apply_protocol_task_config_patch(
         self,
@@ -2214,20 +2232,14 @@ class AutoLamellaAppContext:
     ) -> Dict[str, Any]:
         """Patch a task's protocol-level defaults — what new items copy.
 
-        Same version-guarded, GUI-thread apply as the per-item patch. No
+        Same version-guarded apply as the per-item patch. No
         running-task guard: a running task holds its item's copy, so a
         protocol edit can never touch it — the edit reaches items created
         (or re-copied) after it lands.
         """
-        window = self._window
-        if window is None:
-            return {"available": False, "applied": False}
-        outcome = window.request_apply_protocol_task_config_patch(
-            task_name, dict(patch), str(version)
+        return self._config_edit(
+            "protocol", "", task_name, dict(patch), str(version), timeout
         )
-        result = outcome.result(timeout=timeout)
-        result["available"] = True
-        return result
 
     @staticmethod
     def _config_document(task_name: str, config, level: str) -> Dict[str, Any]:
@@ -2259,16 +2271,13 @@ class AutoLamellaAppContext:
         """Patch one item's task config, as an operator edit would land.
 
         The version (from :meth:`item_task_config`) names the state the patch
-        was written against; the check happens on the GUI thread beside the
+        was written against; the check happens beside the
         apply, so an edit landing in between is refused as stale, never
         half-merged. A task currently running for this item is refused too —
         it already copied its config, so the edit would take effect never,
         and a refusal is more honest than a silent no-op. Pending tasks pick
         the change up when they start (the ``set_supervision`` semantics).
         """
-        window = self._window
-        if window is None:
-            return {"available": False, "applied": False}
         manager = self._manager
         if manager is not None:
             running = any(
@@ -2286,12 +2295,9 @@ class AutoLamellaAppContext:
                     "now and has already copied its config — the edit would "
                     "never take effect. Patch it after the task finishes.",
                 }
-        outcome = window.request_apply_task_config_patch(
-            item_name, task_name, dict(patch), str(version)
+        return self._config_edit(
+            "item", item_name, task_name, dict(patch), str(version), timeout
         )
-        result = outcome.result(timeout=timeout)
-        result["available"] = True
-        return result
 
     # --- instrument-adjacent (cached only, never a hardware call) --------------
 

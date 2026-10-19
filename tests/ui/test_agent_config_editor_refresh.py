@@ -79,17 +79,20 @@ def test_the_item_editor_rebuilds_only_for_the_shown_item(window, experiment):
 def test_the_applier_reaches_the_editor_through_the_window(window, experiment):
     """The full GUI-side path: patch applied on the main window's embedded UI
     rebuilds the editor showing that item."""
+    from fibsem.applications.autolamella.server import AutoLamellaAppContext
     from fibsem.applications.autolamella.server.context import config_version
 
     ui = window.autolamella_ui
     lamella = experiment.positions[0]
     config = lamella.task_config[TASK]
-    result = ui._apply_task_config_patch_for_agent(
+    context = AutoLamellaAppContext(ui.session, window=ui)
+    result = context._config_edit(
         "item",
         lamella.name,
         TASK,
         {"milling.mill_rough.stages.0.pattern.depth": 2.7e-6},
         config_version(config),
+        10.0,
     )
     assert result["applied"] is True
     assert config.milling["mill_rough"].stages[0].pattern.depth == 2.7e-6
