@@ -1,9 +1,9 @@
 """A run with no window does what it does with one, minus the drawing.
 
 The App Server over a session with nobody but the agent, at Drive: the agent
-starts a supervised Select Position, sees on the status that the run is held
-and by what, sees the task's images, and answers each question; the run ends
-on its decisions. Nothing here imports Qt.
+starts a supervised Select Position, sees on the status what the run is
+asking, sees the task's images, and answers each question; the run ends on
+its decisions. Nothing here imports Qt.
 """
 
 import os
@@ -75,16 +75,16 @@ def _ok(answer):
 
 
 def _held(agent, timeout: float = 60):
-    """The run's status once it is held, or None once the run has ended."""
+    """The run's status once a task asks, or None once the run has ended."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         workflow = _ok(agent.get("/app/workflow/status"))["workflow"]
-        if workflow["held"] is not None:
+        if workflow["asking"]:
             return workflow
         if not workflow["running"]:
             return None
         time.sleep(0.1)
-    raise AssertionError("the run neither held nor ended")
+    raise AssertionError("the run neither asked nor ended")
 
 
 def test_the_agent_answers_a_supervised_run_with_no_window(agent):
@@ -95,10 +95,11 @@ def test_the_agent_answers_a_supervised_run_with_no_window(agent):
 
     answered = []
     while (workflow := _held(agent)) is not None:
-        held = workflow["held"]
-        assert held["items"] == [f"{lamella.name}/{SETUP}"]
-        assert held["releases"] == f"answer {SETUP} on {lamella.name}"
-        (question,) = held["questions"]
+        (question,) = workflow["asking"]
+        # The run holds on it, with nobody but the runner listening.
+        hold = session.runner.manager.hold
+        assert hold.items == (f"{lamella.name}/{SETUP}",)
+        assert hold.releases == f"answer {SETUP} on {lamella.name}"
         # What the task acquired is what the agent sees, window or not.
         assert session.images.get(BeamType.ION) is not None
         assert _ok(agent.get("/app/experiment/images"))["available"]
