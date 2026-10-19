@@ -1,0 +1,11 @@
+{
+  "autofocus_mode": "each_row",
+  "cols": 2,
+  "objective_start": "current",
+  "overlap": 0.1,
+  "register_tiles": false,
+  "rows": 2,
+  "tile_mask": null,
+  "tile_order": "typewriter",
+  "use_zstack": false
+}

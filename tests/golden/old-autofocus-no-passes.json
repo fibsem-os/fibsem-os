@@ -1,0 +1,23 @@
+{
+  "channel_name": null,
+  "method": "tenengrad",
+  "passes": [
+    {
+      "enabled": true,
+      "search_range": 5e-05,
+      "step_size": 5e-06
+    },
+    {
+      "enabled": true,
+      "search_range": 1e-05,
+      "step_size": 1e-06
+    }
+  ],
+  "probe_dwell_time": 5e-07,
+  "probe_resolution": [
+    768,
+    512
+  ],
+  "reduced_area": null,
+  "use_autocontrast": true
+}

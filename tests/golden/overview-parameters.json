@@ -1,0 +1,22 @@
+{
+  "autofocus_mode": "each_row",
+  "cols": 3,
+  "objective_start": "focus",
+  "overlap": 0.2,
+  "register_tiles": true,
+  "rows": 2,
+  "tile_mask": [
+    [
+      true,
+      false,
+      true
+    ],
+    [
+      true,
+      true,
+      false
+    ]
+  ],
+  "tile_order": "serpentine",
+  "use_zstack": true
+}

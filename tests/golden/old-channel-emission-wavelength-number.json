@@ -1,0 +1,18 @@
+{
+  "color": "red",
+  "emission_filter": {
+    "bands": [
+      [
+        610.0,
+        null
+      ]
+    ],
+    "multi_band": false,
+    "name": "610 nm"
+  },
+  "excitation_wavelength": 550,
+  "exposure_time": 0.2,
+  "gain": 0.0,
+  "name": "Red",
+  "power": 0.1
+}

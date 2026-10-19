@@ -1,0 +1,13 @@
+{
+  "color": "gray",
+  "emission_filter": {
+    "bands": [],
+    "multi_band": false,
+    "name": "Reflection"
+  },
+  "excitation_wavelength": 550,
+  "exposure_time": 0.001,
+  "gain": 0.0,
+  "name": "Refl",
+  "power": 0.01
+}

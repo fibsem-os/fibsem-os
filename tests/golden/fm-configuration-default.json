@@ -1,0 +1,79 @@
+{
+  "autofocus_settings": {
+    "channel_name": "Reflection Channel",
+    "method": "laplacian",
+    "passes": [
+      {
+        "enabled": true,
+        "search_range": 5e-05,
+        "step_size": 5e-06
+      },
+      {
+        "enabled": true,
+        "search_range": 1e-05,
+        "step_size": 1e-06
+      }
+    ],
+    "probe_dwell_time": 5e-07,
+    "probe_resolution": [
+      768,
+      512
+    ],
+    "reduced_area": null,
+    "use_autocontrast": true
+  },
+  "camera_settings": {
+    "binning": 4,
+    "gain": 0.01,
+    "offset": 0.0,
+    "transform": "flip-x"
+  },
+  "channel_settings": [
+    {
+      "color": "gray",
+      "emission_filter": {
+        "bands": [],
+        "multi_band": false,
+        "name": "Reflection"
+      },
+      "excitation_wavelength": 550,
+      "exposure_time": 0.005,
+      "gain": 0.0,
+      "name": "Reflection Channel",
+      "power": 0.03
+    },
+    {
+      "color": "red",
+      "emission_filter": {
+        "bands": [],
+        "multi_band": true,
+        "name": "Fluorescence"
+      },
+      "excitation_wavelength": 550,
+      "exposure_time": 0.5,
+      "gain": 0.0,
+      "name": "Red Channel",
+      "power": 0.15
+    }
+  ],
+  "default_orientation": "FM",
+  "focus_position": 0.0083,
+  "limit_position": 0.0086,
+  "overview_parameters": {
+    "autofocus_mode": "once",
+    "cols": 5,
+    "objective_start": "current",
+    "overlap": 0.1,
+    "register_tiles": false,
+    "rows": 5,
+    "tile_mask": null,
+    "tile_order": "typewriter",
+    "use_zstack": true
+  },
+  "z_parameters": {
+    "order": "channel",
+    "zmax": 9.999999999999999e-06,
+    "zmin": -9.999999999999999e-06,
+    "zstep": 1e-06
+  }
+}

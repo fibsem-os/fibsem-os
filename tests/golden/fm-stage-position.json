@@ -1,0 +1,13 @@
+{
+  "name": "01-grid",
+  "objective_position": 0.0084,
+  "stage_position": {
+    "coordinate_system": "RAW",
+    "name": "lamella",
+    "r": 0.5235987755982988,
+    "t": 0.9075712110370514,
+    "x": 0.001,
+    "y": -0.002,
+    "z": 0.003
+  }
+}

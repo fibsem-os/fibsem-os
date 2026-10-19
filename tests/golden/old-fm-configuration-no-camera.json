@@ -1,0 +1,44 @@
+{
+  "autofocus_settings": null,
+  "camera_settings": {
+    "binning": 1,
+    "gain": 0.01,
+    "offset": 0.0,
+    "transform": null
+  },
+  "channel_settings": [
+    {
+      "color": "gray",
+      "emission_filter": {
+        "bands": [],
+        "multi_band": false,
+        "name": "Reflection"
+      },
+      "excitation_wavelength": 550,
+      "exposure_time": 0.001,
+      "gain": 0.0,
+      "name": "Refl",
+      "power": 0.01
+    }
+  ],
+  "default_orientation": "FM",
+  "focus_position": null,
+  "limit_position": null,
+  "overview_parameters": {
+    "autofocus_mode": "none",
+    "cols": 3,
+    "objective_start": "current",
+    "overlap": 0.1,
+    "register_tiles": false,
+    "rows": 3,
+    "tile_mask": null,
+    "tile_order": "typewriter",
+    "use_zstack": false
+  },
+  "z_parameters": {
+    "order": "channel",
+    "zmax": 1e-05,
+    "zmin": -1e-05,
+    "zstep": 1e-06
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "channel_name": "Reflection Channel",
+  "method": "laplacian",
+  "passes": [
+    {
+      "enabled": true,
+      "search_range": 4e-05,
+      "step_size": 4e-06
+    },
+    {
+      "enabled": false,
+      "search_range": 8e-06,
+      "step_size": 1e-06
+    }
+  ],
+  "probe_dwell_time": 5e-07,
+  "probe_resolution": [
+    768,
+    512
+  ],
+  "reduced_area": null,
+  "use_autocontrast": true
+}

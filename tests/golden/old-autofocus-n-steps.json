@@ -1,0 +1,18 @@
+{
+  "channel_name": null,
+  "method": "sobel",
+  "passes": [
+    {
+      "enabled": true,
+      "search_range": 1.9999999999999998e-05,
+      "step_size": 2e-06
+    }
+  ],
+  "probe_dwell_time": 5e-07,
+  "probe_resolution": [
+    768,
+    512
+  ],
+  "reduced_area": null,
+  "use_autocontrast": true
+}

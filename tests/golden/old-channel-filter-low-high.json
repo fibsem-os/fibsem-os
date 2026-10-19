@@ -1,0 +1,18 @@
+{
+  "color": "gray",
+  "emission_filter": {
+    "bands": [
+      [
+        500.0,
+        550.0
+      ]
+    ],
+    "multi_band": false,
+    "name": "GFP"
+  },
+  "excitation_wavelength": 550,
+  "exposure_time": 0.001,
+  "gain": 0.0,
+  "name": "GFP",
+  "power": 0.01
+}

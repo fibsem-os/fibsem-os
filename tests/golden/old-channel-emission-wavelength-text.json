@@ -1,0 +1,13 @@
+{
+  "color": "gray",
+  "emission_filter": {
+    "bands": [],
+    "multi_band": true,
+    "name": "Fluorescence"
+  },
+  "excitation_wavelength": 550,
+  "exposure_time": 0.2,
+  "gain": 0.0,
+  "name": "Fluo",
+  "power": 0.1
+}

@@ -1,0 +1,6 @@
+{
+  "order": "z_level",
+  "zmax": 5e-06,
+  "zmin": -5e-06,
+  "zstep": 5e-07
+}
