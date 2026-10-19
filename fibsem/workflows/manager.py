@@ -660,9 +660,6 @@ class BaseTaskManager:
         items = self.queue.items
         position = next((i for i, it in enumerate(items) if it.id == item.id), None)
 
-        # `lamella_name` is no longer a field: `WorkflowStatusUpdate` derives it from
-        # `item_name` as a property, so the deprecated alias cannot drift from the name
-        # it aliases, and drops cleanly with the HookContext shims after v0.6.
         update = WorkflowStatusUpdate(
             task_name=item.task_name,
             item_name=item_name,
@@ -675,10 +672,6 @@ class BaseTaskManager:
             queue_position=position + 1 if position is not None else None,
             queue_total=len(items),
             queue_items=items,  # thread-safe snapshot: Queue.items returns copies
-            # The plan this run was launched with. Informational only — the live
-            # queue may since have diverged from it.
-            task_names=self.queue.task_names,
-            lamella_names=self.queue.item_names,
             work_item_id=item.id,
             iteration=item.iteration,
         )

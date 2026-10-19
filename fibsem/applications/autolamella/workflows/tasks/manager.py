@@ -97,9 +97,7 @@ class TaskManager(BaseTaskManager):
         if required_lamella is None:
             required_lamella = [p.name for p in self.experiment.positions]
         pairs = [(name, task) for task in task_names for name in required_lamella]
-        self.queue.build_from_pairs(
-            pairs, task_names=task_names, item_names=required_lamella
-        )
+        self.queue.build_from_pairs(pairs)
         self._run_queue()
 
     def _item_defer_reason(self, item: WorkItem) -> Optional[str]:

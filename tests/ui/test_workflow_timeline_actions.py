@@ -236,7 +236,7 @@ def test_run_again_queues_a_fresh_item_without_touching_the_original(queue):
     done = queue.next()
     queue.mark_done(done, Status.Failed)
 
-    added = queue.add(done.lamella_name, done.task_name, front=True)
+    added = queue.add(done.item_name, done.task_name, front=True)
 
     assert added.id != done.id
     assert queue.pending[0].id == added.id

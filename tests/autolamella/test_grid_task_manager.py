@@ -184,8 +184,6 @@ class TestOrderAndLoading:
             ("Grid-02", LOAD_ENTRY_NAME),
             ("Grid-02", "overview_sem"),
         ]
-        assert manager.queue.task_names == ["overview_sem"]
-        assert manager.queue.item_names == ["Grid-01", "Grid-02"]
 
     def test_runs_grid_outer(self, manager):
         executed = run_with_stub(

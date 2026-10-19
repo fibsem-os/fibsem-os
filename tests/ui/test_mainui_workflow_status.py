@@ -130,7 +130,7 @@ def test_a_status_event_snapshot_reaches_the_windows_own_timeline(main_ui):
         WorkflowStatusEvent(report=report)
     )
 
-    rows = [(i.lamella_name, i.task_name) for i in main_ui.workflow_timeline._items]
+    rows = [(i.item_name, i.task_name) for i in main_ui.workflow_timeline._items]
     assert rows == [("lamella-03", "Trench"), ("lamella-04", "Trench")]
 
     # Reconcile back down to zero rows so the module-scoped window carries no

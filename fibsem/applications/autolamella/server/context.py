@@ -11,16 +11,13 @@ Thread contract: every method is safe to call from a server thread. Reads are
 point-in-time snapshots, not transactions — the workflow worker may be mutating
 the experiment concurrently, and a snapshot that is a task older than the
 instant it was taken is the accepted cost of never blocking anything.
-:meth:`stage_position` reads the microscope's cached position only, so an
-observer never makes the app poll the instrument. The few reads that do reach
-the instrument are an action's own: :meth:`set_item_pose` reads the microscope
+An observer never makes the app poll the instrument. The few reads that do
+reach the instrument are an action's own: :meth:`set_item_pose` reads the microscope
 state it stores, and :meth:`add_grids`, :meth:`rename_grid` and requeueing read
 the grid inventory, as the window's own buttons do. None of them writes to the
 instrument.
 
-Vocabulary: the surface speaks ``item_name`` throughout. ``lamella_name`` is
-the deprecated alias scheduled to drop with the HookContext shims after v0.6
-and never appears in these payloads.
+Vocabulary: the surface speaks ``item_name`` throughout.
 
 The facade reads the session (``fibsem.workflows.session.AppSession``): the
 experiment, the microscope, the runner, the responder and the latest images,
@@ -2215,19 +2212,6 @@ class AutoLamellaAppContext:
         )
 
     # --- instrument-adjacent (cached only, never a hardware call) --------------
-
-    def stage_position(self) -> Dict[str, Any]:
-        """The cached stage position. None until something has read the stage.
-
-        Deliberately reads the cache, not ``get_stage_position()`` — an observer
-        must never make the app poll hardware (and on Tescan a concurrent read
-        is a socket transaction the workflow may be mid-way through).
-        """
-        stage = getattr(self._microscope, "stage", None)
-        cached = stage.position.last_known if stage is not None else None
-        if cached is None:
-            return {"available": False, "position": None}
-        return {"available": True, "position": cached.to_dict()}
 
     def display_images(self) -> Dict[str, Any]:
         """The SEM/FIB images the GUI is displaying right now, as previews.

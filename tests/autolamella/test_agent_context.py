@@ -55,7 +55,6 @@ def test_every_method_tolerates_an_empty_host():
         ctx.protocol(),
         ctx.task_outputs("anything"),
         ctx.item_detail("anything"),
-        ctx.stage_position(),
     ]
     for payload in payloads:
         _assert_json_safe(payload)
@@ -460,24 +459,6 @@ def test_queue_snapshot_uses_item_name_vocabulary(experiment, microscope):
     status = ctx.status()
     assert status["workflow"]["queue_total"] == 4
     assert status["workflow"]["current_task"] is None  # nothing running
-
-
-def test_stage_position_reads_the_cache_only(microscope):
-    host = stub_session()
-    host.microscope = microscope
-    ctx = AutoLamellaAppContext(host)
-
-    microscope.get_stage_position()  # populate the cache, as the app would
-    cached = ctx.stage_position()
-    assert cached["available"] is True
-    _assert_json_safe(cached)
-
-    # The facade must not have issued a hardware read itself: forgetting the stage
-    # device's cached value directly proves which side it reads from.
-    from fibsem.devices.core import _UNSET
-
-    microscope.stage.position._cached = _UNSET
-    assert ctx.stage_position() == {"available": False, "position": None}
 
 
 def test_recent_experiments_is_json_safe():

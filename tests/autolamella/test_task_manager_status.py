@@ -163,7 +163,7 @@ def test_emit_reports_position_in_the_live_queue(manager):
     item = manager.queue.items[2]
     manager._emit_status(
         item=item,
-        lamella=manager.experiment.get_lamella_by_name(item.lamella_name),
+        lamella=manager.experiment.get_lamella_by_name(item.item_name),
         status=Status.InProgress,
     )
     status = last_status(manager)
@@ -174,7 +174,6 @@ def test_emit_reports_position_in_the_live_queue(manager):
 def test_emit_for_a_task_outside_the_launch_plan(manager):
     """Regression: this raised ValueError out of task_names.index()."""
     added = manager.queue.add("L1", "Polishing")
-    assert added.task_name not in manager.queue.task_names
 
     manager._emit_status(
         item=added,
@@ -196,8 +195,6 @@ def test_emit_for_a_lamella_outside_the_launch_plan(manager):
     )
     status = last_status(manager)
     assert status.item_name == "L99"
-    # deprecated alias, dropped with the HookContext shims after v0.6 (FIB-464)
-    assert status.lamella_name == "L99"
     assert status.queue_position == 5
 
 
@@ -206,22 +203,10 @@ def test_emit_position_follows_a_reorder(manager):
     manager.queue.move_to_front(item.id)
     manager._emit_status(
         item=item,
-        lamella=manager.experiment.get_lamella_by_name(item.lamella_name),
+        lamella=manager.experiment.get_lamella_by_name(item.item_name),
         status=Status.InProgress,
     )
     assert last_status(manager).queue_position == 1
-
-
-def test_emit_carries_the_launch_plan_as_context(manager):
-    item = manager.queue.items[0]
-    manager._emit_status(
-        item=item,
-        lamella=manager.experiment.get_lamella_by_name("L1"),
-        status=Status.InProgress,
-    )
-    status = last_status(manager)
-    assert status.task_names == ["Trench", "Undercut"]
-    assert status.lamella_names == ["L1", "L2"]
 
 
 def test_emit_includes_a_queue_snapshot(manager):
@@ -270,7 +255,6 @@ def test_emit_is_a_noop_headless(tmp_path):
 def test_lamella_outside_the_launch_selection_is_not_skipped(manager):
     """Regression: the old allow-list check skipped anything added mid-run."""
     lamella = make_lamella(manager.experiment, "L99")
-    assert "L99" not in manager.queue.lamella_names
     assert manager._should_skip(lamella, "Trench") is None
 
 
@@ -492,7 +476,7 @@ def test_item_moved_to_front_mid_run_runs_next(manager):
         if not moved:
             last = manager.queue.pending[-1]
             manager.queue.move_to_front(last.id)
-            moved.append((last.lamella_name, last.task_name))
+            moved.append((last.item_name, last.task_name))
 
     executed = run_queue_with(manager, on_task)
     assert executed[1] == moved[0]
@@ -505,7 +489,7 @@ def test_item_removed_mid_run_never_executes(manager):
         if not removed:
             target = manager.queue.pending[-1]
             manager.queue.remove(target.id)
-            removed.append((target.lamella_name, target.task_name))
+            removed.append((target.item_name, target.task_name))
 
     executed = run_queue_with(manager, on_task)
     assert removed[0] not in executed
