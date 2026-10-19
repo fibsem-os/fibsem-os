@@ -1,9 +1,8 @@
 """What the agent did lately, one line each with how it ended (FIB-1414).
 
 The agent card's Recent list: the agent's requests (asked, then approved,
-applying, then applied or failed, or rejected with the operator's why), its
-suggested answers (taken, dropped or dismissed), and what it does itself at
-Drive or was refused. The operator's messages to it are rows too, "You: ...",
+applying, then applied or failed, or rejected with the operator's why), and
+what it does itself at Drive or was refused. The operator's messages to it are rows too, "You: ...",
 and its answers "Reply: ..." (FIB-1423). Read from the session's record, the event stream the event
 log shows, so the list and the log never disagree; only the agent's own entries
 make a row. Each row says the level it was done at (FIB-1426).
@@ -140,7 +139,6 @@ class RecentActions:
     def __init__(self, size: int = SIZE) -> None:
         self._size = size
         self._rows: "OrderedDict[Any, RecentRow]" = OrderedDict()
-        self._questions: Dict[Any, Dict[str, Any]] = {}
         # What the agent's own rows stand for while it runs: an approved
         # request, a long command.
         self._applying: set = set()
@@ -157,7 +155,6 @@ class RecentActions:
 
     def clear(self) -> None:
         self._rows.clear()
-        self._questions.clear()
         self._applying.clear()
         self._sizes.clear()
         self._failures.clear()
@@ -256,72 +253,6 @@ class RecentActions:
         if not p.get("withdrawn") and p.get("why"):
             outcome = f"cancelled: {_cut(p['why'], 120)}"
         return self._end(("request", p.get("request_id")), outcome, MUTED)
-
-    # --- the run's questions -----------------------------------------------------
-
-    def _on_prompt_raised(self, record, p, agent):
-        self._questions[p.get("question_id")] = p
-        return False
-
-    def _button(self, question_id: Any, response: Any) -> str:
-        asked = self._questions.get(question_id) or {}
-        button = asked.get("positive") if response else asked.get("negative")
-        return str(button or ("yes" if response else "no"))
-
-    def _question(self, question_id: Any, p: Dict[str, Any]) -> str:
-        asked = self._questions.get(question_id) or {}
-        return str(
-            asked.get("message") or _words(p.get("type")) or "the run's question"
-        )
-
-    def _on_prompt_suggested(self, record, p, agent):
-        question_id = p.get("question_id")
-        text = (
-            f"Suggested {self._button(question_id, p.get('response'))} for "
-            f"'{self._question(question_id, p)}'"
-        )
-        return self._put(
-            ("suggestion", question_id), record, text, "waiting", WAITING, ASSIST
-        )
-
-    def _on_prompt_answered(self, record, p, agent):
-        question_id = p.get("question_id")
-        changed = False
-        if p.get("suggested_by"):
-            changed = self._end(("suggestion", question_id), "taken", OK)
-        elif (
-            row := self._rows.get(("suggestion", question_id))
-        ) and row.tone == WAITING:
-            changed = self._end(("suggestion", question_id), "dropped", MUTED)
-        if agent:
-            # What it decided, not the prompt's instructions (sim session
-            # 2026-10-16): "02-tough-shiner · Point of interest at (+5, −2) µm".
-            text = str(p.get("decided") or "").strip() or (
-                f"{self._button(question_id, p.get('response'))} to "
-                f"'{_cut(self._question(question_id, p), 60)}'"
-            )
-            text = text[:1].upper() + text[1:]
-            item = (record.get("item") or {}).get("name")
-            if item:
-                text = f"{item} · {text}"
-            changed = self._put(
-                ("answer", question_id), record, text, "done", OK, DRIVE
-            )
-        return changed
-
-    def _on_prompt_suggestion_dismissed(self, record, p, agent):
-        reason = str(p.get("reason") or "").strip()
-        return self._end(
-            ("suggestion", p.get("question_id")),
-            f"dismissed: {reason}" if reason else "dismissed",
-            MUTED,
-        )
-
-    def _on_prompt_cancelled(self, record, p, agent):
-        row = self._rows.get(("suggestion", p.get("question_id")))
-        if row is not None and row.tone == WAITING:
-            return self._end(("suggestion", p.get("question_id")), "dropped", MUTED)
-        return False
 
     # --- what it does itself -----------------------------------------------------
 

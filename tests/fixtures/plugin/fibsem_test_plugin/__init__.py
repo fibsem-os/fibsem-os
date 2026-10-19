@@ -15,6 +15,7 @@ PATTERN_NAME = "Fixture Pattern"
 STRATEGY_NAME = "Fixture Strategy"
 TASK_TYPE = "FIXTURE_TASK"
 GRID_TASK_TYPE = "FIXTURE_GRID_TASK"
+VOLUME_TASK_TYPE = "FIXTURE_VOLUME_TASK"
 
 # Deliberately collides with a built-in pattern, so the documented precedence
 # (builtins > registered > plugins) has something to actually assert against.

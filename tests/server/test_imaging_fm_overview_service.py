@@ -223,3 +223,35 @@ def test_the_estimate_is_the_runs_length(client):
     # The focus sweep counts: more than the same grid without it.
     parameters.autofocus_mode = AutoFocusMode.NONE
     assert estimate["duration"] > estimate_fm_overview_time(CHANNELS, parameters)
+
+
+def test_an_overview_is_centred_where_asked_and_announces_its_mosaic(
+    microscope, tmp_path, monkeypatch
+):
+    """The tab's path too: it centres on a dragged grid and shows the mosaic as it
+    lands, before the run reports finished."""
+    from fibsem.fm import acquisition
+
+    centres, seen = [], []
+    runner = acquisition.FMTiledAcquisitionRunner
+
+    def recording(**kwargs):
+        centres.append(kwargs["centre_position"])
+        return runner(**kwargs)
+
+    monkeypatch.setattr(acquisition, "FMTiledAcquisitionRunner", recording)
+    centre = microscope.get_stage_position()
+
+    def record(*args):
+        seen.append(args)
+
+    microscope.imaging.overview_acquired.connect(record)
+    try:
+        result = microscope.imaging.fm_acquire_overview(
+            CHANNELS, ONE_BY_TWO, str(tmp_path), centre_position=centre
+        )
+    finally:
+        microscope.imaging.overview_acquired.disconnect(record)
+    assert centres == [centre]
+    ((mosaic, path),) = seen
+    assert path == result["image"]["path"]

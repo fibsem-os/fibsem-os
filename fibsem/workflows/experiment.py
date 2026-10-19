@@ -30,10 +30,7 @@ from fibsem.structures import FibsemUser, SessionInfo
 from fibsem.util.timestamps import now, to_datetime, to_iso
 from fibsem.utils import configure_logging as _configure_logging
 from fibsem.workflows.proposals import (
-    ItemPoses,
-    PreparedWrite,
     Proposal,
-    ValueRefused,
     proposals_from_dict,
     proposals_to_dict,
     record,
@@ -106,18 +103,6 @@ class BaseExperiment:
     def item_path(self, item: Any) -> Path:
         """The directory an item's recorded outputs are relative to."""
         return Path(item.path)
-
-    def prepare_items_at(self, item: Any, positions: List[ItemPoses]) -> PreparedWrite:
-        """Plan the items this experiment makes at confirmed overview
-        ``positions`` on ``item``, without touching anything yet: the write a
-        positions proposal makes when it is confirmed.
-
-        Planned in full and undone together: a half-made set is worse than
-        none. An experiment whose app makes no items at positions refuses
-        (``ValueRefused``), so the decision is refused before anything is
-        written.
-        """
-        raise ValueRefused("This experiment makes no items at positions.")
 
     def record_proposal(self, proposal: Proposal) -> Proposal:
         """Put ``proposal``, about the experiment itself, on the record. It
@@ -410,6 +395,7 @@ class FibsemExperiment(BaseExperiment):
 # built-ins are named by import path so this module imports no application.
 _BUILTIN_TYPES: Dict[str, str] = {
     "autolamella": "fibsem.applications.autolamella.structures:Experiment",
+    "volume": "fibsem.applications.volume.experiment:VolumeExperiment",
 }
 EXPERIMENT_TYPES: Dict[str, Type[BaseExperiment]] = {
     FibsemExperiment.app: FibsemExperiment

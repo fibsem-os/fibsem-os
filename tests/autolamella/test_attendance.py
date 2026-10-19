@@ -1,7 +1,7 @@
 """What a task needs from a person, said before the run.
 
-Derived from what the task type declares (``questions``, ``sessions``,
-``proposer``) and the attention the protocol gives it; never stored.
+Derived from what the task type declares (``asks``) and the attention the
+protocol gives it; never stored.
 """
 
 from psygnal.containers import EventedDict
@@ -47,7 +47,6 @@ def test_a_supervised_task_with_a_session_needs_you_there():
         MillUndercutTask,
         MillUndercutTaskConfig(task_name=UNDERCUT),
         Attention.supervised,
-        waiters=["Polishing"],
     )
     assert att.needs_a_person_present
     assert att.present == ("detection", "milling")
@@ -61,7 +60,6 @@ def test_a_task_that_asks_only_its_mill_needs_you_for_that():
         MillRoughTask,
         MillRoughTaskConfig(task_name=ROUGH),
         Attention.supervised,
-        waiters=[],
     )
     assert att.present == ("milling",), "the mill is a session"
     auto = attendance(
@@ -80,18 +78,14 @@ def test_setups_settings_turn_its_questions_off():
     off = SelectMillingPositionTaskConfig(
         task_name=SETUP, auto_milling_alignment=False, select_poi=False
     )
-    with_all = attendance(
-        SelectMillingPositionTask, on, Attention.supervised, waiters=[ROUGH]
-    )
+    with_all = attendance(SelectMillingPositionTask, on, Attention.supervised)
     assert with_all.present == (
         "the position",
         "detection",
         "the point of interest",
         "the alignment area",
     )
-    fewer = attendance(
-        SelectMillingPositionTask, off, Attention.supervised, waiters=[ROUGH]
-    )
+    fewer = attendance(SelectMillingPositionTask, off, Attention.supervised)
     assert fewer.present == ("the position", "the alignment area")
     assert fewer.line == (
         "Needs you at the microscope while it runs: the position and the "
@@ -104,7 +98,6 @@ def test_automated_nobody_is_asked():
         SelectMillingPositionTask,
         SelectMillingPositionTaskConfig(task_name=SETUP),
         Attention.automated,
-        waiters=[ROUGH],
     )
     assert not att.needs_a_person_present
     assert att.line == "Nobody is asked."
@@ -144,18 +137,17 @@ def _protocol() -> AutoLamellaTaskProtocol:
     return protocol
 
 
-def test_the_protocol_names_the_type_the_attention_and_who_waits():
+def test_the_protocol_names_the_type_and_the_attention():
     protocol = _protocol()
     setup = attendance_for(protocol, SETUP)
     assert setup.attention is Attention.supervised
-    assert setup.waiters == (ROUGH,)
     assert setup.present == (
         "the position",
         "the point of interest",
         "the alignment area",
     )
     rough = attendance_for(protocol, ROUGH)
-    assert rough.attention is Attention.automated and rough.waiters == ()
+    assert rough.attention is Attention.automated
     assert attendance_for(protocol, "Ghost") is None, "no config, nothing said"
 
 
@@ -173,6 +165,6 @@ def test_the_run_summary_names_who_needs_you():
 
 def test_every_task_type_declares_tuples_the_words_are_known_for():
     for name, cls in get_tasks().items():
-        assert isinstance(cls.questions, tuple), name
-        for kind in cls.questions:
+        assert isinstance(cls.asks, tuple), name
+        for kind in cls.asks:
             assert kind in KIND_LABELS, f"{name}: no words for {kind!r}"

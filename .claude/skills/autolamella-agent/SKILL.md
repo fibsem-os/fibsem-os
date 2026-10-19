@@ -11,12 +11,12 @@ skills build on it:
 
 - **observe-autolamella**: explain a session or a finished experiment, and
   never act. Any level, and offline from a folder.
-- **assist-autolamella**: at **Assist**, suggest answers and ask the
-  operator to approve each action.
-- **supervise-autolamella**: at **Drive**, answer the workflow's questions
+- **assist-autolamella**: at **Assist**, ask the operator to approve each
+  action.
+- **supervise-autolamella**: at **Drive**, decide the workflow's proposals
   and act.
 
-When in doubt, wait and ask the operator. A workflow's questions have no
+When in doubt, wait and ask the operator. A workflow's proposals have no
 timeout, so nothing is lost by waiting.
 
 ## Connect
@@ -59,13 +59,12 @@ Every launch starts at Watch; nothing in a file raises it.
 
 - **Off**: everything is refused, `/capabilities` included (`403 agent_off`).
   Say so once and stop.
-- **Watch**: you read everything and add notes. You can't answer, start,
+- **Watch**: you read everything and add notes. You can't decide, start,
   stop, re-queue or edit. Watch is a complete job: say what you see and what
   you would do and why, and leave the click to the operator.
 - **Assist**: you read freely and ask before each action; the operator
-  approves it on the Agent chip. You suggest answers rather than answering.
-  See assist-autolamella.
-- **Drive**: you answer questions, start and stop workflows, change
+  approves it on the Agent chip. See assist-autolamella.
+- **Drive**: you decide proposals, start and stop workflows, change
   supervision, re-queue, edit configuration and, with the microscope served,
   use the microscope. See supervise-autolamella.
 
@@ -92,7 +91,7 @@ a 403 as an error to work around, and never retry it in another form.
 `fibsem-mcp watch` long-polls the app's events and prints one line per thing
 worth waking for. Run it for the whole session, as a background monitor. Don't
 write your own (the first agent to try matched the wrong JSON key and slept
-through a question), don't poll `/app/workflow/prompt` on a timer, and don't
+through a proposal), don't poll `/app/workflow/proposals` on a timer, and don't
 loop `app_get_events` in the foreground: that blocks you from acting on what
 it sees.
 
@@ -109,7 +108,7 @@ app runs: a watcher from before Assist prints no `REQUEST` lines and has no
 
 A process that only runs in the background is not a wake-up call: its lines
 go to a file you read on your next turn, which may be long after the
-question. In Claude Code, run it in the background writing to a file, and
+proposal. In Claude Code, run it in the background writing to a file, and
 stream that file with the Monitor tool so each new line wakes you:
 
 ```
@@ -129,18 +128,12 @@ idle expecting a line. Run the watcher in the foreground with your tool
 timeout as the cap, act on what it printed when it returns, and run it again
 with `--since <the last seq you saw>` (`latest_seq` from `app_get_events`) so
 nothing in between is lost. A stalled watcher looks exactly like a quiet run:
-when in doubt, read `/app/workflow/prompt`.
+when in doubt, read `/app/workflow/proposals`.
 
 Its lines:
 
-- `PROMPT`: a question is standing, with its `question_id`.
-- `QUESTION item=… task=…`: the run is stopped on a recorded question (see
-  *The workflow's questions*). `QUESTION RELEASED` when it is decided.
-- `ANSWERED`: who answered and how; `suggested_by=agent` when the operator
-  took your suggestion. If the operator answered, your read of that question
-  is stale. `PROMPT WITHDRAWN` when the question went away unanswered.
-- `SUGGESTION DISMISSED`: the operator declined your suggestion, with their
-  reason when they gave one.
+- `PROPOSAL item=… task=…`: the run is stopped on a proposal (see
+  *The workflow's proposals*). `PROPOSAL RELEASED` when it is decided.
 - `REQUEST`: your request moved on (approved, applied, failed, rejected,
   cancelled).
 - `EVENT`: a task started, completed, failed, was cancelled or skipped (with
@@ -152,7 +145,7 @@ Its lines:
   `stopped without an end event` (it died without saying so). For the last
   two, read `app_get_log` with the workflow's `task_id` and `level=WARNING`
   before you report.
-- `GAP`: events were lost. Re-read `/app/workflow/prompt` and
+- `GAP`: events were lost. Re-read `/app/workflow/proposals` and
   `/app/workflow/status`. `RESTARTED`: the app restarted, and the watcher
   reads it from the start.
 - `AGENT OFF` and `AGENT BACK`: the operator set the level to Off and back.
@@ -176,21 +169,17 @@ A message is never an approval. "Go ahead and mill 03" at Assist still means
 a request; at Watch it means saying what you would do. Your level decides what
 you may do, whatever a message says.
 
-## The workflow's questions
+## The workflow's proposals
 
-A workflow asks in one of two ways:
+A task asks a position, a point of interest, an alignment area, a detection
+or a mill's pass on the item's record and stops on it (`PROPOSAL`).
+`proposal_list` lists it, and `proposal_decide` decides it: at Drive you
+decide it, at Assist you file the decision as a request, at Watch you say
+what you would decide.
 
-- **A prompt** (`PROMPT`): read `prompt_get` and take its `question_id`. At
-  Drive you answer it (`prompt_answer`), at Assist you suggest
-  (`prompt_suggest_answer`), at Watch you say what you would answer.
-- **A recorded question** (`QUESTION`): a task asks a position, a point of
-  interest, an alignment area, a detection or a mill's pass on the item's
-  record and stops on it. `review_list` lists it with `holding_the_run: true`. It is decided
-  with `review_decide`, never answered or suggested (`409 not_suggestible`).
-
-The operator outranks you: if they answer first, your job for that question
-is over. A `409 stale_prompt` means the question changed under you, usually
-because the operator answered. That refusal is correct; re-read and carry on.
+The operator outranks you: if they decide first, your job for that proposal
+is over. A `409 stale_proposal` means the proposal changed under you, usually
+because the operator decided it. That refusal is correct; re-read and carry on.
 
 ## Write down why
 
@@ -208,8 +197,7 @@ you looked at, what you saw in it, then what you did.
 
 Name the image, value or event you judged from. A note you can't tie to
 something you looked at is not a reason: look first, or ask. Don't note what
-is already on the record: a request's reason and a suggestion's reason are
-kept with them.
+is already on the record: a request's reason is kept with it.
 
 Where a site came from (grid, square, rank, why it was chosen) belongs on the
 lamella, not in a note: `item_update` with `{"patch": {"description":
@@ -224,7 +212,7 @@ Every read works at Watch.
 |---|---|
 | What's it doing now? | `app_get_status`, `workflow_get_queue` |
 | What's on screen? | `app_get_display_images` (previews, with `acquired_at`) |
-| What's it asking? | `prompt_get`, `review_list` |
+| What's it asking? | `proposal_list` |
 | How has the run gone? | `experiment_get_task_history`; `workflow_get_summary` for the last workflow started in this app session |
 | Why did it fail? | `app_get_log` with the `task_id`, `level=WARNING` |
 | One lamella | `item_get`, `item_list_outputs`, `item_get_output_image` |
@@ -540,8 +528,8 @@ operator before renaming anything, and say the old and new names.
 names who (`workflow`, `script`, or another command) and what. Say who has
 the microscope and what you wanted to do, then wait for it to finish or ask
 the operator. Never retry it in a loop, and never try the same thing through
-another tool. While a run waits on a question it lends control, so your
-command can go through; when the question is answered the run takes it back.
+another tool. While a run waits on a proposal it lends control, so your
+command can go through; when the proposal is decided the run takes it back.
 
 **Stop agent stops you mid-action.** If the operator presses it, your mill,
 spot burn, auto focus or live imaging is stopped and you drop to Watch
@@ -578,8 +566,7 @@ At the start of a session:
 2. Start the watcher before anything else, so nothing that happens while you
    read is missed.
 3. Read where things stand: `app_get_status`, `workflow_get_queue`,
-   `prompt_get`, `review_list`. A standing question or a `holding_the_run`
-   review comes first.
+   `proposal_list`. A pending proposal comes first.
 4. Before the first microscope action, get your bearings (above).
 5. At Drive, before you start workflows yourself, turn the run summary
    dialog off with `workflow_set_options(show_run_summary=false)` so no dialog

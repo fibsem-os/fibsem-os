@@ -21,21 +21,9 @@ import pytest  # noqa: E402
 
 pytest.importorskip("PyQt5")
 
-from PyQt5.QtWidgets import QPushButton  # noqa: E402
-
 from fibsem import update_check  # noqa: E402
-from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (  # noqa: E402
-    AutoLamellaSingleWindowUI,
-    _start_update_check,
-)
-
-
-class _HeaderHost:
-    _update_version_chip = AutoLamellaSingleWindowUI._update_version_chip
-
-    def __init__(self):
-        self.btn_update_available = QPushButton()
-        self.btn_update_available.setVisible(False)
+from fibsem.applications.autolamella.ui.launch import _start_update_check  # noqa: E402
+from tests.fixtures.experiment_header import HeaderHost  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -85,7 +73,7 @@ def _run_startup_check(qapp, host):
     done = []
 
     def _on_done():
-        host._update_version_chip()
+        host.update_version_chip()
         done.append(True)
 
     _start_update_check(on_done=_on_done)
@@ -99,7 +87,7 @@ def _run_startup_check(qapp, host):
 def test_chip_names_the_newer_release(qapp, monkeypatch, update_check_active):
     monkeypatch.setattr("fibsem.__version__", "0.6.0")
     _serve(monkeypatch, "0.5.3", "0.6.0", "0.6.1", "0.7.0rc1")
-    host = _HeaderHost()
+    host = HeaderHost()
 
     _run_startup_check(qapp, host)
 
@@ -112,7 +100,7 @@ def test_offline_shows_nothing_and_does_not_raise(
     qapp, monkeypatch, update_check_active
 ):
     _go_offline(monkeypatch)
-    host = _HeaderHost()
+    host = HeaderHost()
 
     _run_startup_check(qapp, host)
 
@@ -122,7 +110,7 @@ def test_offline_shows_nothing_and_does_not_raise(
 def test_up_to_date_shows_nothing(qapp, monkeypatch, update_check_active):
     monkeypatch.setattr("fibsem.__version__", "0.6.1")
     _serve(monkeypatch, "0.6.0", "0.6.1")
-    host = _HeaderHost()
+    host = HeaderHost()
 
     _run_startup_check(qapp, host)
 

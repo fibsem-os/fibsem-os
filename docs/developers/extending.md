@@ -85,9 +85,9 @@ the full contract; `examples/scripts/` contains three working examples.
 
 ## Plugins
 
-fibsemOS loads five entry-point groups: `fibsem.milling.patterns`,
-`fibsem.milling.strategies`, `fibsem.autolamella.tasks`, `fibsem.grid.tasks` and
-`fibsem.drivers`. A plugin is a Python package that
+fibsemOS loads six entry-point groups: `fibsem.milling.patterns`,
+`fibsem.milling.strategies`, `fibsem.milling.monitors`, `fibsem.autolamella.tasks`,
+`fibsem.grid.tasks` and `fibsem.drivers`. A plugin is a Python package that
 declares one or more of these in its `pyproject.toml` and is installed into
 the same environment as fibsemOS. No registration calls or files in the
 fibsem tree are needed; the application discovers it on the next start.
@@ -105,6 +105,11 @@ Each group contributes one kind of object:
   to mill. It appears in the pattern list of every milling stage.
 - **A strategy** (`fibsem.milling.strategies`): how a pattern is milled, for example
   in N passes. It appears in the strategy list of every stage.
+- **A monitor** (`fibsem.milling.monitors`): a `MillingMonitor` from
+  `fibsem.milling.monitors` that runs during each mill step of a stage that
+  lists it in `monitors`: it reports readings, pauses the mill to act, or ends
+  the step. A live monitor, which reads frames while the pattern mills
+  (`MillingStreamMonitor`), names the `view` it needs.
 - **A task** (`fibsem.autolamella.tasks`): an `AutoLamellaTask` with its
   configuration class, as described in the next section. It appears in the
   Add Task dialog.
@@ -174,15 +179,15 @@ Four contracts:
   calls `pre_task()`, the hooks, `_run()` and `post_task()`. Overriding
   `run()` loses the task's state, its history entry and every hook, without
   an error.
-- **Questions go through `ask()`** (`workflows/interaction.py`). Build a
-  `Request` carrying everything needed to answer it and block on the
-  responder. Do not access widgets from the workflow thread. This interface
-  is what allows the GUI, the operator and a remote agent to answer the same
-  question, and it is why supervised and unsupervised runs share one code
-  path.
+- **Proposals go through `self.ask()`** (`fibsem/workflows/proposals.py`).
+  Declare the kinds the task asks in `asks`, and ask with the proposed
+  values; supervised, the run holds until the proposal is decided. Do not
+  access widgets from the workflow thread. This is what lets the operator
+  and a remote agent decide the same proposal, and why supervised and
+  unsupervised runs share one code path.
 - **Record outputs** on the task's history entry (`task_state.outputs`,
-  mapping role to files), and write images under `lamella.path`. The Review
-  panel and the reports read from there; unrecorded files are not shown,
+  mapping role to files), and write images under `lamella.path`. The History
+  tab and the reports read from there; unrecorded files are not shown,
   and files written elsewhere are lost when the experiment is copied off
   the microscope.
 - **Cancellation is cooperative.** Stop sets an event. A task that does not

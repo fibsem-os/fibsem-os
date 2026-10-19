@@ -107,7 +107,7 @@ def _start(window):
         microscope=ui.microscope,
         experiment=experiment,
         responder=ui.ui_responder,
-        answerers=ui.session.answerers,
+        deciders=ui.session.deciders,
     )
     # The window hears it as it hears a run the runner starts.
     ui.session.runner.relay(manager)
@@ -147,7 +147,7 @@ def _prompt_is_down(ui) -> bool:
     # the task carries on; what matters is that the question is gone from it.
     return (
         "Press Continue" not in ui.label_instructions.text()
-        and ui._state_question is None
+        and ui._state_proposal is None
     )
 
 
@@ -166,7 +166,7 @@ def test_the_question_is_asked_on_the_prompt_bar_and_continue_decides_it(window,
     assert ui.pushButton_yes.text() == "Continue"
     assert ui.pushButton_no.isHidden(), "one verb"
     assert window.tab_widget.currentIndex() == 0, "on the Microscope tab"
-    assert ui.hold is not None and ui.hold.kind is HoldKind.question
+    assert ui.hold is not None and ui.hold.kind is HoldKind.proposal
     question = lamella.proposal(REF, STATE)
     assert question is not None and question.pending and question.asking
 

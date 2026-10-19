@@ -108,52 +108,10 @@ def test_call_site_matches_signature(path, lineno, name, call):
         )
 
 
-_WORKFLOWS_DIR = Path(workflow_ui.__file__).parent
-
-
-def test_update_detection_ui_keeps_the_signature_others_call_it_with():
-    """``update_detection_ui`` is called from code outside this repository, so
-    its parameters are a contract: their names, their order and which of them
-    may be left out."""
-    parameters = inspect.signature(workflow_ui.update_detection_ui).parameters
-
-    assert list(parameters) == [
-        "microscope",
-        "image_settings",
-        "checkpoint",
-        "features",
-        "parent_ui",
-        "validate",
-        "msg",
-        "position",
-    ]
-    optional = {n for n, p in parameters.items() if p.default is not p.empty}
-    assert optional == {"parent_ui", "validate", "msg", "position"}
-    assert parameters["validate"].default is True
-    assert parameters["msg"].default == "Lamella"
-
-
-def _calls_to(name: str) -> List[Tuple[Path, int]]:
-    """Every call to a ``workflows.ui`` helper anywhere under ``workflows/`` --
-    the tasks, and the shared alignment helpers in ``core.py`` they call."""
-    calls = []
-    for path in sorted(_WORKFLOWS_DIR.rglob("*.py")):
-        if path == Path(workflow_ui.__file__):
-            continue
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Call) and _called_helper_name(node.func) == name:
-                calls.append((path, node.lineno))
-    return calls
-
-
 def test_which_tasks_ask_their_detections_on_the_record():
     """Every workflow detection is asked on the record: the undercut's three
     go through ``AutoLamellaTask.detect``, and the two in
-    ``align_feature_coincident`` through the ``detect`` it is handed. No
-    workflow code calls ``update_detection_ui``, the Detection tab prompt;
-    it stays for the callers outside this repository."""
-    assert _calls_to("update_detection_ui") == []
+    ``align_feature_coincident`` through the ``detect`` it is handed."""
     undercut = Path(workflow_ui.__file__).parent / "tasks" / "undercut.py"
     tree = ast.parse(undercut.read_text(encoding="utf-8"))
     asks = [

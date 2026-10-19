@@ -2,8 +2,8 @@
 
 ``pre_task -> _run -> post_task``. A failed or cancelled ``_run`` is recorded on
 the item's history before the exception goes on, and a run that finished but
-whose result could not be recorded is taken back. Then the result is proposed
-on the item and decided (``proposing.settle``).
+whose result could not be recorded is taken back. What a task needs decided
+while it runs, it asks (``ask``); a finished task is its history and outputs.
 
 An application's task base subclasses ``BaseTask``: AutoLamella's lamella and
 grid tasks are two. The item is anything with a ``name``, an ``id``, a
@@ -19,7 +19,8 @@ import uuid
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from datetime import datetime
-from typing import Any, Callable, ClassVar, Dict, Optional, Tuple
+from pathlib import Path
+from typing import Any, Callable, ClassVar, Dict, Optional, Tuple, Union
 
 from fibsem.acting import TASK, acting
 from fibsem.cancellation import AnyStopEvent, OperationCancelledError, StopEvent
@@ -30,10 +31,7 @@ from fibsem.workflows.proposals import (
     Decision,
     DecisionOutcome,
     Proposal,
-    Proposer,
-    TaskResultProposer,
 )
-from fibsem.workflows.proposing import settle
 from fibsem.workflows.status import TaskStatus, take_back_finish
 
 # Characters a folder name cannot hold on Windows (and ``/`` anywhere).
@@ -83,32 +81,24 @@ LIFECYCLE_STEPS = {"STARTED", "FINISHED"}
 
 
 class BaseTask(ABC):
-    """The lifecycle every task shares. Subclasses implement ``_run``,
-    ``pre_task`` and ``post_task``, and say whether the run is supervised."""
+    """The lifecycle every task shares. Subclasses implement ``_run`` and say
+    whether the run is supervised; ``pre_task`` and ``post_task`` start and
+    finish the item's task state, and an app may extend them."""
 
     config: Any
-    # What this task type puts on the record when it ends. The default proposes
-    # the task's result ("here is what I did, look"); a task whose output is a
-    # value someone might change swaps in a proposer for that kind; None only
-    # for a type with nothing to look at.
-    proposer: ClassVar[Optional[Proposer]] = TaskResultProposer()
-    # Which recorded output roles are the result images a proposal points at,
-    # by provenance key; the last file under each role is the one shown.
-    result_images: ClassVar[Dict[str, str]] = {}
     # What the item is called in the log and in task_step events.
     item_type: ClassVar[str] = "item"
     # What this task type asks *while it runs*, as proposal kinds: the values
     # it needs answered before its next line (a detection, then the stage
-    # move that follows it). The proposer is what it leaves for afterwards;
-    # this is what it needs now. Declared on the type, so what needs a person
+    # move that follows it). Declared on the type, so what needs a person
     # present is known before the run. ``ask`` refuses a kind that is not here.
-    questions: ClassVar[Tuple[str, ...]] = ()
+    asks: ClassVar[Tuple[str, ...]] = ()
 
     @classmethod
-    def questions_for(cls, config: Any) -> Tuple[str, ...]:
+    def asks_for(cls, config: Any) -> Tuple[str, ...]:
         """The kinds this task asks under ``config``: a setting may turn one
         off (Setup's ``confirm_alignment_area``). By default, everything declared."""
-        return cls.questions
+        return cls.asks
 
     def __init__(
         self,
@@ -134,10 +124,9 @@ class BaseTask(ABC):
         # The manager's token, not its raw event: what counts as "cancelled" is
         # the manager's to decide, and a task should not have to know.
         self._stop_event = task_manager.abort_token if task_manager else None
-        # A decision the task took in its own run -- the operator's inline
-        # answer to a supervised question -- recorded on the proposal once it
-        # is made, after the run, through Experiment.decide like every other.
-        self.inline_decision: Optional[Decision] = None
+        # What the history entry says on success, when there is more to say
+        # than "Finished".
+        self.completion_note = ""
 
     @property
     def task_type(self) -> str:
@@ -154,10 +143,10 @@ class BaseTask(ABC):
     @property
     @abstractmethod
     def supervised(self) -> bool:
-        """Whether this task's attention is supervised: then its questions are
-        asked of whoever can answer while it runs."""
+        """Whether this task's attention is supervised: then its proposals are
+        asked of whoever can decide while it runs."""
 
-    # -- questions -------------------------------------------------------------
+    # -- proposals -------------------------------------------------------------
 
     def ask(
         self,
@@ -170,47 +159,48 @@ class BaseTask(ABC):
         decided: Optional[Callable[[], Dict[str, Any]]] = None,
         enabled: bool = True,
     ) -> Decision:
-        """Ask for ``values`` of ``kind`` and wait for the answer, on the record.
+        """Ask a proposal of ``values`` of ``kind`` and wait for the decision,
+        on the record.
 
         The one way a task asks for a value it needs before it can carry on.
-        The ask is a proposal on the item (``values`` are what the task
-        would use as they stand; ``image`` the saved file they sit on, relative
-        to the item's folder), and the answer is a decision on it, through
+        The proposal goes on the item (``values`` are what the task would use
+        as they stand; ``image`` the saved file they sit on, relative to the
+        item's folder), and the decision on it comes through
         ``Experiment.decide`` like every other: from the widget the kind is
-        answered on (the prompt bar, the Detection tab, the milling editor),
+        decided on (the prompt bar, the Detection tab, the milling editor), or
         from a connected agent. Returned as the decision, so the
         task reads ``.outcome`` and ``.values``; a task applies the decided
         values itself, so a kind asked here must not write them through.
 
         Supervised: the run holds here -- the manager raises the hold --
-        until the decision lands, or Stop, which withdraws the question and
-        raises ``InterruptedError``. It holds whoever can answer, nobody
-        included: an answer is never taken unreviewed, so with no window
-        and no agent listening at Drive the question waits for one to come
-        back. Stop and the answer wake it at once, and the hold says who can
-        answer as that changes.
+        until the decision lands, or Stop, which withdraws the proposal and
+        raises ``InterruptedError``. It holds whoever can decide, nobody
+        included: it is never taken unreviewed, so with no window and no agent
+        listening at Drive it waits for one to come back. Stop and the
+        decision wake it at once, and the hold says who can decide as that
+        changes.
         Automated, nobody is asked: the proposal goes on the record with an
-        ``Unreviewed`` decision carrying the proposed values, for someone to
-        check afterwards, and returns at once. A declared kind that
-        ``questions_for`` leaves out under this config is the same: recorded,
+        ``Unreviewed`` decision carrying the proposed values, and returns at
+        once. A declared kind that
+        ``asks_for`` leaves out under this config is the same: recorded,
         not asked.
 
-        ``decided`` is for a confirmation: an answer that says "as it stands"
+        ``decided`` is for a confirmation: a decision that says "as it stands"
         and carries no values of its own (a state, confirmed from the prompt
         bar). The task, which can read the instrument, is asked for the
         values as they stand once the confirmation lands, and they go on the
         decision, so a change the operator made before confirming is the
-        delta. Not called for an answer that already carries values.
+        delta. Not called for a decision that already carries values.
 
         ``enabled`` is the ask's own switch in the task's settings
         (``confirm_position``, say), for a task that asks the same kind more
         than once: off, this one is recorded and not asked, as a kind
-        ``questions_for`` leaves out is.
+        ``asks_for`` leaves out is.
         """
-        declared = type(self).questions
+        declared = type(self).asks
         if kind not in declared:
             raise ValueError(
-                f"{type(self).__name__} does not declare {kind!r} in questions "
+                f"{type(self).__name__} does not declare {kind!r} in asks "
                 f"(it declares {list(declared)}); a task says what it asks."
             )
         carried = PROPOSAL_KINDS[kind].values
@@ -264,7 +254,7 @@ class BaseTask(ABC):
             with lending():
                 if not experiment.ask_proposal(item.id, self.task_name, proposal):
                     raise RuntimeError(f"could not record the {kind} question")
-                with manager.holding_a_question(item.name, self.task_name) as refresh:
+                with manager.holding_a_proposal(item.name, self.task_name) as refresh:
                     while not answered.is_set():
                         if self._stop_event is not None and self._stop_event.is_set():
                             experiment.withdraw_proposal(
@@ -297,7 +287,7 @@ class BaseTask(ABC):
         empty when it would be asked. Asked when this config asks it and the
         task is supervised, whether or not anyone can answer yet: a supervised
         question waits for an answer (``ask``)."""
-        if not enabled or kind not in type(self).questions_for(self.config):
+        if not enabled or kind not in type(self).asks_for(self.config):
             return "turned off in the task's settings"
         if not self.supervised:
             return "nobody was asked: the task is not supervised"
@@ -329,10 +319,6 @@ class BaseTask(ABC):
                     "Cancelled by user." if cancelled else str(e)
                 )
                 self._record_outcome()
-                # A failure is exactly when someone wants to look; a Stop is
-                # not, whoever pressed it already knows.
-                if not cancelled:
-                    self._settle(failure=str(e))
             except Exception:
                 logging.exception(f"Could not record the outcome of {self.task_name}")
             self._fire_hook(
@@ -347,11 +333,9 @@ class BaseTask(ABC):
             self._clear_workflow_metadata()
         try:
             self.post_task()
-            self._settle()
         except Exception as e:
-            # The work finished, but what follows it failed: settling its result
-            # can save the experiment, and a save that fails leaves nothing on
-            # disk to say so. It did not complete (FIB-1374).
+            # The work finished, but what follows it failed. It did not
+            # complete (FIB-1374).
             cancelled = self._is_cancellation(e)
             try:
                 take_back_finish(
@@ -373,11 +357,46 @@ class BaseTask(ABC):
     @abstractmethod
     def _run(self) -> None: ...
 
-    @abstractmethod
-    def pre_task(self) -> None: ...
+    def pre_task(self) -> None:
+        logging.info(
+            f"Running {self.task_name}, {self.task_type} ({self.task_id}) "
+            f"for {self.item_type} {self.item.name} ({self.item.id})"
+        )
+        self._start_task_state()
+        self._set_workflow_metadata()
+        self.log_status_message("STARTED", "Started")
 
-    @abstractmethod
-    def post_task(self) -> None: ...
+    def post_task(self) -> None:
+        self.item.task_state.status = TaskStatus.Completed
+        self.item.task_state.status_message = ""
+        self.log_status_message("FINISHED", self.completion_note or "Finished")
+        self._record_outcome()
+
+    # -- where the item's files go ---------------------------------------------
+
+    @property
+    def path(self) -> Path:
+        """The item's directory: what its recorded outputs are relative to."""
+        return Path(self.experiment.item_path(self.item))
+
+    def record_output(self, role: str, output: Union[str, Path, Any, None]) -> None:
+        """Record a file this run wrote, under `role`, relative to the item's directory.
+
+        Accepts a path or anything with a `filepath` (a saved image). Nothing that
+        was never written is recorded; the same path twice is still one file.
+        """
+        if output is None:
+            return
+        filepath = getattr(output, "filepath", output)
+        if filepath is None:
+            return
+        # Forward slashes whatever the platform: the record is a description of
+        # files that travels with the experiment, not a path for this OS to open,
+        # and `os.path.join` reads it back correctly on either.
+        relative = Path(os.path.relpath(str(filepath), str(self.path))).as_posix()
+        paths = self.item.task_state.outputs.setdefault(role, [])
+        if relative not in paths:
+            paths.append(relative)
 
     def _start_task_state(self) -> None:
         """Mark the item's task_state as this run, InProgress.
@@ -411,19 +430,6 @@ class BaseTask(ABC):
             raise ValueError("Task state is not set. Did you run pre_task()?")
         self.item.task_state.end_timestamp = now()
         self.item.task_history.append(deepcopy(self.item.task_state))
-
-    def _settle(self, failure: str = "") -> None:
-        """Propose this run's result on the item and decide it; see
-        ``proposing.settle``."""
-        settle(
-            self,
-            self.item,
-            proposer=type(self).proposer,
-            result_images=self.result_images,
-            inline_decision=self.inline_decision,
-            experiment=self.experiment,
-            failure=failure,
-        )
 
     def _is_cancellation(self, exc: Exception) -> bool:
         """Whether ``exc`` is a user Stop rather than a genuine failure: it surfaces as

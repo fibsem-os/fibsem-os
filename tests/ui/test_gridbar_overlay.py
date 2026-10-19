@@ -22,6 +22,7 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtWidgets import QApplication
 
 from fibsem import utils
+from fibsem.imaging.overview_session import OverviewSession
 from fibsem.structures import BeamType, FibsemImage, FibsemStagePosition, ImageSettings
 from fibsem.ui.widgets.canvas.canvas_base import ContentRect
 from fibsem.ui.widgets.canvas.overlays.gridbar_overlay import GridBarOverlay
@@ -320,7 +321,7 @@ def _destroy_widgets(destroy_widgets_after_test):
 
 @pytest.fixture
 def widget(microscope):
-    w = FibsemOverviewWidget(microscope)
+    w = FibsemOverviewWidget(OverviewSession(microscope))
     w.resize(900, 700)
     yield w
     w.close()

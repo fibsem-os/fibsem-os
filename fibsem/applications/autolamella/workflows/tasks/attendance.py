@@ -1,9 +1,8 @@
 """What a task needs from a person, said before the run.
 
 A task declares what it asks while it runs (``questions``: the kinds it needs
-answered before its next line, a mill's passes among them) and what it
-proposes when it ends (``proposer``); the protocol says whether a person
-decides (``attention``). From those, one line per task: whether the operator
+answered before its next line, a mill's passes among them); the protocol says
+whether a person decides (``attention``). From those, one line per task: whether the operator
 has to be there while it runs. Nothing waits on a decision once a task ends.
 Derived, never stored, so it cannot drift from what the task does.
 """
@@ -19,10 +18,8 @@ from fibsem.workflows.proposals import (
     ALIGNMENT_AREA,
     DETECTION,
     MILLING,
-    OVERVIEW_POSITIONS,
     SPOT_BURN,
     STATE,
-    TASK_RESULT,
 )
 from fibsem.workflows.proposals import kind_label as proposal_kind_label
 
@@ -41,8 +38,6 @@ KIND_LABELS = {
     STATE: "the position",
     ALIGNMENT_AREA: "the alignment area",
     POINT_OF_INTEREST: "the point of interest",
-    TASK_RESULT: "its result",
-    OVERVIEW_POSITIONS: "the lamella positions",
     MILLING: "milling",
     SPOT_BURN: "the spot burn",
 }
@@ -68,10 +63,6 @@ class Attendance:
     # what needs a person at the microscope while the task runs: the
     # questions it asks, in order
     present: Tuple[str, ...]
-    # what it proposes when it ends, as its label, or None
-    later: Optional[str]
-    # the tasks that require this one: what uses ``later``
-    waiters: Tuple[str, ...]
 
     @property
     def needs_a_person_present(self) -> bool:
@@ -81,20 +72,10 @@ class Attendance:
     def line(self) -> str:
         """One sentence or two, for under the chip and the pre-run summary."""
         if self.attention is Attention.automated:
-            text = "Nobody is asked."
-            if self.later and self.later != KIND_LABELS[TASK_RESULT] and self.waiters:
-                text += (
-                    f" {_cap(self.later)} is open to correct until "
-                    f"{_named(self.waiters)} starts."
-                )
-            return text
+            return "Nobody is asked."
         if self.present:
             return f"Needs you at the microscope while it runs: {_named(self.present)}."
         return "Runs on its own."
-
-
-def _cap(text: str) -> str:
-    return text[:1].upper() + text[1:]
 
 
 def attendance(
@@ -103,21 +84,13 @@ def attendance(
     attention: Attention,
     *,
     task_name: str = "",
-    waiters: Sequence[str] = (),
 ) -> Attendance:
     """What ``task_cls`` needs from a person under ``config`` and ``attention``."""
-    questions = (
-        task_cls.questions_for(config) if config is not None else task_cls.questions
-    )
-    present = tuple(kind_label(k) for k in questions)
-    proposer = task_cls.proposer
-    later = kind_label(proposer.kind) if proposer is not None else None
+    asks = task_cls.asks_for(config) if config is not None else task_cls.asks
     return Attendance(
         task_name=task_name or getattr(task_cls, "__name__", ""),
         attention=attention,
-        present=present,
-        later=later,
-        waiters=tuple(waiters),
+        present=tuple(kind_label(k) for k in asks),
     )
 
 
@@ -134,14 +107,11 @@ def attendance_for(
     task_cls = get_tasks().get(config.task_type)
     if task_cls is None:
         return None
-    workflow = protocol.workflow_config
-    waiters = [t.name for t in workflow.tasks if task_name in t.requires]
     return attendance(
         task_cls,
         config,
-        workflow.get_attention(task_name),
+        protocol.workflow_config.get_attention(task_name),
         task_name=task_name,
-        waiters=waiters,
     )
 
 

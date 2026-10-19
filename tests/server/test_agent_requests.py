@@ -341,7 +341,7 @@ def test_assist_asks_to_stop_as_it_asks_for_the_rest(
         ("/app/workflow/stop", why),
         ("/microscope/services/milling/commands/stop", why),
         (MOVE_RELATIVE, {}),
-        ("/app/workflow/prompt/answer", {}),
+        ("/app/workflow/decide", {}),
     ):
         refused = client.post(path, headers=AGENT, json=body)
         assert refused.status_code == 403, path
@@ -884,7 +884,7 @@ def test_a_run_task_reads_by_its_stages_with_whose_estimate_it_is():
             "Open 'AutoLamella-2026-10-15'",
         ),
         (
-            "review_decide",
+            "proposal_decide",
             {
                 "item_id": "abc",
                 "task_name": "Setup",
@@ -892,8 +892,8 @@ def test_a_run_task_reads_by_its_stages_with_whose_estimate_it_is():
                 "values": {"poi": {"x": 1.2e-6, "y": -3e-6}},
             },
             {
-                "/app/workflow/reviews": {
-                    "reviews": [{"item_id": "abc", "item_name": "02-saving-wolf"}]
+                "/app/workflow/proposals": {
+                    "proposals": [{"item_id": "abc", "item_name": "02-saving-wolf"}]
                 }
             },
             "02-saving-wolf · Setup",

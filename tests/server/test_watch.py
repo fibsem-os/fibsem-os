@@ -150,15 +150,17 @@ def _watch(steps, sleeps=None, since=None, until=_ended):
 
 
 def test_seeds_at_the_tail(app):
-    # History from before the watch: replaying it would raise a stale PROMPT
+    # History from before the watch: replaying it would raise a stale PROPOSAL
     # and report the earlier workflow's end as news.
-    app.buffer.append("prompt_raised", {"question_id": 1, "type": "Confirm"})
+    app.buffer.append("proposal_held", {"item_name": "01", "task_name": "Setup"})
     app.buffer.append("workflow_completed", {})
 
     def run():
         app.buffer.append("task_started", {"item_name": "lamella-01"})
-        app.buffer.append("prompt_raised", {"question_id": 2, "type": "Confirm"})
-        app.buffer.append("prompt_answered", {"question_id": 2}, actor="operator")
+        app.buffer.append("proposal_held", {"item_name": "02", "task_name": "Setup"})
+        app.buffer.append(
+            "proposal_released", {"item_name": "02", "task_name": "Setup"}
+        )
         app.buffer.append("milling_progress", {})  # not worth a wake-up
         app.buffer.append("workflow_completed", {})
 
@@ -167,8 +169,8 @@ def test_seeds_at_the_tail(app):
     assert code is None
     assert lines == [
         "EVENT task_started lamella-01",
-        "PROMPT question=2 type=Confirm",
-        "ANSWERED question=2 by=operator response=None",
+        watch_mod._proposal_line("02", "Setup"),
+        "PROPOSAL RELEASED item=02 task=Setup",
         "WORKFLOW ENDED (workflow_completed)",
     ]
 
@@ -176,7 +178,7 @@ def test_seeds_at_the_tail(app):
 def test_since_resumes_where_the_last_watch_left_off(app):
     # A bounded watch returned at seq 1; what landed before the next one
     # started is still printed, and nothing from before seq 1 is.
-    app.buffer.append("prompt_raised", {"question_id": 1, "type": "Confirm"})
+    app.buffer.append("proposal_held", {"item_name": "01", "task_name": "Setup"})
     app.buffer.append("request_decided", {"request_id": "ab12", "outcome": "approved"})
     app.buffer.append("workflow_completed", {})
 
@@ -199,40 +201,6 @@ def test_the_operator_s_message_is_a_line_that_says_how_to_answer(app):
         "experiment_add_note (reply_to=ab12). It is not an approval: your level "
         "still decides what you may do"
     )
-
-
-def test_an_answer_says_when_it_took_the_agent_s_suggestion(app):
-    def run():
-        app.buffer.append(
-            "prompt_answered",
-            {"question_id": 3, "response": True, "suggested_by": "agent"},
-            actor="operator",
-        )
-        app.buffer.append("workflow_completed", {})
-
-    code, lines = _watch({2: run})
-
-    assert lines[0] == (
-        "ANSWERED question=3 by=operator response=True suggested_by=agent"
-    )
-
-
-def test_a_dismissed_suggestion_says_why(app):
-    # FIB-1424: the operator declined the agent's suggestion on the card.
-    def run():
-        app.buffer.append(
-            "prompt_suggestion_dismissed",
-            {"question_id": 3, "response": True, "reason": "still curtaining"},
-        )
-        app.buffer.append("prompt_suggestion_dismissed", {"question_id": 4})
-        app.buffer.append("workflow_completed", {})
-
-    code, lines = _watch({2: run})
-
-    assert lines[:2] == [
-        "SUGGESTION DISMISSED question=3 reason=still curtaining",
-        "SUGGESTION DISMISSED question=4",
-    ]
 
 
 def test_the_agent_s_request_is_followed_to_its_end(app):
@@ -437,7 +405,7 @@ def test_a_workflow_s_end_does_not_end_the_watch(app):
         app.buffer.append("workflow_completed", {})
 
     def between():
-        app.buffer.append("prompt_raised", {"question_id": 4, "type": "Confirm"})
+        app.buffer.append("proposal_held", {"item_name": "04", "task_name": "Setup"})
 
     def second():
         app.buffer.append("workflow_started", {})
@@ -452,7 +420,7 @@ def test_a_workflow_s_end_does_not_end_the_watch(app):
     assert lines == [
         "WORKFLOW STARTED",
         "WORKFLOW ENDED (workflow_completed)",
-        "PROMPT question=4 type=Confirm",
+        watch_mod._proposal_line("04", "Setup"),
         "WORKFLOW STARTED",
         "WORKFLOW ENDED (workflow_cancelled)",
     ]
@@ -502,7 +470,7 @@ def test_evicted_events_print_a_gap_then_carry_on(microscope, tmp_path, discover
     def burst():
         for i in range(5):
             app.buffer.append("tick", {"i": i})
-        app.buffer.append("question_asked", {"item_name": "l1", "task_name": "Mill"})
+        app.buffer.append("proposal_held", {"item_name": "l1", "task_name": "Mill"})
         app.buffer.append("workflow_completed", {})
 
     try:
@@ -513,7 +481,7 @@ def test_evicted_events_print_a_gap_then_carry_on(microscope, tmp_path, discover
 
     assert code is None
     assert lines[0].startswith("GAP:")
-    assert lines[1].startswith("QUESTION item=l1 task=Mill")
+    assert lines[1].startswith("PROPOSAL item=l1 task=Mill")
     assert lines[2] == "WORKFLOW ENDED (workflow_completed)"
 
 
@@ -793,4 +761,4 @@ def test_a_question_held_before_the_watch_started_is_its_first_line(app):
     code, lines = _watch({}, until=lambda lines: len(lines) >= 1)
 
     assert code is None
-    assert lines == [watch_mod._question_line(lamella.name, "Setup Lamella Position")]
+    assert lines == [watch_mod._proposal_line(lamella.name, "Setup Lamella Position")]

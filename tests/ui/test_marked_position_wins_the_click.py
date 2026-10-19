@@ -32,6 +32,7 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtWidgets import QApplication  # noqa: E402
 
 from fibsem import utils  # noqa: E402
+from fibsem.imaging.overview_session import FLUORESCENCE, OverviewSession  # noqa: E402
 from fibsem.structures import (  # noqa: E402
     BeamType,
     FibsemImage,
@@ -65,7 +66,7 @@ def _at(base, dx=0.0, dy=0.0, name=None):
 @pytest.fixture
 def widget(microscope):
     """A beam overview with one lamella at the stage position and a grid over it."""
-    w = FibsemOverviewWidget(microscope)
+    w = FibsemOverviewWidget(OverviewSession(microscope))
     w.resize(1000, 800)
     base = microscope.get_stage_position()
 
@@ -264,7 +265,7 @@ def fm_widget(qapp):
 
     scope = build_microscope()
     scope.fm.objective.insert()
-    w = FMOverviewWidget(scope)
+    w = FMOverviewWidget(OverviewSession(scope, FLUORESCENCE))
     w.resize(1200, 800)
     w.show()
     qapp.processEvents()

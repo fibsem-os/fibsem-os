@@ -1,4 +1,4 @@
-"""The App Server's review surface: GET /app/workflow/reviews lists the
+"""The App Server's proposal surface: GET /app/workflow/proposals lists the
 questions a task is stopped on, POST
 /app/workflow/decide answers one through the same Experiment.decide the
 operator's Continue goes through -- on the main thread, blocking the server
@@ -162,23 +162,22 @@ def _post_on_worker(qapp, client, path, body):
     return posted["response"]
 
 
-def test_reviews_lists_the_pending_proposal_with_its_image(ui):
+def test_the_list_has_the_pending_proposal_with_its_image(ui):
     with _client(ui) as client:
-        resp = client.get("/app/workflow/reviews", headers=AUTH)
+        resp = client.get("/app/workflow/proposals", headers=AUTH)
     assert resp.status_code == 200, resp.text
     doc = resp.json()
     assert doc["available"] is True
-    (review,) = doc["reviews"]
+    (listed,) = doc["proposals"]
     lamella = ui.experiment.positions[0]
-    assert review["item_id"] == lamella.id
-    assert review["item_name"] == lamella.name
-    assert review["task_name"] == SETUP
-    assert review["task_id"] == RUN
-    assert review["kind"] == POINT_OF_INTEREST
-    assert review["values"] == {"poi": {"name": None, "x": 0.0, "y": 0.0}}
-    assert review["holding_the_run"] is True
-    assert review["reference_image"]["width"] > 0
-    assert review["reference_image"]["image_b64_jpeg"]
+    assert listed["item_id"] == lamella.id
+    assert listed["item_name"] == lamella.name
+    assert listed["task_name"] == SETUP
+    assert listed["task_id"] == RUN
+    assert listed["kind"] == POINT_OF_INTEREST
+    assert listed["values"] == {"poi": {"name": None, "x": 0.0, "y": 0.0}}
+    assert listed["reference_image"]["width"] > 0
+    assert listed["reference_image"]["image_b64_jpeg"]
 
 
 def test_confirm_from_a_worker_writes_through_as_the_agent(ui, qapp):
@@ -201,16 +200,17 @@ def test_confirm_from_a_worker_writes_through_as_the_agent(ui, qapp):
         assert resp.status_code == 200, resp.text
         body = resp.json()
         assert body["applied"] is True
-        assert body["delta"]["poi"] == {"name": None, "x": 2e-6, "y": -1e-6}
+        assert "delta" not in body
         assert lamella.proposal(SETUP).current.via == "server"
         assert ROUGH in body["synced_tasks"]
         assert lamella.poi == Point(2e-6, -1e-6)
         proposal = lamella.proposal(SETUP)
         assert proposal.current.outcome is DecisionOutcome.Confirmed
         assert str(proposal.current.actor) == "agent:test-model"
-        assert client.get("/app/workflow/reviews", headers=AUTH).json()["reviews"] == []
-    kinds = [e["kind"] for e in buffer.events_since(0)["events"]]
-    assert "review_decided" in kinds
+        assert (
+            client.get("/app/workflow/proposals", headers=AUTH).json()["proposals"]
+            == []
+        )
 
 
 def test_reject_needs_a_reason_and_is_handed_to_the_task(ui, qapp):
@@ -331,7 +331,7 @@ def test_decide_refuses_a_missing_or_stale_run_and_a_second_decision(ui, qapp):
             {**base, "task_id": "run-0", "values": poi},
         )
         assert resp.status_code == 409, resp.text
-        assert resp.json()["detail"]["error_type"] == "stale_review"
+        assert resp.json()["detail"]["error_type"] == "stale_proposal"
 
         resp = _post_on_worker(
             qapp, client, "/app/workflow/decide", {**base, "task_id": RUN}
@@ -366,15 +366,15 @@ def test_decide_refuses_a_missing_or_stale_run_and_a_second_decision(ui, qapp):
 # ---------------------------------------------------------------------------
 
 
-def test_reviews_give_the_proposals_own_id_to_pass_back(ui):
+def test_the_list_gives_the_proposals_own_id_to_pass_back(ui):
     lamella = ui.experiment.positions[0]
     with _client(ui) as client:
-        waiting = client.get("/app/workflow/reviews", headers=AUTH).json()["reviews"]
+        waiting = client.get("/app/workflow/proposals", headers=AUTH).json()[
+            "proposals"
+        ]
 
     assert waiting[0]["proposal_id"] == lamella.proposal(SETUP).id
     assert waiting[0]["task_id"] == RUN, "the run is still there, as a fact about it"
-    assert waiting[0]["holding_the_run"] is True
-    assert waiting[0]["rejected_fails_task"] is True, "a point rejected fails Setup"
 
 
 def test_decide_by_the_proposals_id_needs_no_run(ui, qapp):
@@ -421,7 +421,7 @@ def test_decide_by_an_id_that_is_no_longer_on_the_record_is_stale(ui, qapp):
         resp = _post_on_worker(qapp, client, "/app/workflow/decide", body)
 
     assert resp.status_code == 409, resp.text
-    assert resp.json()["detail"]["error_type"] == "stale_review"
+    assert resp.json()["detail"]["error_type"] == "stale_proposal"
     assert "asked again since you looked" in resp.json()["detail"]["message"]
     assert lamella.proposal(SETUP).pending and lamella.poi == Point(0.0, 0.0)
 

@@ -145,7 +145,7 @@ def test_a_withdrawn_question_cannot_be_answered_afterwards(experiment):
         ),
     )
 
-    assert not result.applied and result.error_type == "stale_review"
+    assert not result.applied and result.error_type == "stale_proposal"
     assert "withdrawn" in result.reason
 
 

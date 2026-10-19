@@ -85,7 +85,7 @@ def test_nothing_grid_aware_gets_in_the_way(main_ui, tmp_path, monkeypatch):
     beam = main_ui.beam_overview_tab
     if beam.overview is not None:
         beam.refresh_positions()
-        assert len(beam.overview._positions) == 2
+        assert len(beam.overview.session.positions) == 2
 
     # Run: no refusal, straight to the confirmation.
     workflow_list.set_all_selected(True)

@@ -759,6 +759,56 @@ def test_a_strategy_that_says_why_it_stopped_has_its_own_line(tmp_path):
     assert stage.figure == str(summary)
 
 
+def test_each_monitor_says_its_facts_under_its_stage(tmp_path):
+    lamella = _lamella(tmp_path)
+    lamella.task_history = [_run(ROUGH, "r", 0)]
+    figure = tmp_path / "intensity.png"
+    figure.write_bytes(b"")
+    mill = _mill(lamella)
+    first, second = mill["payload"]["stages"]
+    first["steps"] = [
+        {
+            "index": 0,
+            "monitors": [
+                {
+                    "name": "IntensityDrop",
+                    "facts": {"Drop seen": True},
+                    "figure": str(figure),
+                },
+                {"name": "Peek", "facts": {}, "error": "RuntimeError: no camera"},
+            ],
+        }
+    ]
+    second["steps"] = [
+        {"index": n, "monitors": [{"name": "Peek", "facts": {"Images": n + 1}}]}
+        for n in range(2)
+    ]
+
+    (run,) = history_rows(lamella, [mill])
+
+    one, two = milling_stages(run.operations[0])
+    assert [(m.name, m.said, m.figure) for m in one.monitors] == [
+        ("Intensity Drop", "Drop seen yes", str(figure)),
+        ("Peek", "failed: RuntimeError: no camera", None),
+    ]
+    # several steps: each named
+    assert [(m.name, m.said) for m in two.monitors] == [
+        ("Peek · step 1", "Images 1"),
+        ("Peek · step 2", "Images 2"),
+    ]
+
+
+def test_a_stage_without_monitors_lists_none(tmp_path):
+    lamella = _lamella(tmp_path)
+    lamella.task_history = [_run(ROUGH, "r", 0)]
+    mill = _mill(lamella)
+    mill["payload"]["stages"][0]["steps"] = [{"index": 0, "monitors": []}]
+
+    (run,) = history_rows(lamella, [mill])
+
+    assert all(not s.monitors for s in milling_stages(run.operations[0]))
+
+
 # --- a run's operations, folded unless one needs a look (FIB-1361) ------------
 
 

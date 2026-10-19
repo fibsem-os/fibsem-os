@@ -40,7 +40,6 @@ from fibsem.workflows.attention import Attention
 from fibsem.workflows.proposals import (
     ALIGNMENT_AREA,
     STATE,
-    TASK_RESULT,
     Decision,
     DecisionOutcome,
 )
@@ -130,7 +129,7 @@ def _start(window):
         microscope=ui.microscope,
         experiment=experiment,
         responder=ui.ui_responder,
-        answerers=ui.session.answerers,
+        deciders=ui.session.deciders,
     )
     # The window hears it as it hears a run the runner starts.
     ui.session.runner.relay(manager)
@@ -180,7 +179,7 @@ def test_the_tilt_and_the_position_are_confirmed_on_the_prompt_bar(window, qapp)
     )
     assert (ui.pushButton_yes.text(), ui.pushButton_no.text()) == ("Tilt", "Skip")
     assert ui.pushButton_no.isEnabled(), "Skip is how not to tilt"
-    assert ui.hold is not None and ui.hold.kind is HoldKind.question
+    assert ui.hold is not None and ui.hold.kind is HoldKind.proposal
     tilt = lamella.proposal(SETUP, STATE)
     assert tilt is not None and tilt.pending and tilt.asking
     assert microscope.get_current_milling_angle() == pytest.approx(38.0), (
@@ -214,7 +213,7 @@ def test_the_tilt_and_the_position_are_confirmed_on_the_prompt_bar(window, qapp)
     pose = position.current.values["stage_position"]
     assert isinstance(pose, FibsemStagePosition), "filled in by the task"
     point = lamella.proposal(SETUP, POINT_OF_INTEREST)
-    assert point.asking and ui.hold.kind is HoldKind.question
+    assert point.asking and ui.hold.kind is HoldKind.proposal
     controller = window.view_controller
     marker = controller.overlay_points(BeamType.ION, "poi")
     assert marker, "the marker is up"
@@ -249,7 +248,6 @@ def test_the_tilt_and_the_position_are_confirmed_on_the_prompt_bar(window, qapp)
         STATE,
         POINT_OF_INTEREST,
         ALIGNMENT_AREA,
-        TASK_RESULT,
     ]
     assert lamella.task_state.status is TaskStatus.Completed, "nothing waits"
     assert task.task_manager._defer_reason(lamella, ROUGH) is None

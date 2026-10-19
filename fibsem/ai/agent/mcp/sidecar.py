@@ -484,9 +484,8 @@ def build_sidecar(client, capabilities):
     def _with_images(data):
         """Move every base64 preview in *data* out into MCP image content.
 
-        A question's context image as base64 text is unreadable to the agent
-        and can overflow a tool result (a PickPOI prompt ran to 63k
-        characters). Each preview's place in the JSON keeps ``image_index``,
+        An image as base64 text is unreadable to the agent and can overflow a
+        tool result (one ran to 63k characters). Each preview's place in the JSON keeps ``image_index``,
         its position among the images that follow.
         """
         images = [Image(data=jpeg, format="jpeg") for jpeg in _pop_previews(data)]
@@ -814,9 +813,19 @@ def build_sidecar(client, capabilities):
     def fm_auto_focus(channel_name: Optional[str] = None, path: Optional[str] = None):
         return _routed("fm_auto_focus", "run", channel_name=channel_name, path=path)
 
-    def beam_acquire_overview(settings: dict, path: str, name: str = "overview"):
+    def beam_acquire_overview(
+        settings: dict,
+        path: str,
+        name: str = "overview",
+        centre_position: Optional[dict] = None,
+    ):
         return _routed(
-            "beam_acquire_overview", "run", settings=settings, path=path, name=name
+            "beam_acquire_overview",
+            "run",
+            settings=settings,
+            path=path,
+            name=name,
+            centre_position=centre_position,
         )
 
     def beam_estimate_overview(settings: dict):
@@ -885,6 +894,7 @@ def build_sidecar(client, capabilities):
         path: str,
         name: str = "overview",
         zparams: Optional[dict] = None,
+        centre_position: Optional[dict] = None,
     ):
         return _routed(
             "fm_acquire_overview",
@@ -894,6 +904,7 @@ def build_sidecar(client, capabilities):
             path=path,
             name=name,
             zparams=zparams,
+            centre_position=centre_position,
         )
 
     def fm_estimate_overview(
@@ -1439,15 +1450,11 @@ def build_sidecar(client, capabilities):
         content.insert(0, json.dumps(data))
         return content
 
-    def prompt_get():
-        data, err = _call(client, "GET", "/app/workflow/prompt")
+    def proposal_list():
+        data, err = _call(client, "GET", "/app/workflow/proposals")
         return err if err else _with_images(data)
 
-    def review_list():
-        data, err = _call(client, "GET", "/app/workflow/reviews")
-        return err if err else _with_images(data)
-
-    def review_decide(
+    def proposal_decide(
         item_id: str,
         task_name: str,
         outcome: str,
@@ -1479,30 +1486,6 @@ def build_sidecar(client, capabilities):
         if patch is not None:
             body["patch"] = dict(patch)
         return _app_post("/app/workflow/decide", body)
-
-    def prompt_suggest_answer(
-        response: bool,
-        question_id: int,
-        reason: str,
-        value: Optional[dict] = None,
-        image: Optional[str] = None,
-    ):
-        body = {
-            "response": bool(response),
-            "question_id": int(question_id),
-            "reason": str(reason),
-        }
-        if value is not None:
-            body["value"] = dict(value)
-        if image:
-            body["image"] = str(image)
-        return _app_post("/app/workflow/prompt/suggest", body)
-
-    def prompt_answer(response: bool, question_id: int, value: Optional[dict] = None):
-        body = {"response": bool(response), "question_id": int(question_id)}
-        if value is not None:
-            body["value"] = dict(value)
-        return _app_post("/app/workflow/prompt/answer", body)
 
     implementations = {
         fn.__name__: fn
@@ -1634,11 +1617,8 @@ def build_sidecar(client, capabilities):
             protocol_load,
             app_get_events,
             app_get_display_images,
-            prompt_get,
-            review_list,
-            review_decide,
-            prompt_answer,
-            prompt_suggest_answer,
+            proposal_list,
+            proposal_decide,
             workflow_stop,
             workflow_plan_grids,
             workflow_start_grids,

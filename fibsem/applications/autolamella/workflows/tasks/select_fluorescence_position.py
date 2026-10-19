@@ -26,7 +26,7 @@ class SelectFluorescencePositionTask(AutoLamellaTask):
 
     # "Move to the fluorescence position. Press Continue": a confirmation of
     # the state, on the record.
-    questions = (STATE,)
+    asks = (STATE,)
 
     config: SelectFluorescencePositionConfig
     config_cls: ClassVar[Type[SelectFluorescencePositionConfig]] = (

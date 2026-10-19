@@ -36,9 +36,7 @@ from __future__ import annotations
 import logging
 import math
 import os
-import threading
 from copy import deepcopy
-from dataclasses import replace
 from functools import partial
 from typing import Callable, Dict, Iterable, List, NamedTuple, Optional, Set, Tuple
 
@@ -63,10 +61,10 @@ from superqt import ensure_main_thread
 from fibsem import constants
 from fibsem.config import DEFAULT_STANDARD_RESOLUTION_LIST
 from fibsem.fm.composite import auto_clim
-from fibsem.geometry.projection import BeamStageProjection
+from fibsem.geometry.projection import BeamStageProjection, lifted, posed_like
 from fibsem.imaging import tiled
+from fibsem.imaging.overview_session import POSITIONS, SELECTION, OverviewSession
 from fibsem.imaging.reduce import downsample, downsample_mask
-from fibsem.imaging.tiled import stamped_overview_name
 from fibsem.imaging.tiling import unreachable_tiles
 from fibsem.imaging.tiling.progress import (
     MODALITY_BEAM,
@@ -578,16 +576,21 @@ class FibsemOverviewWidget(QWidget):
     _progress_received = pyqtSignal(object)
     _stage_moved = pyqtSignal(object)
     _acquisition_finished = pyqtSignal(dict)
+    _session_changed = pyqtSignal(str)
 
     def __init__(
         self,
-        microscope: FibsemMicroscope,
+        session: OverviewSession,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
-        self.microscope = microscope
+        # The positions, selection, lock, run state, mosaic and cached stage
+        # position: the overview's, which a host writes (FIB-1449).
+        self.session = session
+        self.microscope = session.microscope
 
-        self._stop_event = threading.Event()
+        # Cancel has been pressed on the run under way; the imaging service stops it.
+        self._cancelling = False
         self._worker: Optional[FunctionWorker] = None
         self._records: Dict[str, OverviewRecord] = {}
         self._record_count = 0
@@ -636,17 +639,6 @@ class FibsemOverviewWidget(QWidget):
         # rather than a read of `_target`: a run started without one is centred on
         # wherever the stage was when it began, which the stage stops being one tile in.
         self._run_centre: Optional[FibsemStagePosition] = None
-        self._positions: List[FibsemStagePosition] = []
-        self._selected_position: Optional[str] = None
-        # Positions a host has flagged, by name. What "flagged" means is the host's
-        # business -- for an experiment it is a lamella marked defective. Kept as names
-        # rather than as a predicate on the position so this stays ignorant of whatever
-        # the host is really looking at.
-        self._flagged: Set[str] = set()
-        # Where the stage is, as far as anyone has told us. Cached rather than polled
-        # so that everything drawn from it agrees by construction rather than because
-        # two callers happened to poll together.
-        self._stage_position: Optional[FibsemStagePosition] = None
         self._save_directory: Optional[str] = None
         # Where an imported image's corrected copy is written. A host keeping images
         # per grid points this at the grid's folder, so the copy is written once,
@@ -654,16 +646,9 @@ class FibsemOverviewWidget(QWidget):
         self.aligned_image_folder: Callable[[], Optional[str]] = (
             self._default_aligned_image_folder
         )
-        self._mosaic: Optional[FibsemImage] = None
-        # Whether a run is under way, and whether a host is allowing one to be started.
-        # Two independent facts kept apart on purpose: a workflow ending must not
-        # re-enable a tab whose acquisition is still going, nor the reverse.
-        self._running = False
         # Set by `_on_move_errored` so `_on_move_finished`, which always runs, knows
         # not to clear a message the failure has just put up.
         self._move_failed: bool = False
-        self._lock_reason = "a workflow is running"
-        self._interactive = True
         self._tiles_acquired = 0
 
         self._init_ui()
@@ -671,6 +656,8 @@ class FibsemOverviewWidget(QWidget):
         self._progress_received.connect(self._apply_progress)
         self._stage_moved.connect(self._on_stage_moved)
         self._acquisition_finished.connect(self._on_finished)
+        self._session_changed.connect(self._on_session_changed)
+        self.session.changed.connect(self._on_session_signal)
         # Plain bound methods, never a Qt signal's `.emit`. psygnal holds bound methods
         # weakly and drops them when the owner is collected, which a Qt signal's `emit`
         # does not get: PyQt builds a new wrapper on every access, so psygnal cannot
@@ -2096,7 +2083,9 @@ class FibsemOverviewWidget(QWidget):
         union is true over a superset of the interval either is, and every caller is a
         guard, so being early and late is the safe direction to be wrong in.
         """
-        return self._running or (self._worker is not None and self._worker.is_alive())
+        return self.session.running or (
+            self._worker is not None and self._worker.is_alive()
+        )
 
     def _settings(self) -> Optional[OverviewAcquisitionSettings]:
         """The planned acquisition, read from the settings widget.
@@ -2179,17 +2168,17 @@ class FibsemOverviewWidget(QWidget):
         and a refusal naming the wrong one is barely better than one naming nothing
         (FIB-706).
         """
-        self._interactive = bool(enabled)
-        self._lock_reason = reason or "a workflow is running"
-        self._apply_enabled_state()
+        self.session.set_interactive(enabled, reason)
 
     def _apply_enabled_state(self) -> None:
-        running = self._running
+        running = self.session.running
         # Nothing selected is a real state now that tiles can be clicked off, and it
         # is one the runner cannot do anything with. Refused here as well as in
         # `acquire`, so it reads as unavailable rather than failing when pressed.
         has_tiles = self._planned_tile_count() > 0
-        self.button_acquire.setEnabled(self._interactive and not running and has_tiles)
+        self.button_acquire.setEnabled(
+            self.session.interactive and not running and has_tiles
+        )
         self.button_acquire.setToolTip(
             "" if has_tiles else "No tiles are selected. Click a tile to include it."
         )
@@ -2199,8 +2188,8 @@ class FibsemOverviewWidget(QWidget):
         # Not gated on `_interactive`: a host locking the tab must not take away the
         # only way to stop a run that is already under way. Off once cancellation has
         # been asked for, so a second press cannot read as "it did not work".
-        self.button_cancel.setEnabled(running and not self._stop_event.is_set())
-        self.settings_widget.setEnabled(self._interactive and not running)
+        self.button_cancel.setEnabled(running and not self._cancelling)
+        self.settings_widget.setEnabled(self.session.interactive and not running)
 
     def _planned_tile_count(self) -> int:
         """How many tiles the next run would acquire. 0 if the settings cannot be read."""
@@ -2332,7 +2321,7 @@ class FibsemOverviewWidget(QWidget):
                 self.canvas.set_reference_pixel_size(pixel_size)
 
         view = self.acquisition_view
-        if view is None or self._stage_position is None:
+        if view is None or self.session.stage_position is None:
             return
 
         # Only the very first time, to give the canvas something to draw in. Steering
@@ -2344,7 +2333,7 @@ class FibsemOverviewWidget(QWidget):
             self._refresh_view_selector()
 
         if view not in self._origins:
-            self._origins[view] = deepcopy(self._stage_position)
+            self._origins[view] = deepcopy(self.session.stage_position)
             self._provisional.add(view)
 
     def _frame(
@@ -2416,11 +2405,11 @@ class FibsemOverviewWidget(QWidget):
         No hardware: `get_stage_orientation` with a pose supplied is arithmetic over
         the configured orientations.
         """
-        if self._stage_position is None:
+        if self.session.stage_position is None:
             return None
         try:
             return self.microscope.get_stage_orientation(
-                stage_position=self._stage_position
+                stage_position=self.session.stage_position
             )
         except Exception as e:
             logger.debug(f"Could not tell which orientation the stage is in: {e}")
@@ -2788,6 +2777,8 @@ class FibsemOverviewWidget(QWidget):
         if record is None:
             return
         record.view = self._view_of(mosaic)
+        # The name as saved, stamped with the time by the imaging service.
+        record.label = mosaic.metadata.image_settings.filename or record.label
         key, tile = self._place(mosaic, key=record.id)
         if key is None or tile is None:
             logger.debug("The finished overview could not be placed.")
@@ -3009,7 +3000,7 @@ class FibsemOverviewWidget(QWidget):
         """
         if self._run_centre is not None:
             return self._run_centre
-        return self.target or self._stage_position
+        return self.target or self.session.stage_position
 
     def _plan_on_the_map(self) -> Optional[FibsemStagePosition]:
         """Where the planned tileset is drawn: the place a dragged grid was dropped on,
@@ -3173,7 +3164,9 @@ class FibsemOverviewWidget(QWidget):
         this plan, and a host that has taken the instrument is usually iterating an
         experiment -- neither is a moment to redraw the grid underneath.
         """
-        return not (self._running or self.is_acquiring or not self._interactive)
+        return not (
+            self.session.running or self.is_acquiring or not self.session.interactive
+        )
 
     def _on_grid_resized(self, rows: int, cols: int) -> None:
         """An edge of the grid was dragged.
@@ -3305,38 +3298,14 @@ class FibsemOverviewWidget(QWidget):
     def _lifted(
         self, frame: StageFrame, place: FibsemStagePosition, sign: float = 1.0
     ) -> FibsemStagePosition:
-        """`place`, moved by however far the stage sits off the map's surface plane.
-
-        The plane is the set of positions `from_plane` reaches from the view's origin:
-        travelling along a pre-tilted surface changes z as well as y, and all of that is
-        *in* the plane -- 0.7 um of z per micron of y at a 35 degree pre-tilt, which is
-        millimetres across a grid, and none of it a change of height. What is left over
-        is: coincidence set, or another grid at another height.
-
-        Split along the electron column, because that is the direction a coincidence
-        correction moves in (`vertical_move`): the electron view is blind to it, so the
-        point on the plane that *looks* like the stage from the electron column is the
-        stage before it was lifted, and the difference is the lift. It is a vector, not
-        a height -- on a tilted stage a vertical move is y as well as z -- and adding all
-        of it is what keeps a run over the same piece of sample after coincidence is
-        set. Adding only its z re-acquired 28 um away after a 117 um correction at a
-        12 degree tilt (FIB-1007).
-
-        The electron projection is this view's own with the beam swapped, so nothing
-        is read from the instrument. Unchanged without a cached stage position.
-        """
-        stage = self._stage_position
-        if stage is None:
+        """`place`, moved by however far the stage sits off the map's surface plane
+        (`fibsem.geometry.projection.lifted`). Unchanged without a cached stage
+        position."""
+        if self.session.stage_position is None:
             return place
-        origin = frame.origin
-        electron = replace(frame.projection, beam_type=BeamType.ELECTRON)
-        before_the_lift = electron.from_plane(*electron.to_plane(stage, origin), origin)
-        for axis in ("x", "y", "z"):
-            lift = (getattr(stage, axis) or 0.0) - (
-                getattr(before_the_lift, axis) or 0.0
-            )
-            setattr(place, axis, (getattr(place, axis) or 0.0) + sign * lift)
-        return place
+        return lifted(
+            frame.projection, frame.origin, place, self.session.stage_position, sign
+        )
 
     def _carry_the_drag_onto(
         self, view: "OverviewView", sent_to: Optional[FibsemStagePosition]
@@ -3380,7 +3349,7 @@ class FibsemOverviewWidget(QWidget):
         tilt has no angle -- and is dropped on its own rather than taking the rest of
         the line with it.
         """
-        position = self._stage_position
+        position = self.session.stage_position
         if position is None:
             self.canvas.set_info_text(None)
             return
@@ -3395,11 +3364,11 @@ class FibsemOverviewWidget(QWidget):
 
     def _milling_angle(self) -> Optional[float]:
         """The milling angle for the cached pose, in degrees, or None if it has none."""
-        if self._stage_position is None:
+        if self.session.stage_position is None:
             return None
         try:
             return self.microscope.get_current_milling_angle(
-                stage_position=self._stage_position
+                stage_position=self.session.stage_position
             )
         except Exception as e:
             logger.debug(f"Could not work out the milling angle: {e}")
@@ -3471,19 +3440,19 @@ class FibsemOverviewWidget(QWidget):
                 self.selected_position_overlay,
             ):
                 overlay.set_points([])
-            if self._stage_position is not None:
+            if self.session.stage_position is not None:
                 try:
                     self.current_position_overlay.set_points(
-                        [frame.to_canvas(self._stage_position)]
+                        [frame.to_canvas(self.session.stage_position)]
                     )
                 except Exception as e:
                     logger.debug(f"Could not mark the current stage position: {e}")
             return
 
-        if self._stage_position is not None:
+        if self.session.stage_position is not None:
             try:
                 self.current_position_overlay.set_points(
-                    [frame.to_canvas(self._stage_position)]
+                    [frame.to_canvas(self.session.stage_position)]
                 )
             except Exception as e:
                 logger.debug(f"Could not mark the current stage position: {e}")
@@ -3491,7 +3460,7 @@ class FibsemOverviewWidget(QWidget):
         unselected, unselected_labels = [], []
         flagged, flagged_labels = [], []
         selected = []
-        for position in self._positions:
+        for position in self.session.positions:
             try:
                 point = frame.to_canvas(position)
             except Exception:
@@ -3500,9 +3469,9 @@ class FibsemOverviewWidget(QWidget):
             # Selection wins over flagged: it is what the user is looking at right now,
             # and a defective lamella they have just clicked should still read as the
             # selected one.
-            if name and name == self._selected_position:
+            if name and name == self.session.selected:
                 selected.append(point)
-            elif name in self._flagged:
+            elif name in self.session.flagged:
                 flagged.append(point)
                 flagged_labels.append(name)
             else:
@@ -3511,7 +3480,7 @@ class FibsemOverviewWidget(QWidget):
         self.position_overlay.set_points(unselected, labels=unselected_labels)
         self.flagged_position_overlay.set_points(flagged, labels=flagged_labels)
         self.selected_position_overlay.set_points(
-            selected, labels=[self._selected_position] if selected else None
+            selected, labels=[self.session.selected] if selected else None
         )
 
     # ── the host's API ───────────────────────────────────────────────────
@@ -3527,18 +3496,26 @@ class FibsemOverviewWidget(QWidget):
         know or ask what that means; a host with an experiment passes the lamellae it
         considers defective.
         """
-        self._positions = list(positions)
-        self._flagged = set(flagged or ())
-        self._refresh_position_markers()
+        self.session.set_positions(positions, flagged)
 
     def set_selected_position(self, name: Optional[str]) -> None:
         """Highlight one marked position by name, or None to highlight nothing."""
-        self._selected_position = name
-        self._refresh_position_markers()
+        self.session.select(name)
 
     @property
     def selected_position(self) -> Optional[str]:
-        return self._selected_position
+        return self.session.selected
+
+    def _on_session_signal(self, part: str) -> None:
+        """Called by psygnal, on whichever thread changed the session."""
+        self._session_changed.emit(part)
+
+    @pyqtSlot(str)
+    def _on_session_changed(self, part: str) -> None:
+        if part in (POSITIONS, SELECTION):
+            self._refresh_position_markers()
+        else:
+            self._apply_enabled_state()
 
     # ── the stage ────────────────────────────────────────────────────────
 
@@ -3549,7 +3526,7 @@ class FibsemOverviewWidget(QWidget):
     @ensure_main_thread
     @pyqtSlot(object)
     def _on_stage_moved(self, position: FibsemStagePosition) -> None:
-        self._stage_position = deepcopy(position)
+        self.session.stage_position = deepcopy(position)
         # Not during a run: the stage visits every tile, and re-drawing the planned
         # footprint at each one would drag it across the canvas as the acquisition
         # walked the grid.
@@ -3559,7 +3536,7 @@ class FibsemOverviewWidget(QWidget):
         # rather than left out because placing an image used to refresh it as a side
         # effect, so it tracked a run tile by tile -- and it should go on doing that now
         # that placing an image refreshes nothing.
-        if self._running:
+        if self.session.running:
             self._refresh_position_markers()
             self._refresh_stage_info()
             return
@@ -3579,10 +3556,7 @@ class FibsemOverviewWidget(QWidget):
         A failed read leaves the cache alone: a run planned on a slightly old pose beats
         a run refused because a read failed.
         """
-        try:
-            self._stage_position = deepcopy(self.microscope.get_stage_position())
-        except Exception as e:
-            logger.debug(f"Could not read the stage position: {e}")
+        self.session.read_stage_position()
 
     def move_to(self, position: FibsemStagePosition) -> None:
         """Drive the stage to a position, off the GUI thread.
@@ -3607,33 +3581,10 @@ class FibsemOverviewWidget(QWidget):
         # merely happens belongs. It is also what the fluorescence tab uses, which is
         # the point: these two drifted apart once already and that is this whole issue.
         self.label_status.setText(f"Moving to {self._describe(position)}…")
-        worker = FunctionWorker(self._move_worker, position)
+        worker = FunctionWorker(self.session.move_to, position)
         worker.errored.connect(self._on_move_errored)
         worker.finished.connect(self._on_move_finished)
         worker.start()
-
-    def _move_worker(self, target: FibsemStagePosition) -> None:
-        """Runs off the GUI thread. Only signals may cross back.
-
-        The exception is deliberately not caught. `FunctionWorker` logs it with a
-        traceback and re-emits it as `errored` on the GUI thread, which is the only way
-        the widget can tell a failed move from a finished one -- swallowing it here left
-        the two identical, so a stage that never arrived reported success.
-        """
-        try:
-            self.microscope.safe_absolute_stage_movement(target)
-        finally:
-            # In a `finally`, so it runs on the failing path too: a move that stopped
-            # part-way has still left the stage somewhere, and the marker should say
-            # where rather than where it set off from.
-            #
-            # Publishes the new position through `stage.position.changed`, which is what
-            # re-marks it -- rather than assuming the stage arrived exactly where it was
-            # asked to, which on a real instrument it does not.
-            try:
-                self.microscope.get_stage_position()
-            except Exception as e:
-                logger.debug(f"Could not confirm the stage position after moving: {e}")
 
     def _on_move_errored(self, error: object) -> None:
         """The stage did not get there. Say that, rather than falling quiet."""
@@ -3652,7 +3603,7 @@ class FibsemOverviewWidget(QWidget):
         if self._move_failed:
             self._move_failed = False
             return
-        position = self._stage_position
+        position = self.session.stage_position
         self.label_status.setText(
             f"At {self._describe(position)}" if position is not None else "Moved."
         )
@@ -3707,7 +3658,7 @@ class FibsemOverviewWidget(QWidget):
 
         frame = self._frame()
         ax = getattr(self.canvas, "_ax", None)
-        if frame is None or ax is None or not self._positions:
+        if frame is None or ax is None or not self.session.positions:
             return None
         try:
             transform = ax.transData
@@ -3717,7 +3668,7 @@ class FibsemOverviewWidget(QWidget):
             return None
 
         best_name, best_distance = None, float("inf")
-        for position in self._positions:
+        for position in self.session.positions:
             if not position.name:
                 continue
             try:
@@ -3752,15 +3703,13 @@ class FibsemOverviewWidget(QWidget):
 
     def _may_move(self) -> bool:
         """Whether driving the stage from this tab is allowed right now, and say if not."""
-        if self.is_acquiring or self._running:
-            notification_service.show_toast(
-                "Cannot move the stage during an acquisition.", "warning"
-            )
-            return False
-        if not self._interactive:
-            notification_service.show_toast(
-                f"Cannot move the stage while {self._lock_reason}.", "warning"
-            )
+        refusal = (
+            "Cannot move the stage during an acquisition."
+            if self.is_acquiring
+            else self.session.move_refusal()
+        )
+        if refusal is not None:
+            notification_service.show_toast(refusal, "warning")
             return False
         return True
 
@@ -3779,7 +3728,7 @@ class FibsemOverviewWidget(QWidget):
         which position each entry would request -- is decided here. A test that had to
         open the menu could only hang.
         """
-        if self._running or self.is_acquiring or not self._interactive:
+        if self.session.running or self.is_acquiring or not self.session.interactive:
             notification_service.show_toast(
                 "Cannot mark positions while an acquisition is running.", "warning"
             )
@@ -3795,7 +3744,7 @@ class FibsemOverviewWidget(QWidget):
             callback=lambda: self._request_add_at(x, y, target),
             tooltip=f"Add a position at {self._describe(target)}",
         )
-        selected = self._selected_position
+        selected = self.session.selected
         if selected:
             config.add_action(
                 f"Move Selected Position Here ({selected})",
@@ -3834,16 +3783,12 @@ class FibsemOverviewWidget(QWidget):
         if frame is None:
             return None
         try:
-            target = frame.to_stage(x, y)
+            # Lifted to the stage's height now, like a dragged grid: a lamella marked
+            # after coincidence was set kept the old height (GH #943).
+            target = frame.to_stage(x, y, stage=self.session.stage_position)
         except Exception as e:
             logger.debug(f"Could not resolve the clicked position: {e}")
             return None
-
-        # Lifted like a dragged grid is, and for the same reason: the canvas answers
-        # with a position on the map's plane, at the height the view was anchored at.
-        # A lamella marked on an overview after coincidence was set was recorded at the
-        # old height, and its first task drove the stage back down to it (GH #943).
-        target = self._posed_like_the_stage(self._lifted(frame, target))
 
         stage = self.microscope.stage
         limits = stage.position.limits if stage is not None else None
@@ -3855,24 +3800,12 @@ class FibsemOverviewWidget(QWidget):
         return target
 
     def _posed_like_the_stage(self, target: FibsemStagePosition) -> FibsemStagePosition:
-        """A resolved position, wearing the pose the stage is actually in.
-
-        Neither steering nor planning reorients. A point on the canvas says *where on
-        the sample*, not which way to look at it, so the stage's own rotation and tilt
-        are kept and any move is pure x/y/z. Without this the position carries the view
-        *origin's* pose, and a stage sitting at a slightly different tilt within the
-        same orientation would be tilted back to it as a side effect.
-
-        Shared by the click and by a dragged tile grid, so a run planned around a
-        dragged centre cannot end up asking for a pose a click would have refused.
-        """
-        current = self._stage_position
-        if current is not None:
-            if current.r is not None:
-                target.r = current.r
-            if current.t is not None:
-                target.t = current.t
-        return target
+        """A resolved position in the stage's rotation and tilt
+        (`fibsem.geometry.projection.posed_like`), so a dragged grid cannot ask for
+        a pose a click would have refused."""
+        if self.session.stage_position is None:
+            return target
+        return posed_like(target, self.session.stage_position)
 
     def _view_matches_stage(self) -> bool:
         """Whether the canvas is showing the orientation the stage is in, and say if not.
@@ -3951,9 +3884,6 @@ class FibsemOverviewWidget(QWidget):
             # somewhere, and failing at the second tile with `os.path.join(None, ...)`
             # is the worst way to find out.
             settings.image_settings.path = self._save_directory or os.getcwd()
-        settings.image_settings.filename = stamped_overview_name(
-            settings.image_settings.filename
-        )
 
         # Where this run happens, resolved **once**, before the dialog, and handed to the
         # runner unchanged. Everything about a run then comes from one value: the plan
@@ -3982,7 +3912,7 @@ class FibsemOverviewWidget(QWidget):
         # move, a dialog row -- not at the click that starts driving the stage. It also
         # arrives before the dialog, so what the dialog describes is what will happen.
         self._refresh_current_position()
-        self._run_centre = deepcopy(self.target or self._stage_position)
+        self._run_centre = deepcopy(self.target or self.session.stage_position)
 
         if not self._confirm(settings):
             logger.info("Overview acquisition cancelled before starting")
@@ -3998,7 +3928,7 @@ class FibsemOverviewWidget(QWidget):
         )
         self._refresh_overview_list()
 
-        self._stop_event.clear()
+        self._cancelling = False
         self._set_running(True)
         # Copied, because the target can be dragged again while the run is under way and
         # the run has to keep the grid it was started with. `_run_centre` rather than
@@ -4090,12 +4020,12 @@ class FibsemOverviewWidget(QWidget):
         the stage will do (FIB-1007).
         """
         target = self.target
-        if target is None or self._stage_position is None:
+        if target is None or self.session.stage_position is None:
             return None
         return (
-            target.x - self._stage_position.x,
-            target.y - self._stage_position.y,
-            (target.z or 0.0) - (self._stage_position.z or 0.0),
+            target.x - self.session.stage_position.x,
+            target.y - self.session.stage_position.y,
+            (target.z or 0.0) - (self.session.stage_position.z or 0.0),
         )
 
     def _acquire_worker(
@@ -4103,23 +4033,25 @@ class FibsemOverviewWidget(QWidget):
         settings: OverviewAcquisitionSettings,
         centre_position: Optional[FibsemStagePosition] = None,
     ) -> None:
-        """Runs off the GUI thread. Only signals may cross back."""
-        from fibsem.cancellation import OperationCancelledError
+        """Runs off the GUI thread. Only signals may cross back.
 
+        Through the imaging service, the path the agent's overviews take: it
+        stamps the name with the time and `stop` ends it.
+        """
         result = {"cancelled": False, "error": None}
         try:
-            self._mosaic = tiled.acquire_tiled_overview(
-                self.microscope,
+            answer = self.microscope.imaging.acquire_overview(
                 settings,
                 settings.image_settings.path,
                 settings.image_settings.filename,
                 centre_position=centre_position,
-                stop_event=self._stop_event,
-            ).image
-            self.overview_acquired.emit(self._mosaic)
-        except OperationCancelledError:
-            logger.info("Overview acquisition cancelled")
-            result["cancelled"] = True
+            )
+            if answer["image"] is None:
+                logger.info("Overview acquisition cancelled")
+                result["cancelled"] = True
+            else:
+                self.session.mosaic = answer["image"]
+                self.overview_acquired.emit(self.session.mosaic)
         except Exception as e:
             logger.error(f"Overview acquisition failed: {e}", exc_info=True)
             result["error"] = str(e)
@@ -4130,7 +4062,8 @@ class FibsemOverviewWidget(QWidget):
         if not self.is_acquiring:
             return
         logger.info("Cancelling overview acquisition")
-        self._stop_event.set()
+        self._cancelling = True
+        self.microscope.imaging.stop()
         self.label_status.setText("Cancelling…")
         # A run stops at the next tile boundary, so the button stays there for a while
         # after it is pressed. Disabled once asked, or a second press reads as the first
@@ -4138,8 +4071,7 @@ class FibsemOverviewWidget(QWidget):
         self._apply_enabled_state()
 
     def _set_running(self, running: bool) -> None:
-        self._running = running
-        self._apply_enabled_state()
+        self.session.set_running(running)
         self.acquiring_changed.emit(running)
         if running:
             # The framing you pressed Acquire with is the framing you keep. A run is the
@@ -4163,7 +4095,7 @@ class FibsemOverviewWidget(QWidget):
     @pyqtSlot(dict)
     def _on_finished(self, result: dict) -> None:
         self._worker = None
-        self._stop_event.clear()
+        self._cancelling = False
         self._set_running(False)
         # The bar has done its job; the label below it carries the outcome from here.
         self.progress.reset()
@@ -4180,8 +4112,8 @@ class FibsemOverviewWidget(QWidget):
         else:
             notification_service.show_toast("Tile collection finished.")
             self.label_status.setText(f"Acquired {self._tiles_acquired} tile(s).")
-            if self._mosaic is not None:
-                self._place_finished_mosaic(self._mosaic)
+            if self.session.mosaic is not None:
+                self._place_finished_mosaic(self.session.mosaic)
             else:
                 self._drop_unfinished_run()
         # Handed back before the redraw below, so the plan goes back to describing the
@@ -4267,13 +4199,13 @@ class FibsemOverviewWidget(QWidget):
 
     def closeEvent(self, event) -> None:
         if self.is_acquiring:
-            self._stop_event.set()
+            self.microscope.imaging.stop()
         # Every psygnal this widget subscribed to, without exception. They outlive the
         # widget -- they belong to the microscope -- and they hold bound methods of Qt
         # objects that `close` has already torn down on the C++ side, so the next emit
         # writes into freed memory. Closing the tab and then moving the stage from
         # anywhere else in the application was a hard segfault, not an exception.
-        subscriptions = []
+        subscriptions = [(self.session.changed, self._on_session_signal)]
         if self.microscope.stage is not None:
             subscriptions.append(
                 (self.microscope.stage.position.changed, self._on_stage_signal)
