@@ -1410,11 +1410,9 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         protocol = experiment.task_protocol if experiment is not None else None
         spot_burns = self._spot_burn_coordinates(selected_lamella)
 
-        # Named now, created by the widget only if this session records a result.
-        # Creating it here made every *open* a run: cancelling still left a folder
-        # behind, which the setup section then offered as a previous correlation
-        # to seed from — so an abandoned session became the next open's starting
-        # coordinates (FIB-320).
+        # Named now, created by the widget only if this session records a
+        # result: a folder for every open would offer an abandoned session as a
+        # previous correlation to seed from.
         project_path = new_run_dir(selected_lamella.path)
 
         fib_current = self._image_path(

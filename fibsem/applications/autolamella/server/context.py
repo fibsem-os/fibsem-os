@@ -1750,22 +1750,29 @@ class AutoLamellaAppContext:
         other action, or a config this experiment doesn't have."""
         from fibsem.ai.agent.request_text import describe_patch
 
-        experiment = self._experiment
-        if experiment is None:
-            return None
-        task_name = arguments.get("task_name")
-        if tool == "item_update_task_config":
-            lamella = experiment.get_lamella_by_name(arguments.get("item_name"))
-            configs = getattr(lamella, "task_config", None) if lamella else None
-        elif tool == "protocol_update_task_config":
-            protocol = getattr(experiment, "task_protocol", None)
-            configs = getattr(protocol, "task_config", None) if protocol else None
-        else:
-            return None
-        config = dict(configs).get(task_name) if configs is not None else None
+        config = self._edited_task_config(tool, arguments)
         if config is None:
             return None
         return describe_patch(config, arguments.get("patch"))
+
+    def _edited_task_config(self, tool: str, arguments: Dict[str, Any]) -> Any:
+        """The task config a task-config edit targets; None for any other tool,
+        or a target this experiment doesn't have."""
+        experiment = self._experiment
+        if experiment is None:
+            return None
+        if tool == "item_update_task_config":
+            owner = experiment.get_lamella_by_name(arguments.get("item_name"))
+        elif tool == "protocol_update_task_config":
+            owner = getattr(experiment, "task_protocol", None)
+        elif tool == "protocol_update_grid_task_config":
+            owner = getattr(experiment, "grid_protocol", None)
+        else:
+            return None
+        configs = getattr(owner, "task_config", None) if owner else None
+        if configs is None:
+            return None
+        return dict(configs).get(arguments.get("task_name"))
 
     def check_action(self, tool: str, arguments: Dict[str, Any]) -> Optional[str]:
         """Why a config edit in an agent's request would be refused when it
@@ -1778,22 +1785,10 @@ class AutoLamellaAppContext:
         patch = arguments.get("patch")
         if experiment is None or not isinstance(patch, dict):
             return None
-        task_name = arguments.get("task_name")
         if tool == "item_update":
             lamella = experiment.get_lamella_by_name(arguments.get("item_name"))
             return item_patch_refusal(lamella, patch) if lamella else None
-        if tool == "item_update_task_config":
-            lamella = experiment.get_lamella_by_name(arguments.get("item_name"))
-            configs = getattr(lamella, "task_config", None) if lamella else None
-        elif tool == "protocol_update_task_config":
-            protocol = getattr(experiment, "task_protocol", None)
-            configs = getattr(protocol, "task_config", None) if protocol else None
-        elif tool == "protocol_update_grid_task_config":
-            protocol = getattr(experiment, "grid_protocol", None)
-            configs = getattr(protocol, "task_config", None) if protocol else None
-        else:
-            return None
-        config = dict(configs).get(task_name) if configs is not None else None
+        config = self._edited_task_config(tool, arguments)
         if config is None:
             return None
         try:

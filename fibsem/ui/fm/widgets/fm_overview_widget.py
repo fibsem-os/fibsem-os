@@ -332,9 +332,8 @@ class FMOverviewWidget(QWidget):
         # no benefit: a payload reaching the wrong bar is a mislabelled run, and the
         # only thing keeping them apart was a vocabulary neither producer declares.
         # On the imaging service, which every microscope with an FM has.
-        if self.microscope.imaging is not None:
-            self.microscope.imaging.tiled_progress.connect(self._on_tile_progress)
-            self.microscope.imaging.overview_acquired.connect(self._on_acquired)
+        self.microscope.imaging.tiled_progress.connect(self._on_tile_progress)
+        self.microscope.imaging.overview_acquired.connect(self._on_acquired)
         self.fm.acquisition_progress_signal.connect(self._on_fm_progress)
         self._stage_moved.connect(self._on_stage_moved)
         self._session_changed.connect(self._on_session_changed)
@@ -3019,14 +3018,12 @@ class FMOverviewWidget(QWidget):
                     self._on_holder_changed,
                 )
             )
-        # Subscribed since FIB-725, on the imaging service when there is one.
-        if self.microscope.imaging is not None:
-            subscriptions.append(
-                (self.microscope.imaging.tiled_progress, self._on_tile_progress)
-            )
-            subscriptions.append(
-                (self.microscope.imaging.overview_acquired, self._on_acquired)
-            )
+        subscriptions.append(
+            (self.microscope.imaging.tiled_progress, self._on_tile_progress)
+        )
+        subscriptions.append(
+            (self.microscope.imaging.overview_acquired, self._on_acquired)
+        )
         if self.microscope.stage is not None:
             subscriptions.append(
                 (self.microscope.stage.position.changed, self._on_stage_signal)
