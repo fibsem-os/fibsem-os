@@ -33,6 +33,7 @@ from fibsem.applications.autolamella.ui.autolamella_task_config_editor import ( 
     _task_tooltips,
 )
 from fibsem.structures import MicroscopeState  # noqa: E402
+from tests.fixtures.app_session import app_session  # noqa: E402
 
 
 @pytest.fixture
@@ -57,8 +58,9 @@ def editor(qapp):
             EventedDict(copy.deepcopy(dict(exp.task_protocol.task_config))),
         )
     host = QWidget()
-    host.experiment, host.microscope = exp, microscope
-    widget = AutoLamellaProtocolTaskConfigEditor(parent=host)
+    widget = AutoLamellaProtocolTaskConfigEditor(
+        session=app_session(microscope, exp), parent=host
+    )
     widget._host = host
     host.resize(1200, 700)
     host.show()

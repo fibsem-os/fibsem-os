@@ -15,6 +15,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
 import pytest
+from psygnal.containers import EventedList
 
 from fibsem.imaging.overview_session import FLUORESCENCE, OverviewSession
 from fibsem.structures import InsertableDeviceState
@@ -3389,7 +3390,7 @@ def _experiment_with(positions, tmp_path):
     class _Exp:
         def __init__(self):
             self.path = str(tmp_path)
-            self.positions = list(positions)
+            self.positions = EventedList(positions)
             self.saves = 0
 
         def save(self):
@@ -3406,7 +3407,6 @@ def _wired_host(qapp, tmp_path, positions=()):
     host._build_fm_overview_widget()
     host.autolamella_ui.experiment = _experiment_with(positions, tmp_path)
     host.autolamella_ui.added = []
-    host.autolamella_ui.updated = 0
 
     def add_new_lamella(
         stage_position=None, name=None, objective_position=None, marked_at=None
@@ -3423,11 +3423,7 @@ def _wired_host(qapp, tmp_path, positions=()):
         )()
         return lamella
 
-    def update_ui():
-        host.autolamella_ui.updated += 1
-
     host.autolamella_ui.add_new_lamella = add_new_lamella
-    host.autolamella_ui.update_ui = update_ui
     return host
 
 
@@ -3547,7 +3543,7 @@ def test_moving_asks_before_it_moves_anything(qapp, tmp_path, monkeypatch):
     host = _wired_host(qapp, tmp_path)
     microscope = host.autolamella_ui.microscope
     lamella = _real_lamella("Lamella-01", microscope, tmp_path)
-    host.autolamella_ui.experiment.positions = [lamella]
+    host.autolamella_ui.experiment.positions = EventedList([lamella])
     before = deepcopy(lamella.poses)
 
     asked = []
@@ -3581,7 +3577,7 @@ def test_confirming_a_move_moves_both_poses(qapp, tmp_path, monkeypatch):
     host = _wired_host(qapp, tmp_path)
     microscope = host.autolamella_ui.microscope
     lamella = _real_lamella("Lamella-01", microscope, tmp_path)
-    host.autolamella_ui.experiment.positions = [lamella]
+    host.autolamella_ui.experiment.positions = EventedList([lamella])
     monkeypatch.setattr(module, "message_box_ui", lambda **kwargs: True)
 
     target = _named("target", 400e-6, -200e-6)
@@ -3616,7 +3612,7 @@ def test_a_move_rewrites_the_stage_positions_and_nothing_else(
     lamella = _real_lamella("Lamella-01", microscope, tmp_path)
     lamella.milling_pose.electron_detector.brightness = 0.123
     lamella.fluorescence_pose.objective_position = 7.7e-3
-    host.autolamella_ui.experiment.positions = [lamella]
+    host.autolamella_ui.experiment.positions = EventedList([lamella])
     monkeypatch.setattr(module, "message_box_ui", lambda **kwargs: True)
 
     host.overview_tab.fm_tab._on_move_requested(
@@ -3642,7 +3638,7 @@ def test_moving_a_lamella_that_has_no_fluorescence_pose_gives_it_one(
     lamella = _real_lamella("Lamella-01", microscope, tmp_path)
     lamella.milling_pose.electron_detector.brightness = 0.123
     del lamella.poses["FLUORESCENCE"]
-    host.autolamella_ui.experiment.positions = [lamella]
+    host.autolamella_ui.experiment.positions = EventedList([lamella])
     monkeypatch.setattr(module, "message_box_ui", lambda **kwargs: True)
 
     host.overview_tab.fm_tab._on_move_requested(
@@ -3670,7 +3666,7 @@ def test_a_move_re_derives_the_milling_angle(qapp, tmp_path, monkeypatch):
     microscope = host.autolamella_ui.microscope
     lamella = _real_lamella("Lamella-01", microscope, tmp_path)
     lamella.milling_angle = 999.0
-    host.autolamella_ui.experiment.positions = [lamella]
+    host.autolamella_ui.experiment.positions = EventedList([lamella])
     monkeypatch.setattr(module, "message_box_ui", lambda **kwargs: True)
 
     host.overview_tab.fm_tab._on_move_requested(
@@ -3694,7 +3690,7 @@ def test_a_move_that_names_nothing_does_nothing(qapp, tmp_path, monkeypatch):
 
     host = _wired_host(qapp, tmp_path)
     lamella = _real_lamella("Lamella-01", host.autolamella_ui.microscope, tmp_path)
-    host.autolamella_ui.experiment.positions = [lamella]
+    host.autolamella_ui.experiment.positions = EventedList([lamella])
     asked = []
     monkeypatch.setattr(
         module, "message_box_ui", lambda **kwargs: asked.append(kwargs) or True
@@ -3939,7 +3935,7 @@ def test_a_confirmed_move_re_marks_the_canvas(qapp, tmp_path, monkeypatch):
     host = _wired_host(qapp, tmp_path)
     microscope = host.autolamella_ui.microscope
     lamella = _real_lamella("Lamella-01", microscope, tmp_path)
-    host.autolamella_ui.experiment.positions = [lamella]
+    host.autolamella_ui.experiment.positions = EventedList([lamella])
     host._update_fm_overview_positions()
     before = host.fm_overview_widget.session.positions[0].x
     monkeypatch.setattr(module, "message_box_ui", lambda **kwargs: True)
@@ -3969,8 +3965,7 @@ def _tab_with(qapp, tmp_path, positions=()):
     from tests.fixtures.overview_host import OverviewHost
 
     ui = OverviewHost(microscope, experiment)
-    ui.update_ui = lambda: None
-    tab = AutoLamellaFluorescenceOverviewTab(ui)
+    tab = AutoLamellaFluorescenceOverviewTab(ui.session, ui.add_lamella)
     tab.refresh_microscope()
     qapp.processEvents()
     return tab
@@ -4171,7 +4166,7 @@ def test_the_list_survives_the_overview_being_rebuilt(qapp, tmp_path):
 
     from tests.fixtures.fm_microscope import build_microscope
 
-    tab.autolamella_ui.microscope = build_microscope()
+    tab.session.microscope = build_microscope()
     tab.refresh_microscope()  # a reconnection: new microscope, new overview
     # `deleteLater` is deferred, so without this the old overview is still alive at
     # assert time and a list left inside it would look fine. A running event loop does
@@ -4250,7 +4245,7 @@ def test_a_lamella_added_from_elsewhere_lands_on_the_canvas_immediately(qapp, tm
     microscope = tab.microscope
     experiment = _real_experiment(tmp_path / "exp")
     experiment.task_protocol = AutoLamellaTaskProtocol()
-    tab.autolamella_ui.experiment = experiment
+    tab.session.experiment = experiment
     experiment.positions.events.inserted.connect(lambda *_: tab.refresh_positions())
 
     beam = microscope.get_orientation(MILLING_ORIENTATION)

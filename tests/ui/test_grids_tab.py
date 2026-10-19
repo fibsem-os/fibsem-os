@@ -429,7 +429,7 @@ def test_a_load_from_a_card_reaches_the_sample_view(main_ui, tmp_path):
     microscope.sample_handling.magazine = demo_grid_loader(microscope, occupied=(1, 2))
     # The Sample view is built at connect, against the stage of that moment;
     # rebuild it for the swapped stage the way a connect would.
-    ui.sample_widget = FibsemSampleWidget(microscope=microscope)
+    ui.panel.sample_widget = FibsemSampleWidget(microscope=microscope)
     main_ui._refresh_grids_tab_microscope()
     exp = Experiment(path=tmp_path, name="exp")
     (tmp_path / "exp").mkdir()
@@ -443,7 +443,7 @@ def test_a_load_from_a_card_reaches_the_sample_view(main_ui, tmp_path):
     main_ui.grids_tab.btn_inventory.click()
 
     def sample_states():
-        return [r.state for r in ui.sample_widget.loader_widget._rows[:2]]
+        return [r.state for r in ui.panel.sample_widget.loader_widget._rows[:2]]
 
     assert sample_states() == ["occupied", "occupied"]
     card = main_ui.grids_tab.cards.cards[1]
@@ -467,7 +467,7 @@ def _window_with_magazine(main_ui, tmp_path):
     microscope.sample_handling.magazine = demo_grid_loader(
         microscope, occupied=(1, 2, 3)
     )
-    ui.sample_widget = FibsemSampleWidget(microscope=microscope)
+    ui.panel.sample_widget = FibsemSampleWidget(microscope=microscope)
     main_ui._refresh_grids_tab_microscope()
     exp = Experiment(path=tmp_path, name="exp")
     (tmp_path / "exp").mkdir()
@@ -485,7 +485,7 @@ def _window_with_magazine(main_ui, tmp_path):
 
 
 def _name_on_the_sample_view(ui, index, name):
-    row = ui.sample_widget.loader_widget._row_widget(index)
+    row = ui.panel.sample_widget.loader_widget._row_widget(index)
     row.name_edit.setText(name)
     row.name_edit.editingFinished.emit()
 
@@ -517,7 +517,10 @@ class TestNamingOnTheSampleView:
             microscope.sample_handling.magazine.slots["Slot-01"].loaded_grid.name
             == "Grid-01"
         )
-        assert "cannot be renamed" in ui.sample_widget.loader_widget.status_label.text()
+        assert (
+            "cannot be renamed"
+            in ui.panel.sample_widget.loader_widget.status_label.text()
+        )
 
     def test_a_name_another_grid_has_is_refused(self, main_ui, tmp_path):
         ui, microscope, exp = _window_with_magazine(main_ui, tmp_path)
@@ -540,7 +543,7 @@ class TestNamingOnTheSampleView:
             ui.session.runner = runner
         assert [g.name for g in exp.grids] == ["Grid-01", "Grid-02", "Grid-03"]
         assert "while a workflow is running" in (
-            ui.sample_widget.loader_widget.status_label.text()
+            ui.panel.sample_widget.loader_widget.status_label.text()
         )
 
 

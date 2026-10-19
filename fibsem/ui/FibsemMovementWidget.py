@@ -19,7 +19,7 @@ disconnect paths; and ``_toggle_interactions`` from ``FibsemImageSettingsWidget`
 reaches back through the same attribute. Those names stay here.
 """
 
-from typing import Optional
+from typing import Any, Callable, Optional
 
 from PyQt5 import QtWidgets
 
@@ -44,20 +44,18 @@ class FibsemMovementWidget(QtWidgets.QWidget):
     def __init__(
         self,
         microscope: FibsemMicroscope,
-        parent: QtWidgets.QWidget,
+        image_widget: FibsemImageSettingsWidget,
+        view_controller: Callable[[], Any],
+        milling_widget: Callable[[], Any],
+        parent: Optional[QtWidgets.QWidget] = None,
     ):
+        """The stage control is handed the Image tab, the quad view and the
+        milling widget (both getters); see ``StageControlWidget``."""
         super().__init__(parent=parent)
-        self.parent = parent
-
-        if not hasattr(parent, "image_widget") or not isinstance(
-            parent.image_widget, FibsemImageSettingsWidget
-        ):
-            raise ValueError(
-                "Parent must have an 'image_widget' attribute of type FibsemImageSettingsWidget"
-            )
-
         self.microscope = microscope
-        self.image_widget: FibsemImageSettingsWidget = parent.image_widget
+        self.image_widget = image_widget
+        self._view_controller = view_controller
+        self._milling_widget = milling_widget
         self._setup_ui()
         self.setup_connections()
 
@@ -83,7 +81,9 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.control_widget = StageControlWidget(
             microscope=self.microscope,
             position_widget=self.position_widget,
-            host=self.parent,
+            image_widget=self.image_widget,
+            view_controller=self._view_controller,
+            milling_widget=self._milling_widget,
         )
         self.gridLayout_3.addWidget(self.position_widget, 0, 0)
         self.gridLayout_3.addWidget(self.control_widget, 1, 0)

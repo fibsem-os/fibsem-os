@@ -4,90 +4,30 @@ import warnings
 
 from fibsem import conversions
 from fibsem.structures import InsertableDeviceState
-from fibsem.ui.widgets.custom_widgets import scrollable
 
 try:
     sys.modules.pop("PySide6.QtCore")
 except Exception:
     pass
-import functools
 import logging
 import os
 import threading
-from copy import deepcopy
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
-
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtWidgets import (
-    QGridLayout,
-    QLabel,
-    QMainWindow,
-    QMessageBox,
-    QSizePolicy,
-    QSpacerItem,
-    QTabWidget,
-    QWidget,
-)
-
-from fibsem.acting import OPERATOR
-from fibsem.applications.autolamella.ui.lamella_name_list_widget import (
-    LamellaNameListWidget,
-)
-from fibsem.applications.autolamella.ui.poi_marker import PoiMarker
-from fibsem.applications.autolamella.ui.prompt_bar import PromptBar
-from fibsem.applications.autolamella.ui.qt_responder import QtResponder
-from fibsem.applications.autolamella.ui.selected_lamella_widget import (
-    SelectedLamellaWidget,
-)
-from fibsem.constants import METRE_TO_MICRON, MICRON_TO_METRE
-from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import (
-    BeamType,
-    FibsemImage,
-    FibsemStagePosition,
-    MicroscopeSettings,
-)
-from fibsem.ui import (
-    DETECTION_AVAILABLE,
-    FibsemImageSettingsWidget,
-    FibsemMovementWidget,
-    FibsemSpotBurnWidget,
-    FibsemSystemSetupWidget,
-    MillingTaskViewerWidget,
-    notification_service,
-)
-from fibsem.ui import utils as fui
-from fibsem.ui.FibsemSampleWidget import FibsemSampleWidget
-from fibsem.ui.fm.widgets import FMImageViewerWidget
-
-if (
-    DETECTION_AVAILABLE
-):  # ml dependencies are option, so we need to check if they are available
-    from fibsem.ui.FibsemEmbeddedDetectionWidget import (
-        FibsemEmbeddedDetectionUI as FibsemEmbeddedDetectionWidget,
-    )
+from typing import TYPE_CHECKING, List, Optional
 
 from psygnal import EmissionInfo
+from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtWidgets import QMainWindow
 from superqt import ensure_main_thread
 
 import fibsem.config as fibsem_cfg
+from fibsem.acting import OPERATOR
 from fibsem.applications.autolamella import config as cfg
 from fibsem.applications.autolamella.experiment_setup import load_for_adoption
-from fibsem.applications.autolamella.poses import (
-    add_lamella,
-    current_objective_position,
-    remove_lamella,
-    set_lamella_pose,
-    set_objective_position,
-    set_objective_position_on_all,
-    stored_objective_position,
-)
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     AutoLamellaWorkflowConfig,
     Experiment,
-    Lamella,
 )
 from fibsem.applications.autolamella.ui.autolamella_create_experiment_widget import (
     create_experiment_dialog,
@@ -101,7 +41,23 @@ from fibsem.applications.autolamella.ui.autolamella_load_task_protocol_widget im
 from fibsem.applications.autolamella.ui.autolamella_overview_image_widget import (
     create_overview_image_widget,
 )
-from fibsem.ui.widgets.fluorescence_control_widget import FMControlWidget
+from fibsem.applications.autolamella.ui.gui_executor import GuiExecutor
+from fibsem.applications.autolamella.ui.microscope_panel import MicroscopePanel
+from fibsem.applications.autolamella.ui.proposal_presenter import ProposalPresenter
+from fibsem.applications.autolamella.ui.qt_responder import QtResponder
+from fibsem.applications.autolamella.ui.run_relay import RunRelay
+from fibsem.microscope import FibsemMicroscope
+from fibsem.structures import (
+    BeamType,
+    FibsemImage,
+    MicroscopeSettings,
+)
+from fibsem.ui import (
+    FibsemSystemSetupWidget,
+    notification_service,
+)
+from fibsem.ui import utils as fui
+from fibsem.ui.fm.widgets import FMImageViewerWidget
 from fibsem.ui.widgets.workflow_summary_dialog import (
     WorkflowSummaryDialog,
     run_counts_text,
@@ -109,16 +65,10 @@ from fibsem.ui.widgets.workflow_summary_dialog import (
 from fibsem.workflows.session import AppSession
 
 if TYPE_CHECKING:
-    from concurrent.futures import Future
-
     import pandas as pd
 
     from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
         AutoLamellaSingleWindowUI,
-    )
-    from fibsem.workflows.status import (
-        Hold,
-        WorkflowStatusEvent,
     )
 
 # Suppress a specific upstream Napari/NumPy warning from shapes miter computation. This
@@ -176,38 +126,8 @@ INSTRUCTIONS = {
 }
 
 
-def _complete(call, outcome) -> None:
-    """Complete ``outcome`` with ``call()``'s result, or its exception."""
-    try:
-        result = call()
-    except Exception as exc:  # noqa: BLE001 - the requester owns the failure
-        outcome.set_exception(exc)
-        return
-    outcome.set_result(result)
-
-
 class AutoLamellaUI(QMainWindow):
-    # Everything the workflow says without needing an answer, as a
-    # WorkflowStatusEvent. Instructions are typed requests to the QtResponder
-    # (fibsem/workflows/interaction.py); proposals are on the record.
-    workflow_status_signal = pyqtSignal(object)
-    # Its own signal: a queue edit is not a step in the task lifecycle and must
-    # not disturb the interaction UI.
-    queue_changed_signal = pyqtSignal(dict)
-    step_update_signal = pyqtSignal(str)  # emits human-readable step label
-    _workflow_finished_signal = pyqtSignal(bool)
-    # A stop was asked of the running workflow, by anyone: the operator's Stop,
-    # the agent's workflow_stop (from the App Server's thread), closing the
-    # window. The window shows "stopping" until the run has unwound.
-    workflow_stopping_signal = pyqtSignal()
     experiment_update_signal = pyqtSignal()
-    _hook_toast_signal = pyqtSignal(
-        str, str
-    )  # (message, notification_type) — thread-safe bridge for NotificationHook
-    # A remote (agent) request, marshalled to the GUI thread the same way agent
-    # answers are: the work, bound to its arguments and its Future, and marked
-    # as whoever asked (FIB-1276) -- the mark stays on the requesting thread.
-    _agent_call = pyqtSignal(object)
     # The agent added or renamed grid records (App Server); the grid views redraw.
     grids_changed = pyqtSignal()
 
@@ -235,27 +155,37 @@ class AutoLamellaUI(QMainWindow):
         # The microscope, the open experiment and the connection's event
         # stream are the session's; this window is one client of it.
         self.session = AppSession()
-
-        self._setup_ui()
         self.parent_widget = parent_ui
 
-        # The point-of-interest marker on the FIB view, for the POI proposal.
-        self.poi_marker = PoiMarker(self)
+        self.resize(788, 1234)
+        self.setAutoFillBackground(True)
+        self.panel = MicroscopePanel(
+            self.session,
+            view_controller=self._view_controller,
+            overview_acquiring=self._overview_is_acquiring,
+        )
+        self.setCentralWidget(self.panel)
+        # Every run starts and ends through the session's runner, whoever
+        # started it: the window hears the run's status, and redraws.
+        self.run_relay = RunRelay(self.session.runner, parent=self)
+        self.proposals = ProposalPresenter(
+            self.session,
+            self.panel,
+            self.run_relay,
+            view_controller=self._view_controller,
+        )
+
         # The Qt side of the workflow's Responder seam: workflow code is handed
         # this one-method object, never the window itself.
-        self.ui_responder = QtResponder(self)
+        self.ui_responder = QtResponder(self.panel)
         self.session.responder = self.ui_responder
         # The operator decides the run's proposals here, for the session's life.
         self.session.attach_decider(OPERATOR)
-        # A bound method, not a lambda: the slot must run on this window's thread.
-        self._agent_call.connect(self._run_agent_call)
         # Edits to the experiment run on this thread: its widgets listen to it.
-        self.session.executor = self._run_on_gui_thread
+        self.session.executor = GuiExecutor(parent=self)
 
         self._protocol_lock = threading.RLock()
 
-        # the microscope whose moves the stage readout follows
-        self._stage_followed: Optional[FibsemMicroscope] = None
         self.settings: Optional[MicroscopeSettings] = None
 
         # Read here rather than taken from parent_ui: this widget is constructed
@@ -264,14 +194,6 @@ class AutoLamellaUI(QMainWindow):
             fibsem_cfg.load_user_preferences().features.connection_chip
         )
         self.system_widget = FibsemSystemSetupWidget(parent=self)
-        self.image_widget: Optional[FibsemImageSettingsWidget] = None
-        self.movement_widget: Optional[FibsemMovementWidget] = None
-        self.spot_burn_widget: Optional[FibsemSpotBurnWidget] = None
-        self.fm_control_widget: Optional[FMControlWidget] = None
-        self.sample_widget: Optional[FibsemSampleWidget] = None
-        self.milling_task_config_widget: Optional[MillingTaskViewerWidget] = None
-        self.milling_tab: Optional[QWidget] = None  # the scroll area around it
-        self.det_widget: Optional["FibsemEmbeddedDetectionWidget"] = None
 
         # add widgets to tabs.
         #
@@ -284,34 +206,8 @@ class AutoLamellaUI(QMainWindow):
         # The widget itself stays either way: it owns the connection, and everything
         # in the application follows its signals. Only the tab is conditional.
         if not self._connection_chip_enabled:
-            self.tabWidget.insertTab(0, self.system_widget, "Connection")
+            self.panel.tabWidget.insertTab(0, self.system_widget, "Connection")
 
-        # Display state, not a handshake: the run is held -- a question is up
-        # for a click, or the run is parked on decisions -- and by whom. Set by
-        # whoever takes the hold (the responder, the task manager, the main
-        # window handing an agent's question over); the attention button,
-        # border, status bar and timeline pause read it. The cross-thread
-        # flag-poll it used to be -- USER_RESPONSE, WAITING_FOR_UI_UPDATE -- is
-        # gone: every workflow interaction is a typed request on its own future
-        # (fibsem/workflows/interaction.py).
-        self.hold: Optional[Hold] = None
-        # A state question a task asked (``BaseTask.ask`` with the
-        # ``state`` kind), shown on the prompt bar: (item_id, task_name,
-        # proposal_id). Continue decides it; the decision takes it down.
-        self._state_proposal: Optional[Tuple[str, str, str]] = None
-        # A pass of a loop a task asked (``milling``, ``spot_burn``), shown on
-        # the prompt bar over its widget: (item_id, task_name, proposal). A
-        # button decides it with the widget's value; the decision takes it down.
-        self._loop_proposal: Optional[Tuple[str, str, Any]] = None
-        # A value a task asked for that is edited on a widget of its own (a
-        # ``detection`` on the Detection tab, an ``alignment_area`` or a
-        # ``point_of_interest`` on the FIB view): (item_id, task_name,
-        # proposal). Continue decides it with the widget's value.
-        self._widget_proposal: Optional[Tuple[str, str, Any]] = None
-        self._poi_frames_followed: Optional[object] = None
-        # A run is active but nothing is executing -- today only during a
-        # scheduled-start wait. Set from the worker thread, read by the border.
-        self.WORKFLOW_PENDING: bool = False
         # The summary already toasted (by identity): the run-end toast is
         # once-per-run, while the runner's last_summary itself must survive as
         # the record remote readers see.
@@ -319,53 +215,6 @@ class AutoLamellaUI(QMainWindow):
 
         # setup connections
         self.setup_connections()
-
-    def _setup_ui(self):
-        """Create all UI widgets inline (replaces generated setupUi from .ui file)."""
-        self.resize(788, 1234)
-        self.setAutoFillBackground(True)
-
-        # Central widget
-        self.centralwidget = QWidget(self)
-        self.gridLayout = QGridLayout(self.centralwidget)
-
-        # --- Tab widget (row 0, colspan 2) ---
-        self.tabWidget = QTabWidget(self.centralwidget)
-
-        # Experiment tab
-        self.tab = QWidget()
-        self.grid_layout_experiment = QGridLayout(self.tab)
-
-        self.lamella_list = LamellaNameListWidget()
-        self.lamella_list.enable_add_button(True)
-        self.lamella_list.enable_defect_button(True)
-        self.lamella_list.enable_actions_button(True)
-        self.lamella_list.enable_move_to_action(True)
-        self.lamella_list.enable_update_action(True)
-        self.lamella_list.enable_remove_button(True)
-
-        self.selected_lamella_widget = SelectedLamellaWidget()
-
-        self.grid_layout_experiment.addWidget(self.lamella_list, 0, 0, 1, 2)
-        self.grid_layout_experiment.addWidget(self.selected_lamella_widget, 1, 0, 1, 2)
-
-        self.grid_layout_experiment.addItem(
-            QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding), 2, 0, 1, 2
-        )
-
-        # Add Experiment tab to tabWidget
-        self.tabWidget.addTab(self.tab, "Experiment")
-
-        self.label_workflow_information = QLabel("Workflow Information")
-
-        self.prompt_bar = PromptBar()
-
-        self.gridLayout.addWidget(self.tabWidget, 1, 0, 1, 2)
-        self.gridLayout.addWidget(self.label_workflow_information, 2, 0, 1, 2)
-        self.gridLayout.addWidget(self.prompt_bar, 3, 0, 1, 2)
-
-        self.setCentralWidget(self.centralwidget)
-        self.tabWidget.setCurrentIndex(0)
 
     @property
     def protocol(self) -> Optional[AutoLamellaTaskProtocol]:
@@ -375,69 +224,26 @@ class AutoLamellaUI(QMainWindow):
             )
 
     def setup_connections(self):
-
-        # lamella controls
-        self.lamella_list.add_requested.connect(
-            lambda: self.add_new_lamella(stage_position=None)  # type: ignore
-        )
-        self.lamella_list.remove_requested.connect(self._on_lamella_remove_requested)
-        self.lamella_list.move_to_requested.connect(self._on_lamella_move_to_requested)
-        self.lamella_list.update_requested.connect(self._on_lamella_update_requested)
-        # `defect_changed` is deliberately not wired here. The window this widget sits
-        # in connects the same signal to its own handler, which saves *and* redraws the
-        # rows, the cards and the name list -- so a second handler here only bought a
-        # second full `experiment.save()` for one toggled icon, which is 0.8 s of frozen
-        # GUI at 100 lamella (FIB-682). Every other host of this list keeps its own
-        # handler, because nothing else is listening for them (FIB-564).
-        self.lamella_list.lamella_selected.connect(self.update_lamella_ui)
-
         # system widget
         self.system_widget.connected_signal.connect(self.connect_to_microscope)
         self.system_widget.disconnected_signal.connect(self.disconnect_from_microscope)
 
-        # workflow interaction
-        self.prompt_bar.answered.connect(self._on_prompt_answered)
-
         # signals
-        self.workflow_status_signal.connect(self.handle_workflow_status)
-        self._workflow_finished_signal.connect(self._workflow_finished)  # type: ignore
-        # Every run starts and ends through the session's runner, whoever
-        # started it: the window hears the run's status, and redraws.
-        runner = self.session.runner
-        runner.starting.connect(self._on_run_starting)
-        runner.finished.connect(self._on_run_finished)
-        runner.notice.connect(self._on_run_notice)
-        runner.queue_changed.connect(self._on_run_queue_changed)
-        runner.status.connect(self._on_run_status)
-        runner.held.connect(self._on_run_held)
-        runner.pending.connect(self._on_run_pending)
-        runner.step.connect(self._on_run_step)
-
-        # workflow info
-        self.set_current_workflow_message(msg=None, show=False)
-        self.label_workflow_information.setWordWrap(True)
+        self.run_relay.status.connect(self.panel.handle_workflow_status)
+        self.run_relay.finished.connect(self._workflow_finished)  # type: ignore
 
         # refresh ui
         self.update_ui()
 
-        self.selected_lamella_widget.objective_position_changed.connect(
-            self.update_lamella_objective_position
-        )
-        self.selected_lamella_widget.use_current_objective_requested.connect(
-            self._use_current_objective_position
-        )
-        self.selected_lamella_widget.apply_objective_to_all_requested.connect(
-            self._apply_objective_position_to_all
-        )
-        self.selected_lamella_widget.move_objective_requested.connect(
-            self._move_objective_to_lamella_position
-        )
-        self.selected_lamella_widget.pose_update_requested.connect(
-            self._set_current_position_as_pose
-        )
-        self.selected_lamella_widget.pose_move_to_requested.connect(
-            self._move_to_lamella_pose
-        )
+    def _overview_is_acquiring(self) -> bool:
+        """Whether either overview modality is mid-tileset.
+
+        Asked of the Overview tab rather than of a widget held here: the tab owns both
+        modalities and rebuilds its widgets on every reconnection, so anything holding
+        one of them directly would be answering for a widget that had been replaced.
+        """
+        tab = getattr(self.parent_widget, "overview_tab", None)
+        return tab is not None and tab.is_acquiring
 
     ##########
 
@@ -452,54 +258,8 @@ class AutoLamellaUI(QMainWindow):
             # logging.info(f"Unhandled event: {evt.signal.name}: {evt.path}, {evt.args}")
             return
 
-        self.update_lamella_combobox()
+        self.panel.experiment_tab.update_lamella_combobox()
         self.update_ui()
-
-    @property
-    def _overview_is_acquiring(self) -> bool:
-        """Whether either overview modality is mid-tileset.
-
-        Asked of the Overview tab rather than of a widget held here: the tab owns both
-        modalities and rebuilds its widgets on every reconnection, so anything holding
-        one of them directly would be answering for a widget that had been replaced.
-
-        This used to ask the napari minimap, which means it stopped being true the
-        moment the Overview tab took over acquisition -- a run from there did not
-        suppress anything.
-        """
-        tab = getattr(self.parent_widget, "overview_tab", None)
-        return tab is not None and tab.is_acquiring
-
-    @ensure_main_thread
-    def _on_stage_position_updated(self, stage_position: FibsemStagePosition) -> None:
-        """Callback for when the stage position is updated."""
-        if self._overview_is_acquiring:
-            # Mid-tileset the stage moves once per tile, and refreshing the readout on
-            # each is churn nobody reads.
-            return
-        if self.movement_widget is not None:
-            # pass the position from the signal; re-querying the microscope here races
-            # with the worker thread driving the move (see TescanMicroscope socket lock)
-            self.movement_widget.update_ui(stage_position=stage_position)
-
-    def _follow_stage(self, microscope: Optional[FibsemMicroscope]) -> None:
-        """Keep the stage readout on ``microscope``'s moves, and off any other's.
-
-        The readout follows the microscope, not the experiment: a move with no
-        experiment open still moves the stage (FIB-1421)."""
-        followed = self._stage_followed
-        if followed is microscope:
-            return
-        if followed is not None and followed.stage is not None:
-            try:
-                followed.stage.position.changed.disconnect(
-                    self._on_stage_position_updated
-                )
-            except Exception as e:
-                logging.debug(f"Could not disconnect microscope stage events: {e}")
-        if microscope is not None and microscope.stage is not None:
-            microscope.stage.position.changed.connect(self._on_stage_position_updated)
-        self._stage_followed = microscope
 
     def _disconnect_experiment_events(self) -> None:
         """Disconnect existing experiment and microscope event subscribers.
@@ -539,11 +299,11 @@ class AutoLamellaUI(QMainWindow):
             self.experiment.register_metadata(self.microscope)
 
         # Update UI
-        self.update_lamella_combobox()
+        self.panel.experiment_tab.update_lamella_combobox()
         self.update_ui()
 
         # set the experiment tab as active
-        self.tabWidget.setCurrentIndex(self.tabWidget.indexOf(self.tab))
+        self.panel.show_experiment_tab()
 
     def create_experiment(self) -> None:
         """Create a new experiment using the experiment creation dialog."""
@@ -671,10 +431,9 @@ class AutoLamellaUI(QMainWindow):
         with self.session.changed.paused():
             self.microscope = self.system_widget.microscope
             self.settings = self.system_widget.settings
-            self._follow_stage(self.microscope)
             if self.experiment is not None:
                 self.settings.image.path = self.experiment.path
-            self.update_microscope_ui()
+            self._show_microscope()
             self.update_ui()
             if self.experiment is not None:
                 self._disconnect_experiment_events()
@@ -762,194 +521,25 @@ class AutoLamellaUI(QMainWindow):
         with self.session.changed.paused():
             self.session.stop_app_server()
             self.session.stop_recording()
-            self._follow_stage(None)
             self.microscope = None
             self.settings = None
-            self.update_microscope_ui()
+            self._show_microscope()
             self.update_ui()
 
-    def front_tab(self, widget: QWidget) -> None:
-        """Bring forward the tab that holds *widget*.
+    def _show_microscope(self) -> None:
+        """The panel's microscope tabs for the connected microscope, or none."""
+        self.panel.show_microscope(self.microscope, self.settings)
+        image_widget = self.panel.image_widget
+        # The defaults' "Read from Acquire Tab" reads this tab.
+        self.system_widget.set_current_imaging(
+            image_widget._get_image_settings_from_ui
+            if image_widget is not None
+            else None
+        )
 
-        The widget may be the tab itself or sit inside a wrapper (the Milling tab is
-        a scroll area around its editor). ``setCurrentWidget`` on a widget that is
-        not a direct tab is a silent no-op, which is how the responder stopped
-        fronting the Milling tab once the wrapper arrived.
-        """
-        candidate = widget
-        while candidate is not None and self.tabWidget.indexOf(candidate) == -1:
-            candidate = candidate.parentWidget()
-        if candidate is not None:
-            # A hidden tab cannot be fronted: Detection is hidden until it is
-            # asked for, so bringing it forward has to un-hide it first or the
-            # call is a second silent no-op.
-            self.tabWidget.setTabVisible(self.tabWidget.indexOf(candidate), True)
-            self.tabWidget.setCurrentWidget(candidate)
-
-    def front_proposal(self) -> None:
-        """Bring forward the tab the proposal now up is decided on, if it has
-        one. The attention button is how the operator gets back to it. Does
-        nothing when no proposal is up, or it is on the prompt bar."""
-        widget = self.proposal_host()
-        if widget is not None:
-            self.front_tab(widget)
-
-    def proposal_host(self):
-        """The tab the proposal now up is decided on, when it has one of its
-        own (a mill's pass, a detection); None otherwise."""
-        return self.loop_proposal_host() or self.widget_proposal_host()
-
-    def update_microscope_ui(self):
-        """Update the ui based on the current state of the microscope."""
-
-        if self.microscope is not None:
-            # reusable components
-            self.image_widget = FibsemImageSettingsWidget(
-                microscope=self.microscope,
-                image_settings=self.settings.image,  # type: ignore
-                parent=self,
-                images=self.session.images,
-            )
-            self.movement_widget = FibsemMovementWidget(
-                microscope=self.microscope,
-                parent=self,
-            )
-
-            # The defaults' "Read from Acquire Tab" reads this tab.
-            self.system_widget.set_current_imaging(
-                self.image_widget._get_image_settings_from_ui
-            )
-
-            # add widgets to tabs
-            self.tabWidget.addTab(self.image_widget, "Image")
-            self.tabWidget.addTab(self.movement_widget, "Movement")
-            self.milling_task_config_widget = MillingTaskViewerWidget(
-                microscope=self.microscope,
-                image_widget=self.image_widget,
-                parent=self,
-            )
-            # The milling widget no longer scrolls itself; its tab does. The tab is
-            # kept by name because indexOf / setCurrentWidget want the tab, not the
-            # widget inside it -- see front_tab.
-            self.milling_tab = scrollable(self.milling_task_config_widget)
-            self.tabWidget.addTab(self.milling_tab, "Milling")
-
-            # The hardware view of the grids: the holder, and the magazine when
-            # there is one. Slot moves go through the Movement widget, the same
-            # route as a saved position, so the readout and post-move images follow.
-            self.sample_widget = FibsemSampleWidget(
-                microscope=self.microscope, parent=self
-            )
-            self.sample_widget.move_to_requested.connect(
-                self.movement_widget.move_to_position
-            )
-            self.tabWidget.addTab(self.sample_widget, "Sample")
-
-            if self.microscope.fm is not None:
-                self.fm_control_widget = FMControlWidget(
-                    microscope=self.microscope, parent=self
-                )
-                if self.settings is not None and self.settings.fm is not None:
-                    self.fm_control_widget._apply_fluorescence_configuration(
-                        self.settings.fm
-                    )
-                self.tabWidget.addTab(self.fm_control_widget, "Fluorescence")
-
-            # add the detection widget if ml dependencies are available
-            if DETECTION_AVAILABLE:
-                self.det_widget = FibsemEmbeddedDetectionWidget(parent=self)
-                self.tabWidget.addTab(self.det_widget, "Detection")
-                self.tabWidget.setTabVisible(
-                    self.tabWidget.indexOf(self.det_widget), False
-                )
-
-            # spot burn widget (optional)
-            self.spot_burn_widget = FibsemSpotBurnWidget(parent=self)
-            self.tabWidget.addTab(self.spot_burn_widget, "Spot Burn")
-            self.tabWidget.setTabVisible(
-                self.tabWidget.indexOf(self.spot_burn_widget), False
-            )
-
-            self.image_widget.acquisition_progress_signal.connect(
-                self.handle_acquisition_update
-            )
-        else:
-            if self.image_widget is None:
-                return
-
-            # remove tabs
-            if self.sample_widget is not None:
-                self.tabWidget.removeTab(self.tabWidget.indexOf(self.sample_widget))
-                self.sample_widget.deleteLater()
-                self.sample_widget = None
-            if self.fm_control_widget is not None:
-                # deleteLater fires neither closeEvent nor close_widget, so tear
-                # down the FM widget's external signal connections explicitly
-                self.fm_control_widget._teardown_connections()
-                self.tabWidget.removeTab(self.tabWidget.indexOf(self.fm_control_widget))
-                self.fm_control_widget.deleteLater()
-                self.fm_control_widget = None
-            if self.det_widget is not None:
-                self.det_widget._teardown_connections()
-                self.tabWidget.removeTab(self.tabWidget.indexOf(self.det_widget))
-                self.det_widget.deleteLater()
-                self.det_widget = None
-            if self.spot_burn_widget is not None:
-                self.spot_burn_widget.disconnect_signals()
-                self.tabWidget.removeTab(self.tabWidget.indexOf(self.spot_burn_widget))
-                self.spot_burn_widget.deleteLater()
-                self.spot_burn_widget = None
-            if self.milling_task_config_widget is not None:
-                self.tabWidget.removeTab(self.tabWidget.indexOf(self.milling_tab))
-                self.milling_tab.deleteLater()  # owns the widget
-                self.milling_tab = None
-                self.milling_task_config_widget = None
-            if self.movement_widget is not None:
-                self.movement_widget._teardown_connections()
-                self.tabWidget.removeTab(self.tabWidget.indexOf(self.movement_widget))
-                self.movement_widget.deleteLater()
-                self.movement_widget = None
-            if self.image_widget is not None:
-                self.image_widget._teardown_connections()
-                self.tabWidget.removeTab(self.tabWidget.indexOf(self.image_widget))
-                self.image_widget.acquisition_progress_signal.disconnect(
-                    self.handle_acquisition_update
-                )
-                self.image_widget.deleteLater()
-                self.image_widget = None
-                self.system_widget.set_current_imaging(None)
-
-    def import_fm_configuration(self) -> None:
-        """Load a fluorescence microscope configuration via the control widget."""
-        if self.fm_control_widget is None:
-            msg = "Fluorescence control not available. Connect to an FM-enabled microscope first."
-            logging.warning(msg)
-            notification_service.show_toast(msg, "warning")
-            return
-
-        try:
-            self.fm_control_widget.import_fm_configuration()
-        except Exception:
-            logging.exception("Failed to load FM configuration from AutoLamella UI.")
-            notification_service.show_toast(
-                "Failed to load FM configuration. Check logs for details.", "error"
-            )
-
-    def export_fm_configuration(self) -> None:
-        """Save the current fluorescence microscope configuration via the control widget."""
-        if self.fm_control_widget is None:
-            msg = "Fluorescence control not available. Connect to an FM-enabled microscope first."
-            logging.warning(msg)
-            notification_service.show_toast(msg, "warning")
-            return
-
-        try:
-            self.fm_control_widget.export_fm_configuration()
-        except Exception:
-            logging.exception("Failed to save FM configuration from AutoLamella UI.")
-            notification_service.show_toast(
-                "Failed to save FM configuration. Check logs for details.", "error"
-            )
+    def _view_controller(self):
+        """The window's quad view, once it has one."""
+        return getattr(self.parent_widget, "view_controller", None)
 
     #### REPORT GENERATION
     def action_generate_report(self) -> None:
@@ -1090,9 +680,11 @@ class AutoLamellaUI(QMainWindow):
 
         # seed the viewer's FM tab from the live main-UI FM configuration
         fm_config = None
-        if self.fm_control_widget is not None:
+        if self.panel.fm_control_widget is not None:
             try:
-                fm_config = self.fm_control_widget._build_fluorescence_configuration()
+                fm_config = (
+                    self.panel.fm_control_widget._build_fluorescence_configuration()
+                )
             except Exception as e:
                 logging.warning(f"Could not read current FM configuration: {e}")
 
@@ -1107,66 +699,17 @@ class AutoLamellaUI(QMainWindow):
 
     #### TASK WORKFLOW
 
-    def _on_run_starting(self, request) -> None:
-        """Where the run was started, before its thread starts."""
-        if self.milling_task_config_widget is not None:
-            self.milling_task_config_widget.clear()
-
-    def _on_run_finished(self, cancelled: bool) -> None:
-        """The run's thread: over to the GUI thread."""
-        self._workflow_finished_signal.emit(cancelled)  # type: ignore
-
-    def _on_run_notice(self, message: str, notification_type: str) -> None:
-        """A hook's notice, from the run's thread: signals are thread-safe."""
-        self._hook_toast_signal.emit(message, notification_type)
-
-    def _on_run_queue_changed(self, info: dict) -> None:
-        """The running queue was edited, from any thread: signals are
-        thread-safe."""
-        self.queue_changed_signal.emit(info)
-
-    def _on_run_status(self, event: "WorkflowStatusEvent") -> None:
-        """A status line or a task's report, from the run's thread."""
-        self.workflow_status_signal.emit(event)
-
-    def _on_run_held(self, hold: Optional["Hold"]) -> None:
-        """Who holds the run, from the run's thread. Kept here for the chrome,
-        which the status line that follows redraws."""
-        self.hold = hold
-
-    def _on_run_pending(self, pending: bool) -> None:
-        """Whether the run waits between tasks, from the run's thread."""
-        self.WORKFLOW_PENDING = pending
-
-    def _on_run_step(self, step: str) -> None:
-        """The step a task is on, from the run's thread."""
-        self.step_update_signal.emit(step)
-
-    def _run_on_gui_thread(self, call) -> "Future":
-        """The session's executor: ``call()`` on the GUI thread as whoever
-        called this; any thread. Resolves to its result, or its exception."""
-        from concurrent.futures import Future as _Future
-
-        from fibsem.acting import carried
-
-        outcome: "_Future" = _Future()
-        self._agent_call.emit(carried(functools.partial(_complete, call, outcome)))
-        return outcome
-
-    def _run_agent_call(self, call) -> None:
-        """GUI thread. Run a call :meth:`_run_on_gui_thread` sent."""
-        call()
-
     def after_agent_edit(self, select_latest: bool = False) -> None:
         """GUI thread. Redraw after an agent's edit to the experiment (adding a
         lamella, setting a pose), as after the Lamella tab's own buttons,
         selecting the newest lamella when ``select_latest``."""
         try:
-            self.update_lamella_combobox(latest=select_latest)
+            experiment_tab = self.panel.experiment_tab
+            experiment_tab.update_lamella_combobox(latest=select_latest)
             self.update_ui()
-            lamella = self.get_selected_lamella()
+            lamella = experiment_tab.get_selected_lamella()
             if lamella is not None:
-                self.selected_lamella_widget.set_lamella(lamella)
+                experiment_tab.selected_lamella_widget.set_lamella(lamella)
             if self.experiment is not None:
                 # The FM overview draws positions itself; it hears of a moved pose
                 # only by being told.
@@ -1257,8 +800,8 @@ class AutoLamellaUI(QMainWindow):
         if not self.session.runner.is_running:
             return
         self.session.runner.stop(actor=actor, via=via)
-        self.stop_current_operations()
-        self.workflow_stopping_signal.emit()
+        self.panel.stop_current_operations()
+        self.run_relay.stopping.emit()
 
     def stop_current_task(self, actor=None, via: str = "", **details) -> None:
         """Abandon the task now running and carry on with the rest of the queue.
@@ -1268,61 +811,24 @@ class AutoLamellaUI(QMainWindow):
         second, the task stops waiting for the mill but the mill keeps going.
         """
         self.session.runner.stop_task(actor=actor, via=via, **details)
-        self.stop_current_operations()
+        self.panel.stop_current_operations()
 
     #### UI UPDATES
 
     def update_ui(self):
         """Update the ui based on the current state of the application."""
-
+        self.panel.experiment_tab.refresh()
         if self.session.runner.is_running:
-            self.selected_lamella_widget.setEnabled(False)
-
             return
-
-        # state flags
-        is_experiment_loaded = bool(self.experiment is not None)
-        is_microscope_connected = bool(self.microscope is not None)
-        is_protocol_loaded = (
-            bool(self.settings is not None) and self.protocol is not None
-        )
-        has_lamella = bool(self.experiment.positions) if is_experiment_loaded else False
-        is_experiment_ready = is_experiment_loaded and is_protocol_loaded
 
         # force order: connect -> experiment -> protocol
-        self.tabWidget.setTabVisible(
-            self.tabWidget.indexOf(self.tab), is_microscope_connected
-        )
-        if self.det_widget is not None:
-            idx = self.tabWidget.indexOf(self.det_widget)
-            self.tabWidget.setTabVisible(idx, False)  # hide detection tab for now
-
-        if is_experiment_loaded and self.experiment is not None:
-            self.lamella_list.setEnabled(has_lamella)
-
-        # buttons
-        self.lamella_list.setEnabled(is_experiment_ready)
-        self.selected_lamella_widget.setEnabled(is_experiment_ready)
-
-        # clear the panel when no lamella is selected; populated by update_lamella_ui otherwise
-        if not has_lamella:
-            self.selected_lamella_widget.set_lamella(None)
-
-        # disable lamella controls while workflow is running
-        self.selected_lamella_widget.setEnabled(not self.session.runner.is_running)
-
-        # Current Lamella Status
-        if has_lamella and self.experiment is not None:
-            self.update_lamella_ui()
-
-        if self.session.runner.is_running:
-            return
+        self.panel.refresh_tabs()
 
         # Nothing to say while idle. The same guidance is in the window's status
         # bar, which is where it belongs -- shown in both places it read as two
         # different messages that happened to agree. This label is for the question
         # a running workflow is asking, which the Yes/No buttons below it answer.
-        self.prompt_bar.clear()
+        self.panel.prompt_bar.clear()
 
     def _on_workflow_config_changed(self, wcfg: AutoLamellaWorkflowConfig):
         if self.experiment is None or self.experiment.task_protocol is None:
@@ -1333,412 +839,7 @@ class AutoLamellaUI(QMainWindow):
 
         self.update_ui()
 
-    def update_lamella_combobox(self, latest: bool = False):
-        if self.experiment is None:
-            return
-        if self.session.runner.is_running:
-            return
-
-        # detail lamella list
-        preferred = (
-            self.experiment.positions[-1].name
-            if latest and self.experiment.positions
-            else ""
-        )
-        self.lamella_list.set_lamella(
-            self.experiment.positions, preferred_name=preferred
-        )
-
-    def update_lamella_ui(self, _lamella=None):
-        # set the info for the current selected lamella
-        if self.experiment is None or self.experiment.positions == []:
-            return
-
-        if self.protocol is None:
-            return
-
-        if self.session.runner.is_running:
-            return
-
-        idx = self.lamella_list.selected_index
-        if idx == -1:
-            return
-
-        lamella: Lamella = self.experiment.positions[idx]
-        logging.debug(f"Updating Lamella UI for {lamella.status_info}")
-
-        # refresh objective position + pose display for the selected lamella
-        self.selected_lamella_widget.set_lamella(lamella)
-
-    def set_spot_burn_widget_active(self, active: bool = True) -> None:
-        """Set the spot burn widget active (sets the tab visible, activate point layer)."""
-        if self.spot_burn_widget is None:
-            return
-
-        idx = self.tabWidget.indexOf(self.spot_burn_widget)
-        self.tabWidget.setTabVisible(idx, active)
-        if active:
-            self.tabWidget.setCurrentIndex(idx)
-            self.spot_burn_widget.set_active()
-        else:
-            self.spot_burn_widget.set_inactive()
-
     ##### LAMELLA CONTROLS
-
-    def move_to_lamella_position(self):
-        """Move the stage to the position of the selected lamella."""
-        if self.experiment is None or self.experiment.positions == []:
-            return
-        if self.movement_widget is None:
-            return
-
-        idx = self.lamella_list.selected_index
-        if idx == -1:
-            return
-        lamella: Lamella = self.experiment.positions[idx]
-        stage_position = lamella.milling_pose.stage_position
-
-        # confirmation dialog
-        ret = QMessageBox.question(
-            self,
-            "Move to Lamella Position",
-            f"Move to position of Lamella {lamella.name}?\n{stage_position.pretty}",
-            QMessageBox.Yes | QMessageBox.No,
-        )
-        if ret != QMessageBox.Yes:
-            return
-
-        logging.info(f"Moving to position of {lamella.name}.")
-        self.movement_widget.move_to_position(stage_position)
-
-    def add_new_lamella(
-        self,
-        stage_position: Optional[FibsemStagePosition] = None,
-        name: Optional[str] = None,
-        objective_position: Optional[float] = None,
-        marked_at: Optional[str] = None,
-        grid_id: Optional[str] = None,
-    ) -> Lamella:
-        """Add a lamella to the experiment.
-
-        Args:
-            stage_position: Where the lamella is, in any orientation -- which one is
-                read off the position itself, so a position picked on the fluorescence
-                side is taken as the fluorescence pose rather than as somewhere to mill.
-                If None, the current stage position is used.
-            name: The name of the lamella. If None, a default name will be generated.
-            objective_position: The objective position of the lamella. If None, the 'focused' objective position is used.
-            marked_at: The orientation *stage_position* is in, for a caller that knows.
-                Left alone it is read off the position, which is right on a compustage
-                and cannot be on an offset mount -- see `build_lamella_poses`.
-            grid_id: The grid this lamella is on, for a caller that knows -- one
-                marked on a grid's overview belongs to that grid whether or not it
-                is on the stage. Left alone it is resolved from the stage.
-        Returns:
-            lamella: The created lamella.
-        """
-        if self.experiment is None:
-            raise ValueError("No experiment loaded. Please load an experiment first.")
-        if self.protocol is None:
-            raise ValueError("No protocol loaded. Please load a protocol first.")
-        if self.microscope is None:
-            raise ValueError(
-                "No microscope connected. Please connect a microscope first."
-            )
-
-        lamella = add_lamella(
-            self.experiment,
-            self.microscope,
-            stage_position=stage_position,
-            name=name,
-            objective_position=objective_position,
-            marked_at=marked_at,
-            grid_id=grid_id,
-        )
-        self.update_lamella_combobox(latest=True)
-        self.update_ui()
-
-        return lamella
-
-    def _on_lamella_move_to_requested(self, lamella):
-        """Handle move-to request from the list row's actions menu."""
-        self.lamella_list.select(lamella.name)
-        self.move_to_lamella_position()
-
-    def _on_lamella_update_requested(self, lamella):
-        """Handle update-position request from the list row's actions menu."""
-        self.lamella_list.select(lamella.name)
-        self.update_lamella_position_ui()
-
-    def _on_lamella_remove_requested(self, lamella):
-        """Handle removal of a lamella via the list row's remove button.
-
-        Confirmation is already handled by the row widget.
-        """
-        if self.experiment is None:
-            return
-        if not remove_lamella(self.experiment, lamella):
-            return
-        logging.debug("Lamella removed from experiment")
-        self.update_lamella_combobox(latest=True)
-        self.update_ui()
-
-    def update_lamella_position_ui(self):
-        """Update the stage position of the selected lamella to the current stage position."""
-
-        if self.microscope is None:
-            return
-        if self.protocol is None:
-            return
-        if self.experiment is None or self.experiment.positions == []:
-            return
-
-        # toggle between saving position and marking as ready
-        idx = self.lamella_list.selected_index
-        if idx == -1:
-            logging.warning("No lamella is selected, cannot save.")
-            return
-
-        lamella: Lamella = self.experiment.positions[idx]
-        current_position = self.microscope.get_stage_position()
-
-        # message box to confirm
-        ret = QMessageBox.question(
-            self,
-            "Save Position Confirmation",
-            f"Save new position for Lamella {lamella.name} position?\n\n"
-            f"New Stage Position: {current_position.pretty}\n"
-            f"Existing Stage Position: {lamella.stage_position.pretty}",
-            QMessageBox.Yes | QMessageBox.No,
-        )
-        if ret != QMessageBox.Yes:
-            return
-
-        # As Set pose does: the stored objective position is kept, and the
-        # milling angle and fluorescence pose follow the new milling pose.
-        set_lamella_pose(
-            self.microscope,
-            lamella,
-            "MILLING",
-            deepcopy(self.microscope.get_microscope_state()),
-        )
-
-        self.update_lamella_combobox()
-        self.update_ui()
-        self.experiment.save()
-        self.experiment.positions.events.changed.emit()
-
-    def _set_current_position_as_pose(self, pose_name: str):
-        """Set the current stage position as the given pose for the current lamella."""
-
-        if self.microscope is None:
-            notification_service.show_toast("No microscope connected.", "warning")
-            return
-        if self.experiment is None or self.experiment.positions == []:
-            notification_service.show_toast("No lamella available.", "warning")
-            return
-        idx = self.lamella_list.selected_index
-        if idx == -1:
-            notification_service.show_toast("No lamella selected.", "warning")
-            return
-        lamella: Lamella = self.experiment.positions[idx]
-        if pose_name == "":
-            notification_service.show_toast("No pose selected.", "warning")
-            return
-        state = self.microscope.get_microscope_state()
-
-        if state is None or state.stage_position is None:
-            notification_service.show_toast(
-                "Failed to get microscope state.", "warning"
-            )
-            return
-
-        # confirmation dialog
-        ret = QMessageBox.question(
-            self,
-            "Set Pose Confirmation",
-            f"Set current position as pose '{pose_name}' for {lamella.name}?\n{state.stage_position.pretty}",
-            QMessageBox.Yes | QMessageBox.No,
-        )
-        if ret != QMessageBox.Yes:
-            return
-
-        if set_lamella_pose(self.microscope, lamella, pose_name, state):
-            self.selected_lamella_widget.refresh_pose(
-                "FLUORESCENCE", lamella.fluorescence_pose
-            )
-
-        self.experiment.save()
-        self.selected_lamella_widget.refresh_pose(pose_name, state)
-        # The FM overview canvas draws these positions itself rather than reading them
-        # back, so a pose that moved here is one it only hears about by being told.
-        self.experiment.positions.events.changed.emit()
-        notification_service.show_toast(
-            f"Set current position as pose '{pose_name}' for {lamella.name}.", "info"
-        )
-
-    def _move_to_lamella_pose(self, pose_name: str):
-        """Move the stage to the given pose for the current lamella."""
-
-        if self.microscope is None:
-            notification_service.show_toast("No microscope connected.", "warning")
-            return
-        if self.experiment is None or self.experiment.positions == []:
-            notification_service.show_toast("No lamella available.", "warning")
-            return
-        if self.movement_widget is None:
-            notification_service.show_toast("No movement widget available", "warning")
-            return
-        idx = self.lamella_list.selected_index
-        if idx == -1:
-            notification_service.show_toast("No lamella selected.", "warning")
-            return
-        lamella: Lamella = self.experiment.positions[idx]
-        if pose_name == "":
-            notification_service.show_toast("No pose selected.", "warning")
-            return
-        if pose_name not in lamella.poses:
-            notification_service.show_toast(
-                f"Pose '{pose_name}' not found for {lamella.name}.", "warning"
-            )
-            return
-        pose = lamella.poses[pose_name]
-        if pose.stage_position is None:
-            notification_service.show_toast(
-                f"Pose '{pose_name}' has no stage position.", "warning"
-            )
-            return
-
-        # confirmation dialog
-        ret = QMessageBox.question(
-            self,
-            "Move to Pose Confirmation",
-            f"Move to pose '{pose_name}' for {lamella.name}?\n{pose.stage_position.pretty}",
-            QMessageBox.Yes | QMessageBox.No,
-        )
-        if ret != QMessageBox.Yes:
-            return
-
-        logging.info(f"Moving to pose '{pose_name}' for {lamella.name}.")
-        self.movement_widget.move_to_position(pose.stage_position)
-        notification_service.show_toast(
-            f"Moved to pose '{pose_name}' for {lamella.name}.", "info"
-        )
-
-    def _use_current_objective_position(self):
-        """Read the current FM objective position and apply it to the selected lamella."""
-        if self.microscope is None or self.microscope.fm is None:
-            notification_service.show_toast("No microscope connected.", "warning")
-            return
-        lamella = self.get_selected_lamella()
-        if lamella is None or lamella.fluorescence_pose is None:
-            notification_service.show_toast("No lamella selected.", "warning")
-            return
-        value_m = current_objective_position(self.microscope.fm)
-        if value_m is None:
-            notification_service.show_toast(
-                "Objective position unavailable.", "warning"
-            )
-            return
-        set_objective_position(self.experiment, lamella, value_m)
-        # full refresh so the objective value shows and "Apply to All" re-enables
-        self.selected_lamella_widget.set_lamella(lamella)
-        notification_service.show_toast(
-            f"Set objective position to {value_m * METRE_TO_MICRON:.1f} µm for {lamella.name}.",
-            "info",
-        )
-
-    def _move_objective_to_lamella_position(self):
-        """Move the FM objective to the selected lamella's stored objective position.
-
-        Independent of the stage move-to: this only drives the objective.
-        """
-        if self.microscope is None or self.microscope.fm is None:
-            notification_service.show_toast("No microscope connected.", "warning")
-            return
-        lamella = self.get_selected_lamella()
-        if lamella is None or lamella.fluorescence_pose is None:
-            notification_service.show_toast("No lamella selected.", "warning")
-            return
-        try:
-            objective_position = stored_objective_position(self.microscope.fm, lamella)
-        except ValueError as e:
-            notification_service.show_toast(str(e), "warning")
-            return
-        obj = self.microscope.fm.objective
-
-        # confirmation dialog
-        ret = QMessageBox.question(
-            self,
-            "Move Objective",
-            f"Move objective to {objective_position * METRE_TO_MICRON:.1f} µm "
-            f"for {lamella.name}?",
-            QMessageBox.Yes | QMessageBox.No,
-        )
-        if ret != QMessageBox.Yes:
-            return
-
-        try:
-            logging.info(
-                f"Moving objective to {objective_position * METRE_TO_MICRON:.1f} µm "
-                f"for {lamella.name}."
-            )
-            obj.move_absolute(objective_position)
-            notification_service.show_toast(
-                f"Moved objective to {objective_position * METRE_TO_MICRON:.1f} µm "
-                f"for {lamella.name}.",
-                "info",
-            )
-        except Exception as e:
-            logging.error(f"Failed to move objective: {e}", exc_info=e)
-            notification_service.show_toast(f"Failed to move objective: {e}", "warning")
-
-    def update_lamella_objective_position(self, value: float):
-        """Update the objective position of the current lamella."""
-
-        # get current lamella
-        idx = self.lamella_list.selected_index
-        if idx == -1 or self.experiment is None:
-            notification_service.show_toast("No lamella selected.", "warning")
-            return
-
-        lamella = self.experiment.positions[idx]
-        if lamella.fluorescence_pose is None:
-            return
-        # convert from µm to m
-        set_objective_position(self.experiment, lamella, value * MICRON_TO_METRE)
-
-    def _apply_objective_position_to_all(self):
-        """Copy the current spinbox objective position to all lamella that have a fluorescence pose."""
-        if self.experiment is None:
-            return
-        value_um = self.selected_lamella_widget.objective_value_um()
-        count = set_objective_position_on_all(
-            self.experiment, value_um * MICRON_TO_METRE
-        )
-        if count:
-            notification_service.show_toast(
-                f"Applied objective position ({value_um:.1f} µm) to {count} lamella.",
-                "info",
-            )
-
-    def get_selected_lamella(self) -> Optional[Lamella]:
-        """Get the currently selected lamella from the combobox.
-
-        Returns:
-            The selected lamella, or None if no experiment, no positions, or invalid selection.
-        """
-        if self.experiment is None:
-            return None
-
-        if not self.experiment.positions:
-            return None
-
-        idx = self.lamella_list.selected_index
-        if idx == -1 or idx >= len(self.experiment.positions):
-            return None
-
-        return self.experiment.positions[idx]
 
     #### PROTOCOL
     def load_protocol(self):
@@ -1800,392 +901,26 @@ class AutoLamellaUI(QMainWindow):
             f"Saved Protocol to {os.path.basename(protocol_path)}", "info"
         )
 
-    def set_current_workflow_message(
-        self, msg: Optional[str] = None, show: bool = True
-    ):
-        """Set the current workflow information message"""
-        if msg is not None:
-            self.label_workflow_information.setText(msg)
-        self.label_workflow_information.setVisible(show)
-
-    def _on_prompt_answered(self, clicked_yes: bool) -> None:
-        # A click with no proposal up (a stray double-click after the
-        # decision landed) means nothing.
-        if self._loop_proposal is not None:
-            self._decide_loop_proposal(clicked_yes)
-            return
-        if self._widget_proposal is not None:
-            if clicked_yes:
-                self._decide_widget_proposal()
-            return
-        self._decide_state_proposal(clicked_yes)
-
     # -- a state question, on the prompt bar ----------------------------------
-
-    def show_state_proposal(self, item_id: str, task_name: str, proposal) -> None:
-        """The prompt bar is the renderer for the ``state`` kind: the task's
-        message and its button, Continue unless the task names another
-        (``positive`` in the provenance). Continue records the operator's
-        confirmation through ``Experiment.decide``, the one write path; the
-        task then reads the instrument for the position as confirmed. A task
-        that can do without it names a second button (``negative``: the
-        tilt's Skip), which rejects it: "don't", and the task carries on."""
-        from fibsem.workflows.status import (
-            WorkflowStatusEvent,
-        )
-
-        self._state_proposal = (item_id, task_name, proposal.id)
-        message = str(
-            proposal.provenance.get("message") or "Press Continue when ready."
-        )
-        self.prompt_bar.ask(
-            message,
-            str(proposal.provenance.get("positive") or "Continue"),
-            proposal.provenance.get("negative") or None,
-        )
-        self.workflow_status_signal.emit(WorkflowStatusEvent())
-
-    def clear_state_proposal(self, item_id: str, task_name: str) -> None:
-        """A decision landed on the item and task; if it is the question up,
-        the prompt comes down (answered here, by an agent, or withdrawn)."""
-        shown = self._state_proposal
-        if shown is None or shown[:2] != (item_id, task_name):
-            return
-        from fibsem.workflows.status import (
-            WorkflowStatusEvent,
-        )
-
-        self._state_proposal = None
-        self.prompt_bar.clear()
-        self.workflow_status_signal.emit(WorkflowStatusEvent(message=""))
-
-    def _decide_state_proposal(self, clicked_yes: bool = True) -> None:
-        shown = self._state_proposal
-        experiment = self.experiment
-        if shown is None or experiment is None:
-            return
-        item_id, task_name, proposal_id = shown
-        from fibsem.workflows.proposals import Decision, DecisionOutcome
-
-        result = experiment.decide(
-            item_id,
-            task_name,
-            Decision(
-                outcome=DecisionOutcome.Confirmed
-                if clicked_yes
-                else DecisionOutcome.Rejected,
-                actor=experiment.actor(),
-                via="workflow",
-                proposal_id=proposal_id,
-                reason="" if clicked_yes else f"{self.prompt_bar.no.text()} pressed",
-            ),
-        )
-        if not result.applied:
-            # Left up: the question is still open, and the reason is logged.
-            logging.warning(
-                f"{task_name}: could not confirm the state: {result.reason}"
-            )
-            self.prompt_bar.reopen()
 
     # -- a loop's pass, on the prompt bar over its widget ----------------------
 
-    def _loop_widget(self, kind: str):
-        """The widget a pass of ``kind`` is decided in, or None without one."""
-        from fibsem.workflows.proposals import MILLING, SPOT_BURN
-
-        if kind == MILLING:
-            return self.milling_task_config_widget
-        if kind == SPOT_BURN:
-            return self.spot_burn_widget
-        return None
-
-    def show_loop_proposal(self, item_id: str, task_name: str, proposal) -> None:
-        """The prompt bar over the milling editor (or the spot-burn widget) is
-        the renderer for a loop's pass: the task's message and the pass's two
-        buttons. The task has already put what the pass would run in the
-        widget; the operator edits it there, and a button records the decision
-        through ``Experiment.decide`` with the widget's value. Without the
-        widget (no spot-burn hardware) the buttons decide the pass as
-        proposed."""
-        from fibsem.applications.autolamella.ui.loop_proposal import loop_prompt
-        from fibsem.workflows.proposals import SPOT_BURN
-        from fibsem.workflows.status import WorkflowStatusEvent
-
-        widget = self._loop_widget(proposal.kind)
-        if widget is None:
-            pass
-        elif proposal.kind == SPOT_BURN:
-            widget.set_settings(proposal.values["spot_burn"])
-            self.set_spot_burn_widget_active(True)
-            widget.set_workflow_mode(True)
-        else:
-            widget.setEnabled(True)
-            self.front_tab(widget)
-            # The task owns the mill while it asks: the editor's own Run stands down.
-            widget.milling_widget.pushButton_run_milling.setVisible(False)
-        self._loop_proposal = (item_id, task_name, proposal)
-        prompt = loop_prompt(proposal)
-        self.prompt_bar.ask(prompt.message, prompt.positive, prompt.negative)
-        self.workflow_status_signal.emit(WorkflowStatusEvent())
-
-    def loop_proposal_host(self):
-        """The widget the pass now up is decided in, for the attention button
-        to go back to; None when no pass is up."""
-        if self._loop_proposal is None:
-            return None
-        return self._loop_widget(self._loop_proposal[2].kind)
-
-    def clear_loop_proposal(self, item_id: str, task_name: str) -> None:
-        """A decision landed on the item and task; if it is the pass up, the
-        prompt comes down (decided here, by an agent, or withdrawn). The widget keeps its value: the task asks again, or clears
-        it when the loop ends."""
-        shown = self._loop_proposal
-        if shown is None or shown[:2] != (item_id, task_name):
-            return
-        from fibsem.workflows.status import WorkflowStatusEvent
-
-        self._loop_proposal = None
-        self.prompt_bar.clear()
-        self.workflow_status_signal.emit(WorkflowStatusEvent(message=""))
-
-    def _decide_loop_proposal(self, clicked_yes: bool) -> None:
-        shown = self._loop_proposal
-        experiment = self.experiment
-        if shown is None or experiment is None:
-            return
-        item_id, task_name, proposal = shown
-        from fibsem.applications.autolamella.ui.loop_proposal import loop_prompt
-        from fibsem.workflows.proposals import (
-            ACTION_EDIT,
-            ACTION_RUN,
-            SPOT_BURN,
-            Decision,
-            DecisionOutcome,
-        )
-
-        prompt = loop_prompt(proposal)
-        action = prompt.yes if clicked_yes else prompt.no
-        if action is None:
-            return
-        values = {}
-        widget = self._loop_widget(proposal.kind)
-        if action in (ACTION_RUN, ACTION_EDIT) and widget is not None:
-            # What runs is what the widget holds: the operator's edits. Skip
-            # and accept carry nothing: the task goes on with what it had.
-            if proposal.kind == SPOT_BURN:
-                values = {"spot_burn": deepcopy(widget.get_settings())}
-            else:
-                values = {"milling_config": deepcopy(widget.get_config())}
-        result = experiment.decide(
-            item_id,
-            task_name,
-            Decision(
-                outcome=DecisionOutcome.Confirmed,
-                actor=experiment.actor(),
-                values=values,
-                via="workflow",
-                proposal_id=proposal.id,
-                action=action,
-            ),
-        )
-        if not result.applied:
-            # Left up: the question is still open, and the reason is logged.
-            logging.warning(f"{task_name}: could not decide the pass: {result.reason}")
-            self.prompt_bar.reopen()
-
     # -- a value edited on its own widget, on the prompt bar ------------------
-
-    def show_widget_proposal(self, item_id: str, task_name: str, proposal) -> None:
-        """The widget a value is edited on is the renderer for its kind: a
-        detection's features on the Detection tab (the task loaded them there
-        first), an alignment area as the rectangle on the FIB view, a point of
-        interest as the marker on it. The prompt bar carries the task's
-        message and Continue, which records the decision through
-        ``Experiment.decide`` with the widget's value. Without the widget the
-        Continue confirms the value as proposed."""
-        from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
-        from fibsem.workflows.proposals import ALIGNMENT_AREA, DETECTION
-        from fibsem.workflows.status import WorkflowStatusEvent
-
-        message = str(proposal.provenance.get("message") or "")
-        if proposal.kind == DETECTION and self._detection_shown():
-            self.front_tab(self.det_widget)
-            message = "Confirm Feature Detection. Press Continue to proceed."
-        elif proposal.kind == ALIGNMENT_AREA and self.image_widget is not None:
-            self.tabWidget.setCurrentWidget(self.tab)
-            self.image_widget.toggle_alignment_area(
-                proposal.values.get("alignment_area")
-            )
-            message = f"{message} Press Continue when done.".strip()
-        elif proposal.kind == POINT_OF_INTEREST and self.poi_marker.show(
-            proposal.values.get("poi"),
-            fallback=self._reference_image(item_id, proposal),
-        ):
-            self.tabWidget.setCurrentWidget(self.tab)
-            self._follow_poi_frames()
-        self._widget_proposal = (item_id, task_name, proposal)
-        self.prompt_bar.ask(message or "Press Continue when ready.", "Continue")
-        self.workflow_status_signal.emit(WorkflowStatusEvent())
-
-    def _reference_image(self, item_id: str, proposal):
-        """The image the proposal's values sit on, for a view showing none."""
-        from fibsem.applications.autolamella.reference_images import (
-            load_reference_image,
-        )
-
-        item = self.experiment.get_item_by_id(item_id)
-        return load_reference_image(self.experiment, item, proposal)
-
-    def _detection_shown(self) -> bool:
-        """The Detection tab holds the features the task sent before asking;
-        a window that started listening mid-question has none to correct."""
-        return self.det_widget is not None and self.det_widget.det is not None
-
-    def widget_proposal_host(self):
-        """The tab the value now up is edited on, when it has one of its own
-        (a detection), for the attention button to go back to."""
-        from fibsem.workflows.proposals import DETECTION
-
-        shown = self._widget_proposal
-        if shown is None or shown[2].kind != DETECTION:
-            return None
-        return self.det_widget
-
-    def _follow_poi_frames(self) -> None:
-        """Keep the marker on the frame the FIB view shows, once per widget."""
-        signal = getattr(self.image_widget, "viewer_update_signal", None)
-        if signal is None or self._poi_frames_followed is self.image_widget:
-            return
-        signal.connect(self._sync_poi_proposal)
-        self._poi_frames_followed = self.image_widget
-
-    def _sync_poi_proposal(self, *_args) -> None:
-        from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
-
-        shown = self._widget_proposal
-        if shown is not None and shown[2].kind == POINT_OF_INTEREST:
-            self.poi_marker.sync()
-
-    def clear_widget_proposal(self, item_id: str, task_name: str) -> None:
-        """A decision landed on the item and task; if it is the value up, the
-        prompt and the widget's editing come down (decided here, by an agent,
-        or withdrawn)."""
-        shown = self._widget_proposal
-        if shown is None or shown[:2] != (item_id, task_name):
-            return
-        from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
-        from fibsem.workflows.proposals import ALIGNMENT_AREA, DETECTION
-        from fibsem.workflows.status import WorkflowStatusEvent
-
-        self._widget_proposal = None
-        kind = shown[2].kind
-        if kind == DETECTION and self.det_widget is not None:
-            self.det_widget.clear_layers()
-        elif kind == ALIGNMENT_AREA and self.image_widget is not None:
-            self.image_widget.clear_alignment_area()
-        elif kind == POINT_OF_INTEREST:
-            self.poi_marker.remove()
-        self.prompt_bar.clear()
-        self.workflow_status_signal.emit(WorkflowStatusEvent(message=""))
-
-    def _widget_value(self, proposal) -> Dict[str, Any]:
-        """What the widget holds for ``proposal``'s kind; empty (as proposed)
-        when the widget was not there to edit it on."""
-        from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
-        from fibsem.detection.decided import detection_values
-        from fibsem.workflows.proposals import ALIGNMENT_AREA, DETECTION
-
-        if proposal.kind == DETECTION and self._detection_shown():
-            return detection_values(self.det_widget._get_detected_features())
-        if proposal.kind == ALIGNMENT_AREA and self.image_widget is not None:
-            area = self.image_widget.get_alignment_area()
-            return {"alignment_area": deepcopy(area)} if area is not None else {}
-        if proposal.kind == POINT_OF_INTEREST and self.poi_marker.shown:
-            poi = self.poi_marker.read()
-            return {"poi": poi} if poi is not None else {}
-        return {}
-
-    def _decide_widget_proposal(self) -> None:
-        shown = self._widget_proposal
-        experiment = self.experiment
-        if shown is None or experiment is None:
-            return
-        item_id, task_name, proposal = shown
-        from fibsem.workflows.proposals import Decision, DecisionOutcome
-
-        result = experiment.decide(
-            item_id,
-            task_name,
-            Decision(
-                outcome=DecisionOutcome.Confirmed,
-                actor=experiment.actor(),
-                values=self._widget_value(proposal),
-                via="workflow",
-                proposal_id=proposal.id,
-            ),
-        )
-        if not result.applied:
-            # Left up: the question is still open, and the reason is logged.
-            logging.warning(f"{task_name}: could not decide it: {result.reason}")
-            self.prompt_bar.reopen()
-
-    def handle_acquisition_update(self, ddict: dict) -> None:
-        if ddict.get("finished", False):
-            self.update_lamella_ui()
-
-    def stop_current_operations(self) -> None:
-        """Interrupt whatever the microscope is doing right now.
-
-        Shared by Stop Workflow and Stop Task, which have to bring the hardware to
-        a halt identically and differ only in what the queue does afterwards.
-
-        A task raising is not enough on its own: milling runs on its own thread
-        with its own stop event, owned by the milling widget, and the task merely
-        waits for it. Unwinding the task without this stops the waiting, not the
-        mill.
-        """
-        if self.milling_task_config_widget is not None:
-            self.milling_task_config_widget.milling_widget.stop_milling()
-        if self.spot_burn_widget is not None:
-            self.spot_burn_widget.cancel_spot_burn()
 
     def _workflow_finished(self):
         """Handle the completion of the workflow."""
         logging.info("Workflow finished.")
-        if self.image_widget is None:
+        if self.panel.image_widget is None:
             return
         if self.microscope is None:
             return
         if self.experiment is None or self.protocol is None:
             return
 
-        self.tabWidget.setCurrentIndex(self.tabWidget.indexOf(self.tab))
+        self.run_relay.hold = None
+        self.run_relay.pending = False
 
-        self.hold = None
-        self.WORKFLOW_PENDING = False
-
-        # clear milling task config
-        if self.milling_task_config_widget is not None:
-            self.milling_task_config_widget.clear()
-            self.milling_task_config_widget.milling_widget.pushButton_run_milling.setVisible(
-                True
-            )
-
-        # restore the spot burn widget: an aborted workflow may skip the ClearSpotBurn
-        # that normally resets it, which would leave the Burn button hidden
-        # (no-op after a normal completion, where ClearSpotBurn already ran)
-        if self.spot_burn_widget is not None:
-            self.spot_burn_widget.set_workflow_mode(False)
-            self.spot_burn_widget.clear_points_layer()
-
-        # clear detection layers
-        if self.det_widget is not None:
-            self.det_widget.clear_layers()
-
-        # clear the image settings save settings etc
-        self.image_widget.checkBox_image_save_image.setChecked(False)
-        self.image_widget.lineEdit_image_path.setText(str(self.experiment.path))
-        self.image_widget.lineEdit_image_label.setText("default-image")
+        self.panel.reset_after_run(str(self.experiment.path))
         self.update_ui()
 
         # optionally turn off the beams when finished
@@ -2193,7 +928,7 @@ class AutoLamellaUI(QMainWindow):
             self.microscope.turn_off(BeamType.ELECTRON)
             self.microscope.turn_off(BeamType.ION)
 
-        self.set_current_workflow_message(msg=None, show=False)
+        self.panel.set_current_workflow_message(msg=None, show=False)
 
         # show the post-workflow summary of tasks run this session
         self._show_workflow_summary()
@@ -2246,18 +981,3 @@ class AutoLamellaUI(QMainWindow):
             dialog.show()
         except Exception as e:
             logging.warning(f"Failed to show workflow summary dialog: {e}")
-
-    def handle_workflow_status(self, event: "WorkflowStatusEvent") -> None:
-        """Show a fire-and-forget status update. GUI thread, via workflow_status_signal.
-
-        Two deliberate absences: no widget-existence guards (these two labels
-        exist from construction, so there is nothing to raise about in a queued
-        slot), and no touching of the waiting display state — a status update on
-        its own channel can never release a blocked waiter, which is the point
-        of the channel. A ``message`` of None says nothing about the prompt and
-        leaves it standing — the responder pings this signal for chrome
-        refreshes while its question is up.
-        """
-        if event.message is not None:
-            self.prompt_bar.ask(event.message)
-        self.set_current_workflow_message(event.workflow_info)

@@ -1,7 +1,7 @@
 import logging
 import os
 from copy import deepcopy
-from typing import Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 import numpy as np
 from PyQt5 import QtWidgets
@@ -29,11 +29,15 @@ class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
     def __init__(
         self,
         parent: Optional[QtWidgets.QWidget] = None,
+        *,
+        view_controller: Callable[[], Any],
     ):
+        """*view_controller* returns the quad view the features are drawn on,
+        or None."""
         super().__init__(parent=parent)
         self._setup_ui()
 
-        self.parent = parent
+        self._host_view_controller = view_controller
         self.det: Optional[DetectedFeatures] = None  # what is shown to correct
         self.has_user_corrected: bool = False
 
@@ -50,8 +54,7 @@ class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
 
     def _view_controller(self):
         """Return the quad-view MicroscopeViewController, or None if unavailable."""
-        parent_ui = getattr(self.parent, "parent_widget", None)
-        return getattr(parent_ui, "view_controller", None)
+        return self._host_view_controller()
 
     def _host_beam_for(self, det):
         """Pick the beam to host detection — the beam of ``det.fibsem_image``

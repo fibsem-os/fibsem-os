@@ -154,19 +154,23 @@ def test_the_run_holds_on_the_question_until_it_is_decided(window, qapp):
     lamella = ui.experiment.positions[0]
     task, thread, seen = _start(window)
 
-    assert _pump(qapp, lambda: ui.hold is not None), "the run is held"
-    assert ui.hold.kind is HoldKind.proposal
-    assert ui.hold.items == (f"{lamella.name}/{ROUGH}",)
+    assert _pump(qapp, lambda: ui.run_relay.hold is not None), "the run is held"
+    assert ui.run_relay.hold.kind is HoldKind.proposal
+    assert ui.run_relay.hold.items == (f"{lamella.name}/{ROUGH}",)
     # The hold is set from the worker thread; the notification that puts the
     # question up is queued to this one, so it may land a moment later.
-    assert _pump(qapp, lambda: ui._widget_proposal is not None), "put up"
-    assert ui.prompt_bar.yes.text() == "Continue"
-    if ui.det_widget is not None:
-        assert ui.proposal_host() is ui.det_widget, "on the Detection tab"
+    assert _pump(qapp, lambda: ui.proposals._widget_proposal is not None), "put up"
+    assert ui.panel.prompt_bar.yes.text() == "Continue"
+    if ui.panel.det_widget is not None:
+        assert ui.proposals.proposal_host() is ui.panel.det_widget, (
+            "on the Detection tab"
+        )
     assert _pump(
         qapp,
-        lambda: "waiting for you to answer" in ui.label_workflow_information.text(),
-    ), ui.label_workflow_information.text()
+        lambda: (
+            "waiting for you to answer" in ui.panel.label_workflow_information.text()
+        ),
+    ), ui.panel.label_workflow_information.text()
     proposal = lamella.proposal(ROUGH)
     assert proposal.kind == DETECTION and proposal.pending and proposal.asking
     assert thread.is_alive(), "stopped on its next line"
@@ -189,9 +193,11 @@ def test_the_run_holds_on_the_question_until_it_is_decided(window, qapp):
     assert decision.outcome is DecisionOutcome.Confirmed
     assert decision.values["features"][0]["px"] == Point(12, 26), "the decided value"
     assert decision.actor.kind is ActorKind.operator
-    assert ui.hold is None
+    assert ui.run_relay.hold is None
     assert "error" not in seen
-    assert _pump(qapp, lambda: ui._widget_proposal is None), "the prompt came down"
+    assert _pump(qapp, lambda: ui.proposals._widget_proposal is None), (
+        "the prompt came down"
+    )
     # The proposal is decided, and the task proposes nothing when it ends.
     (question,) = lamella.proposals_from(ROUGH)
     assert question is proposal
@@ -205,16 +211,18 @@ def test_a_window_that_starts_listening_mid_hold_puts_the_question_up(window, qa
     ui = window.autolamella_ui
     lamella = ui.experiment.positions[0]
     task, thread, seen = _start(window)
-    assert _pump(qapp, lambda: ui._widget_proposal is not None)
+    assert _pump(qapp, lambda: ui.proposals._widget_proposal is not None)
     experiment = ui.experiment
     window.attention.listen(None)
-    ui.clear_widget_proposal(lamella.id, ROUGH)
-    assert ui._widget_proposal is None
+    ui.proposals.clear_widget_proposal(lamella.id, ROUGH)
+    assert ui.proposals._widget_proposal is None
 
     window.attention.listen(experiment)
 
-    assert ui._widget_proposal is not None, "the standing question is up again"
-    assert ui.prompt_bar.yes.text() == "Continue"
+    assert ui.proposals._widget_proposal is not None, (
+        "the standing question is up again"
+    )
+    assert ui.panel.prompt_bar.yes.text() == "Continue"
 
 
 def test_continue_on_a_question_the_widget_never_got_confirms_it_as_proposed(
@@ -226,9 +234,9 @@ def test_continue_on_a_question_the_widget_never_got_confirms_it_as_proposed(
     ui = window.autolamella_ui
     lamella = ui.experiment.positions[0]
     task, thread, seen = _start(window)
-    assert _pump(qapp, lambda: ui._widget_proposal is not None)
+    assert _pump(qapp, lambda: ui.proposals._widget_proposal is not None)
 
-    ui.prompt_bar.yes.click()
+    ui.panel.prompt_bar.yes.click()
 
     assert _pump(qapp, lambda: not thread.is_alive()), "released"
     assert "error" not in seen
@@ -243,12 +251,12 @@ def test_a_point_asked_with_no_frame_to_show_it_on_is_confirmed_as_proposed(
     """No FIB frame on the view and no reference image on disk: the marker
     cannot go up, and Continue confirms the point as proposed."""
     ui = window.autolamella_ui
-    ui.image_widget.ib_image = None
+    ui.panel.image_widget.ib_image = None
     task, thread, seen = _start(window, POINT_OF_INTEREST, {"poi": Point(1e-6, 2e-6)})
-    assert _pump(qapp, lambda: ui._widget_proposal is not None), "put up"
-    assert not ui.poi_marker.shown
+    assert _pump(qapp, lambda: ui.proposals._widget_proposal is not None), "put up"
+    assert not ui.proposals.poi_marker.shown
 
-    ui.prompt_bar.yes.click()
+    ui.panel.prompt_bar.yes.click()
 
     assert _pump(qapp, lambda: not thread.is_alive()), "released"
     assert "error" not in seen
@@ -262,8 +270,8 @@ def _swap_view_frame(ui, hfw):
 
     frame = FibsemImage.generate_blank_image(resolution=(1536, 1024), hfw=hfw)
     frame.metadata.image_settings.beam_type = BeamType.ION
-    ui.image_widget.ib_image = frame
-    ui.image_widget.viewer_update_signal.emit()
+    ui.panel.image_widget.ib_image = frame
+    ui.panel.image_widget.viewer_update_signal.emit()
     return frame
 
 
@@ -278,7 +286,7 @@ def test_the_poi_marker_follows_the_view_to_another_frame(window, qapp):
     _swap_view_frame(ui, 150e-6)
     initial = Point(x=5e-6, y=-3e-6)
     task, thread, seen = _start(window, POINT_OF_INTEREST, {"poi": initial})
-    assert _pump(qapp, lambda: ui.poi_marker.shown), "the marker is up"
+    assert _pump(qapp, lambda: ui.proposals.poi_marker.shown), "the marker is up"
 
     new = _swap_view_frame(ui, 80e-6)
     (col, row), *_ = window.view_controller.overlay_points(BeamType.ION, "poi")
@@ -287,7 +295,7 @@ def test_the_poi_marker_follows_the_view_to_another_frame(window, qapp):
     )
     assert (col, row) == pytest.approx((px.x, px.y), abs=1)
 
-    ui.prompt_bar.yes.click()
+    ui.panel.prompt_bar.yes.click()
 
     assert _pump(qapp, lambda: not thread.is_alive()), "released"
     assert "error" not in seen
@@ -300,7 +308,7 @@ def test_stop_withdraws_the_question_and_cancels_the_task(window, qapp):
     ui = window.autolamella_ui
     lamella = ui.experiment.positions[0]
     task, thread, seen = _start(window)
-    assert _pump(qapp, lambda: ui.hold is not None)
+    assert _pump(qapp, lambda: ui.run_relay.hold is not None)
     proposal = lamella.proposal(ROUGH)
 
     task.task_manager.stop()
@@ -309,7 +317,7 @@ def test_stop_withdraws_the_question_and_cancels_the_task(window, qapp):
     assert "decision" not in seen
     assert isinstance(seen.get("error"), InterruptedError)
     assert proposal.withdrawn
-    assert ui.hold is None
+    assert ui.run_relay.hold is None
     assert lamella.task_state.status is TaskStatus.Cancelled
 
 
@@ -391,7 +399,7 @@ def test_the_run_lends_control_while_the_question_stands(window, qapp):
     thread.start()
     window._started.append((manager, thread))
     try:
-        assert _pump(qapp, lambda: ui.hold is not None), "the run is held"
+        assert _pump(qapp, lambda: ui.run_relay.hold is not None), "the run is held"
 
         moved = _move()
         assert moved.status_code == 200, moved.text

@@ -459,7 +459,7 @@ def test_the_window_tells_the_page_to_look_for_new_overviews(window, source):
     if source == "overview acquired":
         window.overview_tab.beam_tab.acquiring_changed.emit(False)
     else:
-        window.autolamella_ui.workflow_status_signal.emit(WorkflowStatusEvent())
+        window.autolamella_ui.run_relay.status.emit(WorkflowStatusEvent())
     assert [o.path for o in page._index.get(NO_GRID, [])] == [
         os.path.join(str(experiment.path), "overview-image-new.tif")
     ]

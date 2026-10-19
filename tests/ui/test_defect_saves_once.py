@@ -21,6 +21,7 @@ Split across two mechanisms because the two halves live in different places:
   read off the source, the same way `test_lamella_defect_sync.py` handles the minimap
   and the coincidence viewer.
 """
+
 import ast
 import inspect
 import os
@@ -73,7 +74,7 @@ class TestTheWidgetNoLongerSavesItself:
         try:
             widget.experiment = experiment
             lamella.defect = DefectState(state=DefectType.FAILURE)
-            widget.lamella_list.defect_changed.emit(lamella)
+            widget.panel.experiment_tab.lamella_list.defect_changed.emit(lamella)
         finally:
             widget.close()
 
@@ -84,9 +85,9 @@ class TestTheWidgetNoLongerSavesItself:
 
     def test_the_handler_is_gone_rather_than_merely_disconnected(self):
         """A method left behind reads as a live path to anyone grepping for one."""
-        from fibsem.applications.autolamella.ui import AutoLamellaUI as module
+        from fibsem.applications.autolamella.ui.experiment_tab import ExperimentTab
 
-        assert not hasattr(module.AutoLamellaUI, "_on_lamella_defect_changed")
+        assert not hasattr(ExperimentTab, "_on_lamella_defect_changed")
 
 
 class TestTheWindowStillSaves:
@@ -116,21 +117,33 @@ class TestTheWindowStillSaves:
         Counted by parsing rather than by substring: the widget and the window both
         contain other `defect_changed.connect(...)` calls for their other lists (the
         card container, the workflow widget), and a text search cannot tell those from
-        the one under test. The chain `autolamella_ui.lamella_list.defect_changed`
+        the one under test. The chain `autolamella_ui.panel.experiment_tab.lamella_list.defect_changed`
         names it exactly.
         """
         from pathlib import Path
 
-        from fibsem.applications.autolamella.ui import AutoLamellaMainUI, AutoLamellaUI
+        from fibsem.applications.autolamella.ui import AutoLamellaMainUI, experiment_tab
 
         wired = []
         for module, prefix in (
-            (AutoLamellaUI, ["self", "lamella_list", "defect_changed"]),
-            (AutoLamellaMainUI, ["self", "autolamella_ui", "lamella_list", "defect_changed"]),
+            (experiment_tab, ["self", "lamella_list", "defect_changed"]),
+            (
+                AutoLamellaMainUI,
+                [
+                    "self",
+                    "autolamella_ui",
+                    "panel",
+                    "experiment_tab",
+                    "lamella_list",
+                    "defect_changed",
+                ],
+            ),
         ):
             tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
             for node in ast.walk(tree):
-                if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+                if not (
+                    isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                ):
                     continue
                 if node.func.attr != "connect":
                     continue

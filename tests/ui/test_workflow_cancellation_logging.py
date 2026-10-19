@@ -88,9 +88,9 @@ def test_the_closing_line_gets_out_after_a_stop(ui):
     from fibsem.applications.autolamella.workflows.ui import update_status_ui
 
     seen = []
-    ui.workflow_status_signal.connect(lambda event: seen.append(event.workflow_info))
+    ui.run_relay.status.connect(lambda event: seen.append(event.workflow_info))
     run = _StoppedRun()
-    run.status.connect(ui._on_run_status)
+    run.status.connect(ui.run_relay._on_status)
     with pytest.raises(InterruptedError):
         update_status_ui(run, "", workflow_info="Workflow cancelled by user.")
     update_status_ui(

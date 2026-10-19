@@ -385,7 +385,7 @@ class MainMenuBar(QObject):
             "Load Fluorescence Configuration", self._window
         )
         action_load_fm_configuration.triggered.connect(
-            lambda: self._ui().import_fm_configuration()
+            lambda: self._ui().panel.import_fm_configuration()
         )
         dev_menu.addAction(action_load_fm_configuration)
 
@@ -393,7 +393,7 @@ class MainMenuBar(QObject):
             "Save Fluorescence Configuration", self._window
         )
         action_save_fm_configuration.triggered.connect(
-            lambda: self._ui().export_fm_configuration()
+            lambda: self._ui().panel.export_fm_configuration()
         )
         dev_menu.addAction(action_save_fm_configuration)
 

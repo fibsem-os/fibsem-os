@@ -8,7 +8,7 @@ lamella lists in step.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
@@ -32,15 +32,19 @@ from fibsem.applications.autolamella.ui.lamella_task_image_widget import (
 from fibsem.ui.tokens import TEXT_MUTED_COLOR
 from fibsem.workflows.status import TaskStatus
 
+if TYPE_CHECKING:
+    from fibsem.workflows.session import AppSession
+
 
 class LamellaTab(QWidget):
     # A card chosen by the operator, or None.
     lamella_selected = pyqtSignal(object)
 
-    def __init__(self, ui, *, card_mode: str, parent: Optional[QWidget] = None) -> None:
-        """*ui* is the window's ``AutoLamellaUI``, which the protocol editor
-        reads its microscope and experiment from; *card_mode* is the cards'
-        density from the preferences."""
+    def __init__(
+        self, session: "AppSession", *, card_mode: str, parent: Optional[QWidget] = None
+    ) -> None:
+        """*session* is what the protocol editor reads its microscope and
+        experiment from; *card_mode* is the cards' density from the preferences."""
         super().__init__(parent)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -73,7 +77,7 @@ class LamellaTab(QWidget):
         # Protocol tab: matplotlib canvas (left) + editor (right). The editor owns its
         # own controller, built eagerly so the splitter can embed the canvas before a
         # microscope connects.
-        self.editor = AutoLamellaProtocolEditorWidget(parent=ui)
+        self.editor = AutoLamellaProtocolEditorWidget(session=session)
         self.editor.setMinimumWidth(550)
 
         protocol_splitter = QSplitter(Qt.Horizontal)

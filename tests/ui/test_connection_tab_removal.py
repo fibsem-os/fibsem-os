@@ -44,7 +44,7 @@ def prefs(monkeypatch, tmp_path):
 
 
 def _tabs(ui: AutoLamellaUI) -> list[str]:
-    return [ui.tabWidget.tabText(i) for i in range(ui.tabWidget.count())]
+    return [ui.panel.tabWidget.tabText(i) for i in range(ui.panel.tabWidget.count())]
 
 
 def test_the_tab_is_there_with_the_flag_off(qapp, prefs):
@@ -55,7 +55,7 @@ def test_the_tab_is_there_with_the_flag_off(qapp, prefs):
     try:
         assert "Connection" in _tabs(ui)
         # And it is the one the panel opens on, as it always was.
-        assert ui.tabWidget.tabText(0) == "Connection"
+        assert ui.panel.tabWidget.tabText(0) == "Connection"
     finally:
         ui.deleteLater()
 

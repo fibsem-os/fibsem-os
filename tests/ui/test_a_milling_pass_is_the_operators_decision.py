@@ -91,7 +91,10 @@ def _run_on_worker_thread(task, ui, qapp):
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline:
         qapp.processEvents()
-        if ui.prompt_bar.message.text() == FIRST and ui.prompt_bar.no.isEnabled():
+        if (
+            ui.panel.prompt_bar.message.text() == FIRST
+            and ui.panel.prompt_bar.no.isEnabled()
+        ):
             return thread, outcome
         time.sleep(0.01)
     raise AssertionError("the mill prompt never appeared")
@@ -110,7 +113,7 @@ def test_skip_is_the_operators_decision_on_the_pass(ui, qapp):
     task = _task(ui)
     thread, outcome = _run_on_worker_thread(task, ui, qapp)
 
-    ui.prompt_bar.no.click()  # Skip
+    ui.panel.prompt_bar.no.click()  # Skip
     _finish(thread, qapp)
 
     assert "error" not in outcome
@@ -141,13 +144,13 @@ def test_the_mill_the_task_asks_for_writes_under_the_task_s_folder(
     task = _task(ui)
     thread, outcome = _run_on_worker_thread(task, ui, qapp)
 
-    ui.prompt_bar.yes.click()  # Run Milling
+    ui.panel.prompt_bar.yes.click()  # Run Milling
     deadline = time.monotonic() + 10
-    while not (folders and ui.prompt_bar.no.isEnabled()):
+    while not (folders and ui.panel.prompt_bar.no.isEnabled()):
         assert time.monotonic() < deadline, "the mill never ran"
         qapp.processEvents()
         time.sleep(0.01)
-    ui.prompt_bar.no.click()  # Accept
+    ui.panel.prompt_bar.no.click()  # Accept
     _finish(thread, qapp)
 
     assert "error" not in outcome

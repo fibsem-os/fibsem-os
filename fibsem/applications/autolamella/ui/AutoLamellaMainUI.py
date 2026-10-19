@@ -247,7 +247,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             QMessageBox.No,
         )
         if reply == QMessageBox.Yes and self.autolamella_ui is not None:
-            # The border goes red on workflow_stopping_signal, as for any stop.
+            # The border goes red on the run relay's stopping, as for any stop.
             self.autolamella_ui.stop_task_workflow(actor=OPERATOR, via="Stop")
 
     def _on_workflow_stopping(self) -> None:
@@ -260,7 +260,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.grids_tab.refresh()
         self.workflow_tab.grid_workflow_widget.refresh()
         self._refresh_grid_context()
-        sample = getattr(self.autolamella_ui, "sample_widget", None)
+        sample = self.autolamella_ui.panel.sample_widget
         for panel in ("loader_widget", "holder_widget"):
             widget = getattr(sample, panel, None)
             if widget is not None:
@@ -303,7 +303,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if getattr(self, "grids_tab", None) is not None:
             self.grids_tab.set_controls_enabled(False)
         self.workflow_tab.grid_workflow_widget.set_controls_enabled(False)
-        sample = getattr(self.autolamella_ui, "sample_widget", None)
+        sample = self.autolamella_ui.panel.sample_widget
         if sample is not None:
             sample.set_controls_enabled(False)
         self.workflow_tab.set_running(True)
@@ -452,21 +452,17 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.autolamella_ui = AutoLamellaUI(parent_ui=self)
 
         # Everything the workflow says without needing an answer arrives here
-        self.autolamella_ui.workflow_status_signal.connect(self._on_workflow_status)
-        self.autolamella_ui.step_update_signal.connect(self._on_step_update)
+        self.autolamella_ui.run_relay.status.connect(self._on_workflow_status)
+        self.autolamella_ui.run_relay.step.connect(self._on_step_update)
         self.autolamella_ui.experiment_update_signal.connect(self._on_experiment_update)
-        self.autolamella_ui._workflow_finished_signal.connect(
-            self._on_workflow_finished
-        )
+        self.autolamella_ui.run_relay.finished.connect(self._on_workflow_finished)
         self.autolamella_ui.session.runner.starting.connect(self._on_run_starting)
         # Red while a stop unwinds, whoever asked for it (the agent's too).
-        self.autolamella_ui.workflow_stopping_signal.connect(self._on_workflow_stopping)
+        self.autolamella_ui.run_relay.stopping.connect(self._on_workflow_stopping)
         # A grid task records its overview as it finishes, and says so in a status.
-        self.autolamella_ui.workflow_status_signal.connect(self._refresh_quad_overviews)
-        self.autolamella_ui._workflow_finished_signal.connect(
-            self._refresh_quad_overviews
-        )
-        self.autolamella_ui._hook_toast_signal.connect(self.show_toast)
+        self.autolamella_ui.run_relay.status.connect(self._refresh_quad_overviews)
+        self.autolamella_ui.run_relay.finished.connect(self._refresh_quad_overviews)
+        self.autolamella_ui.run_relay.notice.connect(self.show_toast)
         self.autolamella_ui.grids_changed.connect(self._refresh_after_naming)
         notification_service._get_service().toast.connect(self._on_notification_service)
         notification_service._get_service().toast_action.connect(
@@ -474,10 +470,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         )
         self._session_changed.connect(self._on_session_changed)
         self.autolamella_ui.session.changed.connect(self._hear_session)
-        self.autolamella_ui.lamella_list.defect_changed.connect(
+        self.autolamella_ui.panel.experiment_tab.lamella_list.defect_changed.connect(
             self._on_lamella_defect_changed
         )
-        self.autolamella_ui.lamella_list.lamella_selected.connect(
+        self.autolamella_ui.panel.experiment_tab.lamella_list.lamella_selected.connect(
             self._on_experiment_lamella_selected
         )
 
@@ -539,7 +535,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.add_grids_tab()
         self.add_workflow_tab()
         self.attention = AttentionRouter(
-            prompts=self.autolamella_ui,
+            prompts=self.autolamella_ui.proposals,
             tab_widget=self.tab_widget,
             controls=self.workflow_controls,
             status_bar=self.status_bar,
@@ -681,7 +677,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         # Create the protocol editor widget (viewer is created internally)
         self.task_widget = AutoLamellaProtocolTaskConfigEditor(
-            parent=self.autolamella_ui
+            session=self.autolamella_ui.session
         )
         layout.addWidget(self.task_widget)
         self.tab_widget.addTab(
@@ -697,7 +693,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """The Lamella tab: the card strip, and the selected lamella's protocol
         and history."""
         self.lamella_tab = LamellaTab(
-            self.autolamella_ui, card_mode=self._preferences.display.lamella_card_mode
+            self.autolamella_ui.session,
+            card_mode=self._preferences.display.lamella_card_mode,
         )
         self.lamella_tab.lamella_selected.connect(self._on_lamella_card_selected)
         cards = self.lamella_tab.cards
@@ -716,10 +713,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def add_grids_tab(self):
         """The Grids tab, between Lamella and Workflow: the experiment's grid records."""
-        self.grids_tab = GridsTabWidget()
         # The Positions view makes lamellae through the application widget, the
         # one path every lamella is made by.
-        self.grids_tab.set_autolamella_ui(self.autolamella_ui)
+        self.grids_tab = GridsTabWidget(
+            session=self.autolamella_ui.session,
+            add_lamella=self.autolamella_ui.panel.experiment_tab.add_new_lamella,
+        )
         self.tab_widget.addTab(
             self.grids_tab,
             fibsem_icon("mdi:view-grid-outline", color=GRAY_ICON_COLOR),
@@ -768,7 +767,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # An exchange from Microscope -> Sample changes what is loaded; the
         # Grids tab's chips and the run view's rows follow. The Sample view is
         # rebuilt on every connect, so this is wired here, on every connect.
-        sample = getattr(self.autolamella_ui, "sample_widget", None)
+        sample = self.autolamella_ui.panel.sample_widget
         loader = getattr(sample, "loader_widget", None)
         if loader is not None:
             # A rename there renames the experiment's record, before the
@@ -850,7 +849,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         for widget in (
             getattr(getattr(self, "lamella_tab", None), "cards", None),
             self.workflow_tab.lamella_workflow_widget.lamella_list,
-            getattr(self.autolamella_ui, "lamella_list", None),
+            self.autolamella_ui.panel.experiment_tab.lamella_list,
         ):
             if widget is not None:
                 widget.set_grid_context(context)
@@ -861,7 +860,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     def _refresh_sample_view(self) -> None:
         """Redraw Microscope → Sample from the stage. Looked up each time: the
         Sample view is rebuilt on every connect."""
-        sample = getattr(self.autolamella_ui, "sample_widget", None)
+        sample = self.autolamella_ui.panel.sample_widget
         if sample is not None:
             sample.refresh()
 
@@ -878,7 +877,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             say=self._say_selection,
             show_toast=self.show_toast,
         )
-        ui.queue_changed_signal.connect(self.workflow_tab.on_queue_changed)
+        ui.run_relay.queue_changed.connect(self.workflow_tab.on_queue_changed)
         lamella = self.workflow_tab.lamella_workflow_widget
         lamella.lamella_move_to_requested.connect(self._on_lamella_move_to)
         lamella.lamella_edit_requested.connect(self._on_lamella_edit)
@@ -929,7 +928,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             if not self._syncing_selection:
                 self._syncing_selection = True
                 try:
-                    self.autolamella_ui.lamella_list.select(lamella.name)
+                    self.autolamella_ui.panel.experiment_tab.lamella_list.select(
+                        lamella.name
+                    )
                 finally:
                     self._syncing_selection = False
 
@@ -948,7 +949,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self._syncing_selection = False
 
     def _on_workflow_status(self, event: "WorkflowStatusEvent"):
-        """Handle a fire-and-forget status update, from workflow_status_signal.
+        """Handle a fire-and-forget status update, from the run relay.
 
         The one channel for everything the workflow says without needing an
         answer — the dict workflow_update_signal is gone. The run indicators
@@ -1041,21 +1042,23 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.grids_tab.results_widget.refresh()
             # The run's exchanges change what is loaded; the Sample view
             # draws from the stage and never polls it, so it is told here.
-            sample = getattr(self.autolamella_ui, "sample_widget", None)
+            sample = self.autolamella_ui.panel.sample_widget
             if sample is not None:
                 sample.refresh()
         elif lamella is not None:
             self.workflow_tab.lamella_workflow_widget.lamella_list.refresh_lamella(
                 lamella
             )
-            self.autolamella_ui.lamella_list.refresh_lamella(lamella)
+            self.autolamella_ui.panel.experiment_tab.lamella_list.refresh_lamella(
+                lamella
+            )
             # The Overview pages' lists carry the same status column; without
             # this they sat stale for the whole run (FIB-995).
             for lamella_list in self.overview_tab.lamella_lists():
                 lamella_list.refresh_lamella(lamella)
         else:
             self.workflow_tab.lamella_workflow_widget.lamella_list.refresh_all()
-            self.autolamella_ui.lamella_list.refresh_all()
+            self.autolamella_ui.panel.experiment_tab.lamella_list.refresh_all()
             for lamella_list in self.overview_tab.lamella_lists():
                 lamella_list.refresh_all()
         if grid is None:
@@ -1099,14 +1102,14 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # refresh the supervised status chip
         self._update_supervised_status()
 
-        hold = self.autolamella_ui.hold
+        hold = self.autolamella_ui.run_relay.hold
         self.attention.show_hold(hold)
 
         self.run_border.set_state(
             run_border_state(
                 self.run_border.state,
                 held=hold is not None,
-                pending=self.autolamella_ui.WORKFLOW_PENDING,
+                pending=self.autolamella_ui.run_relay.pending,
                 running=self._running_border_state(self._current_task_name)
                 if self.autolamella_ui.session.runner.is_running
                 else None,
@@ -1159,21 +1162,21 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Move the stage to the given lamella's milling position."""
         if self.autolamella_ui is None or self.autolamella_ui.experiment is None:
             return
-        self.autolamella_ui.lamella_list.select(lamella.name)
-        self.autolamella_ui.move_to_lamella_position()
+        self.autolamella_ui.panel.experiment_tab.lamella_list.select(lamella.name)
+        self.autolamella_ui.panel.experiment_tab.move_to_lamella_position()
 
     def _on_lamella_card_update_position(self, lamella: "Lamella"):
         """Update the stage position of the given lamella to the current stage position."""
         if self.autolamella_ui is None:
             return
-        self.autolamella_ui.lamella_list.select(lamella.name)
-        self.autolamella_ui.update_lamella_position_ui()
+        self.autolamella_ui.panel.experiment_tab.lamella_list.select(lamella.name)
+        self.autolamella_ui.panel.experiment_tab.update_lamella_position_ui()
 
     def _on_lamella_edit(self, lamella: "Lamella"):
         """Switch to the Lamella tab and select the given lamella in the protocol editor."""
         if self.autolamella_ui is None or self.autolamella_ui.experiment is None:
             return
-        self.autolamella_ui.lamella_list.select(lamella.name)
+        self.autolamella_ui.panel.experiment_tab.lamella_list.select(lamella.name)
 
         # Select the lamella in the protocol editor
         self.lamella_tab.editor.select_lamella(lamella.name)
@@ -1191,7 +1194,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.autolamella_ui.experiment.sign_verdict(lamella)
         self.autolamella_ui.experiment.save()
         # Sync defect icon across all widgets
-        self.autolamella_ui.lamella_list.refresh_all()
+        self.autolamella_ui.panel.experiment_tab.lamella_list.refresh_all()
         self.workflow_tab.lamella_workflow_widget.lamella_list.refresh_lamella(lamella)
         self.lamella_tab.cards.refresh_lamella(lamella)
 
@@ -1201,7 +1204,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return
         if not remove_lamella(self.autolamella_ui.experiment, lamella):
             return
-        self.autolamella_ui.update_lamella_combobox(latest=True)
+        self.autolamella_ui.panel.experiment_tab.update_lamella_combobox(latest=True)
         self.autolamella_ui.update_ui()
 
     def _on_step_update(self, label: str) -> None:
@@ -1221,7 +1224,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.grids_tab.set_controls_enabled(True)
         self.workflow_tab.grid_workflow_widget.set_controls_enabled(True)
         self.workflow_tab.grid_workflow_widget.refresh()
-        sample = getattr(self.autolamella_ui, "sample_widget", None)
+        sample = self.autolamella_ui.panel.sample_widget
         if sample is not None:
             sample.set_controls_enabled(True)
             sample.refresh()
@@ -1279,7 +1282,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         this point there may be no microscope at all. The container fills itself in on
         connection and says so through `availability_changed`.
         """
-        self.overview_tab = AutoLamellaOverviewContainerTab(self.autolamella_ui)
+        self.overview_tab = AutoLamellaOverviewContainerTab(
+            self.autolamella_ui.session,
+            self.autolamella_ui.panel.experiment_tab.add_new_lamella,
+        )
         self.overview_tab.availability_changed.connect(self._on_overview_availability)
         self.overview_tab.lamella_selected.connect(self._on_overview_lamella_selected)
         # A finished run has saved its overview by the time it says so.
@@ -1343,7 +1349,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return
         self._syncing_selection = True
         try:
-            self.autolamella_ui.lamella_list.select(lamella.name)
+            self.autolamella_ui.panel.experiment_tab.lamella_list.select(lamella.name)
             if hasattr(self, "lamella_tab"):
                 self.lamella_tab.select(lamella)
         finally:
@@ -1443,10 +1449,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # persist the FM working state (channels / camera transform / objective)
         if (
             self.autolamella_ui is not None
-            and self.autolamella_ui.fm_control_widget is not None
+            and self.autolamella_ui.panel.fm_control_widget is not None
         ):
             try:
-                self.autolamella_ui.fm_control_widget.save_fm_configuration()
+                self.autolamella_ui.panel.fm_control_widget.save_fm_configuration()
             except Exception as e:
                 logging.warning(f"Could not save FM working state on close: {e}")
         # After the flush, so its edit is recorded: write what is queued to
