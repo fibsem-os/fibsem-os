@@ -2,6 +2,7 @@
 # import. See the note beside it.
 from __future__ import annotations
 
+import logging
 import threading
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
@@ -12,6 +13,7 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
+    ClassVar,
     Dict,
     Generic,
     Iterator,
@@ -61,7 +63,28 @@ TMillingStrategy = TypeVar("TMillingStrategy", bound="MillingStrategy")
 
 @dataclass
 class MillingStrategyConfig(Configurable, ABC):
-    """Abstract base class for milling strategy configurations"""
+    """What a milling strategy is configured by, held on the stage it mills.
+
+    The stage keeps this, not the strategy: the strategy is made from it when the
+    stage mills (`FibsemMillingStage.get_strategy`). Which strategy is the one whose
+    `config_class` this is, so a config knows its strategy's name.
+    """
+
+    # A stage saves its strategy as `{name, config}`, these fields under `config`.
+    # A patch walks the saved shape (`stages.0.strategy.config.supervised`), so
+    # `fibsem.server.config_patch` reads this segment as the config itself.
+    SAVED_UNDER: ClassVar[str] = "config"
+
+    @property
+    def strategy_class(self) -> Type["MillingStrategy[Any]"]:
+        """The strategy this configures: the one it was made for, which a strategy
+        sharing another's config class needs, else the one whose config class it is."""
+        return self.__dict__.get("_strategy_class") or strategy_class_for(type(self))
+
+    @property
+    def strategy_name(self) -> str:
+        """The name of the strategy this configures, as a stage saves it."""
+        return self.strategy_class.name
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -178,16 +201,73 @@ class MillingStrategy(ABC, Generic[TMillingStrategyConfig]):
         the milling task records on the stage; None says nothing."""
 
 
+def _strategy_named(name: str) -> Type[MillingStrategy[Any]]:
+    """The strategy called *name*; Standard, with a warning, for a name none has.
+
+    A name none has is a plugin strategy not installed here, or a misspelling. The
+    stage still loads, as Standard; saved again, it is saved as Standard, so the
+    warning names what is lost.
+    """
+    from fibsem.milling.strategy import DEFAULT_STRATEGY, get_strategies
+
+    strategy = get_strategies().get(name)
+    if strategy is None:
+        logging.warning(
+            f"No milling strategy is called {name!r} (a plugin not installed here?); "
+            f"the stage uses {DEFAULT_STRATEGY.name}, and its {name} settings are "
+            "not kept."
+        )
+        return DEFAULT_STRATEGY
+    return strategy
+
+
 def get_strategy(
     name: str = "Standard", config: Optional[Dict[str, Any]] = None
 ) -> MillingStrategy[Any]:
-    from fibsem.milling.strategy import DEFAULT_STRATEGY, get_strategies
+    """The strategy called *name*, made from a saved `{name, config}` document."""
+    strategy = _strategy_named(name)
+    return strategy.from_dict((config or {}) if strategy.name == name else {})
 
-    if config is None:
-        config = {}
 
-    strategies = get_strategies()
-    return strategies.get(name, DEFAULT_STRATEGY).from_dict(config)
+def get_strategy_config(
+    name: str = "Standard", config: Optional[Dict[str, Any]] = None
+) -> MillingStrategyConfig:
+    """The config of the strategy called *name*, read from a saved `{name, config}`
+    document."""
+    strategy = _strategy_named(name)
+    # Another strategy's settings are not this one's: an unknown name starts afresh.
+    saved = (config or {}).get("config", {}) if strategy.name == name else {}
+    return _made_for(strategy, strategy.config_class.from_dict(saved))
+
+
+def strategy_class_for(
+    config_class: Type[MillingStrategyConfig],
+) -> Type[MillingStrategy[Any]]:
+    """The strategy whose config class *config_class* is."""
+    from fibsem.milling.strategy import get_strategies
+
+    for strategy in get_strategies().values():
+        if strategy.config_class is config_class:
+            return strategy
+    raise ValueError(
+        f"No milling strategy is configured by {config_class.__name__}; "
+        "register the strategy it belongs to."
+    )
+
+
+def _made_for(
+    strategy: Type[MillingStrategy[Any]], config: TMillingStrategyConfig
+) -> TMillingStrategyConfig:
+    """*config*, marked as *strategy*'s. Not a field: not saved or compared, but
+    copied with the config."""
+    object.__setattr__(config, "_strategy_class", strategy)
+    return config
+
+
+def _default_strategy_config() -> MillingStrategyConfig:
+    from fibsem.milling.strategy import DEFAULT_STRATEGY
+
+    return _made_for(DEFAULT_STRATEGY, DEFAULT_STRATEGY.config_class())
 
 
 @dataclass
@@ -200,7 +280,9 @@ class FibsemMillingStage(Configurable):
     patterns: Optional[List[BasePattern]] = param(
         None, not_used="a stage mills its one pattern; nothing reads patterns"
     )
-    strategy: MillingStrategy[Any] = field(default_factory=get_strategy)
+    # What the strategy is configured by; the strategy itself is made from it when the
+    # stage mills (`get_strategy`). Given a strategy, the stage keeps its config.
+    strategy: MillingStrategyConfig = field(default_factory=_default_strategy_config)
     alignment: MillingAlignment = field(default_factory=MillingAlignment)
     imaging: ImageSettings = field(
         default_factory=ImageSettings
@@ -216,6 +298,26 @@ class FibsemMillingStage(Configurable):
     # belongs to one run, not to the protocol. ``imaging.path`` is an imaging
     # setting; read this to know where to save.
     output_dir: Optional[str] = None
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name == "strategy" and isinstance(value, MillingStrategy):
+            # A strategy given whole: keep its config, and the strategy as the one
+            # this stage mills with, so whatever holds it sees the run.
+            object.__setattr__(self, "_strategy", value)
+            value = _made_for(type(value), value.config)
+        super().__setattr__(name, value)
+
+    def get_strategy(self) -> MillingStrategy[Any]:
+        """The strategy that mills this stage, made from its config.
+
+        The same one until the config is replaced, so a viewer can connect to it
+        before the stage mills and read how the run ended after.
+        """
+        strategy = self.__dict__.get("_strategy")
+        if strategy is None or strategy.config is not self.strategy:
+            strategy = self.strategy.strategy_class(config=self.strategy)
+            object.__setattr__(self, "_strategy", strategy)
+        return strategy
 
     def __post_init__(self):
 
@@ -237,7 +339,10 @@ class FibsemMillingStage(Configurable):
             "enabled": self.enabled,
             "milling": self.milling.to_dict(),
             "pattern": self.pattern.to_dict(),
-            "strategy": self.strategy.to_dict(),
+            "strategy": {
+                "name": self.strategy.strategy_name,
+                "config": self.strategy.to_dict(),
+            },
             "alignment": self.alignment.to_dict(),
             "imaging": self.imaging.to_dict(),
         }
@@ -263,7 +368,7 @@ class FibsemMillingStage(Configurable):
             enabled=data.get("enabled", True),
             milling=FibsemMillingSettings.from_dict(data["milling"]),
             pattern=get_pattern(pattern_name, data["pattern"]),
-            strategy=get_strategy(strategy_name, config=strategy_config),
+            strategy=get_strategy_config(strategy_name, config=strategy_config),
             alignment=MillingAlignment.from_dict(alignment),
             imaging=ImageSettings.from_dict(imaging),
         )
@@ -278,7 +383,9 @@ class FibsemMillingStage(Configurable):
         stop_event: Optional[threading.Event] = None,
     ) -> None:
         """Run the milling stage strategy on the given microscope."""
-        self.strategy.run(microscope=microscope, stage=self, stop_event=stop_event)
+        self.get_strategy().run(
+            microscope=microscope, stage=self, stop_event=stop_event
+        )
 
     @property
     def summary(self) -> str:
@@ -288,7 +395,7 @@ class FibsemMillingStage(Configurable):
                 self.name,
                 self.milling.summary(),
                 self.pattern.summary(),
-                self.strategy.summary(),
+                self.get_strategy().summary(),
             ]
         )
 
@@ -325,10 +432,7 @@ class FibsemMillingStage(Configurable):
         if self.milling != other.milling:
             return False
 
-        if type(self.strategy) is not type(other.strategy):
-            return False
-
-        return self.strategy.config == other.strategy.config
+        return self.strategy == other.strategy
 
 
 def get_milling_stages(

@@ -122,3 +122,73 @@ def test_the_milling_fields_are_explained_and_the_task_set_ones_marked():
     assert not any(path.startswith("alignment.") for path in fields["stage"])
     assert task_overridden_path("stages.0.alignment.enabled")
     assert not task_overridden_path("stages.0.milling.milling_current")
+
+
+# -- a stage's strategy config, and fields that are None (FIB-1478) ---------
+
+
+@pytest.fixture
+def coincident():
+    from fibsem.applications.autolamella.workflows.tasks.mill_coincident import (
+        MillCoincidentTaskConfig,
+    )
+
+    return MillCoincidentTaskConfig()
+
+
+STRATEGY = "milling.mill_coincident.stages.0.strategy.config"
+
+
+def test_a_strategy_field_patches_by_the_path_the_document_shows(coincident):
+    changes = apply_patch(
+        coincident, {f"{STRATEGY}.supervised": False, f"{STRATEGY}.timeout": 600}
+    )
+
+    strategy = coincident.milling["mill_coincident"].stages[0].strategy
+    assert (strategy.supervised, strategy.timeout) == (False, 600)
+    assert [path for path, _, _ in changes] == [
+        f"{STRATEGY}.supervised",
+        f"{STRATEGY}.timeout",
+    ]
+    saved = coincident.milling["mill_coincident"].stages[0].to_dict()["strategy"]
+    assert saved["config"]["timeout"] == 600
+
+
+def test_a_strategy_field_keeps_its_limits(coincident):
+    with pytest.raises(PatchError, match="below the minimum"):
+        apply_patch(coincident, {f"{STRATEGY}.timeout": 5})
+
+
+def test_a_field_that_is_none_takes_its_annotated_type(coincident):
+    from fibsem.structures import FibsemRectangle
+
+    rect = {"left": 0.1, "top": 0.2, "width": 0.3, "height": 0.4}
+    apply_patch(coincident, {f"{STRATEGY}.bbox": rect})
+
+    bbox = coincident.milling["mill_coincident"].stages[0].strategy.bbox
+    assert bbox == FibsemRectangle(0.1, 0.2, 0.3, 0.4)
+    apply_patch(coincident, {f"{STRATEGY}.bbox.width": 0.5})
+    assert bbox.width == 0.5
+
+
+def test_a_none_field_refuses_a_value_of_the_wrong_shape(coincident):
+    with pytest.raises(PatchError, match="FibsemRectangle"):
+        apply_patch(coincident, {f"{STRATEGY}.bbox": {"left": 0.1}})
+
+
+def test_the_setup_tasks_none_fields_patch():
+    from fibsem.applications.autolamella.workflows.tasks.setup_coincidence_milling import (
+        SetupCoincidenceMillingTaskConfig,
+    )
+
+    config = SetupCoincidenceMillingTaskConfig()
+    apply_patch(
+        config,
+        {
+            "objective_position": 1.0e-3,
+            "fm_roi": {"left": 0.0, "top": 0.0, "width": 1.0, "height": 1.0},
+        },
+    )
+
+    assert config.objective_position == 1.0e-3
+    assert config.fm_roi.width == 1.0
