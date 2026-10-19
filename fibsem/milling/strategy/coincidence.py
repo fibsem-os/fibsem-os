@@ -421,14 +421,18 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
 
     def _drop_rule(self) -> IntensityDropRule:
         """The drop rule for a run, over the run's intensities."""
-        rule = IntensityDropRule(
-            drop_fraction=self.config.intensity_drop_fraction,
-            rolling_window=self.config.rolling_window,
-            warmup_duration=self.config.warmup_duration,
-            consecutive_triggers=self.config.consecutive_triggers,
-        )
+        rule = IntensityDropRule(0, 0, 0, 0)
         rule.values = self.intensities
+        self._tune(rule)
         return rule
+
+    def _tune(self, rule: IntensityDropRule) -> None:
+        """Give *rule* the config's settings as they are now: the coincidence
+        viewer changes the drop fraction while it mills."""
+        rule.drop_fraction = float(self.config.intensity_drop_fraction)
+        rule.rolling_window = int(self.config.rolling_window)
+        rule.warmup_duration = float(self.config.warmup_duration)
+        rule.consecutive_triggers = int(self.config.consecutive_triggers)
 
     def _save_intensities(self):
         if self.path is None:
@@ -505,6 +509,7 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
         self.timestamps.append(time.time())
 
         elapsed = time.time() - (self._acquisition_start_time or time.time())
+        self._tune(self._rule)
         rule = self._rule.update(float(mean_intensity), elapsed)
         if rule["drop_detected"]:
             self._drop_detected = True  # latch for the monitor loop (auto-stop)
