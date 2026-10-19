@@ -44,8 +44,10 @@ from pydantic import BeforeValidator
 
 import fibsem
 from fibsem.codec import (
+    Array,
     AwareTimestamp,
     NamedEnum,
+    Tagged,
     Timestamp,
     decode,
     encode,
@@ -1954,38 +1956,23 @@ class MicroscopeState:
 
 ########### Base Pattern Settings
 @dataclass
-class FibsemPatternSettings(ABC):
+class FibsemPatternSettings(Tagged, ABC):
     # Keys a dict may carry beyond the fields: the shape it names, which
     # `from_dict` reads to pick the class (`fibsem.devices.wire` accepts them).
     FROM_DICT_KEYS: ClassVar[Tuple[str, ...]] = ("type",)
 
     def to_dict(self) -> Dict[str, Any]:
-        ddict = asdict(self)
-        # Handle any special cases
-        if "cross_section" in ddict:
-            ddict["cross_section"] = ddict["cross_section"].name
-        return ddict
+        return encode(self)
 
     @classmethod
     def from_dict(
         cls: Type[TFibsemPatternSettings], data: Dict[str, Any]
     ) -> TFibsemPatternSettings:
-        if cls is FibsemPatternSettings:  # abstract: the dict names its shape
-            return cls._subclass_named(data.get("type")).from_dict(data)
-        kwargs = {}
-        for f in fields(cls):
-            if f.name in data:
-                kwargs[f.name] = data[f.name]
-
-        # Construct objects
-        cross_section = kwargs.pop("cross_section", None)
-        if cross_section is not None:
-            kwargs["cross_section"] = CrossSectionPattern[cross_section]
-
-        return cls(**kwargs)
+        """Read a pattern; read as the base class, the dict names its ``type``."""
+        return decode(cls, data)
 
     @classmethod
-    def _subclass_named(cls, type_name: Any) -> Type[FibsemPatternSettings]:
+    def subclass_named(cls, name: str) -> Type[FibsemPatternSettings]:
         """The shape a pattern dict names in its ``type``, as the App Server's
         ``draw_patterns`` takes it: ``"Rectangle"`` (or ``"FibsemRectangleSettings"``)."""
         shapes: Dict[str, Type[FibsemPatternSettings]] = {}
@@ -1995,12 +1982,10 @@ class FibsemPatternSettings(ABC):
             pending += sub.__subclasses__()
             shapes[sub.__name__] = sub
             shapes[sub.__name__.replace("Fibsem", "").replace("Settings", "")] = sub
-        if type_name not in shapes:
+        if name not in shapes:
             available = sorted(name for name in shapes if not name.startswith("Fibsem"))
-            raise ValueError(
-                f"Unknown pattern type: {type_name!r}. Available: {available}"
-            )
-        return shapes[type_name]
+            raise ValueError(f"Unknown pattern type: {name!r}. Available: {available}")
+        return shapes[name]
 
     @property
     @abstractmethod
@@ -2008,7 +1993,7 @@ class FibsemPatternSettings(ABC):
         pass
 
 
-class CrossSectionPattern(Enum):
+class CrossSectionPattern(NamedEnum, Enum):
     Rectangle = auto()
     RegularCrossSection = auto()
     CleaningCrossSection = auto()
@@ -2081,8 +2066,8 @@ class FibsemBitmapSettings(FibsemPatternSettings):
     is_exclusion: bool = False
     flip_y: bool = False
     path: InitVar[Optional[Union[str, os.PathLike]]] = None
-    array: InitVar[Optional[NDArray[Any]]] = None
-    bitmap: Optional[NDArray[Any]] = field(init=False)
+    array: InitVar[Optional[Array]] = None
+    bitmap: Optional[Array] = field(init=False)
     interpolate: Optional[Literal["nearest", "bicubic", "bilinear"]] = None
 
     def __post_init__(
@@ -2117,24 +2102,12 @@ class FibsemBitmapSettings(FibsemPatternSettings):
 
 @dataclass
 class FibsemPolygonSettings(FibsemPatternSettings):
-    vertices: np.ndarray[float]  # n[x, y]
+    vertices: Array  # n[x, y]
     depth: float
     is_exclusion: bool = False
 
-    def to_dict(self) -> dict:
-        return {
-            "vertices": self.vertices.tolist(),
-            "depth": self.depth,
-            "is_exclusion": self.is_exclusion,
-        }
-
-    @staticmethod
-    def from_dict(data: dict) -> "FibsemPolygonSettings":
-        return FibsemPolygonSettings(
-            vertices=np.asarray(data["vertices"], dtype=float),
-            depth=data["depth"],
-            is_exclusion=data.get("is_exclusion", False),
-        )
+    def __post_init__(self) -> None:
+        self.vertices = np.asarray(self.vertices, dtype=float)
 
     @property
     def volume(self) -> float:
