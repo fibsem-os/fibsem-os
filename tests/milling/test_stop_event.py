@@ -87,7 +87,7 @@ def test_overtilt_strategy_aborts_before_milling():
     ev = threading.Event()
     ev.set()
     with pytest.raises(OperationCancelledError):
-        stage.strategy.run(microscope, stage, stop_event=ev)
+        stage.get_strategy().run(microscope, stage, stop_event=ev)
     assert milled == []
 
 
@@ -112,7 +112,7 @@ def test_overtilt_threads_stop_event_into_alignment(monkeypatch):
     )
 
     with pytest.raises(OperationCancelledError):
-        stage.strategy.run(microscope, stage, stop_event=ev)
+        stage.get_strategy().run(microscope, stage, stop_event=ev)
 
     assert captured["stop_event"] is ev  # wiring: strategy -> alignment
     assert milled == []  # aborted after alignment, before the beam
@@ -147,7 +147,7 @@ def test_overtilt_restores_stage_pose_after_a_normal_run(monkeypatch):
     # move_stage_relative rebinds it while move_stage_absolute mutates in place
     t0 = microscope.get_stage_position().t
 
-    stage.strategy.run(microscope, stage)
+    stage.get_strategy().run(microscope, stage)
 
     assert microscope.get_stage_position().t == pytest.approx(t0)
 
@@ -158,7 +158,7 @@ def test_overtilt_restores_stage_pose_when_cancelled_mid_tilt(monkeypatch):
     that is not cosmetic."""
     microscope, _ = utils.setup_session(manufacturer="Demo")
     stage = _trench_stage("ot")
-    stage.strategy.config.overtilt = 10.0
+    stage.strategy.overtilt = 10.0
 
     ev = threading.Event()
     tilted_at = {}
@@ -173,7 +173,7 @@ def test_overtilt_restores_stage_pose_when_cancelled_mid_tilt(monkeypatch):
     t0 = microscope.get_stage_position().t
 
     with pytest.raises(OperationCancelledError):
-        stage.strategy.run(microscope, stage, stop_event=ev)
+        stage.get_strategy().run(microscope, stage, stop_event=ev)
 
     assert tilted_at["t"] != pytest.approx(t0), (
         "test is vacuous unless the stage really tilted"

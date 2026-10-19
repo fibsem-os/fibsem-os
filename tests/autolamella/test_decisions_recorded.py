@@ -3,7 +3,7 @@
 
 The app's own ``EventRecorder`` on Demo, watching a real ``Experiment``. Every
 decision is made through the experiment's own methods -- ``decide`` for a
-person or an agent, ``expire_open``, ``withdraw_proposal`` and
+person or an agent, ``apply_proposed``, ``withdraw_proposal`` and
 ``record_unasked`` for the record itself -- and read back from the buffer.
 """
 
@@ -86,6 +86,18 @@ def _poi_proposal(lamella, x=0.0):
         },
     )
     set_proposals(lamella, TASK, [proposal])
+    return proposal
+
+
+def _rerun(lamella, x=0.0):
+    """Setup run again: a new point beside the decided one, which stays on
+    the record."""
+    proposal = Proposal(
+        kind=POINT_OF_INTEREST,
+        values={"poi": Point(x, 0.0)},
+        provenance={"task_id": RUN, "proposer": "current-poi"},
+    )
+    lamella.record_proposal(TASK, proposal)
     return proposal
 
 
@@ -215,9 +227,11 @@ def test_a_question_is_recorded_and_so_is_the_position_it_was_confirmed_at(
 
 def test_what_nobody_decided_is_recorded_as_the_task_s(experiment, recorder):
     lamella = experiment.positions[0]
-    # An automated value its consumer started on before anyone looked.
+    # A result nobody was asked about: used as proposed when the run ended.
     open_one = _poi_proposal(lamella)
-    assert experiment.expire_open(lamella.id, TASK, "Mill Rough started") == 1
+    assert experiment.apply_proposed(
+        lamella.id, TASK, open_one.id, "nobody was asked"
+    ).applied
     # A question nobody was asked: the task is not supervised.
     unasked = Proposal(
         kind=STATE,
@@ -244,7 +258,7 @@ def test_what_nobody_decided_is_recorded_as_the_task_s(experiment, recorder):
     ]
     unreviewed = decided[0]["payload"]
     assert unreviewed["decided"] == unreviewed["proposed"]  # used as proposed
-    assert unreviewed["reason"] == "Mill Rough started"
+    assert unreviewed["reason"] == "nobody was asked"
 
 
 def test_what_the_experiment_held_when_watched_is_not_recorded_again(
@@ -255,13 +269,14 @@ def test_what_the_experiment_held_when_watched_is_not_recorded_again(
     _decide(experiment, earlier, "operator:op", {"poi": Point(1e-6, 0.0)})
     recorder = EventRecorder(microscope, experiment=experiment)
     try:
-        # A second look at the same proposal: its first decision was made
+        # A re-run decided: the earlier decision on the same task was made
         # before the recorder watched, and is not new.
-        _decide(experiment, earlier, "operator:someone-else")
+        later = _rerun(lamella, 2e-6)
+        _decide(experiment, later, "operator:someone-else", {"poi": Point(2e-6, 0)})
 
         ((event),) = _events(recorder)
-        assert (event["payload"]["decision"], event["payload"]["actor"]) == (
-            1,
+        assert (event["payload"]["proposal_id"], event["payload"]["actor"]) == (
+            later.id,
             "operator:someone-else",
         )
     finally:
@@ -279,7 +294,8 @@ def test_the_experiment_watched_is_the_one_set(microscope, experiment, tmp_path)
         assert len(_events(recorder)) == 1
 
         recorder.set_experiment(None)
-        _decide(experiment, proposal, "operator:op")  # a second look
+        later = _rerun(experiment.positions[0])
+        _decide(experiment, later, "operator:op", {"poi": Point(0.0, 0.0)})
         assert len(_events(recorder)) == 1, "recorded after it stopped watching"
     finally:
         recorder.close()

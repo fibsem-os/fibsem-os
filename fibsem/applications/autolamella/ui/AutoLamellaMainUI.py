@@ -45,6 +45,7 @@ import fibsem.config as fibsem_cfg
 from fibsem.acting import OPERATOR
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.applications.autolamella.poses import remove_lamella
+from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
 from fibsem.applications.autolamella.structures import (
     Experiment,
     Lamella,
@@ -73,10 +74,6 @@ from fibsem.applications.autolamella.ui.overview_container_tab import (
     AutoLamellaOverviewContainerTab,
 )
 from fibsem.applications.autolamella.ui.quad_overview_page import QuadOverviewPage
-from fibsem.applications.autolamella.ui.review_tab_widget import (
-    ReviewTabWidget,
-    review_tab_icon,
-)
 from fibsem.applications.autolamella.ui.screen_grids_dialog import (
     ScreenGridsDialog,
     scan_in_progress,
@@ -150,8 +147,7 @@ from fibsem.workflows.grid.naming import (
     grid_rename_refusal,
     rename_grid,
 )
-from fibsem.workflows.grids import GridRecord
-from fibsem.workflows.proposals import STATE
+from fibsem.workflows.proposals import ALIGNMENT_AREA, DETECTION
 from fibsem.workflows.queue import QUEUE_ACTIONS
 from fibsem.workflows.runner import (
     GRIDS,
@@ -161,8 +157,6 @@ from fibsem.workflows.runner import (
     item_task_pairs,
 )
 from fibsem.workflows.status import (
-    Hold,
-    HoldKind,
     TaskStatus,
     WorkflowStatusEvent,
     WorkflowStatusUpdate,
@@ -174,6 +168,9 @@ from fibsem.workflows.status import (
 EXPERIMENT_MENU_MAX_WIDTH = 360
 # The connection chip: a manufacturer and an address, and no more room than that.
 CONNECTION_CHIP_MAX_WIDTH = 220
+
+# The kinds a task asks whose value is edited on a widget of its own.
+WIDGET_KINDS = (DETECTION, ALIGNMENT_AREA, POINT_OF_INTEREST)
 
 # Icons sat on a button, rather than in a menu, are drawn at this size.
 BUTTON_ICON_SIZE = 16
@@ -445,13 +442,6 @@ def _absorbed_note(estimate: Optional[AdditionEstimate]) -> str:
         f"Only {format_duration_rounded(estimate.delay_seconds, pad=True)} of this lands after "
         "the workflow's scheduled wait; the rest fits inside it."
     )
-
-
-def _attention_label(hold: Hold) -> str:
-    """The attention button's text for a hold the operator can release."""
-    if hold.kind is HoldKind.decision:
-        return f"Review Required ({len(hold.items)})"
-    return "Attention Required"
 
 
 class AutoLamellaSingleWindowUI(QMainWindow):
@@ -1685,9 +1675,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._set_border_state("stopping")
 
     def _listen_for_questions(self, experiment) -> None:
-        """A question a task asks mid-run (``AutoLamellaTask.ask``) is answered
-        in the Review tab, so the tab is fronted when one is recorded. One
-        subscription per experiment; the previous experiment's is dropped."""
+        """A question a task asks mid-run (``AutoLamellaTask.ask``) is put up
+        on the widget its kind is answered on when it is recorded. One
+        subscription per experiment; the previous experiment's is dropped. A
+        question already standing when the window starts listening (a run that
+        began without it) is put up at once."""
         previous = getattr(self, "_asked_experiment", None)
         if previous is experiment:
             return
@@ -1701,69 +1693,50 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if experiment is not None:
             experiment.asked.connect(self._on_question_asked)
             experiment.decided.connect(self._on_question_decided)
+            for item, task_name, _proposal in experiment.pending_proposals():
+                self._on_question_asked(item.id, task_name)
 
     def _on_question_asked(self, item_id: str, task_name: str) -> None:
         """Put a question a task just asked in front of the operator, where
-        its kind is answered: a state on the prompt bar of the Microscope tab
-        (the operator is at the instrument, and confirming needs no image); a
-        mill's or a spot burn's pass on the prompt bar over its widget, where
-        the operator edits what runs; anything else in the Review tab, which
-        is fronted."""
-        review_tab = getattr(self, "review_tab", None)
+        its kind is answered: a mill's or a spot burn's pass on the prompt bar
+        over its widget, where the operator edits what runs; a detection, an
+        alignment area or a point of interest on the widget it is edited on;
+        anything else (a state) on the prompt bar of the Microscope tab, where
+        Continue confirms it as it stands."""
         experiment = getattr(self, "_asked_experiment", None)
-        if review_tab is None or experiment is None:
+        if experiment is None:
             return
         item = experiment.get_item_by_id(item_id)
         proposal = item.proposal(task_name) if item is not None else None
         if proposal is None or not proposal.asking:
             return
-        if proposal.kind == STATE:
+        if proposal.kind in LOOP_KINDS:
+            self.autolamella_ui.show_loop_question(item_id, task_name, proposal)
+        elif proposal.kind in WIDGET_KINDS:
+            self.autolamella_ui.show_widget_question(item_id, task_name, proposal)
+        else:
             self.autolamella_ui.show_state_question(item_id, task_name, proposal)
-            return
-        if proposal.kind in LOOP_KINDS and self.autolamella_ui.show_loop_question(
-            item_id, task_name, proposal
-        ):
-            return
-        self.tab_widget.setCurrentWidget(review_tab)
-        review_tab.select(item_id, task_name)
 
     def _on_question_decided(self, item_id: str, task_name: str) -> None:
-        """However a state question or a pass was answered -- the prompt bar,
-        the Review tab, an agent, or withdrawn by Stop -- the prompt comes
-        down."""
+        """However a question was answered -- the prompt bar, an agent, or
+        withdrawn by Stop -- the prompt comes down."""
         self.autolamella_ui.clear_state_question(item_id, task_name)
         self.autolamella_ui.clear_loop_question(item_id, task_name)
+        self.autolamella_ui.clear_widget_question(item_id, task_name)
 
     def _on_user_attention_clicked(self):
-        """Handle user attention button click - switch to Microscope tab, or to
-        the Review tab when what is waiting is a decision rather than a question.
+        """Handle user attention button click - switch to the Microscope tab.
 
         A question asked on a tab of its own -- a detection, a mill -- is not on
         the Microscope tab, so landing there leaves the operator looking for a
-        prompt that is somewhere else. This is the way back to it.
-
-        The destination comes from the question, never from the hold's kind.
-        ``HoldKind.question`` covers both a prompt answered here and one
-        answered on a tab of its own, and once an in-run review is answered in
-        the Review tab (FIB-1025) it will cover that too -- so the kind says
-        only that something holds the run, and the pending request says where.
+        prompt that is somewhere else. This is the way back to it. The
+        destination comes from the question, never from the hold's kind: the
+        kind says only that something holds the run.
         """
-        hold = self.autolamella_ui.hold
-        review_tab = getattr(self, "review_tab", None)
-        if (
-            hold is not None
-            and hold.kind is HoldKind.decision
-            and review_tab is not None
-        ):
-            self.tab_widget.setCurrentWidget(review_tab)
-            return
         # The agent's suggested answer is on its card, not on the prompt.
         if self.agent_chip.suggestion is not None:
             self.agent_chip.show_card()
-        host = (
-            self.autolamella_ui.loop_question_host()
-            or self.autolamella_ui.ui_responder.question_host()
-        )
+        host = self.autolamella_ui.question_host()
         if host is not None and self.tab_widget.indexOf(host) != -1:
             # A question answered on one of this window's own tabs.
             self.tab_widget.setCurrentWidget(host)
@@ -2442,7 +2415,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.add_lamella_editor_tab()
         self.add_grids_tab()
         self.add_workflow_tab()
-        self.add_review_tab()
 
         # add notification button to tab bar
         self.create_notification_button()
@@ -2461,8 +2433,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.lamella_widget.set_experiment()
         self.grids_tab.set_experiment(self.autolamella_ui.experiment)
         self.grid_workflow_widget.set_experiment(self.autolamella_ui.experiment)
-        self.review_tab.set_experiment(self.autolamella_ui.experiment)
-        self.review_tab.set_microscope(self.autolamella_ui.microscope)
         experiment = self.autolamella_ui.experiment
         self.quad_overview_page.set_experiment(experiment)
         self._listen_for_questions(experiment)
@@ -2884,67 +2854,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             "Grids",
         )
         self.tab_widget.setTabEnabled(self.tab_widget.indexOf(self.grids_tab), False)
-
-    def add_review_tab(self):
-        """The Review tab: every proposal waiting for a decision (FIB-950).
-
-        The inbox is derived from the experiment on every refresh, so the tab
-        holds no state a decision could be lost in.
-        """
-        self.review_tab = ReviewTabWidget()
-        self.review_tab.counts_changed.connect(self._on_reviews_counts_changed)
-        self.review_tab.decided.connect(self._on_review_decided)
-        self.review_tab.open_item_requested.connect(self._on_review_open_item)
-        self.tab_widget.addTab(self.review_tab, review_tab_icon(), "Review")
-
-    def _on_reviews_counts_changed(self, waiting: int, to_check: int) -> None:
-        """The tab badge carries both counts; only ``waiting`` means the run is
-        stalled on someone, and the orange border follows the manager, not
-        this badge, so a pile of things to check never looks like a stall."""
-        tab = getattr(self, "review_tab", None)
-        if tab is None:
-            return
-        index = self.tab_widget.indexOf(tab)
-        parts = []
-        if waiting:
-            parts.append(str(waiting))
-        if to_check:
-            parts.append(f"{to_check} to check")
-        self.tab_widget.setTabText(
-            index, f"Review ({' · '.join(parts)})" if parts else "Review"
-        )
-        self.tab_widget.setTabToolTip(
-            index,
-            f"{waiting} waiting for a decision, {to_check} applied and not yet checked",
-        )
-
-    def _on_review_open_item(self, item) -> None:
-        """Go to lamella, or grid: select it where it is looked after. Editing
-        is not a review action, so the Review tab hands over rather than
-        growing one."""
-        if isinstance(item, GridRecord):
-            grids = getattr(self, "grids_tab", None)
-            if grids is not None:
-                self.tab_widget.setCurrentWidget(grids)
-                # Positions, not wherever the tab was left: every grid review
-                # is about an overview, and placing on one is the thing a
-                # reviewer comes here to do -- an automated overview's row
-                # sends them here for exactly that.
-                grids.show_positions(item)
-            return
-        container = getattr(self, "_lamella_tab_container", None)
-        cards = getattr(self, "lamella_card_container", None)
-        if container is None or cards is None or item is None:
-            return
-        self.tab_widget.setCurrentWidget(container)
-        cards.select_lamella(item.name)
-        self._on_lamella_card_selected(item)
-
-    def _on_review_decided(self, _item_id: str, _task_name: str) -> None:
-        # The decision wrote through to the lamella (its point, its patterns,
-        # or its verdict); everything that shows a lamella redraws.
-        self.lamella_list_widget.refresh_all()
-        self.lamella_widget.set_experiment()
 
     def _refresh_grid_protocol_editor(self) -> None:
         """The task order changed on the Workflow tab: the Protocol tab's grid
@@ -3552,11 +3461,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         if event.report is not None:
             self._apply_status_report(event.report)
-            # A task finishing may have left a proposal; the inbox re-derives.
-            review_tab = getattr(self, "review_tab", None)
-            if review_tab is not None:
-                review_tab.set_running(self.autolamella_ui.session.runner.is_running)
-                review_tab.refresh()
 
         if self.autolamella_ui is None:
             return
@@ -3667,7 +3571,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 TaskStatus.Completed,
                 TaskStatus.Failed,
                 TaskStatus.Cancelled,
-                TaskStatus.AwaitingDecision,
             )
             and hasattr(self, "lamella_task_image_widget")
         ):
@@ -4006,16 +3909,15 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def _agent_review_image(self, arguments: dict):
         """The image a waiting ``review_decide``'s values sit on: its proposal's
-        reference image, found as the Review tab finds it. None when the
-        proposal is not pending or has none."""
-        from fibsem.applications.autolamella.ui.review_tab_widget import (
-            _load_reference_image,
+        reference image. None when the proposal is not pending or has none."""
+        from fibsem.applications.autolamella.review_images import (
+            load_reference_image,
         )
 
         found = self._agent_review_pending(arguments)
         if found is None:
             return None
-        return _load_reference_image(self.autolamella_ui.experiment, *found)
+        return load_reference_image(self.autolamella_ui.experiment, *found)
 
     def _on_agent_suggestion(self, suggestion: Optional[dict]) -> None:
         """GUI thread: the agent's suggested answer went up or came down. It
@@ -4063,15 +3965,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # it would spend the estimate while nothing is happening.
         self.workflow_timeline.set_waiting_for_user(hold is not None)
         # A question is a wait for the operator, whether or not an agent is
-        # connected and may answer first. A run parked on review decisions is a
-        # wait for the operator too, just not at the beam: same chrome, but the
-        # button leads to the Review tab.
+        # connected and may answer first.
         # The line says what releases a hold the operator can release, and counts
         # the wait; Attention Required stays the way there.
         self.status_bar.set_waiting(hold.releases if hold is not None else None)
         if hold is not None:
             self.workflow_controls.set_attention(
-                _attention_label(hold), f"The run is waiting on you: {hold.releases}."
+                "Attention Required", f"The run is waiting on you: {hold.releases}."
             )
             # Play notification sound once when entering waiting state
             if not self._user_interaction_sound_played and self._sound_enabled:
@@ -4219,10 +4119,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             sample.refresh()
         self.workflow_controls.set_attention(None)
         self.lamella_list_widget.refresh_all()
-        review_tab = getattr(self, "review_tab", None)
-        if review_tab is not None:
-            review_tab.set_running(False)
-            review_tab.refresh()
         self.lamella_card_container.refresh_all()
         self._say_how_the_run_ended()
         self._set_border_state("idle")

@@ -25,7 +25,7 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtWidgets import QCheckBox  # noqa: E402
 
 from fibsem import utils  # noqa: E402
-from fibsem.milling.base import get_strategy  # noqa: E402
+from fibsem.milling.base import get_strategy_config  # noqa: E402
 from fibsem.milling.patterning import get_pattern  # noqa: E402
 from fibsem.structures import FibsemMillingSettings  # noqa: E402
 from fibsem.ui.widgets.custom_widgets import (  # noqa: E402
@@ -117,28 +117,28 @@ def test_a_pattern_point_edit_reaches_the_pattern(qapp, microscope, axis):
 
 
 def test_a_strategy_spinbox_edit_reaches_the_config(qapp):
-    widget = FibsemStrategySettingsWidget(get_strategy("Overtilt"))
+    widget = FibsemStrategySettingsWidget(get_strategy_config("Overtilt"))
     emitted = []
     widget.strategy_changed.connect(emitted.append)
 
     _row(widget, "overtilt").control.widget.setValue(4.0)
 
     assert emitted
-    assert emitted[-1].config.overtilt == 4.0
+    assert emitted[-1].overtilt == 4.0
 
 
 def test_a_strategy_checkbox_edit_reaches_the_config(qapp):
     """A checkbox emits toggled(bool) -- another payload-carrying signal."""
-    widget = FibsemStrategySettingsWidget(get_strategy("Overtilt"))
+    widget = FibsemStrategySettingsWidget(get_strategy_config("Overtilt"))
     emitted = []
     widget.strategy_changed.connect(emitted.append)
 
     row = _first_of(widget, QCheckBox)
     assert row is not None, "expected a strategy with a boolean field"
-    row.control.widget.setChecked(not getattr(widget._strategy.config, row.field))
+    row.control.widget.setChecked(not getattr(widget._strategy, row.field))
 
     assert emitted
-    assert getattr(emitted[-1].config, row.field) == row.control.widget.isChecked()
+    assert getattr(emitted[-1], row.field) == row.control.widget.isChecked()
 
 
 # --- milling settings ---------------------------------------------------------

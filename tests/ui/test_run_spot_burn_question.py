@@ -260,7 +260,7 @@ def test_run_then_accept_burns_once_on_the_workflow_thread(ui, qapp):
     assert ui.pushButton_yes.text() == "Run Spot Burn"
     assert ui.pushButton_no.text() == "Skip"
     assert ui.spot_burn_widget._workflow_mode is True
-    assert ui.hold is not None and ui.hold.kind is HoldKind.decision
+    assert ui.hold is not None and ui.hold.kind is HoldKind.question
 
     ui.pushButton_yes.click()  # run
     _wait_for_prompt(ui, qapp, AGAIN_HINT)
@@ -456,21 +456,18 @@ def test_accept_keeps_what_was_burned_not_a_later_edit(ui, qapp):
     assert task.config.exposure_time == pytest.approx(7.0)
 
 
-def test_no_spot_burn_widget_asks_in_the_review_tab(window, ui, qapp):
+def test_no_spot_burn_widget_still_asks_on_the_prompt_bar(window, ui, qapp):
     real_widget = ui.spot_burn_widget
     ui.spot_burn_widget = None
     try:
         task, thread, outcome = _start(ui, qapp, wait_for=None)
         _wait(
             qapp,
-            lambda: (
-                _current_pass(ui) is not None
-                and window.tab_widget.currentWidget() is window.review_tab
-            ),
-            why="the pass was not put in the Review tab",
+            lambda: _current_pass(ui) is not None and ui._loop_question is not None,
+            why="the pass was not put on the prompt bar",
         )
-        assert ui._loop_question is None, "nothing to show it over"
-        _decide(ui, qapp, ACTION_SKIP, asks_again=False)
+        assert ui.pushButton_no.text() == "Skip"
+        ui.pushButton_no.click()
         _finish(thread, qapp)
     finally:
         ui.spot_burn_widget = real_widget

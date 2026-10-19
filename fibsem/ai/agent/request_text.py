@@ -504,13 +504,6 @@ def _options_line(a: Dict[str, Any]) -> str:
             if a["turn_beams_off"]
             else "Leave the beams on when a run ends"
         )
-    if "review_wait" in a:
-        wait = a["review_wait"]
-        parts.append(
-            "Wait on reviews until stopped"
-            if wait is None or wait == -1
-            else f"Wait on reviews for {_number(float(wait))} s of quiet"
-        )
     return "; ".join(parts) or "No change"
 
 
@@ -1130,9 +1123,7 @@ def _recent_experiment_about(get, path: str) -> Optional[str]:
 def _review_item(reviews: Any, item_id: Any) -> Optional[str]:
     if not isinstance(reviews, dict):
         return None
-    for review in list(reviews.get("reviews") or []) + list(
-        reviews.get("to_check") or []
-    ):
+    for review in reviews.get("reviews") or []:
         if isinstance(review, dict) and review.get("item_id") == item_id:
             return review.get("item_name")
     return None

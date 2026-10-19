@@ -101,6 +101,7 @@ from fibsem.workflows.interaction import (
     Responder,
     SetFluorescenceChannels,
     SetMillingConfig,
+    ShowDetection,
     ask,
 )
 from fibsem.workflows.proposals import (
@@ -150,7 +151,7 @@ class AutoLamellaTask(BaseTask):
     # kind that is not here.
     questions: ClassVar[Tuple[str, ...]] = ()
     # The last final ion and electron images. The last is the tightest field
-    # of view, the one the Review tab shows.
+    # of view, the one a reviewer is shown.
     result_images: ClassVar[Dict[str, str]] = {
         "reference_image": "final_fib",
         "reference_image_eb": "final_sem",
@@ -225,9 +226,7 @@ class AutoLamellaTask(BaseTask):
     def supervised(self) -> bool:
         """Whether the protocol's attention for this task is Supervised, read
         through the manager rather than the UI so a headless run behaves the
-        same. Then a result the operator did not decide in the workflow -- a
-        milling session's Continue, Setup's point -- leaves the task
-        AwaitingDecision, and the decision in the Review tab finishes it."""
+        same: then its questions are asked of whoever can answer."""
         manager = self.task_manager
         if manager is None:
             return False
@@ -329,8 +328,9 @@ class AutoLamellaTask(BaseTask):
         The ask is a proposal on the lamella (``values`` are what the task
         would use as they stand; ``image`` the saved file they sit on, relative
         to the lamella's folder), and the answer is a decision on it, through
-        ``Experiment.decide`` like every other: from the Review tab, from the
-        prompt bar, from a connected agent. Returned as the decision, so the
+        ``Experiment.decide`` like every other: from the widget the kind is
+        answered on (the prompt bar, the Detection tab, the milling editor),
+        from a connected agent. Returned as the decision, so the
         task reads ``.outcome`` and ``.values``; a task applies the decided
         values itself, so a kind asked here must not write them through.
 
@@ -462,12 +462,12 @@ class AutoLamellaTask(BaseTask):
         """Take an image, run the model on it, and ask about what it found.
 
         The detection is a ``detection`` question through ``ask``: recorded
-        on the lamella against the image the model ran on, answered in the
-        Review tab (a marker dragged, then Confirm), and the decided points
-        are put back on the detection with ``feature_m`` recomputed, so the
-        stage moves by the corrected value. A rejection fails the task, as
-        Reject in the Review tab says it does. The training data is written
-        here, against the decided points.
+        on the lamella against the image the model ran on, answered on the
+        Detection tab (the features shown there first, a marker dragged,
+        then Continue) or by an agent, and the decided points are put back
+        on the detection with ``feature_m`` recomputed, so the stage moves by
+        the corrected value. A rejection (an agent's) fails the task. The
+        training data is written here, against the decided points.
         """
         message = message or self.lamella.status_info
         names = ", ".join(f.name for f in features)
@@ -483,6 +483,18 @@ class AutoLamellaTask(BaseTask):
             point=position,
             checkpoint=checkpoint,
         )
+        if self.responder is not None and not self.unasked_reason(
+            DETECTION, enabled=enabled
+        ):
+            # The Detection tab shows what the model found, as a copy: the
+            # operator drags its markers, and the original is what the
+            # correction is measured against.
+            ask(
+                self.responder,
+                ShowDetection(detection=deepcopy(detection)),
+                abort=lambda: _abort_requested(self.task_manager),
+                timeout=INSTRUCTION_TIMEOUT_S,
+            )
         decision = self.ask(
             DETECTION,
             detection_values(detection),
@@ -641,8 +653,8 @@ class AutoLamellaTask(BaseTask):
     def _decided_in_the_workflow(self, actor: Actor) -> None:
         """``actor`` answered this run's session in the workflow: a mill's
         Accept, a setup's Save. That is the decision on the run's result,
-        recorded as theirs rather than the producer's own, and the task does
-        not wait a second time in the Review tab for a look it already had."""
+        recorded as theirs rather than the producer's own: nobody is asked to
+        check a result they already looked at."""
         self.inline_decision = Decision(
             outcome=DecisionOutcome.Confirmed,
             actor=actor,
@@ -1062,9 +1074,9 @@ class AutoLamellaTask(BaseTask):
 
         An ``alignment_area`` question on ``image`` -- the last FIB reference
         image unless the caller names the frame -- answered by dragging the
-        rectangle in the Review tab; the decided area is what the task
-        acquires with. A rejection fails the task, as Reject in the Review
-        tab says. ``enabled`` is the task's own switch.
+        rectangle on the Microscope tab's FIB view, then Continue; the decided
+        area is what the task acquires with. A rejection (an agent's) fails
+        the task. ``enabled`` is the task's own switch.
         """
         self.log_status_message(
             "VALIDATE_ALIGNMENT_AREA", "Validating Alignment Image..."

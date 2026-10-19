@@ -213,17 +213,18 @@ def test_the_microscope_defaults_are_bounded_by_the_beam():
 
 
 def test_the_overtilt_image_resolution_offers_the_ion_beams_resolutions():
-    from fibsem.milling.base import get_strategy
+    from fibsem.milling.base import get_strategy_config
     from fibsem.ui.widgets.strategy_settings_widget import (
         FibsemStrategySettingsWidget,
     )
 
     microscope = _demo()
     _report(microscope, I, "resolution", choices=RESOLUTIONS)
-    strategy = get_strategy("Overtilt")
     # a list, as a loaded protocol has it
-    strategy.config = type(strategy.config).from_dict({"image_resolution": [1024, 884]})
-    widget = FibsemStrategySettingsWidget(strategy, microscope=microscope)
+    config = get_strategy_config(
+        "Overtilt", {"config": {"image_resolution": [1024, 884]}}
+    )
+    widget = FibsemStrategySettingsWidget(config, microscope=microscope)
     (row,) = [r for r in widget._rows if r.field == "image_resolution"]
 
     assert _items(row.control.widget) == RESOLUTIONS
@@ -231,12 +232,12 @@ def test_the_overtilt_image_resolution_offers_the_ion_beams_resolutions():
 
 
 def test_the_overtilt_image_resolution_offers_the_standard_ones_with_no_microscope():
-    from fibsem.milling.base import get_strategy
+    from fibsem.milling.base import get_strategy_config
     from fibsem.ui.widgets.strategy_settings_widget import (
         FibsemStrategySettingsWidget,
     )
 
-    widget = FibsemStrategySettingsWidget(get_strategy("Overtilt"))
+    widget = FibsemStrategySettingsWidget(get_strategy_config("Overtilt"))
     (row,) = [r for r in widget._rows if r.field == "image_resolution"]
 
     assert _items(row.control.widget) == list(STANDARD_RESOLUTIONS)

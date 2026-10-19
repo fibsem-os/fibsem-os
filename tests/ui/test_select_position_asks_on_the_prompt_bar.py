@@ -1,12 +1,10 @@
-"""Select Position, supervised with the review preference on, asks its two
-confirmations on the prompt bar and leaves the point for afterwards.
+"""Select Position, supervised, asks everything it needs on the Microscope tab.
 
-The tilt to the milling angle and the move to the milling position are
-``state`` questions: each is asked on the prompt bar of the Microscope tab,
-Continue there is a decision on the record, and the task carries on. The
-alignment area is asked on the record too and answered in the Review tab, and
-the point of interest is proposed at the end for the Review tab, so the task
-ends awaiting that decision.
+The tilt to the milling angle (Tilt or Skip) and the move to the milling
+position (Continue) are ``state`` questions on the prompt bar. The point of
+interest is the marker on the FIB view and the alignment area the rectangle
+on it, each with Continue. Every answer is a decision on the record, the task
+carries on, and nothing waits on it once it ends.
 """
 
 import os
@@ -37,11 +35,12 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
     SelectMillingPositionTask,
     SelectMillingPositionTaskConfig,
 )
-from fibsem.structures import FibsemRectangle, FibsemStagePosition
+from fibsem.structures import BeamType, FibsemRectangle, FibsemStagePosition
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.proposals import (
     ALIGNMENT_AREA,
     STATE,
+    TASK_RESULT,
     Decision,
     DecisionOutcome,
 )
@@ -181,11 +180,9 @@ def test_the_tilt_and_the_position_are_confirmed_on_the_prompt_bar(window, qapp)
         ui.hold,
         seen,
     )
-    assert ui.pushButton_yes.text() == "Continue"
-    assert ui.pushButton_no.isHidden(), (
-        "one verb: Continue tilts; not tilting is a Reject in the Review tab"
-    )
-    assert ui.hold is not None and ui.hold.kind is HoldKind.decision
+    assert (ui.pushButton_yes.text(), ui.pushButton_no.text()) == ("Tilt", "Skip")
+    assert ui.pushButton_no.isEnabled(), "Skip is how not to tilt"
+    assert ui.hold is not None and ui.hold.kind is HoldKind.question
     tilt = lamella.proposal(SETUP, STATE)
     assert tilt is not None and tilt.pending and tilt.asking
     assert microscope.get_current_milling_angle() == pytest.approx(38.0), (
@@ -207,32 +204,43 @@ def test_the_tilt_and_the_position_are_confirmed_on_the_prompt_bar(window, qapp)
     position = lamella.proposal(SETUP, STATE)
     assert position is not tilt and position.asking
     assert position.provenance["reference_image"].endswith("_post_tilt_ib.tif")
+    assert ui.pushButton_yes.text() == "Continue" and ui.pushButton_no.isHidden()
 
     ui.pushButton_yes.click()
 
-    # 3. the alignment area, a question in the Review tab (FIB-1053)
-    def _area_asked():
-        # asked on the task thread; fronted by the window once the signal
-        # has crossed to the GUI thread, so wait for both
-        area = lamella.proposal(SETUP, ALIGNMENT_AREA)
-        return (
-            area is not None
-            and area.asking
-            and window.tab_widget.currentWidget() is window.review_tab
-        )
-
-    assert _pump(qapp, _area_asked), (ui.label_instructions.text(), seen)
+    # 3. the point of interest, as the marker on the FIB view
+    assert _pump(qapp, lambda: _prompt_says(ui, "Move the marker")), (
+        ui.label_instructions.text(),
+        seen,
+    )
     pose = position.current.values["stage_position"]
     assert isinstance(pose, FibsemStagePosition), "filled in by the task"
+    point = lamella.proposal(SETUP, POINT_OF_INTEREST)
+    assert point.asking and ui.hold.kind is HoldKind.question
+    controller = window.view_controller
+    marker = controller.overlay_points(BeamType.ION, "poi")
+    assert marker, "the marker is up"
+    col, row = marker[0]
+    controller.set_points(BeamType.ION, "poi", [(col + 40, row)])
+
+    ui.pushButton_yes.click()
+
+    # 4. the alignment area, as the rectangle on the FIB view
+    assert _pump(qapp, lambda: _prompt_says(ui, "alignment area")), (
+        ui.label_instructions.text(),
+        seen,
+    )
+    assert point.current.outcome is DecisionOutcome.Confirmed
+    moved = point.current.values["poi"]
+    assert moved.x > 0 and lamella.poi == moved, "the dragged point, written"
+    assert not controller.overlay_points(BeamType.ION, "poi"), "marker down"
     area = lamella.proposal(SETUP, ALIGNMENT_AREA)
-    assert ui.hold is not None and ui.hold.kind is HoldKind.decision
-    assert window.tab_widget.currentWidget() is window.review_tab, "fronted"
+    assert area.asking
     assert area.provenance["reference_image"].endswith("_post_tilt_ib.tif")
     assert isinstance(area.values["alignment_area"], FibsemRectangle)
-    assert window.review_tab.select(lamella.id, SETUP)
-    window.review_tab.confirm_current()
 
-    # 4. the point of interest waits for afterwards
+    ui.pushButton_yes.click()
+
     assert _pump(qapp, lambda: not thread.is_alive()), "the task went on"
     assert "error" not in seen, seen
     assert area.current.outcome is DecisionOutcome.Confirmed
@@ -241,17 +249,17 @@ def test_the_tilt_and_the_position_are_confirmed_on_the_prompt_bar(window, qapp)
     assert [p.kind for p in lamella.proposals_from(SETUP)] == [
         STATE,
         STATE,
-        ALIGNMENT_AREA,
         POINT_OF_INTEREST,
+        ALIGNMENT_AREA,
+        TASK_RESULT,
     ]
-    assert lamella.proposal(SETUP, POINT_OF_INTEREST).pending
-    assert lamella.task_state.status is TaskStatus.AwaitingDecision
-    assert task.task_manager._defer_reason(lamella, ROUGH) == "awaiting_decision"
+    assert lamella.task_state.status is TaskStatus.Completed, "nothing waits"
+    assert task.task_manager._defer_reason(lamella, ROUGH) is None
 
 
-def test_a_rejected_tilt_does_not_tilt(window, qapp):
-    """Reject is the old prompt's Skip: the task carries on at the angle it
-    is at, and asks for the position there."""
+def test_skip_does_not_tilt(window, qapp):
+    """Skip rejects the tilt: the task carries on at the angle it is at, and
+    asks for the position there."""
     ui = window.autolamella_ui
     experiment = ui.experiment
     lamella = experiment.positions[0]
@@ -263,18 +271,7 @@ def test_a_rejected_tilt_does_not_tilt(window, qapp):
         seen,
     )
     tilt = lamella.proposal(SETUP, STATE)
-    result = experiment.decide(
-        lamella.id,
-        SETUP,
-        Decision(
-            outcome=DecisionOutcome.Rejected,
-            actor=experiment.actor(),
-            via="review",
-            reason="already at the angle I want",
-            proposal_id=tilt.id,
-        ),
-    )
-    assert result.applied, result.reason
+    ui.pushButton_no.click()
 
     assert _pump(qapp, lambda: _prompt_says(ui, "Double click the image")), (
         ui.label_instructions.text(),
@@ -282,6 +279,7 @@ def test_a_rejected_tilt_does_not_tilt(window, qapp):
     )
     assert "error" not in seen, seen
     assert tilt.current.outcome is DecisionOutcome.Rejected
+    assert tilt.current.reason == "Skip pressed"
     assert microscope.get_current_milling_angle() == pytest.approx(38.0), "not tilted"
     position = lamella.proposal(SETUP, STATE)
     assert position is not tilt and position.asking
