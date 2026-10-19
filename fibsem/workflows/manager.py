@@ -825,9 +825,7 @@ def _question_hold_text(
     can answer it now."""
     asked = f"{task_name} on {item_name}"
     names = [
-        name
-        for kind, name in ((OPERATOR, "the operator"), (AGENT, "the agent"))
-        if kind in who
+        name for kind, name in ((OPERATOR, "you"), (AGENT, "the agent")) if kind in who
     ]
     if not names:
         return (

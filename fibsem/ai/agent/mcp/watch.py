@@ -394,13 +394,11 @@ def watch(client, out=None, sleep_fn=None, poll_s=POLL_S, clock=None, since=None
         out("NO EVENTS: the server has no event stream, so there is nothing to watch.")
         return 1
     stream = snapshot.get("stream")
+    # Started at the tail, a question asked before this watch began is behind
+    # the cursor: said below, first, while a run is live.
+    held_before = since is None
     if since is None:
         since = snapshot.get("latest_seq") or 0
-        # Started at the tail, so a question asked before this watch began is
-        # behind the cursor: say the ones the run is stopped on now, first. An
-        # agent that reconnects to a held run hears what it is held on.
-        for item_name, task_name in _held_questions(client):
-            out(_question_line(item_name, task_name))
     elif (snapshot.get("latest_seq") or 0) < since:
         # Resumed with a seq from before the app restarted.
         out(RESTARTED_LINE)
@@ -409,6 +407,10 @@ def watch(client, out=None, sleep_fn=None, poll_s=POLL_S, clock=None, since=None
     # fires none (FIB-1331). So while one is live, /app/workflow/status is the
     # backstop.
     workflow_live = _run_is_live(client) is True
+    if workflow_live and held_before:
+        # An agent that reconnects to a held run hears what it is held on.
+        for item_name, task_name in _held_questions(client):
+            out(_question_line(item_name, task_name))
     checked_at = clock()
 
     failures = 0
