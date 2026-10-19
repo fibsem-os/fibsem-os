@@ -7,27 +7,12 @@ from fibsem import milling
 from fibsem.milling import FibsemMillingStage
 from fibsem.structures import BeamType, FibsemImage
 from fibsem.workflows.interaction import (
+    INSTRUCTION_TIMEOUT_S,
     SetImages,
+    _abort_requested,
     ask,
 )
 from fibsem.workflows.status import post_status
-
-# Instructions are answered by a machine, so silence past this is a wedged GUI
-# thread, not thinking. Generous because the GUI thread may legitimately be busy
-# painting; the real waits are milliseconds.
-INSTRUCTION_TIMEOUT_S = 30
-
-
-# CORE UI FUNCTIONS -> PROBS SEPARATE FILE
-def _abort_requested(run: Optional[Any]) -> bool:
-    """Whether the workflow has been asked to stop. Never raises.
-
-    Asks the run's manager (or the session's runner, which asks it): the same
-    predicate AutoLamellaTask._check_for_abort uses, so the two cannot disagree
-    about what counts as cancelled. Also the ``abort`` predicate for
-    :func:`interaction.ask`.
-    """
-    return bool(getattr(run, "should_abort", False))
 
 
 def _check_for_abort(

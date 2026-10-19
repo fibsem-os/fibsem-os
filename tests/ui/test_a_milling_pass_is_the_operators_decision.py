@@ -35,9 +35,9 @@ FIRST = f"{MSG} Press Run Milling to mill, or Skip to go on without milling."
 def ui(qapp, monkeypatch, tmp_path):
     """A real main window (Demo) holding an experiment whose Rough Milling is
     supervised, with the beam time of the mill itself stubbed at the task."""
-    from fibsem.applications.autolamella.workflows.tasks import base
+    from fibsem.workflows import task as task_module
 
-    monkeypatch.setattr(base, "run_milling_task", _mill)
+    monkeypatch.setattr(task_module, "run_milling_task", _mill)
     with main_window(
         qapp,
         tmp_path,
@@ -129,7 +129,7 @@ def test_the_mill_the_task_asks_for_writes_under_the_task_s_folder(
     ui, qapp, monkeypatch
 ):
     """The supervised mill is handed the task's output folder (FIB-1253)."""
-    from fibsem.applications.autolamella.workflows.tasks import base
+    from fibsem.workflows import task as task_module
 
     folders = []
 
@@ -137,7 +137,7 @@ def test_the_mill_the_task_asks_for_writes_under_the_task_s_folder(
         folders.append(kwargs.get("output_dir"))
         return _mill()
 
-    monkeypatch.setattr(base, "run_milling_task", run)
+    monkeypatch.setattr(task_module, "run_milling_task", run)
     task = _task(ui)
     thread, outcome = _run_on_worker_thread(task, ui, qapp)
 

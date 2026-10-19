@@ -27,9 +27,6 @@ import yaml
 from psygnal import evented
 from psygnal.containers import EventedDict, EventedList
 
-# Registers AutoLamella's proposal kinds and how their values are stored and
-# written: an experiment read from disk decodes its proposals with them.
-import fibsem.applications.autolamella.proposals  # noqa: F401
 from fibsem import timing
 from fibsem.applications.autolamella import config as cfg
 from fibsem.applications.autolamella.protocol.constants import (

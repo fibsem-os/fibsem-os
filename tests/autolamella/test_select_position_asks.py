@@ -20,7 +20,6 @@ from psygnal.containers import EventedDict
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
@@ -35,7 +34,12 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
 )
 from fibsem.structures import FibsemRectangle, FibsemStagePosition
 from fibsem.workflows.attention import Attention
-from fibsem.workflows.proposals import ALIGNMENT_AREA, DETECTION, STATE
+from fibsem.workflows.proposals import (
+    ALIGNMENT_AREA,
+    DETECTION,
+    POINT_OF_INTEREST,
+    STATE,
+)
 from tests.answering import answering
 
 SETUP = "Setup Lamella Position"

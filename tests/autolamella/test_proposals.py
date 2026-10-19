@@ -14,7 +14,6 @@ import yaml
 from psygnal.containers import EventedDict
 
 from fibsem.acting import Actor, ActorKind
-from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
@@ -33,6 +32,7 @@ from fibsem.workflows.experiment import EXPERIMENT_WRITE_LOCK
 from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.proposals import (
     ALIGNMENT_AREA,
+    POINT_OF_INTEREST,
     PROPOSAL_KINDS,
     STATE,
     Decision,

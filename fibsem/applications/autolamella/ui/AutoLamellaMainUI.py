@@ -40,7 +40,6 @@ import fibsem.config as fibsem_cfg
 from fibsem.acting import OPERATOR
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.applications.autolamella.poses import remove_lamella
-from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
 from fibsem.applications.autolamella.structures import (
     Experiment,
     Lamella,
@@ -135,7 +134,7 @@ from fibsem.workflows.grid.naming import (
     grid_rename_refusal,
     rename_grid,
 )
-from fibsem.workflows.proposals import ALIGNMENT_AREA, DETECTION
+from fibsem.workflows.proposals import ALIGNMENT_AREA, DETECTION, POINT_OF_INTEREST
 from fibsem.workflows.queue import QUEUE_ACTIONS
 from fibsem.workflows.runner import (
     GRIDS,

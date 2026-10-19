@@ -60,17 +60,17 @@ class VolumeExperiment(ProposalDecisions, BaseExperiment):
         self,
         name: str,
         mill_pose: MicroscopeState,
-        initial_poi: Optional[Point] = None,
+        poi: Optional[Point] = None,
         iterations: int = 10,
     ) -> VolumePosition:
         """A new position at ``mill_pose``, cut into ``iterations`` slices from
-        ``initial_poi``. Names are unique within the experiment."""
+        ``poi``. Names are unique within the experiment."""
         if self.get_position_by_name(name) is not None:
             raise ValueError(f"There is already a position named {name!r}.")
         position = VolumePosition(
             name=name,
             poses={MILL_POSE: mill_pose},
-            initial_poi=initial_poi if initial_poi is not None else Point(),
+            poi=poi if poi is not None else Point(),
             iterations=iterations,
         )
         self.positions.append(position)

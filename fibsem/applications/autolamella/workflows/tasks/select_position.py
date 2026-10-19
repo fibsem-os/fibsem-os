@@ -9,7 +9,6 @@ import numpy as np
 
 from fibsem import constants
 from fibsem.applications.autolamella.poses import sync_fluorescence_pose
-from fibsem.applications.autolamella.proposals import POINT_OF_INTEREST
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 from fibsem.applications.autolamella.workflows.tasks.fiducial import (
@@ -19,6 +18,7 @@ from fibsem.structures import BeamType, Display, ImageSettings, Point, param
 from fibsem.workflows.proposals import (
     ALIGNMENT_AREA,
     DETECTION,
+    POINT_OF_INTEREST,
     STATE,
     DecisionOutcome,
 )

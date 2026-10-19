@@ -102,12 +102,12 @@ def test_the_imaging_pose_falls_back_to_the_milling_pose():
 
 
 def test_each_slice_moves_the_poi_down_the_face():
-    position = VolumePosition(name="aspen", initial_poi=Point(1e-6, 2e-6))
+    position = VolumePosition(name="aspen", poi=Point(1e-6, 2e-6))
 
     poi = position.slice_poi(3, 100e-9)
 
     assert (poi.x, poi.y) == pytest.approx((1e-6, 2e-6 - 300e-9))
-    assert (position.initial_poi.x, position.initial_poi.y) == (1e-6, 2e-6)
+    assert (position.poi.x, position.poi.y) == (1e-6, 2e-6)
 
 
 def test_a_slice_is_done_when_every_task_completed_for_it():
