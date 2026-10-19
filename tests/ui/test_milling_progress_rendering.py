@@ -16,6 +16,7 @@ progress bar, so what it writes to is what has to be real.
 """
 
 import os
+from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -162,9 +163,7 @@ class _CoincidenceHost:
         self._supervised = True
         self._milling_label = MillingMessageTracker()
         self.border_states = []
-
-    def _set_border_state(self, state):
-        self.border_states.append(state)
+        self.run_border = SimpleNamespace(set_state=self.border_states.append)
 
     def deleteLater(self):
         for widget in (

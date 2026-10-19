@@ -410,6 +410,7 @@ class FibsemExperiment(BaseExperiment):
 # built-ins are named by import path so this module imports no application.
 _BUILTIN_TYPES: Dict[str, str] = {
     "autolamella": "fibsem.applications.autolamella.structures:Experiment",
+    "volume": "fibsem.applications.volume.experiment:VolumeExperiment",
 }
 EXPERIMENT_TYPES: Dict[str, Type[BaseExperiment]] = {
     FibsemExperiment.app: FibsemExperiment

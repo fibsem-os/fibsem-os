@@ -19,7 +19,8 @@ import uuid
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from datetime import datetime
-from typing import Any, Callable, ClassVar, Dict, Optional, Tuple
+from pathlib import Path
+from typing import Any, Callable, ClassVar, Dict, Optional, Tuple, Union
 
 from fibsem.acting import TASK, acting
 from fibsem.cancellation import AnyStopEvent, OperationCancelledError, StopEvent
@@ -83,8 +84,9 @@ LIFECYCLE_STEPS = {"STARTED", "FINISHED"}
 
 
 class BaseTask(ABC):
-    """The lifecycle every task shares. Subclasses implement ``_run``,
-    ``pre_task`` and ``post_task``, and say whether the run is supervised."""
+    """The lifecycle every task shares. Subclasses implement ``_run`` and say
+    whether the run is supervised; ``pre_task`` and ``post_task`` start and
+    finish the item's task state, and an app may extend them."""
 
     config: Any
     # What this task type puts on the record when it ends. The default proposes
@@ -138,6 +140,9 @@ class BaseTask(ABC):
         # answer to a supervised question -- recorded on the proposal once it
         # is made, after the run, through Experiment.decide like every other.
         self.inline_decision: Optional[Decision] = None
+        # What the history entry says on success, when there is more to say
+        # than "Finished".
+        self.completion_note = ""
 
     @property
     def task_type(self) -> str:
@@ -373,11 +378,46 @@ class BaseTask(ABC):
     @abstractmethod
     def _run(self) -> None: ...
 
-    @abstractmethod
-    def pre_task(self) -> None: ...
+    def pre_task(self) -> None:
+        logging.info(
+            f"Running {self.task_name}, {self.task_type} ({self.task_id}) "
+            f"for {self.item_type} {self.item.name} ({self.item.id})"
+        )
+        self._start_task_state()
+        self._set_workflow_metadata()
+        self.log_status_message("STARTED", "Started")
 
-    @abstractmethod
-    def post_task(self) -> None: ...
+    def post_task(self) -> None:
+        self.item.task_state.status = TaskStatus.Completed
+        self.item.task_state.status_message = ""
+        self.log_status_message("FINISHED", self.completion_note or "Finished")
+        self._record_outcome()
+
+    # -- where the item's files go ---------------------------------------------
+
+    @property
+    def path(self) -> Path:
+        """The item's directory: what its recorded outputs are relative to."""
+        return Path(self.experiment.item_path(self.item))
+
+    def record_output(self, role: str, output: Union[str, Path, Any, None]) -> None:
+        """Record a file this run wrote, under `role`, relative to the item's directory.
+
+        Accepts a path or anything with a `filepath` (a saved image). Nothing that
+        was never written is recorded; the same path twice is still one file.
+        """
+        if output is None:
+            return
+        filepath = getattr(output, "filepath", output)
+        if filepath is None:
+            return
+        # Forward slashes whatever the platform: the record is a description of
+        # files that travels with the experiment, not a path for this OS to open,
+        # and `os.path.join` reads it back correctly on either.
+        relative = Path(os.path.relpath(str(filepath), str(self.path))).as_posix()
+        paths = self.item.task_state.outputs.setdefault(role, [])
+        if relative not in paths:
+            paths.append(relative)
 
     def _start_task_state(self) -> None:
         """Mark the item's task_state as this run, InProgress.

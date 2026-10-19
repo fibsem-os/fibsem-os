@@ -292,6 +292,12 @@ _GROUPS: Tuple[Tuple[str, str, str, Callable[[], ExtensionGroup]], ...] = (
         "STRATEGY_PLUGINS",
     ),
     _group(
+        "fibsem.milling.monitors",
+        "Milling monitors",
+        "fibsem.milling.monitors",
+        "MONITOR_PLUGINS",
+    ),
+    _group(
         "fibsem.autolamella.tasks",
         "AutoLamella tasks",
         "fibsem.applications.autolamella.workflows.tasks",
@@ -302,6 +308,12 @@ _GROUPS: Tuple[Tuple[str, str, str, Callable[[], ExtensionGroup]], ...] = (
         "Grid tasks",
         "fibsem.workflows.grid",
         "GRID_TASK_PLUGINS",
+    ),
+    _group(
+        "fibsem.volume.tasks",
+        "Volume tasks",
+        "fibsem.applications.volume.tasks",
+        "VOLUME_TASK_PLUGINS",
     ),
     _group(
         "fibsem.drivers",

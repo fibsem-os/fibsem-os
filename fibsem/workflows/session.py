@@ -22,6 +22,7 @@ from fibsem import config as cfg
 from fibsem.acting import AGENT, OPERATOR, ActorKind
 from fibsem.ai.agent.session import AgentSession
 from fibsem.imaging.latest import LatestImages
+from fibsem.imaging.overview_session import OverviewSession
 from fibsem.workflows.event_recording import EventRecorder
 from fibsem.workflows.runner import WorkflowRunner
 
@@ -75,6 +76,8 @@ class AppSession:
         # The latest image of each beam, as the window shows it: what the App
         # Server serves and a question's marker is placed on (FIB-1451).
         self.images = LatestImages()
+        # Each overview of the connected microscope, by kind (FIB-1449).
+        self._overviews: Dict[str, OverviewSession] = {}
         # Where every run starts, whoever asks (FIB-1448).
         self.runner = WorkflowRunner(self)
         # The App Server over this session (FIB-845), while one is hosted.
@@ -95,6 +98,19 @@ class AppSession:
         # first time any thread asks for it.
         self._correlation: Optional[Any] = None
         self._correlation_lock = threading.Lock()
+
+    def overview(self, kind: str) -> OverviewSession:
+        """The connected microscope's beam (``"beam"``) or fluorescence
+        (``"fm"``) overview: what its tab shows and does. Made on first use and
+        kept until the microscope changes. Raises ValueError with no microscope,
+        or for an FM overview on one with no FM."""
+        if self.microscope is None:
+            raise ValueError("No microscope is connected.")
+        overview = self._overviews.get(kind)
+        if overview is None or overview.microscope is not self.microscope:
+            overview = OverviewSession(self.microscope, kind)
+            self._overviews[kind] = overview
+        return overview
 
     @property
     def analysis_services(self) -> Dict[str, Any]:

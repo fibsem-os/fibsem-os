@@ -27,6 +27,7 @@ from fibsem.fm.structures import (
     FluorescenceImageMetadata,
 )
 from fibsem.geometry.projection import FMStageProjection
+from fibsem.imaging.overview_session import OverviewSession
 from fibsem.structures import (
     BeamType,
     FibsemImage,
@@ -85,7 +86,7 @@ FORESHORTENED = ("MILLING", BeamType.ION)
 
 @pytest.fixture
 def widget(microscope, tmp_path):
-    w = FibsemOverviewWidget(microscope)
+    w = FibsemOverviewWidget(OverviewSession(microscope))
     w.resize(900, 700)
     w.set_save_directory(str(tmp_path / "experiment"))
     w.set_image(_beam_image(microscope, *SQUARE))
@@ -162,7 +163,7 @@ def accept(monkeypatch):
 class TestTheStartingPlacement:
     @pytest.mark.parametrize("view", [SQUARE, FORESHORTENED])
     def test_the_centre_lands_on_the_target_upright(self, microscope, view):
-        w = FibsemOverviewWidget(microscope)
+        w = FibsemOverviewWidget(OverviewSession(microscope))
         w.resize(900, 700)
         w.set_image(_beam_image(microscope, *view))
         frame = w._frame()
@@ -189,7 +190,7 @@ class TestTheStartingPlacement:
         before = microscope.get_scan_rotation(BeamType.ELECTRON)
         microscope.set_scan_rotation(math.pi, BeamType.ELECTRON)
         try:
-            w = FibsemOverviewWidget(microscope)
+            w = FibsemOverviewWidget(OverviewSession(microscope))
             w.resize(900, 700)
             w.set_image(_beam_image(microscope, *SQUARE))
             frame = w._frame()

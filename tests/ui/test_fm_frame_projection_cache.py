@@ -35,12 +35,13 @@ _app = QApplication.instance() or QApplication(sys.argv)
 
 @pytest.fixture
 def widget():
+    from fibsem.imaging.overview_session import FLUORESCENCE, OverviewSession
     from fibsem.ui.fm.widgets.fm_overview_widget import FMOverviewWidget
     from tests.fixtures.fm_microscope import build_microscope
 
     microscope = build_microscope()
     microscope.fm.objective.insert()
-    w = FMOverviewWidget(microscope)
+    w = FMOverviewWidget(OverviewSession(microscope, FLUORESCENCE))
     w.resize(900, 600)
     yield w
     w.deleteLater()

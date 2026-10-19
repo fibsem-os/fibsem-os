@@ -153,10 +153,12 @@ class OverviewConfirmationDialog(OverviewPreflightDialog):
             )
         )
 
-        # Where it lands, which is the other thing that survives a tab switch unnoticed:
-        # the filename names the tile sub-folder, so two runs under one name interleave.
+        # Where it lands, which is the other thing that survives a tab switch unnoticed.
+        # The imaging service stamps the name with the time the run starts.
         if image.path:
-            detail.append(("Saving to", PathValue(f"{image.path}/{image.filename}")))
+            detail.append(
+                ("Saving to", PathValue(f"{image.path}/{image.filename}-HH-MM-SS"))
+            )
 
         # "Scan time", not "Estimated time": this is dwell over pixels, and it leaves out
         # the stage entirely. A real run is several times longer -- see

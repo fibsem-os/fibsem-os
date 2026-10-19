@@ -814,9 +814,19 @@ def build_sidecar(client, capabilities):
     def fm_auto_focus(channel_name: Optional[str] = None, path: Optional[str] = None):
         return _routed("fm_auto_focus", "run", channel_name=channel_name, path=path)
 
-    def beam_acquire_overview(settings: dict, path: str, name: str = "overview"):
+    def beam_acquire_overview(
+        settings: dict,
+        path: str,
+        name: str = "overview",
+        centre_position: Optional[dict] = None,
+    ):
         return _routed(
-            "beam_acquire_overview", "run", settings=settings, path=path, name=name
+            "beam_acquire_overview",
+            "run",
+            settings=settings,
+            path=path,
+            name=name,
+            centre_position=centre_position,
         )
 
     def beam_estimate_overview(settings: dict):
@@ -885,6 +895,7 @@ def build_sidecar(client, capabilities):
         path: str,
         name: str = "overview",
         zparams: Optional[dict] = None,
+        centre_position: Optional[dict] = None,
     ):
         return _routed(
             "fm_acquire_overview",
@@ -894,6 +905,7 @@ def build_sidecar(client, capabilities):
             path=path,
             name=name,
             zparams=zparams,
+            centre_position=centre_position,
         )
 
     def fm_estimate_overview(

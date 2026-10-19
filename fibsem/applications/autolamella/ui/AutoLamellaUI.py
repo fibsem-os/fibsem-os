@@ -2119,7 +2119,7 @@ class AutoLamellaUI(QMainWindow):
         from fibsem.workflows.status import WorkflowStatusEvent
 
         message = str(proposal.provenance.get("message") or "")
-        if proposal.kind == DETECTION and self.det_widget is not None:
+        if proposal.kind == DETECTION and self._detection_shown():
             self.front_tab(self.det_widget)
             message = "Confirm Feature Detection. Press Continue to proceed."
         elif proposal.kind == ALIGNMENT_AREA and self.image_widget is not None:
@@ -2129,13 +2129,26 @@ class AutoLamellaUI(QMainWindow):
             )
             message = f"{message} Press Continue when done.".strip()
         elif proposal.kind == POINT_OF_INTEREST and self.poi_marker.show(
-            proposal.values.get("poi")
+            proposal.values.get("poi"),
+            fallback=self._reference_image(item_id, proposal),
         ):
             self.tabWidget.setCurrentWidget(self.tab)
             self._follow_poi_frames()
         self._widget_question = (item_id, task_name, proposal)
         self.set_instructions_msg(message or "Press Continue when ready.", "Continue")
         self.workflow_status_signal.emit(WorkflowStatusEvent())
+
+    def _reference_image(self, item_id: str, proposal):
+        """The image the proposal's values sit on, for a view showing none."""
+        from fibsem.applications.autolamella.review_images import load_reference_image
+
+        item = self.experiment.get_item_by_id(item_id)
+        return load_reference_image(self.experiment, item, proposal)
+
+    def _detection_shown(self) -> bool:
+        """The Detection tab holds the features the task sent before asking;
+        a window that started listening mid-question has none to correct."""
+        return self.det_widget is not None and self.det_widget.det is not None
 
     def widget_question_host(self):
         """The tab the value now up is edited on, when it has one of its own
@@ -2191,7 +2204,7 @@ class AutoLamellaUI(QMainWindow):
         from fibsem.detection.review import detection_values
         from fibsem.workflows.proposals import ALIGNMENT_AREA, DETECTION
 
-        if proposal.kind == DETECTION and self.det_widget is not None:
+        if proposal.kind == DETECTION and self._detection_shown():
             return detection_values(self.det_widget._get_detected_features())
         if proposal.kind == ALIGNMENT_AREA and self.image_widget is not None:
             area = self.image_widget.get_alignment_area()

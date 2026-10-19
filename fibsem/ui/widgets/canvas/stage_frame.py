@@ -28,13 +28,14 @@ they are handed to.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Tuple
+from typing import TYPE_CHECKING, Optional, Tuple
 
 # Re-exported for the callers that reach for a projection and a frame together.
 from fibsem.geometry.projection import (  # noqa: F401
     BeamStageProjection,
     FMStageProjection,
     StageProjection,
+    plane_point_to_stage,
     surface_foreshortening,
 )
 from fibsem.structures import FibsemStagePosition
@@ -64,10 +65,13 @@ class StageFrame:
         """Where a stage position falls on the canvas."""
         return self._canvas.metres_to_canvas(*self.offset(position))
 
-    def to_stage(self, x: float, y: float) -> FibsemStagePosition:
-        """The stage position under a canvas point."""
-        return self.projection.from_plane(
-            *self._canvas.canvas_to_metres(x, y), self.origin
+    def to_stage(
+        self, x: float, y: float, stage: Optional[FibsemStagePosition] = None
+    ) -> FibsemStagePosition:
+        """The stage position under a canvas point; lifted and posed like *stage*
+        when given (`plane_point_to_stage`)."""
+        return plane_point_to_stage(
+            self.projection, self.origin, *self._canvas.canvas_to_metres(x, y), stage
         )
 
     def offset(self, position: FibsemStagePosition) -> Tuple[float, float]:

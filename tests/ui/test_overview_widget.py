@@ -37,6 +37,7 @@ from PyQt5.QtWidgets import QApplication, QDialog  # noqa: E402
 
 from fibsem import utils  # noqa: E402
 from fibsem.imaging import tiled  # noqa: E402
+from fibsem.imaging.overview_session import OverviewSession  # noqa: E402
 from fibsem.imaging.tiling.progress import TiledStatus
 from fibsem.services.sample_handling import BUILTIN_SLOT_NAME  # noqa: E402
 from fibsem.structures import (  # noqa: E402
@@ -116,7 +117,7 @@ def _destroy_widgets(destroy_widgets_after_test):
 
 @pytest.fixture
 def widget(microscope):
-    w = FibsemOverviewWidget(microscope)
+    w = FibsemOverviewWidget(OverviewSession(microscope))
     w.resize(900, 700)
     yield w
     # close() only hides; _destroy_widgets above is what disposes of it.
@@ -1104,7 +1105,7 @@ class TestViews:
 
     @pytest.fixture
     def widget(self):
-        w = FibsemOverviewWidget(self._scope())
+        w = FibsemOverviewWidget(OverviewSession(self._scope()))
         w.resize(900, 700)
         yield w
         w.close()
@@ -1180,13 +1181,13 @@ class TestViews:
     def test_the_planned_footprint_is_only_drawn_where_the_run_would_land(self, widget):
         """Drawn on another view it promises coverage this canvas will never show."""
         scope = widget.microscope
-        widget._stage_position = self._at_orientation(scope, "SEM")
+        widget.session.stage_position = self._at_orientation(scope, "SEM")
         widget.set_image(self._image(scope, "SEM", BeamType.ELECTRON))
         widget._refresh_context_overlays()
         assert widget.tile_grid_overlay._tiles, "the grid is missing in its own view"
 
         # Same canvas, but now the stage is at FIB: the next run lands elsewhere.
-        widget._stage_position = self._at_orientation(scope, "FIB")
+        widget.session.stage_position = self._at_orientation(scope, "FIB")
         widget._refresh_context_overlays()
         assert not widget.tile_grid_overlay._tiles, (
             "the grid was drawn on a view the run will not appear in"
@@ -1195,12 +1196,12 @@ class TestViews:
     def test_it_says_when_the_stage_is_looking_somewhere_else(self, widget):
         """Silent when they agree -- a note that is always there stops being read."""
         scope = widget.microscope
-        widget._stage_position = self._at_orientation(scope, "SEM")
+        widget.session.stage_position = self._at_orientation(scope, "SEM")
         widget.set_image(self._image(scope, "SEM", BeamType.ELECTRON))
         widget._refresh_view_note()
         assert not widget.label_view_note.text()
 
-        widget._stage_position = self._at_orientation(scope, "FIB")
+        widget.session.stage_position = self._at_orientation(scope, "FIB")
         widget._refresh_view_note()
         assert "the stage is at" in widget.label_view_note.text()
 
@@ -1226,13 +1227,13 @@ class TestViews:
         and reaching it would rotate and tilt the stage to match — a far bigger move
         than clicking a picture looks like."""
         scope = widget.microscope
-        widget._stage_position = self._at_orientation(scope, "SEM")
+        widget.session.stage_position = self._at_orientation(scope, "SEM")
         widget.set_image(self._image(scope, "SEM", BeamType.ELECTRON))
         assert widget._stage_position_at(0.0, 0.0) is not None, (
             "blocked in its own view"
         )
 
-        widget._stage_position = self._at_orientation(scope, "FIB")
+        widget.session.stage_position = self._at_orientation(scope, "FIB")
         assert widget._stage_position_at(0.0, 0.0) is None, (
             "a click resolved through a view the stage is not in"
         )
@@ -1241,9 +1242,9 @@ class TestViews:
         """Either way out can be the right one — you may have switched view to look at
         something, or moved the stage and not switched — so the message names both."""
         scope = widget.microscope
-        widget._stage_position = self._at_orientation(scope, "SEM")
+        widget.session.stage_position = self._at_orientation(scope, "SEM")
         widget.set_image(self._image(scope, "SEM", BeamType.ELECTRON))
-        widget._stage_position = self._at_orientation(scope, "FIB")
+        widget.session.stage_position = self._at_orientation(scope, "FIB")
 
         toasts = []
         monkeypatch.setattr(
@@ -1260,9 +1261,9 @@ class TestViews:
         """A position marked through the wrong view would be recorded at an orientation
         the instrument is not in."""
         scope = widget.microscope
-        widget._stage_position = self._at_orientation(scope, "SEM")
+        widget.session.stage_position = self._at_orientation(scope, "SEM")
         widget.set_image(self._image(scope, "SEM", BeamType.ELECTRON))
-        widget._stage_position = self._at_orientation(scope, "FIB")
+        widget.session.stage_position = self._at_orientation(scope, "FIB")
         monkeypatch.setattr(
             "fibsem.ui.widgets.overview_widget.notification_service.show_toast",
             lambda *a, **k: None,
@@ -1284,7 +1285,7 @@ class TestViews:
         drifted = FibsemStagePosition(
             x=0.0, y=0.0, z=0.0, r=origin.r, t=origin.t + np.deg2rad(0.4)
         )
-        widget._stage_position = drifted
+        widget.session.stage_position = drifted
 
         target = widget._stage_position_at(50.0, 50.0)
         assert target is not None
@@ -1566,7 +1567,7 @@ class TestOverlaysAreDrawnInTheView:
         scope, _ = utils.setup_session(manufacturer="Demo", config_path=path)
         assert not scope._fm_is_a_pose(), "this is the standard-stage case"
 
-        widget = FibsemOverviewWidget(scope)
+        widget = FibsemOverviewWidget(OverviewSession(scope))
         try:
             widget.set_image(self._image(scope, "FIB", BeamType.ION))
             widget.overlay_controls.set_visible("gridbars", True)
@@ -1790,7 +1791,7 @@ class TestLifecycle:
         """psygnal subscriptions outlive the widget -- they belong to the microscope --
         and hold bound methods of Qt objects `close` has torn down on the C++ side. The
         equivalent leak on the FM overview was a hard segfault, not an exception."""
-        widget = FibsemOverviewWidget(microscope)
+        widget = FibsemOverviewWidget(OverviewSession(microscope))
         signals = (
             microscope.imaging.tiled_progress,
             microscope.stage.position.changed,
@@ -1806,10 +1807,10 @@ class TestLifecycle:
 
     def test_it_holds_no_napari_viewer(self, microscope):
         """The tab it replaces took a `napari.Viewer` as its first argument."""
-        widget = FibsemOverviewWidget(microscope)
+        widget = FibsemOverviewWidget(OverviewSession(microscope))
         assert not hasattr(widget, "viewer")
         with pytest.raises(TypeError):
-            FibsemOverviewWidget(microscope, viewer=object())  # type: ignore[call-arg]
+            FibsemOverviewWidget(OverviewSession(microscope), viewer=object())  # type: ignore[call-arg]
         widget.close()
 
 
@@ -1944,14 +1945,17 @@ class TestThePlannedTileset:
     def test_dragging_the_grid_does_not_move_the_stage(self, widget, microscope):
         """Setting a run up and driving the instrument are separate acts. A drag is
         exploratory -- you push the grid around to see what it would cover."""
-        before = (widget._stage_position.x, widget._stage_position.y)
+        before = (widget.session.stage_position.x, widget.session.stage_position.y)
         moved = []
         widget.position_move_requested.connect(lambda *a: moved.append(a))
 
         widget._on_grid_moved(120.0, -40.0)
 
         assert widget.target is not None, "the drag did not set a target"
-        assert (widget._stage_position.x, widget._stage_position.y) == before
+        assert (
+            widget.session.stage_position.x,
+            widget.session.stage_position.y,
+        ) == before
         assert not moved
 
     def test_a_dragged_grid_keeps_the_stage_pose(self, widget, microscope):
@@ -1970,7 +1974,7 @@ class TestThePlannedTileset:
             r=origin.r,
             t=origin.t + np.deg2rad(0.4),
         )
-        widget._stage_position = drifted
+        widget.session.stage_position = drifted
 
         widget._on_grid_moved(120.0, -40.0)
         target = widget.target
@@ -2057,12 +2061,12 @@ class TestThePlannedTileset:
         widget.acquire()
         centre = captured["args"][1]
         assert centre is not None, "the run was left to re-read the stage for itself"
-        assert centre.t == pytest.approx(widget._stage_position.t)
-        assert centre.r == pytest.approx(widget._stage_position.r)
+        assert centre.t == pytest.approx(widget.session.stage_position.t)
+        assert centre.r == pytest.approx(widget.session.stage_position.r)
 
     def test_the_plan_cannot_be_edited_while_a_run_is_going(self, widget):
         """A run in progress is reading this plan."""
-        widget._running = True
+        widget.session.running = True
         widget._on_grid_resized(5, 5)
         widget._on_tile_toggled(0, 0, False)
         widget._on_grid_moved(200.0, 200.0)
@@ -2111,7 +2115,7 @@ def pretilted_widget(pretilted):
     flat = deepcopy(before)
     flat.t = 0.0
     pretilted.safe_absolute_stage_movement(flat)
-    w = FibsemOverviewWidget(pretilted)
+    w = FibsemOverviewWidget(OverviewSession(pretilted))
     w.resize(900, 700)
     w.settings_widget.combo_beam.set_value(BeamType.ION)
     yield w
@@ -2190,7 +2194,7 @@ class TestADraggedGridIsLiftedToTheStage:
         widget.place_image(self._ion_tile(microscope, first), key="first")
         view = widget.current_view
         assert view not in widget._provisional
-        assert abs(widget._origins[view].z - widget._stage_position.z) > 50e-6, (
+        assert abs(widget._origins[view].z - widget.session.stage_position.z) > 50e-6, (
             "the anchor is at the stage's height, so this proves nothing about a slope"
         )
 
@@ -2263,7 +2267,7 @@ class TestADraggedGridIsLiftedToTheStage:
             tilted = deepcopy(before)
             tilted.t = np.deg2rad(tilt)
             pretilted.safe_absolute_stage_movement(tilted)
-            widget = FibsemOverviewWidget(pretilted)
+            widget = FibsemOverviewWidget(OverviewSession(pretilted))
             widget.resize(900, 700)
             widget.settings_widget.combo_beam.set_value(beam)
             frame = widget._frame()
@@ -2301,7 +2305,7 @@ class TestADraggedGridIsLiftedToTheStage:
             tilted = deepcopy(before)
             tilted.t = np.deg2rad(12.0)
             pretilted.safe_absolute_stage_movement(tilted)
-            widget = FibsemOverviewWidget(pretilted)
+            widget = FibsemOverviewWidget(OverviewSession(pretilted))
             widget.resize(900, 700)
             widget.settings_widget.combo_beam.set_value(BeamType.ION)
             assert widget.current_view in widget._provisional
@@ -2392,7 +2396,7 @@ class TestADraggedGridIsLiftedToTheStage:
         raised = FibsemStagePosition(
             x=anchor.x, y=anchor.y, z=anchor.z + 490e-6, r=anchor.r, t=anchor.t
         )
-        widget._stage_position = raised
+        widget.session.stage_position = raised
 
         widget._on_grid_moved(150.0, 60.0)
 
@@ -2433,12 +2437,12 @@ class TestADraggedGridIsLiftedToTheStage:
         stage rather than trusting what it was last told.
         """
         widget._on_grid_moved(150.0, 60.0)
-        stale = widget._stage_position
+        stale = widget.session.stage_position
 
         # Moved without anyone polling afterwards: exactly the case the subscription
         # cannot see, and what a move made in the vendor software looks like from here.
         at_a_known_height.stage_device.sim_position += FibsemStagePosition(z=490e-6)
-        assert widget._stage_position.z == pytest.approx(stale.z), (
+        assert widget.session.stage_position.z == pytest.approx(stale.z), (
             "the cache updated by itself, so this proves nothing"
         )
 
@@ -2454,7 +2458,7 @@ class TestADraggedGridIsLiftedToTheStage:
     ):
         """The other half of the same report: nothing was dragged, the stage moved in z
         in the vendor software, and the run still went to the old height."""
-        stale = widget._stage_position
+        stale = widget.session.stage_position
         at_a_known_height.stage_device.sim_position += FibsemStagePosition(z=490e-6)
 
         centre = self._acquire(widget, monkeypatch, tmp_path)
@@ -2550,7 +2554,7 @@ class TestADraggedGridIsLiftedToTheStage:
         """
         origin = pretilted_widget._origins[pretilted_widget.current_view]
         pretilted.move_stage_relative(FibsemStagePosition(x=2.0e-3, y=2.0e-3, z=0.0))
-        assert pretilted_widget._stage_position.x - origin.x == pytest.approx(
+        assert pretilted_widget.session.stage_position.x - origin.x == pytest.approx(
             2.0e-3, abs=1e-6
         ), "the stage did not actually move away from the anchor"
 
@@ -2601,7 +2605,7 @@ class TestADraggedGridIsLiftedToTheStage:
         )
         try:
             microscope.safe_absolute_stage_movement(_at_tilt(start, launch))
-            widget = FibsemOverviewWidget(microscope)
+            widget = FibsemOverviewWidget(OverviewSession(microscope))
             widget.resize(900, 700)
             widget.settings_widget.combo_beam.set_value(BeamType.ION)
 
@@ -2633,7 +2637,7 @@ class TestADraggedGridIsLiftedToTheStage:
         """
         widget._on_grid_moved(150.0, 60.0)
         assert widget.target is not None
-        pose_at_the_drag = widget._stage_position
+        pose_at_the_drag = widget.session.stage_position
 
         at_sem.move_to_orientation("MILLING")
 
@@ -2645,7 +2649,7 @@ class TestADraggedGridIsLiftedToTheStage:
         assert centre.t != pytest.approx(pose_at_the_drag.t), (
             "the plan is still posed the way it was dragged"
         )
-        assert centre.t == pytest.approx(widget._stage_position.t)
+        assert centre.t == pytest.approx(widget.session.stage_position.t)
 
 
 class TestThePlanHoldsStillWhileTheRunWalksTheGrid:
@@ -2811,7 +2815,7 @@ class TestThePlanHoldsStillWhileTheRunWalksTheGrid:
         widget.acquire()
 
         assert captured["centre"] is not None, "the run was left to re-read the stage"
-        assert captured["centre"].t == pytest.approx(widget._stage_position.t)
+        assert captured["centre"].t == pytest.approx(widget.session.stage_position.t)
 
     def test_a_stage_that_moves_at_the_dialog_does_not_move_the_run(
         self, widget, microscope, monkeypatch, tmp_path
@@ -2827,7 +2831,7 @@ class TestThePlanHoldsStillWhileTheRunWalksTheGrid:
         from fibsem.ui.widgets import overview_confirmation_dialog
 
         captured = {}
-        confirmed_at = deepcopy(widget._stage_position)
+        confirmed_at = deepcopy(widget.session.stage_position)
 
         def fake_worker(fn, *args):
             captured["centre"] = args[1]
@@ -2842,7 +2846,7 @@ class TestThePlanHoldsStillWhileTheRunWalksTheGrid:
             return _W()
 
         def moves_the_stage(dialog):
-            widget._stage_position = _at(confirmed_at, dx=900e-6, dy=-400e-6)
+            widget.session.stage_position = _at(confirmed_at, dx=900e-6, dy=-400e-6)
             return QDialog.Accepted
 
         widget.set_save_directory(str(tmp_path))
@@ -2907,7 +2911,7 @@ class TestARunDoesNotReFrameTheCanvas:
                     preview=_tile(microscope, _at(base)),
                 )
             )
-        widget._mosaic = _tile(microscope, _at(base), shape=(128, 128))
+        widget.session.mosaic = _tile(microscope, _at(base), shape=(128, 128))
         widget._on_finished({})
 
     def test_the_framing_survives_the_whole_run(self, widget, microscope):
@@ -3506,7 +3510,7 @@ class TestTheMillingAngleIsOnTheBeamTab:
 
     def test_the_info_bar_carries_it(self, widget, microscope):
         expected = microscope.get_current_milling_angle(
-            stage_position=widget._stage_position
+            stage_position=widget.session.stage_position
         )
         assert f"milling {expected:.1f}°" in widget.canvas._info_text
 
@@ -3655,9 +3659,9 @@ class TestARunIsConfirmedFirst:
         dragged = confirmations[0]
         assert dragged.offset is not None, "a dragged grid was reported as on the stage"
         expected = (
-            widget.target.x - widget._stage_position.x,
-            widget.target.y - widget._stage_position.y,
-            widget.target.z - widget._stage_position.z,
+            widget.target.x - widget.session.stage_position.x,
+            widget.target.y - widget.session.stage_position.y,
+            widget.target.z - widget.session.stage_position.z,
         )
         assert dragged.offset == pytest.approx(expected)
         assert "from the stage position" in dragged._centre_text()
@@ -4019,7 +4023,7 @@ class TestTheAcquisitionButtons:
         the last layout pass left, which is how this passes for the wrong reason."""
         from PyQt5.QtWidgets import QListWidget
 
-        widget = FibsemOverviewWidget(microscope)
+        widget = FibsemOverviewWidget(OverviewSession(microscope))
         try:
             lamellae = QListWidget()
             for i in range(6):
@@ -4203,15 +4207,25 @@ class TestTwoRunsCannotLandOnEachOther:
     list called `overview-image`, all sharing one directory.
     """
 
-    def _capture(self, widget, monkeypatch, tmp_path):
+    def _capture(self, widget, monkeypatch, tmp_path, run=True):
+        """The name a run is saved under: through the imaging service, which
+        stamps it, to a tiler that stops at once."""
+        from fibsem.cancellation import OperationCancelledError
+        from fibsem.imaging import tiled as tiled_module
+
         captured = {}
 
+        def fake_tiler(microscope, settings, path, name, **kwargs):
+            captured["name"] = name
+            raise OperationCancelledError()
+
         def fake_worker(fn, *args):
-            captured["settings"] = args[0]
+            captured["base"] = args[0].image_settings.filename
 
             class _W:
                 def start(self_inner):
-                    pass
+                    if run:
+                        fn(*args)
 
                 def is_alive(self_inner):
                     return False
@@ -4219,11 +4233,12 @@ class TestTwoRunsCannotLandOnEachOther:
             return _W()
 
         widget.set_save_directory(str(tmp_path))
+        monkeypatch.setattr(tiled_module, "acquire_tiled_overview", fake_tiler)
         monkeypatch.setattr(
             "fibsem.ui.widgets.overview_widget.FunctionWorker", fake_worker
         )
         widget.acquire()
-        return captured["settings"].image_settings.filename
+        return captured["name"] if run else captured["base"]
 
     def test_a_run_is_stamped_with_the_time_it_started(
         self, widget, monkeypatch, tmp_path
@@ -4270,20 +4285,26 @@ class TestTwoRunsCannotLandOnEachOther:
         self._capture(widget, monkeypatch, tmp_path)
         assert widget.settings_widget.filename_edit.text() == "overview-image"
 
-    def test_the_dialog_reports_where_it_will_actually_land(
+    def test_the_dialog_says_the_name_will_be_stamped(
         self, widget, monkeypatch, tmp_path, confirmations
     ):
-        """The one place the stamped name is shown before the run. Without this the
+        """The one place the stamp is shown before the run. Without this the
         stamp is invisible until the files appear."""
-        name = self._capture(widget, monkeypatch, tmp_path)
+        self._capture(widget, monkeypatch, tmp_path, run=False)
         saving_to = dict(confirmations[0]._rows())["Saving to"]
-        assert saving_to.endswith(name), f"{saving_to} does not name {name}"
+        assert saving_to.endswith("overview-image-HH-MM-SS"), saving_to
 
     def test_the_record_carries_the_stamped_name(self, widget, monkeypatch, tmp_path):
         """So the Overviews list can tell two runs apart, which is where the collision
-        was noticed."""
-        name = self._capture(widget, monkeypatch, tmp_path)
-        assert [r.label for r in widget._records.values()] == [name]
+        was noticed. The service stamps it, so the record takes it from the mosaic."""
+        base = self._capture(widget, monkeypatch, tmp_path, run=False)
+        (record,) = widget._records.values()
+        assert record.label == base
+
+        mosaic = FibsemImage.generate_blank_image(resolution=(32, 32))
+        mosaic.metadata.image_settings.filename = "overview-image-14-23-05"
+        widget._place_finished_mosaic(mosaic)
+        assert record.label == "overview-image-14-23-05"
 
 
 class TestContrastActsOnEveryOverview:
@@ -4975,7 +4996,7 @@ class TestDrivingTheStageFromAHost:
 
     def test_a_host_cannot_move_while_the_tab_is_locked(self, widget, monkeypatch):
         moved = []
-        monkeypatch.setattr(widget, "_move_worker", moved.append)
+        monkeypatch.setattr(widget.session, "move_to", moved.append)
         widget.set_interactive(False)
         try:
             widget.move_to(FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=0.0, t=0.0))
@@ -5098,7 +5119,7 @@ def test_grid_boundaries_and_slots_come_on_with_a_calibrated_holder(qapp):
     microscope.stage_device.compustage = False
     microscope.sample_handling = bind_sample_handling(microscope)
     assert not stage_context.holder_is_calibrated(microscope)
-    widget = FibsemOverviewWidget(microscope)
+    widget = FibsemOverviewWidget(OverviewSession(microscope))
     try:
         assert not widget.overlay_controls.is_visible(stage_context.OVERLAY_BOUNDARIES)
         assert not widget.overlay_controls.is_visible(stage_context.OVERLAY_SLOTS)
@@ -5122,7 +5143,7 @@ def test_grid_boundaries_and_slots_come_on_with_a_calibrated_holder(qapp):
     finally:
         widget.deleteLater()
 
-    fresh = FibsemOverviewWidget(microscope)
+    fresh = FibsemOverviewWidget(OverviewSession(microscope))
     try:
         assert fresh.overlay_controls.is_visible(stage_context.OVERLAY_BOUNDARIES)
         assert fresh.overlay_controls.is_visible(stage_context.OVERLAY_SLOTS)
@@ -5196,3 +5217,14 @@ def test_the_tile_grid_panel_goes_when_the_tab_does(qapp, widget):
 
     assert not widget.tile_grid_panel.isVisible()
     assert not widget.btn_tile_grid.isChecked()
+
+
+def test_positions_written_to_the_session_are_drawn(widget):
+    """A host (or the App Server) writes the session, not the widget (FIB-1449)."""
+    stage = widget.session.stage_position
+    assert stage is not None
+    marked = FibsemStagePosition(
+        name="from-the-session", x=stage.x, y=stage.y, z=stage.z, r=stage.r, t=stage.t
+    )
+    widget.session.set_positions([marked])
+    assert widget.position_overlay._points or widget.selected_position_overlay._points

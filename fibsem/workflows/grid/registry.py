@@ -17,6 +17,7 @@ from fibsem.workflows.grid.fluorescence import (
 from fibsem.workflows.grid.imaging import (
     BeamOverviewGridTask,
 )
+from fibsem.workflows.task_config import load_task_config, load_task_configs
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
@@ -61,27 +62,14 @@ def get_grid_tasks() -> Dict[str, Type[GridTask]]:
 
 def load_grid_task_config(data: Dict[str, Any]) -> GridTaskConfig:
     """A typed config from its saved form, via the registry."""
-    task_type = data.get("task_type")
-    task_cls = GRID_TASK_PLUGINS.get(task_type)
-    if task_cls is None:
-        raise KeyError(f"Grid task type '{task_type}' is not registered.")
-    return task_cls.config_cls.from_dict(data)
+    return load_task_config(GRID_TASK_PLUGINS, data, kind="grid task")
 
 
 def load_grid_task_configs(
     ddict: Dict[str, Dict[str, Any]],
 ) -> Dict[str, GridTaskConfig]:
     """name -> config, skipping (with a warning) any type this build does not know."""
-    configs: Dict[str, GridTaskConfig] = {}
-    for name, data in (ddict or {}).items():
-        try:
-            config = load_grid_task_config(data)
-        except KeyError as e:
-            logging.warning(f"Grid task '{name}' skipped: {e}")
-            continue
-        config.task_name = name
-        configs[name] = config
-    return configs
+    return load_task_configs(GRID_TASK_PLUGINS, ddict, kind="grid task")
 
 
 def run_grid_task(

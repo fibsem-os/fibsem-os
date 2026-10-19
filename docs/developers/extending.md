@@ -85,9 +85,9 @@ the full contract; `examples/scripts/` contains three working examples.
 
 ## Plugins
 
-fibsemOS loads five entry-point groups: `fibsem.milling.patterns`,
-`fibsem.milling.strategies`, `fibsem.autolamella.tasks`, `fibsem.grid.tasks` and
-`fibsem.drivers`. A plugin is a Python package that
+fibsemOS loads six entry-point groups: `fibsem.milling.patterns`,
+`fibsem.milling.strategies`, `fibsem.milling.monitors`, `fibsem.autolamella.tasks`,
+`fibsem.grid.tasks` and `fibsem.drivers`. A plugin is a Python package that
 declares one or more of these in its `pyproject.toml` and is installed into
 the same environment as fibsemOS. No registration calls or files in the
 fibsem tree are needed; the application discovers it on the next start.
@@ -105,6 +105,11 @@ Each group contributes one kind of object:
   to mill. It appears in the pattern list of every milling stage.
 - **A strategy** (`fibsem.milling.strategies`): how a pattern is milled, for example
   in N passes. It appears in the strategy list of every stage.
+- **A monitor** (`fibsem.milling.monitors`): a `MillingMonitor` from
+  `fibsem.milling.monitors` that runs during each mill step of a stage that
+  lists it in `monitors`: it reports readings, pauses the mill to act, or ends
+  the step. A live monitor, which reads frames while the pattern mills
+  (`MillingStreamMonitor`), names the `view` it needs.
 - **A task** (`fibsem.autolamella.tasks`): an `AutoLamellaTask` with its
   configuration class, as described in the next section. It appears in the
   Add Task dialog.

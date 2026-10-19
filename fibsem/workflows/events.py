@@ -284,6 +284,8 @@ def attach_microscope_taps(buffer: EventBuffer, microscope) -> List[Callable[[],
                 getattr(progress, "status", None) != MillingProgressStatus.STAGE_UPDATE
             ),
         )
+        # A monitor's notable readings only; `follow_readings` gives them all.
+        tap(milling.notable_reading, "milling_reading", to_plain)
     spot_burn = getattr(microscope, "spot_burn", None)
     if spot_burn is not None:
         tap(spot_burn.progress.changed, "spot_burn_progress", to_plain)
