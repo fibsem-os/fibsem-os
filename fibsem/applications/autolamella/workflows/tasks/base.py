@@ -90,21 +90,10 @@ from fibsem.workflows.interaction import (
     _abort_requested,
     ask,
 )
-<<<<<<< HEAD
-from fibsem.workflows.proposals import DETECTION, DecisionOutcome
-=======
 from fibsem.workflows.proposals import (
-    ACTION_ACCEPT,
-    ACTION_EDIT,
-    ACTION_RUN,
-    ACTION_SKIP,
-    ALIGNMENT_AREA,
     DETECTION,
-    EXPERIMENT_WRITE_LOCK,
-    MILLING,
     DecisionOutcome,
 )
->>>>>>> origin/main
 from fibsem.workflows.status import TaskState, TaskStatus
 from fibsem.workflows.task import BaseTask, run_folder
 
