@@ -414,8 +414,8 @@ def _microscope_coordinates(
         image_px, fib_shape, subpixel_precision=True
     )
     pixel_size_um = pixel_size_m * 1e6
-    px_um = Point(px.x * pixel_size_um, px.y * pixel_size_um)
-    px_m = Point(px.x * pixel_size_m, px.y * pixel_size_m)
+    px_um = px * pixel_size_um
+    px_m = px * pixel_size_m
     return image_px, px, px_um, px_m
 
 
