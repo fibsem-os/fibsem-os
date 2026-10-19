@@ -698,7 +698,7 @@ class MainMenuBar(QObject):
         view = self._view_controller().selected_view
         ui = self._ui()
         if view in (BeamType.ELECTRON, BeamType.ION):
-            image_widget = getattr(ui, "image_widget", None)
+            image_widget = ui.panel.image_widget
             if image_widget is None:
                 logging.info("F2 acquire: no image widget (microscope not connected)")
                 return
@@ -710,7 +710,7 @@ class MainMenuBar(QObject):
             else:
                 image_widget.acquire_fib_image()
         elif view == "fm":
-            fm_widget = getattr(ui, "fm_control_widget", None)
+            fm_widget = ui.panel.fm_control_widget
             if fm_widget is None:
                 logging.info("F2 acquire: no fluorescence widget")
                 return
@@ -730,7 +730,7 @@ class MainMenuBar(QObject):
             BeamType.ION,
         ):
             return None
-        return getattr(self._ui(), "image_widget", None)
+        return self._ui().panel.image_widget
 
     def _hotkey_toggle_live(self) -> None:
         """F6: toggle live acquisition on the selected SEM/FIB beam."""
