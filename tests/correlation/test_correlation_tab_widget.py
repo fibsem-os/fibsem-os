@@ -23,6 +23,7 @@ from fibsem.correlation.structures import (
     PointType,
     PointXYZ,
 )
+from fibsem.correlation.upgrade import CORRELATION_FILE_VERSION
 from fibsem.structures import Point
 from fibsem.ui.tokens import ERROR_COLOR, TEXT_MUTED_COLOR, WARN_COLOR
 
@@ -332,6 +333,7 @@ def test_apply_post_creates_ghost_and_status(qapp):
         poi=[CorrelationPointOfInterest(image_px=Point(x=100.0, y=300.0))],
         input_data=w.data,
     )
+    w.session.set_result(result)  # the session corrects its own result
     w._ri_tab.set_result(result, input_data=w.data)
     w._ri_tab._ri_widget.set_factor(1.5)
     w._ri_tab._apply()
@@ -2350,7 +2352,7 @@ def test_auto_save_writes_one_correlation_json(qapp, tmp_path):
     assert not (tmp_path / "correlation_result.json").exists()
 
     raw = json.loads(single.read_text(encoding="utf-8"))
-    assert raw["version"] == 1
+    assert raw["version"] == CORRELATION_FILE_VERSION
     assert raw["result"] is None
     assert raw["input_data"]["fib_coordinates"][0]["point"]["x"] == 3.0
 
@@ -2358,7 +2360,8 @@ def test_auto_save_writes_one_correlation_json(qapp, tmp_path):
     w._on_result_ready(_result_from(_input(fib=(3.0, 4.0))))
     raw = json.loads(single.read_text(encoding="utf-8"))
     assert raw["result"] is not None
-    assert "computed_from" in raw["result"]  # the snapshot, renamed
+    assert "input_data" in raw["result"]  # the snapshot it was fitted to
+    assert "computed_from" not in raw["result"]  # its name before version 2
 
 
 def test_load_correlation_round_trips_a_consolidated_file(qapp, tmp_path):
@@ -2389,7 +2392,7 @@ def test_load_correlation_flags_a_stale_consolidated_file(qapp, tmp_path):
 
     raw = json.loads((tmp_path / "correlation.json").read_text(encoding="utf-8"))
     assert raw["input_data"]["fib_coordinates"][0]["point"]["x"] == 9.0
-    assert raw["result"]["computed_from"]["fib_coordinates"][0]["point"]["x"] == 1.0
+    assert raw["result"]["input_data"]["fib_coordinates"][0]["point"]["x"] == 1.0
 
     fresh = _widget(qapp)
     fresh.load_correlation(str(tmp_path / "correlation.json"))
@@ -2464,16 +2467,17 @@ def test_load_correlation_file_dispatches_on_every_shape(tmp_path):
     st = load_correlation_file(str(dpath))
     assert st.result is None and st.input_data.fib_coordinates[0].point.x == 2.0
 
-    # legacy result file (current computed_from key)
+    # legacy result file (its snapshot under computed_from, as version 1 wrote it)
     rpath = tmp_path / "correlation_result.json"
-    _result_from(_input(fib=(3.0, 3.0))).save(str(rpath))
+    written = _result_from(_input(fib=(3.0, 3.0))).to_dict()
+    written["computed_from"] = written.pop("input_data")
+    rpath.write_text(json.dumps(written))
     st = load_correlation_file(str(rpath))
     assert st.result is not None and st.input_data.fib_coordinates[0].point.x == 3.0
 
     # legacy result file written with the OLD "input_data" snapshot key
     opath = tmp_path / "old_result.json"
     old = _result_from(_input(fib=(4.0, 4.0))).to_dict()
-    old["input_data"] = old.pop("computed_from")
     opath.write_text(json.dumps(old))
     st = load_correlation_file(str(opath))
     assert st.input_data.fib_coordinates[0].point.x == 4.0
@@ -2632,10 +2636,10 @@ def test_stored_fm_pixel_size_z_round_trips():
         fib_coordinates=[_coord(1.0, 2.0, pt=PointType.FIB)],
         stored_fm_pixel_size_z=500e-9,
     )
-    assert d.to_dict()["fm_pixel_size_z"] == 500e-9
+    assert d.to_dict()["stored_fm_pixel_size_z"] == 500e-9
     assert CorrelationInputData.from_dict(d.to_dict()).stored_fm_pixel_size_z == 500e-9
     legacy = d.to_dict()
-    del legacy["fm_pixel_size_z"]  # a file written before FIB-299
+    del legacy["stored_fm_pixel_size_z"]  # a file written before FIB-299
     assert CorrelationInputData.from_dict(legacy).stored_fm_pixel_size_z is None
 
 

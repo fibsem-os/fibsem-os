@@ -1,6 +1,7 @@
 """The correlation session without Qt: the run gate and what it says, a run
-and the result it keeps, the points it tells of changes, and the run folder
-it opens and keeps current.
+and the result it keeps, the transform it starts from, the refractive-index
+correction, the points it tells of changes, and the run folder it opens and
+keeps current.
 
 Real images and a real fit throughout; nothing here imports Qt.
 """
@@ -8,6 +9,7 @@ Real images and a real fit throughout; nothing here imports Qt.
 import os
 import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -15,11 +17,15 @@ import numpy as np
 import pytest
 
 from fibsem.correlation import points as point_rules
-from fibsem.correlation.history import CORRELATION_FILENAME
+from fibsem.correlation.fit import fit_transform, seed_for
+from fibsem.correlation.geometry import nominal_transform
+from fibsem.correlation.history import CORRELATION_FILENAME, CorrelationRun
+from fibsem.correlation.refractive_index import ZetaParams
 from fibsem.correlation.session import RUNNING, CorrelationSession, RunOutcome
 from fibsem.correlation.structures import (
     Coordinate,
     CorrelationInputData,
+    CorrelationResult,
     CorrelationState,
     PointStatus,
     PointType,
@@ -32,6 +38,14 @@ from fibsem.fm.structures import (
     FluorescenceImageMetadata,
 )
 from fibsem.structures import FibsemImage
+
+from .test_nominal_transform import ENTRIES, _input_data
+
+ARCTIS = next(
+    e
+    for e in ENTRIES
+    if e["system"] == "arctis" and e["fit"]["fm_slices_in_fit"] != 106
+)
 
 
 def _fm_image():
@@ -247,6 +261,246 @@ def test_the_run_reads_a_copy_of_the_points(ready):
 
     assert outcome is RunOutcome.STALE  # the result is for the points as they were
     assert pending.data.fm_coordinates[0].point.x == 40.0
+
+
+# ---------------------------------------------------------------------------
+# The seed
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def geometric():
+    """A session on images that record their geometry, with a saved run's picks."""
+    data = _input_data(ARCTIS)
+    session = CorrelationSession()
+    session.fib_image, session.fm_image = data.fib_image, data.fm_image
+    session.set_data(data)
+    return session
+
+
+def _previous_run(result):
+    run = CorrelationRun(path="/x/r", name="r", state=CorrelationState(result=result))
+    return [("02-other, run r", run)]
+
+
+def _fitted_run(rotation, geometry):
+    """A previous run that fitted ``rotation`` at the geometry's scale."""
+    return _previous_run(
+        CorrelationResult(
+            scale=geometry.scale,
+            rotation_matrix=rotation.tolist(),
+            translation=[0.0, 0.0, 0.0],
+            fm_z_scale=geometry.z_anisotropy,
+            input_data=CorrelationInputData(
+                stored_fib_image_pixel_size=ARCTIS["fib"]["pixel_size"]
+            ),
+        )
+    )
+
+
+def _offset_run(offset_um):
+    """A previous run that measured the stage metadata's placement miss."""
+    px = ARCTIS["fib"]["pixel_size"]
+    return _previous_run(
+        CorrelationResult(
+            placement_offset=list(offset_um),
+            rms_error=0.5e-6 / px,
+            updated_at=time.time(),
+            input_data=CorrelationInputData(stored_fib_image_pixel_size=px),
+        )
+    )
+
+
+def test_a_run_starts_from_the_images_geometry(geometric):
+    geometry = nominal_transform(geometric.fib_image, geometric.fm_image)
+
+    seed = geometric.seed()
+    assert np.allclose(seed.transform.projection, geometry.projection)
+    assert seed.prior is None and seed.note == ""
+
+    result = geometric.run()
+    assert np.allclose(geometric.last_seed.transform.projection, geometry.projection)
+    assert result.seed is not None
+    assert result.branch_check["selected"] == "nominal"
+
+
+def test_images_without_geometry_run_unseeded_and_say_why(ready):
+    ready.run()
+
+    assert ready.last_seed.transform is None
+    assert ready.last_seed.note  # the status line's "unseeded fit: ..."
+
+
+def test_a_previous_run_gives_the_rotation_unless_far_from_the_geometry(geometric):
+    geometry = nominal_transform(geometric.fib_image, geometric.fm_image)
+
+    geometric.prior_runs = _fitted_run(geometry.rotation, geometry)
+    seed = geometric.seed()
+    assert seed.prior.source == "02-other, run r" and seed.prior_rejected is None
+
+    a = np.radians(60.0)
+    about_x = np.array(
+        [[1, 0, 0], [0, np.cos(a), -np.sin(a)], [0, np.sin(a), np.cos(a)]]
+    )
+    geometric.prior_runs = _fitted_run(about_x @ geometry.rotation, geometry)
+    seed = geometric.seed()
+    assert seed.prior is None
+    assert seed.prior_rejected[0] == "02-other, run r"
+    assert seed.prior_rejected[1] == pytest.approx(60.0, abs=1.0)
+    assert np.allclose(seed.transform.projection, geometry.projection)
+
+
+def test_a_previous_runs_placement_offset_can_be_ignored(geometric):
+    bare = nominal_transform(geometric.fib_image, geometric.fm_image).translation
+    px_um = ARCTIS["fib"]["pixel_size"] * 1e6
+
+    geometric.prior_runs = _offset_run([3.0, -4.0])
+    assert geometric.placement_offset().source == "02-other, run r"
+    shifted = geometric.seed().transform.translation
+    assert np.allclose(shifted, bare + np.array([3.0, -4.0]) / px_um)
+
+    geometric.ignore_placement_offset = True
+    assert np.allclose(geometric.seed().transform.translation, bare)
+
+
+@pytest.mark.parametrize("ignore", [False, True])
+def test_a_run_with_no_seed_given_starts_where_the_tab_did(geometric, ignore):
+    """The tab worked the seed out itself and passed it in; the session's own
+    seed is that one, from the same previous runs and choices."""
+    geometric.prior_runs = _offset_run([3.0, -4.0])
+    geometric.ignore_placement_offset = ignore
+    seed = seed_for(
+        geometric.fib_image,
+        geometric.fm_image,
+        geometric.prior_runs,
+        assumed_fm_transform=None,
+        use_placement_offset=not ignore,
+    )
+    expected = fit_transform(geometric.fit_data, seed, rows=geometric.fit_rows)
+
+    result = geometric.run()
+
+    assert result.seed == expected.seed
+    assert result.rms_error == pytest.approx(expected.rms_error)
+    assert result.placement_offset == pytest.approx(expected.placement_offset)
+    assert result.poi[0].image_px.x == pytest.approx(expected.poi[0].image_px.x)
+    assert result.poi[0].image_px.y == pytest.approx(expected.poi[0].image_px.y)
+
+
+def test_the_last_seed_goes_with_the_result_it_described(ready, tmp_path):
+    """A loaded or discarded result is not the last run's: the status line
+    must not describe it with that run's seed."""
+    ready.run()
+    assert ready.last_seed is not None
+    ready.discard_result()
+    assert ready.last_seed is None
+
+    ready.run()
+    path = tmp_path / "saved.json"
+    ready.save(str(path))
+    ready.load(str(path))
+    assert ready.last_seed is None
+
+
+def test_points_differing_from_the_last_seed_are_manual_edits(ready):
+    assert ready.has_manual_edits()  # placed, never seeded
+
+    ready.mark_seeded()
+    assert not ready.has_manual_edits()
+
+    ready.points.move(ready.points.of_type(PointType.FIB)[0], 1.0, 1.0)
+    assert ready.has_manual_edits()
+
+
+# ---------------------------------------------------------------------------
+# The refractive-index correction
+# ---------------------------------------------------------------------------
+
+_OPTICS = ZetaParams(tilt_deg=0.0, depth_um=5.0, NA=0.85, n2=1.33, wavelength_um=0.52)
+
+
+def test_an_armed_pre_correction_is_recorded_run_and_cleared(ready, tmp_path):
+    ready.points.add(Coordinate(PointXYZ(80.0, 80.0, 2.0), PointType.SURFACE_FM))
+    ready.set_project_dir(str(tmp_path))
+
+    ready.arm_pre_correction(1.5, _OPTICS, computed=False)
+    assert ready.auto_save_due()  # arming is an edit
+    assert ready.data.ri_pre_correction_factor == 1.5
+    assert ready.data.ri_pre_correction_params == {
+        "tilt_deg": 0.0,
+        "depth_um": 5.0,
+        "na": 0.85,
+        "n2": 1.33,
+        "wavelength_um": 0.52,
+        "computed": False,
+    }
+
+    result = ready.run()
+    assert result.refractive_index_correction_mode == "pre"
+    assert result.refractive_index_correction_factor == pytest.approx(1.5)
+
+    ready.clear_pre_correction()
+    assert ready.data.ri_pre_correction_factor is None
+    assert ready.data.ri_pre_correction_params is None
+
+
+def test_a_factor_alone_is_armed_with_the_experiments_optics(ready):
+    """From a script the factor is enough: the record is the experiment's RI
+    settings along the optical axis, and the factor is recorded as entered."""
+    ready.points.add(Coordinate(PointXYZ(80.0, 80.0, 2.0), PointType.SURFACE_FM))
+    ri = ready.config.ri
+
+    ready.arm_pre_correction(1.3)
+
+    assert ready.data.ri_pre_correction_factor == 1.3
+    assert ready.data.ri_pre_correction_params == {
+        "tilt_deg": 0.0,
+        "depth_um": ri.depth_um,
+        "na": ri.na,
+        "n2": ri.n2,
+        "wavelength_um": ri.wavelength_um,
+        "computed": False,
+    }
+    assert ready.run().refractive_index_correction_factor == pytest.approx(1.3)
+
+
+def test_a_refused_second_correction_keeps_the_result_stale(ready):
+    """FIB-315: Apply, drag the FIB surface (the result is stale), Apply again.
+    The second is refused, and must not record the dragged surface on the
+    result first, which made the stale result read as current."""
+    result = ready.run()
+    surface = Coordinate(PointXYZ(10.0, 100.0, 0.0), PointType.SURFACE)
+    ready.points.add(surface)
+    assert ready.apply_post_correction(1.5) is True
+    ready.points.move(surface, 10.0, 120.0)
+    assert not result.matches_inputs(ready.fit_data)
+
+    with pytest.raises(ValueError, match="already been applied"):
+        ready.apply_post_correction(1.5)
+
+    assert result.input_data.surface_coordinate.point.y == 100.0
+    assert not result.matches_inputs(ready.fit_data)
+    assert "points changed" in ready.next_step()
+
+
+def test_a_post_correction_moves_poi_1_about_the_fib_surface(ready):
+    with pytest.raises(ValueError):
+        ready.apply_post_correction(1.5)  # no result yet
+    result = ready.run()
+    with pytest.raises(ValueError):
+        ready.apply_post_correction(1.5)  # no FIB surface point
+    surface = Coordinate(PointXYZ(10.0, 100.0, 0.0), PointType.SURFACE)
+    ready.points.add(surface)
+    y = result.poi[0].image_px.y
+
+    assert ready.apply_post_correction(1.5) is True  # the surface makes it current
+    assert ready.result is result
+    assert result.poi[0].image_px.y == pytest.approx(100.0 + (y - 100.0) * 1.5)
+    assert result.poi_uncorrected[0].image_px.y == pytest.approx(y)
+    # the record holds a copy, so a later drag cannot rewrite it (FIB-315)
+    assert result.input_data.surface_coordinate is not surface
+    with pytest.raises(ValueError, match="already been applied"):
+        ready.apply_post_correction(1.5)
 
 
 # ---------------------------------------------------------------------------
