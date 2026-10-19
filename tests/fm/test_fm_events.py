@@ -71,7 +71,7 @@ def test_a_z_stack_records_the_file_it_was_saved_to(microscope, tmp_path):
     assert [c["name"] for c in payload["channels"]] == ["GFP"]
     assert payload["channels"][0]["exposure_time"] == pytest.approx(0.1)
     assert len(payload["z_positions"]) == len(image.metadata.z_positions or [None])
-    assert payload["acquired_at"] == image.metadata.acquisition_date
+    assert payload["acquired_at"] == image.metadata.acquisition_datetime.isoformat()
     assert payload["overview"] is None
 
 

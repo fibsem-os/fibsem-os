@@ -648,7 +648,7 @@ def _old_frame(image):
     found = {key: getattr(ch, key) for key in METADATA_KEYS}
     found["pixel_size"] = (md.pixel_size_x, md.pixel_size_y)
     found["resolution"] = tuple(md.resolution)
-    found["acquisition_date"] = md.acquisition_date
+    found["acquisition_date"] = md.acquisition_datetime
     return image.data.shape, found
 
 

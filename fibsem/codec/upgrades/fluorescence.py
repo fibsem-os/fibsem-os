@@ -9,7 +9,10 @@ The rest belongs to one file each:
 
 - the working configuration may have no ``camera_settings``, or a null one;
 - an FM image's ``geometry`` changed shape on its own
-  (`fibsem.codec.upgrades.hardware_geometry`), and an empty record means none.
+  (`fibsem.codec.upgrades.hardware_geometry`), and an empty record means none;
+- an FM image wrote its time as ``acquisition_date`` too, a string with the same
+  value, or with the acquiring machine's clock time alone before
+  ``acquisition_datetime``.
 """
 
 from __future__ import annotations
@@ -49,6 +52,9 @@ def image_metadata(data: Dict[str, Any]) -> Dict[str, Any]:
     data["geometry"] = _or_none(data.get("geometry"), upgrade_geometry)
     data["stage_position"] = _or_none(data.get("stage_position"), _stage_position)
     data["experiment"] = data.get("experiment") or None
+    written = data.pop("acquisition_date", None)
+    if data.get("acquisition_datetime") is None:
+        data["acquisition_datetime"] = written
     return data
 
 

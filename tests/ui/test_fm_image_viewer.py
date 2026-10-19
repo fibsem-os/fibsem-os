@@ -60,7 +60,7 @@ def _image(
         np.uint16
     )
     md = FluorescenceImageMetadata(
-        acquisition_date="2026-08-12T15:00:00",
+        acquisition_datetime="2026-08-12T15:00:00",
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         pixel_size_z=500e-9,
@@ -211,7 +211,7 @@ def test_a_sparsely_described_image_still_shows():
     not take the display down."""
     widget = FMImageViewerWidget()
     image = _image()
-    image.metadata.acquisition_date = None
+    image.metadata.acquisition_datetime = None
     image.metadata.pixel_size_x = None
 
     widget.add_image(image)  # must not raise

@@ -322,7 +322,7 @@ def _fm_run(lamella: Lamella, task: str = "Acquire FM", order=("DAPI", "GFP")) -
     image = FluorescenceImage(
         data=data,
         metadata=FluorescenceImageMetadata(
-            acquisition_date="2026-10-02T14:48:00",
+            acquisition_datetime="2026-10-02T14:48:00",
             pixel_size_x=1e-6,
             pixel_size_y=1e-6,
             channels=channels,

@@ -9,6 +9,8 @@ TFS-driver conformance can only run on machines with the autoscript SDK;
 odemis-driver conformance is covered in test_odemis_fm_devices.py.
 """
 
+from datetime import datetime
+
 import numpy as np
 import pytest
 
@@ -97,7 +99,7 @@ class TestConstructImageFrameMetadata:
         )
         assert image.metadata.pixel_size_x == pytest.approx(5e-8)
         assert image.metadata.pixel_size_y == pytest.approx(6e-8)
-        assert image.metadata.acquisition_date == "2026-07-22T10:00:00"
+        assert image.metadata.acquisition_datetime == datetime(2026, 7, 22, 10, 0)
         assert image.metadata.channels[0].exposure_time == pytest.approx(0.42)
 
     def test_partial_frame_metadata_only_overrides_present_keys(self, fm):

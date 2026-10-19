@@ -212,7 +212,7 @@ def test_fluorescence_channel_metadata_validation():
     # Test invalid binning
     with pytest.raises(ValueError, match="Invalid binning factor"):
         FluorescenceImageMetadata(
-            acquisition_date=datetime.now().isoformat(),
+            acquisition_datetime=datetime.now().isoformat(),
             pixel_size_x=1e-6,
             pixel_size_y=1e-6,
             resolution=(1024, 1024),
@@ -260,7 +260,7 @@ def test_fluorescence_image_metadata():
 
     # Create metadata
     metadata = FluorescenceImageMetadata(
-        acquisition_date="2025-01-01T12:00:00",
+        acquisition_datetime="2025-01-01T12:00:00",
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         pixel_size_z=200e-9,
@@ -272,7 +272,7 @@ def test_fluorescence_image_metadata():
     )
 
     # Test basic properties
-    assert metadata.acquisition_date == "2025-01-01T12:00:00"
+    assert metadata.acquisition_datetime == datetime(2025, 1, 1, 12, 0)
     assert metadata.pixel_size_x == 100e-9
     assert metadata.pixel_size_y == 100e-9
     assert metadata.pixel_size_z == 200e-9
@@ -305,7 +305,7 @@ def test_fluorescence_image_metadata_validation():
     # Test no channels
     with pytest.raises(ValueError, match="At least one channel must be specified"):
         FluorescenceImageMetadata(
-            acquisition_date=datetime.now().isoformat(),
+            acquisition_datetime=datetime.now().isoformat(),
             pixel_size_x=1e-6,
             pixel_size_y=1e-6,
             resolution=(1024, 1024),
@@ -315,7 +315,7 @@ def test_fluorescence_image_metadata_validation():
     # Test z-stack validation
     with pytest.raises(ValueError, match="Z-stack must have at least 2 positions"):
         FluorescenceImageMetadata(
-            acquisition_date=datetime.now().isoformat(),
+            acquisition_datetime=datetime.now().isoformat(),
             pixel_size_x=1e-6,
             pixel_size_y=1e-6,
             resolution=(1024, 1024),
@@ -336,7 +336,7 @@ def test_fluorescence_image_metadata_validation():
 def test_fluorescence_image_metadata_auto_pixel_size_z():
     """Test automatic pixel_size_z calculation."""
     metadata = FluorescenceImageMetadata(
-        acquisition_date=datetime.now().isoformat(),
+        acquisition_datetime=datetime.now().isoformat(),
         pixel_size_x=1e-6,
         pixel_size_y=1e-6,
         resolution=(1024, 1024),
@@ -376,7 +376,7 @@ def test_fluorescence_image_metadata_to_dict():
     )
 
     metadata = FluorescenceImageMetadata(
-        acquisition_date="2025-01-01T12:00:00",
+        acquisition_datetime="2025-01-01T12:00:00",
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         resolution=(2048, 2048),
@@ -388,7 +388,7 @@ def test_fluorescence_image_metadata_to_dict():
     metadata_dict = metadata.to_dict()
 
     # Test top-level fields
-    assert metadata_dict["acquisition_date"] == "2025-01-01T12:00:00"
+    assert metadata_dict["acquisition_datetime"] == "2025-01-01T12:00:00"
     assert metadata_dict["pixel_size_x"] == 100e-9
     assert metadata_dict["pixel_size_y"] == 100e-9
     assert metadata_dict["resolution"] == [2048, 2048]
@@ -446,7 +446,7 @@ def test_fluorescence_image_metadata_from_dict():
     metadata = FluorescenceImageMetadata.from_dict(metadata_dict)
 
     # Test reconstruction
-    assert metadata.acquisition_date == "2025-01-01T12:00:00"
+    assert metadata.acquisition_datetime == datetime(2025, 1, 1, 12, 0)
     assert metadata.pixel_size_x == 100e-9
     assert metadata.pixel_size_y == 100e-9
     assert metadata.pixel_size_z == 200e-9
@@ -487,7 +487,7 @@ def test_fluorescence_image_creation():
     )
 
     metadata = FluorescenceImageMetadata(
-        acquisition_date=datetime.now().isoformat(),
+        acquisition_datetime=datetime.now().isoformat(),
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         resolution=(512, 512),
@@ -523,7 +523,7 @@ def test_fluorescence_image_save_creates_the_directory(tmp_path):
         offset=0.0,
     )
     metadata = FluorescenceImageMetadata(
-        acquisition_date=datetime.now().isoformat(),
+        acquisition_datetime=datetime.now().isoformat(),
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         resolution=(16, 16),
@@ -573,7 +573,7 @@ def test_fluorescence_image_save_load_is_offline(tmp_path, monkeypatch):
         offset=0.0,
     )
     metadata = FluorescenceImageMetadata(
-        acquisition_date=datetime.now().isoformat(),
+        acquisition_datetime=datetime.now().isoformat(),
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         resolution=(16, 16),
@@ -624,7 +624,7 @@ def test_fluorescence_image_save_load_roundtrip():
     )
 
     metadata = FluorescenceImageMetadata(
-        acquisition_date="2025-01-01T12:00:00",
+        acquisition_datetime="2025-01-01T12:00:00",
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         resolution=(256, 256),
@@ -650,8 +650,8 @@ def test_fluorescence_image_save_load_roundtrip():
 
         # Test metadata preservation
         assert (
-            loaded_image.metadata.acquisition_date
-            == original_image.metadata.acquisition_date
+            loaded_image.metadata.acquisition_datetime
+            == original_image.metadata.acquisition_datetime
         )
         assert (
             loaded_image.metadata.pixel_size_x == original_image.metadata.pixel_size_x
@@ -809,14 +809,14 @@ def test_fluorescence_image_multi_channel_stacking():
     )
 
     metadata1 = FluorescenceImageMetadata(
-        acquisition_date=datetime.now().isoformat(),
+        acquisition_datetime=datetime.now().isoformat(),
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         resolution=(256, 256),
         channels=[channel1],
     )
     metadata2 = FluorescenceImageMetadata(
-        acquisition_date=datetime.now().isoformat(),
+        acquisition_datetime=datetime.now().isoformat(),
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         resolution=(256, 256),
@@ -859,7 +859,7 @@ def test_fluorescence_image_z_stack_creation():
             objective_position=z_pos,
         )
         metadata = FluorescenceImageMetadata(
-            acquisition_date=datetime.now().isoformat(),
+            acquisition_datetime=datetime.now().isoformat(),
             pixel_size_x=100e-9,
             pixel_size_y=100e-9,
             resolution=(256, 256),
@@ -911,7 +911,7 @@ def test_max_intensity_projection_single_z():
     )
 
     metadata = FluorescenceImageMetadata(
-        acquisition_date=datetime.now().isoformat(),
+        acquisition_datetime=datetime.now().isoformat(),
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         resolution=(256, 256),
@@ -982,7 +982,7 @@ def test_max_intensity_projection_multi_z():
     )
 
     metadata = FluorescenceImageMetadata(
-        acquisition_date=datetime.now().isoformat(),
+        acquisition_datetime=datetime.now().isoformat(),
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         pixel_size_z=200e-9,
@@ -1053,7 +1053,7 @@ def test_max_intensity_projection_error_cases():
     )
 
     metadata = FluorescenceImageMetadata(
-        acquisition_date=datetime.now().isoformat(),
+        acquisition_datetime=datetime.now().isoformat(),
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         resolution=(256, 256),
@@ -1103,7 +1103,7 @@ def test_max_intensity_projection_metadata_preservation():
     )
 
     metadata = FluorescenceImageMetadata(
-        acquisition_date="2025-01-01T12:00:00",
+        acquisition_datetime="2025-01-01T12:00:00",
         pixel_size_x=50e-9,
         pixel_size_y=50e-9,
         pixel_size_z=100e-9,
@@ -1121,7 +1121,7 @@ def test_max_intensity_projection_metadata_preservation():
     projected = image.max_intensity_projection()
 
     # Test preserved metadata
-    assert projected.metadata.acquisition_date == "2025-01-01T12:00:00"
+    assert projected.metadata.acquisition_datetime == datetime(2025, 1, 1, 12, 0)
     assert projected.metadata.pixel_size_x == 50e-9
     assert projected.metadata.pixel_size_y == 50e-9
     assert projected.metadata.resolution == (128, 128)
@@ -1168,7 +1168,7 @@ def test_max_intensity_projection_data_types():
     )
 
     metadata = FluorescenceImageMetadata(
-        acquisition_date=datetime.now().isoformat(),
+        acquisition_datetime=datetime.now().isoformat(),
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         resolution=(64, 64),
@@ -1222,7 +1222,7 @@ def test_max_intensity_projection_large_stack():
         channels.append(channel)
 
     metadata = FluorescenceImageMetadata(
-        acquisition_date=datetime.now().isoformat(),
+        acquisition_datetime=datetime.now().isoformat(),
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         pixel_size_z=50e-9,
@@ -1275,7 +1275,7 @@ def test_max_intensity_projection_2d_return():
         channels.append(channel)
 
     metadata = FluorescenceImageMetadata(
-        acquisition_date=datetime.now().isoformat(),
+        acquisition_datetime=datetime.now().isoformat(),
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         resolution=(nx, ny),
@@ -1335,7 +1335,7 @@ def test_max_intensity_projection_2d_vs_metadata_return():
     )
 
     metadata = FluorescenceImageMetadata(
-        acquisition_date=datetime.now().isoformat(),
+        acquisition_datetime=datetime.now().isoformat(),
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         resolution=(nx, ny),
@@ -1399,7 +1399,7 @@ def test_focus_stack_basic():
     )
 
     metadata = FluorescenceImageMetadata(
-        acquisition_date=datetime.now().isoformat(),
+        acquisition_datetime=datetime.now().isoformat(),
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         resolution=(nx, ny),
@@ -1461,7 +1461,7 @@ def test_focus_stack_2d_return():
     ]
 
     metadata = FluorescenceImageMetadata(
-        acquisition_date=datetime.now().isoformat(),
+        acquisition_datetime=datetime.now().isoformat(),
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         resolution=(nx, ny),
@@ -1501,7 +1501,7 @@ def test_focus_stack_error_cases():
         offset=0.0,
     )
     metadata = FluorescenceImageMetadata(
-        acquisition_date=datetime.now().isoformat(),
+        acquisition_datetime=datetime.now().isoformat(),
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         resolution=(nx, ny),
@@ -1515,7 +1515,7 @@ def test_focus_stack_error_cases():
     # Create valid multi-z data for other tests
     data_3d = np.random.randint(0, 255, (2, 3, ny, nx), dtype=np.uint8)
     metadata_3d = FluorescenceImageMetadata(
-        acquisition_date=datetime.now().isoformat(),
+        acquisition_datetime=datetime.now().isoformat(),
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         resolution=(nx, ny),
@@ -1564,7 +1564,7 @@ def test_focus_stack_methods_comparison():
         offset=0.0,
     )
     metadata = FluorescenceImageMetadata(
-        acquisition_date=datetime.now().isoformat(),
+        acquisition_datetime=datetime.now().isoformat(),
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         resolution=(nx, ny),
@@ -1625,7 +1625,7 @@ def test_focus_stack_block_based():
     )
 
     metadata = FluorescenceImageMetadata(
-        acquisition_date=datetime.now().isoformat(),
+        acquisition_datetime=datetime.now().isoformat(),
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         resolution=(nx, ny),
@@ -2409,7 +2409,7 @@ def _make_image() -> FluorescenceImage:
     """A minimal two-channel image that round-trips through OME-TIFF cleanly."""
     data = np.zeros((2, 1, 16, 16), dtype=np.uint8)  # C, Z, Y, X
     metadata = FluorescenceImageMetadata(
-        acquisition_date="2025-01-01T12:00:00",
+        acquisition_datetime="2025-01-01T12:00:00",
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         resolution=(16, 16),
@@ -2483,7 +2483,7 @@ class TestCombiningImagesKeepsTheirMetadata:
         )
 
         metadata = FluorescenceImageMetadata(
-            acquisition_date="2026-07-31T12:00:00",
+            acquisition_datetime="2026-07-31T12:00:00",
             pixel_size_x=1e-7,
             pixel_size_y=1e-7,
             channels=[

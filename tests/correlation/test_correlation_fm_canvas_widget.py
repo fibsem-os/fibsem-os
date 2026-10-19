@@ -37,7 +37,7 @@ _NZ = 9
 
 def _fm_image(nz=_NZ, size=32):
     metadata = FluorescenceImageMetadata(
-        acquisition_date="2026-08-10T00:00:00",
+        acquisition_datetime="2026-08-10T00:00:00",
         pixel_size_x=1e-7,
         pixel_size_y=1e-7,
         resolution=(size, size),

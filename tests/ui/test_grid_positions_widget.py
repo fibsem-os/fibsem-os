@@ -93,7 +93,7 @@ def _save_fm_overview(microscope, path, position):
             np.uint16
         ),
         metadata=FluorescenceImageMetadata(
-            acquisition_date="2026-09-14T10:00:00",
+            acquisition_datetime="2026-09-14T10:00:00",
             pixel_size_x=1e-7,
             pixel_size_y=1e-7,
             stage_position=position,

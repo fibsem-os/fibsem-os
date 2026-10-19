@@ -43,7 +43,7 @@ def _fluorescence_preview(channels: int = 2, size: int = 8):
     return FluorescenceImage(
         data=np.zeros((channels, size, size), dtype=np.uint16),
         metadata=FluorescenceImageMetadata(
-            acquisition_date="2026-08-25T09:00:00",
+            acquisition_datetime="2026-08-25T09:00:00",
             pixel_size_x=1e-7,
             pixel_size_y=1e-7,
             channels=[

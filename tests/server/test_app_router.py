@@ -878,7 +878,7 @@ def test_fm_overview_previews_in_colour_and_places_markers(
         for i, colour in enumerate(("red", "green"))
     ]
     metadata = FluorescenceImageMetadata(
-        acquisition_date="2026-01-01T00:00:00",
+        acquisition_datetime="2026-01-01T00:00:00",
         pixel_size_x=1e-7,
         pixel_size_y=1e-7,
         resolution=(64, 64),

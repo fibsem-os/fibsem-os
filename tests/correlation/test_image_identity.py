@@ -53,7 +53,7 @@ def _fib_image(filepath=FIB_PATH, requested_name=FIB_REQUESTED_NAME):
 
 def _fm_image(filepath=FM_PATH, requested_name="fm_stack_as_acquired"):
     metadata = FluorescenceImageMetadata(
-        acquisition_date="2026-08-05T00:00:00",
+        acquisition_datetime="2026-08-05T00:00:00",
         pixel_size_x=1e-7,
         pixel_size_y=1e-7,
         resolution=(16, 16),

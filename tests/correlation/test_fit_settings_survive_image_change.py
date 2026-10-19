@@ -35,7 +35,7 @@ _SIZE = 32
 def _fm_image(channel_names, nz: int = 5) -> FluorescenceImage:
     """A small (C, Z, Y, X) stack carrying the given channel names."""
     metadata = FluorescenceImageMetadata(
-        acquisition_date="2026-08-14T00:00:00",
+        acquisition_datetime="2026-08-14T00:00:00",
         pixel_size_x=1e-7,
         pixel_size_y=1e-7,
         pixel_size_z=5e-7,

@@ -93,7 +93,7 @@ def images(microscope, experiment):
     fib_path = str(lamella / "ref_fib.tif")
     fib.save(fib_path)
     metadata = FluorescenceImageMetadata(
-        acquisition_date="2026-01-01T00:00:00",
+        acquisition_datetime="2026-01-01T00:00:00",
         pixel_size_x=FM_PX,
         pixel_size_y=FM_PX,
         pixel_size_z=FM_PZ,

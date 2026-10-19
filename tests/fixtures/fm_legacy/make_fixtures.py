@@ -36,7 +36,7 @@ def expected(nc: int, nz: int) -> np.ndarray:
 
 def _metadata(nc: int, nz: int) -> FluorescenceImageMetadata:
     return FluorescenceImageMetadata(
-        acquisition_date="2026-09-23T10:00:00",
+        acquisition_datetime="2026-09-23T10:00:00",
         pixel_size_x=2e-7,
         pixel_size_y=2e-7,
         resolution=(WIDTH, HEIGHT),

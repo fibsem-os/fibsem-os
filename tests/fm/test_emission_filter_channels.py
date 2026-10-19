@@ -84,7 +84,7 @@ def _channel(name, emission_filter):
 def test_ome_file_keeps_each_channels_filter(tmp_path):
     filters = [REFLECTION, GFP, DUAL, FLUORESCENCE]
     metadata = FluorescenceImageMetadata(
-        acquisition_date="2026-10-16T12:00:00",
+        acquisition_datetime="2026-10-16T12:00:00",
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,
         resolution=(8, 8),

@@ -66,7 +66,7 @@ def _ramp_stack() -> FluorescenceImage:
     return FluorescenceImage(
         data=np.broadcast_to(planes, (_NZ, 32, 32)).copy()[None],
         metadata=FluorescenceImageMetadata(
-            acquisition_date="2026-10-09T12:00:00",
+            acquisition_datetime="2026-10-09T12:00:00",
             pixel_size_x=_XY,
             pixel_size_y=_XY,
             pixel_size_z=_Z_STEP,

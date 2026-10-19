@@ -254,7 +254,6 @@ BUILT_FM = {
         default_orientation="FM",
     ),
     "fluorescence-image-metadata": FluorescenceImageMetadata(
-        acquisition_date="2026-10-19T03:00:00+11:00",
         acquisition_datetime=datetime.fromisoformat("2026-10-19T03:00:00+11:00"),
         pixel_size_x=100e-9,
         pixel_size_y=100e-9,

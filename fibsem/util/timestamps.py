@@ -118,11 +118,11 @@ def to_aware(value) -> Optional[datetime]:
 def acquisition_datetime_of(metadata) -> Optional[datetime]:
     """When an image was acquired, from a beam or fluorescence image's metadata.
 
-    ``acquisition_datetime`` when the image records it. Older images fall back to what
-    they carried instead: a beam image's ``microscope_state.timestamp`` (a POSIX float,
-    or the month/day/year string), a fluorescence image's ``acquisition_date``. Nothing is
-    rewritten, so an image read this way is never "upgraded" to an instant it did not
-    record. None when nothing readable is there.
+    ``acquisition_datetime`` when the image records it. An older beam image falls back
+    to its ``microscope_state.timestamp`` (a POSIX float, or the month/day/year
+    string); an older fluorescence image's is naive. Nothing is rewritten, so an image
+    read this way is never "upgraded" to an instant it did not record. None when
+    nothing readable is there.
     """
     return to_datetime(_acquisition_value(metadata))
 
@@ -145,7 +145,7 @@ def _acquisition_value(metadata):
     # FibsemImageMetadata.acquisition_date is a property that calls this function.
     if hasattr(metadata, "microscope_state"):
         return getattr(metadata.microscope_state, "timestamp", None)
-    return getattr(metadata, "acquisition_date", None)
+    return None
 
 
 def wall_time_of(value, zone: Optional[tzinfo] = None) -> Optional[datetime]:

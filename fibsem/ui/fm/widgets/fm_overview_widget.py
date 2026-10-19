@@ -1012,10 +1012,10 @@ class FMOverviewWidget(QWidget):
         date gets a record of its own instead of joining every other dateless overview
         under a shared key, which is what the old fallback did.
         """
-        stamp = getattr(image.metadata, "acquisition_date", None)
+        stamp = getattr(image.metadata, "acquisition_datetime", None)
         if stamp:
             for record in self._records.values():
-                if getattr(record.metadata, "acquisition_date", None) == stamp:
+                if getattr(record.metadata, "acquisition_datetime", None) == stamp:
                     record.metadata = image.metadata
                     return record
 

@@ -268,7 +268,7 @@ def test_acquire_channels(demo_microscope):
     assert result.data.shape[0] == 2  # Should have 2 channels (CZYX format)
 
     # Check that acquisition date is set
-    assert result.metadata.acquisition_date is not None
+    assert result.metadata.acquisition_datetime is not None
 
 
 def test_acquire_z_stack(demo_microscope):
@@ -317,7 +317,7 @@ def test_acquire_z_stack(demo_microscope):
     )  # Z dimension should match expected slices (CZYX format)
 
     # Check that acquisition date is set
-    assert result.metadata.acquisition_date is not None
+    assert result.metadata.acquisition_datetime is not None
 
 
 # --- z-stack acquisition order ----------------------------------------------
@@ -621,7 +621,7 @@ def test_acquire_image(fm_microscope):
     assert result.data.shape[1] == 1
 
     # Check that acquisition date is set
-    assert result.metadata.acquisition_date is not None
+    assert result.metadata.acquisition_datetime is not None
 
 
 def test_acquire_image_saves_and_names_the_description_from_the_filename(

@@ -62,7 +62,7 @@ from fibsem.autofunctions.autofocus import (  # noqa: E402,F401
     FocusMethod,
     FocusSweepPass,
 )
-from fibsem.codec import AwareTimestamp, NamedEnum, decode, encode
+from fibsem.codec import NamedEnum, Timestamp, decode, encode
 
 # AutoFocusMode is canonical in fibsem.structures -- there was a second, identical
 # enum of the same name here, so the two tilers held different objects for the same
@@ -94,8 +94,7 @@ from fibsem.structures import (  # noqa: F401
 from fibsem.util.timestamps import (
     acquisition_datetime_of,
     now,
-    now_iso,
-    to_aware,
+    to_datetime,
 )
 
 
@@ -958,7 +957,6 @@ class FluorescenceImage:
             channels.append(channel)
 
         return FluorescenceImageMetadata(
-            acquisition_date=now_iso(),
             pixel_size_x=1e-6,  # default 1 micron
             pixel_size_y=1e-6,  # default 1 micron
             resolution=(nx, ny),
@@ -1124,7 +1122,6 @@ class FluorescenceImage:
 
         # Create new metadata for the projected image
         projected_metadata = FluorescenceImageMetadata(
-            acquisition_date=self.metadata.acquisition_date,
             acquisition_datetime=self.metadata.acquisition_datetime,
             pixel_size_x=self.metadata.pixel_size_x,
             pixel_size_y=self.metadata.pixel_size_y,
@@ -1266,7 +1263,6 @@ class FluorescenceImage:
 
         # Create new metadata for the stacked image
         stacked_metadata = FluorescenceImageMetadata(
-            acquisition_date=self.metadata.acquisition_date,
             acquisition_datetime=self.metadata.acquisition_datetime,
             pixel_size_x=self.metadata.pixel_size_x,
             pixel_size_y=self.metadata.pixel_size_y,
@@ -1335,7 +1331,6 @@ class FluorescenceImage:
         ]
 
         metadata = FluorescenceImageMetadata(
-            acquisition_date=now_iso(),
             pixel_size_x=pixel_size,
             pixel_size_y=pixel_size,
             resolution=resolution,
@@ -1380,7 +1375,6 @@ class FluorescenceImageMetadata:
     """Complete metadata for fluorescence microscopy images."""
 
     # Image acquisition settings
-    acquisition_date: str  # ISO timestamp string
     pixel_size_x: float  # meters, after binning
     pixel_size_y: float  # meters, after binning
     pixel_size_z: Optional[float] = None  # meters, for z-stacks
@@ -1416,17 +1410,15 @@ class FluorescenceImageMetadata:
     system_info: Optional[dict] = None
     dimension_order: str = "CZYX"  # default dimension order for OME-TIFF
 
-    # When the image was acquired: an aware datetime, written as ISO 8601 with its
-    # UTC offset -- the same field the beam images carry (FIB-1190). `FM.acquire_frame`
-    # stamps it as the acquisition starts. `acquisition_date` is still written, with
-    # the same value as a string, for OME and odemis; before this it held the
-    # acquiring machine's clock time with no offset, which is all an older image has.
-    # None on those, and on images built rather than acquired -- read the time
-    # through `acquisition_datetime_of`, which falls back.
-    acquisition_datetime: Optional[AwareTimestamp] = None
+    # When the image was acquired, written as ISO 8601 (FIB-1190). `FM.acquire_frame`
+    # stamps it with its UTC offset as the acquisition starts. An older image has the
+    # acquiring machine's clock time alone, so this is naive there. None on images
+    # built rather than acquired.
+    acquisition_datetime: Optional[Timestamp] = None
 
     def __post_init__(self):
         """Validate metadata consistency."""
+        self.acquisition_datetime = to_datetime(self.acquisition_datetime)
         if not self.channels:
             raise ValueError("At least one channel must be specified")
 
@@ -1580,14 +1572,8 @@ class FluorescenceImageMetadata:
         if not channels_md:
             raise ValueError("OME metadata contains no channel information")
 
-        acquired = getattr(image_md, "acquisition_date", None)
-        acquisition_date = acquired.isoformat() if acquired else now_iso()
-
         return cls(
-            acquisition_date=acquisition_date,
-            # Only when the file says which zone: a naive one is another machine's
-            # clock time, and stays in acquisition_date alone.
-            acquisition_datetime=to_aware(acquired),
+            acquisition_datetime=getattr(image_md, "acquisition_date", None),
             pixel_size_x=pixel_size_x,
             pixel_size_y=pixel_size_y,
             pixel_size_z=pixel_size_z,
