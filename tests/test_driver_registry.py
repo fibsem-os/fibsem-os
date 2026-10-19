@@ -347,11 +347,11 @@ def test_a_broken_plugin_is_recorded_and_registers_nothing(
         get_driver("JEOL")
 
 
-def test_an_unset_port_is_left_out_of_the_saved_file():
-    """Unset is the driver's registered port; `port: null` would read as a choice."""
+def test_an_unset_port_is_saved_as_null():
+    """Unset, and saved as null, is the driver's registered port."""
     from fibsem.structures import SystemInfo
 
-    assert "port" not in SystemInfo.from_dict({}).to_dict()
+    assert SystemInfo.from_dict({}).to_dict()["port"] is None
     assert SystemInfo.from_dict({"port": 4321}).to_dict()["port"] == 4321
 
     config = utils.load_yaml(cfg.DEFAULT_CONFIGURATION_PATH)

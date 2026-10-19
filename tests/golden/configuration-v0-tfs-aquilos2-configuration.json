@@ -23,7 +23,7 @@
         1024
       ],
       "scan_rotation": 0.0,
-      "voltage": 2000
+      "voltage": 2000.0
     },
     "imaging": {
       "autocontrast": true,
@@ -52,7 +52,7 @@
         1024
       ],
       "scan_rotation": 0.0,
-      "voltage": 30000
+      "voltage": 30000.0
     }
   },
   "hardware": {
@@ -100,6 +100,7 @@
     "manufacturer": "ThermoFisher",
     "model": "Unknown",
     "name": "tfs-aquilos2-configuration",
+    "port": null,
     "serial_number": "Unknown",
     "software_version": "Unknown"
   },

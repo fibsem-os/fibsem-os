@@ -47,7 +47,7 @@ import numpy as np
 from pydantic import BeforeValidator, PlainSerializer, PlainValidator, TypeAdapter
 from pydantic_core import core_schema
 
-from fibsem.util.timestamps import to_datetime, to_iso
+from fibsem.util.timestamps import to_aware, to_datetime, to_iso
 
 T = TypeVar("T")
 
@@ -296,5 +296,13 @@ Array = Annotated[
 Timestamp = Annotated[
     datetime,
     BeforeValidator(to_datetime),
+    PlainSerializer(to_iso, when_used="json"),
+]
+
+# A time that is an instant: as `Timestamp`, but a value with no zone reads as None
+# (`to_aware`), since its instant is unknown.
+AwareTimestamp = Annotated[
+    datetime,
+    BeforeValidator(to_aware),
     PlainSerializer(to_iso, when_used="json"),
 ]

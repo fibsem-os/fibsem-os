@@ -16,7 +16,8 @@ from typing import Any, Dict
 
 import pytest
 
-from fibsem.structures import FibsemImageMetadata
+from fibsem.codec.upgrades.image_metadata import legacy_geometry
+from fibsem.structures import FibsemHardwareGeometry, FibsemImageMetadata
 
 FIXTURE_DIR = os.path.join(os.path.dirname(__file__), "fixtures", "metadata")
 
@@ -182,7 +183,7 @@ def test_a_partial_legacy_blob_recovers_the_same_geometry_either_way(
 
     This test used to assert the opposite. `SystemSettings.from_dict` was
     bracket-indexed, so a blob missing any block raised `KeyError`, and that was the
-    stated reason `_geometry_from_legacy_system` reads the raw dict with `.get()`
+    stated reason `legacy_geometry` reads the raw dict with `.get()`
     chains instead: a migration written through the constructor would have broken
     loudly on exactly the old files it exists to load. See FIB-481.
 
@@ -202,7 +203,7 @@ def test_a_partial_legacy_blob_recovers_the_same_geometry_either_way(
     full = load("thermo_aquilos_v3.json")["system"]
     partial = {k: v for k, v in full.items() if k != missing}
 
-    geometry = FibsemImageMetadata._geometry_from_legacy_system(partial)
+    geometry = FibsemHardwareGeometry.from_dict(legacy_geometry(partial))
     system = SystemSettings.from_dict(copy.deepcopy(partial))
 
     assert geometry.shuttle_pre_tilt == system.stage.shuttle_pre_tilt

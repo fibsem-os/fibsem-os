@@ -91,6 +91,7 @@
     "manufacturer": "Tescan",
     "model": "FAKE",
     "name": "tescan-microscope-configuration",
+    "port": null,
     "serial_number": "0000",
     "software_version": "1.0"
    }
@@ -227,6 +228,7 @@
     "manufacturer": "Tescan",
     "model": "FAKE",
     "name": "tescan-microscope-configuration",
+    "port": null,
     "serial_number": "0000",
     "software_version": "1.0"
    }
@@ -367,6 +369,7 @@
     "manufacturer": "Tescan",
     "model": "FAKE",
     "name": "tescan-microscope-configuration",
+    "port": null,
     "serial_number": "0000",
     "software_version": "1.0"
    }
@@ -523,6 +526,7 @@
     "manufacturer": "Tescan",
     "model": "FAKE",
     "name": "tescan-microscope-configuration",
+    "port": null,
     "serial_number": "0000",
     "software_version": "1.0"
    }
@@ -658,6 +662,7 @@
     "manufacturer": "Tescan",
     "model": "FAKE",
     "name": "tescan-microscope-configuration",
+    "port": null,
     "serial_number": "0000",
     "software_version": "1.0"
    }
@@ -969,6 +974,7 @@
     "manufacturer": "Tescan",
     "model": "FAKE",
     "name": "tescan-microscope-configuration",
+    "port": null,
     "serial_number": "0000",
     "software_version": "1.0"
    }
@@ -1105,6 +1111,7 @@
     "manufacturer": "Tescan",
     "model": "FAKE",
     "name": "tescan-microscope-configuration",
+    "port": null,
     "serial_number": "0000",
     "software_version": "1.0"
    }
@@ -1245,6 +1252,7 @@
     "manufacturer": "Tescan",
     "model": "FAKE",
     "name": "tescan-microscope-configuration",
+    "port": null,
     "serial_number": "0000",
     "software_version": "1.0"
    }
@@ -1401,6 +1409,7 @@
     "manufacturer": "Tescan",
     "model": "FAKE",
     "name": "tescan-microscope-configuration",
+    "port": null,
     "serial_number": "0000",
     "software_version": "1.0"
    }
@@ -1536,6 +1545,7 @@
     "manufacturer": "Tescan",
     "model": "FAKE",
     "name": "tescan-microscope-configuration",
+    "port": null,
     "serial_number": "0000",
     "software_version": "1.0"
    }
@@ -1886,6 +1896,7 @@
      "manufacturer": "Tescan",
      "model": "FAKE",
      "name": "tescan-microscope-configuration",
+     "port": null,
      "serial_number": "0000",
      "software_version": "1.0"
     }
@@ -1934,6 +1945,7 @@
      "manufacturer": "Tescan",
      "model": "FAKE",
      "name": "tescan-microscope-configuration",
+     "port": null,
      "serial_number": "0000",
      "software_version": "1.0"
     }
