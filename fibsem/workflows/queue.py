@@ -45,11 +45,6 @@ class WorkItem:
     iteration: Optional[int] = None
 
     @property
-    def lamella_name(self) -> str:
-        """Deprecated alias for :attr:`item_name`; drop with the v0.6 shims."""
-        return self.item_name
-
-    @property
     def is_pending(self) -> bool:
         """Whether this item is still waiting to run — the only mutable state."""
         return self.status is TaskStatus.NotStarted
@@ -65,7 +60,6 @@ class QueueOp(Enum):
     OK = auto()
     NOT_FOUND = auto()  # no item with that id
     NOT_PENDING = auto()  # item is active, already run, or removed
-    BAD_ANCHOR = auto()  # the target item is missing or not pending
     NO_OP = auto()  # already in the requested position
     FIXED = auto()  # a step the plan places, such as a grid's load step
     ALREADY_QUEUED = auto()  # the pair is already waiting to run
@@ -106,9 +100,6 @@ class TaskQueue:
         self._lock = threading.RLock()
         self._active: Optional[WorkItem] = None
         self._version = 0
-        # Original matrix dimensions for status dict compat
-        self._task_names: List[str] = []
-        self._item_names: List[str] = []
 
     # --- Build ---
 
@@ -123,8 +114,6 @@ class TaskQueue:
         an item costs a grid exchange to reach and is exchanged once.
         """
         with self._lock:
-            self._task_names = list(task_names)
-            self._item_names = list(item_names)
             if item_outer:
                 self._items = [
                     WorkItem(item_name=name, task_name=tn)
@@ -141,30 +130,13 @@ class TaskQueue:
             self._version += 1
             return [copy.copy(i) for i in self._items]
 
-    def build_from_pairs(
-        self,
-        pairs: List[Tuple[str, str]],
-        task_names: Optional[List[str]] = None,
-        item_names: Optional[List[str]] = None,
-    ) -> List[WorkItem]:
+    def build_from_pairs(self, pairs: List[Tuple[str, str]]) -> List[WorkItem]:
         """Populate the queue from an explicit ``(item_name, task_name)`` plan.
 
         For a run whose steps are not a plain matrix -- the grid workflow puts a
-        load step ahead of each grid's tasks. ``task_names`` and ``item_names``
-        are the launch plan the status payload reports; by default they are read
-        off the pairs in first-seen order.
+        load step ahead of each grid's tasks.
         """
         with self._lock:
-            self._task_names = (
-                list(task_names)
-                if task_names is not None
-                else list(dict.fromkeys(t for _, t in pairs))
-            )
-            self._item_names = (
-                list(item_names)
-                if item_names is not None
-                else list(dict.fromkeys(n for n, _ in pairs))
-            )
             self._items = [WorkItem(item_name=n, task_name=t) for n, t in pairs]
             self._active = None
             self._version += 1
@@ -285,38 +257,10 @@ class TaskQueue:
             self._version += 1
             return QueueResult(QueueOp.OK, self._version)
 
-    def move_before(self, item_id: str, target_id: str) -> QueueResult:
-        """Move a pending item to just before another pending item."""
-        with self._lock:
-            index = self._anchor_index(target_id)
-            if index is None:
-                return QueueResult(QueueOp.BAD_ANCHOR, self._version)
-            current = self._anchor_index(item_id)
-            # removing the item first shifts a later anchor down by one
-            if current is not None and current < index:
-                index -= 1
-            return self._move(item_id, index)
-
-    def move_after(self, item_id: str, target_id: str) -> QueueResult:
-        """Move a pending item to just after another pending item."""
-        with self._lock:
-            index = self._anchor_index(target_id)
-            if index is None:
-                return QueueResult(QueueOp.BAD_ANCHOR, self._version)
-            current = self._anchor_index(item_id)
-            if current is not None and current < index:
-                index -= 1
-            return self._move(item_id, index + 1)
-
     def move_to_front(self, item_id: str) -> QueueResult:
         """Move a pending item to the front of the queue — i.e. run it next."""
         with self._lock:
             return self._move(item_id, 0)
-
-    def move_to_back(self, item_id: str) -> QueueResult:
-        """Move a pending item to the end of the queue."""
-        with self._lock:
-            return self._move(item_id, len(self._items))
 
     def nudge(self, item_id: str, delta: int) -> QueueResult:
         """Move a pending item ``delta`` places within the pending sequence.
@@ -368,20 +312,6 @@ class TaskQueue:
                 return QueueResult(QueueOp.ALREADY_QUEUED, self._version)
             item = self.add(item_name, task_name, front=front)
             return QueueResult(QueueOp.OK, self._version, item)
-
-    def reorder_pending(self, item_ids: List[str]) -> QueueResult:
-        """Pull the named pending items to the front, in the order given.
-
-        Prefix semantics, never replacement: any pending item not named keeps
-        its relative order and follows. A caller passing a filtered or stale
-        subset therefore reorders what it knows about and leaves the rest
-        alone, instead of destroying it.
-        """
-        with self._lock:
-            by_id = {i.id: i for i in self._pending()}
-            named = [by_id[i] for i in dict.fromkeys(item_ids) if i in by_id]
-            rest = [i for i in self._pending() if i not in named]
-            return QueueResult(self._reposition(named + rest), self._version)
 
     # --- Iteration (called by worker thread) ---
 
@@ -481,18 +411,3 @@ class TaskQueue:
     def is_empty(self) -> bool:
         with self._lock:
             return not any(i.is_pending for i in self._items)
-
-    @property
-    def task_names(self) -> List[str]:
-        """Original task names list (for status dict compat)."""
-        return list(self._task_names)
-
-    @property
-    def item_names(self) -> List[str]:
-        """Original item names list (for status dict compat)."""
-        return list(self._item_names)
-
-    @property
-    def lamella_names(self) -> List[str]:
-        """Deprecated alias for :attr:`item_names`; drop with the v0.6 shims."""
-        return self.item_names

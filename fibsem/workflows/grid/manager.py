@@ -182,11 +182,7 @@ class GridTaskManager(BaseTaskManager):
         """Run ``task_names``, in order, on each of ``grid_names`` (all grids if None)."""
         if grid_names is None:
             grid_names = [g.name for g in self.experiment.grids]
-        self.queue.build_from_pairs(
-            plan_grid_run(task_names, grid_names),
-            task_names=task_names,
-            item_names=grid_names,
-        )
+        self.queue.build_from_pairs(plan_grid_run(task_names, grid_names))
         self._run_queue()
 
     def build_run_summary_dataframe(self) -> pd.DataFrame:

@@ -170,26 +170,11 @@ class WorkflowStatusUpdate:
     # and "the snapshot is empty" as "reconcile to zero rows". Defaulting to `[]`
     # would collapse the two and leave stale rows on screen when a queue empties.
     queue_items: Optional[List["WorkItem"]] = None
-    # The plan this run was launched with. Informational only -- the live queue may
-    # since have diverged from it. No in-repo production consumer reads either of
-    # these; they are kept for the same reason `lamella_name` is, and should be
-    # dropped together with it.
-    task_names: List[str] = field(default_factory=list)
-    lamella_names: List[str] = field(default_factory=list)
     # The queue entry this report is about, so a timeline matches its row by id
     # rather than by (item, task), which repeats when items run in iterations.
     work_item_id: str = ""
     # Its iteration (WorkItem.iteration): None for items that run their tasks once.
     iteration: Optional[int] = None
-
-    @property
-    def lamella_name(self) -> str:
-        """Deprecated alias for :attr:`item_name`.
-
-        A property rather than a field so there is one source of truth and the two
-        cannot drift. Drop it alongside the ``HookContext`` shims after v0.6.
-        """
-        return self.item_name
 
     @classmethod
     def from_payload(
@@ -232,8 +217,6 @@ class WorkflowStatusUpdate:
                 if payload.get("queue_items") is not None
                 else None
             ),
-            task_names=list(payload.get("task_names") or []),
-            lamella_names=list(payload.get("lamella_names") or []),
         )
 
 

@@ -103,7 +103,7 @@ def add_batch(queue: TaskQueue, experiment, lamella_names, task_names, run_next)
 
 
 def pairs(queue: TaskQueue):
-    return [(i.lamella_name, i.task_name) for i in queue.items]
+    return [(i.item_name, i.task_name) for i in queue.items]
 
 
 # ── Ordering ──────────────────────────────────────────────────────────────────
@@ -126,7 +126,7 @@ def test_run_next_keeps_the_batch_in_order(queue, experiment):
     so the batch comes out backwards. Anchor each after the previous instead."""
     add_batch(queue, experiment, ["L1", "L2"], ["Undercut", "Polishing"], True)
 
-    assert [(i.lamella_name, i.task_name) for i in queue.pending][:4] == [
+    assert [(i.item_name, i.task_name) for i in queue.pending][:4] == [
         ("L1", "Undercut"),
         ("L2", "Undercut"),
         ("L1", "Polishing"),
@@ -165,7 +165,7 @@ def test_a_pair_already_queued_is_added_again(queue, experiment):
 
 def test_what_the_dialog_reports_as_already_queued(queue):
     """The set the confirm dialog warns about: pending pairs only."""
-    pending = {(i.lamella_name, i.task_name) for i in queue.pending}
+    pending = {(i.item_name, i.task_name) for i in queue.pending}
     lamella_names, task_names = ["L1", "L2"], ["Trench"]
     already = [
         f"{t} for {ln}"

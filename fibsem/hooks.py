@@ -8,7 +8,6 @@ today (see AutoLamellaTask._fire_hook and TaskManager).
 import logging
 import threading
 import time
-import warnings
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -235,17 +234,6 @@ class HookContext:
                 self.event,
             )
 
-    @property
-    def lamella_name(self) -> str:
-        """Deprecated alias for item_name, kept so hooks written against the pre-rename
-        context keep working. Read-only: construct with item_name."""
-        warnings.warn(
-            "HookContext.lamella_name is deprecated, use HookContext.item_name",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self.item_name
-
 
 DEFAULT_MESSAGE_TEMPLATE = "Task {task_name} {event} for {item_name}"
 
@@ -262,7 +250,6 @@ def _template_fields(context: HookContext) -> Dict[str, str]:
         "task_name": context.task_name,
         "task_type": context.task_type,
         "item_name": context.item_name,
-        "lamella_name": context.item_name,  # deprecated alias, renders pre-rename templates
         "item_id": context.item_id,
         "task_id": context.task_id,
         "experiment_id": context.experiment_id or "",
@@ -505,9 +492,6 @@ class WebhookHook(Hook):
             "task_name": context.task_name,
             "task_type": context.task_type,
             "item_name": context.item_name,
-            # Deprecated duplicate of item_name: the payload shipped in v0.5.1 with
-            # this key, so endpoints reading it keep working. Drop after v0.6.
-            "lamella_name": context.item_name,
             "item_id": context.item_id,
             "task_id": context.task_id,
             "experiment_id": context.experiment_id,

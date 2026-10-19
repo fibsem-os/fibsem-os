@@ -311,7 +311,7 @@ def test_an_item_with_no_estimate_contributes_nothing():
     """A lamella with no config for the task has no duration to offer, and inventing
     one would be worse than leaving it out."""
     items = _items(("01", "A"), ("02", "A"))
-    seconds_for = lambda item: 60.0 if item.lamella_name == "01" else None
+    seconds_for = lambda item: 60.0 if item.item_name == "01" else None
     assert estimate_queue(
         items, seconds_for, now=NOW
     ).remaining_seconds == pytest.approx(60.0)
@@ -487,7 +487,7 @@ def test_run_next_lands_the_batch_ahead_of_the_pending_work_not_of_history():
         ("03", "A"),
     )
     order = [
-        (i.lamella_name, i.task_name)
+        (i.item_name, i.task_name)
         for i in _with_addition(items, _items(("09", "New")), run_next=True)
     ]
     assert order == [("01", "A"), ("02", "A"), ("09", "New"), ("03", "A")]
@@ -505,7 +505,7 @@ def test_added_items_with_no_estimate_are_counted_but_not_priced():
 
 
 def test_a_partly_priced_addition_still_says_so():
-    seconds_for = lambda item: 60.0 if item.lamella_name == "02" else None
+    seconds_for = lambda item: 60.0 if item.item_name == "02" else None
     est = estimate_addition(
         _items(("01", "A")), [("02", "A"), ("03", "A")], seconds_for, now=NOW
     )

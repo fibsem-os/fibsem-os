@@ -73,14 +73,6 @@ class TestTheShape:
         with pytest.raises(dataclasses.FrozenInstanceError):
             report.task_name = "Undercut"
 
-    def test_lamella_name_is_derived_not_stored(self):
-        """A property, so the deprecated alias cannot drift from `item_name` and
-        deletes cleanly with the HookContext shims after v0.6."""
-        report = WorkflowStatusUpdate(item_name="L99")
-
-        assert report.lamella_name == "L99"
-        assert "lamella_name" not in {f.name for f in dataclasses.fields(report)}
-
 
 class TestTheQueueSnapshot:
     """`None` and `[]` mean different things, and the timeline acts on the difference.

@@ -76,13 +76,6 @@ def test_the_status_dict_names_the_item_the_way_the_hook_does(manager: TaskManag
     assert "item_name" in HookContext(event="task_started").__dict__
 
 
-def test_the_old_key_is_still_emitted_for_outside_consumers(manager: TaskManager):
-    """Same deprecation shape as the HookContext shims: emit both until v0.6."""
-    status = _emit(manager, name="lam-7")
-
-    assert status.lamella_name == status.item_name
-
-
 def test_the_positioning_fields_keep_their_names(manager: TaskManager):
     """The position fields are timeline positioning, not lifecycle facts — they have
     no hook counterpart to agree with, so the vocabulary alignment leaves them alone.
@@ -104,4 +97,4 @@ def test_the_positioning_fields_keep_their_names(manager: TaskManager):
     # record (FIB-827). A stronger check than membership: a field cannot be present
     # on one emission and absent on another.
     fields = {f.name for f in dataclasses.fields(WorkflowStatusUpdate)}
-    assert {"lamella_names", "queue_position", "queue_total"} <= fields
+    assert {"queue_position", "queue_total"} <= fields

@@ -175,7 +175,7 @@ def test_an_unpriced_estimate_is_treated_as_no_estimate(show):
 
 def test_a_partly_priced_addition_admits_how_much_it_covers(show):
     """Otherwise it reads as a complete estimate that happens to be quick."""
-    seconds_for = lambda i: 600.0 if i.lamella_name == "01-lamella" else None
+    seconds_for = lambda i: 600.0 if i.item_name == "01-lamella" else None
     est = estimate_addition(
         queue(("03-lamella", "Rough Milling")), PAIRS, seconds_for, now=NOW
     )

@@ -424,9 +424,8 @@ def build_server(
     """Build the server app around an already-connected microscope.
 
     ``auth`` defaults to a generated token at Watch.
-    ``app_context`` is anything satisfying app_routes.AppContext (structurally
-    -- the application's AutoLamellaAppContext in practice); passing one mounts the
-    ``/app`` routes and flips ``routers.app`` in /capabilities.
+    ``app_context`` is the application's view (AutoLamellaAppContext in practice);
+    passing one mounts the ``/app`` routes and flips ``routers.app`` in /capabilities.
 
     ``serve_microscope`` is the App Server's microscope setting (FIB-1035):
     every route under ``/microscope``, reads included, since a read reaches the

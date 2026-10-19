@@ -1,9 +1,8 @@
 """The app-level router: observation of a running AutoLamella session.
 
 Dependency direction is one-way — autolamella imports fibsem.server, never the
-reverse — so this module never imports the application. It defines the
-:class:`AppContext` protocol structurally; the application's ``AutoLamellaAppContext``
-(fibsem.applications.autolamella.server) satisfies it and is passed into
+reverse — so this module never imports the application. The application's
+``AutoLamellaAppContext`` (fibsem.applications.autolamella.server) is passed into
 ``build_server(app_context=...)`` by whoever hosts the server inside the app.
 
 Every route is a thin pass-through: the context returns plain JSON-able
@@ -21,273 +20,13 @@ from fibsem.ai.agent import allowlist
 from fibsem.server import files
 from fibsem.server.auth import take_control
 
-try:  # Protocol is typing-only; keep import robust on the 3.8 floor
-    from typing import Protocol
-except ImportError:  # pragma: no cover
-    Protocol = object  # type: ignore[assignment]
-
 __all__ = [
-    "AppContext",
     "build_app_config_router",
     "build_app_control_router",
     "build_app_router",
     "build_app_stop_router",
     "build_app_suggest_router",
 ]
-
-
-class AppContext(Protocol):
-    """What a hosted application must answer. Matched structurally."""
-
-    def protocols(self) -> Dict[str, Any]: ...
-
-    def create_experiment(
-        self,
-        name: str,
-        protocol: Optional[str] = None,
-        description: Optional[str] = None,
-    ) -> Dict[str, Any]: ...
-
-    def load_experiment(self, path: str) -> Dict[str, Any]: ...
-
-    def load_protocol(self, protocol: str) -> Dict[str, Any]: ...
-
-    def overview_stage_position(
-        self, grid_name: str, filename: str, px: Any = None, fraction: Any = None
-    ) -> Dict[str, Any]: ...
-
-    def add_item(
-        self,
-        name: Optional[str] = None,
-        stage_position: Optional[Dict[str, Any]] = None,
-        overview: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]: ...
-
-    def remove_item(self, item_name: str) -> Dict[str, Any]: ...
-
-    def move_to_item_pose(self, item_name: str, pose_name: str) -> Dict[str, Any]: ...
-
-    def set_item_pose(self, item_name: str, pose_name: str) -> Dict[str, Any]: ...
-
-    def set_item_objective_position(self, item_name: str) -> Dict[str, Any]: ...
-
-    def status(self) -> Dict[str, Any]: ...
-
-    def queue(self) -> Dict[str, Any]: ...
-
-    def experiment_summary(self) -> Dict[str, Any]: ...
-
-    def task_history(self) -> Dict[str, Any]: ...
-
-    def run_summary(self) -> Dict[str, Any]: ...
-
-    def log(
-        self,
-        since: Optional[str] = None,
-        until: Optional[str] = None,
-        task_id: Optional[str] = None,
-        level: Optional[str] = None,
-        lines: int = 200,
-    ) -> Dict[str, Any]: ...
-
-    def protocol(self) -> Dict[str, Any]: ...
-
-    def task_outputs(self, item_name: str) -> Dict[str, Any]: ...
-
-    def item_detail(self, item_name: str) -> Dict[str, Any]: ...
-
-    def output_image(self, item_name: str, filename: str) -> Dict[str, Any]: ...
-
-    def measure_thickness(
-        self,
-        item_name: str,
-        filename: str,
-        width_um: Optional[float] = None,
-        height_um: Optional[float] = None,
-    ) -> Dict[str, Any]: ...
-
-    def grids(self) -> Dict[str, Any]: ...
-
-    def grid_detail(self, grid_name: str) -> Dict[str, Any]: ...
-
-    def grid_output_image(self, grid_name: str, filename: str) -> Dict[str, Any]: ...
-
-    def grid_markers(self, grid_name: str, filename: str) -> Dict[str, Any]: ...
-
-    def add_grids(self) -> Dict[str, Any]: ...
-
-    def rename_grid(self, grid_name: str, name: str) -> Dict[str, Any]: ...
-
-    def image_metadata(self, path: str) -> Dict[str, Any]: ...
-
-    @property
-    def experiment_path(self) -> Optional[str]: ...
-
-    def protocol_task_config(self, task_name: str) -> Dict[str, Any]: ...
-
-    def item_task_config(self, item_name: str, task_name: str) -> Dict[str, Any]: ...
-
-    def apply_item_task_config_patch(
-        self, item_name: str, task_name: str, patch: Dict[str, Any], version: str
-    ) -> Dict[str, Any]: ...
-
-    def apply_protocol_task_config_patch(
-        self, task_name: str, patch: Dict[str, Any], version: str
-    ) -> Dict[str, Any]: ...
-
-    def apply_item_patch(
-        self, item_name: str, patch: Dict[str, Any], version: str
-    ) -> Dict[str, Any]: ...
-
-    def apply_item_correlation(
-        self, item_name: str, run_path: str
-    ) -> Dict[str, Any]: ...
-
-    def set_task_schedule(
-        self, task_name: str, scheduled_at: Optional[str]
-    ) -> Dict[str, Any]: ...
-
-    def set_workflow_options(self, **options: Any) -> Dict[str, Any]: ...
-
-    def add_task(self, task_type: str, task_name: str) -> Dict[str, Any]: ...
-
-    def remove_task(self, task_name: str) -> Dict[str, Any]: ...
-
-    def reorder_tasks(self, order: List[str]) -> Dict[str, Any]: ...
-
-    def set_task_requirements(
-        self,
-        task_name: str,
-        requires: Optional[List[str]] = None,
-        required: Optional[bool] = None,
-    ) -> Dict[str, Any]: ...
-
-    def set_lamella_defaults(self, defaults: Dict[str, Any]) -> Dict[str, Any]: ...
-
-    def save_protocol_as(
-        self, name: str, overwrite: bool = False
-    ) -> Dict[str, Any]: ...
-
-    def grid_task_config(self, task_name: str) -> Dict[str, Any]: ...
-
-    def apply_grid_task_config_patch(
-        self, task_name: str, patch: Dict[str, Any], version: str
-    ) -> Dict[str, Any]: ...
-
-    def reorder_grid_tasks(self, order: List[str]) -> Dict[str, Any]: ...
-
-    def set_grid_task_requirements(
-        self, task_name: str, requires: List[str]
-    ) -> Dict[str, Any]: ...
-
-    def set_grid_quality(
-        self, grid_name: str, verdict: str, reason: str = ""
-    ) -> Dict[str, Any]: ...
-
-    def set_grid_note(self, grid_name: str, note: str) -> Dict[str, Any]: ...
-
-    def remove_grid(self, grid_name: str) -> Dict[str, Any]: ...
-
-    def image_stage_position(
-        self, path: str, px: Any = None, fraction: Any = None
-    ) -> Dict[str, Any]: ...
-
-    def image_pixels(
-        self, path: str, stage_positions: List[Dict[str, Any]]
-    ) -> Dict[str, Any]: ...
-
-    def move_objective_to_item(self, item_name: str) -> Dict[str, Any]: ...
-
-    def apply_protocol_to_item(
-        self, item_name: str, task_names: Optional[List[str]] = None
-    ) -> Dict[str, Any]: ...
-
-    def reorder_milling_stages(
-        self,
-        level: str,
-        item_name: str,
-        task_name: str,
-        milling_key: str,
-        order: List[str],
-        version: str,
-    ) -> Dict[str, Any]: ...
-
-    def recent_experiments(self) -> List[Dict[str, Any]]: ...
-
-    def events(self, since: int = 0, timeout: float = 0.0) -> Dict[str, Any]: ...
-
-    def event_history(
-        self, before: Optional[int] = None, limit: int = 500
-    ) -> Dict[str, Any]: ...
-
-    def display_images(self) -> Dict[str, Any]: ...
-
-    def pending_prompt(self) -> Dict[str, Any]: ...
-
-    def reviews(self) -> Dict[str, Any]: ...
-
-    def decide(
-        self,
-        item_id: str,
-        task_name: str,
-        outcome: str,
-        values: Optional[Dict[str, Any]] = None,
-        reason: str = "",
-        actor: str = "",
-        task_id: str = "",
-        proposal_id: str = "",
-        action: str = "",
-        patch: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]: ...
-
-    def answer_prompt(
-        self, response: bool, question_id: int, value: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]: ...
-
-    def add_note(
-        self,
-        text: str,
-        item_name: Optional[str] = None,
-        reply_to: Optional[str] = None,
-    ) -> Dict[str, Any]: ...
-
-    def stop_workflow(self) -> Dict[str, Any]: ...
-
-    def stop_task(self, item_name: str, task_name: str) -> Dict[str, Any]: ...
-
-    def start_workflow(
-        self, task_names: List[str], item_names: Optional[List[str]] = None
-    ) -> Dict[str, Any]: ...
-
-    def grid_workflow_plan(
-        self,
-        task_names: List[str],
-        grid_names: Optional[List[str]] = None,
-        screen_all: bool = False,
-    ) -> Dict[str, Any]: ...
-
-    def start_grid_workflow(
-        self,
-        task_names: List[str],
-        grid_names: Optional[List[str]] = None,
-        screen_all: bool = False,
-        unload_at_end: bool = False,
-        report_at_end: bool = False,
-    ) -> Dict[str, Any]: ...
-
-    def set_supervision(self, task_name: str, supervise: bool) -> Dict[str, Any]: ...
-
-    def requeue_task(
-        self, item_name: str, task_name: str, front: bool = False
-    ) -> Dict[str, Any]: ...
-
-    def edit_queue(
-        self, item_name: str, task_name: str, action: str
-    ) -> Dict[str, Any]: ...
-
-    def queue_grid_tasks(
-        self, task_names: List[str], grid_names: List[str]
-    ) -> Dict[str, Any]: ...
 
 
 def _grid_run_body(body: Dict[str, Any]):
@@ -410,7 +149,7 @@ def _answer_or_refusal(result: Dict[str, Any]) -> Dict[str, Any]:
     raise HTTPException(status_code=_REFUSAL_STATUS.get(error_type, 422), detail=detail)
 
 
-def build_app_router(context: AppContext) -> APIRouter:
+def build_app_router(context: Any) -> APIRouter:
     router = APIRouter(prefix="/app")
 
     @router.get("/workflow/status")
@@ -677,7 +416,7 @@ def build_app_router(context: AppContext) -> APIRouter:
     return router
 
 
-def build_app_control_router(context: AppContext) -> APIRouter:
+def build_app_control_router(context: Any) -> APIRouter:
     """Routes that act on the session rather than observe it.
 
     Mounted (by build_server) at Drive: the operator raises the level from the
@@ -904,7 +643,7 @@ def build_app_control_router(context: AppContext) -> APIRouter:
     return router
 
 
-def build_app_suggest_router(context: AppContext) -> APIRouter:
+def build_app_suggest_router(context: Any) -> APIRouter:
     """The agent's suggested answer to the run's question (FIB-1283). Mounted
     (by build_server) for Assist and Drive: a suggestion answers nothing, so it
     needs no request."""
@@ -988,7 +727,7 @@ def build_app_suggest_router(context: AppContext) -> APIRouter:
     return router
 
 
-def build_app_stop_router(context: AppContext) -> APIRouter:
+def build_app_stop_router(context: Any) -> APIRouter:
     """Stopping the run. Mounted (by build_server) at Drive, with a reason: the
     workflow is never the agent's own, so at Assist the stop goes in a request
     the operator approves (FIB-1283); a watching agent stops nothing (FIB-1035)."""
@@ -1011,7 +750,7 @@ def build_app_stop_router(context: AppContext) -> APIRouter:
     return router
 
 
-def build_app_config_router(context: AppContext) -> APIRouter:
+def build_app_config_router(context: Any) -> APIRouter:
     """Routes that edit configuration (protocols, item configs, schedules,
     run options). Mounted at Drive, like the control router (FIB-864)."""
     router = APIRouter(prefix="/app")

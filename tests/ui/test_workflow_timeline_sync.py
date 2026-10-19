@@ -50,7 +50,7 @@ def status_for(queue: TaskQueue, item, status, **extra) -> dict:
     """The subset of TaskManager._emit_status's payload the timeline reads."""
     payload = {
         "task_name": item.task_name,
-        "item_name": item.lamella_name,
+        "item_name": item.item_name,
         "status": status,
         "queue_items": queue.items,
         "timestamp": 1000.0,
@@ -155,7 +155,7 @@ def test_removed_item_disappears_from_the_timeline(widget, queue):
     widget.refresh_queue(queue.items)
 
     assert len(widget._outer._rows) == 3
-    assert (target.lamella_name, target.task_name) not in labels(widget)
+    assert (target.item_name, target.task_name) not in labels(widget)
     assert labels(widget) == before[:-1]
     assert layout_order(widget) == widget._outer._rows
 
@@ -224,7 +224,7 @@ def test_reorder_moves_the_rows(widget, queue):
     queue.move_to_front(last.id)
     widget.refresh_queue(queue.items)
 
-    assert labels(widget)[1] == (last.lamella_name, last.task_name)
+    assert labels(widget)[1] == (last.item_name, last.task_name)
 
 
 def test_reorder_moves_the_row_widgets_rather_than_rebuilding_them(widget, queue):
@@ -435,7 +435,7 @@ def manager(widget, tmp_path) -> TaskManager:
 
 
 def emit(manager: TaskManager, item, status, **extra) -> None:
-    lamella = manager.experiment.get_lamella_by_name(item.lamella_name)
+    lamella = manager.experiment.get_lamella_by_name(item.item_name)
     manager._emit_status(item=item, lamella=lamella, status=status, **extra)
 
 
