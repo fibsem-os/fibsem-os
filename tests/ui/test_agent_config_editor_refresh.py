@@ -31,11 +31,11 @@ def window(qapp):
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
 
     win = module.AutoLamellaSingleWindowUI()
-    win.autolamella_ui.system_widget.connect_to_microscope()
+    win.system_widget.connect_to_microscope()
     win.run_border.set_state("idle")
     yield win
-    if win.autolamella_ui.microscope is not None:
-        win.autolamella_ui.microscope.disconnect()
+    if win.microscope is not None:
+        win.microscope.disconnect()
     original_quit = qapp.quit
     qapp.quit = lambda: None
     try:
@@ -52,7 +52,7 @@ def experiment(window, tmp_path):
     exp.add_new_lamella(MicroscopeState(), EventedDict())
     exp.positions[0].task_config[TASK] = MillRoughTaskConfig(task_name=TASK)
     exp.task_protocol.task_config[TASK] = MillRoughTaskConfig(task_name=TASK)
-    window.autolamella_ui.experiment = exp
+    window.experiment = exp
     window.lamella_tab.editor.set_experiment()
     window.lamella_tab.editor.select_lamella(exp.positions[0].name)
     return exp
@@ -82,7 +82,7 @@ def test_the_applier_reaches_the_editor_through_the_window(window, experiment):
     from fibsem.applications.autolamella.server import AutoLamellaAppContext
     from fibsem.applications.autolamella.server.context import config_version
 
-    ui = window.autolamella_ui
+    ui = window
     lamella = experiment.positions[0]
     config = lamella.task_config[TASK]
     context = AutoLamellaAppContext(ui.session, window=ui)

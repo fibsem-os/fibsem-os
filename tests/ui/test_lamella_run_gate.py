@@ -34,7 +34,7 @@ def main_ui(qapp, monkeypatch):
     import fibsem.config as fibsem_config
 
     window = module.AutoLamellaSingleWindowUI()
-    ui = window.autolamella_ui
+    ui = window
     config = os.path.join(
         os.path.dirname(fibsem_config.__file__),
         "config",
@@ -57,7 +57,7 @@ def main_ui(qapp, monkeypatch):
 def test_run_is_refused_by_name_until_the_grid_is_loaded(
     main_ui, tmp_path, monkeypatch
 ):
-    ui = main_ui.autolamella_ui
+    ui = main_ui
     stage = ui.microscope.sample_handling
     exp = Experiment(path=tmp_path, name="exp")
     (tmp_path / "exp").mkdir()
@@ -70,7 +70,7 @@ def test_run_is_refused_by_name_until_the_grid_is_loaded(
     ui.experiment = exp
     exp.sync_grids_from_inventory(stage)
     grid = exp.get_grid_by_name("Grid-02")
-    ui.add_new_lamella(
+    ui.panel.experiment_tab.add_new_lamella(
         stage_position=FibsemStagePosition(x=0, y=0, z=0, r=0, t=0),
         name="on-two",
         grid_id=grid.id,

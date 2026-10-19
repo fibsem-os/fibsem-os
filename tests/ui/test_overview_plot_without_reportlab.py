@@ -31,7 +31,7 @@ _WITHOUT_REPORTLAB = """
 import os, sys
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.modules["reportlab"] = None  # `import reportlab` now raises ImportError
-from fibsem.applications.autolamella.ui import AutoLamellaUI as window
+from fibsem.applications.autolamella.ui import AutoLamellaMainUI as window
 """
 
 
@@ -73,7 +73,7 @@ def test_generate_report_says_why_instead_of_raising():
         window.notification_service.show_toast = (
             lambda message, kind="info", *a, **k: toasts.append((message, kind))
         )
-        window.AutoLamellaUI.action_generate_report(SimpleNamespace(experiment=object()))
+        window.AutoLamellaSingleWindowUI.action_generate_report(SimpleNamespace(experiment=object()))
         assert toasts and toasts[0][1] == "warning", toasts
         assert "reporting" in toasts[0][0], toasts
         print("OK")

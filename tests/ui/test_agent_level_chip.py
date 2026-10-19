@@ -586,7 +586,7 @@ class _Store:
 @pytest.fixture
 def host(main_ui):
     pytest.importorskip("fastapi")
-    ui = main_ui.autolamella_ui
+    ui = main_ui
     previous = ui.session.app_server, ui.session.agent_auth
     ui.session.app_server = _Host()
     # As the real host does, the session holds the auth the host checks.
@@ -597,7 +597,7 @@ def host(main_ui):
 
 
 def test_the_chip_is_hidden_without_a_running_app_server(main_ui):
-    main_ui.autolamella_ui.session.app_server = None
+    main_ui.session.app_server = None
     main_ui.agent_host.refresh()
     assert main_ui.agent_host.chip.isHidden()
 
@@ -628,7 +628,7 @@ def test_stop_agent_drops_to_watch_and_is_the_operator_s_on_the_record(main_ui, 
 
     os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
     microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    ui = main_ui.autolamella_ui
+    ui = main_ui
     previous = ui.session.recorder
     recorder = EventRecorder(microscope, default_actor="operator")
     ui.session.recorder = recorder
@@ -1286,7 +1286,7 @@ def test_the_agent_s_workflow_stop_turns_the_border_red(main_ui, qapp):
 
     from fibsem.applications.autolamella.server import AutoLamellaAppContext
 
-    ui = main_ui.autolamella_ui
+    ui = main_ui
     previous = ui.session.runner
     ui.session.runner = StubRunner(ui.session, is_running=True)
     main_ui.run_border.set_state("automated")

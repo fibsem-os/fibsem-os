@@ -505,8 +505,8 @@ class FluorescenceMicroscope:
     # read compares against the closed set above. Removed in #521, renamed here so the
     # mistake is not available to make again.
     #
-    # What a *task* is doing belongs on the task's own signals (`step_update_signal`,
-    # `workflow_status_signal`), and tile progress belongs on the imaging service's
+    # What a *task* is doing belongs on the task's own signals (the runner's `step`
+    # and `status`), and tile progress belongs on the imaging service's
     # `tiled_progress` (FIB-725). This signal is the acquisition functions', and
     # nothing else's.
     acquisition_progress_signal = Signal(FluorescenceAcquisitionProgress)

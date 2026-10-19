@@ -15,6 +15,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
 import pytest
+from psygnal.containers import EventedList
 
 from fibsem.imaging.overview_session import FLUORESCENCE, OverviewSession
 from fibsem.structures import InsertableDeviceState
@@ -2157,16 +2158,17 @@ from fibsem.applications.autolamella.ui.overview_container_tab import (
     MODALITY_FLUORESCENCE as TAB_MODALITY_FLUORESCENCE,
 )
 from tests.fixtures.demo_stage import demo_session
+from tests.fixtures.overview_host import OverviewHost
 
 
-class _StubHost:
+class _StubHost(OverviewHost):
     """The tab wiring, without the AutoLamella main window.
 
     Constructing the real window needs napari viewers, which segfault under the
     offscreen platform -- on an unmodified `main` as well as here, so this stands in for
     a window that cannot be built in this environment rather than papering over
     something introduced with the tab. The methods borrowed below touch only the tab
-    widget and the two attributes set in `__init__`.
+    widget and the session and panel `OverviewHost` gives it.
 
     Borrowing is explicit, so a method that calls a *helper* on the real window needs
     that helper listed here too. Forgetting is not a readable failure: the missing
@@ -2197,10 +2199,8 @@ class _StubHost:
     def __init__(self, microscope=None, experiment=None):
         from PyQt5.QtWidgets import QTabWidget
 
+        super().__init__(microscope, experiment)
         self.tab_widget = QTabWidget()
-        from tests.fixtures.overview_host import OverviewHost
-
-        self.autolamella_ui = OverviewHost(microscope, experiment)
         self.add_overview_tab()
 
     @property
@@ -2273,7 +2273,7 @@ def test_the_tab_comes_alive_when_fluorescence_connects(qapp):
     from tests.fixtures.fm_microscope import build_microscope
 
     host = _StubHost()
-    host.autolamella_ui.microscope = build_microscope()
+    host.microscope = build_microscope()
 
     host._build_fm_overview_widget()
 
@@ -2332,7 +2332,7 @@ def test_connecting_a_microscope_without_fluorescence_keeps_the_chip(qapp):
     assert not chip.isEnabled()
     assert chip.toolTip() == "Connect a microscope to use the Overview"
 
-    host.autolamella_ui.microscope = _plain_microscope()
+    host.microscope = _plain_microscope()
     host._refresh_overview_microscope()
 
     assert not chip.isEnabled()
@@ -2351,7 +2351,7 @@ def test_a_microscope_with_fluorescence_brings_the_chip_back(qapp):
     chip = host.overview_tab.modality_chip(TAB_MODALITY_FLUORESCENCE)
     assert not chip.isEnabled()
 
-    host.autolamella_ui.microscope = build_microscope()
+    host.microscope = build_microscope()
     host._refresh_overview_microscope()
 
     assert chip.isEnabled()
@@ -2441,7 +2441,7 @@ def test_disconnecting_the_microscope_retires_the_page(qapp):
     host = _StubHost(microscope=build_microscope())
     host._refresh_overview_microscope()
 
-    host.autolamella_ui.microscope = None
+    host.microscope = None
     host._refresh_overview_microscope()
 
     assert host.fm_overview_widget is None
@@ -2458,9 +2458,7 @@ def test_the_experiment_directory_reaches_the_widget(qapp, tmp_path):
     host._build_fm_overview_widget()
     assert host.fm_overview_widget._save_directory is None
 
-    host.autolamella_ui.experiment = type(
-        "_Exp", (), {"path": str(tmp_path), "positions": []}
-    )()
+    host.experiment = type("_Exp", (), {"path": str(tmp_path), "positions": []})()
     host._update_fm_overview_experiment()
 
     assert host.fm_overview_widget._save_directory == str(tmp_path)
@@ -3090,12 +3088,10 @@ def test_the_host_marks_lamellae_by_their_fluorescence_pose(qapp, tmp_path):
     host = _StubHost(microscope=build_microscope())
     host._build_fm_overview_widget()
     widget = host.fm_overview_widget
-    microscope = host.autolamella_ui.microscope
+    microscope = host.microscope
 
     lamella = _lamella_with_poses("Lamella-01", microscope, tmp_path, 100e-6, 50e-6)
-    host.autolamella_ui.experiment = type(
-        "_Exp", (), {"path": "/tmp", "positions": [lamella]}
-    )()
+    host.experiment = type("_Exp", (), {"path": "/tmp", "positions": [lamella]})()
 
     host._update_fm_overview_positions()
 
@@ -3114,12 +3110,12 @@ def test_a_lamella_with_no_fluorescence_pose_is_skipped_not_misplaced(qapp, tmp_
 
     host = _StubHost(microscope=build_microscope())
     host._build_fm_overview_widget()
-    microscope = host.autolamella_ui.microscope
+    microscope = host.microscope
 
     placeable = _lamella_with_poses("Lamella-01", microscope, tmp_path, 100e-6, 50e-6)
     orphan = _lamella_with_poses("Lamella-02", microscope, tmp_path, 0.0, 0.0)
     del orphan.poses["FLUORESCENCE"]
-    host.autolamella_ui.experiment = type(
+    host.experiment = type(
         "_Exp", (), {"path": "/tmp", "positions": [placeable, orphan]}
     )()
 
@@ -3135,8 +3131,8 @@ def test_no_experiment_clears_the_marked_positions(qapp, tmp_path):
 
     host = _StubHost(microscope=build_microscope())
     host._build_fm_overview_widget()
-    microscope = host.autolamella_ui.microscope
-    host.autolamella_ui.experiment = type(
+    microscope = host.microscope
+    host.experiment = type(
         "_Exp",
         (),
         {
@@ -3149,7 +3145,7 @@ def test_no_experiment_clears_the_marked_positions(qapp, tmp_path):
     host._update_fm_overview_positions()
     assert host.fm_overview_widget.session.positions
 
-    host.autolamella_ui.experiment = None
+    host.experiment = None
     host._update_fm_overview_positions()
 
     assert host.fm_overview_widget.session.positions == []
@@ -3389,7 +3385,7 @@ def _experiment_with(positions, tmp_path):
     class _Exp:
         def __init__(self):
             self.path = str(tmp_path)
-            self.positions = list(positions)
+            self.positions = EventedList(positions)
             self.saves = 0
 
         def save(self):
@@ -3404,30 +3400,23 @@ def _wired_host(qapp, tmp_path, positions=()):
 
     host = _StubHost(microscope=build_microscope())
     host._build_fm_overview_widget()
-    host.autolamella_ui.experiment = _experiment_with(positions, tmp_path)
-    host.autolamella_ui.added = []
-    host.autolamella_ui.updated = 0
+    host.experiment = _experiment_with(positions, tmp_path)
+    host.added = []
 
     def add_new_lamella(
         stage_position=None, name=None, objective_position=None, marked_at=None
     ):
-        host.autolamella_ui.added.append(
+        host.added.append(
             {
                 "position": stage_position,
                 "objective_position": objective_position,
                 "marked_at": marked_at,
             }
         )
-        lamella = type(
-            "_Lamella", (), {"name": f"Lamella-{len(host.autolamella_ui.added):02d}"}
-        )()
+        lamella = type("_Lamella", (), {"name": f"Lamella-{len(host.added):02d}"})()
         return lamella
 
-    def update_ui():
-        host.autolamella_ui.updated += 1
-
-    host.autolamella_ui.add_new_lamella = add_new_lamella
-    host.autolamella_ui.update_ui = update_ui
+    host.add_new_lamella = add_new_lamella
     return host
 
 
@@ -3463,8 +3452,8 @@ def test_adding_declares_the_fluorescence_orientation(qapp, tmp_path):
 
     host.overview_tab.fm_tab._on_add_requested(position)
 
-    assert host.autolamella_ui.added[0]["marked_at"] == FLUORESCENCE_ORIENTATION
-    assert host.autolamella_ui.added[0]["position"] is position
+    assert host.added[0]["marked_at"] == FLUORESCENCE_ORIENTATION
+    assert host.added[0]["position"] is position
 
     host._teardown_fm_overview_widget()
 
@@ -3474,7 +3463,7 @@ def test_adding_records_where_the_objective_actually_is(qapp, tmp_path):
     falls back to: that is a property of the instrument and says nothing about this
     sample. Whoever marked this had the feature in focus."""
     host = _wired_host(qapp, tmp_path)
-    objective = host.autolamella_ui.microscope.fm.objective
+    objective = host.microscope.fm.objective
     objective.focus_position = 1.0e-3
     objective.insert()
     objective.move_absolute(objective.position + 50e-6)  # focused by hand
@@ -3482,10 +3471,8 @@ def test_adding_records_where_the_objective_actually_is(qapp, tmp_path):
 
     host.overview_tab.fm_tab._on_add_requested(_named("wherever", 0.0, 0.0))
 
-    assert host.autolamella_ui.added[0]["objective_position"] == pytest.approx(
-        objective.position
-    )
-    assert host.autolamella_ui.added[0]["objective_position"] != pytest.approx(1.0e-3)
+    assert host.added[0]["objective_position"] == pytest.approx(objective.position)
+    assert host.added[0]["objective_position"] != pytest.approx(1.0e-3)
 
 
 def test_a_retracted_objective_is_not_recorded_as_a_focus(qapp, tmp_path):
@@ -3493,13 +3480,13 @@ def test_a_retracted_objective_is_not_recorded_as_a_focus(qapp, tmp_path):
     decision to `build_lamella_poses`' fallback, because `fluorescence_selected` only
     asks whether an objective position exists -- a parked one would read as focused."""
     host = _wired_host(qapp, tmp_path)
-    objective = host.autolamella_ui.microscope.fm.objective
+    objective = host.microscope.fm.objective
     objective.retract()
     assert objective.state is InsertableDeviceState.RETRACTED
 
     host.overview_tab.fm_tab._on_add_requested(_named("wherever", 0.0, 0.0))
 
-    assert host.autolamella_ui.added[0]["objective_position"] is None
+    assert host.added[0]["objective_position"] is None
 
     host._teardown_fm_overview_widget()
 
@@ -3508,13 +3495,13 @@ def test_a_retracted_objective_is_not_recorded_as_a_focus(qapp, tmp_path):
 
 def test_adding_without_an_experiment_is_refused_not_crashed(qapp, tmp_path):
     host = _wired_host(qapp, tmp_path)
-    host.autolamella_ui.experiment = None
+    host.experiment = None
 
     host.overview_tab.fm_tab._on_add_requested(
         _named("wherever", 0.0, 0.0)
     )  # must not raise
 
-    assert host.autolamella_ui.added == []
+    assert host.added == []
 
     host._teardown_fm_overview_widget()
 
@@ -3527,7 +3514,7 @@ def test_a_refused_add_is_reported_rather_than_raised(qapp, tmp_path):
     def refuse(**kwargs):
         raise ValueError("no transform between the fluorescence and beam positions")
 
-    host.autolamella_ui.add_new_lamella = refuse
+    host.add_new_lamella = refuse
 
     host.overview_tab.fm_tab._on_add_requested(
         _named("wherever", 0.0, 0.0)
@@ -3545,9 +3532,9 @@ def test_moving_asks_before_it_moves_anything(qapp, tmp_path, monkeypatch):
     from tests.fixtures.fm_microscope import build_microscope
 
     host = _wired_host(qapp, tmp_path)
-    microscope = host.autolamella_ui.microscope
+    microscope = host.microscope
     lamella = _real_lamella("Lamella-01", microscope, tmp_path)
-    host.autolamella_ui.experiment.positions = [lamella]
+    host.experiment.positions = EventedList([lamella])
     before = deepcopy(lamella.poses)
 
     asked = []
@@ -3567,7 +3554,7 @@ def test_moving_asks_before_it_moves_anything(qapp, tmp_path, monkeypatch):
         lamella.poses["FLUORESCENCE"].stage_position.x
         == before["FLUORESCENCE"].stage_position.x
     )
-    assert host.autolamella_ui.experiment.saves == 0
+    assert host.experiment.saves == 0
 
     host._teardown_fm_overview_widget()
     _ = build_microscope  # keep the import meaningful under -W error
@@ -3579,9 +3566,9 @@ def test_confirming_a_move_moves_both_poses(qapp, tmp_path, monkeypatch):
     )
 
     host = _wired_host(qapp, tmp_path)
-    microscope = host.autolamella_ui.microscope
+    microscope = host.microscope
     lamella = _real_lamella("Lamella-01", microscope, tmp_path)
-    host.autolamella_ui.experiment.positions = [lamella]
+    host.experiment.positions = EventedList([lamella])
     monkeypatch.setattr(module, "message_box_ui", lambda **kwargs: True)
 
     target = _named("target", 400e-6, -200e-6)
@@ -3596,7 +3583,7 @@ def test_confirming_a_move_moves_both_poses(qapp, tmp_path, monkeypatch):
         == "MILLING"
     )
     assert lamella.milling_pose.stage_position.x == pytest.approx(400e-6)
-    assert host.autolamella_ui.experiment.saves == 1
+    assert host.experiment.saves == 1
 
     host._teardown_fm_overview_widget()
 
@@ -3612,11 +3599,11 @@ def test_a_move_rewrites_the_stage_positions_and_nothing_else(
     )
 
     host = _wired_host(qapp, tmp_path)
-    microscope = host.autolamella_ui.microscope
+    microscope = host.microscope
     lamella = _real_lamella("Lamella-01", microscope, tmp_path)
     lamella.milling_pose.electron_detector.brightness = 0.123
     lamella.fluorescence_pose.objective_position = 7.7e-3
-    host.autolamella_ui.experiment.positions = [lamella]
+    host.experiment.positions = EventedList([lamella])
     monkeypatch.setattr(module, "message_box_ui", lambda **kwargs: True)
 
     host.overview_tab.fm_tab._on_move_requested(
@@ -3638,11 +3625,11 @@ def test_moving_a_lamella_that_has_no_fluorescence_pose_gives_it_one(
     )
 
     host = _wired_host(qapp, tmp_path)
-    microscope = host.autolamella_ui.microscope
+    microscope = host.microscope
     lamella = _real_lamella("Lamella-01", microscope, tmp_path)
     lamella.milling_pose.electron_detector.brightness = 0.123
     del lamella.poses["FLUORESCENCE"]
-    host.autolamella_ui.experiment.positions = [lamella]
+    host.experiment.positions = EventedList([lamella])
     monkeypatch.setattr(module, "message_box_ui", lambda **kwargs: True)
 
     host.overview_tab.fm_tab._on_move_requested(
@@ -3667,10 +3654,10 @@ def test_a_move_re_derives_the_milling_angle(qapp, tmp_path, monkeypatch):
     )
 
     host = _wired_host(qapp, tmp_path)
-    microscope = host.autolamella_ui.microscope
+    microscope = host.microscope
     lamella = _real_lamella("Lamella-01", microscope, tmp_path)
     lamella.milling_angle = 999.0
-    host.autolamella_ui.experiment.positions = [lamella]
+    host.experiment.positions = EventedList([lamella])
     monkeypatch.setattr(module, "message_box_ui", lambda **kwargs: True)
 
     host.overview_tab.fm_tab._on_move_requested(
@@ -3693,8 +3680,8 @@ def test_a_move_that_names_nothing_does_nothing(qapp, tmp_path, monkeypatch):
     )
 
     host = _wired_host(qapp, tmp_path)
-    lamella = _real_lamella("Lamella-01", host.autolamella_ui.microscope, tmp_path)
-    host.autolamella_ui.experiment.positions = [lamella]
+    lamella = _real_lamella("Lamella-01", host.microscope, tmp_path)
+    host.experiment.positions = EventedList([lamella])
     asked = []
     monkeypatch.setattr(
         module, "message_box_ui", lambda **kwargs: asked.append(kwargs) or True
@@ -3705,7 +3692,7 @@ def test_a_move_that_names_nothing_does_nothing(qapp, tmp_path, monkeypatch):
     )
 
     assert asked == [], "asked about a lamella that is not there"
-    assert host.autolamella_ui.experiment.saves == 0
+    assert host.experiment.saves == 0
 
     host._teardown_fm_overview_widget()
 
@@ -3755,7 +3742,7 @@ def _list_host(qapp, tmp_path, experiment=None):
 
     host = _StubHost(microscope=build_microscope())
     host._build_fm_overview_widget()
-    host.autolamella_ui.experiment = experiment
+    host.experiment = experiment
     host.workflow_tab = SimpleNamespace(
         lamella_workflow_widget=SimpleNamespace(lamella_list=_ListStub()),
         selection_changed=lambda: None,
@@ -3786,7 +3773,7 @@ def test_a_lamella_added_anywhere_reaches_the_fm_canvas(qapp, tmp_path):
     host._wire_position_events()
     assert host.fm_overview_widget.session.positions == []
 
-    microscope = host.autolamella_ui.microscope
+    microscope = host.microscope
     lamella = _real_lamella("Lamella-01", microscope, tmp_path)
     experiment.positions.append(lamella)  # nobody calls the FM refresh by hand
 
@@ -3800,7 +3787,7 @@ def test_removing_a_lamella_takes_its_marker_away(qapp, tmp_path):
     experiment = _real_experiment(tmp_path)
     host = _list_host(qapp, tmp_path, experiment)
     host._wire_position_events()
-    microscope = host.autolamella_ui.microscope
+    microscope = host.microscope
     experiment.positions.append(_real_lamella("Lamella-01", microscope, tmp_path))
     assert host.fm_overview_widget.session.positions
 
@@ -3817,7 +3804,7 @@ def test_editing_a_position_in_place_re_marks_the_canvas(qapp, tmp_path):
     experiment = _real_experiment(tmp_path)
     host = _list_host(qapp, tmp_path, experiment)
     host._wire_position_events()
-    microscope = host.autolamella_ui.microscope
+    microscope = host.microscope
     lamella = _real_lamella("Lamella-01", microscope, tmp_path)
     experiment.positions.append(lamella)
     before = host.fm_overview_widget.session.positions[0].x
@@ -3837,12 +3824,12 @@ def test_closing_an_experiment_clears_the_canvas(qapp, tmp_path):
     closing has to clear the canvas as much as one opening has to fill it."""
     experiment = _real_experiment(tmp_path)
     host = _list_host(qapp, tmp_path, experiment)
-    microscope = host.autolamella_ui.microscope
+    microscope = host.microscope
     experiment.positions.append(_real_lamella("Lamella-01", microscope, tmp_path))
     host._rebuild_lamella_list()
     assert host.fm_overview_widget.session.positions
 
-    host.autolamella_ui.experiment = None
+    host.experiment = None
     host._rebuild_lamella_list()
 
     assert host.fm_overview_widget.session.positions == []
@@ -3869,7 +3856,7 @@ def test_a_rebuild_keeps_the_ticks_and_the_selected_card(qapp, tmp_path):
     host.lamella_tab = _lamella_tab(LamellaCardContainer(columns=1))
     reselected = []
     host._on_lamella_card_selected = reselected.append
-    microscope = host.autolamella_ui.microscope
+    microscope = host.microscope
     first = _real_lamella("Lamella-01", microscope, tmp_path)
     second = _real_lamella("Lamella-02", microscope, tmp_path)
     experiment.positions.extend([first, second])
@@ -3917,7 +3904,7 @@ def test_switching_experiments_lets_go_of_the_old_one(qapp, tmp_path):
     assert len(first.positions.events.inserted) == 1
 
     second = _real_experiment(tmp_path / "two", name="two")
-    host.autolamella_ui.experiment = second
+    host.experiment = second
     host._wire_position_events()
 
     for signal in ("inserted", "removed", "changed"):
@@ -3937,9 +3924,9 @@ def test_a_confirmed_move_re_marks_the_canvas(qapp, tmp_path, monkeypatch):
     )
 
     host = _wired_host(qapp, tmp_path)
-    microscope = host.autolamella_ui.microscope
+    microscope = host.microscope
     lamella = _real_lamella("Lamella-01", microscope, tmp_path)
-    host.autolamella_ui.experiment.positions = [lamella]
+    host.experiment.positions = EventedList([lamella])
     host._update_fm_overview_positions()
     before = host.fm_overview_widget.session.positions[0].x
     monkeypatch.setattr(module, "message_box_ui", lambda **kwargs: True)
@@ -3969,8 +3956,7 @@ def _tab_with(qapp, tmp_path, positions=()):
     from tests.fixtures.overview_host import OverviewHost
 
     ui = OverviewHost(microscope, experiment)
-    ui.update_ui = lambda: None
-    tab = AutoLamellaFluorescenceOverviewTab(ui)
+    tab = AutoLamellaFluorescenceOverviewTab(ui.session, ui.add_lamella)
     tab.refresh_microscope()
     qapp.processEvents()
     return tab
@@ -4171,7 +4157,7 @@ def test_the_list_survives_the_overview_being_rebuilt(qapp, tmp_path):
 
     from tests.fixtures.fm_microscope import build_microscope
 
-    tab.autolamella_ui.microscope = build_microscope()
+    tab.session.microscope = build_microscope()
     tab.refresh_microscope()  # a reconnection: new microscope, new overview
     # `deleteLater` is deferred, so without this the old overview is still alive at
     # assert time and a list left inside it would look fine. A running event loop does
@@ -4250,7 +4236,7 @@ def test_a_lamella_added_from_elsewhere_lands_on_the_canvas_immediately(qapp, tm
     microscope = tab.microscope
     experiment = _real_experiment(tmp_path / "exp")
     experiment.task_protocol = AutoLamellaTaskProtocol()
-    tab.autolamella_ui.experiment = experiment
+    tab.session.experiment = experiment
     experiment.positions.events.inserted.connect(lambda *_: tab.refresh_positions())
 
     beam = microscope.get_orientation(MILLING_ORIENTATION)

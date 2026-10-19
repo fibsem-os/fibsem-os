@@ -121,7 +121,7 @@ def test_the_workflow_update_refreshes_the_name_list(row, lamella):
     # in _apply_status_report, which _on_workflow_status runs for every report.
     source = inspect.getsource(AutoLamellaSingleWindowUI._apply_status_report)
 
-    assert "autolamella_ui.lamella_list.refresh_lamella(" in source, (
+    assert "self.panel.experiment_tab.lamella_list.refresh_lamella(" in source, (
         "`_apply_status_report` does not refresh the name list, and the row no longer "
         "subscribes -- so nothing keeps it current while a workflow runs"
     )

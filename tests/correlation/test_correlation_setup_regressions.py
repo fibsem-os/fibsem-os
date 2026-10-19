@@ -292,7 +292,7 @@ def _editor_stub(lamella_path, fib_filename, image):
         )
     stub = QWidget()
     stub._selected_lamella = types.SimpleNamespace(path=lamella_path, task_config={})
-    stub.parent_widget = types.SimpleNamespace(experiment=None, session=AppSession())
+    stub.session = AppSession()
     stub.image = image
     stub.fm_image = None
     stub.combobox_fib_filenames = fib_combo

@@ -55,6 +55,7 @@ from fibsem.fm.structures import (
     ChannelSettings,  # noqa: E402
     EmissionFilter,
 )
+from tests.fixtures.app_session import app_session  # noqa: E402
 
 EDITORS = [AutoLamellaProtocolTaskConfigEditor, AutoLamellaProtocolEditorWidget]
 EDITOR_IDS = ["task_config_editor", "lamella_protocol_editor"]
@@ -111,16 +112,13 @@ def _experiment():
 
 
 def _build(editor_cls, microscope):
-    """An editor on *microscope*, plus the host it reads the microscope from."""
-    host = QWidget()
-    host.experiment, host.microscope = _experiment(), microscope
-    editor = editor_cls(parent=host)
-    editor._host = host  # keep the parent alive for the test's duration
-    return editor, host
+    """An editor on *microscope*, plus the session it reads the microscope from."""
+    session = app_session(microscope, _experiment())
+    return editor_cls(session=session), session
 
 
-def _reconnect(editor, host, microscope):
-    host.microscope = microscope
+def _reconnect(editor, session, microscope):
+    session.microscope = microscope
     editor._on_microscope_connected()
 
 

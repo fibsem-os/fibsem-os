@@ -32,7 +32,7 @@ from __future__ import annotations
 import logging
 import os
 import shutil
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 from PyQt5.QtWidgets import QWidget
 
@@ -47,7 +47,9 @@ from fibsem.ui.widgets.overview_widget import FibsemOverviewWidget
 from fibsem.workflows.grids import OverlayRecord
 
 if TYPE_CHECKING:  # pragma: no cover - annotation only
+    from fibsem.applications.autolamella.structures import Lamella
     from fibsem.structures import FibsemStagePosition
+    from fibsem.workflows.session import AppSession
 
 logger = logging.getLogger(__name__)
 
@@ -64,8 +66,13 @@ class AutoLamellaOverviewTab(AutoLamellaOverviewTabBase):
     POSE_NOUN = "position"
     OVERVIEW_NOUN = "overview"
 
-    def __init__(self, autolamella_ui, parent: Optional[QWidget] = None):
-        super().__init__(autolamella_ui, parent)
+    def __init__(
+        self,
+        session: "AppSession",
+        add_lamella: Callable[..., "Lamella"],
+        parent: Optional[QWidget] = None,
+    ):
+        super().__init__(session, add_lamella, parent)
         # Whether the host wants a live widget here at all. True by default so that
         # building this tab and calling `refresh_microscope` is enough on its own, which
         # is how it is used standalone and in tests.
@@ -82,7 +89,7 @@ class AutoLamellaOverviewTab(AutoLamellaOverviewTabBase):
     # ── what makes this the beam side ────────────────────────────────────
 
     def _build_overview(self, microscope) -> QWidget:
-        overview = FibsemOverviewWidget(self.autolamella_ui.session.overview(BEAM))
+        overview = FibsemOverviewWidget(self.session.overview(BEAM))
         overview.gridbar_placement_changed.connect(self._save_gridbar_placement)
         overview.image_placement_changed.connect(self._save_image_placement)
         overview.image_display_changed.connect(self._save_image_display)

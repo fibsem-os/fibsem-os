@@ -37,7 +37,7 @@ def recorder(main_ui):
 
     os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
     microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    ui = main_ui.autolamella_ui
+    ui = main_ui
     previous = ui.session.recorder
     recorder = EventRecorder(microscope, default_actor="operator")
     ui.session.recorder = recorder
@@ -59,7 +59,7 @@ def _stops(recorder):
 @pytest.fixture
 def runner(main_ui, monkeypatch):
     """A run going, for the runner to record its stop against."""
-    ui = main_ui.autolamella_ui
+    ui = main_ui
     stub = StubRunner(ui.session, is_running=True)
     monkeypatch.setattr(ui.session, "runner", stub)
     yield stub
