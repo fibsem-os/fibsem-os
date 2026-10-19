@@ -178,7 +178,10 @@ def test_every_old_file_loads_as_it_did(tmp_path, case, loader):
         with pytest.raises(Exception) as raised:
             LOADERS[loader](str(path))
         assert type(raised.value).__name__ == expected["error"]
-        assert str(raised.value).replace(str(path), "<path>") == expected["message"]
+        assert (
+            str(raised.value).replace(repr(str(path)), "'<path>'")
+            == expected["message"]
+        )
         return
     loaded = LOADERS[loader](str(path))
     if isinstance(loaded, CorrelationState):
