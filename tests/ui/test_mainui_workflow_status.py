@@ -228,7 +228,7 @@ def test_an_event_without_status_bar_text_leaves_the_bar_alone(main_ui):
 def test_the_lamella_sub_tab_is_called_history_not_review(main_ui):
     """The lamella's per-task record is History, beside Protocol; the window
     has no Review tab."""
-    container = main_ui._lamella_tab_container
+    container = main_ui.lamella_tab
     from PyQt5.QtWidgets import QTabWidget
 
     tabs = container.findChild(QTabWidget)

@@ -1186,7 +1186,7 @@ class AutoLamellaUI(QMainWindow):
         parent = self.parent_widget
         if parent is not None:
             try:
-                parent.lamella_widget.flush_pending_save()
+                parent.lamella_tab.editor.flush_pending_save()
             except Exception:
                 logging.exception("flush before agent config edit failed; continuing")
 
@@ -1213,7 +1213,7 @@ class AutoLamellaUI(QMainWindow):
         parent = self.parent_widget
         if parent is not None:
             try:
-                parent.lamella_widget.refresh_if_showing(item_name)
+                parent.lamella_tab.editor.refresh_if_showing(item_name)
             except Exception:
                 logging.exception("editor refresh after protocol apply failed")
 
@@ -1250,7 +1250,7 @@ class AutoLamellaUI(QMainWindow):
             return
         try:
             if level in ("item", "item_fields"):
-                parent.lamella_widget.refresh_if_showing(item_name)
+                parent.lamella_tab.editor.refresh_if_showing(item_name)
             else:
                 parent.task_widget.refresh_if_showing_task(task_name)
         except Exception:
