@@ -423,14 +423,18 @@ class TestATaskEnding:
         from fibsem.ui.widgets.milling_widget import FibsemMillingWidget2
 
         stops = []
+        recorded = []
         milling_widget.microscope = SimpleNamespace(
-            milling=SimpleNamespace(stop=lambda: stops.append(True))
+            milling=SimpleNamespace(stop=lambda: stops.append(True)),
+            record_event=lambda kind, payload: recorded.append((kind, payload)),
         )
         milling_widget._on_milling_progress(
             MillingProgress(MillingProgressStatus.TASK_STARTED, total_stages=1)
         )
         FibsemMillingWidget2.stop_milling(milling_widget)
         assert stops == [True]
+        # On the record as the operator's act.
+        assert [(kind, p["stops"]) for kind, p in recorded] == [("action", "milling")]
 
     def test_the_main_window_hides_its_bar(self, main_window):
         main_window._on_milling_progress(stage_start())
