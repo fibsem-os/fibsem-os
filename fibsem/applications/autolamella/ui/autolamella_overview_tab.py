@@ -41,6 +41,7 @@ from fibsem.applications.autolamella.structures import DefectType
 from fibsem.applications.autolamella.ui.overview_tab_base import (
     AutoLamellaOverviewTabBase,
 )
+from fibsem.imaging.overview_session import BEAM
 from fibsem.ui import notification_service
 from fibsem.ui.widgets.overview_widget import FibsemOverviewWidget
 from fibsem.workflows.grids import OverlayRecord
@@ -81,7 +82,7 @@ class AutoLamellaOverviewTab(AutoLamellaOverviewTabBase):
     # ── what makes this the beam side ────────────────────────────────────
 
     def _build_overview(self, microscope) -> QWidget:
-        overview = FibsemOverviewWidget(microscope)
+        overview = FibsemOverviewWidget(self.autolamella_ui.session.overview(BEAM))
         overview.gridbar_placement_changed.connect(self._save_gridbar_placement)
         overview.image_placement_changed.connect(self._save_image_placement)
         overview.image_display_changed.connect(self._save_image_display)

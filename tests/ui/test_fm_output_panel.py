@@ -24,6 +24,7 @@ pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is delibe
 
 from PyQt5.QtWidgets import QApplication
 
+from fibsem.imaging.overview_session import FLUORESCENCE, OverviewSession
 from fibsem.imaging.tiled import stamped_overview_name
 from fibsem.structures import DEFAULT_OVERVIEW_FILENAME
 from fibsem.ui.fm.widgets.fm_overview_settings_widget import FMOverviewSettingsWidget
@@ -144,7 +145,7 @@ def microscope():
 def widget(microscope, tmp_path):
     from fibsem.ui.fm.widgets.fm_overview_widget import FMOverviewWidget
 
-    built = FMOverviewWidget(microscope)
+    built = FMOverviewWidget(OverviewSession(microscope, FLUORESCENCE))
     built.set_save_directory(str(tmp_path))
     yield built
     built.deleteLater()

@@ -15,6 +15,7 @@ import sys
 from PyQt5.QtWidgets import QApplication
 
 from fibsem import utils
+from fibsem.imaging.overview_session import OverviewSession
 from fibsem.ui import stylesheets
 from fibsem.ui.widgets.overview_widget import FibsemOverviewWidget
 
@@ -23,7 +24,7 @@ def main() -> int:
     app = QApplication(sys.argv)
     microscope, _ = utils.setup_session(manufacturer="Demo")
 
-    widget = FibsemOverviewWidget(microscope)
+    widget = FibsemOverviewWidget(OverviewSession(microscope))
     widget.setStyleSheet(stylesheets.NAPARI_STYLE)
     widget.resize(1400, 900)
     widget.show()

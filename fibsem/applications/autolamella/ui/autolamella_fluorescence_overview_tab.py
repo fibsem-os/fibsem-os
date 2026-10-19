@@ -31,6 +31,7 @@ from fibsem.applications.autolamella.poses import (
 from fibsem.applications.autolamella.ui.overview_tab_base import (
     AutoLamellaOverviewTabBase,
 )
+from fibsem.imaging.overview_session import FLUORESCENCE
 from fibsem.structures import InsertableDeviceState
 from fibsem.ui import notification_service
 from fibsem.ui.fm.widgets.fm_overview_widget import FMOverviewWidget
@@ -51,7 +52,7 @@ class AutoLamellaFluorescenceOverviewTab(AutoLamellaOverviewTabBase):
     # ── what makes this the fluorescence side ────────────────────────────
 
     def _build_overview(self, microscope) -> QWidget:
-        return FMOverviewWidget(microscope)
+        return FMOverviewWidget(self.autolamella_ui.session.overview(FLUORESCENCE))
 
     def _can_build(self, microscope) -> bool:
         """Whether there is a fluorescence detector to drive.

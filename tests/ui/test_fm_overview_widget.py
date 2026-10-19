@@ -15,6 +15,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import numpy as np
 import pytest
 
+from fibsem.imaging.overview_session import FLUORESCENCE, OverviewSession
 from fibsem.structures import InsertableDeviceState
 
 pytest.importorskip("PyQt5")
@@ -757,7 +758,7 @@ def overview_widget(qapp):
     # -- which is how `build_microscope` leaves it -- every test that reaches `acquire`
     # is really testing the objective guard rather than whatever it meant to (FIB-417).
     microscope.fm.objective.insert()
-    widget = FMOverviewWidget(microscope)
+    widget = FMOverviewWidget(OverviewSession(microscope, FLUORESCENCE))
     widget.resize(1200, 800)
     widget.show()
     widget.canvas.set_fm_image(
@@ -1885,7 +1886,7 @@ def test_the_canvas_is_anchored_at_the_fm_device_not_at_the_stage(qapp):
     )
     microscope.move_to_orientation("SEM")
     assert microscope.get_current_device() == "FIBSEM"
-    widget = FMOverviewWidget(microscope)
+    widget = FMOverviewWidget(OverviewSession(microscope, FLUORESCENCE))
     try:
         frame = widget._frame()
         assert frame is not None
@@ -1930,7 +1931,7 @@ def test_closing_the_widget_lets_go_of_the_stage_signal(qapp):
 
     microscope = build_microscope()
     before = len(microscope.stage.position.changed)
-    widget = FMOverviewWidget(microscope)
+    widget = FMOverviewWidget(OverviewSession(microscope, FLUORESCENCE))
     assert len(microscope.stage.position.changed) == before + 1
 
     widget.close()
@@ -1950,7 +1951,7 @@ def test_a_dropped_widget_lets_go_of_the_stage_signal_too(qapp):
 
     microscope = build_microscope()
     before = len(microscope.stage.position.changed)
-    widget = FMOverviewWidget(microscope)
+    widget = FMOverviewWidget(OverviewSession(microscope, FLUORESCENCE))
     assert len(microscope.stage.position.changed) == before + 1
 
     del widget
@@ -1966,7 +1967,7 @@ def _fresh_widget(qapp):
     """A widget of its own, for tests that change state the module fixture shares."""
     from tests.fixtures.fm_microscope import build_microscope
 
-    widget = FMOverviewWidget(build_microscope())
+    widget = FMOverviewWidget(OverviewSession(build_microscope(), FLUORESCENCE))
     qapp.processEvents()
     return widget
 
@@ -2171,9 +2172,9 @@ class _StubHost:
         from PyQt5.QtWidgets import QTabWidget
 
         self.tab_widget = QTabWidget()
-        self.autolamella_ui = type(
-            "_UI", (), {"microscope": microscope, "experiment": experiment}
-        )()
+        from tests.fixtures.overview_host import OverviewHost
+
+        self.autolamella_ui = OverviewHost(microscope, experiment)
         self.add_overview_tab()
 
     @property
@@ -2804,7 +2805,7 @@ def test_a_click_never_changes_the_stage_orientation(qapp):
     import numpy as np
 
     microscope = _microscope_at(0.0)
-    widget = FMOverviewWidget(microscope)
+    widget = FMOverviewWidget(OverviewSession(microscope, FLUORESCENCE))
     widget._refresh_tile_grid()  # fixes the origin, at t = 0
     qapp.processEvents()
     assert np.rad2deg(widget.origin.t) == pytest.approx(0.0)
@@ -2824,13 +2825,13 @@ def test_a_stale_origin_resolves_a_click_to_the_same_place_as_a_fresh_one(qapp):
     pose too, so a click through a stale one also landed in the wrong *place* — with y
     inverted, which on a 180 degree flip is as wrong as it gets."""
     stale_microscope = _microscope_at(0.0)
-    stale = FMOverviewWidget(stale_microscope)
+    stale = FMOverviewWidget(OverviewSession(stale_microscope, FLUORESCENCE))
     stale._refresh_tile_grid()
     stale_microscope.move_to_device("FM")
     stale._on_stage_moved(stale_microscope.get_stage_position())
     qapp.processEvents()
 
-    fresh = FMOverviewWidget(_microscope_at(-180.0))
+    fresh = FMOverviewWidget(OverviewSession(_microscope_at(-180.0), FLUORESCENCE))
     fresh._refresh_tile_grid()
     qapp.processEvents()
 
@@ -2848,7 +2849,7 @@ def test_the_anchor_itself_does_not_move_with_the_pose(qapp):
     """Only the pose follows. Canvas zero stays where it was fixed, which is what lets
     images acquired at different times accumulate against one frame."""
     microscope = _microscope_at(0.0)
-    widget = FMOverviewWidget(microscope)
+    widget = FMOverviewWidget(OverviewSession(microscope, FLUORESCENCE))
     widget._refresh_tile_grid()
     qapp.processEvents()
     anchor = (widget.origin.x, widget.origin.y, widget.origin.z)
@@ -2876,7 +2877,7 @@ def test_an_acquired_image_lands_where_the_grid_that_planned_it_is_drawn(qapp):
     from fibsem.structures import FibsemStagePosition
 
     microscope = _microscope_at(0.0)
-    widget = FMOverviewWidget(microscope)
+    widget = FMOverviewWidget(OverviewSession(microscope, FLUORESCENCE))
     widget._refresh_tile_grid()  # origin fixed at t = 0
     qapp.processEvents()
 
@@ -2908,13 +2909,13 @@ def test_the_placement_of_an_image_matches_a_widget_that_never_moved(qapp):
     )
 
     stale_microscope = _microscope_at(0.0)
-    stale = FMOverviewWidget(stale_microscope)
+    stale = FMOverviewWidget(OverviewSession(stale_microscope, FLUORESCENCE))
     stale._refresh_tile_grid()
     stale_microscope.move_to_device("FM")
     stale._on_stage_moved(stale_microscope.get_stage_position())
 
     fresh_microscope = _microscope_at(-180.0)
-    fresh = FMOverviewWidget(fresh_microscope)
+    fresh = FMOverviewWidget(OverviewSession(fresh_microscope, FLUORESCENCE))
     fresh._refresh_tile_grid()
     qapp.processEvents()
 
@@ -3072,7 +3073,7 @@ def test_the_host_marks_lamellae_by_their_fluorescence_pose(qapp, tmp_path):
 
     host._update_fm_overview_positions()
 
-    marked = widget._positions[0]
+    marked = widget.session.positions[0]
     assert marked.t == pytest.approx(lamella.fluorescence_pose.stage_position.t)
     assert marked.t != pytest.approx(lamella.milling_pose.stage_position.t)
     assert marked.name == "Lamella-01"
@@ -3098,7 +3099,7 @@ def test_a_lamella_with_no_fluorescence_pose_is_skipped_not_misplaced(qapp, tmp_
 
     host._update_fm_overview_positions()
 
-    assert [p.name for p in host.fm_overview_widget._positions] == ["Lamella-01"]
+    assert [p.name for p in host.fm_overview_widget.session.positions] == ["Lamella-01"]
 
     host._teardown_fm_overview_widget()
 
@@ -3120,12 +3121,12 @@ def test_no_experiment_clears_the_marked_positions(qapp, tmp_path):
         },
     )()
     host._update_fm_overview_positions()
-    assert host.fm_overview_widget._positions
+    assert host.fm_overview_widget.session.positions
 
     host.autolamella_ui.experiment = None
     host._update_fm_overview_positions()
 
-    assert host.fm_overview_widget._positions == []
+    assert host.fm_overview_widget.session.positions == []
 
     host._teardown_fm_overview_widget()
 
@@ -3336,7 +3337,7 @@ def test_nothing_is_offered_from_a_beam_orientation(qapp):
     from fibsem.structures import FibsemStagePosition
 
     microscope = _microscope_at(-180.0)  # FM, on a compustage
-    widget = FMOverviewWidget(microscope)
+    widget = FMOverviewWidget(OverviewSession(microscope, FLUORESCENCE))
     widget._refresh_tile_grid()
     qapp.processEvents()
     assert _menu_at_the_stage(widget) is not None
@@ -3739,13 +3740,13 @@ def test_a_lamella_added_anywhere_reaches_the_fm_canvas(qapp, tmp_path):
     experiment = _real_experiment(tmp_path)
     host = _list_host(qapp, tmp_path, experiment)
     host._wire_position_events()
-    assert host.fm_overview_widget._positions == []
+    assert host.fm_overview_widget.session.positions == []
 
     microscope = host.autolamella_ui.microscope
     lamella = _real_lamella("Lamella-01", microscope, tmp_path)
     experiment.positions.append(lamella)  # nobody calls the FM refresh by hand
 
-    assert [p.name for p in host.fm_overview_widget._positions] == ["Lamella-01"]
+    assert [p.name for p in host.fm_overview_widget.session.positions] == ["Lamella-01"]
     assert host.lamella_list_widget.lamellae == [lamella]
 
     host._teardown_fm_overview_widget()
@@ -3757,11 +3758,11 @@ def test_removing_a_lamella_takes_its_marker_away(qapp, tmp_path):
     host._wire_position_events()
     microscope = host.autolamella_ui.microscope
     experiment.positions.append(_real_lamella("Lamella-01", microscope, tmp_path))
-    assert host.fm_overview_widget._positions
+    assert host.fm_overview_widget.session.positions
 
     experiment.positions.pop()
 
-    assert host.fm_overview_widget._positions == []
+    assert host.fm_overview_widget.session.positions == []
 
     host._teardown_fm_overview_widget()
 
@@ -3775,12 +3776,14 @@ def test_editing_a_position_in_place_re_marks_the_canvas(qapp, tmp_path):
     microscope = host.autolamella_ui.microscope
     lamella = _real_lamella("Lamella-01", microscope, tmp_path)
     experiment.positions.append(lamella)
-    before = host.fm_overview_widget._positions[0].x
+    before = host.fm_overview_widget.session.positions[0].x
 
     lamella.fluorescence_pose.stage_position.x = before + 500e-6
     experiment.positions.events.changed.emit()
 
-    assert host.fm_overview_widget._positions[0].x == pytest.approx(before + 500e-6)
+    assert host.fm_overview_widget.session.positions[0].x == pytest.approx(
+        before + 500e-6
+    )
 
     host._teardown_fm_overview_widget()
 
@@ -3793,12 +3796,12 @@ def test_closing_an_experiment_clears_the_canvas(qapp, tmp_path):
     microscope = host.autolamella_ui.microscope
     experiment.positions.append(_real_lamella("Lamella-01", microscope, tmp_path))
     host._rebuild_lamella_list()
-    assert host.fm_overview_widget._positions
+    assert host.fm_overview_widget.session.positions
 
     host.autolamella_ui.experiment = None
     host._rebuild_lamella_list()
 
-    assert host.fm_overview_widget._positions == []
+    assert host.fm_overview_widget.session.positions == []
 
     host._teardown_fm_overview_widget()
 
@@ -3890,15 +3893,15 @@ def test_a_confirmed_move_re_marks_the_canvas(qapp, tmp_path, monkeypatch):
     lamella = _real_lamella("Lamella-01", microscope, tmp_path)
     host.autolamella_ui.experiment.positions = [lamella]
     host._update_fm_overview_positions()
-    before = host.fm_overview_widget._positions[0].x
+    before = host.fm_overview_widget.session.positions[0].x
     monkeypatch.setattr(module, "message_box_ui", lambda **kwargs: True)
 
     host.fm_overview_tab._on_move_requested(
         "Lamella-01", _named("target", 400e-6, -200e-6)
     )
 
-    assert host.fm_overview_widget._positions[0].x == pytest.approx(400e-6)
-    assert host.fm_overview_widget._positions[0].x != pytest.approx(before)
+    assert host.fm_overview_widget.session.positions[0].x == pytest.approx(400e-6)
+    assert host.fm_overview_widget.session.positions[0].x != pytest.approx(before)
 
     host._teardown_fm_overview_widget()
 
@@ -3915,7 +3918,9 @@ def _tab_with(qapp, tmp_path, positions=()):
 
     microscope = build_microscope()
     experiment = _experiment_with(positions, tmp_path)
-    ui = type("_UI", (), {"microscope": microscope, "experiment": experiment})()
+    from tests.fixtures.overview_host import OverviewHost
+
+    ui = OverviewHost(microscope, experiment)
     ui.update_ui = lambda: None
     tab = AutoLamellaFluorescenceOverviewTab(ui)
     tab.refresh_microscope()
@@ -3961,7 +3966,7 @@ def test_the_list_shows_every_lamella_including_the_unplaceable(qapp, tmp_path):
     ]
     assert names == ["Lamella-01", "Lamella-02"]
     # ...while the canvas draws only the one it can place
-    assert [p.name for p in tab.overview._positions] == ["Lamella-01"]
+    assert [p.name for p in tab.overview.session.positions] == ["Lamella-01"]
 
     tab._drop_overview()
 
@@ -4092,7 +4097,7 @@ def test_removing_a_lamella_takes_it_off_the_list_and_the_canvas(qapp, tmp_path)
     tab.refresh_positions()  # the window's rebuild does this off `removed`
 
     assert list(tab.experiment.positions) == [keep]
-    assert [p.name for p in tab.overview._positions] == ["Lamella-01"]
+    assert [p.name for p in tab.overview.session.positions] == ["Lamella-01"]
     assert tab.experiment.saves == 1
 
     tab._drop_overview()
@@ -4213,7 +4218,7 @@ def test_a_lamella_added_from_elsewhere_lands_on_the_canvas_immediately(qapp, tm
     )
     qapp.processEvents()
 
-    assert [p.name for p in tab.overview._positions] == ["Lamella-01"]
+    assert [p.name for p in tab.overview.session.positions] == ["Lamella-01"]
 
     tab._drop_overview()
 
@@ -4229,7 +4234,7 @@ def test_marked_positions_move_when_the_stage_re_poses(qapp):
     from fibsem.structures import FibsemStagePosition
 
     microscope = _microscope_at(-180.0)  # FM
-    widget = FMOverviewWidget(microscope)
+    widget = FMOverviewWidget(OverviewSession(microscope, FLUORESCENCE))
     widget._refresh_tile_grid()
     qapp.processEvents()
 
@@ -4257,7 +4262,7 @@ def test_the_selected_marker_re_poses_too(qapp):
     from fibsem.structures import FibsemStagePosition
 
     microscope = _microscope_at(-180.0)
-    widget = FMOverviewWidget(microscope)
+    widget = FMOverviewWidget(OverviewSession(microscope, FLUORESCENCE))
     widget._refresh_tile_grid()
     widget.set_positions([_named("Lamella-01", 100e-6, 50e-6)])
     widget.set_selected_position("Lamella-01")
@@ -4283,7 +4288,7 @@ def test_translating_the_stage_leaves_the_markers_alone(qapp):
     from fibsem.structures import FibsemStagePosition
 
     microscope = _microscope_at(-180.0)
-    widget = FMOverviewWidget(microscope)
+    widget = FMOverviewWidget(OverviewSession(microscope, FLUORESCENCE))
     widget._refresh_tile_grid()
     widget.set_positions([_named("Lamella-01", 100e-6, 50e-6)])
     qapp.processEvents()
@@ -4316,7 +4321,7 @@ def test_translating_the_stage_leaves_the_stage_context_alone(qapp):
     from fibsem.structures import FibsemStagePosition
 
     microscope = _microscope_at(-180.0)
-    widget = FMOverviewWidget(microscope)
+    widget = FMOverviewWidget(OverviewSession(microscope, FLUORESCENCE))
     widget._refresh_tile_grid()
     qapp.processEvents()
     assert widget._target is None, "a pinned grid would skip the path under test"
@@ -4358,7 +4363,7 @@ def test_recalibrating_a_slot_moves_its_marker_without_a_stage_move(qapp):
     from dataclasses import replace
 
     microscope = _microscope_at(-180.0)
-    widget = FMOverviewWidget(microscope)
+    widget = FMOverviewWidget(OverviewSession(microscope, FLUORESCENCE))
     widget._refresh_tile_grid()
     _show_holder_overlays(widget)
     qapp.processEvents()
@@ -4403,7 +4408,7 @@ def test_the_stage_limits_re_pose_even_with_the_grid_pinned(qapp):
     microscope.move_stage_absolute(
         FibsemStagePosition(x=250e-6, y=-180e-6, z=0.0, r=fm.r, t=fm.t)
     )
-    widget = FMOverviewWidget(microscope)
+    widget = FMOverviewWidget(OverviewSession(microscope, FLUORESCENCE))
     widget.set_origin(microscope.get_stage_position())  # off-centre, on purpose
     widget._refresh_tile_grid()
     qapp.processEvents()
@@ -4549,7 +4554,7 @@ def test_clicking_a_marker_selects_the_lamella_everywhere(qapp, tmp_path):
     tab.lamella_selected.connect(lambda lamella: seen.append(lamella))
 
     frame = tab.overview._frame()
-    marker = frame.to_canvas(tab.overview._positions[1])
+    marker = frame.to_canvas(tab.overview.session.positions[1])
     tab.overview._on_canvas_clicked(*marker)
     qapp.processEvents()
 

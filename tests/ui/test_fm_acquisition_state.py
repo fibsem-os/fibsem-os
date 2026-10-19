@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 from PyQt5.QtWidgets import QApplication, QDialog
 
 from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
+from fibsem.imaging.overview_session import FLUORESCENCE, OverviewSession
 from fibsem.ui.fm.widgets.fm_overview_widget import FMOverviewWidget
 
 if TYPE_CHECKING:
@@ -51,7 +52,7 @@ def _stop(fm) -> None:
 def widget(qapp):
     from tests.fixtures.fm_microscope import build_microscope
 
-    widget = FMOverviewWidget(build_microscope())
+    widget = FMOverviewWidget(OverviewSession(build_microscope(), FLUORESCENCE))
     # `build_microscope` leaves the objective retracted, which `acquire` refuses
     # (FIB-417) before it ever reaches the busy flag this file is about. Without
     # this, the tests that assert the flag is *given back* would pass on a run that
