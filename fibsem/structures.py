@@ -2004,7 +2004,6 @@ class FibsemRectangleSettings(FibsemPatternSettings):
     centre_x: float
     centre_y: float
     rotation: float = 0
-    cleaning_cross_section: bool = False
     scan_direction: str = "TopToBottom"
     cross_section: CrossSectionPattern = CrossSectionPattern.Rectangle
     passes: int = 0
