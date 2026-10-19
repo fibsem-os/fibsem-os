@@ -17,6 +17,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.drivers.autoscript import recording_env
+
 SCRIPT = Path(__file__).parents[2] / "fixtures" / "autoscript_spot_burn_parity.py"
 KEYS = [
     "two points",
@@ -29,7 +31,7 @@ KEYS = [
 @pytest.fixture(scope="module")
 def recording(tmp_path_factory):
     out = tmp_path_factory.mktemp("autoscript_spot_burn") / "recording.json"
-    env = dict(os.environ, FIBSEM_SIM_NO_DELAY="1")
+    env = recording_env()
     result = subprocess.run(
         [sys.executable, str(SCRIPT), str(out)],
         env=env,

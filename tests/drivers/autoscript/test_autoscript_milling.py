@@ -19,6 +19,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.drivers.autoscript import recording_env
 from tests.fixtures.demoted_messages import as_logged_now
 
 SCRIPT = Path(__file__).parents[2] / "fixtures" / "autoscript_milling_parity.py"
@@ -28,7 +29,7 @@ OLD_CALLS = Path(__file__).parents[2] / "fixtures" / "autoscript_milling_calls.j
 @pytest.fixture(scope="module")
 def recording(tmp_path_factory):
     out = tmp_path_factory.mktemp("autoscript_milling") / "recording.json"
-    env = dict(os.environ, FIBSEM_SIM_NO_DELAY="1")
+    env = recording_env()
     result = subprocess.run(
         [sys.executable, str(SCRIPT), str(out)],
         env=env,
