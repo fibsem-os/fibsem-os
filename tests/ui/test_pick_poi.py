@@ -45,7 +45,7 @@ def window(qapp):
     # The main window's _on_workflow_update reads _border_state unconditionally,
     # and it is first assigned on the Run click (the latent init gap
     # test_mainui_workflow_status documents; its fix rides the typed-status PR).
-    win._set_border_state("idle")
+    win.run_border.set_state("idle")
     yield win
     if win.autolamella_ui.microscope is not None:
         win.autolamella_ui.microscope.disconnect()

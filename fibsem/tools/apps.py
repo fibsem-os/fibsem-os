@@ -79,7 +79,7 @@ AUTOLAMELLA = App(
     name="AutoLamella",
     app_id="fibsemOS.AutoLamella",
     command="fibsem-autolamella-ui",
-    target="fibsem.applications.autolamella.ui.AutoLamellaMainUI:run_ui",
+    target="fibsem.applications.autolamella.ui.launch:run_ui",
     icon=ICONS_DIR / "autolamella.svg",
     load_steps=_COMMON_STEPS
     + (
@@ -88,7 +88,7 @@ AUTOLAMELLA = App(
             (
                 "fibsem.applications.autolamella.structures",
                 "fibsem.ui",
-                "fibsem.applications.autolamella.ui.AutoLamellaMainUI",
+                "fibsem.applications.autolamella.ui.launch",
             ),
         ),
     ),

@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import argparse
-import html
 import logging
 import os
 import sys
 import time
 from dataclasses import replace
-from typing import Callable, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 try:
     sys.modules.pop("PySide6.QtCore")
@@ -17,21 +15,18 @@ except Exception:
 from datetime import datetime
 
 import numpy as np
-from PyQt5.QtCore import QSize, Qt, QTimer, pyqtSignal
-from PyQt5.QtGui import QIcon, QKeySequence, QPainter, QPixmap
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal
+from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
     QAction,
     QApplication,
     QDialog,
-    QFrame,
     QHBoxLayout,
     QLabel,
     QMainWindow,
-    QMenu,
     QMessageBox,
     QPushButton,
     QScrollArea,
-    QSizePolicy,
     QSplitter,
     QStackedWidget,
     QTabWidget,
@@ -58,6 +53,7 @@ from fibsem.applications.autolamella.ui.autolamella_task_config_editor import (
     AutoLamellaProtocolTaskConfigEditor,
 )
 from fibsem.applications.autolamella.ui.AutoLamellaUI import INSTRUCTIONS, AutoLamellaUI
+from fibsem.applications.autolamella.ui.experiment_header import ExperimentHeader
 from fibsem.applications.autolamella.ui.grid_workflow_widget import (
     GridRunPreflightDialog,
     GridWorkflowWidget,
@@ -101,9 +97,7 @@ from fibsem.applications.autolamella.workflows.tasks.attendance import (
 )
 from fibsem.applications.autolamella.workflows.tasks.tasks import get_task_supervision
 from fibsem.structures import BeamType
-from fibsem.tools.app_identity import set_app_identity
 from fibsem.tools.apps import AUTOLAMELLA, App, apps
-from fibsem.tools.launcher import Splash
 from fibsem.ui import notification_service
 from fibsem.ui.agent.activity import AgentActivity
 from fibsem.ui.agent.level_chip import (
@@ -111,33 +105,26 @@ from fibsem.ui.agent.level_chip import (
     request_outcome,
 )
 from fibsem.ui.agent.previews import AgentPreviews
-from fibsem.ui.icon import autolamella_icon, fibsem_icon
-from fibsem.ui.qt.gc import install_main_thread_gc
+from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.stylesheets import (
-    ACCENT_CHIP_BUTTON_STYLESHEET,
     GRAY_ICON_COLOR,
-    MENU_BUTTON_STYLESHEET,
-    MUTED_GHOST_BUTTON_STYLESHEET,
     NAPARI_STYLE,
     PRIMARY_BUTTON_STYLESHEET,
     SECONDARY_BUTTON_STYLESHEET,
     STATUS_BAR_STYLESHEET,
     border_stylesheet,
-    shown_border_state,
 )
 from fibsem.ui.tokens import (
-    ACCENT_COLOR,
-    ERROR_COLOR,
     SURFACE_COLOR,
     TEXT_MUTED_COLOR,
 )
 from fibsem.ui.widgets import preflight
 from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
 from fibsem.ui.widgets.connection_dialog import connect_to_microscope_dialog
-from fibsem.ui.widgets.notifications import NotificationBell, ToastManager
+from fibsem.ui.widgets.notifications import ToastManager
+from fibsem.ui.widgets.run_border import RunBorder, run_border_state
 from fibsem.ui.widgets.status_bar import FibsemStatusBar
 from fibsem.util.durations import format_duration_rounded
-from fibsem.util.timestamps import format_time
 from fibsem.versioning import get_version_string
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.estimate import AdditionEstimate, estimate_run
@@ -163,93 +150,12 @@ from fibsem.workflows.status import (
     WorkflowStatusUpdate,
 )
 
-# How wide the experiment name button in the tab corner is allowed to grow. Wide
-# enough that a default name -- "AutoLamella-" plus a date stamp -- is never elided;
-# the point of the button is to say which experiment is open.
-EXPERIMENT_MENU_MAX_WIDTH = 360
-# The connection chip: a manufacturer and an address, and no more room than that.
-CONNECTION_CHIP_MAX_WIDTH = 220
-
 # The kinds a task asks whose value is edited on a widget of its own.
 WIDGET_KINDS = (DETECTION, ALIGNMENT_AREA, POINT_OF_INTEREST)
 
-# Icons sat on a button, rather than in a menu, are drawn at this size.
-BUTTON_ICON_SIZE = 16
 
 # How often a waiting request the operator is looking at is read again.
 AGENT_REQUEST_REFRESH_S = 15.0
-
-
-def experiment_tooltip(experiment: Experiment) -> str:
-    """The hover card for the tab-corner experiment button.
-
-    Rich text, because Qt renders a tooltip as HTML the moment it contains a tag:
-    that is what lines the rows up and keeps the directory on a line of its own
-    instead of letting it set the width of everything above it.
-
-    Every row here is a fact the experiment already holds. Rows whose fact is
-    missing are dropped rather than rendered empty -- a protocol is set after
-    construction and `created_at` is absent from experiments written before it was
-    recorded, so both are genuinely unknown rather than blank.
-    """
-    rows: List[Tuple[str, str]] = []
-
-    created = format_time(experiment.created_at, "%d %b %Y, %H:%M")
-    if created:
-        rows.append(("Created", html.escape(created)))
-
-    lamella = str(len(experiment.positions))
-    # `is_failure` is a human's judgement that a lamella is defective, not a record
-    # of a task that failed, so the count says defective. See Lamella.is_failure.
-    defective = len(experiment.at_failure())
-    if defective:
-        lamella += (
-            f"&nbsp;&nbsp;<span style='color: {ERROR_COLOR}'>"
-            f"{defective} defective</span>"
-        )
-    rows.append(("Lamella", lamella))
-
-    if experiment.task_protocol is not None:
-        rows.append(("Protocol", html.escape(experiment.task_protocol.name)))
-
-    body = "".join(
-        f"<tr><td style='color: {TEXT_MUTED_COLOR}; padding-right: 10px;'>{label}</td>"
-        f"<td>{value}</td></tr>"
-        for label, value in rows
-    )
-    return (
-        f"<b>{html.escape(experiment.name)}</b>"
-        f"<table cellspacing='0' cellpadding='0'>{body}</table>"
-        f"<div style='color: {TEXT_MUTED_COLOR}; margin-top: 4px;'>"
-        f"{html.escape(str(experiment.path))}</div>"
-    )
-
-
-def set_button_icon(
-    button: QPushButton, key: str, gap: int = 5, color: str = TEXT_MUTED_COLOR
-) -> None:
-    """Put an icon on a button with breathing room between it and the text.
-
-    Qt spaces a button's icon from its label by about four pixels and offers no way
-    to ask for more, which next to a name reads as the two being squashed together.
-    Padding the pixmap on its right buys the rest -- and the icon size has to grow
-    with the padding, or Qt scales the wider pixmap back into the old box and
-    shrinks the glyph instead of moving the text.
-
-    Muted by default: at the label's own weight the icon competes with the name
-    rather than introducing it.
-    """
-    pixmap = fibsem_icon(key, color=color).pixmap(BUTTON_ICON_SIZE, BUTTON_ICON_SIZE)
-    ratio = pixmap.devicePixelRatio() or 1.0
-    padded = QPixmap(pixmap.width() + round(gap * ratio), pixmap.height())
-    padded.setDevicePixelRatio(ratio)
-    padded.fill(Qt.transparent)
-    painter = QPainter(padded)
-    painter.drawPixmap(0, 0, pixmap)
-    painter.end()
-
-    button.setIcon(QIcon(padded))
-    button.setIconSize(QSize(BUTTON_ICON_SIZE + gap, BUTTON_ICON_SIZE))
 
 
 def set_menu_icon(action: QAction, key: str) -> None:
@@ -471,19 +377,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.resize(1600, 1000)
 
         # Apply napari-style dark theme. Border state rules live here (on the parent)
-        # so that setProperty + unpolish/polish on _border_frame re-evaluates them.
+        # so that setProperty + unpolish/polish on the RunBorder re-evaluates them.
         self.setStyleSheet(NAPARI_STYLE + border_stylesheet("workflow_border_frame"))
 
-        # Central tab widget wrapped in a QFrame so the border renders reliably
         self.tab_widget = QTabWidget()
-        self._border_frame = QFrame()
-        self._border_frame.setObjectName("workflow_border_frame")
-        self._border_frame.setProperty("borderState", "idle")
-        _frame_layout = QVBoxLayout(self._border_frame)
-        _frame_layout.setContentsMargins(0, 0, 0, 0)
-        _frame_layout.setSpacing(0)
-        _frame_layout.addWidget(self.tab_widget)
-        self.setCentralWidget(self._border_frame)
+        self.run_border = RunBorder("workflow_border_frame")
+        self.run_border.set_content(self.tab_widget)
+        self.setCentralWidget(self.run_border)
 
         self.autolamella_ui: AutoLamellaUI
 
@@ -500,15 +400,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # User attention tracking
         self._user_interaction_sound_played = False  # Track if sound was played
         self._sound_enabled = self._preferences.display.sound_enabled
-        self._border_enabled = self._preferences.display.border_enabled
-        # First assigned here rather than on the Run click: the workflow handlers
-        # read it unconditionally, and an AttributeError in a queued slot is a
-        # process abort (FIB-329), not a missing border. The attribute alone -- the
-        # frame is unstyled until _set_border_state changes it, which is idle's look.
-        self._border_state = "idle"
-        # Whether the agent drives: the border turns its purple (see
-        # shown_border_state). Follows the level with the agent chip.
-        self._agent_driving = False
+        self.run_border.set_on(self._preferences.display.border_enabled)
         self.dev_mode = self._preferences.display.dev_mode
 
         # create menus, status bar, and tabs
@@ -542,7 +434,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             raise RuntimeError("Failed to create View menu in AutoLamella UI.")
 
         # These three carry icons because they are also the tab-corner experiment
-        # menu (see create_notification_button), where the icons do the work of
+        # menu (see ExperimentHeader), where the icons do the work of
         # telling create from load at a glance. Qt hides action icons in menus on
         # macOS unless each action asks for them, hence set_menu_icon.
         # Connecting had no menu entry at all -- the Connection tab was the only
@@ -912,35 +804,35 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Border state test actions
         self.action_border_toggle = QAction("Show Workflow Border", self)
         self.action_border_toggle.setCheckable(True)
-        self.action_border_toggle.setChecked(self._border_enabled)
+        self.action_border_toggle.setChecked(self.run_border.on)
         self.action_border_toggle.triggered.connect(self._on_border_toggle)
 
         self.action_border_automated = QAction("Automated (green)", self)
         self.action_border_automated.triggered.connect(
-            lambda: self._set_border_state("automated")
+            lambda: self.run_border.set_state("automated")
         )
 
         self.action_border_supervised = QAction("Supervised (blue)", self)
         self.action_border_supervised.triggered.connect(
-            lambda: self._set_border_state("supervised")
+            lambda: self.run_border.set_state("supervised")
         )
 
         self.action_border_waiting = QAction("Waiting for User (orange)", self)
         self.action_border_waiting.triggered.connect(
-            lambda: self._set_border_state("waiting")
+            lambda: self.run_border.set_state("waiting")
         )
         self.action_border_pending = QAction("Pending (grey)", self)
         self.action_border_pending.triggered.connect(
-            lambda: self._set_border_state("pending")
+            lambda: self.run_border.set_state("pending")
         )
         self.action_border_stopping = QAction("Stopping (red)", self)
         self.action_border_stopping.triggered.connect(
-            lambda: self._set_border_state("stopping")
+            lambda: self.run_border.set_state("stopping")
         )
 
         self.action_border_idle = QAction("Idle (no border)", self)
         self.action_border_idle.triggered.connect(
-            lambda: self._set_border_state("idle")
+            lambda: self.run_border.set_state("idle")
         )
 
         # add to menu bar
@@ -981,11 +873,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def _on_border_toggle(self, checked: bool):
         """Handle workflow border toggle."""
-        self._border_enabled = checked
         self._preferences = fibsem_cfg.update_user_preferences(
             lambda p: setattr(p.display, "border_enabled", checked)
         )
-        self._apply_border()
+        self.run_border.set_on(checked)
+        self._sync_coincidence_viewer_border()
 
     def _on_open_preferences(self):
         """Open the preferences dialog."""
@@ -1008,8 +900,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.autolamella_ui.sync_app_server_with_preference()
         d = self._preferences.display
         self._sound_enabled = d.sound_enabled
-        self._border_enabled = d.border_enabled
-        self._apply_border()
+        self.run_border.set_on(d.border_enabled)
+        self._sync_coincidence_viewer_border()
         self.dev_mode = d.dev_mode
         # The lamella strip's density. Guarded because _apply_preferences also runs
         # before the Lamella tab is built.
@@ -1674,7 +1566,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """A stop was asked of the run, from any source. A bound method rather
         than a lambda, so a stop from the App Server's thread is delivered on
         this window's (GUI) thread."""
-        self._set_border_state("stopping")
+        self.run_border.set_state("stopping")
 
     def _listen_for_questions(self, experiment) -> None:
         """A question a task asks mid-run (``BaseTask.ask``) is put up
@@ -1952,7 +1844,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         estimates, the Stop button."""
         ui = self.autolamella_ui
         if request.kind == GRIDS:
-            self._set_border_state("automated")
+            self.run_border.set_state("automated")
             # The plan's steps, priced for the timeline. Screen all grids builds
             # its queue after the inventory, so it is priced for the grids known
             # now.
@@ -1963,7 +1855,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 plan_grid_run(list(request.task_names), list(known or []))
             )
         else:
-            self._set_border_state(self._running_border_state(request.task_names[0]))
+            self.run_border.set_state(self._running_border_state(request.task_names[0]))
             self._push_timeline_estimates(
                 [(ln, tn) for tn in request.task_names for ln in request.names or ()]
             )
@@ -2164,28 +2056,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return False, "the other overview is acquiring"
         return True, ""
 
-    def _set_border_state(self, state: str):
-        """Update the tab widget border to reflect current workflow state.
-
-        States: 'waiting', 'supervised', 'automated', 'idle'
-        """
-        if state == getattr(self, "_border_state", None):
-            return
-        self._border_state = state
-        self._apply_border()
-
-    def _apply_border(self) -> None:
-        """Paint the border for the run's state, and the agent driving."""
-        state = shown_border_state(self._border_state, self._agent_driving)
-        effective = state if self._border_enabled else "idle"
-        self._border_frame.setProperty("borderState", effective)
-        style = self._border_frame.style()
-        if style is not None:
-            style.unpolish(self._border_frame)
-            style.polish(self._border_frame)
-        self._border_frame.update()
-        self._sync_coincidence_viewer_border()
-
     def _sync_coincidence_viewer_border(self) -> None:
         """The coincidence viewer's border follows this window's: the Show
         Workflow Border switch, and the agent's purple while it drives."""
@@ -2193,8 +2063,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         viewer = getattr(ui, "_coincidence_viewer_window", None)
         if viewer is None:
             return
-        viewer.set_border_enabled(self._border_enabled)
-        viewer.set_agent_driving(self._agent_driving)
+        viewer.run_border.set_on(self.run_border.on)
+        viewer.run_border.set_agent_driving(self.run_border.agent_driving)
 
     def _running_border_state(self, task_name: Optional[str]) -> str:
         """The border for a running workflow: automated or supervised."""
@@ -2235,7 +2105,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 break
         self._update_supervised_status()
         if self.autolamella_ui.session.runner.is_running:
-            self._set_border_state(self._running_border_state(self._current_task_name))
+            self.run_border.set_state(
+                self._running_border_state(self._current_task_name)
+            )
         # Refresh the workflow widget to reflect the toggled supervise state
         if hasattr(self, "lamella_workflow_widget"):
             self.lamella_workflow_widget.workflow.refresh_all()
@@ -2302,8 +2174,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.agent_activity.set_microscope(
             self.autolamella_ui.microscope if self.autolamella_ui else None
         )
-        self._update_connection_chip()
-        self._update_experiment_header()
+        self._refresh_header()
         self._update_instructions()
 
     def _on_tab_changed(self, index: int):
@@ -2418,8 +2289,24 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.add_grids_tab()
         self.add_workflow_tab()
 
-        # add notification button to tab bar
-        self.create_notification_button()
+        self.experiment_header = ExperimentHeader(
+            chip_enabled=self._connection_chip_enabled,
+            new_experiment=self.action_new_experiment,
+            load_experiment=self.action_load_experiment,
+            open_experiment_directory=self.action_open_experiment_directory,
+            on_new_experiment=self._on_new_experiment,
+            on_load_experiment=self._on_load_experiment,
+            on_connect=self._on_connect_microscope,
+            on_about=self._show_about_dialog,
+            toast_manager=self.toast_manager,
+        )
+        self.tab_widget.setCornerWidget(self.experiment_header)
+
+    def _refresh_header(self) -> None:
+        ui = self.autolamella_ui
+        self.experiment_header.refresh(
+            ui.experiment if ui else None, ui.microscope if ui else None
+        )
 
     def _on_experiment_update(self):
         """Handle experiment update signal and propagate to tabs."""
@@ -2451,8 +2338,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.lamella_widget.setMinimumWidth(500)
         self.lamella_workflow_widget.setMinimumWidth(600)
 
-        # Update the experiment name button
-        self._update_experiment_header()
+        self._refresh_header()
 
         # Show run workflow button when experiment is loaded
         self.workflow_controls.run_btn.show()
@@ -2523,203 +2409,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             # so it has to be told.
             events.changed.connect(self._refresh_overview_positions)
         self._lamella_list_experiment = experiment
-
-    def _update_connection_chip(self):
-        """Name the instrument this session attached to, or offer to attach one.
-
-        Identity, not liveness. Nothing watches the link -- `connected_signal` is
-        emitted off `bool(self.microscope)`, a Python reference (FIB-777) -- so a
-        chip claiming "Connected" would keep claiming it through a pulled cable.
-        What it connected to is a fact established once, and it does not decay.
-        """
-        if not self._connection_chip_enabled:
-            return
-
-        autolamella_ui = getattr(self, "autolamella_ui", None)
-        microscope = autolamella_ui.microscope if autolamella_ui else None
-
-        if microscope is None:
-            # The same words as the Connection tab's button and the File menu
-            # entry: three doors to one action should not each name it differently.
-            self.btn_connection.setText("Connect to Microscope")
-            self.btn_connection.setIcon(QIcon())
-            self.btn_connection.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
-            self.btn_connection.setToolTip("Choose a configuration and connect")
-            return
-
-        # `system.info` is a stored record, not a question put to the instrument.
-        info = microscope.system.info
-        # Flat and muted, like the experiment name beside it: once connected this
-        # says where you are, and only the unconnected state asks for a click.
-        set_button_icon(self.btn_connection, "mdi:connection")
-        self.btn_connection.setStyleSheet(MUTED_GHOST_BUTTON_STYLESHEET)
-        self.btn_connection.setToolTip(
-            f"{info.manufacturer} {info.model} at {info.ip_address}\n"
-            f"Serial number: {info.serial_number}\n"
-            "Click to change the connection."
-        )
-
-        label = f"{info.manufacturer}  {info.ip_address}"
-        self.btn_connection.setText(label)
-        overflow = self.btn_connection.sizeHint().width() - CONNECTION_CHIP_MAX_WIDTH
-        if overflow > 0:
-            metrics = self.btn_connection.fontMetrics()
-            self.btn_connection.setText(
-                metrics.elidedText(
-                    label, Qt.ElideRight, metrics.horizontalAdvance(label) - overflow
-                )
-            )
-
-    def _update_experiment_header(self):
-        """Show either the create/load buttons or the experiment menu, never both.
-
-        Until an experiment exists those two buttons are the only thing to do, so they
-        stay primary-coloured and take the room. Once one is loaded the experiment name
-        replaces them, and opens a menu holding the same actions: the greyed-out pair
-        cost a third of the tab bar to say nothing.
-        """
-        autolamella_ui = getattr(self, "autolamella_ui", None)
-        experiment = autolamella_ui.experiment if autolamella_ui else None
-        is_connected = (
-            autolamella_ui is not None and autolamella_ui.microscope is not None
-        )
-
-        # With the chip, neither button is on screen before there is a microscope:
-        # a greyed-out pair beside a Connect chip is the same spent chrome the
-        # loaded state used to carry. Without it there is nothing else in the header
-        # to connect from, so they stay visible-but-disabled as they were. Both
-        # branches go when the flag does (FIB-775).
-        show = experiment is None and (
-            is_connected or not self._connection_chip_enabled
-        )
-        for button in (self.btn_create_experiment, self.btn_load_experiment):
-            button.setVisible(show)
-            button.setEnabled(experiment is None and is_connected)
-
-        self.btn_experiment_menu.setVisible(experiment is not None)
-        if experiment is None:
-            return
-
-        # Experiment names carry a date stamp and run long; elided here rather than
-        # left to stretch the corner widget back to the width this change reclaims.
-        # Measured off the button rather than against a guessed allowance for the
-        # icon, padding and chevron -- an allowance set too generously elides names
-        # that would have fitted.
-        self.btn_experiment_menu.setText(experiment.name)
-        overflow = (
-            self.btn_experiment_menu.sizeHint().width() - EXPERIMENT_MENU_MAX_WIDTH
-        )
-        if overflow > 0:
-            metrics = self.btn_experiment_menu.fontMetrics()
-            self.btn_experiment_menu.setText(
-                metrics.elidedText(
-                    experiment.name,
-                    Qt.ElideMiddle,
-                    metrics.horizontalAdvance(experiment.name) - overflow,
-                )
-            )
-        self.btn_experiment_menu.setToolTip(experiment_tooltip(experiment))
-
-    def create_notification_button(self):
-        """Add buttons to the tab bar for adding Protocol Editor, Lamella, and Minimap tabs."""
-        # Create button container widget
-        button_widget = QWidget()
-        button_layout = QHBoxLayout(button_widget)
-        button_layout.setContentsMargins(5, 0, 5, 0)
-        button_layout.setSpacing(5)
-
-        # Create / Load experiment buttons
-        self.btn_create_experiment = QPushButton("Create Experiment")
-        self.btn_create_experiment.setToolTip("Create a new experiment")
-        self.btn_create_experiment.setEnabled(False)
-        self.btn_create_experiment.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
-        self.btn_create_experiment.clicked.connect(self._on_new_experiment)
-
-        self.btn_load_experiment = QPushButton("Load Experiment")
-        self.btn_load_experiment.setToolTip("Load an existing experiment")
-        self.btn_load_experiment.setEnabled(False)
-        self.btn_load_experiment.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
-        self.btn_load_experiment.clicked.connect(self._on_load_experiment)
-
-        # Which instrument this session is attached to, and the way back to the
-        # connection dialog -- see _update_connection_chip. Behind a flag while the
-        # Connection tab is still how people connect (FIB-775); the dialog itself is
-        # not gated, so File -> Connect to Microscope reaches it either way.
-        self.btn_connection = QPushButton()
-        self.btn_connection.setMaximumWidth(CONNECTION_CHIP_MAX_WIDTH)
-        self.btn_connection.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
-        self.btn_connection.clicked.connect(self._on_connect_microscope)
-
-        # The experiment name, once there is one, is itself the control that reaches
-        # the create/load actions -- see _update_experiment_header.
-        self.btn_experiment_menu = QPushButton()
-        set_button_icon(self.btn_experiment_menu, "mdi:flask-outline")
-        self.btn_experiment_menu.setStyleSheet(MENU_BUTTON_STYLESHEET)
-        self.btn_experiment_menu.setMaximumWidth(EXPERIMENT_MENU_MAX_WIDTH)
-        # Hug the name. A QPushButton's default policy lets it grow to fill the
-        # layout, which here means straight back out to the maximum width above --
-        # the corner widget would be no narrower than the pair it replaces.
-        self.btn_experiment_menu.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
-        self.btn_experiment_menu.setVisible(False)
-        experiment_menu = QMenu(self.btn_experiment_menu)
-        # The File menu's own QAction objects, not copies of them, so the two places
-        # that offer these actions cannot drift apart.
-        experiment_menu.addAction(self.action_new_experiment)
-        experiment_menu.addAction(self.action_load_experiment)
-        experiment_menu.addSeparator()
-        experiment_menu.addAction(self.action_open_experiment_directory)
-        self.btn_experiment_menu.setMenu(experiment_menu)
-
-        # A newer release, once the startup check has found one -- see
-        # _update_version_chip. Hidden until then, and for good when the check is off,
-        # offline or finds nothing: none of those is anything to act on.
-        self.btn_update_available = QPushButton()
-        set_button_icon(
-            self.btn_update_available, "mdi:arrow-up-circle-outline", color=ACCENT_COLOR
-        )
-        self.btn_update_available.setStyleSheet(ACCENT_CHIP_BUTTON_STYLESHEET)
-        self.btn_update_available.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
-        self.btn_update_available.setVisible(False)
-        # The About dialog already says what is installed, what is out and how to
-        # update; the chip only points there.
-        self.btn_update_available.clicked.connect(self._show_about_dialog)
-
-        # Notification bell
-        self.notification_bell = NotificationBell(self)
-        self.toast_manager.set_notification_bell(self.notification_bell)
-
-        # Add widgets to layout. The update chip leads, so it never sits between the
-        # instrument and the experiment it is working on.
-        button_layout.addWidget(self.btn_update_available)
-        if self._connection_chip_enabled:
-            button_layout.addWidget(self.btn_connection)
-        button_layout.addWidget(self.btn_experiment_menu)
-        button_layout.addWidget(self.btn_create_experiment)
-        button_layout.addWidget(self.btn_load_experiment)
-        button_layout.addWidget(self.notification_bell)
-
-        # Add to tab widget corner
-        self.tab_widget.setCornerWidget(button_widget)
-
-        # The chip has a state before anything connects, and only the connect
-        # handler would otherwise ever set one.
-        self._update_connection_chip()
-
-    def _update_version_chip(self) -> None:
-        """Show the newer release the update check found, or nothing.
-
-        Reads the cached answer, so a check that failed or never ran lands in the same
-        place as "up to date": the chip hidden.
-        """
-        from fibsem import update_check
-
-        latest = update_check.get_available_update()
-        self.btn_update_available.setVisible(latest is not None)
-        if latest is not None:
-            self.btn_update_available.setText(f"{latest} available")
-            self.btn_update_available.setToolTip(
-                f"fibsemOS {latest} is available. Click for details."
-            )
 
     def add_protocol_editor_tab(self):
         """Add the protocol editor as a separate tab with its own viewer."""
@@ -3671,10 +3360,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     def _set_agent_driving(self, driving: bool) -> None:
         """The agent's purple on the border while it drives, here and on the
         coincidence viewer's border."""
-        if driving == self._agent_driving:
-            return
-        self._agent_driving = driving
-        self._apply_border()
+        self.run_border.set_agent_driving(driving)
+        self._sync_coincidence_viewer_border()
 
     def _follow_agent_requests(self) -> None:
         """Move the chip as a request is filed and applied rather than on the
@@ -3854,17 +3541,16 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.workflow_controls.set_attention(None)
             self._user_interaction_sound_played = False  # Reset for next time
 
-        # Update border to reflect current workflow state
-        if self._border_state == "stopping":
-            pass  # Keep the red border until the workflow finishes unwinding
-        elif hold is not None:
-            self._set_border_state("waiting")
-        elif self.autolamella_ui.WORKFLOW_PENDING:
-            self._set_border_state("pending")
-        elif self.autolamella_ui.session.runner.is_running:
-            self._set_border_state(self._running_border_state(self._current_task_name))
-        else:
-            self._set_border_state("idle")
+        self.run_border.set_state(
+            run_border_state(
+                self.run_border.state,
+                held=hold is not None,
+                pending=self.autolamella_ui.WORKFLOW_PENDING,
+                running=self._running_border_state(self._current_task_name)
+                if self.autolamella_ui.session.runner.is_running
+                else None,
+            )
+        )
 
     def _rebuild_lamella_list(self):
         """Clear and repopulate the lamella list and card container from the current experiment."""
@@ -3993,7 +3679,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.lamella_list_widget.refresh_all()
         self.lamella_card_container.refresh_all()
         self._say_how_the_run_ended()
-        self._set_border_state("idle")
+        self.run_border.set_state("idle")
 
     def _show_run_failures(self) -> None:
         """The failure line's Show: the Workflow tab, with the run's
@@ -4309,111 +3995,3 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         app = QApplication.instance()
         if app is not None:
             app.quit()
-
-
-def _start_update_check(on_done: Optional[Callable[[], None]] = None) -> None:
-    """Ask PyPI about newer releases on a worker thread, once, at startup.
-
-    Startup rather than on dialog open: the about dialog reads the cached result,
-    so it stays instant and offline-safe by construction, and the latency lands
-    where nothing is waiting on it. A no-op for source installs and when the user
-    has opted out, so the common developer case makes no network call at all.
-
-    ``on_done`` runs on the GUI thread once the check is over, however it ended --
-    offline, refused or answered -- so the caller reads the cache rather than
-    reasoning about which.
-    """
-    from fibsem import update_check
-    from fibsem.ui.qt.threading import thread_worker
-
-    if not update_check.is_enabled():
-        return
-
-    @thread_worker
-    def _check() -> None:
-        update_check.refresh()
-
-    worker = _check()
-    if on_done is not None:
-        # Connected before start(): a check that fails at once (no route, no DNS)
-        # could otherwise finish before anything is listening.
-        worker.finished.connect(on_done)
-    worker.start()
-
-
-def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
-    """Parse the command-line flags accepted by the AutoLamella UI."""
-    parser = argparse.ArgumentParser(
-        prog="fibsem-autolamella-ui",
-        description="Launch the AutoLamella user interface.",
-    )
-    parser.add_argument(
-        "--quickstart",
-        action="store_true",
-        help="Connect to the microscope with the default configuration as soon as the "
-        "window is up, instead of waiting for the Connection tab.",
-    )
-    parser.add_argument(
-        "--quickload",
-        action="store_true",
-        help="Connect as --quickstart does, then reopen the most recent experiment. "
-        "Implies --quickstart -- the experiment tabs are built at connection time.",
-    )
-    return parser.parse_args(argv)
-
-
-def run_ui(argv: Optional[List[str]] = None, splash: Optional[Splash] = None):
-    """Run the AutoLamella UI.
-
-    ``splash`` is the launcher's splash screen (fibsem.tools.launcher), closed once the
-    main window is up.
-    """
-    import faulthandler
-    import signal
-
-    args = _parse_args(argv)
-
-    from fibsem.tools.bug_report import init_sentry
-
-    # Ctrl+C: PyQt never runs Python's SIGINT handler while blocked in the C++ event
-    # loop — and if the GUI thread wedges, no Python runs at all — so restore the OS
-    # default disposition: SIGINT then terminates the process at the kernel level,
-    # making the app always killable with Ctrl+C. (A hard stop, not a graceful one;
-    # use Cmd+Q / File→Exit for a clean shutdown when the loop is responsive.)
-    signal.signal(signal.SIGINT, signal.SIG_DFL)
-    # Diagnostics: dump every thread's Python stack on a fatal signal, and on demand
-    # via `kill -USR1 <pid>` — the fastest way to see *where* a frozen GUI thread is
-    # stuck (it does not terminate the process, so you can dump repeatedly).
-    faulthandler.enable()
-    if hasattr(signal, "SIGUSR1"):
-        faulthandler.register(signal.SIGUSR1, all_threads=True)
-
-    init_sentry()  # inert unless crash reporting is enabled in preferences
-    set_app_identity(AUTOLAMELLA.name, windows_app_id=AUTOLAMELLA.app_id)
-    app = QApplication.instance() or QApplication(sys.argv)
-    app.setApplicationName(AUTOLAMELLA.name)
-    app.setStyle("Fusion")
-    app.setWindowIcon(autolamella_icon())
-    # Cyclic garbage must only ever be collected on this thread: worker-thread GC
-    # finalizes Qt/vispy objects off the GUI thread and hard-crashes Windows GL
-    # drivers (access violation in glDrawArrays). See fibsem/ui/qt/gc.py.
-    gc_collector = install_main_thread_gc(parent=app)  # noqa: F841 — kept alive for app lifetime
-    window = AutoLamellaSingleWindowUI()
-    window.show()
-    if splash is not None:
-        splash.finish(window)
-    _start_update_check(on_done=window._update_version_chip)
-    if args.quickstart or args.quickload:
-        # Once the event loop is running, not inline here: connecting blocks for
-        # seconds against real hardware, and doing it before exec_() would hold up
-        # the first paint — an empty window frame for the whole wait. A zero timer
-        # fires as soon as the window system's queue, that first paint included,
-        # has drained.
-        QTimer.singleShot(
-            0, lambda: window.autolamella_ui.quickstart(load_experiment=args.quickload)
-        )
-    sys.exit(app.exec_())
-
-
-if __name__ == "__main__":
-    run_ui()
