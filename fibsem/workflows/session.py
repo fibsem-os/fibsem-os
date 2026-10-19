@@ -20,6 +20,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from fibsem import config as cfg
 from fibsem.acting import AGENT, OPERATOR, ActorKind
+from fibsem.ai.agent.session import AgentSession
 from fibsem.imaging.latest import LatestImages
 from fibsem.workflows.event_recording import EventRecorder
 from fibsem.workflows.runner import WorkflowRunner
@@ -83,6 +84,9 @@ class AppSession:
         # the microscope (FIB-1359), None until the client first says.
         self.agent_auth: Optional[Any] = None
         self.serve_microscope: Optional[bool] = None
+        # The agent as the operator meets it: its level, its requests and the
+        # operator's messages (FIB-1461).
+        self.agent = AgentSession(self)
         # The surfaces attached to answer a run's questions (a window: the
         # operator), while they are attached.
         self._answerers: List[ActorKind] = []
@@ -158,29 +162,6 @@ class AppSession:
                     self.plain_experiment.path, self.plain_experiment
                 )
         return self.plain_experiment
-
-    def set_agent_level(self, level: Any) -> Optional[str]:
-        """Set the agent's level; returns why not, or None when it is set.
-
-        Assist and Drive act, so they need an experiment to record what is
-        done: the open one, or else the session's plain one, made now. Watch
-        and Off record nothing of their own.
-        """
-        from fibsem.server.levels import AgentLevel
-
-        level = AgentLevel(level)
-        if self.agent_auth is None:
-            return "The App Server isn't running."
-        if level in (AgentLevel.ASSIST, AgentLevel.DRIVE):
-            try:
-                self.recording_experiment()
-            except OSError as exc:
-                return (
-                    f"There's nowhere to record what the agent does ({exc}). "
-                    "Open or create an experiment first."
-                )
-        self.agent_auth.set_level(level)
-        return None
 
     def start_recording(self) -> None:
         """Record events for the connected microscope.

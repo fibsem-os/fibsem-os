@@ -424,6 +424,10 @@ def live(app, tmp_path):
     manager = TaskManager(
         microscope=_NoMicroscope(), experiment=experiment, parent_ui=parent_ui
     )
+    # What AutoLamellaUI does with the runner's relay of it: re-emit on Qt.
+    manager.queue_changed.connect(
+        lambda info: parent_ui.queue_changed_signal.emit(info)
+    )
     names = [p.name for p in experiment.positions]
     manager.queue.build_from_matrix(list(TASKS), names)
 
