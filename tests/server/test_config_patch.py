@@ -101,7 +101,7 @@ _DRIVER = "milling.mill_rough.stages.0.milling.driver.tescan"
 
 
 def test_a_driver_setting_not_saved_yet_patches_from_its_default(config):
-    import fibsem.drivers.tescan.services  # noqa: F401 - registers the Tescan block
+    # the registry names the Tescan class, so no Tescan needs to be connected
 
     milling = config.milling["mill_rough"].stages[0].milling
     assert "tescan" not in milling.driver
@@ -116,11 +116,9 @@ def test_a_driver_setting_not_saved_yet_patches_from_its_default(config):
 
 
 def test_a_driver_setting_must_be_declared(config):
-    import fibsem.drivers.tescan.services  # noqa: F401 - registers the Tescan block
-
     with pytest.raises(PatchError, match="not a setting of the tescan driver"):
         apply_patch(config, {f"{_DRIVER}.aperture": 1})
-    with pytest.raises(PatchError, match="not a driver"):
+    with pytest.raises(PatchError, match="not an installed driver"):
         apply_patch(config, {"milling.mill_rough.stages.0.milling.driver.x.y": 1})
     # shared fields are the recipe's own, never in a block
     with pytest.raises(PatchError, match="not a setting"):

@@ -15,6 +15,7 @@ DRIVER = DriverEntry(
     microscope_class="fibsem.drivers.tescan.microscope:TescanMicroscope",
     port=8300,
     setup="fibsem.drivers.tescan.setup:SETUP",
+    milling_settings="fibsem.drivers.tescan.settings:TescanMillingSettings",
     devices={
         device_type: DeviceBuilder(
             f"fibsem.drivers.tescan.devices:build_tescan_{device_type}"

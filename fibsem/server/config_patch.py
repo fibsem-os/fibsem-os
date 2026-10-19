@@ -41,9 +41,9 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from fibsem.structures import (
-    DRIVER_MILLING_SETTINGS,
     FibsemMillingSettings,
     driver_milling_field,
+    driver_milling_settings,
     field_specs,
 )
 
@@ -143,7 +143,7 @@ def _resolve_driver_setting(
     else:
         old = declared.default
     new = _coerce(old, value, path)
-    _check_bounds(DRIVER_MILLING_SETTINGS[prefix], name, new, path)
+    _check_bounds(driver_milling_settings(prefix), name, new, path)
 
     def setter(coerced: Any) -> None:
         settings.driver.setdefault(prefix, {})[name] = coerced

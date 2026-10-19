@@ -2214,12 +2214,6 @@ class FibsemPolygonSettings(FibsemPatternSettings):
         return width * height * self.depth
 
 
-# Saved before each driver had its own block: the Tescan recipe fields, which
-# were top-level keys of every milling recipe. Loading a protocol written then
-# moves them into the Tescan driver's block.
-_TESCAN_MILLING_KEYS = ("preset", "spot_size", "rate", "dwell_time", "spacing")
-
-
 @dataclass
 class FibsemMillingSettings(Configurable):
     """A milling recipe, as a stage saves it.
@@ -2328,6 +2322,11 @@ class FibsemMillingSettings(Configurable):
 
     @staticmethod
     def from_dict(settings: dict) -> "FibsemMillingSettings":
+        """Read a recipe written by any version
+        (`fibsem.codec.upgrades.milling_settings`)."""
+        from fibsem.codec.upgrades.milling_settings import upgrade
+
+        settings = upgrade(settings)
         # a key left out takes the field's default, so each default is said once
         names = {f.name for f in fields(FibsemMillingSettings)} - {"driver"}
         values = {key: value for key, value in settings.items() if key in names}
@@ -2335,13 +2334,12 @@ class FibsemMillingSettings(Configurable):
             prefix: dict(block)
             for prefix, block in (settings.get("driver") or {}).items()
         }
-        for name in _TESCAN_MILLING_KEYS:
-            if name in settings:
-                driver.setdefault("tescan", {}).setdefault(name, settings[name])
         if "milling_channel" in values:
             values["milling_channel"] = BeamType[values["milling_channel"]]
         if "hfw" in values:
             values["hfw"] = float(values["hfw"])
+        for prefix, block in driver.items():
+            driver[prefix] = _read_driver_block(prefix, block)
         return FibsemMillingSettings(**values, driver=driver)
 
     @property
@@ -2385,19 +2383,75 @@ def shared_milling_setting(name: str) -> Any:
     return field(default=f.default, metadata=f.metadata)
 
 
-# Each driver's own milling settings class, by the prefix its block in the recipe is
-# saved under (tescan). A driver's Milling service registers it as it is defined.
-DRIVER_MILLING_SETTINGS: Dict[str, type] = {}
+@dataclass
+class DriverMillingSettings(Configurable):
+    """The settings every driver mills with: the channel and the field of view.
+
+    A driver's settings class (`Milling.settings_class`) extends it with the shared
+    recipe fields it uses (`shared_milling_setting`) and fields of its own, which
+    the recipe keeps in a block under the driver's prefix, its registry name in lower
+    case (`Milling.settings_prefix`). The driver's registry entry names the class
+    (`DriverEntry.milling_settings`), so it is known on any PC.
+    """
+
+    milling_channel: BeamType = shared_milling_setting("milling_channel")
+    hfw: float = shared_milling_setting("hfw")
+
+
+@dataclass
+class BeamMillingSettings(DriverMillingSettings):
+    """The settings of a driver that mills at the beam's own current and voltage,
+    with an application file and a patterning mode (ThermoFisher and those that
+    drive it, the Demo)."""
+
+    milling_current: float = shared_milling_setting("milling_current")
+    milling_voltage: float = shared_milling_setting("milling_voltage")
+    application_file: str = shared_milling_setting("application_file")
+    patterning_mode: str = shared_milling_setting("patterning_mode")
+
+
+def driver_milling_settings(prefix: str) -> Optional[Type[DriverMillingSettings]]:
+    """The settings class of the driver whose block is saved under *prefix* (tescan),
+    from the driver registry, so it is known on any PC, not only one connected to
+    that instrument. None when no installed driver has that name, or it has no
+    settings of its own."""
+    from fibsem.drivers.registry import milling_settings_class
+
+    return milling_settings_class(prefix)
+
+
+def _read_driver_block(prefix: str, block: Any) -> Any:
+    """A saved recipe's *prefix* block, checked against that driver's settings class:
+    each key one of its own settings and each value of its type, so a bad value is
+    refused where the file is read, not on the instrument mid-run. A block of a
+    driver not installed here is kept as it is, for the PC that has it."""
+    cls = driver_milling_settings(prefix)
+    if cls is None or not isinstance(block, dict):
+        return block
+    from fibsem.codec import decode
+
+    shared = {f.name for f in fields(FibsemMillingSettings)}
+    own = {f.name for f in fields(cls)} - shared
+    unknown = sorted(set(block) - own)
+    if unknown:
+        raise ValueError(
+            f"driver.{prefix} has {', '.join(map(repr, unknown))}, which the "
+            f"{prefix} driver does not have; its settings: {sorted(own)}"
+        )
+    try:
+        read = decode(cls, block)
+    except ValueError as e:
+        raise ValueError(f"driver.{prefix}: {e}") from e
+    return {name: getattr(read, name) for name in block}
 
 
 def driver_milling_field(prefix: str, name: str) -> Any:
     """The field the driver saving its block under *prefix* declares for its own
     setting *name*. Raises KeyError if no such driver or setting is known."""
-    cls = DRIVER_MILLING_SETTINGS.get(prefix)
+    cls = driver_milling_settings(prefix)
     if cls is None:
         raise KeyError(
-            f"{prefix!r} is not a driver with milling settings of its own; "
-            f"known: {sorted(DRIVER_MILLING_SETTINGS)}"
+            f"{prefix!r} is not an installed driver with milling settings of its own"
         )
     shared = {f.name for f in fields(FibsemMillingSettings)}
     own = {f.name: f for f in fields(cls) if f.name not in shared}

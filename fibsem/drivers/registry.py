@@ -114,6 +114,13 @@ class DriverEntry:
     instead: the devices the wizard offers (:func:`device_setups`), whose keys are
     also what building such an entry checks (:func:`device_setup`)."""
 
+    milling_settings: Optional[str] = None
+    """The driver's milling settings class (``Milling.settings_class``), as
+    ``"module:Class"``, when it has settings of its own: what a recipe's block under
+    the driver's name in lower case (``driver: {tescan: {...}}``) holds. Named here
+    so a recipe's block is read and checked on any PC, not only one with that
+    driver connected; the module must be cheap to import, as the record is."""
+
     @property
     def builds_microscope(self) -> bool:
         """Whether the driver connects a microscope, not only devices."""
@@ -304,6 +311,18 @@ def get_driver(manufacturer: Optional[str]) -> DriverEntry:
     if entry is None:
         raise NotImplementedError(f"Manufacturer {manufacturer} not supported.")
     return entry
+
+
+def milling_settings_class(prefix: str) -> Optional[Type[Any]]:
+    """The milling settings class of the driver named *prefix* (tescan), or
+    ``None`` if no installed driver has that name or it has none of its own."""
+    try:
+        entry = get_driver(prefix)
+    except NotImplementedError:
+        return None
+    if entry.milling_settings is None:
+        return None
+    return _import(entry.milling_settings)
 
 
 def device_builder(driver: Optional[str], type: str) -> Optional[DeviceBuilder]:

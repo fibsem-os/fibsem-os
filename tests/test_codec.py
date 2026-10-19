@@ -231,3 +231,18 @@ def test_saved_refuses_a_required_key_that_is_absent():
     with pytest.raises(ValidationError, match="missing y"):
         decode(Required, {"x": 1.0})
     assert Required() == Required(0.0, 0.0)  # a new instance still has defaults
+
+
+def test_an_old_recipe_moves_tescan_settings_into_their_block():
+    from fibsem.codec.upgrades.milling_settings import upgrade
+
+    old = {"milling_current": 2e-9, "preset": "30 keV; 1 nA", "rate": 0.3}
+    assert upgrade(old) == {
+        "milling_current": 2e-9,
+        "driver": {"tescan": {"preset": "30 keV; 1 nA", "rate": 0.3}},
+    }
+    # a value the block already has wins; a current recipe is left as it is
+    both = {"rate": 0.3, "driver": {"tescan": {"rate": 0.5}}}
+    assert upgrade(both) == {"driver": {"tescan": {"rate": 0.5}}}
+    current = {"driver": {"tescan": {"rate": 0.5}}}
+    assert upgrade(current) is current

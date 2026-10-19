@@ -25,7 +25,6 @@ from fibsem.drivers.demo.simulator import (
 )
 from fibsem.milling.progress import MillingProgress
 from fibsem.services.milling import (
-    BeamMillingSettings,
     Milling,
     bind_milling,
     progress_update,
@@ -33,6 +32,7 @@ from fibsem.services.milling import (
 from fibsem.services.spot_burn import SpotBurn, bind_spot_burn
 from fibsem.structures import (
     ACTIVE_MILLING_STATES,
+    BeamMillingSettings,
     FibsemMillingSettings,
     FibsemPatternSettings,
     MillingState,

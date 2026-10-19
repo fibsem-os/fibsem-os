@@ -350,7 +350,7 @@ def test_the_agent_sees_the_recipe_this_instrument_mills_with(microscope):
 
 
 def test_a_driver_with_settings_of_its_own_needs_a_prefix():
-    from fibsem.services.milling import DriverMillingSettings
+    from fibsem.structures import DriverMillingSettings
 
     @dataclasses.dataclass
     class Own(DriverMillingSettings):
@@ -368,6 +368,36 @@ def test_a_driver_with_settings_of_its_own_needs_a_prefix():
     recipe = Prefixed.with_driver_settings(FibsemMillingSettings(), Own(aperture=2))
     assert recipe.driver == {"probe": {"aperture": 2}}
     assert Prefixed.driver_settings(recipe).aperture == 2
+
+
+def test_a_driver_block_is_checked_when_a_recipe_loads():
+    read = FibsemMillingSettings.from_dict({"driver": {"tescan": {"rate": "0.3"}}})
+    assert read.driver == {"tescan": {"rate": 0.3}}
+    with pytest.raises(ValueError, match="rate"):
+        FibsemMillingSettings.from_dict({"driver": {"tescan": {"rate": "fast"}}})
+    with pytest.raises(ValueError, match="does not have"):
+        FibsemMillingSettings.from_dict({"driver": {"tescan": {"aperture": 1}}})
+    # a driver not installed here keeps its block for the PC that has it
+    other = FibsemMillingSettings.from_dict({"driver": {"nobody": {"x": "y"}}})
+    assert other.driver == {"nobody": {"x": "y"}}
+
+
+def test_each_driver_names_its_settings_in_the_registry():
+    # one name per driver: the block prefix is the registry name, and the registry
+    # entry names the class the driver's milling service mills with
+    from fibsem.drivers.autoscript.services import AutoScriptMilling
+    from fibsem.drivers.demo.services import DemoMilling
+    from fibsem.drivers.odemis.services import OdemisMilling
+    from fibsem.drivers.registry import get_driver, milling_settings_class
+    from fibsem.drivers.tescan.services import TescanMilling
+
+    for milling in (AutoScriptMilling, DemoMilling, OdemisMilling, TescanMilling):
+        if not milling.settings_prefix:
+            continue
+        entry = get_driver(milling.settings_prefix)
+        assert milling.settings_prefix == entry.manufacturer.casefold()
+        assert milling_settings_class(milling.settings_prefix) is milling.settings_class
+    assert milling_settings_class("nobody") is None
 
 
 def test_only_a_shared_field_is_taken_shared():

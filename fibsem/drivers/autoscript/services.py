@@ -19,9 +19,10 @@ from skimage import transform
 from fibsem.devices.core import ParameterMetadata
 from fibsem.drivers.autoscript import microscope as autoscript
 from fibsem.drivers.autoscript.microscope import TFS_SCAN_DIRECTIONS
-from fibsem.services.milling import BeamMillingSettings, Milling, bind_milling
+from fibsem.services.milling import Milling, bind_milling
 from fibsem.structures import (
     ACTIVE_MILLING_STATES,
+    BeamMillingSettings,
     CrossSectionPattern,
     FibsemBitmapSettings,
     FibsemCircleSettings,

@@ -95,9 +95,9 @@ from fibsem.milling.steps import (
 from fibsem.services.core import Service, save_beam_conditions
 from fibsem.structures import (
     ACTIVE_MILLING_STATES,
-    DRIVER_MILLING_SETTINGS,
+    BeamMillingSettings,
     BeamType,
-    Configurable,
+    DriverMillingSettings,
     FibsemBitmapSettings,
     FibsemCircleSettings,
     FibsemImage,
@@ -145,31 +145,6 @@ DRAW_HOOKS: Dict[Type[FibsemPatternSettings], str] = {
     FibsemBitmapSettings: "_draw_bitmap",
     FibsemPolygonSettings: "_draw_polygon",
 }
-
-
-@dataclass
-class DriverMillingSettings(Configurable):
-    """The settings every driver mills with: the channel and the field of view.
-
-    A driver's settings class (`Milling.settings_class`) extends it with the shared
-    recipe fields it uses (`shared_milling_setting`) and fields of its own, which
-    the recipe keeps under the driver's prefix (`Milling.settings_prefix`).
-    """
-
-    milling_channel: BeamType = shared_milling_setting("milling_channel")
-    hfw: float = shared_milling_setting("hfw")
-
-
-@dataclass
-class BeamMillingSettings(DriverMillingSettings):
-    """The settings of a driver that mills at the beam's own current and voltage,
-    with an application file and a patterning mode (ThermoFisher and those that
-    drive it, the Demo)."""
-
-    milling_current: float = shared_milling_setting("milling_current")
-    milling_voltage: float = shared_milling_setting("milling_voltage")
-    application_file: str = shared_milling_setting("application_file")
-    patterning_mode: str = shared_milling_setting("patterning_mode")
 
 
 _SHARED_SETTINGS = frozenset(
@@ -235,8 +210,6 @@ class Milling(Service):
                 f"{cls.__name__} has settings of its own ({', '.join(own)}), so it "
                 f"needs a settings_prefix to save them under."
             )
-        if own:
-            DRIVER_MILLING_SETTINGS[cls.settings_prefix] = cls.settings_class
 
     # -- the recipe, as this driver reads it ----------------------------------------
 
