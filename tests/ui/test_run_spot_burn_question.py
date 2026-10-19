@@ -152,6 +152,8 @@ def _task(ui, points=((0.5, 0.5),)):
         responder=ui.ui_responder,
         answerers=ui.session.answerers,
     )
+    # The window hears it as it hears a run the runner starts.
+    ui.session.runner.relay(manager)
     task = SpotBurnFiducialTask(
         microscope=ui.microscope,
         config=config,

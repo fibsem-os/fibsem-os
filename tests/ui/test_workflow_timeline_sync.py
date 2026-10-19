@@ -428,6 +428,7 @@ def manager(widget, tmp_path) -> TaskManager:
     )
     # What AutoLamellaUI does with the runner's relay of it: re-emit on Qt.
     m.queue_changed.connect(lambda info: parent_ui.queue_changed_signal.emit(info))
+    m.status.connect(lambda event: parent_ui.workflow_status_signal.emit(event))
     m.queue.build_from_matrix(
         ["Trench", "Undercut"], [p.name for p in experiment.positions]
     )

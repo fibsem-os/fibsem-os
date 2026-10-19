@@ -62,7 +62,7 @@ import logging
 import uuid
 from copy import deepcopy
 from datetime import datetime
-from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 
 import pandas as pd
 
@@ -76,7 +76,7 @@ from fibsem.workflows.grid.registry import (
 )
 from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.interaction import Responder
-from fibsem.workflows.manager import BaseTaskManager, WorkflowWindow
+from fibsem.workflows.manager import BaseTaskManager
 from fibsem.workflows.queue import WorkItem
 from fibsem.workflows.runner import GRIDS
 from fibsem.workflows.status import TaskState, TaskStatus, post_status
@@ -137,10 +137,11 @@ class GridTaskManager(BaseTaskManager):
         self,
         microscope: "FibsemMicroscope",
         experiment: "GridExperiment",
-        parent_ui: Optional[WorkflowWindow] = None,
+        parent_ui: Optional[Any] = None,
         hook_manager: Optional[HookManager] = None,
         responder: Optional[Responder] = None,
         answerers: Optional[Callable[[], Tuple[ActorKind, ...]]] = None,
+        images: Optional[Any] = None,
         unload_at_end: bool = False,
         report_at_end: bool = False,
         inventory_first: bool = False,
@@ -151,7 +152,13 @@ class GridTaskManager(BaseTaskManager):
         grids": the run reads the inventory, records every present grid, and
         runs over them all."""
         super().__init__(
-            microscope, experiment, parent_ui, hook_manager, responder, answerers
+            microscope,
+            experiment,
+            parent_ui,
+            hook_manager,
+            responder,
+            answerers,
+            images,
         )
         self.inventory_first = inventory_first
         self.unload_at_end = unload_at_end
@@ -797,9 +804,7 @@ class GridTaskManager(BaseTaskManager):
     ) -> None:
         """A line for the workflow-information label or the status bar, that
         gets out after a Stop too: the closing "cancelled" line is the point."""
-        post_status(
-            self.parent_ui, "", workflow_info=workflow_info, status_bar=status_bar
-        )
+        post_status(self, "", workflow_info=workflow_info, status_bar=status_bar)
 
     def _task_type(self, task_name: str) -> str:
         try:

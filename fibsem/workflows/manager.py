@@ -52,16 +52,6 @@ class WorkflowExperiment(Protocol):
     def expire_open(self, item_id: str, task_name: str, reason: str) -> int: ...
 
 
-class WorkflowWindow(Protocol):
-    """What the manager tells a window about a run: who holds it, whether it
-    waits between tasks, and the status channel. Written on the
-    worker thread; the window reads them on its own."""
-
-    hold: Optional[Hold]
-    WORKFLOW_PENDING: bool
-    workflow_status_signal: Any
-
-
 # Exactly one of these ends every run (FIB-1327).
 _RUN_ENDS = frozenset(
     {
@@ -77,25 +67,33 @@ class BaseTaskManager:
     """What running a queue of (item, task) work needs, whatever the item is.
 
     The lamella and grid workflows share everything here: the queue, the two stop
-    intents and the token tasks poll, the queue-changed and status channels to the
-    UI, and the hook run context. What they do not share is the run loop, which
+    intents and the token tasks poll, the run's signals, and the hook run context. What they do not share is the run loop, which
     each subclass writes: what an item is, how it is looked up, when it is skipped
     and what it costs to reach are the whole difference between the two.
 
     ``queue_changed({queue_items, version})`` is emitted on whichever thread
-    edited the queue; the session's runner relays it.
+    edited the queue. ``status(WorkflowStatusEvent)`` is a status line or a
+    task's report, ``held(Hold or None)`` who holds the run, ``pending(bool)``
+    whether it waits between tasks, and ``step(str)`` the step a task is on;
+    these are emitted on the run's thread. The session's runner relays them all,
+    to a window or anyone else listening.
     """
 
     queue_changed = Signal(dict)
+    status = Signal(object)
+    held = Signal(object)
+    pending = Signal(bool)
+    step = Signal(str)
 
     def __init__(
         self,
         microscope: FibsemMicroscope,
         experiment: WorkflowExperiment,
-        parent_ui: Optional[WorkflowWindow] = None,
+        parent_ui: Optional[Any] = None,
         hook_manager: Optional[HookManager] = None,
         responder: Optional[Responder] = None,
         answerers: Optional[Callable[[], Tuple[ActorKind, ...]]] = None,
+        images: Optional[Any] = None,
     ):
         self.microscope = microscope
         self.experiment = experiment
@@ -106,6 +104,13 @@ class BaseTaskManager:
         self.responder = responder
         # Who can answer them now (``AppSession.answerers``); nobody without one.
         self._answerers = answerers
+        # The latest image of each beam (``AppSession.images``), where a task
+        # puts what it acquires; None keeps nothing.
+        self.images = images
+        # Who holds the run now (None: nobody), and whether it waits between
+        # tasks: what ``held`` and ``pending`` last said.
+        self.hold: Optional[Hold] = None
+        self.waiting = False
         self._stop_event = threading.Event()
         # Stopping one task is a different intent from stopping the run, so it is a
         # different event. A flag on a single event would need care not to be
@@ -277,19 +282,19 @@ class BaseTaskManager:
         note: Optional[str] = None,
         message: Optional[str] = "",
     ) -> None:
-        """Tell the window who holds the run (None: nobody), and poke the status
-        channel so the chrome -- border, attention button, status bar --
+        """Say who holds the run (None: nobody), then post the status line,
+        so a window's chrome -- border, attention button, status bar --
         redraws from it, the way a pending question does. ``note`` is the
         workflow line; by default, the parked-between-tasks one. ``message``
         is what is said about the prompt bar: "" takes a stale prompt down,
         which a park between tasks wants; None says nothing about it, which
         a hold on a question shown *on* that bar needs."""
-        if self.parent_ui is not None:
-            self.parent_ui.hold = hold
+        self.hold = hold
+        self.held.emit(hold)
         if hold is not None:
             n = len(hold.items)
             post_status(
-                self.parent_ui,
+                self,
                 message,
                 workflow_info=note
                 or f"Waiting on {n} decision{'s' if n != 1 else ''} before the "
@@ -298,7 +303,7 @@ class BaseTaskManager:
                 f"{hold.releases}.",
             )
         else:
-            post_status(self.parent_ui, message, status_bar="")
+            post_status(self, message, status_bar="")
 
     @contextmanager
     def holding_a_question(self, item_name: str, task_name: str):
@@ -472,7 +477,7 @@ class BaseTaskManager:
         self._fire_workflow_hook(HookEvent.WORKFLOW_STALLED, decisions_pending=pending)
         logging.warning(f"Workflow stalled: {self.stall_reason}")
         post_status(
-            self.parent_ui,
+            self,
             "",
             workflow_info=f"Workflow stalled: {self.closing_note()}",
             status_bar=f"Workflow stalled: {self.closing_note()}",
@@ -573,9 +578,9 @@ class BaseTaskManager:
     def should_abort(self) -> bool:
         """Whether the task now running should unwind.
 
-        For the one caller with no token to poll: workflows.ui._check_for_abort
-        only ever gets a parent_ui. Everything task-side reads `abort_token`
-        instead, which answers the same question without a second route to it.
+        For the callers with no token to poll: the helpers in
+        autolamella/workflows/ui.py, which get the manager. Everything task-side
+        reads `abort_token` instead, which answers the same question.
         """
         return self.abort_token.is_set()
 
@@ -736,14 +741,13 @@ class BaseTaskManager:
     # --- Internal helpers ---
 
     def _set_workflow_pending(self, pending: bool) -> None:
-        """Tell the UI a run is active but nothing is executing.
+        """Say the run is active but nothing is executing.
 
-        Read by the workflow border, which would otherwise show the running
-        colour throughout a scheduled wait that can last hours. Set on the worker
-        thread and read on the GUI thread, the same way ``hold`` is.
+        Read by a window's workflow border, which would otherwise show the
+        running colour throughout a scheduled wait that can last hours.
         """
-        if self.parent_ui is not None:
-            self.parent_ui.WORKFLOW_PENDING = pending
+        self.waiting = pending
+        self.pending.emit(pending)
 
     def _emit_report(
         self,
@@ -755,7 +759,7 @@ class BaseTaskManager:
         task_duration: Optional[float] = None,
         skip_reason: Optional[str] = None,
     ) -> None:
-        """Emit one lifecycle report on workflow_status_signal, for any kind of item.
+        """Emit one lifecycle report on ``status``, for any kind of item.
 
         Fire-and-forget on the status channel: a report that a task started is
         not a step in any request's handshake, so it must not be able to touch
@@ -771,9 +775,6 @@ class BaseTaskManager:
         HookContext. The queue position fields below have no hook counterpart and stay —
         they are timeline positioning, not lifecycle facts.
         """
-        if self.parent_ui is None:
-            return
-
         # Progress is measured against the live queue rather than the launch
         # plan. A position in the original task x lamella matrix has no answer
         # for an item the user added mid-run, and stops being meaningful for
@@ -804,9 +805,7 @@ class BaseTaskManager:
             iteration=item.iteration,
         )
 
-        self.parent_ui.workflow_status_signal.emit(
-            WorkflowStatusEvent(message=msg, report=update)
-        )
+        self.status.emit(WorkflowStatusEvent(message=msg, report=update))
 
 
 def _named(names: List[str], noun: str = "lamellae") -> str:

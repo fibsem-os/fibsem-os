@@ -76,7 +76,7 @@ class MillUndercutTask(AutoLamellaTask):
             image_settings=image_settings,
             lamella=self.lamella,
             checkpoint=checkpoint,
-            parent_ui=self.parent_ui,
+            run=self.task_manager,
             feature=feature,
             detect=self.detect,
         )

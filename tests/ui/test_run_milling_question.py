@@ -109,6 +109,8 @@ def _task(ui):
         responder=ui.ui_responder,
         answerers=ui.session.answerers,
     )
+    # The window hears it as it hears a run the runner starts.
+    ui.session.runner.relay(manager)
     task = MillRoughTask(
         microscope=ui.microscope,
         config=lamella.task_config[ROUGH],

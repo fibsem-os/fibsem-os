@@ -280,10 +280,10 @@ class Hold:
 
     One value in place of the flags it replaced (``WAITING_FOR_USER_INTERACTION``
     and ``WAITING_FOR_REVIEW``): who holds the run and what releases it.
-    ``AutoLamellaUI.hold`` carries it; None means the run is not held. Written by
-    whoever takes the hold -- the responder for a question, the task manager for
-    a park -- and read by the window chrome: border colour, attention button,
-    status-bar sentence.
+    ``BaseTaskManager.held`` says it and a window's ``hold`` keeps it; None means
+    the run is not held. Taken by whoever holds the run -- the responder for a
+    prompt it shows, the task manager for a question or a park -- and read by
+    the window chrome: border colour, attention button, status-bar sentence.
     """
 
     kind: HoldKind
@@ -319,17 +319,19 @@ def take_back_finish(item: Any, task_id: str, status: TaskStatus, message: str) 
 
 
 def post_status(
-    window: Any,
+    run: Any,
     msg: Optional[str],
     workflow_info: Optional[str] = None,
     status_bar: Optional[str] = None,
 ) -> None:
-    """Put a line on the window's workflow-information label or its status bar,
-    or in the log when there is no window."""
-    if window is None:
+    """Post a line on the run's ``status`` (``BaseTaskManager``), which a window
+    draws on its workflow-information label or status bar; in the log when there
+    is no run."""
+    status = getattr(run, "status", None)
+    if status is None:
         logging.info(msg or status_bar or "")
         return
-    window.workflow_status_signal.emit(
+    status.emit(
         WorkflowStatusEvent(
             message=msg, workflow_info=workflow_info, status_bar=status_bar
         )

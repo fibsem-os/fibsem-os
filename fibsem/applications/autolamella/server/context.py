@@ -474,6 +474,7 @@ class AutoLamellaAppContext:
                 "current_item": None,
                 "queue_total": None,
                 "queue_version": None,
+                "held": None,
                 "asking": [],
             },
         }
@@ -507,6 +508,14 @@ class AutoLamellaAppContext:
             if active is not None:
                 payload["workflow"]["current_task"] = active.task_name
                 payload["workflow"]["current_item"] = active.item_name
+            # Who holds the run and what releases it: a question or a park.
+            hold = manager.hold
+            if hold is not None:
+                payload["workflow"]["held"] = {
+                    "kind": hold.kind.value,
+                    "releases": hold.releases,
+                    "items": list(hold.items),
+                }
         return payload
 
     def queue(self) -> Dict[str, Any]:

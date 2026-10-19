@@ -30,7 +30,7 @@ from fibsem.workflows.review import standing
 from fibsem.workflows.status import TaskState, TaskStatus
 from tests.autolamella.test_task_manager_status import (
     NoMicroscope,
-    RecordingUI,
+    _listened,
     make_experiment,
     run_queue_with,
 )
@@ -129,9 +129,7 @@ def test_the_manager_expires_what_a_task_consumes_when_it_starts(tmp_path):
         tmp_path, requirements={"Undercut": ["Trench"]}, lamella_names=["L1"]
     )
     lamella = experiment.positions[0]
-    m = TaskManager(
-        microscope=NoMicroscope(), experiment=experiment, parent_ui=RecordingUI()
-    )
+    m = _listened(TaskManager(microscope=NoMicroscope(), experiment=experiment))
     m.queue.build_from_matrix(["Trench", "Undercut"], ["L1"])
     seen = {}
 
@@ -162,9 +160,7 @@ def test_a_task_downstream_through_another_consumes_it_too(tmp_path):
         lamella_names=["L1"],
     )
     lamella = experiment.positions[0]
-    m = TaskManager(
-        microscope=NoMicroscope(), experiment=experiment, parent_ui=RecordingUI()
-    )
+    m = _listened(TaskManager(microscope=NoMicroscope(), experiment=experiment))
     lamella.record_proposal("Trench", _proposal(POINT_OF_INTEREST, poi=Point(0, 0)))
     for name in ("Trench", "Undercut"):
         lamella.task_history.append(
@@ -194,9 +190,7 @@ def test_when_the_run_ends_a_result_and_a_value_both_stay_open(tmp_path):
         tmp_path, requirements={"Undercut": ["Trench"]}, lamella_names=["L1"]
     )
     lamella = experiment.positions[0]
-    m = TaskManager(
-        microscope=NoMicroscope(), experiment=experiment, parent_ui=RecordingUI()
-    )
+    m = _listened(TaskManager(microscope=NoMicroscope(), experiment=experiment))
     m.queue.build_from_matrix(["Trench"], ["L1"])
 
     def on_task(name, lam):

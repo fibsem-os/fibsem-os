@@ -9,7 +9,7 @@ the duration of one manual run in the coincidence viewer.
 This task puts the microscope where that mill will happen, hands the operator the
 viewer to place the boxes (FIB-911), and records what they leave behind on the
 lamella. ``MillCoincidentTask`` reads that record back by task name. Headless --
-no ``parent_ui`` -- it records the defaults and the objective position it used,
+no window -- it records the defaults and the objective position it used,
 without waiting.
 
 Always supervised: like Select Milling Position, the point of the task is the
@@ -216,7 +216,7 @@ class SetupCoincidenceMillingTask(AutoLamellaTask):
 
             # 4. hand-off. Without a UI there is nobody to hand to: record what we
             # used and move on. The viewer's setup mode (FIB-911) plugs in here.
-            if self.parent_ui is not None:
+            if self.responder is not None:
                 self._hand_off()
 
             # 5. the record. Whatever the operator left is now this site's setup.

@@ -231,11 +231,11 @@ class SpotBurnFiducialTask(AutoLamellaTask):
                 burned, passes = settings, passes + 1
         finally:
             # After a Stop the workflow's end clears the widget instead.
-            if responder is not None and not _abort_requested(self.parent_ui):
+            if responder is not None and not _abort_requested(self.task_manager):
                 ask(
                     responder,
                     ClearSpotBurn(),
-                    abort=lambda: _abort_requested(self.parent_ui),
+                    abort=lambda: _abort_requested(self.task_manager),
                     timeout=INSTRUCTION_TIMEOUT_S,
                 )
         self.config.apply_settings(settings)

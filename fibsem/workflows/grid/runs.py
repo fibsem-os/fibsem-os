@@ -96,6 +96,7 @@ def make_grid_manager(
     hook_manager: Any = None,
     responder: Any = None,
     answerers: Any = None,
+    images: Any = None,
 ) -> GridTaskManager:
     return GridTaskManager(
         microscope=microscope,
@@ -104,6 +105,7 @@ def make_grid_manager(
         hook_manager=hook_manager,
         responder=responder,
         answerers=answerers,
+        images=images,
         unload_at_end=request.option("unload_at_end"),
         report_at_end=request.option("report_at_end"),
         inventory_first=request.option("inventory_first"),

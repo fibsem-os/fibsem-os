@@ -317,7 +317,7 @@ class BaseTask(ABC):
                     "task_type": self.task_type,
                 },
             )
-        signal = getattr(self.parent_ui, "step_update_signal", None)
+        signal = getattr(self.task_manager, "step", None)
         if signal is not None:
             signal.emit(display_message or message)
 

@@ -2,7 +2,7 @@
 
 There are two `_check_for_abort` functions at different layers: the method on
 AutoLamellaTask, which has a task to ask, and the module-level one in
-workflows.ui, which only has a parent_ui. They previously reached for raw state
+workflows.ui, which has the run's manager. They previously reached for raw state
 by two different routes — `self._stop_event` and `task_manager.is_stopped` — and
 so could disagree about what counts as cancelled.
 
@@ -18,14 +18,12 @@ _run_queue's loop asks it.
 """
 
 from pathlib import Path
-from typing import Optional
 
 import pytest
 
 from fibsem.applications.autolamella.structures import Experiment, Lamella
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.applications.autolamella.workflows.ui import _check_for_abort
-from tests.run_state import stub_session
 
 
 class NoMicroscope:
@@ -39,14 +37,6 @@ def manager(tmp_path: Path) -> TaskManager:
         Lamella(path=Path(experiment.path) / "L1", number=1, petname="L1")
     )
     return TaskManager(microscope=NoMicroscope(), experiment=experiment, parent_ui=None)
-
-
-class FakeUI:
-    """A parent_ui is all workflows.ui._check_for_abort ever gets: it asks the
-    session's runner, which asks the run's manager."""
-
-    def __init__(self, task_manager: Optional[TaskManager]):
-        self.session = stub_session(task_manager)
 
 
 # ── The predicate ─────────────────────────────────────────────────────────────
@@ -70,12 +60,11 @@ def test_stopping_the_run_aborts_the_task_too(manager):
 
 
 def test_the_ui_check_follows_the_predicate(manager):
-    ui = FakeUI(manager)
-    assert _check_for_abort(ui) is False
+    assert _check_for_abort(manager) is False
 
     manager.stop()
     with pytest.raises(InterruptedError):
-        _check_for_abort(ui)
+        _check_for_abort(manager)
 
 
 def test_the_task_check_follows_the_predicate(manager):
@@ -99,7 +88,6 @@ def test_the_two_checks_agree(manager):
 
     from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 
-    ui = FakeUI(manager)
     task = SimpleNamespace(task_manager=manager, _stop_event=manager.abort_token)
 
     for stopped in (False, True):
@@ -108,7 +96,7 @@ def test_the_two_checks_agree(manager):
 
         ui_aborted = task_aborted = False
         try:
-            _check_for_abort(ui)
+            _check_for_abort(manager)
         except InterruptedError:
             ui_aborted = True
         try:
@@ -147,7 +135,7 @@ def test_a_task_with_neither_never_aborts():
     AutoLamellaTask._check_for_abort(task)  # must not raise
 
 
-def test_the_ui_check_is_a_noop_headless():
+def test_the_ui_check_is_a_noop_with_no_run():
     assert _check_for_abort(None) is False
 
 

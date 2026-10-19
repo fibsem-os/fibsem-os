@@ -134,6 +134,8 @@ def _start(window):
         responder=ui.ui_responder,
         answerers=ui.session.answerers,
     )
+    # The window hears it as it hears a run the runner starts.
+    ui.session.runner.relay(manager)
     lamella = experiment.positions[0]
     task = SelectMillingPositionTask(
         microscope=ui.microscope,
