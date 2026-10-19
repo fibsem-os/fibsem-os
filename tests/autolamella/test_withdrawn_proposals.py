@@ -198,13 +198,11 @@ def test_it_does_not_satisfy_what_requires_the_task(experiment):
     lamella.set_task_status(TASK, TaskStatus.Failed, "failed")
 
     assert not lamella.latest_run_completed(TASK)
-    assert not lamella.is_awaiting_decision(TASK)
 
 
 def test_it_does_not_touch_the_task_status(experiment):
     """The task has its own ending; the withdrawal is a consequence of it, not
-    a cause. A confirm or a reject finishes a task that ended AwaitingDecision
-    -- this must not."""
+    a cause."""
     lamella = experiment.positions[0]
     _asked(experiment)
     lamella.set_task_status(TASK, TaskStatus.InProgress)

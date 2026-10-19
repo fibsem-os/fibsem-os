@@ -1,9 +1,9 @@
 """What a task proposed, and what a reviewer decided about it.
 
-A producing task completes and leaves a ``Proposal`` on its item, saying who
-asked it (``asked_by``: the task, today). Nothing downstream reads the proposal directly: the consumer of
-the decision is gated until somebody appends a ``Decision``, and confirming
-writes the decided values through to the item. The proposed values are never
+A task leaves a ``Proposal`` on its item -- a question it asks while it runs,
+or its result when it ends -- saying who asked it (``asked_by``: the task,
+today). A ``Decision`` on it says who decided what, and confirming writes the
+decided values through to the item. The proposed values are never
 overwritten -- the delta between what was proposed and what was confirmed is
 computed from the two, which is what makes a review produce a corrected label
 instead of a self-reported one.
@@ -106,18 +106,15 @@ class DecisionOutcome(Enum):
 
 
 class Standing(Enum):
-    """Where a proposal is in its one lifecycle. Pending, with exactly one of
-    three waiters: ``Open`` (nobody: an automated task's value or result, live
-    and correctable until the task that uses it starts), ``Asking`` (the task
-    itself, stopped mid-run on the answer), ``Awaiting`` (its consumers: a
-    supervised task's later value, the run holding for it). Then decided
-    without a person: ``Unchecked``. Then ``Closed``: a person looked, or the
-    question was withdrawn. ``standing`` in ``structures`` reads it off an
+    """Where a proposal is in its one lifecycle. Pending: ``Open`` (nobody
+    waits: a task's value or result, live and correctable until the task that
+    uses it starts) or ``Asking`` (the task itself, stopped mid-run on the
+    answer). Then decided without a person: ``Unchecked``. Then ``Closed``: a
+    person looked, or the question was withdrawn. ``standing`` in ``structures`` reads it off an
     item; everything that lists, expires or guards a proposal reads that."""
 
     Open = auto()
     Asking = auto()
-    Awaiting = auto()
     Unchecked = auto()
     Closed = auto()
 
@@ -131,13 +128,12 @@ class Standing(Enum):
 class ProposalKind:
     """A kind names the set of values a proposal may carry. A value exists
     because a later task consumes it; a kind with no values is a result for
-    someone to look at. A task that waits on a decision is AwaitingDecision,
-    and the decision finishes it (Completed or Failed) like any other task;
-    what a reject means is the kind's to say."""
+    someone to look at. What a reject of a question means is the kind's to
+    say."""
 
     name: str
     values: Tuple[str, ...]  # the value names a proposal of this kind may carry
-    # How the kind is named to a person: on a Review tab row, in a sentence.
+    # How the kind is named to a person, in a sentence.
     label: str = ""
     # Whether a reject fails the task: "nothing further here", so nothing that
     # requires it runs. Off for a question that asks leave to do something
@@ -772,9 +768,9 @@ class Decision:
     # POSIX float, which reads as this machine's zone. None when the record has none.
     timestamp: Optional[datetime] = field(default_factory=now)
     # Where it was decided: "workflow" (inline, in the task's own question, or
-    # the producer confirming its own proposal), "review" (the Review tab) or
-    # "server" (an agent over the API). The actor says who; this says where,
-    # so an export can tell an inline answer from a tab decision.
+    # the producer confirming its own proposal), "review" (the Review tab, in
+    # records written before it was removed) or "server" (an agent over the
+    # API). The actor says who; this says where.
     via: str = ""
     # Which run of the producing task this decides: the task_id of the proposal
     # the decider was shown. Experiment.decide refuses a decision that names no

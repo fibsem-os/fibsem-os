@@ -469,19 +469,15 @@ class AutoLamellaWorkflowOptions:
     # Show summary link, comes either way; off is for runs nobody is watching
     # the end of -- an agent starting many short runs, or overnight (FIB-1376).
     show_run_summary: bool = True
-    # How long a run whose remaining work all waits on a review keeps waiting for
-    # one, in seconds of *inactivity* -- every decision resets the clock, so a
-    # slow reviewer mid-sitting is never cut off, only an absent one. 0 exits at
-    # once (the old behaviour); None waits until stopped, for an unattended run
-    # with an agent deciding. Separate from any per-proposal deadline: this is
-    # whether the workflow thread stays parked, not who may decide.
-    review_wait: Optional[float] = 1800.0
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "AutoLamellaWorkflowOptions":
+        data = dict(data)
+        # How long a run waited on reviews, before nothing waited on one.
+        data.pop("review_wait", None)
         return cls(**data)
 
 

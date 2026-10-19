@@ -194,7 +194,7 @@ def test_run_then_accept_mills_once_on_the_workflow_thread(ui, qapp):
     assert ui.pushButton_yes.text() == "Run Milling"
     assert ui.pushButton_no.text() == "Skip"
     assert _pass(ui).provenance["passes"] == 0
-    assert ui.hold is not None and ui.hold.kind is HoldKind.decision
+    assert ui.hold is not None and ui.hold.kind is HoldKind.question
 
     ui.pushButton_yes.click()  # run
     _wait_for_prompt(ui, qapp, AGAIN)

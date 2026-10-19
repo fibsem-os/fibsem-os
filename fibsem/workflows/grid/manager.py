@@ -19,10 +19,9 @@ on grid 3 of 12. A failed task fails only itself and what ``requires`` it; the
 next task on the same grid still runs, since an SEM overview failing says nothing
 about the FM one.
 
-Decisions follow the lamella workflow's rules. A task waits while a task it
-requires awaits a decision in the Review tab or is still queued for the grid,
-and is skipped when one did not complete. While a grid waits, the run moves on
-to the next grid and comes back once the decision lands.
+Requirements follow the lamella workflow's rules. A task waits while a task it
+requires is still queued for the grid, and is skipped when one did not
+complete.
 
 A task taken out of the grid protocol while the run is going is skipped where
 it is queued, before its grid is loaded for it: the operator removed it, and
@@ -175,20 +174,11 @@ class GridTaskManager(BaseTaskManager):
     def run(
         self, task_names: List[str], grid_names: Optional[List[str]] = None
     ) -> None:
-        """Run ``task_names``, in order, on each of ``grid_names`` (all grids if None).
-
-        A task that is AwaitingDecision on a grid is left out for that grid, as
-        on the lamella side: its run is over and its record waits in the Review
-        tab, and running it again would supersede the proposal someone is about
-        to decide."""
+        """Run ``task_names``, in order, on each of ``grid_names`` (all grids if None)."""
         if grid_names is None:
             grid_names = [g.name for g in self.experiment.grids]
         self.queue.build_from_pairs(
-            [
-                (grid, step)
-                for grid, step in plan_grid_run(task_names, grid_names)
-                if not self._awaiting_decision(grid, step)
-            ],
+            plan_grid_run(task_names, grid_names),
             task_names=task_names,
             item_names=grid_names,
         )
@@ -235,10 +225,6 @@ class GridTaskManager(BaseTaskManager):
 
     # --- The run loop ---
 
-    def _awaiting_decision(self, grid_name: str, task_name: str) -> bool:
-        grid = self.experiment.get_grid_by_name(grid_name)
-        return grid is not None and grid.is_awaiting_decision(task_name)
-
     def _requirements(self, task_name: str) -> List[str]:
         try:
             return self.experiment.grid_protocol.requirements(task_name)
@@ -247,16 +233,14 @@ class GridTaskManager(BaseTaskManager):
 
     def _defer_reason(self, grid: GridRecord, task_name: str) -> Optional[str]:
         """Why this task cannot run on this grid *yet*, as on the lamella side:
-        a task it requires awaits a decision (``awaiting_decision``), or is still
-        queued for this grid (``prereq_pending``). The run moves on to the next
-        grid meanwhile, and comes back -- an exchange -- when it can run."""
+        a task it requires is still queued for this grid (``prereq_pending``).
+        The run moves on to the next grid meanwhile, and comes back -- an
+        exchange -- when it can run."""
         for req in self._requirements(task_name):
             # a rerun still queued is the attempt that counts, whatever an
             # earlier run of it did
             if self.queue.has_pending_pair(grid.name, req):
                 return "prereq_pending"
-            if grid.is_awaiting_decision(req):
-                return "awaiting_decision"
         return None
 
     def _item_defer_reason(self, item: WorkItem) -> Optional[str]:
@@ -340,30 +324,22 @@ class GridTaskManager(BaseTaskManager):
     def _run_queue(self) -> None:
         with self._recording():
             self._fire_workflow_hook(HookEvent.WORKFLOW_STARTED)
-            self.experiment.decided.connect(self._on_decided)
             try:
                 self._prepare()
                 self._run_items()
             except Exception as e:
                 self._end_escaped_run(e)
                 raise
-            finally:
-                self.experiment.decided.disconnect(self._on_decided)
 
     def _requirements_of(self, task_name: str) -> List[str]:
         return self._requirements(task_name)
 
     def _run_items(self) -> None:
         while not self.is_stopped:
-            # Cleared before the scan, so a decision that lands between a scan
-            # finding nothing and the wait starting is not lost.
-            self._decision_event.clear()
             item = self._next_item()
             if item is None:
-                if self.queue.is_empty:
-                    break
-                if self._wait_for_a_decision():
-                    continue
+                if not self.queue.is_empty:
+                    self._stall()
                 break
 
             # A stop_task click that landed between two tasks was aimed at the one
@@ -462,12 +438,7 @@ class GridTaskManager(BaseTaskManager):
             err = self._run_single_task(item.task_name, grid)
             final_status = grid.task_state.status
             self.queue.mark_done(item, final_status)
-            if err is None and final_status is TaskStatus.AwaitingDecision:
-                msg = (
-                    f"{item.task_name} on grid {grid.name} awaits a decision "
-                    "in the Review tab."
-                )
-            elif err is None:
+            if err is None:
                 msg = f"Completed {item.task_name} on grid {grid.name}."
             else:
                 msg = f"Error in {item.task_name} on grid {grid.name}."

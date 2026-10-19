@@ -82,17 +82,6 @@ def test_a_question_the_task_is_parked_on_is_not_expired(experiment):
     assert proposal.pending
 
 
-def test_a_result_the_run_is_holding_for_is_not_expired(experiment):
-    lamella = experiment.positions[0]
-    lamella.task_history.append(
-        TaskState(name="Trench", task_id=RUN, status=TaskStatus.AwaitingDecision)
-    )
-    proposal = lamella.record_proposal("Trench", _proposal())
-    assert [p for _i, _t, p in experiment.pending_proposals()] == [proposal]
-    assert experiment.expire_all_open("x") == 0
-    assert proposal.pending
-
-
 def test_a_correction_after_expiry_is_refused_as_a_late_edit(experiment):
     lamella = experiment.positions[0]
     proposal = lamella.record_proposal(

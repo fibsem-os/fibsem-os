@@ -34,10 +34,11 @@ leave the click to the operator, with a note saying why.
 4. **First writer wins, and the operator outranks you.** If they answer first,
    your job for that question is over. Never race them.
 5. **A recorded question is decided, not answered.** A task asks a
-   position, an alignment area, a detection, or a mill's or spot burn's
-   pass on the item's record and stops on it; the operator sees a
-   position or a pass on the prompt bar and everything else in the Review
-   tab. No prompt is raised for you: the watcher prints a
+   position, a point of interest, an alignment area, a detection, or a
+   mill's or spot burn's pass on the item's record and stops on it; the
+   operator sees it on the widget it is answered on (the prompt bar, the
+   Detection tab, the milling editor, the marker or rectangle on the FIB
+   view). No prompt is raised for you: the watcher prints a
    `QUESTION item=… task=…` line, and `review_list` lists it with
    `holding_the_run: true` (its `proposal_id`, `kind`, `values` and image
    are there). Decide it with `review_decide`: `item_id`, `task_name`,
@@ -45,11 +46,9 @@ leave the click to the operator, with a note saying why.
    carries, as proposed or adjusted. Rejected needs a reason and does what
    the review's `rejected_fails_task` says: true, it fails the task that
    asked; false (a `state` question), it means *don't* and the task carries
-   on. When unsure, hold and escalate rather than reject. Take a
-   `holding_the_run` review before anything else in the inbox: nothing
-   runs until it is decided. A supervised task's result (Setup's point of
-   interest) is in `review_list` too once the task ends, not holding the
-   run: the tasks that require it wait on the decision.
+   on. When unsure, hold and escalate rather than reject. Nothing runs
+   until it is decided, so take it before anything else. Once a task
+   ends, nothing waits on a decision: its result is used as proposed.
 
 ## Write down why
 

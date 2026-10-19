@@ -193,8 +193,6 @@ class HookContext:
     # tasks whose latest run did not complete. A reason alone left an agent guessing
     # which requirement it was (FIB-1357).
     missing_prereqs: Optional[List[str]] = None
-    # How many proposals were awaiting a decision, on WORKFLOW_STALLED.
-    decisions_pending: Optional[int] = None
     # How the run's tasks ended, by status ("completed", "failed", "skipped"), on
     # WORKFLOW_COMPLETED. A run in which everything was skipped still completes, and
     # this is what says nothing ran (FIB-1357).

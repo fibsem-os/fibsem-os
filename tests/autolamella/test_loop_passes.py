@@ -147,42 +147,6 @@ def test_decide_refuses_an_action_on_a_yes_no_question(tmp_path):
     assert result.applied is False and "action" in result.reason
 
 
-def test_deciding_an_earlier_pass_does_not_finish_the_task(tmp_path):
-    """The run waits on its result; a pass already on the record (unasked,
-    say) is not what it waits on, so deciding it moves no status."""
-    exp = _experiment(tmp_path)
-    lamella = exp.positions[0]
-    milled = _pass()
-    milled.decisions.append(
-        Decision(
-            task_id=RUN,
-            outcome=DecisionOutcome.Unreviewed,
-            actor="task:Rough Milling",
-            action=ACTION_RUN,
-        )
-    )
-    result = Proposal(kind=TASK_RESULT, provenance={"task_id": RUN})
-    set_proposals(lamella, ROUGH, [milled, result])
-    lamella.task_history.append(
-        TaskState(name=ROUGH, task_id=RUN, status=TaskStatus.AwaitingDecision)
-    )
-
-    decided = exp.decide(
-        lamella.id,
-        ROUGH,
-        Decision(
-            task_id=RUN,
-            outcome=DecisionOutcome.Confirmed,
-            actor="operator:op",
-            action=ACTION_RUN,
-            proposal_id=milled.id,
-        ),
-    )
-
-    assert decided.applied
-    assert lamella.is_awaiting_decision(ROUGH), "still waits on its result"
-
-
 def test_a_pass_is_not_listed_to_check(tmp_path):
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]

@@ -545,8 +545,8 @@ class ProposalTap:
     """The questions a run asks, and every decision on a proposal, from the
     experiment's own ``asked`` and ``decided`` signals (FIB-1034).
 
-    Every way a decision reaches the record fires ``decided``: the Review tab,
-    the prompt bar and an agent over the server through ``Experiment.decide``,
+    Every way a decision reaches the record fires ``decided``: the widget a
+    question is answered on and an agent over the server through ``Experiment.decide``,
     and the record itself expiring, withdrawing or noting an unasked one. So
     this is the one place they are recorded, whoever made them. Each decision
     is one ``proposal_decided`` event, with the values proposed and the values

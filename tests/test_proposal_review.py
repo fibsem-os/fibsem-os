@@ -44,11 +44,11 @@ class Volume(BaseExperiment, ProposalReview):
         pass
 
 
-def _held(tmp_path) -> tuple:
-    """A position whose Mill run ended waiting on its result being looked at."""
+def _finished(tmp_path) -> tuple:
+    """A position whose Mill run finished, its result proposed and not decided."""
     experiment = Volume(tmp_path)
     position = Position("P1")
-    run = TaskState(name=TASK, task_id=RUN, status=TaskStatus.AwaitingDecision)
+    run = TaskState(name=TASK, task_id=RUN, status=TaskStatus.Completed)
     position.task_history.append(run)
     proposal = position.record_proposal(
         TASK, Proposal(kind=TASK_RESULT, provenance={"task_id": RUN})
@@ -66,8 +66,8 @@ def _decision(proposal: Proposal, outcome: DecisionOutcome, reason: str = ""):
     )
 
 
-def test_confirming_finishes_the_held_run(tmp_path):
-    experiment, position, proposal = _held(tmp_path)
+def test_confirming_records_the_decision_and_leaves_the_run_as_it_was(tmp_path):
+    experiment, position, proposal = _finished(tmp_path)
     decided = []
     experiment.decided.connect(lambda *args: decided.append(args))
 
@@ -79,16 +79,16 @@ def test_confirming_finishes_the_held_run(tmp_path):
     assert position.task_history[-1].status is TaskStatus.Completed
     assert proposal.decisions[-1].actor.name == "Ada"
     assert decided == [(position.id, TASK)]
-    assert experiment.pending_proposals() == []
+    assert not proposal.pending
 
 
 def test_a_reject_needs_a_reason(tmp_path):
-    experiment, position, proposal = _held(tmp_path)
+    experiment, position, proposal = _finished(tmp_path)
 
     result = experiment.decide(
         position.id, TASK, _decision(proposal, DecisionOutcome.Rejected)
     )
 
     assert not result.applied
-    assert position.is_awaiting_decision(TASK)
-    assert [p for _, _, p in experiment.pending_proposals()] == [proposal]
+    assert proposal.pending
+    assert position.task_history[-1].status is TaskStatus.Completed

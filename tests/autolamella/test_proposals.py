@@ -312,7 +312,8 @@ def test_an_author_is_a_kind_and_a_name_and_travels_as_kind_colon_name():
 
 
 def test_standing_is_one_lifecycle_read_off_the_item(tmp_path):
-    """Pending with one of three waiters, then unchecked, then closed."""
+    """Pending (open, or asking while the task waits), then unchecked, then
+    closed."""
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
     p = Proposal(
@@ -325,12 +326,6 @@ def test_standing_is_one_lifecycle_read_off_the_item(tmp_path):
     p.asking = True
     assert standing(lamella, SETUP, p) is Standing.Asking, "the task waits"
     p.asking = False
-
-    lamella.task_history.append(
-        TaskState(name=SETUP, task_id=RUN, status=TaskStatus.AwaitingDecision)
-    )
-    assert standing(lamella, SETUP, p) is Standing.Awaiting, "consumers wait"
-    lamella.task_history.pop()
 
     p.decisions.append(
         Decision(task_id=RUN, outcome=DecisionOutcome.Unreviewed, actor="task:x")
@@ -491,60 +486,6 @@ def test_confirm_writes_the_value_through_and_syncs_patterns(tmp_path):
     assert not lamella.is_failure
 
 
-def test_a_decision_finishes_a_task_that_was_awaiting_one(tmp_path):
-    """The task ran and stopped short of finished. Confirm completes it, on the
-    history entry and on the live task_state when that is the same run."""
-    exp = _experiment(tmp_path)
-    lamella = exp.positions[0]
-    lamella.task_state = TaskState(name=SETUP, status=TaskStatus.AwaitingDecision)
-    lamella.task_history.append(deepcopy(lamella.task_state))
-    set_proposals(lamella, SETUP, [_proposal()])
-    assert lamella.is_awaiting_decision(SETUP) and not lamella.has_completed_task(SETUP)
-
-    exp.decide(
-        lamella.id,
-        SETUP,
-        Decision(
-            task_id=RUN,
-            outcome=DecisionOutcome.Confirmed,
-            actor="operator:op",
-            values={"poi": _proposal().values["poi"]},
-        ),
-    )
-
-    assert lamella.has_completed_task(SETUP)
-    assert lamella.task_state.status is TaskStatus.Completed
-    assert not lamella.is_awaiting_decision(SETUP)
-
-
-def test_reject_fails_the_waiting_task_and_leaves_the_lamella_alone(tmp_path):
-    exp = _experiment(tmp_path)
-    lamella = exp.positions[0]
-    lamella.task_history.append(
-        TaskState(name=SETUP, status=TaskStatus.AwaitingDecision)
-    )
-    set_proposals(lamella, SETUP, [_proposal()])
-
-    result = exp.decide(
-        lamella.id,
-        SETUP,
-        Decision(
-            task_id=RUN,
-            outcome=DecisionOutcome.Rejected,
-            actor="operator:op",
-            reason="no usable site",
-        ),
-    )
-
-    assert result.applied is True
-    entry = lamella.task_history[-1]
-    assert entry.status is TaskStatus.Failed
-    assert entry.status_message == "Rejected by op: no usable site"
-    assert not lamella.is_failure, "a failed task is not a defective lamella"
-    assert lamella.quality.verdict is Verdict.UNASSESSED
-    assert lamella.poi == Point(0.0, 0.0), "nothing was written through"
-
-
 def test_each_kind_says_whether_a_reject_fails_its_task():
     """Mostly "nothing further here"; a state question asks leave to do
     something, and a reject is "don't". A kind this build does not know fails
@@ -557,13 +498,11 @@ def test_each_kind_says_whether_a_reject_fails_its_task():
 
 
 def test_rejecting_a_state_question_leaves_the_waiting_task_as_it_was(tmp_path):
-    """Setup asked its tilt, then left its point for the Review tab: rejecting
-    the tilt question afterwards is "don't tilt", not a failed Setup."""
+    """Rejecting the tilt question Setup asked is "don't tilt", not a failed
+    Setup: the task it was asked by stays as it ended."""
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]
-    lamella.task_history.append(
-        TaskState(name=SETUP, status=TaskStatus.AwaitingDecision)
-    )
+    lamella.task_history.append(TaskState(name=SETUP, status=TaskStatus.Completed))
     question = Proposal(
         kind=STATE,
         values={"stage_position": FibsemStagePosition(x=0, y=0, z=0, r=0, t=0)},
@@ -584,8 +523,7 @@ def test_rejecting_a_state_question_leaves_the_waiting_task_as_it_was(tmp_path):
 
     assert result.applied is True
     assert question.current.outcome is DecisionOutcome.Rejected
-    assert lamella.task_history[-1].status is TaskStatus.AwaitingDecision
-    assert lamella.is_awaiting_decision(SETUP)
+    assert lamella.task_history[-1].status is TaskStatus.Completed
 
 
 def test_a_decision_on_a_finished_task_changes_only_the_record(tmp_path):
@@ -638,15 +576,15 @@ def test_reject_on_a_grid_proposal_creates_nothing_and_retires_nothing(tmp_path)
     assert len(exp.positions) == 1
 
 
-def _grid_awaiting(exp: Experiment, task_name: str = "Overview") -> GridRecord:
-    """A grid whose overview task ran, stopped short of finished, and proposed
-    its result: the live task_state and its frozen history entry are the same
+def _grid_finished(exp: Experiment, task_name: str = "Overview") -> GridRecord:
+    """A grid whose overview task ran and proposed its result, not yet
+    decided: the live task_state and its frozen history entry are the same
     run, as a grid task leaves them."""
     grid = exp.add_grid(GridRecord(name="Grid-01"))
     state = grid.task_state
     state.name = task_name
     state.task_id = "run-1"
-    state.status = TaskStatus.AwaitingDecision
+    state.status = TaskStatus.Completed
     grid.task_history.append(deepcopy(state))
     set_proposals(
         grid,
@@ -656,58 +594,11 @@ def _grid_awaiting(exp: Experiment, task_name: str = "Overview") -> GridRecord:
     return grid
 
 
-def test_a_decision_finishes_a_grid_task_that_was_awaiting_one(tmp_path):
-    exp = _experiment(tmp_path)
-    grid = _grid_awaiting(exp)
-    assert grid.is_awaiting_decision("Overview")
-    assert not grid.has_completed_task("Overview")
-
-    result = exp.decide(
-        grid.id,
-        "Overview",
-        Decision(
-            task_id=grid.proposal("Overview").task_id,
-            outcome=DecisionOutcome.Confirmed,
-            actor="operator:op",
-            values={},
-        ),
-    )
-
-    assert result.applied is True
-    assert grid.has_completed_task("Overview")
-    assert grid.task_state.status is TaskStatus.Completed
-    assert not grid.is_awaiting_decision("Overview")
-    assert not grid.proposal("Overview").pending
-
-
-def test_reject_fails_the_waiting_grid_task_and_leaves_its_quality_alone(tmp_path):
-    exp = _experiment(tmp_path)
-    grid = _grid_awaiting(exp)
-
-    result = exp.decide(
-        grid.id,
-        "Overview",
-        Decision(
-            task_id=grid.proposal("Overview").task_id,
-            outcome=DecisionOutcome.Rejected,
-            actor="operator:op",
-            reason="all ice",
-        ),
-    )
-
-    assert result.applied is True
-    entry = grid.task_history[-1]
-    assert entry.status is TaskStatus.Failed
-    assert entry.status_message == "Rejected by op: all ice"
-    assert grid.task_state.status is TaskStatus.Failed
-    assert grid.quality.verdict is Verdict.UNASSESSED, "a person sets the verdict"
-
-
 def test_confirming_values_on_a_grid_is_refused_before_anything_is_written(tmp_path):
-    """No value is written through to a grid; the refusal leaves the task
-    waiting and the proposal pending rather than half-applied."""
+    """No value is written through to a grid; the refusal leaves the task as
+    it ended and the proposal pending rather than half-applied."""
     exp = _experiment(tmp_path)
-    grid = _grid_awaiting(exp)
+    grid = _grid_finished(exp)
 
     result = exp.decide(
         grid.id,
@@ -723,13 +614,12 @@ def test_confirming_values_on_a_grid_is_refused_before_anything_is_written(tmp_p
     assert result.applied is False
     assert "does not carry ['poi']" in result.reason
     assert grid.proposal("Overview").pending
-    assert grid.is_awaiting_decision("Overview")
+    assert grid.task_history[-1].status is TaskStatus.Completed
 
 
 def test_a_decision_on_a_finished_grid_task_changes_only_the_record(tmp_path):
     exp = _experiment(tmp_path)
-    grid = _grid_awaiting(exp)
-    grid.set_task_status("Overview", TaskStatus.Completed)
+    grid = _grid_finished(exp)
 
     exp.decide(
         grid.id,
@@ -750,73 +640,15 @@ def test_a_grid_status_change_leaves_the_live_state_of_a_later_run_alone(tmp_pat
     """set_task_status moves the frozen entry always, and the live task_state
     only when it is the same run: a later task has since reused the object."""
     exp = _experiment(tmp_path)
-    grid = _grid_awaiting(exp)
+    grid = _grid_finished(exp)
     grid.task_state.name = "Screening"
     grid.task_state.task_id = "run-2"
     grid.task_state.status = TaskStatus.InProgress
 
-    grid.set_task_status("Overview", TaskStatus.Completed)
+    grid.set_task_status("Overview", TaskStatus.Failed)
 
-    assert grid.task_history[-1].status is TaskStatus.Completed
+    assert grid.task_history[-1].status is TaskStatus.Failed
     assert grid.task_state.status is TaskStatus.InProgress
-
-
-def test_a_repeated_grid_task_is_decided_on_its_latest_run_only(tmp_path):
-    """The same task run twice leaves two history entries. Whether it awaits a
-    decision, and what a decision changes, is the latest run's; the earlier
-    run's recorded outcome stands."""
-    exp = _experiment(tmp_path)
-    grid = _grid_awaiting(exp)
-    first = grid.task_history[-1]
-    first.status = TaskStatus.Failed
-    first.status_message = "first run failed"
-    grid.task_state.task_id = "run-2"
-    grid.task_state.status = TaskStatus.AwaitingDecision
-    grid.task_history.append(deepcopy(grid.task_state))
-    set_proposals(
-        grid, "Overview", [Proposal(kind=TASK_RESULT, provenance={"task_id": "run-2"})]
-    )
-    assert grid.is_awaiting_decision("Overview")
-
-    exp.decide(
-        grid.id,
-        "Overview",
-        Decision(
-            task_id=grid.proposal("Overview").task_id,
-            outcome=DecisionOutcome.Confirmed,
-            actor="operator:op",
-            values={},
-        ),
-    )
-
-    assert grid.task_history[-1].status is TaskStatus.Completed
-    assert grid.task_state.status is TaskStatus.Completed
-    assert first.status is TaskStatus.Failed
-    assert first.status_message == "first run failed"
-
-
-def test_an_earlier_run_awaiting_a_decision_does_not_make_a_later_one_wait(
-    tmp_path,
-):
-    exp = _experiment(tmp_path)
-    grid = _grid_awaiting(exp)
-    grid.task_state.task_id = "run-2"
-    grid.task_state.status = TaskStatus.Completed
-    grid.task_history.append(deepcopy(grid.task_state))
-
-    assert not grid.is_awaiting_decision("Overview")
-    exp.decide(
-        grid.id,
-        "Overview",
-        Decision(
-            task_id=grid.proposal("Overview").task_id,
-            outcome=DecisionOutcome.Rejected,
-            actor="operator:op",
-            reason="no",
-        ),
-    )
-    assert grid.task_history[-1].status is TaskStatus.Completed
-    assert grid.task_history[0].status is TaskStatus.AwaitingDecision
 
 
 def test_reject_needs_a_reason(tmp_path):
@@ -871,11 +703,10 @@ def _snapshot(lamella):
     )
 
 
-def _awaiting(exp, kind_proposal, task_name=SETUP):
+def _finished(exp, kind_proposal, task_name=SETUP):
+    """The task ran and proposed, its result not yet decided."""
     lamella = exp.positions[0]
-    lamella.task_history.append(
-        TaskState(name=task_name, status=TaskStatus.AwaitingDecision)
-    )
+    lamella.task_history.append(TaskState(name=task_name, status=TaskStatus.Completed))
     set_proposals(lamella, task_name, [kind_proposal])
     return lamella
 
@@ -893,7 +724,7 @@ def _awaiting(exp, kind_proposal, task_name=SETUP):
 )
 def test_a_wrongly_typed_value_is_refused_and_nothing_moves(tmp_path, value):
     exp = _experiment(tmp_path)
-    lamella = _awaiting(exp, _proposal())
+    lamella = _finished(exp, _proposal())
     before = _snapshot(lamella)
     heard = []
     exp.decided.connect(lambda *a: heard.append(a))
@@ -912,7 +743,7 @@ def test_a_wrongly_typed_value_is_refused_and_nothing_moves(tmp_path, value):
     assert result.applied is False and "poi must" in result.reason
     assert _snapshot(lamella) == before
     assert lamella.proposal(SETUP).pending
-    assert lamella.is_awaiting_decision(SETUP)
+    assert lamella.task_history[-1].status is TaskStatus.Completed
     assert heard == []
 
 
@@ -920,7 +751,7 @@ def test_a_value_the_proposals_kind_does_not_carry_is_refused(tmp_path):
     """A task_result proposal carries no values: a poi confirmed on it is
     refused even though a writer for poi exists."""
     exp = _experiment(tmp_path)
-    lamella = _awaiting(
+    lamella = _finished(
         exp, Proposal(kind=TASK_RESULT, provenance={"task_id": RUN}), task_name=ROUGH
     )
     before = _snapshot(lamella)
@@ -968,7 +799,7 @@ def test_a_planning_error_is_refused_before_the_decision_is_appended(
 ):
     """Whatever goes wrong while working out the writes, nothing is written."""
     exp = _experiment(tmp_path)
-    lamella = _awaiting(exp, _proposal())
+    lamella = _finished(exp, _proposal())
     before = _snapshot(lamella)
 
     def broken_plan(point):
@@ -988,7 +819,7 @@ def test_a_planning_error_is_refused_before_the_decision_is_appended(
 
     assert result.applied is False and "pattern has no point" in result.reason
     assert _snapshot(lamella) == before
-    assert lamella.is_awaiting_decision(SETUP)
+    assert lamella.task_history[-1].status is TaskStatus.Completed
 
 
 def _raise(*_args):
@@ -999,7 +830,7 @@ def test_a_subscriber_that_raises_on_the_poi_write_undoes_the_decision(tmp_path)
     """Lamella is evented: assigning poi runs its subscribers. One that raises
     fails the decision after planning; nothing may be left half-applied."""
     exp = _experiment(tmp_path)
-    lamella = _awaiting(exp, _proposal())
+    lamella = _finished(exp, _proposal())
     before = _snapshot(lamella)
     heard = []
     exp.decided.connect(lambda *a: heard.append(a))
@@ -1019,37 +850,14 @@ def test_a_subscriber_that_raises_on_the_poi_write_undoes_the_decision(tmp_path)
     assert result.applied is False and "a subscriber failed" in result.reason
     assert _snapshot(lamella) == before, "poi, patterns, record and task put back"
     assert lamella.proposal(SETUP).pending
-    assert lamella.is_awaiting_decision(SETUP)
+    assert lamella.task_history[-1].status is TaskStatus.Completed
     assert heard == []
-
-
-def test_a_failure_moving_the_task_status_undoes_the_values_too(tmp_path):
-    """The values land, then the status move raises: both are put back."""
-    exp = _experiment(tmp_path)
-    lamella = _awaiting(exp, _proposal())
-    before = _snapshot(lamella)
-    lamella.task_history[-1].events.status.connect(_raise)
-
-    result = exp.decide(
-        lamella.id,
-        SETUP,
-        Decision(
-            task_id=RUN,
-            outcome=DecisionOutcome.Confirmed,
-            actor="operator:op",
-            values={"poi": Point(2e-6, -1e-6)},
-        ),
-    )
-
-    assert result.applied is False
-    assert _snapshot(lamella) == before
-    assert lamella.proposal(SETUP).pending
 
 
 def test_a_decided_subscriber_that_raises_does_not_unmake_the_decision(tmp_path):
     """Once committed the decision stands; a failing listener is logged."""
     exp = _experiment(tmp_path)
-    lamella = _awaiting(exp, _proposal())
+    lamella = _finished(exp, _proposal())
     exp.decided.connect(_raise)
 
     result = exp.decide(
@@ -1132,7 +940,7 @@ def test_looking_at_an_earlier_result_is_not_refused_by_a_later_run(tmp_path):
 
 def test_rejecting_a_task_that_is_not_the_one_running_lands(tmp_path):
     exp = _experiment(tmp_path)
-    lamella = _awaiting(exp, _proposal())
+    lamella = _finished(exp, _proposal())
     _running(lamella, ROUGH)
 
     result = exp.decide(
@@ -1147,7 +955,7 @@ def test_rejecting_a_task_that_is_not_the_one_running_lands(tmp_path):
     )
 
     assert result.applied is True
-    assert lamella.task_history[-1].status is TaskStatus.Failed
+    assert lamella.proposal(SETUP).current.outcome is DecisionOutcome.Rejected
     assert lamella.task_state.status is TaskStatus.InProgress, (
         "the running task is left alone"
     )
@@ -1156,7 +964,7 @@ def test_rejecting_a_task_that_is_not_the_one_running_lands(tmp_path):
 def test_deciding_the_run_that_is_in_progress_is_still_refused(tmp_path):
     """The original case: the answer is Stop, not a decision."""
     exp = _experiment(tmp_path)
-    lamella = _awaiting(exp, _proposal())
+    lamella = _finished(exp, _proposal())
     _running(lamella, SETUP, task_id=RUN)  # the run the proposal is from
 
     result = exp.decide(
@@ -1181,7 +989,7 @@ def test_a_rerun_of_the_same_task_does_not_block_looking_at_the_earlier_run(
     """It is the run that matters, not the task name: a second run of the task
     is a different run, and the result being looked at is the first one's."""
     exp = _experiment(tmp_path)
-    lamella = _awaiting(exp, _proposal())
+    lamella = _finished(exp, _proposal())
     _running(lamella, SETUP, task_id="run-2")
     before = _snapshot(lamella)
 
@@ -1255,7 +1063,7 @@ def test_decisions_append_and_the_latest_is_current(tmp_path):
 
 def test_a_decision_that_names_no_run_is_refused(tmp_path):
     exp = _experiment(tmp_path)
-    lamella = _awaiting(exp, _proposal())
+    lamella = _finished(exp, _proposal())
     before = _snapshot(lamella)
 
     result = exp.decide(
@@ -1276,7 +1084,7 @@ def test_a_decision_on_a_run_the_task_has_since_replaced_is_refused(tmp_path):
     """The reviewer looked at run-1; the task re-ran and run-2 is pending now.
     The decision on run-1 does not land on run-2."""
     exp = _experiment(tmp_path)
-    lamella = _awaiting(exp, _proposal())
+    lamella = _finished(exp, _proposal())
     seen = lamella.proposal(SETUP)
     set_proposals(
         lamella,
@@ -1310,7 +1118,7 @@ def test_a_decision_on_a_run_the_task_has_since_replaced_is_refused(tmp_path):
 
 def test_a_proposal_recorded_before_runs_were_named_cannot_be_decided(tmp_path):
     exp = _experiment(tmp_path)
-    lamella = _awaiting(exp, Proposal(kind=TASK_RESULT), task_name=ROUGH)
+    lamella = _finished(exp, Proposal(kind=TASK_RESULT), task_name=ROUGH)
 
     result = exp.decide(
         lamella.id,
@@ -1362,7 +1170,7 @@ def test_an_acknowledgement_with_values_is_refused_and_nothing_moves(tmp_path):
 
 def test_an_empty_confirm_on_a_pending_proposal_with_values_is_refused(tmp_path):
     exp = _experiment(tmp_path)
-    lamella = _awaiting(exp, _proposal())
+    lamella = _finished(exp, _proposal())
     before = _snapshot(lamella)
 
     result = exp.decide(
@@ -1374,7 +1182,7 @@ def test_an_empty_confirm_on_a_pending_proposal_with_values_is_refused(tmp_path)
     assert result.applied is False and result.error_type == "invalid_value"
     assert "needs its values ['poi']" in result.reason
     assert _snapshot(lamella) == before
-    assert lamella.is_awaiting_decision(SETUP)
+    assert lamella.task_history[-1].status is TaskStatus.Completed
 
 
 def test_a_producer_applied_proposal_is_to_check_until_someone_looks(tmp_path):

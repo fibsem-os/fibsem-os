@@ -335,10 +335,9 @@ class FeatureFlags:
     # A staging flag, and it goes the same way `napari_overview_tab` did: deleted
     # when the chip replaces the tab, not kept as a preference.
     connection_chip: bool = False
-    # `proposer_reviewer_workflow_enabled` retired 2026-10-18: proposals and the
-    # Review tab are the only workflow. Every task's questions and result go on
-    # the record, and a Supervised task's result waits there for a decision.
-    # Same load rule as above.
+    # `proposer_reviewer_workflow_enabled` retired 2026-10-18: every task's
+    # questions and result go on the record, and nothing waits on a decision
+    # once a task ends. Same load rule as above.
 
 
 @dataclass

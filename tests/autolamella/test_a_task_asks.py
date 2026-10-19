@@ -145,7 +145,7 @@ def test_with_nobody_to_ask_the_proposed_value_is_used_and_recorded_unreviewed(
     assert any(p is question for _i, _t, p in exp.proposals_to_check()), (
         "listed to check, beside the run's result"
     )
-    assert not lamella.is_awaiting_decision(ROUGH), "nothing waits on it"
+    assert lamella.latest_run_completed(ROUGH), "nothing waits on it"
 
 
 def test_with_the_agent_to_answer_a_supervised_task_asks_and_waits(

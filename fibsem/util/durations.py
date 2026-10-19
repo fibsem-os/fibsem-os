@@ -13,8 +13,7 @@ looks at one magnitude:
   a countdown already understood to be approximate; padded for a column.
 - :func:`format_duration_as_clock`, ``4:05`` or ``1:02:05``: a run's length in a
   table.
-- :func:`format_duration_in_words`, ``3 h 40 min``: prose, such as a report or the
-  review tab.
+- :func:`format_duration_in_words`, ``3 h 40 min``: prose, such as a report.
 - :func:`format_time_ago`, ``3 min ago``: how long ago something happened.
 
 Every one rounds rather than truncates, except :func:`format_time_ago`, which floors:

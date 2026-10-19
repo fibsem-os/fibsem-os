@@ -28,7 +28,6 @@ from fibsem.workflows.proposals import (
     _quietly,
     kind_label,
     prepare_values,
-    rejected_fails_task,
 )
 from fibsem.workflows.status import TaskStatus
 
@@ -78,14 +77,11 @@ def _same_values(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
 
 def standing(item: Any, task_name: str, proposal: Proposal) -> Standing:
     """The one lifecycle, read off the item: see ``Standing``. Pending is
-    one of three by who waits; a task's own question and a supervised task's
-    held result are on the proposal and the item, and a pending proposal
-    with neither is open. Decided is unchecked until a person looks."""
+    asking while the task waits on it, else open. Decided is unchecked until
+    a person looks."""
     if proposal.pending:
         if proposal.asking:
             return Standing.Asking
-        if item.is_awaiting_decision(task_name):
-            return Standing.Awaiting
         return Standing.Open
     return Standing.Unchecked if proposal.to_check else Standing.Closed
 
@@ -122,7 +118,7 @@ class ProposalReview:
         """The one way a decision reaches the experiment.
 
         Runs on the Qt main thread when there is one and blocks the caller until
-        it has: the Review tab and the App Server are the same client of this
+        it has: the window and the App Server are the same client of this
         function, and a confirm can end in Qt work (a generative review adds
         lamellae, whose list rebuild must not fire off the GUI thread). Takes
         the same lock as ``save`` so a save never serialises a half-applied
@@ -131,15 +127,12 @@ class ProposalReview:
         Confirmed: the decision is appended and each decided value is written
         through to the item (``poi`` moves the point and syncs the patterns
         that follow it). No value is written through to a grid; a confirm
-        carrying values on one is refused. The proposed values are left as they were, so the
-        delta survives. A task that ended AwaitingDecision is finished by the
-        decision: Completed on confirm, Failed on reject when the kind says a
-        reject fails the task (a ``state`` reject is "don't", and leaves it as
-        it was), so what requires it runs or does not by the ordinary
-        prerequisite rule. The same for a
-        lamella and a grid. A decision on a
-        task that already finished (a result someone checks) changes nothing
-        but the record.
+        carrying values on one is refused. The proposed values are left as
+        they were, so the delta survives. A decision never moves a task's
+        status: a question's decision releases the task asking it, which
+        carries on (or fails, on a reject that fails it); a decision on a task
+        that already finished (a result someone checks) changes nothing but
+        the record and its values.
 
         Refused, without a write, when there is no such proposal; when the run
         being decided is the run in progress (a decision then is a stop, not a
@@ -391,18 +384,6 @@ class ProposalReview:
             try:
                 if apply_values is not None:
                     result.synced_tasks.extend(apply_values.apply())
-                # Only the proposal the run ended waiting on finishes it: a
-                # look at a question it asked and had answered on the way
-                # (still current, as every question of the run is) does not.
-                if item.is_awaiting_decision(task_name) and proposal.pending:
-                    if decision.outcome is DecisionOutcome.Confirmed:
-                        item.set_task_status(task_name, TaskStatus.Completed)
-                    elif rejected_fails_task(proposal.kind):
-                        item.set_task_status(
-                            task_name,
-                            TaskStatus.Failed,
-                            f"Rejected by {decision.actor.label}: {decision.reason}",
-                        )
             except Exception as e:
                 logging.exception(
                     f"{item.name}: applying the decision on {task_name} failed; "
@@ -810,11 +791,9 @@ class ProposalReview:
     def pending_proposals(
         self,
     ) -> List[Tuple[Any, str, Proposal]]:
-        """Every proposal something waits on -- the task asking it, or the
-        consumers of a held result -- in item order: the review inbox.
-        Derived, never stored, so it is the same list from the GUI and the
-        server."""
-        return self._with_standing(Standing.Asking, Standing.Awaiting)
+        """Every question a task is waiting on, in item order. Derived, never
+        stored, so it is the same list from the GUI and the server."""
+        return self._with_standing(Standing.Asking)
 
     def proposals_to_check(
         self,

@@ -107,7 +107,7 @@ def _task(microscope, exp: Experiment, body=None) -> MillRoughTask:
     return task
 
 
-def test_a_gated_task_records_its_result_and_the_consumer_waits(microscope, tmp_path):
+def test_a_supervised_task_records_its_result_and_nothing_waits(microscope, tmp_path):
     exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
     task = _task(microscope, exp)
     lamella = exp.positions[0]
@@ -125,8 +125,9 @@ def test_a_gated_task_records_its_result_and_the_consumer_waits(microscope, tmp_
     # ISO with offset, as the task state writes them (FIB-1197)
     started, ended = (datetime.fromisoformat(p[k]) for k in ("started_at", "ended_at"))
     assert ended >= started and started.tzinfo is not None
-    assert lamella.is_awaiting_decision(ROUGH), "ran, not finished"
-    assert task.task_manager._defer_reason(lamella, POLISH) == "awaiting_decision"
+    assert lamella.latest_run_completed(ROUGH), "finished: nothing waits on it"
+    assert exp.pending_proposals() == [], "not a question"
+    assert task.task_manager._defer_reason(lamella, POLISH) is None
 
     result = exp.decide(
         lamella.id,
@@ -218,9 +219,13 @@ def test_what_a_task_type_proposes_is_declared_on_the_class(microscope, tmp_path
         SelectMillingPositionTask,
     )
 
-    for cls in (MillFiducialTask, AcquireReferenceImageTask, MillRoughTask):
-        assert cls.proposer.kind == TASK_RESULT, "a bad fiducial is gateable"
-    assert SelectMillingPositionTask.proposer.kind == POINT_OF_INTEREST
+    for cls in (
+        MillFiducialTask,
+        AcquireReferenceImageTask,
+        MillRoughTask,
+        SelectMillingPositionTask,
+    ):
+        assert cls.proposer.kind == TASK_RESULT
     exp = _experiment(tmp_path, microscope, attention=Attention.supervised)
     task = _task(microscope, exp)
     type(task).proposer = None

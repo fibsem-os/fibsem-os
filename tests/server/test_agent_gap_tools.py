@@ -243,13 +243,11 @@ def test_the_agent_edits_the_grid_tasks(driving):
 
 def test_run_options_are_set_and_saved(driving):
     options = driving.host.experiment.task_protocol.options
-    _ok(_call(driving, "workflow_set_options", turn_beams_off=True, review_wait=600))
-    assert options.turn_beams_off is True and options.review_wait == 600.0
-    _ok(_call(driving, "workflow_set_options", review_wait=-1))
-    assert options.review_wait is None
+    _ok(_call(driving, "workflow_set_options", turn_beams_off=True))
+    assert options.turn_beams_off is True
     assert driving.post("/app/workflow/options", json={}).status_code == 422
     assert (
-        driving.post("/app/workflow/options", json={"review_wait": -5}).status_code
+        driving.post("/app/workflow/options", json={"turn_beams_off": 1}).status_code
         == 422
     )
 
@@ -509,8 +507,8 @@ def test_alignment_methods_are_compared_on_saved_images(driving, arctis):  # noq
         ),
         (
             "workflow_set_options",
-            {"turn_beams_off": True, "review_wait": -1},
-            "Turn the beams off when a run ends; Wait on reviews until stopped",
+            {"turn_beams_off": True},
+            "Turn the beams off when a run ends",
         ),
         (
             "workflow_start_grids",

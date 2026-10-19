@@ -52,11 +52,10 @@ from fibsem.workflows.grid.manager import (
 from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.status import TaskState, TaskStatus
 
-_TILE_W, _TILE_H = 320, 213  # 3:2, the Review tab's proportions at a card-friendly size
+_TILE_W, _TILE_H = 320, 213  # 3:2, at a card-friendly size
 
 _STATUS_COLOUR = {
     TaskStatus.Completed: OK_COLOR,
-    TaskStatus.AwaitingDecision: stylesheets.DEFECT_ORANGE_COLOR,
     TaskStatus.Failed: ERROR_COLOR,
     TaskStatus.Cancelled: stylesheets.DEFECT_ORANGE_COLOR,
     TaskStatus.Skipped: NEUTRAL_550,

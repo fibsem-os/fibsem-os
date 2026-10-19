@@ -1901,23 +1901,19 @@ class AutoLamellaAppContext:
     # --- propose and review (FIB-950) -----------------------------------------
 
     def reviews(self) -> Dict[str, Any]:
-        """Every proposal waiting for a decision: the Review tab's inbox, derived
-        from the experiment the same way the tab derives it, with the reference
-        image each proposal's values sit on as an agent-sized preview."""
+        """Every question waiting for an answer, derived from the experiment,
+        with the reference image each proposal's values sit on as an
+        agent-sized preview."""
         experiment = self._experiment
         if experiment is None:
             return {"available": False, "reviews": []}
-        from fibsem.applications.autolamella.server.prompts import _preview_payload
-        from fibsem.applications.autolamella.ui.review_tab_widget import (
-            _load_reference_image,
-            is_gated,
+        from fibsem.applications.autolamella.review_images import (
+            load_reference_image,
             review_preview,
-            waiting_on,
         )
+        from fibsem.applications.autolamella.server.prompts import _preview_payload
         from fibsem.workflows.events import to_plain
         from fibsem.workflows.proposals import rejected_fails_task
-
-        protocol = getattr(experiment, "task_protocol", None)
 
         def describe(item, task_name, proposal):
             doc = to_plain(proposal.to_dict())
@@ -1937,17 +1933,15 @@ class AutoLamellaAppContext:
                     # What Rejected does, as the kind declares it: fail the
                     # task, or (a state question) "don't" and carry on.
                     "rejected_fails_task": rejected_fails_task(proposal.kind),
-                    "gated": is_gated(experiment, task_name, item),
-                    "waiting_on": waiting_on(experiment, task_name, item),
                 }
             )
-            image = _load_reference_image(experiment, item, proposal)
+            image = load_reference_image(experiment, item, proposal)
             # a fluorescence result is shown as its channel composite
             preview = review_preview(image) if image is not None else None
             doc["reference_image"] = (
                 _preview_payload(preview) if preview is not None else None
             )
-            electron = _load_reference_image(
+            electron = load_reference_image(
                 experiment, item, proposal, "reference_image_eb"
             )
             doc["reference_image_eb"] = (
@@ -1974,7 +1968,7 @@ class AutoLamellaAppContext:
         action: str = "",
         patch: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Decide a pending proposal, exactly as the Review tab would: the same
+        """Decide a pending proposal, exactly as the operator's answer is: the same
         Experiment.decide, on the main thread, blocking until applied. The
         actor is recorded as the agent (``actor`` names its model), never as
         the operator.
@@ -2683,11 +2677,8 @@ class AutoLamellaAppContext:
           starting many short runs turns it off so no dialog stands over the
           window (FIB-1376).
         - ``turn_beams_off``: whether the beams are turned off when a run ends.
-        - ``review_wait``: how long a run whose remaining work all waits on a
-          review keeps waiting, in seconds of inactivity; None waits until it is
-          stopped.
 
-        Each is read when it applies (a run's end, a review wait), so a change
+        Each is read when it applies (a run's end), so a change
         takes effect from then, mid-run included; plain rebinds, so no GUI
         marshal, like ``set_task_schedule``.
         """

@@ -207,7 +207,7 @@ def history_rows(
     if (
         current is not None
         and current.task_id not in known
-        and current.status in (TaskStatus.InProgress, TaskStatus.AwaitingDecision)
+        and current.status is TaskStatus.InProgress
     ):
         runs.append(current)
 

@@ -504,13 +504,6 @@ def _options_line(a: Dict[str, Any]) -> str:
             if a["turn_beams_off"]
             else "Leave the beams on when a run ends"
         )
-    if "review_wait" in a:
-        wait = a["review_wait"]
-        parts.append(
-            "Wait on reviews until stopped"
-            if wait is None or wait == -1
-            else f"Wait on reviews for {_number(float(wait))} s of quiet"
-        )
     return "; ".join(parts) or "No change"
 
 
