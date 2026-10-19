@@ -34,6 +34,9 @@ missing_module = "fibsem_test_plugin.nonexistent:Whatever"
 [project.entry-points."fibsem.grid.tasks"]
 fixture_grid_task = "fibsem_test_plugin.grid_tasks:FixtureGridTask"
 
+[project.entry-points."fibsem.volume.tasks"]
+fixture_volume_task = "fibsem_test_plugin.volume_tasks:FixtureVolumeTask"
+
 # A driver entry point names a function returning a DriverEntry, not a class.
 [project.entry-points."fibsem.drivers"]
 fixture_driver = "fibsem_test_plugin.drivers:fixture_driver"
