@@ -33,7 +33,6 @@ from fibsem.services.spot_burn import SpotBurn, bind_spot_burn
 from fibsem.structures import (
     ACTIVE_MILLING_STATES,
     BeamMillingSettings,
-    FibsemMillingSettings,
     FibsemPatternSettings,
     MillingState,
 )

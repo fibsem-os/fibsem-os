@@ -11,7 +11,7 @@ from PyQt5.QtWidgets import (
 
 from fibsem.devices.core import ParameterMetadata
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import BeamType, FibsemMillingSettings, Parameter, field_specs
+from fibsem.structures import BeamType, FibsemMillingSettings, Parameter
 from fibsem.ui.utils import beam_choices
 from fibsem.ui.widgets.custom_widgets import FormGrid, align_form
 from fibsem.ui.widgets.form_builder import Control, build_control
@@ -56,7 +56,7 @@ class FibsemMillingSettingsWidget(QWidget):
         # service; None without one, which shows every field.
         self._supported = _supported_settings(microscope)
         # The rows are the fields of the milling driver's settings class: the
-        # shared recipe fields it mills with and its own (FIB-1437).
+        # shared recipe fields it mills with and its own.
         milling = microscope.milling
         self._milling = milling
         self._specs: Dict[str, Parameter] = (

@@ -23,7 +23,6 @@ from fibsem.structures import (
     CrossSectionPattern,
     FibsemCircleSettings,
     FibsemLineSettings,
-    FibsemMillingSettings,
     FibsemPatternSettings,
     FibsemRectangleSettings,
     MillingState,

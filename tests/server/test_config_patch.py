@@ -120,6 +120,10 @@ def test_a_driver_setting_must_be_declared(config):
         apply_patch(config, {f"{_DRIVER}.aperture": 1})
     with pytest.raises(PatchError, match="not an installed driver"):
         apply_patch(config, {"milling.mill_rough.stages.0.milling.driver.x.y": 1})
+    with pytest.raises(PatchError, match="not an installed driver"):
+        apply_patch(
+            config, {"milling.mill_rough.stages.0.milling.driver.Tescan.rate": 0.5}
+        )
     # shared fields are the recipe's own, never in a block
     with pytest.raises(PatchError, match="not a setting"):
         apply_patch(config, {f"{_DRIVER}.patterning_mode": "Serial"})

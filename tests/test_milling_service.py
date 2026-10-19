@@ -377,6 +377,8 @@ def test_a_driver_block_is_checked_when_a_recipe_loads():
         FibsemMillingSettings.from_dict({"driver": {"tescan": {"rate": "fast"}}})
     with pytest.raises(ValueError, match="does not have"):
         FibsemMillingSettings.from_dict({"driver": {"tescan": {"aperture": 1}}})
+    with pytest.raises(ValueError, match="outside"):
+        FibsemMillingSettings.from_dict({"driver": {"tescan": {"spot_size": 0.0}}})
     # a driver not installed here keeps its block for the PC that has it
     other = FibsemMillingSettings.from_dict({"driver": {"nobody": {"x": "y"}}})
     assert other.driver == {"nobody": {"x": "y"}}
@@ -398,6 +400,15 @@ def test_each_driver_names_its_settings_in_the_registry():
         assert milling.settings_prefix == entry.manufacturer.casefold()
         assert milling_settings_class(milling.settings_prefix) is milling.settings_class
     assert milling_settings_class("nobody") is None
+    # only the spelling the driver reads its block under
+    assert milling_settings_class("Tescan") is None
+
+
+def test_a_driver_lists_its_settings_by_its_class():
+    with pytest.raises(TypeError, match="settings_class"):
+
+        class Listed(DemoMilling):
+            setting_names = ("hfw",)
 
 
 def test_only_a_shared_field_is_taken_shared():

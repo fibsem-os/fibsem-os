@@ -52,7 +52,7 @@ import threading
 import time
 import uuid
 from contextlib import contextmanager
-from dataclasses import dataclass, fields
+from dataclasses import fields
 from typing import (
     Any,
     Callable,
@@ -95,7 +95,6 @@ from fibsem.milling.steps import (
 from fibsem.services.core import Service, save_beam_conditions
 from fibsem.structures import (
     ACTIVE_MILLING_STATES,
-    BeamMillingSettings,
     BeamType,
     DriverMillingSettings,
     FibsemBitmapSettings,
@@ -107,8 +106,6 @@ from fibsem.structures import (
     FibsemPolygonSettings,
     FibsemRectangleSettings,
     MillingState,
-    field_specs,
-    shared_milling_setting,
 )
 from fibsem.util.timestamps import now_iso
 
@@ -203,6 +200,11 @@ class Milling(Service):
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
+        if "setting_names" in cls.__dict__ and "settings_class" not in cls.__dict__:
+            raise TypeError(
+                f"{cls.__name__} lists setting_names; a milling driver declares its "
+                f"settings_class instead, and the names come from its fields."
+            )
         cls.setting_names = tuple(f.name for f in fields(cls.settings_class))
         own = [name for name in cls.setting_names if name not in _SHARED_SETTINGS]
         if own and not cls.settings_prefix:

@@ -20,7 +20,6 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import logging
-from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional, Sequence, Tuple, Union
 
 import numpy as np
@@ -48,7 +47,6 @@ from fibsem.services.stage_movement import StageMovement
 from fibsem.structures import (
     BeamType,
     CrossSectionPattern,
-    Display,
     FibsemCircleSettings,
     FibsemLineSettings,
     FibsemMillingSettings,
@@ -56,9 +54,6 @@ from fibsem.structures import (
     FibsemStagePosition,
     MillingState,
     Point,
-    RangeLimit,
-    param,
-    shared_milling_setting,
 )
 
 if TYPE_CHECKING:

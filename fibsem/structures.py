@@ -2426,7 +2426,16 @@ def _read_driver_block(prefix: str, block: Any) -> Any:
         read = decode(cls, block)
     except ValueError as e:
         raise ValueError(f"driver.{prefix}: {e}") from e
-    return {name: getattr(read, name) for name in block}
+    specs = field_specs(cls)
+    values = {name: getattr(read, name) for name in block}
+    for name, value in values.items():
+        limits = specs[name].limits
+        if limits is not None and not limits.min <= value <= limits.max:
+            raise ValueError(
+                f"driver.{prefix}.{name} is {value!r}, outside "
+                f"{limits.min!r}..{limits.max!r} {specs[name].unit or ''}".rstrip()
+            )
+    return values
 
 
 def driver_milling_field(prefix: str, name: str) -> Any:

@@ -314,13 +314,15 @@ def get_driver(manufacturer: Optional[str]) -> DriverEntry:
 
 
 def milling_settings_class(prefix: str) -> Optional[Type[Any]]:
-    """The milling settings class of the driver named *prefix* (tescan), or
-    ``None`` if no installed driver has that name or it has none of its own."""
+    """The milling settings class of the driver whose block a recipe keeps under
+    *prefix*, its name in lower case (tescan), or ``None`` if no installed driver
+    has that name or it has none of its own. Only that spelling: a block under
+    ``Tescan`` is not the one the driver reads."""
     try:
         entry = get_driver(prefix)
     except NotImplementedError:
         return None
-    if entry.milling_settings is None:
+    if entry.milling_settings is None or prefix != entry.manufacturer.casefold():
         return None
     return _import(entry.milling_settings)
 
