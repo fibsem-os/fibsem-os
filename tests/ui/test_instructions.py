@@ -30,6 +30,7 @@ from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (  # noqa: E402
     AutoLamellaSingleWindowUI,
 )
 from fibsem.applications.autolamella.ui.AutoLamellaUI import INSTRUCTIONS  # noqa: E402
+from fibsem.applications.autolamella.ui.main_menu_bar import MainMenuBar  # noqa: E402
 
 # "(File -> Load Protocol)" / "(File → Load Protocol)" -- the menu, then the entry.
 MENU_PATH = re.compile(r"\(([A-Z][A-Za-z ]*?)\s*(?:->|→)\s*([^)]+)\)")
@@ -66,8 +67,8 @@ def _first_string_args(func, name: str) -> set[str]:
 
 
 def test_every_menu_path_names_a_real_menu():
-    menus = _first_string_args(AutoLamellaSingleWindowUI._create_menu_bar, "addMenu")
-    actions = _first_string_args(AutoLamellaSingleWindowUI._create_menu_bar, "QAction")
+    menus = _first_string_args(MainMenuBar._create_menu_bar, "addMenu")
+    actions = _first_string_args(MainMenuBar._create_menu_bar, "QAction")
     assert "File" in menus, "sanity: the menu bar builder was not read correctly"
     assert actions, "sanity: no QAction labels found in the menu bar builder"
 

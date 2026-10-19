@@ -24,7 +24,9 @@ def _window(experiment):
             experiment=experiment, microscope=SimpleNamespace(sample_handling=None)
         ),
         grids_tab=SimpleNamespace(refresh=lambda: refreshed.append("grids")),
-        grid_workflow_widget=SimpleNamespace(refresh=lambda: None),
+        workflow_tab=SimpleNamespace(
+            grid_workflow_widget=SimpleNamespace(refresh=lambda: None)
+        ),
         _refresh_grid_context=lambda: None,
     )
     return window, refreshed
