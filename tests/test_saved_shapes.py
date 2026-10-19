@@ -20,6 +20,7 @@ import pytest
 import yaml
 
 from fibsem import structures
+from fibsem.codec.upgrades.configuration import upgrade
 from fibsem.structures import (
     BeamSettings,
     BeamType,
@@ -156,7 +157,7 @@ CONFIGURATION_FILES = {
 
 @pytest.mark.parametrize("case", sorted(CONFIGURATION_FILES))
 def test_a_configuration_file_saves_again_as_pinned(case):
-    data = yaml.safe_load(CONFIGURATION_FILES[case].read_text())
+    data = upgrade(yaml.safe_load(CONFIGURATION_FILES[case].read_text()))
     _check(case, MicroscopeSettings.from_dict(data).to_dict())
 
 

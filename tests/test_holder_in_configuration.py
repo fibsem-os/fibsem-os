@@ -114,7 +114,7 @@ def test_the_holder_reaches_system_settings():
     holder = _calibrated_holder()
     system = SystemSettings.from_dict(
         {
-            "stage": {
+            "calibration": {
                 "holders": {holder.name: holder.to_dict()},
                 "active_holder": holder.name,
             }
@@ -257,7 +257,7 @@ def test_the_schema_knows_about_the_new_keys():
 
     assert (
         utils.unrecognised_configuration_keys(
-            {"stage": {"holders": {}, "active_holder": "x"}}
+            {"calibration": {"holders": {}, "active_holder": "x"}}
         )
         == []
     )

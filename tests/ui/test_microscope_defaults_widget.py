@@ -14,6 +14,7 @@ from PyQt5.QtWidgets import QApplication  # noqa: E402
 import fibsem.config as cfg  # noqa: E402
 import fibsem.ui.widgets.microscope_defaults_widget as defaults_widget  # noqa: E402
 from fibsem import utils  # noqa: E402
+from fibsem.codec.upgrades.configuration import upgrade  # noqa: E402
 from fibsem.structures import MicroscopeSettings  # noqa: E402
 from fibsem.ui.widgets.microscope_defaults_widget import (  # noqa: E402
     MicroscopeDefaultsWidget,
@@ -195,7 +196,7 @@ def test_saving_writes_the_defaults_section_and_nothing_else(widget, microscope)
     assert written["defaults"]["ion"]["voltage"] == 8000
     assert written["defaults"]["electron"]["hfw"] == pytest.approx(80.0e-6)
     # Saving lists the devices (configuration v2) and changes nothing they say.
-    upgraded = utils.upgrade_configuration(copy.deepcopy(before))
+    upgraded = upgrade(copy.deepcopy(before))
     assert written["hardware"] == upgraded["hardware"]
     assert written["calibration"] == before["calibration"]
     assert written["defaults"]["imaging"] == before["defaults"]["imaging"]

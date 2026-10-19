@@ -873,7 +873,7 @@ def _thermo_microscope_fm():
         fm=FluorescenceSystemSettings(mount_transform=CameraImageTransform.FLIP_Y)
     )
     fm = build_autoscript_fm(
-        DeviceEntry.from_dict(microscope.system.fm.to_dict(), name="fm"),
+        DeviceEntry.from_dict({"name": "fm", **microscope.system.fm.to_dict()}),
         BuildContext(microscope=microscope),
     )
     group = fm.devices["fm"]

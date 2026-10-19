@@ -12,6 +12,7 @@ import yaml
 
 import fibsem.config as cfg
 from fibsem import utils
+from fibsem.codec.upgrades.configuration import upgrade
 from fibsem.structures import MicroscopeSettings
 
 SHIPPED = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
@@ -32,7 +33,7 @@ def test_a_nested_update_touches_only_the_keys_it_names(tmp_path):
 
     written = utils.load_yaml(str(path))
     # The file is upgraded on the way (the device list), and otherwise left alone.
-    expected = utils.upgrade_configuration(copy.deepcopy(original))
+    expected = upgrade(copy.deepcopy(original))
     expected["defaults"]["electron"]["voltage"] = 5000
     assert written == expected
 
@@ -58,11 +59,9 @@ def test_a_dict_merges_and_a_value_replaces(tmp_path):
     assert written["defaults"]["electron"] == original["defaults"]["electron"]
 
 
-def test_writing_into_an_old_flat_file_retires_the_old_copy(tmp_path):
-    """A file from before the sections keeps its flat blocks, and the reader
-    accepts them. Writing `defaults.electron.voltage` must not leave
-    `electron.voltage` beside it -- two homes for one value, the new one silently
-    winning and the legacy alias hiding the warning."""
+def test_writing_into_an_old_flat_file_upgrades_it(tmp_path):
+    """A file from before the sections is upgraded as it is written: `electron.voltage`
+    moves to `defaults:` and the write lands there, so a value has one home."""
     path = tmp_path / "old.yaml"
     path.write_text(
         yaml.safe_dump(
@@ -79,13 +78,10 @@ def test_writing_into_an_old_flat_file_retires_the_old_copy(tmp_path):
     )
 
     written = utils.load_yaml(str(path))
-    assert written["defaults"]["electron"]["voltage"] == 5000
-    assert "voltage" not in written["electron"], "two homes for one value"
-    assert written["electron"] == {
-        "column_tilt": 0,
-        "hfw": 150e-6,
-    }  # untouched keys stay
-    assert written["imaging"] == {"beam_type": "ELECTRON"}
+    assert "electron" not in written and "imaging" not in written
+    assert written["defaults"]["electron"] == {"voltage": 5000, "hfw": 150e-6}
+    assert written["defaults"]["imaging"] == {"hfw": 80e-6, "beam_type": "ELECTRON"}
+    assert utils.configuration_device(written, "electron")["column_tilt"] == 0
     assert MicroscopeSettings.from_dict(written).system.electron.beam.voltage == 5000
 
 
@@ -127,8 +123,8 @@ OLD_FLAT_FILE = {
 
 
 def test_the_first_write_to_an_old_file_keeps_a_copy_of_it(tmp_path):
-    """The write moves `electron.voltage` into `defaults:`, and a version from before
-    the sections cannot read that. The copy is what a site going back restores."""
+    """The write upgrades the file, and a version from before the sections cannot read
+    it. The copy is what a site going back restores."""
     path = tmp_path / "old.yaml"
     path.write_text(yaml.safe_dump(OLD_FLAT_FILE))
     original = path.read_text()
@@ -137,7 +133,7 @@ def test_the_first_write_to_an_old_file_keeps_a_copy_of_it(tmp_path):
 
     backup = utils.configuration_backup_path(path)
     assert backup.read_text() == original
-    assert "voltage" not in utils.load_yaml(str(path))["electron"]
+    assert "electron" not in utils.load_yaml(str(path))
 
 
 def test_a_later_write_does_not_replace_the_copy(tmp_path):
@@ -186,7 +182,8 @@ def test_holders_are_replaced_whole_and_an_old_file_is_kept(tmp_path):
     written = utils.load_yaml(str(path))
     assert list(written["calibration"]["holders"]) == ["B"]
     assert written["calibration"]["active_holder"] == "B"
-    assert written["stage"]["rotation_reference"] == 0  # the rest is left alone
+    # the rest is left alone
+    assert utils.configuration_device(written, "stage")["rotation_reference"] == 0
     assert utils.configuration_backup_path(path).read_text() == original
 
 
