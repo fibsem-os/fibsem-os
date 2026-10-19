@@ -228,6 +228,7 @@ async def _stop_reason(request: Request):
             target=target,
             own=own,
             level=request.app.state.auth.level.value,
+            evidence=call.evidence if call is not None else None,
         ),
     )
 
@@ -286,6 +287,7 @@ def _record_refusal(request: Request, exc: StarletteHTTPException) -> None:
             route=f"{request.method} {request.url.path}",
             error_type=error_type,
             level=auth.level.value,
+            evidence=call.evidence if call is not None else None,
         )
         if call is not None and call.action and not detail.get("call"):
             # The call as the card says it (FIB-1426), when the sidecar named it.
@@ -304,6 +306,7 @@ def _record_refusal(request: Request, exc: StarletteHTTPException) -> None:
 _RECORDS_ITSELF = (
     "/app/agent/",
     "/app/experiment/notes",
+    "/app/experiment/evidence",
     "/app/workflow/proposals/suggest",
 )
 # POST routes that only read: a query, and the grid run's plan. Not the agent
@@ -404,6 +407,7 @@ class _AgentActs:
                 route=f"{scope.get('method')} {path}",
                 status=status,
                 level=call.level,
+                evidence=call.evidence,
             )
             if call.tool:
                 payload["tool"] = call.tool

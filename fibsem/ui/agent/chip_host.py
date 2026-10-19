@@ -156,7 +156,9 @@ class AgentChipHost(QObject):
             return
         item, task_name, proposal = front
         self._suggested = (item.id, task_name, proposal.id)
-        self.chip.set_suggestion(suggestion_card(item, task_name, proposal))
+        self.chip.set_suggestion(
+            suggestion_card(item, task_name, proposal, str(experiment.path))
+        )
         self.previews.show_suggestion(
             suggestion_request(item, task_name, proposal, str(experiment.path))
         )

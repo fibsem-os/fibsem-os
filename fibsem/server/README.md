@@ -66,8 +66,10 @@ The `/app` routes sort by what they act on:
 
 - `/app/experiment`: the open experiment. `GET /app/experiment` summarises it;
   under it are `recent`, `protocol` (with `supervision`), `items/{item}` (with
-  its `task_config` and `outputs`), `grids/{grid}`, `images`, `notes` and
-  `task_history`.
+  its `task_config` and `outputs`), `grids/{grid}`, `images`, `notes`,
+  `evidence` and `task_history`. Evidence (`fibsem/workflows/evidence.py`) is
+  kept under `<experiment>/evidence/`; a call cites it by id in the
+  `X-Agent-Evidence` header.
 - `/app/workflow`: the workflow. `status`, `queue`, `summary`, `start`,
   `stop`, `schedule`, `options`, the proposals the run is stopped on:
   `proposals`, `decide`, and the old prompt: `prompt`, `prompt/answer`,

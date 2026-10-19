@@ -1,0 +1,56 @@
+{
+  "autocontrast_mode": "NONE",
+  "autofocus_mode": "EACH_ROW",
+  "autofocus_settings": {
+    "channel_name": null,
+    "method": "TENENGRAD",
+    "passes": [
+      {
+        "enabled": true,
+        "search_range": 5e-05,
+        "step_size": 5e-06
+      },
+      {
+        "enabled": true,
+        "search_range": 1e-05,
+        "step_size": 1e-06
+      }
+    ],
+    "probe_dwell_time": 5e-07,
+    "probe_resolution": [
+      768,
+      512
+    ],
+    "reduced_area": null,
+    "use_autocontrast": true
+  },
+  "focus_stack_settings": {
+    "auto_focus": true,
+    "enabled": false,
+    "n_steps": 3
+  },
+  "image_settings": {
+    "autocontrast": false,
+    "beam_type": "ELECTRON",
+    "drift_correction": false,
+    "dwell_time": 1e-06,
+    "filename": "overview-image",
+    "frame_integration": null,
+    "hfw": 0.0005,
+    "line_integration": null,
+    "path": null,
+    "reduced_area": null,
+    "resolution": [
+      1536,
+      1024
+    ],
+    "save": true,
+    "scan_interlacing": null
+  },
+  "ncols": 3,
+  "nrows": 3,
+  "overlap": 0.1,
+  "register_tiles": false,
+  "tile_mask": null,
+  "tile_order": "TYPEWRITER"
+}

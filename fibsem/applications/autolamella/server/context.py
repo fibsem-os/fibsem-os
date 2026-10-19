@@ -31,7 +31,7 @@ import logging
 import math
 import os
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Protocol
+from typing import Any, Callable, Dict, List, Optional, Protocol
 
 import fibsem.config as fibsem_cfg
 from fibsem.acting import Actor
@@ -49,6 +49,7 @@ from fibsem.structures import BeamType
 from fibsem.util.timestamps import to_iso, wall_time_of
 from fibsem.workflows.actions import NOTE, note_record
 from fibsem.workflows.attention import Attention
+from fibsem.workflows.evidence import EVIDENCE, frame_path
 from fibsem.workflows.outputs import item_outputs, latest_item_output
 from fibsem.workflows.runner import GRIDS, ITEMS, RunRequest
 from fibsem.workflows.status import TaskStatus
@@ -1926,6 +1927,7 @@ class AutoLamellaAppContext:
         proposal_id: str = "",
         action: str = "",
         patch: Optional[Dict[str, Any]] = None,
+        evidence: str = "",
     ) -> Dict[str, Any]:
         """Decide a pending proposal, exactly as the operator's answer is: the same
         Experiment.decide, on the main thread, blocking until applied. The
@@ -2000,6 +2002,7 @@ class AutoLamellaAppContext:
             task_id=str(task_id or ""),
             proposal_id=str(proposal_id or ""),
             action=str(action or ""),
+            evidence=evidence,
         )
         result = experiment.decide(item_id, task_name, decision)
         doc = result.to_dict()
@@ -2016,7 +2019,7 @@ class AutoLamellaAppContext:
         values: Optional[Dict[str, Any]] = None,
         patch: Optional[Dict[str, Any]] = None,
         action: str = "",
-        image: Optional[str] = None,
+        evidence: Optional[Dict[str, Any]] = None,
         actor: str = "",
     ) -> Dict[str, Any]:
         """Suggest a decision on a pending proposal, for the operator to
@@ -2047,6 +2050,8 @@ class AutoLamellaAppContext:
                 "error_type": "invalid_value",
                 "reason": f"values could not be read: {exc}",
             }
+        # The beam image of the cited evidence, to draw the value on.
+        image = frame_path(evidence)
         if image:
             root = self.experiment_path
             image = os.path.relpath(image, root) if root else image
@@ -2058,6 +2063,7 @@ class AutoLamellaAppContext:
             patch=dict(patch or {}),
             action=action,
             image=image or "",
+            evidence=(evidence or {}).get("evidence_id", ""),
         )
         result = experiment.suggest(item_id, task_name, proposal_id, suggestion)
         doc = result.to_dict()
@@ -2071,9 +2077,11 @@ class AutoLamellaAppContext:
         text: str,
         item_name: Optional[str] = None,
         reply_to: Optional[str] = None,
+        evidence: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Put an agent observation on the record, or its answer to the
-        operator's message (``reply_to``, the message's id, FIB-1423).
+        operator's message (``reply_to``, the message's id, FIB-1423), citing
+        the *evidence* (its id) it rests on.
 
         The agent's judgments otherwise live only in its chat: this writes
         them where the run's story is told — the event stream (live consumers:
@@ -2098,9 +2106,37 @@ class AutoLamellaAppContext:
         # it is about, not whichever one is running (FIB-1328).
         self.record_event(
             NOTE,
-            note_record(text, item_id=item_id, item_name=item_name, reply_to=reply_to),
+            note_record(
+                text,
+                item_id=item_id,
+                item_name=item_name,
+                reply_to=reply_to,
+                evidence=evidence,
+            ),
         )
         return {"available": True, "recorded": True}
+
+    def add_evidence(
+        self, item_name: Optional[str], save: Callable[[], Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """Keep the agent's evidence (*save* keeps it in the experiment and
+        answers its record) and put it on the record under the item it names.
+        What cites it names its id."""
+        item_id = None
+        if item_name is not None:
+            item, refusal = find_item(self._experiment, item_name)
+            if refusal:
+                return {"available": True, "recorded": False, **refusal}
+            item_id = item.id
+        record = save()
+        logging.info(
+            "agent evidence %s%s: %s",
+            record["evidence_id"],
+            f" [{item_name}]" if item_name else "",
+            record["image"],
+        )
+        self.record_event(EVIDENCE, {**record, "item_id": item_id})
+        return {"available": True, "recorded": True, **record}
 
     def record_event(
         self, kind: str, payload: Dict[str, Any], actor: Optional[str] = None

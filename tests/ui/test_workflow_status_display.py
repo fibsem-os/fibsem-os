@@ -49,18 +49,18 @@ def test_a_status_event_writes_the_instruction_label(ui):
     # pins that the signal is actually connected.
     ui.workflow_status_signal.emit(_status_event("Milling: Preparing..."))
 
-    assert ui.label_instructions.text() == "Milling: Preparing..."
-    assert not ui.pushButton_yes.isVisibleTo(ui)
+    assert ui.prompt_bar.message.text() == "Milling: Preparing..."
+    assert not ui.prompt_bar.yes.isVisibleTo(ui)
 
 
 def test_an_empty_message_clears_the_prompt(ui):
     # "" is the explicit clear — how a prompt comes down when a question ends.
-    ui.set_instructions_msg("Continue?", pos="Continue", neg="Exit")
+    ui.prompt_bar.ask("Continue?", pos="Continue", neg="Exit")
 
     ui.workflow_status_signal.emit(_status_event(""))
 
-    assert not ui.label_instructions.isVisibleTo(ui)
-    assert not ui.pushButton_yes.isVisibleTo(ui)
+    assert not ui.prompt_bar.message.isVisibleTo(ui)
+    assert not ui.prompt_bar.yes.isVisibleTo(ui)
 
 
 def test_a_status_event_writes_the_workflow_information_label(ui):
@@ -87,12 +87,12 @@ def test_a_message_of_none_leaves_the_prompt_standing(ui):
     # None says nothing about the prompt bar. The window pings this signal for
     # chrome refreshes while a proposal is up — if the default took the bar
     # down, every proposal would erase itself as it appeared.
-    ui.set_instructions_msg("Continue?", pos="Continue", neg="Exit")
+    ui.prompt_bar.ask("Continue?", pos="Continue", neg="Exit")
 
     ui.workflow_status_signal.emit(_status_event(msg=None))
 
-    assert ui.label_instructions.text() == "Continue?"
-    assert ui.pushButton_yes.isVisibleTo(ui)
+    assert ui.prompt_bar.message.text() == "Continue?"
+    assert ui.prompt_bar.yes.isVisibleTo(ui)
 
 
 def test_absent_workflow_info_shows_the_label_without_rewriting_it(ui):
