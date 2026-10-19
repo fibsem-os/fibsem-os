@@ -36,10 +36,10 @@ from PyQt5.QtCore import QObject, Qt, QTimer, pyqtSignal
 from superqt import ensure_main_thread
 
 from fibsem.acting import AGENT
+from fibsem.ai.agent.recent import RecentActions, RecentRow
 from fibsem.milling.progress import AgentMillOwner, MillingProgress
 from fibsem.structures import BeamType
 from fibsem.ui import notification_service
-from fibsem.ui.agent.recent import RecentActions, RecentRow
 from fibsem.ui.tokens import PURPLE_COLOR
 from fibsem.util.durations import format_duration_rounded
 
