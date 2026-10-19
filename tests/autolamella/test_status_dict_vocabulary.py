@@ -1,7 +1,7 @@
 """The status dict and HookContext name the same thing the same way.
 
 Both streams describe one task lifecycle. They stay separate on purpose — see the
-_emit_status docstring — but a subscriber reading one and then the other should not
+_emit_report docstring — but a subscriber reading one and then the other should not
 have to learn two words for the item. See FIB-464.
 """
 
@@ -30,7 +30,7 @@ class _FakeSignal:
 
 class _FakeUI:
     """Hears the run's ``status`` as the window does, which is all
-    _emit_status says on."""
+    _emit_report says on."""
 
     def __init__(self, manager: TaskManager) -> None:
         self.workflow_status_signal = _FakeSignal()
@@ -60,9 +60,9 @@ def manager(tmp_path: Path) -> TaskManager:
 def _emit(manager: TaskManager, name: str = "lam-1") -> dict:
     lamella = Lamella(path=manager.experiment.path, number=1, petname=name)
     items = manager.queue.build_from_matrix(["MillTrench"], [lamella.name])
-    manager._emit_status(
+    manager._emit_report(
         item=items[0],
-        lamella=lamella,
+        item_name=lamella.name,
         status=TaskStatus.InProgress,
     )
     return manager.ui.workflow_status_signal.payloads[-1].report
