@@ -17,7 +17,7 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.applications.autolamella.workflows.tasks.rough import (
     MillRoughTaskConfig,
 )
-from fibsem.structures import MicroscopeState
+from fibsem.structures import MicroscopeState, Point
 from tests.run_state import stub_session
 
 TASK = "Rough Milling"
@@ -89,9 +89,14 @@ def test_the_protocol_patch_reorder_and_apply_need_no_window(tmp_path):
     )
     assert patched["applied"], patched
 
+    stage = lamella.task_config[TASK].milling[KEY].stages[0]
+    stage.pattern.point = Point(1e-6, 2e-6)
     applied = context.apply_protocol_to_item(lamella.name, [TASK])
     assert applied["applied"], applied
-    assert lamella.task_config[TASK].milling[KEY].stages[0].pattern.depth == 3.3e-6
+    stage = lamella.task_config[TASK].milling[KEY].stages[0]
+    assert stage.pattern.depth == 3.3e-6
+    # as the editors' apply: the item keeps where its patterns are
+    assert (stage.pattern.point.x, stage.pattern.point.y) == (1e-6, 2e-6)
 
     config = lamella.task_config[TASK]
     order = list(reversed([s.name for s in config.milling[KEY].stages]))

@@ -39,6 +39,13 @@ from typing import Any, Dict, List, Optional, Protocol
 import fibsem.config as fibsem_cfg
 from fibsem.acting import Actor
 from fibsem.applications.autolamella import task_outputs as _task_outputs
+from fibsem.applications.autolamella.config_edits import (
+    ITEM_PATCH_FIELDS,
+    config_version,
+    find_item,
+    item_fields_version,
+    item_pose_positions,
+)
 from fibsem.server.files import jpeg_preview
 from fibsem.structures import BeamType
 from fibsem.util.timestamps import to_iso, wall_time_of
@@ -54,66 +61,6 @@ __all__ = [
     "config_version",
     "item_fields_version",
 ]
-
-# The item-document fields an agent may patch: what a lamella IS — geometry,
-# verdict, notes. Everything else on the object (poses, ids, paths, history)
-# is either derived, hardware-adjacent, an *outcome* rather than an input
-# (milling_angle is recorded from where Setup put the stage — writing it
-# would move nothing), or the record itself.
-ITEM_PATCH_FIELDS = ("poi", "alignment_area", "description", "defect")
-
-
-def _content_hash(data) -> str:
-    import hashlib
-    import json
-
-    return hashlib.sha256(
-        json.dumps(data, sort_keys=True, default=str).encode()
-    ).hexdigest()[:16]
-
-
-def item_pose_positions(lamella) -> Dict[str, Any]:
-    """Where each of an item's poses puts the stage, by pose name (None where a
-    pose has no position): the item document's ``poses``."""
-    poses = {}
-    for pose_name, pose in dict(lamella.poses).items():
-        position = getattr(pose, "stage_position", None)
-        poses[pose_name] = position.to_dict() if position is not None else None
-    return poses
-
-
-def item_fields_version(lamella) -> str:
-    """A content hash naming the state of an item's patchable fields and poses.
-
-    The item document's version, hashing the ITEM_PATCH_FIELDS and where the
-    poses put the stage — so a task re-recording geometry or moving the
-    milling pose rotates it, and a pending patch goes stale (FIB-1420): a POI
-    is in the milling frame, so one chosen before the pose moved names a
-    different place after. History growing does not rotate it.
-    """
-    from fibsem.workflows.events import to_plain
-
-    fields = {
-        name: to_plain(getattr(lamella, name, None)) for name in ITEM_PATCH_FIELDS
-    }
-    fields["poses"] = item_pose_positions(lamella)
-    return _content_hash(fields)
-
-
-def config_version(config) -> str:
-    """A content hash naming exactly this state of a task config.
-
-    The config's version (FIB-864): reads serve it, writes echo it, and a
-    mismatch is refused as stale — a patch can never apply against a state
-    its author did not see. Computed from the serialized document so the
-    same content hashes identically wherever it is held.
-    """
-    import hashlib
-    import json
-
-    from fibsem.workflows.events import to_plain
-
-    return _content_hash(to_plain(config.to_dict()))
 
 
 def _json_safe(value: Any) -> Any:
@@ -171,23 +118,6 @@ def _trench_window(lamella):
     if not widths:
         return None
     return 0.9 * min(widths), max(gaps) + 1e-6
-
-
-def find_item(experiment, item_name: str):
-    """The item named *item_name*, and None; or None and why not, in the words
-    every route refuses an unknown item with, and the names there are. Each
-    route puts the refusal in its own answer's shape."""
-    lamella = (
-        experiment.get_lamella_by_name(item_name) if experiment is not None else None
-    )
-    if lamella is not None:
-        return lamella, None
-    return None, {
-        "error": f"No item named {item_name!r} in this experiment.",
-        "item_names": [p.name for p in experiment.positions]
-        if experiment is not None
-        else [],
-    }
 
 
 def _overview_point_to_stage(path: str, px=None, fraction=None):

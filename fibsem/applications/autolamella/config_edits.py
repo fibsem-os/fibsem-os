@@ -6,7 +6,8 @@ protocol onto an item. Each runs where the experiment is edited
 (``session.run_edit``), checks the version it was written against beside the
 apply, saves, and is recorded as the agent's edit (FIB-1034, FIB-1062). A
 window, when one is attached, only flushes its editors first and redraws
-after (``AppWindow`` in ``server/context.py``).
+after (``AppWindow`` in ``server/context.py``). The versions an edit is
+checked against are here too, for the server's reads to serve.
 
 Each returns a plain dict: the applied changes, or a structured refusal.
 """
@@ -14,7 +15,6 @@ Each returns a plain dict: the applied changes, or a structured refusal.
 from __future__ import annotations
 
 import logging
-from copy import deepcopy
 from typing import Any, Callable, Dict, Optional
 
 from fibsem.acting import AGENT, acting
@@ -22,14 +22,85 @@ from fibsem.applications.autolamella.edit_recording import (
     PendingEdits,
     touch_agent_patch,
 )
-from fibsem.applications.autolamella.server.context import (
-    ITEM_PATCH_FIELDS,
-    config_version,
-    find_item,
-    item_fields_version,
-)
 from fibsem.server.config_patch import PatchError, apply_patch
 from fibsem.workflows.events import to_plain
+
+# The item-document fields an agent may patch: what a lamella IS — geometry,
+# verdict, notes. Everything else on the object (poses, ids, paths, history)
+# is either derived, hardware-adjacent, an *outcome* rather than an input
+# (milling_angle is recorded from where Setup put the stage — writing it
+# would move nothing), or the record itself.
+ITEM_PATCH_FIELDS = ("poi", "alignment_area", "description", "defect")
+
+
+def _content_hash(data) -> str:
+    import hashlib
+    import json
+
+    return hashlib.sha256(
+        json.dumps(data, sort_keys=True, default=str).encode()
+    ).hexdigest()[:16]
+
+
+def item_pose_positions(lamella) -> Dict[str, Any]:
+    """Where each of an item's poses puts the stage, by pose name (None where a
+    pose has no position): the item document's ``poses``."""
+    poses = {}
+    for pose_name, pose in dict(lamella.poses).items():
+        position = getattr(pose, "stage_position", None)
+        poses[pose_name] = position.to_dict() if position is not None else None
+    return poses
+
+
+def item_fields_version(lamella) -> str:
+    """A content hash naming the state of an item's patchable fields and poses.
+
+    The item document's version, hashing the ITEM_PATCH_FIELDS and where the
+    poses put the stage — so a task re-recording geometry or moving the
+    milling pose rotates it, and a pending patch goes stale (FIB-1420): a POI
+    is in the milling frame, so one chosen before the pose moved names a
+    different place after. History growing does not rotate it.
+    """
+    from fibsem.workflows.events import to_plain
+
+    fields = {
+        name: to_plain(getattr(lamella, name, None)) for name in ITEM_PATCH_FIELDS
+    }
+    fields["poses"] = item_pose_positions(lamella)
+    return _content_hash(fields)
+
+
+def config_version(config) -> str:
+    """A content hash naming exactly this state of a task config.
+
+    The config's version (FIB-864): reads serve it, writes echo it, and a
+    mismatch is refused as stale — a patch can never apply against a state
+    its author did not see. Computed from the serialized document so the
+    same content hashes identically wherever it is held.
+    """
+    import hashlib
+    import json
+
+    from fibsem.workflows.events import to_plain
+
+    return _content_hash(to_plain(config.to_dict()))
+
+
+def find_item(experiment, item_name: str):
+    """The item named *item_name*, and None; or None and why not, in the words
+    every route refuses an unknown item with, and the names there are. Each
+    route puts the refusal in its own answer's shape."""
+    lamella = (
+        experiment.get_lamella_by_name(item_name) if experiment is not None else None
+    )
+    if lamella is not None:
+        return lamella, None
+    return None, {
+        "error": f"No item named {item_name!r} in this experiment.",
+        "item_names": [p.name for p in experiment.positions]
+        if experiment is not None
+        else [],
+    }
 
 
 def apply_agent_edit(
@@ -282,10 +353,10 @@ def reorder_milling_stages(
 def apply_protocol_to_item(
     experiment, item_name: str, task_names: Optional[list]
 ) -> dict:
-    """Deep-copy the protocol's task configs onto one item, as creation does,
-    with the copied acquisitions pointed at the item's own directory.
-    Wholesale by design, so no version check. ``task_names`` of None means
-    every task the protocol defines."""
+    """Copy the protocol's task configs onto one item, as the editors' apply
+    does (``Experiment.apply_lamella_config``): the item keeps its milling
+    pattern positions. No version check. ``task_names`` of None means every
+    task the protocol defines."""
     lamella, refusal = find_item(experiment, item_name)
     if refusal:
         return {"applied": False, **refusal}
@@ -301,10 +372,7 @@ def apply_protocol_to_item(
             "error": f"Not in the protocol: {unknown!r}.",
             "task_names": list(config_map.keys()),
         }
-    for name in names:
-        lamella.task_config[name] = deepcopy(config_map[name])
-    lamella._sync_imaging_paths()
-    logging.info(f"agent applied protocol to {item_name}: {', '.join(names)}")
+    experiment.apply_lamella_config([lamella.name], names)
     saved = _save(experiment, "protocol apply")
     return {
         "applied": True,
