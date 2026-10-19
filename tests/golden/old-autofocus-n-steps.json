@@ -1,6 +1,6 @@
 {
   "channel_name": null,
-  "method": "sobel",
+  "method": "SOBEL",
   "passes": [
     {
       "enabled": true,

@@ -2,5 +2,5 @@
   "binning": 1,
   "gain": 0.2,
   "offset": 0.0,
-  "transform": null
+  "transform": "NONE"
 }

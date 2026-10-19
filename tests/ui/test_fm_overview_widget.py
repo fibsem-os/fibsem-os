@@ -4937,12 +4937,9 @@ def test_a_loaded_overview_is_named_for_the_run_that_made_it(
     assert record.label == "overview-11-20-05"
 
 
-def test_a_loaded_overview_keeps_its_scale_but_loses_its_grid(
-    qapp, blank_canvas, tmp_path
-):
-    """Documented, not a bug. `stitch_tileset` carries the grid in
-    `stage_position.name`, which the OME-TIFF drops -- so a loaded row shows what it
-    still knows rather than guessing (FIB-438)."""
+def test_a_loaded_overview_keeps_its_scale_and_its_grid(qapp, blank_canvas, tmp_path):
+    """`stitch_tileset` carries the grid in `stage_position.name`, which the saved
+    metadata keeps (FIB-438)."""
     widget = blank_canvas
     image, path = _saved(widget, tmp_path)
     image.metadata.stage_position.name = "stitched_mosaic_3x3"
@@ -4951,7 +4948,7 @@ def test_a_loaded_overview_keeps_its_scale_but_loses_its_grid(
     record = widget.load_overview(path)
 
     assert "µm/px" in record.detail
-    assert "×" not in record.detail, "the grid came back after all -- update the docs"
+    assert "3×3" in record.detail
 
 
 def test_a_file_that_cannot_be_read_places_nothing(qapp, blank_canvas, tmp_path):

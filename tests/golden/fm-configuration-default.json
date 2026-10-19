@@ -1,7 +1,7 @@
 {
   "autofocus_settings": {
     "channel_name": "Reflection Channel",
-    "method": "laplacian",
+    "method": "LAPLACIAN",
     "passes": [
       {
         "enabled": true,
@@ -26,7 +26,7 @@
     "binning": 4,
     "gain": 0.01,
     "offset": 0.0,
-    "transform": "flip-x"
+    "transform": "FLIP_X"
   },
   "channel_settings": [
     {
@@ -36,7 +36,7 @@
         "multi_band": false,
         "name": "Reflection"
       },
-      "excitation_wavelength": 550,
+      "excitation_wavelength": 550.0,
       "exposure_time": 0.005,
       "gain": 0.0,
       "name": "Reflection Channel",
@@ -49,7 +49,7 @@
         "multi_band": true,
         "name": "Fluorescence"
       },
-      "excitation_wavelength": 550,
+      "excitation_wavelength": 550.0,
       "exposure_time": 0.5,
       "gain": 0.0,
       "name": "Red Channel",
@@ -60,18 +60,18 @@
   "focus_position": 0.0083,
   "limit_position": 0.0086,
   "overview_parameters": {
-    "autofocus_mode": "once",
+    "autofocus_mode": "ONCE",
     "cols": 5,
-    "objective_start": "current",
+    "objective_start": "CURRENT",
     "overlap": 0.1,
     "register_tiles": false,
     "rows": 5,
     "tile_mask": null,
-    "tile_order": "typewriter",
+    "tile_order": "TYPEWRITER",
     "use_zstack": true
   },
   "z_parameters": {
-    "order": "channel",
+    "order": "CHANNEL",
     "zmax": 9.999999999999999e-06,
     "zmin": -9.999999999999999e-06,
     "zstep": 1e-06

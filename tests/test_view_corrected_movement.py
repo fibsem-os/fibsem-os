@@ -799,7 +799,7 @@ class TestCameraImageTransformIsFlipOnly:
 
         assert settings.transform is CameraImageTransform.FLIP_XY
         # and it re-saves under the canonical spelling
-        assert settings.to_dict()["transform"] == "flip-xy"
+        assert settings.to_dict()["transform"] == "FLIP_XY"
 
     def test_supported_values_still_round_trip(self):
         from fibsem.fm.structures import CameraSettings

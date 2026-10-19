@@ -1,6 +1,6 @@
 {
   "channel_name": "Reflection Channel",
-  "method": "laplacian",
+  "method": "LAPLACIAN",
   "passes": [
     {
       "enabled": true,

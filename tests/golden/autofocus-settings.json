@@ -1,6 +1,6 @@
 {
   "channel_name": "GFP",
-  "method": "laplacian",
+  "method": "LAPLACIAN",
   "passes": [
     {
       "enabled": true,

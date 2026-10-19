@@ -391,3 +391,14 @@ FM_IMAGES = sorted((FIXTURES / "fm_legacy").glob("*.ome.tiff"))
 def test_an_old_fm_image_metadata_saves_again_as_pinned(path):
     image = FluorescenceImage.load(str(path))
     _check(f"fm-image-metadata-{path.name.split('.')[0]}", image.metadata.to_dict())
+
+
+def test_a_numpy_tile_mask_saves_as_plain_bools():
+    mask = np.array([[True, False], [False, True]])
+    overview = OverviewParameters(rows=2, cols=2, tile_mask=[list(row) for row in mask])
+
+    saved = overview.to_dict()
+
+    assert saved["tile_mask"] == [[True, False], [False, True]]
+    assert all(type(v) is bool for row in saved["tile_mask"] for v in row)
+    yaml.safe_dump(saved)

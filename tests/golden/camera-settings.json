@@ -2,5 +2,5 @@
   "binning": 2,
   "gain": 0.3,
   "offset": 0.1,
-  "transform": "flip-x"
+  "transform": "FLIP_X"
 }

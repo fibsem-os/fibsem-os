@@ -1,7 +1,7 @@
 {
   "autofocus_settings": {
     "channel_name": "GFP",
-    "method": "laplacian",
+    "method": "LAPLACIAN",
     "passes": [
       {
         "enabled": true,
@@ -31,7 +31,7 @@
     "binning": 2,
     "gain": 0.3,
     "offset": 0.1,
-    "transform": "flip-x"
+    "transform": "FLIP_X"
   },
   "channel_settings": [
     {
@@ -46,7 +46,7 @@
         "multi_band": false,
         "name": "GFP"
       },
-      "excitation_wavelength": 488,
+      "excitation_wavelength": 488.0,
       "exposure_time": 0.1,
       "gain": 0.5,
       "name": "GFP",
@@ -59,7 +59,7 @@
         "multi_band": false,
         "name": "Reflection"
       },
-      "excitation_wavelength": 550,
+      "excitation_wavelength": 550.0,
       "exposure_time": 0.001,
       "gain": 0.0,
       "name": "Channel-01",
@@ -70,9 +70,9 @@
   "focus_position": 0.0083,
   "limit_position": 0.0086,
   "overview_parameters": {
-    "autofocus_mode": "each_row",
+    "autofocus_mode": "EACH_ROW",
     "cols": 3,
-    "objective_start": "focus",
+    "objective_start": "FOCUS",
     "overlap": 0.2,
     "register_tiles": true,
     "rows": 2,
@@ -88,11 +88,11 @@
         false
       ]
     ],
-    "tile_order": "serpentine",
+    "tile_order": "SERPENTINE",
     "use_zstack": true
   },
   "z_parameters": {
-    "order": "z_level",
+    "order": "Z_LEVEL",
     "zmax": 5e-06,
     "zmin": -5e-06,
     "zstep": 5e-07

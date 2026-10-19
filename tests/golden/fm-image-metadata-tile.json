@@ -1,7 +1,6 @@
 {
   "acquisition_date": "2026-09-23T10:00:00",
   "acquisition_datetime": null,
-  "channel_count": 1,
   "channels": [
     {
       "binning": 1,
@@ -23,6 +22,7 @@
     }
   ],
   "description": null,
+  "dimension_order": "CZYX",
   "experiment": null,
   "filename": null,
   "geometry": null,
@@ -35,6 +35,5 @@
   ],
   "stage_position": null,
   "system_info": null,
-  "z_count": 1,
   "z_positions": null
 }

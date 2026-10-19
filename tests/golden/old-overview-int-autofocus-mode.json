@@ -1,11 +1,11 @@
 {
-  "autofocus_mode": "each_row",
+  "autofocus_mode": "EACH_ROW",
   "cols": 2,
-  "objective_start": "current",
+  "objective_start": "CURRENT",
   "overlap": 0.1,
   "register_tiles": false,
   "rows": 2,
   "tile_mask": null,
-  "tile_order": "typewriter",
+  "tile_order": "TYPEWRITER",
   "use_zstack": false
 }

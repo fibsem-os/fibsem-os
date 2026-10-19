@@ -1054,10 +1054,8 @@ class FMOverviewWidget(QWidget):
         stage position's r and t, the hardware geometry, the pixel size -- survives the
         OME-TIFF intact.
 
-        What does not survive is `stage_position.name`, which `stitch_tileset` uses to
-        carry the grid size. A loaded overview's row therefore shows its scale without
-        its grid. Accepted rather than worked around: the alternative is teaching the
-        OME serialization to carry a field only the list reads (FIB-438).
+        That includes `stage_position.name`, which `stitch_tileset` uses to carry the
+        grid size, so a loaded overview's row shows its grid as well as its scale.
 
         Separate from the dialog so it can be called with a path -- by a test, by a
         host restoring a session, or later by whatever knows an experiment's own

@@ -1,7 +1,7 @@
 {
-  "autofocus_mode": "none",
+  "autofocus_mode": "NONE",
   "cols": 2,
-  "objective_start": "current",
+  "objective_start": "CURRENT",
   "overlap": 0.1,
   "register_tiles": false,
   "rows": 1,
@@ -11,6 +11,6 @@
       false
     ]
   ],
-  "tile_order": "typewriter",
+  "tile_order": "TYPEWRITER",
   "use_zstack": false
 }

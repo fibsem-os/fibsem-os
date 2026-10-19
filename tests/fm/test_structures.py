@@ -6,6 +6,7 @@ import pytest
 import tifffile as tff
 import yaml
 
+from fibsem.codec import decode, encode
 from fibsem.fm.structures import (
     REFLECTION,
     AutoFocusMode,
@@ -125,14 +126,14 @@ def test_z_parameters_order_survives_a_disk_round_trip(order):
     It decides a physically different acquisition -- whether the objective steps
     once per plane or once per plane per channel -- so a serialisation that drops
     it silently changes what happens at the microscope. Dumped through yaml
-    rather than compared in memory because it is stored as the enum's value, and
-    only a real dump proves that value is a plain scalar safe_dump will take.
+    rather than compared in memory because it is stored as the enum's name, and
+    only a real dump proves that name is a plain scalar safe_dump will take.
     """
     zparams = ZParameters(zmin=-3e-6, zmax=3e-6, zstep=1e-6, order=order)
 
     ddict = yaml.safe_load(yaml.safe_dump(zparams.to_dict()))
 
-    assert ddict["order"] == order.value
+    assert ddict["order"] == order.name
     assert ZParameters.from_dict(ddict).order is order
 
 
@@ -182,36 +183,8 @@ def test_fluorescence_channel_metadata():
     assert channel.objective_magnification == 63.0
     assert channel.objective_numerical_aperture == 1.4
 
-    # Test serialization
-    channel_dict = channel.to_dict()
-    assert channel_dict["channel"]["name"] == "DAPI"
-    assert channel_dict["filter_set"]["excitation_wavelength"] == 365.0
-    assert channel_dict["filter_set"]["emission_filter"]["bands"] == [[447.0, None]]
-    assert channel_dict["light_source"]["power"] == 0.5
-    assert channel_dict["camera"]["exposure_time"] == 0.1
-    assert channel_dict["camera"]["gain"] == 2.0
-    assert channel_dict["camera"]["offset"] == 100.0
-    assert channel_dict["camera"]["binning"] == 2
-    assert channel_dict["objective"]["position"] == 1e-3
-    assert channel_dict["objective"]["magnification"] == 63.0
-    assert channel_dict["objective"]["numerical_aperture"] == 1.4
-
-    # Test deserialization
-    channel_from_dict = FluorescenceChannelMetadata.from_dict(channel_dict)
-    assert channel_from_dict.name == channel.name
-    assert channel_from_dict.excitation_wavelength == channel.excitation_wavelength
-    assert channel_from_dict.emission_filter == channel.emission_filter
-    assert channel_from_dict.power == channel.power
-    assert channel_from_dict.exposure_time == channel.exposure_time
-    assert channel_from_dict.gain == channel.gain
-    assert channel_from_dict.offset == channel.offset
-    assert channel_from_dict.binning == channel.binning
-    assert channel_from_dict.objective_position == channel.objective_position
-    assert channel_from_dict.objective_magnification == channel.objective_magnification
-    assert (
-        channel_from_dict.objective_numerical_aperture
-        == channel.objective_numerical_aperture
-    )
+    # Saved as its fields, inside the image's metadata
+    assert decode(FluorescenceChannelMetadata, encode(channel)) == channel
 
 
 def test_fluorescence_channel_metadata_defaults():
@@ -418,9 +391,7 @@ def test_fluorescence_image_metadata_to_dict():
     assert metadata_dict["acquisition_date"] == "2025-01-01T12:00:00"
     assert metadata_dict["pixel_size_x"] == 100e-9
     assert metadata_dict["pixel_size_y"] == 100e-9
-    assert metadata_dict["resolution"] == (2048, 2048)
-    assert metadata_dict["channel_count"] == 1
-    assert metadata_dict["z_count"] == 1
+    assert metadata_dict["resolution"] == [2048, 2048]
     assert metadata_dict["system_info"] == {"test": "data"}
 
     # Test stage position

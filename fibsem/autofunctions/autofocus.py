@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import dataclasses
 import json
 import logging
 import threading
@@ -20,16 +19,24 @@ from fibsem.cancellation import (
     ended_by,
     raise_if_cancelled,
 )
-from fibsem.structures import BeamType, Configurable, Display, Parameter, param
+from fibsem.codec import NamedEnum, decode, encode
+from fibsem.structures import (
+    BeamType,
+    Configurable,
+    Display,
+    FibsemRectangle,
+    Parameter,
+    param,
+)
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
-    from fibsem.structures import BeamType, FibsemRectangle, ImageSettings
+    from fibsem.structures import BeamType, ImageSettings
 
 logger = logging.getLogger(__name__)
 
 
-class FocusMethod(str, Enum):
+class FocusMethod(NamedEnum, str, Enum):
     """Focus measurement methods for autofocus algorithms."""
 
     LAPLACIAN = "laplacian"
@@ -76,25 +83,6 @@ def _default_passes() -> "list[FocusSweepPass]":
     ]
 
 
-def _sweep_pass_from_dict(p: dict) -> FocusSweepPass:
-    """Build a FocusSweepPass from a serialized dict, tolerating the legacy
-    ``n_steps`` field (converted to ``search_range = n_steps * step_size``)
-    and ignoring unknown keys."""
-    p = dict(p)
-    step_size = p.get("step_size", 0.5e-3)
-    if "search_range" in p:
-        search_range = p["search_range"]
-    elif "n_steps" in p:
-        search_range = p["n_steps"] * step_size
-    else:
-        search_range = 5e-3
-    return FocusSweepPass(
-        search_range=search_range,
-        step_size=step_size,
-        enabled=p.get("enabled", True),
-    )
-
-
 @dataclass
 class AutoFocusSettings(Configurable):
     """Parameters controlling an image-based auto-focus sweep.
@@ -130,7 +118,7 @@ class AutoFocusSettings(Configurable):
         doc="The dwell time of the FIB-SEM sweep's images. FM ignores it.",
         display=Display("Probe Dwell Time", advanced=True),
     )
-    reduced_area: "FibsemRectangle" = param(
+    reduced_area: Optional[FibsemRectangle] = param(
         None,
         doc="Measure sharpness on this part of the frame only. Empty uses the full frame.",
         display=Display("Reduced Area", advanced=True),
@@ -182,46 +170,14 @@ class AutoFocusSettings(Configurable):
         return cls(method=method, passes=passes, channel_name=channel_name, **kwargs)
 
     def to_dict(self) -> dict:
-        return {
-            "method": self.method.value,
-            "passes": [dataclasses.asdict(p) for p in self.passes],
-            "probe_resolution": list(self.probe_resolution),
-            "probe_dwell_time": self.probe_dwell_time,
-            "reduced_area": dataclasses.asdict(self.reduced_area)
-            if self.reduced_area is not None
-            else None,
-            "use_autocontrast": self.use_autocontrast,
-            "channel_name": self.channel_name,
-        }
+        return encode(self)
 
     @classmethod
     def from_dict(cls, d: dict) -> "AutoFocusSettings":
-        from fibsem.structures import FibsemRectangle
+        """Read settings written by any version (`fibsem.codec.upgrades.autofocus`)."""
+        from fibsem.codec.upgrades.autofocus import settings
 
-        d = dict(d)
-
-        # Legacy coarse/fine schema → passes
-        if "passes" not in d and ("coarse_range" in d or "fine_range" in d):
-            return cls.from_coarse_fine(
-                coarse_range=d.get("coarse_range", 50e-6),
-                coarse_step=d.get("coarse_step", 5e-6),
-                coarse_enabled=d.get("coarse_enabled", True),
-                fine_range=d.get("fine_range", 10e-6),
-                fine_step=d.get("fine_step", 1e-6),
-                fine_enabled=d.get("fine_enabled", True),
-                method=FocusMethod(d.get("method", FocusMethod.TENENGRAD.value)),
-                channel_name=d.get("channel_name"),
-            )
-
-        passes = [
-            _sweep_pass_from_dict(p) for p in d.pop("passes", [])
-        ] or _default_passes()
-        ra = d.pop("reduced_area", None)
-        method = d.pop("method", FocusMethod.TENENGRAD.value)
-        obj = cls(method=FocusMethod(method), passes=passes, **d)
-        if ra is not None:
-            obj.reduced_area = FibsemRectangle(**ra)
-        return obj
+        return decode(cls, settings(d))
 
 
 @dataclass

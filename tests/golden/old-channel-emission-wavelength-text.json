@@ -5,7 +5,7 @@
     "multi_band": true,
     "name": "Fluorescence"
   },
-  "excitation_wavelength": 550,
+  "excitation_wavelength": 550.0,
   "exposure_time": 0.2,
   "gain": 0.0,
   "name": "Fluo",

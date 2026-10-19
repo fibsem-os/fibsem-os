@@ -1,6 +1,6 @@
 {
   "channel_name": null,
-  "method": "tenengrad",
+  "method": "TENENGRAD",
   "passes": [
     {
       "enabled": true,
