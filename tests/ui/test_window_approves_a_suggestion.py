@@ -34,7 +34,7 @@ def window(qapp, tmp_path):
 
 
 def _ask_and_suggest(win, qapp):
-    experiment = win.autolamella_ui.experiment
+    experiment = win.experiment
     lamella = experiment.positions[0]
     lamella.task_state.name = TASK
     lamella.task_state.task_id = "run-1"

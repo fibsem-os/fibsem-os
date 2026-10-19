@@ -46,10 +46,10 @@ def window(qapp):
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
 
     win = module.AutoLamellaSingleWindowUI()
-    win.autolamella_ui.system_widget.connect_to_microscope()
+    win.system_widget.connect_to_microscope()
     yield win
-    if win.autolamella_ui.microscope is not None:
-        win.autolamella_ui.microscope.disconnect()
+    if win.microscope is not None:
+        win.microscope.disconnect()
     original_quit = qapp.quit
     qapp.quit = lambda: None
     try:
@@ -78,7 +78,7 @@ def experiment(window, tmp_path):
     stage.pattern.point = Point(1e-6, -2e-6)
     stage.milling.milling_current = 1e-9
     tuned.task_config[ROUGH].sync_to_poi = False
-    window.autolamella_ui.experiment = exp
+    window.experiment = exp
     return exp
 
 

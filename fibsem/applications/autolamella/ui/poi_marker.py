@@ -7,7 +7,7 @@ sees (FIB-1410); when the view takes another frame the marker moves to the
 same point on it (``sync``).
 """
 
-from typing import TYPE_CHECKING, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Optional, Tuple
 
 from fibsem.structures import BeamType
 
@@ -43,11 +43,17 @@ def poi_point(frame: "FibsemImage", pixel: Tuple[float, float]) -> "Point":
 
 class PoiMarker:
     """The draggable marker on the main window's FIB view, for one point at a
-    time. ``ui`` is the AutoLamella window: its image widget shows the frame,
-    its main window's quad view draws the marker."""
+    time. The image widget shows the frame and the quad view draws the marker;
+    both are getters, None when the host has none."""
 
-    def __init__(self, ui: object) -> None:
-        self._ui = ui
+    def __init__(
+        self,
+        *,
+        image_widget: Callable[[], Any],
+        view_controller: Callable[[], Any],
+    ) -> None:
+        self._image_widget = image_widget
+        self._view_controller = view_controller
         # The frame the marker was placed on, and the frame to use when the
         # view shows none; None while no marker is up.
         self.frame: Optional["FibsemImage"] = None
@@ -55,9 +61,7 @@ class PoiMarker:
 
     def controller(self):
         """The main window's quad-view controller, or None standalone."""
-        return getattr(
-            getattr(self._ui, "parent_widget", None), "view_controller", None
-        )
+        return self._view_controller()
 
     @property
     def shown(self) -> bool:
@@ -66,7 +70,7 @@ class PoiMarker:
     def view_frame(self, fallback: Optional["FibsemImage"] = None):
         """The FIB frame the view shows; *fallback* (else the one the marker
         was shown with) when it shows none."""
-        shown = getattr(getattr(self._ui, "image_widget", None), "ib_image", None)
+        shown = getattr(self._image_widget(), "ib_image", None)
         if shown is not None:
             return shown
         return fallback if fallback is not None else self._fallback

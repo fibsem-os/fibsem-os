@@ -73,11 +73,8 @@ def _image(shape=(64, 64), pixel_size=1e-8):
 
 def _poi_spec(initial_poi=None):
     controller = _Controller()
-    window = types.SimpleNamespace(
-        parent_widget=types.SimpleNamespace(view_controller=controller),
-        image_widget=None,
-    )
-    assert PoiMarker(window).show(initial_poi, _image())
+    marker = PoiMarker(image_widget=lambda: None, view_controller=lambda: controller)
+    assert marker.show(initial_poi, _image())
     return controller.overlays[(BeamType.ION, "poi")]
 
 

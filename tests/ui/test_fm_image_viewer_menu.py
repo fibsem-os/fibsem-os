@@ -52,10 +52,10 @@ def test_and_no_longer_on_the_development_menu(main_ui):
 
 
 def test_it_opens_without_an_experiment(main_ui, qapp, monkeypatch):
-    ui = main_ui.autolamella_ui
+    ui = main_ui
     assert ui.experiment is None
     toasts = []
-    from fibsem.applications.autolamella.ui import AutoLamellaUI as module
+    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
 
     monkeypatch.setattr(
         module.notification_service, "show_toast", lambda *a, **k: toasts.append(a)

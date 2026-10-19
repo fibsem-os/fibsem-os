@@ -2,7 +2,7 @@
 
 Each instruction (show these images, load this milling config) is a request on its
 own future; the workflow waits for the acknowledgement. Status rides
-``workflow_status_signal`` as a ``WorkflowStatusEvent``, and what the run puts to
+the runner's ``status`` as a ``WorkflowStatusEvent``, and what the run puts to
 someone is a proposal on the record (``fibsem.workflows.proposals``), not a request.
 
 * **:class:`Responder`** — the transport is a protocol with one method, not a Qt

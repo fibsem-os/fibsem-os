@@ -102,7 +102,7 @@ def _toasts(seen, count):
 
 def test_the_report_is_written_opened_and_printed(window, seen, tmp_path):
     experiment = _experiment(tmp_path, "recorded")
-    window.autolamella_ui.experiment = experiment
+    window.experiment = experiment
 
     window.menu_bar.action_generate_report_v2.trigger()
 
@@ -120,7 +120,7 @@ def test_the_report_is_written_opened_and_printed(window, seen, tmp_path):
 
 
 def test_with_no_pdf_the_page_still_is_and_says_how_to_make_one(window, seen, tmp_path):
-    window.autolamella_ui.experiment = _experiment(tmp_path, "no-browser")
+    window.experiment = _experiment(tmp_path, "no-browser")
     seen["no_pdf"] = "no Edge, Chrome or Chromium was found to print the page with"
 
     window.menu_bar.action_generate_report_v2.trigger()
@@ -134,7 +134,7 @@ def test_with_no_pdf_the_page_still_is_and_says_how_to_make_one(window, seen, tm
 
 
 def test_an_older_experiment_says_why_there_is_no_v2_report(window, seen, tmp_path):
-    window.autolamella_ui.experiment = _experiment(tmp_path, "older", recorded=False)
+    window.experiment = _experiment(tmp_path, "older", recorded=False)
 
     window.menu_bar.action_generate_report_v2.trigger()
 
@@ -144,7 +144,7 @@ def test_an_older_experiment_says_why_there_is_no_v2_report(window, seen, tmp_pa
 
 
 def test_with_no_experiment_open(window, seen):
-    window.autolamella_ui.experiment = None
+    window.experiment = None
 
     window.menu_bar.action_generate_report_v2.trigger()
 

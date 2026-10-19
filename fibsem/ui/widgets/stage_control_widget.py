@@ -6,16 +6,15 @@ Everything on the Movement tab that *moves* the stage. The readout it moves is
 Extracted from ``FibsemMovementWidget`` (FIB-783), which is now the container: it lays
 out the panels and forwards the four calls hosts make.
 
-**Why this half keeps the parent contract.** It reaches three neighbours, and none of
-them is optional decoration:
+It is handed three neighbours, and none of them is optional decoration:
 
-* ``host.image_widget`` -- the interaction handshake (the buttons stay down through the
+* ``image_widget`` -- the interaction handshake (the buttons stay down through the
   acquisition that follows a move, and the image widget brings them back), the live
   image a canvas click is resolved against, and the acquisition-finished signal.
-* the milling widget -- refuses a click-to-move while milling. Optional, and the hosts
-  keep it under different names, so it is found by ``_milling_widget`` rather than read
-  off a fixed attribute (FIB-855).
-* the quad-view controller -- where move status and the position readout are written.
+* ``milling_widget`` -- refuses a click-to-move while milling (FIB-855). A getter:
+  the milling tab is built after this one.
+* ``view_controller`` -- the quad view, where move status and the position readout
+  are written.
 
 ``StagePositionWidget`` needs none of that, which is why it came out first and needs no
 host at all.
@@ -31,7 +30,7 @@ from __future__ import annotations
 
 import logging
 from functools import partial
-from typing import Optional
+from typing import Any, Callable, Optional
 
 from PyQt5.QtWidgets import QDoubleSpinBox, QGridLayout, QLabel, QPushButton, QWidget
 from superqt import ensure_main_thread
@@ -79,24 +78,29 @@ class StageControlWidget(QWidget):
     position_widget:
         The readout this widget writes after a move, and reads when the Move button is
         pressed with nothing passed in.
-    host:
-        The window that owns the Movement tab -- ``FibsemUI`` or ``AutoLamellaUI``. Must
-        carry ``image_widget``; ``view_controller`` and ``milling_widget`` are resolved
-        from it when present.
+    image_widget:
+        The Image tab: its live images and its acquisitions.
+    view_controller:
+        Returns the quad view, or None while there is none.
+    milling_widget:
+        Returns whatever answers ``is_milling``, or None.
     """
 
     def __init__(
         self,
         microscope: FibsemMicroscope,
         position_widget: StagePositionWidget,
-        host: QWidget,
+        image_widget: QWidget,
+        view_controller: Callable[[], Any],
+        milling_widget: Callable[[], Any],
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self.microscope = microscope
         self.position_widget = position_widget
-        self.host = host
-        self.image_widget = host.image_widget
+        self.image_widget = image_widget
+        self._host_view_controller = view_controller
+        self._host_milling_widget = milling_widget
         self._setup_ui()
         self.setup_connections()
 
@@ -223,40 +227,12 @@ class StageControlWidget(QWidget):
     # --- the neighbours ------------------------------------------------------
 
     def _view_controller(self):
-        """Return the quad-view MicroscopeViewController, or None if unavailable.
-
-        Resolved like the image widget: the host (standalone ``FibsemUI``) or
-        host -> ``parent_widget`` (AutoLamella) holds ``view_controller``.
-        """
-        controller = getattr(self.host, "view_controller", None)
-        if controller is not None:
-            return controller
-        parent_ui = getattr(self.host, "parent_widget", None)
-        return getattr(parent_ui, "view_controller", None)
+        """The quad-view MicroscopeViewController, or None if unavailable."""
+        return self._host_view_controller()
 
     def _milling_widget(self):
-        """Return whatever can answer ``is_milling``, or None if nothing can.
-
-        The hosts disagree about where the milling widget lives -- ``FibsemUI``
-        publishes it as ``milling_widget``, ``AutoLamellaUI`` keeps the same
-        ``MillingTaskViewerWidget`` as ``milling_task_config_widget``. This looked at
-        the first name only, so in AutoLamella the guard below found nothing and
-        click-to-move went unguarded through every mill (FIB-855).
-
-        **Selected by capability, not by name.** A candidate counts only if it actually
-        carries ``is_milling``; the names are where to look, not what makes it the right
-        object. That is what stops this going quiet again the next time the widget is
-        renamed or re-parented -- a name that stops resolving falls through to the next
-        one instead of silently disabling the guard.
-        """
-        for holder in (self.host, getattr(self.host, "parent_widget", None)):
-            if holder is None:
-                continue
-            for name in ("milling_widget", "milling_task_config_widget"):
-                candidate = getattr(holder, name, None)
-                if candidate is not None and hasattr(candidate, "is_milling"):
-                    return candidate
-        return None
+        """The host's milling widget, or None without one."""
+        return self._host_milling_widget()
 
     def _is_milling(self) -> bool:
         """Whether a mill is running right now.
@@ -274,7 +250,7 @@ class StageControlWidget(QWidget):
             btn.setEnabled(enable)
         self.doubleSpinBox_milling_angle.setEnabled(enable)
         if caller is None:
-            self.host.image_widget._toggle_interactions(enable, caller="movement")
+            self.image_widget._toggle_interactions(enable, caller="movement")
         # No disabled branch: both sheets carry a :disabled rule, so setEnabled
         # above is what greys these out.
         for btn in self._move_buttons:

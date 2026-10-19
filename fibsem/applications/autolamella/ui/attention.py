@@ -37,7 +37,7 @@ class AttentionRouter(QObject):
         sound_enabled: Callable[[], bool],
         parent: Optional[QObject] = None,
     ) -> None:
-        """*prompts* puts proposals up and takes them down (``AutoLamellaUI``);
+        """*prompts* puts proposals up and takes them down (``ProposalPresenter``);
         *controls* holds Attention Required."""
         super().__init__(parent)
         self._prompts = prompts

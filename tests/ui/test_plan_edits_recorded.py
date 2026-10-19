@@ -51,11 +51,11 @@ def window(qapp):
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
 
     win = module.AutoLamellaSingleWindowUI()
-    win.autolamella_ui.system_widget.connect_to_microscope()
+    win.system_widget.connect_to_microscope()
     win.run_border.set_state("idle")
     yield win
-    if win.autolamella_ui.microscope is not None:
-        win.autolamella_ui.microscope.disconnect()
+    if win.microscope is not None:
+        win.microscope.disconnect()
     original_quit = qapp.quit
     qapp.quit = lambda: None
     try:
@@ -74,7 +74,7 @@ def experiment(window, tmp_path):
     for lamella in exp.positions:
         lamella.task_config[TASK] = MillRoughTaskConfig(task_name=TASK)
     exp.task_protocol.task_config[TASK] = MillRoughTaskConfig(task_name=TASK)
-    window.autolamella_ui.experiment = exp
+    window.experiment = exp
     window.lamella_tab.editor.set_experiment()
     window.lamella_tab.editor.select_lamella(exp.positions[0].name)
     return exp
@@ -84,7 +84,7 @@ def experiment(window, tmp_path):
 def edits(window, experiment, tmp_path):
     """The edit events recorded while the test runs."""
     recorder = EventRecorder(
-        window.autolamella_ui.microscope,
+        window.microscope,
         experiment_path=tmp_path,
         default_actor=OPERATOR,
     )
@@ -603,7 +603,7 @@ def test_an_accepted_correlation_is_recorded_with_the_point_it_moved(
     window, editor, experiment, tmp_path, monkeypatch
 ):
     recorder = EventRecorder(
-        window.autolamella_ui.microscope,
+        window.microscope,
         experiment_path=tmp_path,
         default_actor=OPERATOR,
     )
@@ -668,7 +668,7 @@ def test_the_replay_shows_a_correlation_before_the_point_it_moved(
     record = tmp_path / "record"
     record.mkdir()
     recorder = EventRecorder(
-        window.autolamella_ui.microscope,
+        window.microscope,
         experiment_path=record,
         default_actor=OPERATOR,
     )
@@ -713,7 +713,7 @@ def _agent_edit(window, level, item_name, task_name, patch, version):
     """An agent's config edit as the App Server makes it, with this window."""
     from fibsem.applications.autolamella.server import AutoLamellaAppContext
 
-    ui = window.autolamella_ui
+    ui = window
     context = AutoLamellaAppContext(ui.session, window=ui)
     return context._config_edit(level, item_name, task_name, patch, version, 10.0)
 
@@ -850,7 +850,7 @@ def test_the_replay_shows_each_edit_on_the_lamella_edited(
     record = tmp_path / "record"
     record.mkdir()
     recorder = EventRecorder(
-        window.autolamella_ui.microscope,
+        window.microscope,
         experiment_path=record,
         default_actor=OPERATOR,
     )

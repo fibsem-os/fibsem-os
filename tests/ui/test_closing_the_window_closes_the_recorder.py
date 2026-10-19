@@ -38,20 +38,20 @@ def window(qapp):
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
 
     win = module.AutoLamellaSingleWindowUI()
-    win.autolamella_ui.system_widget.connect_to_microscope()
-    microscope = win.autolamella_ui.microscope
+    win.system_widget.connect_to_microscope()
+    microscope = win.microscope
     original_quit = qapp.quit
     qapp.quit = lambda: None
     try:
         yield win
     finally:
         qapp.quit = original_quit
-        win.autolamella_ui.session.stop_recording()  # if the test did not get to close
+        win.session.stop_recording()  # if the test did not get to close
         microscope.disconnect()
 
 
 def test_closing_the_window_writes_the_last_edit_and_stops_the_writer(window, tmp_path):
-    ui = window.autolamella_ui
+    ui = window
     experiment = Experiment(path=tmp_path, name="closing")
     os.makedirs(experiment.path, exist_ok=True)
     experiment.task_protocol = AutoLamellaTaskProtocol()
@@ -76,26 +76,3 @@ def test_closing_the_window_writes_the_last_edit_and_stops_the_writer(window, tm
     records = list(read_events(Path(experiment.path) / EVENTS_FILENAME))
     ((edit),) = [r for r in records if r["kind"] == "edit"]
     assert edit["payload"]["target"] == "parameters.reacquire_alignment_reference"
-
-
-def test_closing_the_window_on_its_own_stops_the_writer(qapp):
-    """``AutoLamellaUI`` by itself, as tests and scripts open it."""
-    from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
-
-    ui = AutoLamellaUI(parent_ui=None)
-    ui.system_widget.connect_to_microscope()
-    microscope = ui.microscope
-    recorder = ui.session.recorder
-    try:
-        assert recorder is not None and recorder.writer.alive
-
-        ui.close()
-
-        assert ui.session.recorder is None
-        assert not recorder.writer.alive
-        assert recorder_for(microscope) is None
-    finally:
-        ui.session.stop_recording()
-        microscope.disconnect()
-        ui.deleteLater()
-        qapp.processEvents()

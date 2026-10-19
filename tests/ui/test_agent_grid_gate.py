@@ -16,13 +16,16 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI  # noqa: E402
+from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (  # noqa: E402
+    AutoLamellaSingleWindowUI,
+)
 from fibsem.applications.autolamella.workflows.tasks.manager import (  # noqa: E402
     TaskManager,
 )
 from fibsem.structures import MicroscopeState  # noqa: E402
 from fibsem.workflows.runner import ITEMS, RunRequest
 from fibsem.workflows.status import TaskStatus  # noqa: E402
+from tests.fixtures.main_window import close_window  # noqa: E402
 from tests.run_state import hold_runs, started_with
 
 TASK_NAME = "Mill Fiducial"
@@ -37,7 +40,7 @@ def ui(qapp, monkeypatch, tmp_path):
         "config",
         "sim-arctis-configuration.yaml",
     )
-    widget = AutoLamellaUI(parent_ui=None)
+    widget = AutoLamellaSingleWindowUI()
     monkeypatch.setattr(
         widget.system_widget,
         "load_configuration",
@@ -66,7 +69,7 @@ def ui(qapp, monkeypatch, tmp_path):
     widget.experiment = None
     if widget.microscope is not None:
         widget.microscope.disconnect()
-    widget.close()
+    close_window(widget)
     widget.deleteLater()
     qapp.processEvents()
 

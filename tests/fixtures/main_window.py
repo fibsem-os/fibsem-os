@@ -3,8 +3,7 @@ task's proposals through it.
 
 A proposal a task asks on the record is put in front of the operator by the
 main window (``AttentionRouter``): a state or a loop's pass on the prompt
-bar. A test that decides a pass on the prompt bar needs that window, not the
-bare ``AutoLamellaUI`` inside it.
+bar. A test that decides a pass on the prompt bar needs that window.
 """
 
 import os
@@ -35,7 +34,7 @@ def main_window(
     from fibsem.workflows.attention import Attention
 
     win = module.AutoLamellaSingleWindowUI()
-    ui = win.autolamella_ui
+    ui = win
     ui.system_widget.connect_to_microscope()
     experiment = Experiment(path=tmp_path, name=name)
     os.makedirs(experiment.path, exist_ok=True)
@@ -76,3 +75,18 @@ def main_window(
         win.deleteLater()
         QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
         qapp.processEvents()
+
+
+def close_window(win) -> None:
+    """Close the window as a test ends. Its closeEvent ends in app.quit(), which on
+    the shared test QApplication latches an interrupt every later
+    QEventLoop.exec_() returns from, so quit is stubbed for the close."""
+    from PyQt5.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    original_quit = app.quit
+    app.quit = lambda: None
+    try:
+        win.close()
+    finally:
+        app.quit = original_quit

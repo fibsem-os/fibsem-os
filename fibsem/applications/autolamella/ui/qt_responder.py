@@ -1,7 +1,7 @@
 """The Qt implementation of the workflow's ``Responder`` protocol.
 
-``QtResponder`` is *given* the window rather than being the window: the workflow
-layer holds an object with one method, and the ``QMainWindow`` stays on this side
+``QtResponder`` is *given* the window's panel rather than being the window: the
+workflow layer holds an object with one method, and the widgets stay on this side
 of the seam.
 
 ``submit`` is called on the workflow thread. It marshals the instruction to the GUI
@@ -32,19 +32,19 @@ from fibsem.workflows.interaction import (
 if TYPE_CHECKING:
     from concurrent.futures import Future
 
-    from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
+    from fibsem.applications.autolamella.ui.microscope_panel import MicroscopePanel
 
 __all__ = ["QtResponder"]
 
 
 class QtResponder(QObject):
-    """Acts on workflow instructions by driving the window's widgets, on the GUI thread."""
+    """Acts on workflow instructions by driving the panel's widgets, on the GUI thread."""
 
     _submitted = pyqtSignal(object, object)  # (Request, Future)
 
-    def __init__(self, ui: "AutoLamellaUI"):
+    def __init__(self, panel: "MicroscopePanel"):
         super().__init__()
-        self._ui = ui
+        self._panel = panel
         self._handlers: Dict[Type[Request], Callable] = {
             SetImages: self._set_images,
             SetMillingConfig: self._set_milling_config,
@@ -94,7 +94,7 @@ class QtResponder(QObject):
 
     def _set_images(self, request: SetImages) -> None:
         """Show the acquisition images."""
-        image_widget = self._ui.image_widget
+        image_widget = self._panel.image_widget
         if image_widget is None:
             # Surfaces in the workflow thread as this instruction's failure.
             raise RuntimeError("No image widget available to display images.")
@@ -116,7 +116,7 @@ class QtResponder(QObject):
             )
 
     def _milling_widget(self):
-        widget = self._ui.milling_task_config_widget
+        widget = self._panel.milling_task_config_widget
         if widget is None:
             # Surfaces in the workflow thread as the instruction's failure.
             raise RuntimeError("No milling task config widget available.")
@@ -127,7 +127,7 @@ class QtResponder(QObject):
         widget = self._milling_widget()
         widget.update_from_settings(request.config)
         widget.setEnabled(True)
-        self._ui.front_tab(widget)
+        self._panel.front_tab(widget)
 
     def _clear_milling_config(self, request: ClearMillingConfig) -> None:
         """Clear the milling editor."""
@@ -136,7 +136,7 @@ class QtResponder(QObject):
     def _show_detection(self, request: ShowDetection) -> None:
         """Load the detection into the detection widget. The window fronts its
         tab when the proposal is asked."""
-        det_widget = self._ui.det_widget
+        det_widget = self._panel.det_widget
         if det_widget is None:
             # The model already ran, so a missing widget is a defect, not
             # optional hardware.
@@ -146,7 +146,7 @@ class QtResponder(QObject):
     def _clear_spot_burn(self, request: ClearSpotBurn) -> None:
         """Clear the spot-burn widget's points and leave workflow mode, if
         there is one."""
-        widget = self._ui.spot_burn_widget
+        widget = self._panel.spot_burn_widget
         if widget is None:
             return
         widget.clear_points_layer()
@@ -159,7 +159,7 @@ class QtResponder(QObject):
 
     def _set_fluorescence_channels(self, request: SetFluorescenceChannels) -> None:
         """Load the channel settings into the fluorescence widget, if there is one."""
-        widget = self._ui.fm_control_widget
+        widget = self._panel.fm_control_widget
         if widget is None:
             return
         widget.channelSettingsWidget.channel_settings = request.channels

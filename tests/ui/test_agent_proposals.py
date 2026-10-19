@@ -26,7 +26,9 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaWorkflowConfig,
     Experiment,
 )
-from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI  # noqa: E402
+from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (  # noqa: E402
+    AutoLamellaSingleWindowUI,
+)
 from fibsem.applications.autolamella.workflows.tasks.rough import (  # noqa: E402
     MillRoughTaskConfig,
 )
@@ -49,6 +51,7 @@ from fibsem.workflows.proposals import (  # noqa: E402
     Proposal,
 )
 from fibsem.workflows.status import TaskStatus  # noqa: E402
+from tests.fixtures.main_window import close_window  # noqa: E402
 from tests.proposal_records import set_proposals  # noqa: E402
 
 TOKEN = "test-token"
@@ -76,7 +79,7 @@ def ui(qapp, monkeypatch, tmp_path):
         "config",
         "sim-arctis-configuration.yaml",
     )
-    widget = AutoLamellaUI(parent_ui=None)
+    widget = AutoLamellaSingleWindowUI()
     monkeypatch.setattr(
         widget.system_widget,
         "load_configuration",
@@ -122,7 +125,7 @@ def ui(qapp, monkeypatch, tmp_path):
     yield widget
     if widget.microscope is not None:
         widget.microscope.disconnect()
-    widget.close()
+    close_window(widget)
     widget.deleteLater()
     qapp.processEvents()
 

@@ -38,10 +38,10 @@ def window(qapp):
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
 
     win = module.AutoLamellaSingleWindowUI()
-    win.autolamella_ui.system_widget.connect_to_microscope()
+    win.system_widget.connect_to_microscope()
     yield win
-    if win.autolamella_ui.microscope is not None:
-        win.autolamella_ui.microscope.disconnect()
+    if win.microscope is not None:
+        win.microscope.disconnect()
     original_quit = qapp.quit
     qapp.quit = lambda: None
     try:
@@ -96,7 +96,7 @@ def _decided(ui):
 
 
 def test_the_experiment_opened_is_the_one_watched(window, tmp_path):
-    ui = window.autolamella_ui
+    ui = window
     first = _experiment(tmp_path, "first")
     second = _experiment(tmp_path, "second")
 
@@ -110,7 +110,7 @@ def test_the_experiment_opened_is_the_one_watched(window, tmp_path):
 
 
 def test_an_experiment_open_before_the_microscope_connects_is_watched(window, tmp_path):
-    ui = window.autolamella_ui
+    ui = window
     experiment = _experiment(tmp_path, "open-first")
     ui.adopt_experiment(experiment)
     # The connect button toggles: disconnect, then connect again.

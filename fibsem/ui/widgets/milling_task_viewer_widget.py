@@ -68,7 +68,6 @@ class MillingTaskViewerWidget(QWidget):
         self._milling_enabled = milling_enabled
         self._image_widget = image_widget
         self._show_alignment_area: bool = True
-        self.parent_widget = parent
 
         self._fib_image: Optional[FibsemImage] = None
         # Quad-view path (set in _init_canvas_overlay when a controller exists)
@@ -133,7 +132,7 @@ class MillingTaskViewerWidget(QWidget):
         self.config_widget.acquisition_panel.setVisible(visible)
 
     def _setup_viewer_integration(self) -> None:
-        """Connect to image_widget (injected or discovered from parent chain)."""
+        """Connect to the image widget, when there is one."""
         iw = self._image_widget
         if iw is not None:
             try:
@@ -346,14 +345,8 @@ class MillingTaskViewerWidget(QWidget):
         self._schedule_pattern_update()
 
     def _on_viewer_image_updated(self) -> None:
-        iw = self._image_widget
-        if iw is None:
-            try:
-                iw = self.parent_widget.image_widget  # type: ignore[attr-defined]
-            except Exception:
-                return
         try:
-            self._fib_image = iw.ib_image
+            self._fib_image = self._image_widget.ib_image
             self._schedule_pattern_update()
         except Exception as e:
             logging.error(f"MillingTaskViewerWidget: viewer image update error: {e}")

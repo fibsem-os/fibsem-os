@@ -55,8 +55,8 @@ def discover_scripts(directory: Optional[Path] = None) -> List[DiscoveredScript]
 class ScriptContext:
     """What a script is handed when it runs.
 
-    Deliberately not the ``AutoLamellaUI`` object. ``AutoLamellaUI.experiment`` is
-    *rebound* on create/load rather than mutated, so a script that cached the ui
+    Deliberately not the window object. The window's ``experiment`` is
+    *rebound* on create/load rather than mutated, so a script that cached the window
     would silently operate on a dead experiment; and this stays a documented,
     stable surface while the GUI internals are still moving.
 

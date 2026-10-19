@@ -45,8 +45,8 @@ def window(qapp, tmp_path):
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
 
     win = module.AutoLamellaSingleWindowUI()
-    win.autolamella_ui.system_widget.connect_to_microscope()
-    ui = win.autolamella_ui
+    win.system_widget.connect_to_microscope()
+    ui = win
     experiment = Experiment(path=tmp_path, name="state-exp")
     os.makedirs(experiment.path, exist_ok=True)
     experiment.task_protocol = AutoLamellaTaskProtocol(
@@ -101,7 +101,7 @@ def _pump(qapp, predicate, timeout_s=15.0) -> bool:
 
 def _start(window):
     """The real task, its real run, on a worker thread."""
-    ui = window.autolamella_ui
+    ui = window
     experiment = ui.experiment
     manager = TaskManager(
         microscope=ui.microscope,
@@ -136,9 +136,9 @@ def _prompt_is_up(ui) -> bool:
     # Text and enabled state, not isVisible(): the window is never shown
     # offscreen, so nothing in it is "visible".
     return (
-        "Press Continue" in ui.prompt_bar.message.text()
-        and not ui.prompt_bar.message.isHidden()
-        and ui.prompt_bar.yes.isEnabled()
+        "Press Continue" in ui.panel.prompt_bar.message.text()
+        and not ui.panel.prompt_bar.message.isHidden()
+        and ui.panel.prompt_bar.yes.isEnabled()
     )
 
 
@@ -146,31 +146,31 @@ def _prompt_is_down(ui) -> bool:
     # The label doubles as the task's status line, so it is not empty once
     # the task carries on; what matters is that the question is gone from it.
     return (
-        "Press Continue" not in ui.prompt_bar.message.text()
-        and ui._state_proposal is None
+        "Press Continue" not in ui.panel.prompt_bar.message.text()
+        and ui.proposals._state_proposal is None
     )
 
 
 def test_the_question_is_asked_on_the_prompt_bar_and_continue_decides_it(window, qapp):
-    ui = window.autolamella_ui
+    ui = window
     lamella = ui.experiment.positions[0]
     task, thread, seen = _start(window)
 
     assert _pump(qapp, lambda: _prompt_is_up(ui)), (
         "the prompt bar asks",
-        ui.prompt_bar.message.text(),
-        ui.hold,
+        ui.panel.prompt_bar.message.text(),
+        ui.run_relay.hold,
         [(str(p.asked_by), p.kind) for p in lamella.proposals],
         seen,
     )
-    assert ui.prompt_bar.yes.text() == "Continue"
-    assert ui.prompt_bar.no.isHidden(), "one verb"
+    assert ui.panel.prompt_bar.yes.text() == "Continue"
+    assert ui.panel.prompt_bar.no.isHidden(), "one verb"
     assert window.tab_widget.currentIndex() == 0, "on the Microscope tab"
-    assert ui.hold is not None and ui.hold.kind is HoldKind.proposal
+    assert ui.run_relay.hold is not None and ui.run_relay.hold.kind is HoldKind.proposal
     question = lamella.proposal(REF, STATE)
     assert question is not None and question.pending and question.asking
 
-    ui.prompt_bar.yes.click()
+    ui.panel.prompt_bar.yes.click()
 
     assert _pump(qapp, lambda: not thread.is_alive()), "the task went on"
     assert "error" not in seen
@@ -182,12 +182,12 @@ def test_the_question_is_asked_on_the_prompt_bar_and_continue_decides_it(window,
     here = ui.microscope.get_stage_position()
     assert (pose.x, pose.y, pose.z) == pytest.approx((here.x, here.y, here.z))
     assert _prompt_is_down(ui), "the prompt came down"
-    assert ui.hold is None
+    assert ui.run_relay.hold is None
     assert lamella.task_state.status is TaskStatus.Completed, "nothing waits"
 
 
 def test_answered_by_an_agent_the_prompt_comes_down_too(window, qapp):
-    ui = window.autolamella_ui
+    ui = window
     lamella = ui.experiment.positions[0]
     task, thread, seen = _start(window)
     assert _pump(qapp, lambda: _prompt_is_up(ui))
@@ -216,7 +216,7 @@ def test_answered_by_an_agent_the_prompt_comes_down_too(window, qapp):
 
 
 def test_stop_takes_the_prompt_down_and_withdraws_the_question(window, qapp):
-    ui = window.autolamella_ui
+    ui = window
     lamella = ui.experiment.positions[0]
     task, thread, seen = _start(window)
     assert _pump(qapp, lambda: _prompt_is_up(ui))
@@ -227,4 +227,4 @@ def test_stop_takes_the_prompt_down_and_withdraws_the_question(window, qapp):
     assert isinstance(seen.get("error"), InterruptedError)
     assert lamella.proposal(REF, STATE).withdrawn
     assert _pump(qapp, lambda: _prompt_is_down(ui))
-    assert ui.hold is None
+    assert ui.run_relay.hold is None

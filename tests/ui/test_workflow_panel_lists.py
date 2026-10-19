@@ -156,7 +156,7 @@ def test_the_status_line_says_what_the_selection_allows(no_quit, qapp, tmp_path)
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
 
     window = module.AutoLamellaSingleWindowUI()
-    ui = window.autolamella_ui
+    ui = window
     ui.system_widget.connect_to_microscope()
     experiment = Experiment(path=str(tmp_path), name="panel")
     experiment.positions.append(

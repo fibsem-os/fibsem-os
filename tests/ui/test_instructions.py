@@ -27,9 +27,9 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (  # noqa: E402
+    INSTRUCTIONS,  # noqa: E402
     AutoLamellaSingleWindowUI,
 )
-from fibsem.applications.autolamella.ui.AutoLamellaUI import INSTRUCTIONS  # noqa: E402
 from fibsem.applications.autolamella.ui.main_menu_bar import MainMenuBar  # noqa: E402
 
 # "(File -> Load Protocol)" / "(File → Load Protocol)" -- the menu, then the entry.

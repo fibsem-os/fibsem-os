@@ -30,8 +30,8 @@ def test_closing_the_window_twice(no_quit, qapp):
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
 
     window = module.AutoLamellaSingleWindowUI()
-    window.autolamella_ui.system_widget.connect_to_microscope()
-    microscope = window.autolamella_ui.microscope
+    window.system_widget.connect_to_microscope()
+    microscope = window.microscope
     window.show()
     try:
         window.close()
@@ -40,7 +40,7 @@ def test_closing_the_window_twice(no_quit, qapp):
         window.close()
 
         assert not window.isVisible()
-        assert window.autolamella_ui.session.recorder is None
+        assert window.session.recorder is None
     finally:
         microscope.disconnect()
         window.deleteLater()
