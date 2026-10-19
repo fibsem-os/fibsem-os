@@ -377,6 +377,7 @@ def test_the_brake_drops_to_watch_and_says_what_it_stopped(session, microscope):
             {
                 "what": "Stop the agent",
                 "ok": True,
+                "reason": "none given",
                 "stops": "agent",
                 "previous": "drive",
                 "level": "watch",
@@ -456,8 +457,22 @@ def test_an_operator_stop_is_recorded_by_the_runner(session, microscope):
     session.runner.stop(actor="operator", via="Stop")
     session.runner.stop_task(actor="operator", via="Stop Task", task="Trench (01)")
     session.runner.stop()  # unnamed: the agent's stop records itself
-    run = {"what": "Stop the run", "ok": True, "stops": "workflow", "via": "Stop"}
-    task = {"what": "Stop the task", "ok": True, "stops": "task", "via": "Stop Task"}
+    # the operator's Stop buttons ask no reason (FIB-1495)
+    why = {"reason": "none given"}
+    run = {
+        "what": "Stop the run",
+        "ok": True,
+        **why,
+        "stops": "workflow",
+        "via": "Stop",
+    }
+    task = {
+        "what": "Stop the task",
+        "ok": True,
+        **why,
+        "stops": "task",
+        "via": "Stop Task",
+    }
     assert _kinds(session, "action") == [
         (run, "operator"),
         ({**task, "task": "Trench (01)"}, "operator"),

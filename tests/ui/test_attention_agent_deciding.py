@@ -3,8 +3,12 @@
 
 from unittest.mock import MagicMock
 
-from fibsem.applications.autolamella.ui.attention import AttentionRouter
-from fibsem.workflows.status import Hold, HoldKind
+import pytest
+
+pytest.importorskip("PyQt5")
+
+from fibsem.applications.autolamella.ui.attention import AttentionRouter  # noqa: E402
+from fibsem.workflows.status import Hold, HoldKind  # noqa: E402
 
 
 def _router(qapp):
