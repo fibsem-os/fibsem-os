@@ -205,6 +205,29 @@ class RecentActions:
         self._level = str(p.get("level") or "")
         return False
 
+    def _on_proposal_asked(self, record, p, agent):
+        """The agent's request, on the record as an ``actions`` proposal."""
+        if p.get("kind") != "actions":
+            return False
+        actions = (p.get("proposed") or {}).get("actions")
+        return self._on_request_raised(
+            record, {"request_id": p.get("proposal_id"), "actions": actions}, agent
+        )
+
+    def _request_decided(self, record, p, agent):
+        request = {"request_id": p.get("proposal_id"), "reason": p.get("reason")}
+        outcome = p.get("outcome")
+        if outcome == "Confirmed":
+            return self._on_request_decided(record, request, agent)
+        if outcome == "Rejected":
+            return self._on_request_decided(
+                record, {**request, "outcome": "rejected"}, agent
+            )
+        withdrawn = str(p.get("actor") or "").startswith("agent:")
+        return self._on_request_cancelled(
+            record, {**request, "why": p.get("reason"), "withdrawn": withdrawn}, agent
+        )
+
     def _on_request_raised(self, record, p, agent):
         key = ("request", p.get("request_id"))
         self._sizes[p.get("request_id")] = len(p.get("actions") or [])
@@ -280,6 +303,8 @@ class RecentActions:
         )
 
     def _on_proposal_decided(self, record, p, agent):
+        if p.get("kind") == "actions":
+            return self._request_decided(record, p, agent)
         key = ("suggestion", p.get("proposal_id"))
         if p.get("suggestion_id"):
             return self._end(key, "approved", OK)

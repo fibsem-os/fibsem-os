@@ -276,6 +276,11 @@ class AutoLamellaAppContext:
         experiment = self._experiment
         return str(experiment.path) if experiment is not None else None
 
+    def recording_experiment(self):
+        """The experiment what the agent asks is recorded on: the open one, or
+        the session's plain one. Raises OSError when it cannot be made."""
+        return self._session.recording_experiment()
+
     def image_metadata(self, path: str) -> Dict[str, Any]:
         """A saved beam image's full metadata, as its file records it, for a
         path inside the open experiment only (the agent's drill-down behind

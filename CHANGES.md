@@ -165,6 +165,15 @@ lists where each key went.
   operator sees nothing change; old event logs still read. The window's
   responder only carries instructions (images, milling config, detections).
   Suggestions come back on pending proposals.
+- **The agent's requests are on the experiment's record.** A request at Assist
+  is an `actions` proposal on the experiment, saved in `experiment.yaml` with
+  its decision: approved, rejected (with the operator's reason) or withdrawn
+  (the agent took it back, the level changed, Stop agent, or the app closed
+  with it waiting). The chip, the card and the request tools are unchanged.
+  `request_raised`, `request_decided` and `request_cancelled` give way to
+  `proposal_asked` and `proposal_decided` of kind `actions`; old logs still
+  read. Proposals about the experiment itself are decided by id
+  (`decide(None, ...)`), and the plain session experiment takes them too.
 - **Agent suggestions on proposals.** At Assist an agent suggests a decision
   on a pending proposal (`proposal_suggest`, `POST
   /app/workflow/proposals/suggest`), with its reason and optionally its
