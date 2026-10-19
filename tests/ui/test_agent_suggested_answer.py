@@ -196,7 +196,7 @@ def test_answering_otherwise_drops_the_suggestion(ui, qapp, client):
 def test_the_operator_dismisses_the_suggestion_with_why(ui, qapp, client):
     # FIB-1424: the card had Accept only; declining by answering another way
     # dropped the suggestion silently, so the agent never learned why.
-    from fibsem.ui.agent.recent import RecentActions
+    from fibsem.ai.agent.recent import RecentActions
 
     events = _record(ui)
     thread, outcome = _ask_on_worker(ui, qapp)
