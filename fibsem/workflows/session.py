@@ -59,8 +59,8 @@ class AppSession:
     """The microscope, the open experiment and the connection's event stream.
 
     ``changed`` fires with ``MICROSCOPE`` when another microscope (or none) is
-    connected and with ``EXPERIMENT`` whenever an experiment is opened (or
-    closed), on the thread that changed it.
+    connected and with ``EXPERIMENT`` when an experiment is opened
+    (:meth:`adopt`), on the thread that changed it.
     """
 
     changed = Signal(str)
@@ -191,7 +191,6 @@ class AppSession:
         self._experiment = experiment
         if experiment is not None:
             experiment.edit_executor = self.run_edit
-        self.changed.emit(EXPERIMENT)
 
     @property
     def correlation(self) -> Any:
@@ -219,6 +218,7 @@ class AppSession:
         if self.recorder is not None:
             self.recorder.set_experiment(experiment.path, experiment)
         self.experiment = experiment
+        self.changed.emit(EXPERIMENT)
 
     def recording_experiment(self) -> Any:
         """The experiment what is done now is recorded to: the open one, or else
