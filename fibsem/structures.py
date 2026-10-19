@@ -1040,9 +1040,6 @@ class FibsemAxesPosition(Configurable):
 
         return True
 
-    def _scale_repr(self, scale: float, precision: int = 2):
-        return f"x:{self.x * scale:.{precision}f}, y:{self.y * scale:.{precision}f}, z:{self.z * scale:.{precision}f}"
-
     def _pretty_axes(self, axes: Sequence[str], units: bool) -> str:
         from fibsem import constants
 
@@ -4486,141 +4483,6 @@ class FibsemImage:
         self.filepath = str(path)
         return self.filepath
 
-    ### EXPERIMENTAL START ####
-
-    def _save_ome_tiff(self, path: str, filename: str) -> None:
-        from ome_types import OME
-        from ome_types.model import (
-            Channel,
-            Image,
-            Instrument,
-            MapAnnotation,
-            Microscope,
-            Pixels,
-            Plane,
-            StructuredAnnotations,
-            TiffData,
-        )
-        from ome_types.model.simple_types import UnitsLength
-
-        md = self.metadata
-        microscope = Microscope(
-            # md.system_info since FIB-481; this was md.system.info, which no longer
-            # exists. Nothing calls this -- see FIB-485 for whether it should live at
-            # all -- but leaving a known-broken reference is worse than fixing it.
-            manufacturer=md.system_info.manufacturer,
-            model=md.system_info.model,
-            serial_number=md.system_info.serial_number,
-        )
-        instrument = Instrument(microscope=microscope)
-
-        size_y = self.data.shape[0]
-        size_x = self.data.shape[1]
-        # TODO: use sample plane projection position for this pos
-        stage_position = md.microscope_state.stage_position
-        pos_x = stage_position.x
-        pos_y = stage_position.y
-        pos_z = stage_position.z
-
-        plane = Plane(
-            the_c=0,
-            the_z=0,
-            the_t=0,
-            position_x=pos_x,
-            position_y=pos_y,
-            position_z=pos_z,
-            position_x_unit=UnitsLength.METER,
-            position_y_unit=UnitsLength.METER,
-            position_z_unit=UnitsLength.METER,
-        )
-        tiff_data = TiffData(ifd=0)
-
-        ch = Channel(
-            id="Channel:0",
-            name="SEM" if md.image_settings.beam_type is BeamType.ELECTRON else "FIB",
-            samples_per_pixel=1,
-        )
-
-        pixels = Pixels(
-            id="Pixels:0",
-            dimension_order="XYZTC",
-            size_x=size_x,
-            size_y=size_y,
-            size_c=1,
-            size_t=1,
-            size_z=1,
-            type=self.data.dtype.name,
-            physical_size_x=md.pixel_size.x,
-            physical_size_y=md.pixel_size.y,
-            physical_size_x_unit=UnitsLength.METER,
-            physical_size_y_unit=UnitsLength.METER,
-            channels=[ch],
-            planes=[plane],
-            tiff_data_blocks=[tiff_data],
-        )
-
-        sa = StructuredAnnotations()
-        mapAnnotation = [
-            MapAnnotation(
-                id="Annotation:0", value={"fibsemOS": json.dumps(md.to_dict())}
-            )
-        ]
-        sa.map_annotations = mapAnnotation
-
-        ome_image = Image(
-            id="Image:0",
-            name=md.image_settings.filename,
-            acquisition_date=acquisition_datetime_of(md),
-            pixels=pixels,
-        )
-
-        ome = OME()
-        ome.images.append(ome_image)
-        ome.instruments.append(instrument)
-        ome.structured_annotations = sa
-
-        assert tff.OmeXml.validate(ome.to_xml()), "OME-XML validation failed"
-
-        # TODO: check for a unique filename
-        path = os.path.join(path, filename)
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-
-        # add suffix if not present
-        OME_TIFF_SUFFIXES = (".ome.tiff", ".ome.tif", ".tif", ".tiff")
-        if not path.endswith(OME_TIFF_SUFFIXES):
-            # Note: with_suffix doesn't work correctly with double extensions, .ome.tiff
-            path = Path(path).with_suffix(".ome.tiff")
-
-        with tff.TiffWriter(path) as tif:
-            tif.write(self.data, contiguous=True)
-            tif.overwrite_description(ome.to_xml())
-
-    @classmethod
-    def _load_from_ome_tiff(cls, path: str) -> "FibsemImage":
-        import ome_types
-
-        # read ome-xml, extract fibsemOS metadata
-        try:
-            ome = ome_types.from_tiff(path)
-            fibsemos_md = json.loads(
-                ome.structured_annotations.map_annotations[0].value["fibsemOS"]
-            )
-
-            # parse metadata to struct
-            md = FibsemImageMetadata.from_dict(fibsemos_md)
-        except Exception as e:
-            import logging
-
-            logging.warning(f"Failing to load metadata from OME-TIFF: {e}")
-            md = None
-
-        # load image data
-        with tff.TiffFile(path) as tif:
-            data = tif.pages[0].asarray()
-        return cls(data=data, metadata=md)
-
-    ### EXPERIMENTAL END ####
-
     def extract_region(self, rect: "FibsemRectangle") -> "FibsemImage":
         """Extract a sub-region of the image and return a new FibsemImage with valid metadata.
 
@@ -5212,13 +5074,6 @@ class SampleHolder(Configurable):
             return self._parent.system.stage.rotation_reference
         return 0.0
 
-    def find_slot_for_grid(self, grid: "SampleGrid") -> Optional["GridSlot"]:
-        """Return the slot that has this SampleGrid loaded, or None."""
-        for slot in self.slots.values():
-            if slot.loaded_grid is not None and slot.loaded_grid.name == grid.name:
-                return slot
-        return None
-
     def find_slot_by_grid_name(self, grid_name: str) -> Optional["GridSlot"]:
         """Return the slot whose loaded grid matches the given name, or None."""
         for slot in self.slots.values():
@@ -5233,15 +5088,6 @@ class SampleHolder(Configurable):
             s
             for s in sorted(self.slots.values(), key=lambda s: s.index)
             if s.loaded_grid is not None
-        ]
-
-    @property
-    def calibrated_slots(self) -> List["GridSlot"]:
-        """The slots with a trusted position: the ones the stage can be sent to."""
-        return [
-            s
-            for s in sorted(self.slots.values(), key=lambda s: s.index)
-            if s.is_calibrated
         ]
 
     def discard_untrusted_positions(

@@ -89,7 +89,7 @@ class TestDiscardUntrustedPositions:
         holder = self._holder(**{"Slot-01": (None, None)})
         assert holder.discard_untrusted_positions(35.0, 0.0) == []
 
-    def test_calibrated_slots_property(self):
+    def test_only_the_slot_with_a_record_stays_calibrated(self):
         holder = self._holder(
             **{
                 "Slot-01": (_position(), _record()),
@@ -97,7 +97,7 @@ class TestDiscardUntrustedPositions:
             }
         )
         holder.discard_untrusted_positions(35.0, 0.0)
-        assert [s.name for s in holder.calibrated_slots] == ["Slot-01"]
+        assert [s.name for s in holder.slots.values() if s.is_calibrated] == ["Slot-01"]
 
 
 class TestStageRefusesUncalibratedSlots:
