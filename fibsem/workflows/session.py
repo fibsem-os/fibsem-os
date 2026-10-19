@@ -57,7 +57,7 @@ class AppSession:
         executor: Optional[EditExecutor] = None,
     ) -> None:
         self.microscope: Optional[Any] = None
-        self.experiment: Optional[Any] = None
+        self._experiment: Optional[Any] = None
         # Where what is done is recorded while no application's experiment is
         # open: a plain FibsemExperiment, made the first time the agent may act.
         self.plain_experiment: Optional[Any] = None
@@ -140,6 +140,18 @@ class AppSession:
             if seen is not None and seen < AGENT_LISTENING_S:
                 who.append(AGENT)
         return tuple(who)
+
+    @property
+    def experiment(self) -> Optional[Any]:
+        return self._experiment
+
+    @experiment.setter
+    def experiment(self, experiment: Optional[Any]) -> None:
+        """The open experiment, edited where the session edits it
+        (``ProposalReview.edit_executor``)."""
+        self._experiment = experiment
+        if experiment is not None:
+            experiment.edit_executor = self.run_edit
 
     @property
     def correlation(self) -> Any:

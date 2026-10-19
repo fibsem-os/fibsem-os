@@ -39,6 +39,13 @@ from typing import Any, Dict, List, Optional, Protocol
 import fibsem.config as fibsem_cfg
 from fibsem.acting import Actor
 from fibsem.applications.autolamella import task_outputs as _task_outputs
+from fibsem.applications.autolamella.config_edits import (
+    ITEM_PATCH_FIELDS,
+    config_version,
+    find_item,
+    item_fields_version,
+    item_pose_positions,
+)
 from fibsem.server.files import jpeg_preview
 from fibsem.structures import BeamType
 from fibsem.util.timestamps import to_iso, wall_time_of
@@ -54,66 +61,6 @@ __all__ = [
     "config_version",
     "item_fields_version",
 ]
-
-# The item-document fields an agent may patch: what a lamella IS — geometry,
-# verdict, notes. Everything else on the object (poses, ids, paths, history)
-# is either derived, hardware-adjacent, an *outcome* rather than an input
-# (milling_angle is recorded from where Setup put the stage — writing it
-# would move nothing), or the record itself.
-ITEM_PATCH_FIELDS = ("poi", "alignment_area", "description", "defect")
-
-
-def _content_hash(data) -> str:
-    import hashlib
-    import json
-
-    return hashlib.sha256(
-        json.dumps(data, sort_keys=True, default=str).encode()
-    ).hexdigest()[:16]
-
-
-def item_pose_positions(lamella) -> Dict[str, Any]:
-    """Where each of an item's poses puts the stage, by pose name (None where a
-    pose has no position): the item document's ``poses``."""
-    poses = {}
-    for pose_name, pose in dict(lamella.poses).items():
-        position = getattr(pose, "stage_position", None)
-        poses[pose_name] = position.to_dict() if position is not None else None
-    return poses
-
-
-def item_fields_version(lamella) -> str:
-    """A content hash naming the state of an item's patchable fields and poses.
-
-    The item document's version, hashing the ITEM_PATCH_FIELDS and where the
-    poses put the stage — so a task re-recording geometry or moving the
-    milling pose rotates it, and a pending patch goes stale (FIB-1420): a POI
-    is in the milling frame, so one chosen before the pose moved names a
-    different place after. History growing does not rotate it.
-    """
-    from fibsem.workflows.events import to_plain
-
-    fields = {
-        name: to_plain(getattr(lamella, name, None)) for name in ITEM_PATCH_FIELDS
-    }
-    fields["poses"] = item_pose_positions(lamella)
-    return _content_hash(fields)
-
-
-def config_version(config) -> str:
-    """A content hash naming exactly this state of a task config.
-
-    The config's version (FIB-864): reads serve it, writes echo it, and a
-    mismatch is refused as stale — a patch can never apply against a state
-    its author did not see. Computed from the serialized document so the
-    same content hashes identically wherever it is held.
-    """
-    import hashlib
-    import json
-
-    from fibsem.workflows.events import to_plain
-
-    return _content_hash(to_plain(config.to_dict()))
 
 
 def _json_safe(value: Any) -> Any:
@@ -171,23 +118,6 @@ def _trench_window(lamella):
     if not widths:
         return None
     return 0.9 * min(widths), max(gaps) + 1e-6
-
-
-def find_item(experiment, item_name: str):
-    """The item named *item_name*, and None; or None and why not, in the words
-    every route refuses an unknown item with, and the names there are. Each
-    route puts the refusal in its own answer's shape."""
-    lamella = (
-        experiment.get_lamella_by_name(item_name) if experiment is not None else None
-    )
-    if lamella is not None:
-        return lamella, None
-    return None, {
-        "error": f"No item named {item_name!r} in this experiment.",
-        "item_names": [p.name for p in experiment.positions]
-        if experiment is not None
-        else [],
-    }
 
 
 def _overview_point_to_stage(path: str, px=None, fraction=None):
@@ -328,19 +258,13 @@ class AppWindow(Protocol):
 
     def stop_current_task(self) -> None: ...
 
-    # The config edits, applied by the window until they move to the session
-    # (FIB-1446); each resolves to its outcome dict.
-    def request_apply_item_patch(self, item_name, patch, version): ...
+    # Around an agent's config edit (``config_edits``): flush what the
+    # editors hold first, then redraw and tell the operator what changed.
+    def before_config_edit(self) -> None: ...
 
-    def request_reorder_milling_stages(
-        self, level, item_name, task_name, milling_key, order, version
-    ): ...
-
-    def request_apply_protocol_to_item(self, item_name, task_names): ...
-
-    def request_apply_protocol_task_config_patch(self, task_name, patch, version): ...
-
-    def request_apply_task_config_patch(self, item_name, task_name, patch, version): ...
+    def after_config_edit(
+        self, level: str, item_name: str, task_name: str, result
+    ) -> None: ...
 
 
 class AutoLamellaAppContext:
@@ -1277,6 +1201,37 @@ class AutoLamellaAppContext:
 
         return self._session.run_edit(edit).result(timeout=timeout)
 
+    def _config_edit(
+        self, level, item_name, task_name, patch, version, timeout: float, shown=None
+    ) -> Dict[str, Any]:
+        """An agent's config edit (``config_edits``) where the session edits
+        the experiment, between the window's flush and redraw when one is
+        attached; *shown* is the level the window redraws, when not *level*."""
+        from fibsem.applications.autolamella.config_edits import apply_agent_edit
+
+        window = self._window
+        session = self._session
+
+        def edit():
+            if window is not None:
+                window.before_config_edit()
+            result = apply_agent_edit(
+                session.experiment,
+                lambda: session.microscope,
+                level,
+                item_name,
+                task_name,
+                patch,
+                version,
+            )
+            if window is not None and result.get("applied"):
+                window.after_config_edit(shown or level, item_name, task_name, result)
+            return result
+
+        result = session.run_edit(edit).result(timeout=timeout)
+        result["available"] = True
+        return result
+
     def _editable(self):
         """The experiment and microscope an edit needs, or a refusal."""
         experiment = self._experiment
@@ -1835,13 +1790,9 @@ class AutoLamellaAppContext:
         outcome, and it means an edit here is the value the NEXT run starts
         from, not a permanent override.
         """
-        window = self._window
-        if window is None:
-            return {"available": False, "applied": False}
-        outcome = window.request_apply_item_patch(item_name, dict(patch), str(version))
-        result = outcome.result(timeout=timeout)
-        result["available"] = True
-        return result
+        return self._config_edit(
+            "item_fields", item_name, "", dict(patch), str(version), timeout
+        )
 
     def apply_item_correlation(
         self, item_name: str, run_path: str, timeout: float = 10.0
@@ -2111,14 +2062,11 @@ class AutoLamellaAppContext:
     ) -> Dict[str, Any]:
         """Reorder one milling config's stages — structure, so a verb.
 
-        Same rules as the config patches: version-guarded on the GUI thread,
+        Same rules as the config patches: version-guarded beside the apply,
         refused while that task runs for that item, recorded on the event
         stream. Same-set-by-name: this can never add, drop, or duplicate a
         stage.
         """
-        window = self._window
-        if window is None:
-            return {"available": False, "applied": False}
         if level == "item":
             manager = self._manager
             if manager is not None:
@@ -2136,12 +2084,16 @@ class AutoLamellaAppContext:
                         "error": f"{task_name!r} is running for {item_name!r} "
                         "and has already copied its config.",
                     }
-        outcome = window.request_reorder_milling_stages(
-            level, item_name, task_name, milling_key, list(order), str(version)
+        payload = {"level": level, "milling_key": milling_key, "order": list(order)}
+        return self._config_edit(
+            "reorder_stages",
+            item_name,
+            task_name,
+            payload,
+            str(version),
+            timeout,
+            shown=level,
         )
-        result = outcome.result(timeout=timeout)
-        result["available"] = True
-        return result
 
     def apply_protocol_to_item(
         self,
@@ -2157,9 +2109,6 @@ class AutoLamellaAppContext:
         so no version dance; a task currently running for this item is
         refused like any other config write.
         """
-        window = self._window
-        if window is None:
-            return {"available": False, "applied": False}
         manager = self._manager
         if manager is not None:
             experiment = self._experiment
@@ -2185,10 +2134,9 @@ class AutoLamellaAppContext:
                     f"{item_name!r} right now and has already copied its "
                     "config. Apply after it finishes.",
                 }
-        outcome = window.request_apply_protocol_to_item(item_name, task_names)
-        result = outcome.result(timeout=timeout)
-        result["available"] = True
-        return result
+        return self._config_edit(
+            "apply_protocol", item_name, "", {"task_names": task_names}, "", timeout
+        )
 
     def apply_protocol_task_config_patch(
         self,
@@ -2199,20 +2147,14 @@ class AutoLamellaAppContext:
     ) -> Dict[str, Any]:
         """Patch a task's protocol-level defaults — what new items copy.
 
-        Same version-guarded, GUI-thread apply as the per-item patch. No
+        Same version-guarded apply as the per-item patch. No
         running-task guard: a running task holds its item's copy, so a
         protocol edit can never touch it — the edit reaches items created
         (or re-copied) after it lands.
         """
-        window = self._window
-        if window is None:
-            return {"available": False, "applied": False}
-        outcome = window.request_apply_protocol_task_config_patch(
-            task_name, dict(patch), str(version)
+        return self._config_edit(
+            "protocol", "", task_name, dict(patch), str(version), timeout
         )
-        result = outcome.result(timeout=timeout)
-        result["available"] = True
-        return result
 
     @staticmethod
     def _config_document(task_name: str, config, level: str) -> Dict[str, Any]:
@@ -2244,16 +2186,13 @@ class AutoLamellaAppContext:
         """Patch one item's task config, as an operator edit would land.
 
         The version (from :meth:`item_task_config`) names the state the patch
-        was written against; the check happens on the GUI thread beside the
+        was written against; the check happens beside the
         apply, so an edit landing in between is refused as stale, never
         half-merged. A task currently running for this item is refused too —
         it already copied its config, so the edit would take effect never,
         and a refusal is more honest than a silent no-op. Pending tasks pick
         the change up when they start (the ``set_supervision`` semantics).
         """
-        window = self._window
-        if window is None:
-            return {"available": False, "applied": False}
         manager = self._manager
         if manager is not None:
             running = any(
@@ -2271,12 +2210,9 @@ class AutoLamellaAppContext:
                     "now and has already copied its config — the edit would "
                     "never take effect. Patch it after the task finishes.",
                 }
-        outcome = window.request_apply_task_config_patch(
-            item_name, task_name, dict(patch), str(version)
+        return self._config_edit(
+            "item", item_name, task_name, dict(patch), str(version), timeout
         )
-        result = outcome.result(timeout=timeout)
-        result["available"] = True
-        return result
 
     # --- instrument-adjacent (cached only, never a hardware call) --------------
 

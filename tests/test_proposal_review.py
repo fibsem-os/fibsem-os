@@ -92,3 +92,30 @@ def test_a_reject_needs_a_reason(tmp_path):
     assert not result.applied
     assert proposal.pending
     assert position.task_history[-1].status is TaskStatus.Completed
+
+
+def test_a_decision_runs_where_the_session_edits_the_experiment(tmp_path):
+    """No Qt hop: once a session adopts the experiment, the decision goes
+    through the session's executor."""
+    from fibsem.workflows.session import AppSession, LockedExecutor
+
+    experiment, position, proposal = _finished(tmp_path)
+    ran = []
+    locked = LockedExecutor()
+
+    def executor(call):
+        ran.append(call)
+        return locked(call)
+
+    session = AppSession(executor=executor)
+    session.adopt(experiment)
+    decided = []
+    experiment.decided.connect(lambda *args: decided.append(args))
+
+    result = experiment.decide(
+        position.id, TASK, _decision(proposal, DecisionOutcome.Confirmed)
+    )
+
+    assert result.applied, result.reason
+    assert len(ran) == 1
+    assert decided == [(position.id, TASK)]
